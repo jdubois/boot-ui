@@ -423,6 +423,14 @@ jobs:
           curl -fsS -o /dev/null "${base_url}/bootui/"
           echo "OK: BootUI front end is served (/bootui/ -> 200)."
 
+          # The servlet variants share the real three-chain sample. A GET-only smoke test
+          # cannot detect lost private-field metadata in GraalVM's closed world.
+          case "$IMAGE_NAME" in
+            bootui-sample-app|bootui-sample-app-aot|bootui-sample-app-crac|bootui-sample-app-native)
+              python3 .github/scripts/check-sample-security.py "$base_url"
+              ;;
+          esac
+
           echo "Smoke test passed for ${IMAGE_REF}."
 
       - name: Verify AOT portability settings and local advisor scans

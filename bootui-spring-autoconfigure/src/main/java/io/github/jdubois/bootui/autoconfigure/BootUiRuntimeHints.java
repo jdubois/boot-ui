@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure;
 
+import io.github.jdubois.bootui.autoconfigure.security.SecurityRuntimeHints;
 import java.io.IOException;
 import java.lang.reflect.Array;
 import java.util.Arrays;
@@ -16,15 +17,15 @@ import org.springframework.util.ClassUtils;
  *
  * <p>This registrar is imported from {@link BootUiAutoConfiguration} via {@code @ImportRuntimeHints}
  * so the hints are only contributed when BootUI auto-configuration is on the classpath. It covers
- * two kinds of metadata that Spring's generic AOT processing cannot infer on its own:
+ * metadata that Spring's generic AOT processing cannot infer on its own:
  *
  * <ul>
  *   <li><b>Classpath resources</b> that BootUI reads at runtime through {@link ClassLoader} or
  *       {@code PathMatchingResourcePatternResolver} scanning. These are excluded from a native image
  *       unless registered, which would otherwise leave the Vulnerabilities and Config panels empty and
  *       the BootUI version reported as {@code unknown}.
- *   <li><b>Reflective method invocations</b> on well-known JDK and Spring Security types that BootUI
- *       discovers at runtime and calls reflectively.
+ *   <li><b>Reflective access</b> on well-known JDK and Spring types: public method invocations and
+ *       the security advisors' passive inspection of supported private framework fields.
  *   <li><b>DTO binding types</b> under {@code io.github.jdubois.bootui.core.dto} that Jackson can
  *       synthesize while serializing BootUI records, including array types derived from
  *       {@code List<...>} record components.
@@ -93,6 +94,7 @@ class BootUiRuntimeHints implements RuntimeHintsRegistrar {
         }
 
         registerDtoBindingHints(hints, classLoader);
+        new SecurityRuntimeHints().registerHints(hints, classLoader);
 
         // Heap Dump panel: HeapDumpService reflectively calls HotSpotDiagnosticMXBean#dumpHeap.
         hints.reflection()

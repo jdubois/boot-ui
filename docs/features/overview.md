@@ -37,6 +37,8 @@ Each scanner card leads with a large 0–100 **Known-findings score** for an eli
 severity counts. Usable scores have a neutral **Scan complete** status: the scan has finished, not necessarily assessed
 every applicable check. Secondary diagnostics remain inside
 each advisor's **Scan notes**, accessible through **Open panel**, without repeated reminders on the cards.
+Unscored cards show a compact **Not scored** label instead of the detailed assessment explanation; **Open panel**
+opens the advisor with the full reason. Confirmed empty scope keeps its distinct **Not applicable** label.
 The severity-based scanners are Architecture,
 Memory, REST API, Spring, Database, Hibernate, Security, Pentesting, and Vulnerabilities. Each starts at 100 and
 subtracts a fixed weighted penalty per finding — critical 25, high 10, medium 3, low 1 — so a complete clean scan stays
@@ -52,7 +54,8 @@ even if that evidence cannot support a number. Missing legacy evidence does not 
 Unscanned and failed reports do not count as assessed; request failures are shown separately, preserving any last report.
 Unscanned, failed, disabled, and unavailable
 scanners do not inflate the scan-notes count. Full reasons for usable results remain in each panel's keyboard-accessible,
-initially collapsed **Scan notes**. Unscored reasons and failures stay visible. The count is of advisors, never inferred
+initially collapsed **Scan notes**. Unscored reasons stay visible in the advisor panel, while request failures remain
+visible on the Overview card too. The count is of advisors, never inferred
 checks: report limitations may be aggregated or capped.
 Vulnerabilities can score known findings despite inventory/query/detail gaps; UNKNOWN has no penalty but cannot
 establish eligibility even after dismissal. A clean dependency needs completed query and detail evidence and a

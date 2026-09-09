@@ -135,7 +135,6 @@ function newScannerState() {
     incomplete: false,
     hasReport: false,
     scoreLabel: '',
-    scoreReason: '',
     severityCounts: [],
     statusLabel: null,
     statusTone: 'secondary',
@@ -166,7 +165,6 @@ function applyReport(def, state, report) {
   state.severityCounts = validSummary ? report.severityCounts : []
   state.score = assessment.score
   state.scoreLabel = assessment.score !== null ? 'Scan complete' : assessment.label
-  state.scoreReason = assessment.reason
   const status = report?.scan?.status
   state.assessed = ['SCANNED', 'PARTIAL'].includes(status) && report.evidence != null
   state.incomplete = assessment.incomplete
@@ -592,7 +590,6 @@ watch(
           :score="scanners[def.id].score"
           :has-report="scanners[def.id].hasReport"
           :score-label="scanners[def.id].scoreLabel"
-          :score-reason="scanners[def.id].scoreReason"
           :incomplete="scanners[def.id].incomplete"
           :severity-counts="scanners[def.id].severityCounts"
           :status-label="scanners[def.id].statusLabel"

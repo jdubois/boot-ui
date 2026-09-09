@@ -42,6 +42,26 @@ provide this access, affected configuration remains unknown rather than being tr
 JDKs may emit deprecation warnings or diagnostic events for the optional internal access.
 Native bootstrap and callback-safety regressions cover Java 17, 21 and 25.
 
+Here, "native" framework objects means the framework's own implementations, not necessarily a GraalVM executable.
+GraalVM additionally requires reflection metadata for the passive readers' private fields. BootUI supplies
+classpath-conditional field hints for supported Spring Security chains, filters, headers, matchers, provider
+metadata, Spring environment sources, Actuator descriptors and the embedded Tomcat context. The hints cover the
+servlet and reactive collectors without making servlet or optional security dependencies mandatory. They do not
+register arbitrary application callbacks or execute them. Without these hints, even a live `FilterChainProxy`
+can lose its readable `filterChains` inventory, yielding zero observed chains and an unusable partial report.
+Public-method hints alone cannot preserve that inventory.
+Spring AOT also moves factory-method provenance into its generated `BeanInstanceSupplier`. BootUI reads that
+framework metadata without invoking its generator, so BootUI's own console chain stays excluded from the application
+assessment in AOT mode. A coincidental bean name or an application-supplied metadata callback is not trusted.
+
+The container publication smoke test explicitly scans the real servlet sample on JVM, AOT, CRaC and GraalVM native
+images and checks that all three chains produce usable evidence while retaining genuine incomplete coverage.
+Runtime-hints tests independently pin private-field access and optional-dependency absence. Custom implementations,
+unregistered application reflection, compiler-generated suppliers, and unsupported observations still remain
+unknown; the hints do not guarantee full security coverage or JVM/native score equality. Quarkus uses its own
+build-time/provider observations and is not affected by this Spring metadata fix; Quarkus native BootUI remains out
+of scope.
+
 For the standard embedded Tomcat servlet context, the passive reader inspects the exact native facade/context
 init-parameter map rather than blocking all lower configuration sources. Custom contexts, subclasses, unsupported
 maps, and callbacks remain opaque. The real Spring sample regression uses embedded Tomcat and the application's

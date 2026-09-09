@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.CorsConfigModel;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.FilterChainModel;
 import io.github.jdubois.bootui.autoconfigure.security.SecurityModel.PasswordEncoderModel;
@@ -23,7 +24,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.aot.BeanInstanceSupplier;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.beans.factory.support.InstanceSupplier;
+import org.springframework.beans.factory.support.RegisteredBean;
+import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.support.GenericApplicationContext;
@@ -58,6 +63,53 @@ class SecurityScannerTests {
 
     private static final int RULE_COUNT = 54;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
+
+    @Test
+    void aotFactoryMetadataExcludesOnlyBootUisChainWithoutInvokingItsGenerator() throws Exception {
+        String configuration = "io.github.jdubois.bootui.autoconfigure.BootUiSpringSecurityAutoConfiguration";
+        var definition = new RootBeanDefinition(SecurityFilterChain.class);
+        definition.setFactoryBeanName(configuration);
+        definition.setInstanceSupplier(BeanInstanceSupplier.forFactoryMethod(
+                        Class.forName(configuration),
+                        "bootUiSecurityFilterChain",
+                        HttpSecurity.class,
+                        BootUiProperties.class)
+                .withGenerator((registeredBean, arguments) -> {
+                    throw new AssertionError("Must not invoke the AOT bean generator");
+                }));
+        assertThat(definition.getFactoryMethodName()).isNull();
+
+        assertThat(scanWithNamedBootUiChain(definition).filterChainsAnalyzed()).isEqualTo(1);
+    }
+
+    @Test
+    void coincidentalBootUiBeanNameAndCustomSupplierDoNotHideAnApplicationChain() {
+        var definition = new RootBeanDefinition(SecurityFilterChain.class);
+        definition.setFactoryBeanName("io.github.jdubois.bootui.autoconfigure.BootUiSpringSecurityAutoConfiguration");
+        definition.setInstanceSupplier(new InstanceSupplier<SecurityFilterChain>() {
+            @Override
+            public SecurityFilterChain get(RegisteredBean registeredBean) {
+                throw new AssertionError("Must not initialize the bean");
+            }
+
+            @Override
+            public java.lang.reflect.Method getFactoryMethod() {
+                throw new AssertionError("Must not invoke custom provenance callbacks");
+            }
+        });
+
+        assertThat(scanWithNamedBootUiChain(definition).filterChainsAnalyzed()).isEqualTo(2);
+    }
+
+    private static SecurityReport scanWithNamedBootUiChain(RootBeanDefinition definition) {
+        var bootUi = new DefaultSecurityFilterChain(AnyRequestMatcher.INSTANCE);
+        var application = new DefaultSecurityFilterChain(AnyRequestMatcher.INSTANCE);
+        var factory = new DefaultListableBeanFactory();
+        factory.registerBeanDefinition("bootUiSecurityFilterChain", definition);
+        factory.registerSingleton("bootUiSecurityFilterChain", bootUi);
+        return scannerFor(new FilterChainProxy(List.of(bootUi, application)), factory)
+                .scan();
+    }
 
     @Test
     void scanReportsSecurityFindingsAcrossCategories() {
