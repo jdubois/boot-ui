@@ -130,6 +130,47 @@ use the secret rather than copying registry credentials into the project.
 Without `--secret`, npm keeps its default registry configuration. There is no
 new requirement for normal developers or CI, and no secret is needed at runtime.
 
+### Docker Hub image retention
+
+The **Publish Docker images** workflow retains seven days of sample images, measured
+from their last push, not their last pull. `latest` and every manifest it references
+are always preserved, even if builds have failed for more than a week. Each
+smoke-tested platform image also receives a unique `build-<run>-<attempt>-<platform>`
+tag. The combined image index receives a `build-<run>-<attempt>-index` tag before
+release tags move. These internal retention tags make images and indexes from
+failed or interrupted publishes discoverable, including repeated builds of the
+same commit or day.
+
+Cleanup runs after the build jobs regardless of their outcome. It inventories all
+tags before deleting any, resolves image indexes recursively, and preserves every
+manifest reachable from retained tags. It then deletes expired tags, unreferenced
+indexes, and their unreferenced platform manifests, in that order. Layers are never
+deleted directly: Docker Hub reclaims unreferenced layers asynchronously and keeps
+layers shared with retained images. Registry permission failures and unconfirmed
+deletions fail the job rather than silently skipping cleanup.
+
+The `docker-retention-inventory-*` Actions artifact is a write-ahead journal, uploaded
+**before** any tags are removed. The next run restores it, including from a failed
+cleanup, so a partially deleted image remains discoverable. Do not manually remove
+these artifacts. Each run attempt creates a new journal with 90-day retention
+without overwriting the previous one. On first use, the workflow recovers legacy
+digests from available Docker publish logs; expired or
+missing logs limit that recovery and are reported explicitly. Content that predates
+available history may still need manual inventory through Docker Hub Image Management.
+
+Use **Run workflow** with `cleanup_only=true` to run retention without rebuilding.
+Set `prune_dry_run=true` to preview **both tag and manifest deletion** without deleting
+anything. A dry run still preserves an inventory artifact. Destructive cleanup runs
+only on `main`; other branches may preview. All publish runs are serialized across
+branches to prevent concurrent registry changes. `DOCKERHUB_TOKEN` must have
+**Read, Write, Delete** permissions; `DOCKERHUB_UNTAGGED_PRUNE` is no longer used.
+
+The scripts use Python's standard library. Run their offline regression suite with:
+
+```bash
+python3 -B -m unittest discover -s .github/scripts -p 'test_docker_retention*.py'
+```
+
 ### Software Bill of Materials (SBOM)
 
 Generate a CycloneDX SBOM covering every dependency across the whole reactor after an install:
