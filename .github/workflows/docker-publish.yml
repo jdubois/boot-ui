@@ -40,7 +40,10 @@ name: Publish Docker images
 #      /actuator/health for status UP; the Quarkus image has no Actuator, so it polls
 #      the BootUI panel manifest GET /bootui/api/panels), BootUI's back end must be
 #      active (GET /bootui/api/panels) and the BootUI front end must be served
-#      (GET /bootui/). The CRaC image additionally stops the
+#      (GET /bootui/). The AOT image additionally verifies that CPU-specific method
+#      adapter caching is disabled and runs the local Overview advisor scans, since
+#      a healthy startup alone does not exercise the cached adapters that can crash.
+#      The CRaC image additionally stops the
 #      container and starts it again from the persisted checkpoint, verifying that the
 #      restore serves BootUI and comes up at least twice as fast as the initial
 #      boot-and-checkpoint start. Only once the smoke test passes does the job push that
@@ -421,6 +424,51 @@ jobs:
           echo "OK: BootUI front end is served (/bootui/ -> 200)."
 
           echo "Smoke test passed for ${IMAGE_REF}."
+
+      - name: Verify AOT portability settings and local advisor scans
+        if: matrix.image == 'bootui-sample-app-aot'
+        env:
+          PORT: ${{ matrix.port }}
+        run: |
+          set -euo pipefail
+
+          # A same-host smoke test cannot reproduce a CI-to-desktop CPU mismatch.
+          # Pin the JDK-8388703 workaround as well as exercising post-startup code.
+          flags=$(docker exec bootui-smoke /opt/java/bin/java \
+            -XX:+UnlockDiagnosticVMOptions -XX:+PrintFlagsFinal -version)
+          if ! grep -Eq 'bool AOTAdapterCaching[[:space:]]+=[[:space:]]+false' <<< "$flags"; then
+            echo "ERROR: CPU-specific AOT method adapter caching must be disabled." >&2
+            exit 1
+          fi
+
+          base_url="http://127.0.0.1:${PORT}"
+          cookie_jar=$(mktemp)
+          trap 'rm -f "$cookie_jar"' EXIT
+          curl -fsS --max-time 15 --cookie-jar "$cookie_jar" \
+            -o /dev/null "${base_url}/bootui/api/panels"
+          csrf_token=$(awk '$6 == "XSRF-TOKEN" {print $7}' "$cookie_jar")
+          if [ -z "$csrf_token" ]; then
+            echo "ERROR: sample app did not issue a CSRF token." >&2
+            exit 1
+          fi
+
+          # Use the browser's normal CSRF flow; do not weaken the sample's guards.
+          # OSV/EPSS vulnerability lookups are excluded to keep this smoke test local.
+          for advisor in architecture memory rest-api spring database-advisor hibernate security pentesting; do
+            echo "Scanning ${advisor}..."
+            report=$(curl -fsS --max-time 120 --request POST \
+              --cookie "$cookie_jar" \
+              --header "X-XSRF-TOKEN: ${csrf_token}" \
+              --header "Origin: ${base_url}" \
+              "${base_url}/bootui/api/${advisor}/scan")
+            if ! jq -e '.scan.status == "SCANNED" or .scan.status == "PARTIAL"' <<< "$report" >/dev/null; then
+              echo "ERROR: ${advisor} did not return a completed scan." >&2
+              echo "$report" >&2
+              exit 1
+            fi
+          done
+          curl -fsS --max-time 15 "${base_url}/actuator/health" | jq -e '.status == "UP"' >/dev/null
+          echo "OK: AOT local advisor scans completed and the app remains healthy."
 
       - name: Verify the CRaC image restarts at least 2x faster from its checkpoint
         # CRaC only: the first start above booted the app, wrote the checkpoint, then
