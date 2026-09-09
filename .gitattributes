@@ -6,3 +6,5 @@ mvnw text eol=lf
 mvnw.cmd text eol=crlf
 *.cmd text eol=crlf
 *.bat text eol=crlf
+
+.github/workflows/*.lock.yml linguist-generated=true
