@@ -963,18 +963,21 @@ final class SecurityScanner {
         var definition = configurable.getBeanDefinition(name);
         String configuration = "io.github.jdubois.bootui.autoconfigure.BootUiSpringSecurityAutoConfiguration";
         if (!configuration.equals(definition.getFactoryBeanName())) return false;
-        if (name.equals(definition.getFactoryMethodName())) return true;
-        // AOT keeps the factory method in its native BeanInstanceSupplier rather than the
-        // definition's factoryMethodName. Inspect only that final framework implementation;
-        // getResolvedFactoryMethod() could dispatch to a custom InstanceSupplier callback.
-        if (definition instanceof RootBeanDefinition root
-                && root.getInstanceSupplier() instanceof BeanInstanceSupplier<?> supplier) {
-            Method method = supplier.getFactoryMethod();
-            return method != null
-                    && configuration.equals(method.getDeclaringClass().getName())
-                    && name.equals(method.getName());
-        }
-        return false;
+        return name.equals(definition.getFactoryMethodName()) || isAotFactoryMethod(definition, configuration, name);
+    }
+
+    /**
+     * AOT keeps the factory method in its native {@link BeanInstanceSupplier} rather than the
+     * definition's {@code factoryMethodName}. Inspects only that final framework implementation;
+     * {@code getResolvedFactoryMethod()} could dispatch to a custom {@code InstanceSupplier} callback.
+     */
+    private static boolean isAotFactoryMethod(Object definition, String configuration, String name) {
+        if (!(definition instanceof RootBeanDefinition root
+                && root.getInstanceSupplier() instanceof BeanInstanceSupplier<?> supplier)) return false;
+        Method method = supplier.getFactoryMethod();
+        return method != null
+                && configuration.equals(method.getDeclaringClass().getName())
+                && name.equals(method.getName());
     }
 
     private static FilterChainModel unknownChain(int index) {
