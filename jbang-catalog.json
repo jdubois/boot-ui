@@ -1,7 +1,7 @@
 {
   "aliases": {
     "bootui": {
-      "script-ref": "com.julien-dubois.bootui:bootui-cli:1.16.0:all",
+      "script-ref": "com.julien-dubois.bootui:bootui-cli:1.17.0:all",
       "description": "Ask a running Spring Boot or Quarkus application a question. One command per BootUI MCP tool."
     }
   }

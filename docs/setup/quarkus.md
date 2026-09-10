@@ -24,7 +24,7 @@ Add the BootUI Quarkus extension to your build — nothing else is required. Boo
 <dependency>
   <groupId>com.julien-dubois.bootui</groupId>
   <artifactId>bootui-quarkus</artifactId>
-  <version>1.16.0</version>
+  <version>1.17.0</version>
 </dependency>
 ```
 
@@ -32,12 +32,12 @@ Add the BootUI Quarkus extension to your build — nothing else is required. Boo
 
 ```groovy
 // Groovy DSL (build.gradle)
-implementation 'com.julien-dubois.bootui:bootui-quarkus:1.16.0'
+implementation 'com.julien-dubois.bootui:bootui-quarkus:1.17.0'
 ```
 
 ```kotlin
 // Kotlin DSL (build.gradle.kts)
-implementation("com.julien-dubois.bootui:bootui-quarkus:1.16.0")
+implementation("com.julien-dubois.bootui:bootui-quarkus:1.17.0")
 ```
 
 :::

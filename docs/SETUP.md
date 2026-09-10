@@ -26,7 +26,7 @@ it force-disables itself in `prod` / `production`.
 <dependency>
   <groupId>com.julien-dubois.bootui</groupId>
   <artifactId>bootui-spring-boot-starter</artifactId>
-  <version>1.16.0</version>
+  <version>1.17.0</version>
 </dependency>
 ```
 
@@ -34,12 +34,12 @@ it force-disables itself in `prod` / `production`.
 
 ```groovy
 // Groovy DSL (build.gradle)
-runtimeOnly 'com.julien-dubois.bootui:bootui-spring-boot-starter:1.16.0'
+runtimeOnly 'com.julien-dubois.bootui:bootui-spring-boot-starter:1.17.0'
 ```
 
 ```kotlin
 // Kotlin DSL (build.gradle.kts)
-runtimeOnly("com.julien-dubois.bootui:bootui-spring-boot-starter:1.16.0")
+runtimeOnly("com.julien-dubois.bootui:bootui-spring-boot-starter:1.17.0")
 ```
 
 :::

@@ -24,7 +24,7 @@ same activation rule applies: BootUI ships dormant and only wakes up in local de
 <dependency>
   <groupId>com.julien-dubois.bootui</groupId>
   <artifactId>bootui-spring-boot-starter-reactive</artifactId>
-  <version>1.16.0</version>
+  <version>1.17.0</version>
 </dependency>
 ```
 
@@ -32,12 +32,12 @@ same activation rule applies: BootUI ships dormant and only wakes up in local de
 
 ```groovy
 // Groovy DSL (build.gradle)
-runtimeOnly 'com.julien-dubois.bootui:bootui-spring-boot-starter-reactive:1.16.0'
+runtimeOnly 'com.julien-dubois.bootui:bootui-spring-boot-starter-reactive:1.17.0'
 ```
 
 ```kotlin
 // Kotlin DSL (build.gradle.kts)
-runtimeOnly("com.julien-dubois.bootui:bootui-spring-boot-starter-reactive:1.16.0")
+runtimeOnly("com.julien-dubois.bootui:bootui-spring-boot-starter-reactive:1.17.0")
 ```
 
 :::
