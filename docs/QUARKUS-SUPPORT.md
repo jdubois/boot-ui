@@ -184,7 +184,7 @@ Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter add
 | ----------------------------------------------------- | --------------------------------------------------------------------------------- |
 | `Memory`, `Live Memory`, `JVM Tuning`, `Heap Dump`, `Threads` | Pure JVM MXBeans                                                           |
 | `Metrics`                                             | Micrometer — same API                                                             |
-| `Hibernate` advisor                                   | Same 70-rule registry/report contract; unit-specific native observations and explicit incomplete scans; Spring Data query rules are inapplicable without verified JPA repository metadata |
+| `Hibernate` advisor                                   | Same 71-rule registry/report contract; unit-specific native observations and explicit incomplete scans; Spring Data query rules are inapplicable without verified JPA repository metadata |
 | `Hibernate Statistics`                                | Standalone Database-section panel over `org.hibernate.stat.Statistics`, gated on the same Hibernate ORM capability as the advisor; its runtime-enable action has the same read-only and cross-site-write protection as Spring |
 | `Vulnerabilities`                                     | Classpath SBOM/Maven metadata + OSV                                               |
 | `HTTP Probe`                                          | Local HTTP probing                                                                |

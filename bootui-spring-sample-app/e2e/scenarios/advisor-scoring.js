@@ -78,7 +78,7 @@ function hibernateReport() {
     ...architectureReport('PARTIAL'),
     entityPackages: ['example.app'],
     entitiesAnalyzed: 12,
-    rulesEvaluated: 70,
+    rulesEvaluated: 71,
     results: [
       {
         ...architectureReport('PARTIAL').results[0],

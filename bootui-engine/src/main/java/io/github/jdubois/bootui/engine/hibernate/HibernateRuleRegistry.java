@@ -59,6 +59,7 @@ final class HibernateRuleRegistry {
             new EagerToOneFetchJoinRule(),
             new EntityProjectionQueryRule(),
             new MultipleCollectionJoinFetchRule(),
+            new BulkUpdateVersionRule(),
             // Configuration
             new OpenInViewRule(),
             new LazyLoadNoTransRule(),

@@ -164,6 +164,20 @@ public record HibernateAttributeModel(
         return annotation(VERSION) != null;
     }
 
+    String propertyName() {
+        if (name.endsWith("()")) {
+            String base = name.substring(0, name.length() - 2);
+            if (base.startsWith("get") && base.length() > 3) {
+                return Character.toLowerCase(base.charAt(3)) + base.substring(4);
+            }
+            if (base.startsWith("is") && base.length() > 2) {
+                return Character.toLowerCase(base.charAt(2)) + base.substring(3);
+            }
+            return base;
+        }
+        return name;
+    }
+
     boolean isTransient() {
         return annotation(TRANSIENT) != null;
     }

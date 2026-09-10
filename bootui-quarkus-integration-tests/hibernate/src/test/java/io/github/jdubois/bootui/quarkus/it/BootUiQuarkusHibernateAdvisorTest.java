@@ -99,7 +99,7 @@ class BootUiQuarkusHibernateAdvisorTest {
                 .isGreaterThanOrEqualTo(3);
         assertThat(scanned.path("rulesEvaluated").asInt())
                 .as("the shared curated rule registry must have run")
-                .isEqualTo(70);
+                .isEqualTo(71);
 
         List<String> violationIds = ruleIds(scanned.path("results"));
         assertThat(violationIds)

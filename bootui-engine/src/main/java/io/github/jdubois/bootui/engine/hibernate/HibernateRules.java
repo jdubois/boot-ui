@@ -2311,6 +2311,70 @@ final class DerivedDeleteByQueryRule extends AbstractHibernateRule {
     }
 }
 
+final class BulkUpdateVersionRule extends AbstractHibernateRule {
+
+    BulkUpdateVersionRule() {
+        super(
+                new HibernateRuleDefinition(
+                        "HIB-QUERY-008",
+                        "Bulk updates leave @Version unchanged",
+                        HibernateCategory.QUERY,
+                        "MEDIUM",
+                        "Detects JPQL/HQL bulk UPDATE queries targeting versioned entities that neither use UPDATE VERSIONED"
+                                + " nor explicitly maintain the version attribute, leaving the database version unchanged.",
+                        "Review whether this operation should invalidate previously loaded entity versions. Where appropriate,"
+                                + " use ordinary managed-entity updates, Hibernate's update versioned syntax, or explicit numeric"
+                                + " version incrementation.",
+                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#batch-bulk-hql-update-delete"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        if (context.repositories().isEmpty()) {
+            return skipped("No repository metadata was detected.");
+        }
+        List<String> details = new ArrayList<>();
+        for (HibernateRepositoryModel repository : context.repositories()) {
+            for (HibernateRepositoryMethodModel method : repository.methods()) {
+                if (!method.modifying()
+                        || method.nativeQuery()
+                        || !HibernateQueryShape.isUpdate(method.query())
+                        || context.observed()
+                                && (!method.evidence().verifiedQueryMethod()
+                                        || method.evidence().queryRewriter())) {
+                    continue;
+                }
+                HibernateQueryShape.UpdateTarget target = HibernateQueryShape.resolveUpdateTarget(context, method);
+                if (target == null) {
+                    continue;
+                }
+                HibernateEntityModel entity = target.entity();
+                if (!entity.hasVersionAttribute()) {
+                    continue;
+                }
+                context.evidence().markApplicable(true);
+                if (target.versioned()) {
+                    continue;
+                }
+                HibernateAttributeModel versionAttr = entity.attributes().stream()
+                        .filter(HibernateAttributeModel::hasVersion)
+                        .findFirst()
+                        .orElse(null);
+                if (versionAttr != null
+                        && (HibernateQueryShape.maintainsVersion(
+                                        target.query(), target.alias(), versionAttr.propertyName())
+                                || HibernateQueryShape.maintainsVersion(
+                                        target.query(), target.alias(), versionAttr.name()))) {
+                    continue;
+                }
+                details.add(method.description() + " performs a bulk UPDATE on versioned entity " + entity.name()
+                        + " without advancing its version attribute.");
+            }
+        }
+        return violation(details);
+    }
+}
+
 final class SqlLoggingInProductionRule extends AbstractHibernateRule {
 
     @Override
