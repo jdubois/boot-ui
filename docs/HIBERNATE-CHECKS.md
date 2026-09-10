@@ -15,7 +15,7 @@ the metamodel cannot be read, BootUI returns a stable empty report with an expla
 The scan is bounded to mapped entities reported by the application's own JPA metamodel. This also covers entities added
 through `@EntityScan` or custom persistence-unit configuration without scanning the entire classpath.
 
-The active catalog contains **70 rules**. Five retired identifiers remain documented below so old links and persisted
+The active catalog contains **71 rules**. Five retired identifiers remain documented below so old links and persisted
 dismissals retain their meaning; retired identifiers are never reused.
 
 ### Evidence and incomplete scans
@@ -703,6 +703,21 @@ Named and dynamic queries outside the observed metadata remain outside coverage.
 - **Recommendation**: fetch at most one collection per query. Initialize the remaining collections with separate queries,
   or suitably bounded batch fetching. An entity graph requesting the same parallel collections is not a universal fix,
   and Set does not eliminate row multiplication.
+
+### HIB-QUERY-008 - Bulk updates leave @Version unchanged
+
+- **Severity**: MEDIUM
+- **Inspects**: Spring Data repository `@Modifying` queries targeting entities with a `@Version` attribute.
+- **Fires when**: a JPQL/HQL bulk `UPDATE` query targets an entity that declares an optimistic-locking `@Version`
+  attribute (including via inheritance or property access) and neither uses `UPDATE VERSIONED` nor explicitly maintains
+  the version attribute in its `SET` clause.
+- **Why it matters**: bulk updates bypass entity state tracking and direct SQL updates leave `@Version` unchanged by
+  default. Concurrent transactions holding previously loaded instances will not encounter optimistic locking failures
+  on subsequent flushes, leading to lost updates. `clearAutomatically=true` only clears the calling persistence context
+  and does not advance the database version.
+- **Recommendation**: review whether concurrent transactions require version invalidation. Where appropriate, use
+  managed-entity updates, Hibernate's `update versioned` syntax, or explicit numeric version incrementation
+  (e.g., `set e.version = e.version + 1`).
 
 ## Configuration
 

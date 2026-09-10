@@ -235,6 +235,355 @@ class HibernateRulesTests {
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
 
+    // --- HIB-QUERY-008 ------------------------------------------------------
+
+    @Test
+    void bulkUpdateVersionRuleFlagsUpdateWithoutVersionAdvancement() {
+        HibernateRepositoryModel repository = new HibernateRepositoryModel(
+                "com.example.Repo",
+                PrimitiveVersionEntity.class,
+                List.of(repositoryMethod(
+                        "bumpStatus",
+                        int.class,
+                        "update PrimitiveVersionEntity e set e.id = 1",
+                        false,
+                        false,
+                        true,
+                        false,
+                        false)));
+
+        HibernateRuleResultDto result = new BulkUpdateVersionRule()
+                .evaluate(context(new TestEnvironment(), List.of(repository), PrimitiveVersionEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.MEDIUM);
+        assertThat(result.sampleViolations())
+                .anySatisfy(sample -> assertThat(sample)
+                        .contains("bumpStatus", "PrimitiveVersionEntity", "without advancing its version"));
+    }
+
+    @Test
+    void bulkUpdateVersionRulePassesForUnversionedEntity() {
+        HibernateRepositoryModel repository = new HibernateRepositoryModel(
+                "com.example.Repo",
+                IdentityEntity.class,
+                List.of(repositoryMethod(
+                        "bumpStatus",
+                        int.class,
+                        "update IdentityEntity e set e.id = 1",
+                        false,
+                        false,
+                        true,
+                        false,
+                        false)));
+
+        HibernateRuleResultDto result = new BulkUpdateVersionRule()
+                .evaluate(context(new TestEnvironment(), List.of(repository), IdentityEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void bulkUpdateVersionRulePassesForUpdateVersioned() {
+        HibernateRepositoryModel repository = new HibernateRepositoryModel(
+                "com.example.Repo",
+                PrimitiveVersionEntity.class,
+                List.of(repositoryMethod(
+                        "bumpStatus",
+                        int.class,
+                        "update versioned PrimitiveVersionEntity e set e.id = 1",
+                        false,
+                        false,
+                        true,
+                        false,
+                        false)));
+
+        HibernateRuleResultDto result = new BulkUpdateVersionRule()
+                .evaluate(context(new TestEnvironment(), List.of(repository), PrimitiveVersionEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void bulkUpdateVersionRulePassesForExplicitNumericIncrement() {
+        for (String query : List.of(
+                "update PrimitiveVersionEntity e set e.id = 1, e.version = e.version + 1",
+                "update PrimitiveVersionEntity e set e.id = 1, e.version = (e.version + 1)",
+                "update PrimitiveVersionEntity e set e.id = 1, e.version = 1 + e.version")) {
+            HibernateRepositoryModel repository = new HibernateRepositoryModel(
+                    "com.example.Repo",
+                    PrimitiveVersionEntity.class,
+                    List.of(repositoryMethod("bumpStatus", int.class, query, false, false, true, false, false)));
+
+            HibernateRuleResultDto result = new BulkUpdateVersionRule()
+                    .evaluate(context(new TestEnvironment(), List.of(repository), PrimitiveVersionEntity.class));
+
+            assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+        }
+    }
+
+    @Test
+    void bulkUpdateVersionRuleFlagsSelfAssignmentAndWhereClauseVersionPredicate() {
+        // Self assignment: e.version = e.version or parenthesized e.version = (e.version) does not advance version
+        for (String selfAssignQuery : List.of(
+                "update PrimitiveVersionEntity e set e.id = 1, e.version = e.version",
+                "update PrimitiveVersionEntity e set e.id = 1, e.version = (e.version)")) {
+            HibernateRepositoryModel selfAssignRepo = new HibernateRepositoryModel(
+                    "com.example.Repo",
+                    PrimitiveVersionEntity.class,
+                    List.of(repositoryMethod(
+                            "selfAssign", int.class, selfAssignQuery, false, false, true, false, false)));
+
+            HibernateRuleResultDto selfAssignResult = new BulkUpdateVersionRule()
+                    .evaluate(context(new TestEnvironment(), List.of(selfAssignRepo), PrimitiveVersionEntity.class));
+
+            assertThat(selfAssignResult.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+        }
+
+        // Predicate in WHERE clause only: where e.version = :v does not advance version
+        HibernateRepositoryModel whereOnlyRepo = new HibernateRepositoryModel(
+                "com.example.Repo",
+                PrimitiveVersionEntity.class,
+                List.of(repositoryMethod(
+                        "whereOnly",
+                        int.class,
+                        "update PrimitiveVersionEntity e set e.id = 1 where e.version = :expectedVersion",
+                        false,
+                        false,
+                        true,
+                        false,
+                        false)));
+
+        HibernateRuleResultDto whereResult = new BulkUpdateVersionRule()
+                .evaluate(context(new TestEnvironment(), List.of(whereOnlyRepo), PrimitiveVersionEntity.class));
+
+        assertThat(whereResult.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+    }
+
+    @Test
+    void bulkUpdateVersionRuleDetectsInheritedAndPropertyAccessVersions() {
+        // Inherited @Version from @MappedSuperclass
+        HibernateRepositoryModel inheritedRepo = new HibernateRepositoryModel(
+                "com.example.Repo",
+                InheritedVersionEntity.class,
+                List.of(repositoryMethod(
+                        "updateInherited",
+                        int.class,
+                        "update InheritedVersionEntity e set e.name = 'new'",
+                        false,
+                        false,
+                        true,
+                        false,
+                        false)));
+
+        HibernateRuleResultDto inheritedResult = new BulkUpdateVersionRule()
+                .evaluate(context(new TestEnvironment(), List.of(inheritedRepo), InheritedVersionEntity.class));
+
+        assertThat(inheritedResult.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+
+        // Property access @Version - flagged when not advancing version
+        HibernateRepositoryModel propertyRepo = new HibernateRepositoryModel(
+                "com.example.Repo",
+                PropertyVersionEntity.class,
+                List.of(repositoryMethod(
+                        "updateProperty",
+                        int.class,
+                        "update PropertyVersionEntity e set e.id = 1",
+                        false,
+                        false,
+                        true,
+                        false,
+                        false)));
+
+        HibernateRuleResultDto propertyResult = new BulkUpdateVersionRule()
+                .evaluate(context(new TestEnvironment(), List.of(propertyRepo), PropertyVersionEntity.class));
+
+        assertThat(propertyResult.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+
+        // Property access @Version - passes when advancing version
+        HibernateRepositoryModel propertyWithIncRepo = new HibernateRepositoryModel(
+                "com.example.Repo",
+                PropertyVersionEntity.class,
+                List.of(repositoryMethod(
+                        "updatePropertySafe",
+                        int.class,
+                        "update PropertyVersionEntity e set e.id = 1, e.version = e.version + 1",
+                        false,
+                        false,
+                        true,
+                        false,
+                        false)));
+
+        HibernateRuleResultDto propertyWithIncResult = new BulkUpdateVersionRule()
+                .evaluate(context(new TestEnvironment(), List.of(propertyWithIncRepo), PropertyVersionEntity.class));
+
+        assertThat(propertyWithIncResult.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void bulkUpdateVersionRuleIgnoresNonModifyingOrNativeOrDeleteQueries() {
+        HibernateRepositoryModel repo = new HibernateRepositoryModel(
+                "com.example.Repo",
+                PrimitiveVersionEntity.class,
+                List.of(
+                        // Not modifying
+                        repositoryMethod(
+                                "nonModifying",
+                                int.class,
+                                "update PrimitiveVersionEntity e set e.id = 1",
+                                false,
+                                false,
+                                false,
+                                false,
+                                false),
+                        // Native query
+                        repositoryMethod(
+                                "nativeQuery",
+                                int.class,
+                                "UPDATE primitive_version SET id = 1",
+                                true,
+                                false,
+                                true,
+                                false,
+                                false),
+                        // Delete query
+                        repositoryMethod(
+                                "deleteQuery",
+                                int.class,
+                                "delete from PrimitiveVersionEntity e where e.id = 1",
+                                false,
+                                false,
+                                true,
+                                false,
+                                false)));
+
+        HibernateRuleResultDto result = new BulkUpdateVersionRule()
+                .evaluate(context(new TestEnvironment(), List.of(repo), PrimitiveVersionEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void bulkUpdateVersionRuleHandlesQuotedStringsAndCommentsCorrectly() {
+        // String literal contains 'set version = version + 1' but SET clause does not advance version
+        HibernateRepositoryModel repoWithLiteral = new HibernateRepositoryModel(
+                "com.example.Repo",
+                PrimitiveVersionEntity.class,
+                List.of(repositoryMethod(
+                        "withLiteral",
+                        int.class,
+                        "update PrimitiveVersionEntity e set e.id = 1 /* update versioned */ -- set version = version + 1\n",
+                        false,
+                        false,
+                        true,
+                        false,
+                        false)));
+
+        HibernateRuleResultDto result = new BulkUpdateVersionRule()
+                .evaluate(context(new TestEnvironment(), List.of(repoWithLiteral), PrimitiveVersionEntity.class));
+
+        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+    }
+
+    @Test
+    void bulkUpdateVersionRuleEntityNamedVersionedIsNotConfusedWithUpdateVersioned() {
+        // Entity is named "Versioned" - without "update versioned", this is an unversioned update
+        HibernateRepositoryModel unversionedRepo = new HibernateRepositoryModel(
+                "com.example.Repo",
+                VersionedNamedEntity.class,
+                List.of(repositoryMethod(
+                        "updateUnversioned",
+                        int.class,
+                        "update Versioned e set e.id = 1",
+                        false,
+                        false,
+                        true,
+                        false,
+                        false)));
+
+        HibernateRuleResultDto unversionedResult = new BulkUpdateVersionRule()
+                .evaluate(context(new TestEnvironment(), List.of(unversionedRepo), VersionedNamedEntity.class));
+
+        assertThat(unversionedResult.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+
+        // With "update versioned", it is recognized as versioned
+        HibernateRepositoryModel versionedRepo = new HibernateRepositoryModel(
+                "com.example.Repo",
+                VersionedNamedEntity.class,
+                List.of(repositoryMethod(
+                        "updateVersioned",
+                        int.class,
+                        "update versioned Versioned e set e.id = 1",
+                        false,
+                        false,
+                        true,
+                        false,
+                        false)));
+
+        HibernateRuleResultDto versionedResult = new BulkUpdateVersionRule()
+                .evaluate(context(new TestEnvironment(), List.of(versionedRepo), VersionedNamedEntity.class));
+
+        assertThat(versionedResult.status()).isEqualTo(HibernateRuleSupport.PASS);
+    }
+
+    @Test
+    void bulkUpdateVersionRuleHandlesComplexExpressionsAndLongLiterals() {
+        for (String query : List.of(
+                "update PrimitiveVersionEntity e set e.id = coalesce(e.id, 0), e.version = e.version + 1L",
+                "update PrimitiveVersionEntity e set e.id = coalesce(e.id, 0), e.version = 1L + e.version",
+                "update PrimitiveVersionEntity e set e.id = coalesce(e.id, 0), e.version = (e.version) + (1)",
+                "update PrimitiveVersionEntity e set e.id = coalesce(e.id, 0), e.version = (e.version) + (1L)")) {
+            HibernateRepositoryModel repo = new HibernateRepositoryModel(
+                    "com.example.Repo",
+                    PrimitiveVersionEntity.class,
+                    List.of(repositoryMethod(
+                            "updateWithComplexExpr", int.class, query, false, false, true, false, false)));
+
+            HibernateRuleResultDto result = new BulkUpdateVersionRule()
+                    .evaluate(context(new TestEnvironment(), List.of(repo), PrimitiveVersionEntity.class));
+
+            assertThat(result.status())
+                    .as("Expected query to pass version maintenance check: %s", query)
+                    .isEqualTo(HibernateRuleSupport.PASS);
+        }
+    }
+
+    @Test
+    void bulkUpdateVersionRuleSkipsWhenMissingEvidenceOrSubquery() {
+        // Query with subquery in observed context causes missing evidence -> SKIPPED
+        HibernateRepositoryMethodModel subqueryMethod = new HibernateRepositoryMethodModel(
+                "com.example.Repo",
+                "updateWithSubquery",
+                Object.class,
+                int.class,
+                "update PrimitiveVersionEntity e set e.id = 1 where e.id in (select x.id from Other x)",
+                false,
+                null,
+                false,
+                true,
+                false,
+                false,
+                List.of(),
+                new HibernateQueryEvidence(true, true, true, false, false, null, false, null, null, List.of()));
+
+        HibernateRepositoryModel subqueryRepo =
+                new HibernateRepositoryModel("com.example.Repo", PrimitiveVersionEntity.class, List.of(subqueryMethod));
+
+        HibernateContext observed = new HibernateContext(
+                List.of(HibernateEntityModel.fromClass(PrimitiveVersionEntity.class)),
+                List.of(subqueryRepo),
+                key -> null,
+                List.of(),
+                HibernateRuntimeVersion.parse("7.3.9.Final"),
+                HibernateFactorySettings.unknown(),
+                null,
+                null,
+                new HibernateEvaluationEvidence());
+
+        HibernateRuleResultDto subqueryResult = new BulkUpdateVersionRule().evaluate(observed);
+        assertThat(subqueryResult.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
+    }
+
     // --- HIB-CONFIG-002 -----------------------------------------------------
 
     @Test
@@ -1686,6 +2035,15 @@ class HibernateRulesTests {
         int version;
     }
 
+    @Entity(name = "Versioned")
+    static class VersionedNamedEntity {
+        @Id
+        Long id;
+
+        @Version
+        int version;
+    }
+
     @Entity
     static class AssignedIdEntity {
         @Id
@@ -1924,5 +2282,43 @@ class HibernateRulesTests {
         @OneToMany
         @Fetch(FetchMode.SUBSELECT)
         List<SequenceEntity> children;
+    }
+
+    @jakarta.persistence.MappedSuperclass
+    abstract static class SuperclassVersionBase {
+        @Version
+        Long version;
+    }
+
+    @Entity
+    static class InheritedVersionEntity extends SuperclassVersionBase {
+        @Id
+        Long id;
+
+        String name;
+    }
+
+    @Entity
+    static class PropertyVersionEntity {
+        private Long id;
+        private Long version;
+
+        @Id
+        public Long getId() {
+            return id;
+        }
+
+        public void setId(Long id) {
+            this.id = id;
+        }
+
+        @Version
+        public Long getVersion() {
+            return version;
+        }
+
+        public void setVersion(Long version) {
+            this.version = version;
+        }
     }
 }

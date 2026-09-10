@@ -439,7 +439,7 @@ fetch pagination, unsafe cascades, cache misconfiguration, and risky `ddl-auto` 
 not a verdict: it never intercepts queries, invokes repositories, executes SQL, or modifies mappings. See
 [HIBERNATE-CHECKS.md](../HIBERNATE-CHECKS.md) for the full catalogue and remediation links.
 
-The catalog has 70 active rules; five declaration-only or structurally duplicated checks are retired without reusing
+The catalog has 71 active rules; five declaration-only or structurally duplicated checks are retired without reusing
 their identifiers. Unavailable required observations and rule failures yield `PARTIAL` while retaining valid findings.
 The scan message distinguishes attempted-rule coverage from successful evaluation; an empty findings list is not proof
 that every mapping or query was verified. XML overrides, auto-apply converters, custom generators and runtime query
@@ -447,7 +447,7 @@ plans are not fully reconstructed.
 
 ::: details On Quarkus
 
-The panel runs the same 70-rule registry and report contract when `quarkus-hibernate-orm` is present. Entities are
+The panel runs the same 71-rule registry and report contract when `quarkus-hibernate-orm` is present. Entities are
 discovered from the live JPA `EntityManagerFactory` metamodel (across all persistence units, de-duplicated by identity),
 and most mapping/identifier/fetch rules apply unchanged. Spring Data query rules skip when repository metadata is
 unavailable instead of reporting a clean result. Four platform differences are worth noting:
