@@ -128,6 +128,8 @@ final class HibernateQueryShape {
     private static final Pattern UPDATE_HEAD = Pattern.compile("(?is)^\\s*update\\s+(.+?)\\s+set\\b");
     private static final Pattern UPDATE_VERSIONED = Pattern.compile("(?is)^\\s*update\\s+versioned\\b");
     private static final Pattern UPDATE_SET_CLAUSE = Pattern.compile("(?is)\\bset\\s+(.*?)(?:\\bwhere\\b|$)");
+    private static final Pattern QUERY_PARAMETER = Pattern.compile("(?::[A-Za-z_]\\w*|\\?[1-9]\\d*)");
+    private static final Pattern CURRENT_TIMESTAMP = Pattern.compile("(?i)current_timestamp(?:\\s*\\(\\s*\\))?");
 
     static boolean isUpdate(String query) {
         String text = lexical(query);
@@ -277,6 +279,10 @@ final class HibernateQueryShape {
                 if (rhsSelf.matcher(rhs).matches()) {
                     continue;
                 }
+                if (CURRENT_TIMESTAMP.matcher(rhs).matches()
+                        || QUERY_PARAMETER.matcher(rhs).matches()) {
+                    return true;
+                }
                 List<String> parts = splitTopLevel(rhs, '+');
                 if (parts.size() == 2) {
                     String op1 = unwrapBalancedParens(parts.get(0).trim());
@@ -287,8 +293,12 @@ final class HibernateQueryShape {
                     boolean op2Target = Pattern.compile("(?is)^" + targetPatternStr + "$")
                             .matcher(op2)
                             .matches();
-                    if ((op1Target && literalNumber.matcher(op2).matches())
-                            || (op2Target && literalNumber.matcher(op1).matches())) {
+                    if ((op1Target
+                                    && (literalNumber.matcher(op2).matches()
+                                            || QUERY_PARAMETER.matcher(op2).matches()))
+                            || (op2Target
+                                    && (literalNumber.matcher(op1).matches()
+                                            || QUERY_PARAMETER.matcher(op1).matches()))) {
                         return true;
                     }
                 }

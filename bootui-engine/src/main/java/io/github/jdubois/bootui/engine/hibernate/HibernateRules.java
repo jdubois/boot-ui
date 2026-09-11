@@ -2321,10 +2321,13 @@ final class BulkUpdateVersionRule extends AbstractHibernateRule {
                         HibernateCategory.QUERY,
                         "MEDIUM",
                         "Detects JPQL/HQL bulk UPDATE queries targeting versioned entities that neither use UPDATE VERSIONED"
-                                + " nor explicitly maintain the version attribute, leaving the database version unchanged.",
+                                + " nor use a recognized explicit version assignment. Bulk updates leave the database version"
+                                + " unchanged by default.",
                         "Review whether this operation should invalidate previously loaded entity versions. Where appropriate,"
-                                + " use ordinary managed-entity updates, Hibernate's update versioned syntax, or explicit numeric"
-                                + " version incrementation.",
+                                + " use ordinary managed-entity updates, Hibernate's update versioned syntax, or explicitly maintain"
+                                + " the version with a numeric increment, a type-compatible CURRENT_TIMESTAMP assignment, or a"
+                                + " fresh version parameter. Parameter values, type compatibility, and actual version changes"
+                                + " are not verified.",
                         "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#batch-bulk-hql-update-delete"));
     }
 

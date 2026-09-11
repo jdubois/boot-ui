@@ -709,15 +709,21 @@ Named and dynamic queries outside the observed metadata remain outside coverage.
 - **Severity**: MEDIUM
 - **Inspects**: Spring Data repository `@Modifying` queries targeting entities with a `@Version` attribute.
 - **Fires when**: a JPQL/HQL bulk `UPDATE` query targets an entity that declares an optimistic-locking `@Version`
-  attribute (including via inheritance or property access) and neither uses `UPDATE VERSIONED` nor explicitly maintains
-  the version attribute in its `SET` clause.
+  attribute (including via inheritance or property access) and neither uses `UPDATE VERSIONED` nor a recognized explicit
+  version assignment in its `SET` clause. Recognized forms are numeric increments such as `e.version = e.version + 1`,
+  parameterized increments such as `e.version = e.version + :delta` (both also accept reversed operands), direct named
+  or numbered positional parameters such as `e.version = :nextVersion` or `e.lastModified = ?1`, and timestamp assignments
+  such as `e.lastModified = CURRENT_TIMESTAMP` or `e.lastModified = current_timestamp()`. A version predicate only in
+  `WHERE`, self-assignment, constant resets, and arbitrary expressions do not establish recognized maintenance.
 - **Why it matters**: bulk updates bypass entity state tracking and direct SQL updates leave `@Version` unchanged by
   default. Concurrent transactions holding previously loaded instances will not encounter optimistic locking failures
   on subsequent flushes, leading to lost updates. `clearAutomatically=true` only clears the calling persistence context
   and does not advance the database version.
 - **Recommendation**: review whether concurrent transactions require version invalidation. Where appropriate, use
-  managed-entity updates, Hibernate's `update versioned` syntax, or explicit numeric version incrementation
-  (e.g., `set e.version = e.version + 1`).
+  managed-entity updates, Hibernate's `update versioned` syntax, or explicitly maintain the version with a numeric
+  increment, a type-compatible current timestamp, or a fresh version parameter (e.g., `set e.lastModified = :now`).
+  Recognition is a query-shape heuristic, not proof of runtime advancement: the check does not evaluate parameter
+  values, validate expression type compatibility, or guarantee that timestamp precision yields a different value.
 
 ## Configuration
 
