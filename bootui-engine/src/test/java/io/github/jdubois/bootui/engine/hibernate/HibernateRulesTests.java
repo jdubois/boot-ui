@@ -36,6 +36,9 @@ import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.Version;
 import java.io.Serializable;
 import java.lang.reflect.Method;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -320,6 +323,100 @@ class HibernateRulesTests {
 
             assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
         }
+    }
+
+    @Test
+    void bulkUpdateVersionRulePassesForTimestampFunctions() {
+        for (String expression : List.of("CURRENT_TIMESTAMP", "current_timestamp()", "((current_timestamp ( )))")) {
+            HibernateRuleResultDto result = evaluateObservedBulkUpdate(
+                    TimestampVersionEntity.class,
+                    "update TimestampVersionEntity e set e.id = :id, e.lastModified = " + expression);
+
+            assertThat(result.status()).as(expression).isEqualTo(HibernateRuleSupport.PASS);
+            assertThat(result.violationCount()).isZero();
+        }
+    }
+
+    @Test
+    void bulkUpdateVersionRulePassesForTemporalParametersIncludingInheritedAndPropertyAccessVersions() {
+        for (Class<?> entityType : List.of(
+                TimestampVersionEntity.class,
+                InheritedInstantVersionEntity.class,
+                PropertyDateTimeVersionEntity.class)) {
+            for (String expression : List.of(":now", "?1", "((:now))")) {
+                HibernateRuleResultDto result = evaluateObservedBulkUpdate(
+                        entityType, "update " + entityType.getSimpleName() + " e set e.lastModified = " + expression);
+
+                assertThat(result.status())
+                        .as("%s: %s", entityType.getSimpleName(), expression)
+                        .isEqualTo(HibernateRuleSupport.PASS);
+                assertThat(result.violationCount()).isZero();
+            }
+        }
+    }
+
+    @Test
+    void bulkUpdateVersionRulePassesForNumericParameters() {
+        for (String expression : List.of(
+                ":nextVersion", "?1", "e.version + :delta", ":delta + e.version", "e.version + ?1", "?1 + e.version")) {
+            HibernateRuleResultDto result = evaluateObservedBulkUpdate(
+                    PrimitiveVersionEntity.class, "update PrimitiveVersionEntity e set e.version = " + expression);
+
+            assertThat(result.status()).as(expression).isEqualTo(HibernateRuleSupport.PASS);
+            assertThat(result.violationCount()).isZero();
+        }
+    }
+
+    @Test
+    void bulkUpdateVersionRuleStillFlagsUnmaintainedTemporalVersions() {
+        for (Class<?> entityType : List.of(
+                TimestampVersionEntity.class,
+                InheritedInstantVersionEntity.class,
+                PropertyDateTimeVersionEntity.class)) {
+            for (String clause : List.of(
+                    "e.id = :id",
+                    "e.lastModified = e.lastModified",
+                    "e.lastModified = ((lastModified))",
+                    "e.id = :id where e.lastModified = :now",
+                    "e.id = :id /* e.lastModified = current_timestamp */")) {
+                HibernateRuleResultDto result = evaluateObservedBulkUpdate(
+                        entityType, "update " + entityType.getSimpleName() + " e set " + clause);
+
+                assertThat(result.status())
+                        .as("%s: %s", entityType.getSimpleName(), clause)
+                        .isEqualTo(HibernateRuleSupport.VIOLATION);
+                assertThat(result.severity()).isEqualTo(HibernateRuleSupport.MEDIUM);
+                assertThat(result.violationCount()).isEqualTo(1);
+            }
+        }
+    }
+
+    private static HibernateRuleResultDto evaluateObservedBulkUpdate(Class<?> entityType, String query) {
+        HibernateRepositoryMethodModel method = new HibernateRepositoryMethodModel(
+                "com.example.Repo",
+                "updateVersion",
+                entityType,
+                int.class,
+                query,
+                false,
+                null,
+                false,
+                true,
+                false,
+                false,
+                List.of(),
+                new HibernateQueryEvidence(true, true, false, false, false, null, false, null, null, List.of()));
+        HibernateContext observed = new HibernateContext(
+                List.of(HibernateEntityModel.fromClass(entityType)),
+                List.of(new HibernateRepositoryModel("com.example.Repo", entityType, List.of(method), true)),
+                key -> null,
+                List.of(),
+                HibernateRuntimeVersion.parse("7.3.9.Final"),
+                HibernateFactorySettings.unknown(),
+                null,
+                null,
+                new HibernateEvaluationEvidence());
+        return new BulkUpdateVersionRule().evaluate(observed);
     }
 
     @Test
@@ -2319,6 +2416,51 @@ class HibernateRulesTests {
 
         public void setVersion(Long version) {
             this.version = version;
+        }
+    }
+
+    @Entity
+    static class TimestampVersionEntity {
+        @Id
+        Long id;
+
+        @Version
+        Timestamp lastModified;
+    }
+
+    @jakarta.persistence.MappedSuperclass
+    abstract static class InstantVersionBase {
+        @Version
+        Instant lastModified;
+    }
+
+    @Entity
+    static class InheritedInstantVersionEntity extends InstantVersionBase {
+        @Id
+        Long id;
+    }
+
+    @Entity
+    static class PropertyDateTimeVersionEntity {
+        private Long id;
+        private LocalDateTime lastModified;
+
+        @Id
+        public Long getId() {
+            return id;
+        }
+
+        public void setId(Long id) {
+            this.id = id;
+        }
+
+        @Version
+        public LocalDateTime getLastModified() {
+            return lastModified;
+        }
+
+        public void setLastModified(LocalDateTime lastModified) {
+            this.lastModified = lastModified;
         }
     }
 }
