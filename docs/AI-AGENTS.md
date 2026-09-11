@@ -189,6 +189,13 @@ the classpath) are simply not advertised.
   statements, exceptions, and security events grouped by request/trace); `get_exception_detail` takes a required `id`
   (from `get_exceptions` or `get_live_activity`) and returns that exception group's full stack trace, causes, and
   individual occurrences.
+  On Spring MVC JVM, `get_explorer` accepts the same bounded `limit` as `get_live_activity` and returns its canonical
+  page plus setup state. `get_explorer_event` requires a canonical event `id`, not a trace id, and returns related
+  evidence, optional local bean invocations, SQL references, and metadata-only cache operations. All ten activity types
+  and generic future types remain readable without tracing. These tools are read-only, obey Live Activity/Beans/source
+  access and masking, and are not advertised on WebFlux, Quarkus, native images, or AOT mode. Bean capture is on by default;
+  changes to `bootui.explorer.enabled` require restart. Do not re-enable explicitly disabled capture merely to answer a read request. Historical
+  detail can expire; SQL references are not table health and failed invocations are not extra exception occurrences.
 - **Core context and integration reads:** `get_overview`, `get_health`, `get_config` (masked), `get_beans`,
   `get_mappings`, `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`,
   `get_cache_stats`,

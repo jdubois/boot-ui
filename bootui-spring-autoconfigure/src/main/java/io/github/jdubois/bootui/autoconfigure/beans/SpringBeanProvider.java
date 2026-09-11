@@ -82,18 +82,6 @@ public final class SpringBeanProvider implements BeanProvider {
     }
 
     private String classify(String name, String type) {
-        if (type == null) {
-            return "OTHER";
-        }
-        if (selfDataFilter.isBootUiClassOrResource(type)) {
-            return "BOOTUI";
-        }
-        if (type.startsWith("org.springframework.")) {
-            return "FRAMEWORK";
-        }
-        if (type.startsWith("java.") || type.startsWith("jakarta.")) {
-            return "PLATFORM";
-        }
-        return "APPLICATION";
+        return SpringBeanClassification.classify(type, selfDataFilter.isBootUiClassOrResource(type));
     }
 }

@@ -31,6 +31,22 @@ class BootUiPropertiesTests {
     }
 
     @Test
+    void explorerCaptureDefaultsOnAndCanBeDisabledIndependentlyOfPanelAccess() {
+        BootUiProperties defaults = new BootUiProperties();
+        assertThat(defaults.getExplorer().isEnabled()).isTrue();
+        assertThat(defaults.isPanelEnabled("explorer")).isTrue();
+        assertThat(bind(new MockEnvironment().withProperty("bootui.enabled", "ON"))
+                        .getExplorer()
+                        .isEnabled())
+                .isTrue();
+        BootUiProperties configured = bind(new MockEnvironment().withProperty("bootui.explorer.enabled", "false"));
+        assertThat(configured.getExplorer().isEnabled()).isFalse();
+        assertThat(configured.isPanelEnabled("explorer")).isTrue();
+        configured.setExplorer(null);
+        assertThat(configured.getExplorer().isEnabled()).isTrue();
+    }
+
+    @Test
     void defaultPathIsBootui() {
         BootUiProperties props = new BootUiProperties();
         assertThat(props.getPath()).isEqualTo("/bootui");

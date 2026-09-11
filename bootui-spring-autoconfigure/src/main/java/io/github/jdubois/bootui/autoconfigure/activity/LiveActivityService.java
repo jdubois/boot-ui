@@ -140,7 +140,17 @@ public class LiveActivityService {
      * @param limit maximum number of entries to return after filtering ({@code <= 0} for the configured max)
      */
     public LiveActivityReport report(String typeFilter, String severityFilter, long since, int limit) {
-        int cap = effectiveLimit(limit);
+        return report(typeFilter, severityFilter, since, limit, false);
+    }
+
+    /** The same bounded source merge, before display filters/cap; needed to select a filtered event. */
+    public List<ActivityEntryDto> retainedEntries() {
+        return report(null, null, 0, 0, true).entries();
+    }
+
+    private LiveActivityReport report(
+            String typeFilter, String severityFilter, long since, int limit, boolean retained) {
+        int cap = retained ? Integer.MAX_VALUE : effectiveLimit(limit);
         List<String> sources = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
 

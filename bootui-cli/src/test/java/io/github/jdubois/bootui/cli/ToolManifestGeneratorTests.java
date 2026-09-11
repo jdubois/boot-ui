@@ -117,5 +117,9 @@ class ToolManifestGeneratorTests {
                 .as("Spring WebFlux has no HTTP sessions to report")
                 .doesNotContain("SPRING_WEBFLUX");
         assertThat(manifest.byName("get_overview").onEveryStack()).isTrue();
+        assertThat(manifest.byName("get_explorer").stacks()).containsExactly("SPRING_MVC");
+        assertThat(manifest.byName("get_explorer_event").stacks()).containsExactly("SPRING_MVC");
+        assertThat(CliCommandPaths.BY_TOOL.get("get_explorer")).isEqualTo("explorer list");
+        assertThat(CliCommandPaths.BY_TOOL.get("get_explorer_event")).isEqualTo("explorer event");
     }
 }

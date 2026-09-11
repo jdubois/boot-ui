@@ -7,14 +7,47 @@ import static org.mockito.Mockito.when;
 import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
 import io.github.jdubois.bootui.engine.cache.CacheActivityOperation;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
+import io.github.jdubois.bootui.spi.InvocationContextProvider;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
 
 class CacheActivityCacheManagerTests {
+
+    @Test
+    void loaderCompletionKeepsEntryContextWithoutInventingFillOrUnsupportedEvents() {
+        CacheActivityRecorder recorder = new CacheActivityRecorder(true, 10);
+        AtomicReference<InvocationContextProvider.Context> current =
+                new AtomicReference<>(new InvocationContextProvider.Context("request", "service"));
+        recorder.setTraceIdProvider(() -> current.get().traceId());
+        recorder.setInvocationContextProvider(current::get);
+        Cache cache = new CacheActivityCacheManager(new ConcurrentMapCacheManager("orders"), recorder, "manager")
+                .getCache("orders");
+        assertThat(cache.get("42", () -> {
+                    current.set(new InvocationContextProvider.Context("other-request", "loader"));
+                    return "loaded";
+                }))
+                .isEqualTo("loaded");
+        current.set(new InvocationContextProvider.Context("request", "nextServiceCall"));
+        assertThat(cache.get("42", () -> "not called")).isEqualTo("loaded");
+        cache.putIfAbsent("other", "ignored");
+        cache.evictIfPresent("other");
+        cache.invalidate();
+        assertThat(recorder.recentEvents())
+                .extracting(CacheActivityEvent::operation)
+                .containsExactly(CacheActivityOperation.MISS, CacheActivityOperation.HIT);
+        assertThat(recorder.recentEvents())
+                .extracting(CacheActivityEvent::invocationId)
+                .containsExactly("service", "nextServiceCall");
+        assertThat(recorder.recentEvents())
+                .extracting(CacheActivityEvent::traceId)
+                .containsOnly("request");
+        assertThat(recorder.recentEvents()).extracting(CacheActivityEvent::seq).containsExactly(1L, 2L);
+    }
 
     @Test
     void wrapsCachesAndCapturesHitsAndMisses() {

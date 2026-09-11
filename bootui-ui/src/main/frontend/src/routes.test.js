@@ -216,12 +216,12 @@ function parseFrameworkSupportQuarkusGaps(markdown) {
     }
   }
 
-  const notYet = section.match(/One panel, \*\*([^*]+)\*\*, is not yet available/)
+  const notYet = section.match(/(?:One panel|Two panels), (.+?), (?:is|are) not yet available/)
   if (!notYet) {
     throw new Error('Missing the not-yet-available panel sentence in docs/FRAMEWORK-SUPPORT.md')
   }
 
-  return {notApplicable, notYet: new Set([notYet[1]])}
+  return {notApplicable, notYet: new Set([...notYet[1].matchAll(/\*\*([^*]+)\*\*/g)].map((match) => match[1]))}
 }
 
 function sorted(values) {
@@ -259,6 +259,7 @@ describe('routes', () => {
     expect(namedRoutes.map((route) => route.meta.title)).toEqual([
       'Overview',
       'Live Activity',
+      '3D Explorer',
       'GitHub',
       'Architecture',
       'REST API',
@@ -372,7 +373,7 @@ describe('routes', () => {
     const result = support.match(/\*\*Result:\*\*\s*(\d+) of the (\d+) panels ship on Quarkus/)
     const availableCounts = support.match(/(\d+) are statically available and (\d+) are capability\/detector-gated/)
     const unavailableCounts = support.match(
-      /remaining (\d+) panels do not ship:\s*(\d+) are intentionally not applicable[\s\S]*?and (\d+) \(`JMS`\) is not yet available/
+      /remaining (\d+) panels do not ship:\s*(\d+) are intentionally not applicable[\s\S]*?and (\d+) \([^)]+\) (?:is|are) not yet available/
     )
 
     expect(result?.slice(1).map(Number)).toEqual([shippedPanels.size, backendIds.size])
@@ -483,6 +484,7 @@ describe('routes', () => {
 
   it('uses navigation group keys understood by the app shell', () => {
     expect(namedRoutes.map((route) => route.meta.group)).toEqual([
+      groups.overview,
       groups.overview,
       groups.overview,
       groups.overview,

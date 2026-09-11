@@ -76,6 +76,26 @@ class BootUiMcpAutoConfigurationTests {
     }
 
     @Test
+    void explorerReadToolsAreWiredWithoutOptingIntoBeanCapture() {
+        runner.withPropertyValues("bootui.enabled=ON", "bootui.explorer.enabled=false")
+                .run(context -> {
+                    assertThat(context.getBean(BootUiMcpTools.class).tools())
+                            .extracting(McpTool::name)
+                            .contains("get_explorer", "get_explorer_event");
+                });
+    }
+
+    @Test
+    void disablingLiveActivityRemovesTheAlternateExplorerReadPath() {
+        runner.withPropertyValues("bootui.enabled=ON", "bootui.panels.activity.enabled=false")
+                .run(context -> {
+                    assertThat(context.getBean(BootUiMcpTools.class).tools())
+                            .extracting(McpTool::name)
+                            .doesNotContain("get_explorer", "get_explorer_event");
+                });
+    }
+
+    @Test
     void passiveCatalogCoversEveryAvailablePanelExceptExplicitExclusions() {
         runner.withPropertyValues("bootui.enabled=ON", "bootui.mcp.enabled=ON").run(context -> {
             Set<String> availablePanels = context.getBean(PanelsController.class).panels().panels().stream()

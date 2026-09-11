@@ -269,6 +269,28 @@
       "summary": "Return stack frames, causes, and occurrences for one exact exception-group id obtained from get_exceptions or get_live_activity."
     },
     {
+      "name": "get_explorer_event",
+      "command": "explorer event",
+      "schema": "ID",
+      "panel": "explorer",
+      "action": false,
+      "stacks": [
+        "SPRING_MVC"
+      ],
+      "summary": "Return one canonical activity event with related evidence and optional local bean invocations, SQL references, and cache metadata on Spring MVC JVM."
+    },
+    {
+      "name": "get_explorer",
+      "command": "explorer list",
+      "schema": "LIMIT",
+      "panel": "explorer",
+      "action": false,
+      "stacks": [
+        "SPRING_MVC"
+      ],
+      "summary": "Return a bounded canonical Live Activity page and 3D Explorer setup state on Spring MVC JVM."
+    },
+    {
       "name": "get_fault_tolerance",
       "command": "fault-tolerance",
       "schema": "NONE",

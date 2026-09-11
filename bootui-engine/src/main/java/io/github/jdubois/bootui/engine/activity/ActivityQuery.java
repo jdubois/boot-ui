@@ -30,12 +30,29 @@ public record ActivityQuery(
         Long since,
         Long until,
         String cursor,
-        int pageSize) {
+        int pageSize,
+        String eventId,
+        String correlationId,
+        String parentId) {
 
     public static final int DEFAULT_PAGE_SIZE = 200;
 
     public ActivityQuery {
-        pageSize = pageSize <= 0 ? DEFAULT_PAGE_SIZE : pageSize;
+        // One extra row is needed by buffered merge-for-reads to determine whether another page exists.
+        pageSize = pageSize <= 0 ? DEFAULT_PAGE_SIZE : Math.min(pageSize, 2001);
+    }
+
+    /** Existing public page query; exact selectors are used only by selected-evidence reads. */
+    public ActivityQuery(
+            String instanceId,
+            String type,
+            String severity,
+            String text,
+            Long since,
+            Long until,
+            String cursor,
+            int pageSize) {
+        this(instanceId, type, severity, text, since, until, cursor, pageSize, null, null, null);
     }
 
     /** A query for the newest page for {@code instanceId} with no filters, at the default page size. */
@@ -44,11 +61,28 @@ public record ActivityQuery(
     }
 
     public ActivityQuery withCursor(String newCursor) {
-        return new ActivityQuery(instanceId, type, severity, text, since, until, newCursor, pageSize);
+        return new ActivityQuery(
+                instanceId, type, severity, text, since, until, newCursor, pageSize, eventId, correlationId, parentId);
     }
 
     public ActivityQuery withPageSize(int newPageSize) {
-        return new ActivityQuery(instanceId, type, severity, text, since, until, cursor, newPageSize);
+        return new ActivityQuery(
+                instanceId, type, severity, text, since, until, cursor, newPageSize, eventId, correlationId, parentId);
+    }
+
+    public ActivityQuery withEventId(String id) {
+        return new ActivityQuery(
+                instanceId, type, severity, text, since, until, cursor, pageSize, id, correlationId, parentId);
+    }
+
+    public ActivityQuery withCorrelationId(String id) {
+        return new ActivityQuery(
+                instanceId, type, severity, text, since, until, cursor, pageSize, eventId, id, parentId);
+    }
+
+    public ActivityQuery withParentId(String id) {
+        return new ActivityQuery(
+                instanceId, type, severity, text, since, until, cursor, pageSize, eventId, correlationId, id);
     }
 
     String normalizedType() {

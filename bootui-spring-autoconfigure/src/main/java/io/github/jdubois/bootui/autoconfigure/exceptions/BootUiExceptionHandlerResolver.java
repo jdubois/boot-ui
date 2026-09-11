@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.exceptions;
 
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.spi.InvocationContextProvider;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.core.Ordered;
@@ -20,22 +21,33 @@ import org.springframework.web.servlet.ModelAndView;
 public class BootUiExceptionHandlerResolver implements HandlerExceptionResolver, Ordered {
 
     private final ExceptionStore store;
+    private volatile InvocationContextProvider invocationContextProvider = InvocationContextProvider.NO_OP;
 
     public BootUiExceptionHandlerResolver(ExceptionStore store) {
         this.store = store;
+    }
+
+    public void setInvocationContextProvider(InvocationContextProvider provider) {
+        invocationContextProvider = provider == null ? InvocationContextProvider.NO_OP : provider;
     }
 
     @Override
     public ModelAndView resolveException(
             HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
         try {
+            String traceId = InvocationContextProvider.snapshot(invocationContextProvider)
+                    .traceId();
+            if (traceId == null) {
+                traceId = org.slf4j.MDC.get("traceId");
+            }
             store.record(
                     ex,
                     Thread.currentThread().getName(),
                     request != null ? request.getMethod() : null,
                     request != null ? request.getRequestURI() : null,
                     describeHandler(handler),
-                    "web");
+                    "web",
+                    traceId);
         } catch (RuntimeException ignored) {
             // Diagnostics capture must never interfere with the application's error handling.
         }

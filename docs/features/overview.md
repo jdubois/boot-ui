@@ -99,11 +99,11 @@ expose.
 The diagnostics home base: one reverse-chronological stream of everything the application just did, plus a per-request
 profiler for drilling into any single request.
 
-It adds almost no new instrumentation. Six of its nine signals reuse the same buffers and controllers behind the HTTP
+It adds almost no new instrumentation. Six of its ten signals reuse the same buffers and controllers behind the HTTP
 Exchanges, SQL Trace, REST Client, Exceptions, Security Logs, and Email panels, so every value is already masked,
 self-filtered, and bounded exactly as it is there.
 
-### The nine signals
+### The ten signals
 
 | Signal      | Type          | Captured from                                                          | Adapters                     |
 | ----------- | ------------- | ---------------------------------------------------------------------- | ---------------------------- |
@@ -116,6 +116,7 @@ self-filtered, and bounded exactly as it is there.
 | Messaging   | `MESSAGING`   | Kafka and RabbitMQ everywhere, JMS on Spring only                      | All                          |
 | REST client | `REST_CLIENT` | REST Client                                                            | Spring MVC, WebFlux, Quarkus |
 | Cache       | `CACHE`       | A dedicated recorder that stores only a hashed key                     | Spring MVC, WebFlux          |
+| Fault tolerance | `FAULT_TOLERANCE` | Existing retry, timeout, rejection, short-circuit and breaker events | All, at each adapter's supported fidelity |
 
 Scheduled-task capture records each `@Scheduled` method _execution_ — start, success, failure, duration — without extra
 proxying on either adapter. Cache rows summarize the operation and cache name (`MISS orders`), with `WARN` severity for
@@ -376,6 +377,20 @@ what changed and its duration. Evidence from a disabled or unavailable source pa
 
 Developers who want a denser event-first view can minimize the map; that preference is remembered in the browser while
 the feed stays visible underneath. The viewport adapts to the graph's content, up to a bounded scrolling height.
+
+## 3D Explorer
+
+Immediately after Live Activity in the Overview group, **3D Explorer** (`/explorer`) presents the same ten canonical
+event types in a spatial scene and execution tree. Background and untraced events remain selectable; future types use a
+generic event representation. It does not replace Live Activity or Live Flow.
+
+On Spring MVC JVM, existing activity is available without extra setup. Local, synchronous traced Spring proxy
+invocations are captured by default where Beans, Traces, telemetry, and source policies permit them. Set
+`bootui.explorer.enabled=false` and restart to opt out; activity remains visible. WebFlux, Quarkus, native images, and AOT mode report
+unsupported in v1, rather than an empty trace.
+
+See [3D Explorer diagnostics](diagnostics.md#_3d-explorer) for setup, SQL-reference and cache semantics, failure
+propagation, history/eviction limits, and read-only MCP/CLI access.
 
 ## GitHub
 

@@ -8,6 +8,7 @@ import ch.qos.logback.classic.spi.ThrowableProxy;
 import ch.qos.logback.core.Appender;
 import ch.qos.logback.core.AppenderBase;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.spi.InvocationContextProvider;
 import org.slf4j.ILoggerFactory;
 import org.slf4j.LoggerFactory;
 
@@ -25,9 +26,14 @@ public class BootUiExceptionLogAppender extends AppenderBase<ILoggingEvent> {
     private static final String APPENDER_NAME = "BOOTUI_EXCEPTIONS";
 
     private final ExceptionStore store;
+    private volatile InvocationContextProvider invocationContextProvider = InvocationContextProvider.NO_OP;
 
     public BootUiExceptionLogAppender(ExceptionStore store) {
         this.store = store;
+    }
+
+    public void setInvocationContextProvider(InvocationContextProvider provider) {
+        invocationContextProvider = provider == null ? InvocationContextProvider.NO_OP : provider;
     }
 
     public static synchronized BootUiExceptionLogAppender install(ExceptionStore store) {
@@ -85,6 +91,12 @@ public class BootUiExceptionLogAppender extends AppenderBase<ILoggingEvent> {
         if (throwable == null) {
             return;
         }
-        store.record(throwable, event.getThreadName(), null, null, null, "log");
+        var mdc = event.getMDCPropertyMap();
+        String traceId = mdc == null ? null : mdc.get("traceId");
+        if (traceId == null && Thread.currentThread().getName().equals(event.getThreadName())) {
+            traceId = InvocationContextProvider.snapshot(invocationContextProvider)
+                    .traceId();
+        }
+        store.record(throwable, event.getThreadName(), null, null, null, "log", traceId);
     }
 }

@@ -5,6 +5,18 @@ All notable changes to BootUI are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **3D Explorer** presents the complete canonical Live Activity feed with optional local Spring-bean invocation
+  detail, SQL references, cache-operation metadata, and observed failure paths. The read-only Overview panel and
+  `get_explorer` / `get_explorer_event` tools (`bootui explorer list` / `bootui explorer event`) are initially supported
+  on Spring MVC JVM only. Bean capture defaults on, can be disabled with `bootui.explorer.enabled=false` and restart, honors
+  Live Activity/Beans/Traces/source policy, and never uses the host's outbound exporter. History remains visible when
+  detail expires; unsupported WebFlux/Quarkus/native/AOT runtimes report an explicit reason.
+  <!-- Issue/PR link pending: no associated issue or pull request exists for this change. -->
+
 ## [1.17.0] - 2026-09-10
 
 Feature release focused on evidence-led diagnostics and agent-guided application assessment. A new MCP prompt and

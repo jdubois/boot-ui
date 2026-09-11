@@ -40,6 +40,11 @@ platform.
 
 ## Beans
 
+The Beans graph describes dependency wiring, not calls that executed. On Spring MVC JVM,
+[3D Explorer](diagnostics.md#_3d-explorer) captures eligible observed proxy invocations by default; set
+`bootui.explorer.enabled=false` and restart to disable the additional advice.
+It respects this panel's enable policy, captures no method payloads, and does not infer calls from dependency edges.
+
 ![BootUI Beans panel](../images/bootui-beans.webp)
 
 The Beans panel helps answer which application-managed beans exist, how they are connected, and where they came from. A

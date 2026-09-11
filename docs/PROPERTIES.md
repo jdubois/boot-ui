@@ -46,6 +46,7 @@ equivalents).
 | `bootui.enabled`, `bootui.enabled-profiles`, `bootui.disabled-profiles`      | Spring only                | Quarkus activates by build-time launch mode.                                                                                             |
 | `bootui.force-web`, `bootui.startup.enabled`, `bootui.startup.capacity`      | Spring only                | Driven by Spring `EnvironmentPostProcessor`s with no Quarkus analogue.                                                                   |
 | `bootui.free-on-idle.enabled` / `.timeout`                                   | Spring only                | The idle-buffer-release optimization is Spring-only.                                                                                     |
+| `bootui.explorer.enabled` | Spring MVC JVM only | Local bean capture; default `true`, restart required after changes. Unsupported on WebFlux, Quarkus, native images, and Spring AOT mode in v1. Does not control access to existing activity. |
 | `bootui.dev-services.restart-enabled` / `.log-tail-bytes`                    | Spring only                | Quarkus Dev Services are build-time; the panel has no log-tail or restart controls.                                                      |
 | `bootui.graalvm.*`                                                           | Spring only                | The GraalVM panel is not applicable on Quarkus.                                                                                          |
 | `bootui.http-sessions.max-sessions`                                          | Spring only                | The HTTP Sessions panel is not applicable on Quarkus.                                                                                    |
@@ -156,6 +157,7 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | --------------- | ------------------------- | --------------------------- | ------------------------------------------------- | ----------------------------------------- |
 | Overview        | Overview                  | `overview`                  | `bootui.panels.overview.enabled`                  | Not applicable; view-only.                |
 | Overview        | Live Activity             | `activity`                  | `bootui.panels.activity.enabled`                  | `bootui.panels.activity.read-only`         |
+| Overview        | 3D Explorer               | `explorer`                  | `bootui.panels.explorer.enabled`                  | Not applicable; view-only.                |
 | Overview        | GitHub                    | `github`                    | `bootui.panels.github.enabled`                    | `bootui.panels.github.read-only`          |
 | Advisors        | Architecture              | `architecture`              | `bootui.panels.architecture.enabled`              | `bootui.panels.architecture.read-only`    |
 | Advisors        | REST API                  | `rest-api`                  | `bootui.panels.rest-api.enabled`                  | `bootui.panels.rest-api.read-only`        |
@@ -435,6 +437,20 @@ destination are recorded, and provider session ids are replaced by a short one-w
 | `bootui.ai.token-series-minutes`        | `60`    | Number of minutes retained in the AI Framework token series.       |
 | `bootui.ai.max-recent-chats`            | `100`   | Maximum recent chat completions surfaced by the AI Framework panel. |
 | `bootui.ai.show-content-capture-banner` | `true`  | Show the AI content-capture explanation banner.                    |
+
+### 3D Explorer
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `bootui.panels.explorer.enabled` | `true` | Allow the read-only panel/API on supported Spring MVC JVM instances. Live Activity must also be enabled. |
+| `bootui.explorer.enabled` | `true` | Install local application-bean proxy advice at startup. Set to `false` to opt out. Changes require restart; enabled Explorer/Live Activity/Beans/Traces panels and telemetry are required, and only existing sampled synchronous HTTP context is enriched. |
+
+With capture disabled or tracing unavailable, Explorer still shows canonical activity. It does not enable any source,
+sampling, SQL recording, or parameter capture. Source access and masking also apply to durable history; bean/SQL detail
+can expire independently. Capture is limited to 100 calls and 32 levels per request, within the existing trace ceiling.
+`bootui.activity.request-slow-threshold-ms` (default 1,000 ms) also labels measured bean invocations; Live Flow's
+500 ms visual threshold does not replace canonical event severity. There are no new retention or mutation settings.
+See [3D Explorer](features/diagnostics.md#_3d-explorer) for proxy, async, native/AOT, cache, and SQL-reference limits.
 
 ### Live Activity
 

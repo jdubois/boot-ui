@@ -31,6 +31,11 @@ groups:
   and `get_rest_client_traces`. `get_live_activity` returns the correlated feed this panel shows, including HTTP
   requests, SQL statements, exceptions, security events, scheduled-task runs, and, on Spring, cache accesses grouped by
   request or trace. `get_exception_detail` returns a selected exception group's stack trace, causes, and occurrences.
+  `get_explorer` (`limit`) and `get_explorer_event` (required canonical event `id`, not trace id) add read-only Explorer
+  access on supported Spring MVC JVM instances. They preserve all canonical event types, source masking/access, and
+  history while adding optional local bean, SQL-reference, and cache metadata. Capture defaults off and needs restart;
+  missing or expired detail is not a complete trace. WebFlux, Quarkus, native images, and AOT mode do not advertise
+  these tools. The CLI spells them `bootui explorer list` and `bootui explorer event <id>`.
 - **Runtime and integration reads:** `get_overview`, `get_health`, `get_config`, `get_beans`, `get_mappings`,
   `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`, `get_cache_stats`,
   `get_database_connection_pools`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,

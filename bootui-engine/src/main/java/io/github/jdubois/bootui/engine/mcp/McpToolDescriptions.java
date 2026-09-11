@@ -38,6 +38,19 @@ public final class McpToolDescriptions {
                     "Return a bounded, newest-first correlated activity snapshot across HTTP, SQL, exceptions, security, "
                             + "and other runtime signals. Use first when diagnosing one request or trace."),
             Map.entry(
+                    "get_explorer",
+                    "Return a bounded canonical Live Activity page and 3D Explorer setup state on Spring MVC JVM. "
+                            + "Read-only; optional local bean capture is off by default and requires restart to enable. "
+                            + "All ten activity types and standalone events remain visible without tracing; source "
+                            + "policy and masking still apply. Use get_explorer_event with a returned canonical event id."),
+            Map.entry(
+                    "get_explorer_event",
+                    "Return one canonical activity event with related evidence and optional local bean invocations, "
+                            + "SQL references, and cache metadata on Spring MVC JVM. Supply the exact event id from "
+                            + "get_explorer or get_live_activity, not a trace id. Read-only; historical detail may have "
+                            + "expired. SQL references are not table health; failed invocations are not extra exception "
+                            + "occurrences, and cache operations contain no keys or values."),
+            Map.entry(
                     "get_exceptions",
                     "List recent exception groups, newest first. Use a returned id with get_exception_detail for stack "
                             + "frames, causes, and individual occurrences."),

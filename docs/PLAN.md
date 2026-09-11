@@ -4,7 +4,7 @@
 
 BootUI adds a safe, local-only developer console to a running application, shipping on **Spring Boot 4 (servlet and
 WebFlux starters) and Quarkus (an extension)** from one shared, framework-neutral engine that serves the same Vue UI and
-the same `/bootui/api/**` contract on every runtime. The released surface covers 58 panels across runtime introspection,
+the same `/bootui/api/**` contract on every runtime. The current surface covers 59 panels across runtime introspection,
 configuration, database migrations, services, diagnostics, project health, and developer tooling. The next planned panel
 is a read-only **MongoDB** operational view, scoped in §3.5.
 
@@ -35,6 +35,7 @@ will therefore be additive rather than an extension of the SQL-specific panels.
 
 | Priority | Feature                  | Group    | Primary data source                    | Mutation? | Status  |
 | -------- | ------------------------ | -------- | -------------------------------------- | --------- | ------- |
+| Implemented | 3D Explorer | Overview | Canonical Live Activity plus default-on local Spring MVC bean capture | No | Spring MVC JVM v1 |
 | Next     | MongoDB operational view | Database | Spring/Quarkus MongoDB client adapters | No        | Planned |
 | Planned  | Declarative HTTP client registry | Services | Spring HTTP clients / Quarkus REST Client metadata | No | Planned |
 | Planned  | gRPC | Services | Spring gRPC / Quarkus gRPC registries and metrics | No | Planned |
@@ -752,6 +753,32 @@ Acceptance criteria:
 - High-cardinality managers/caches/tiers/statistics are bounded with visible truncation and deterministic ordering.
 - Fixtures cover single-tier, composed, opaque, dynamic, local/distributed-declared, statistics-present/absent, zero/reset
   counters, incompatible scopes, adapter unavailability, existing clear policy, and high-cardinality truncation.
+
+### 3.17 3D Explorer - Overview
+
+The approved v1 adds `explorer` immediately after Live Activity and reuses its complete ten-type canonical feed,
+including standalone and durable-history events, with a generic future-type fallback. Read-only root/detail APIs and
+MCP `get_explorer` / `get_explorer_event` share canonical event ids, bounded reads, masking and source policy.
+The generated CLI exposes `explorer list` and `explorer event`; no independent headless API is introduced.
+
+Spring MVC JVM is the initial supported stack. WebFlux, Quarkus, native images and Spring AOT mode explicitly report
+unsupported and install no bean interception. Existing activity works without capture; local synchronous traced bean
+detail defaults to `bootui.explorer.enabled=true` and requires enabled Explorer/Live Activity/Beans/Traces plus telemetry.
+Set it to `false` to opt out; changes require restart. Local spans remain in the existing store, never the host's outbound exporter.
+
+Bounds are 100 bean calls and 32 nested levels per request within the existing trace cap, and 64 SQL references per
+selection. SQL references are bounded lexical evidence, not table health; unknown scopes/incomplete parsing stay
+explicit. Cache enrichment is metadata-only without implicit fills; failed invocations do not multiply exception
+occurrences. Existing canonical severity is preserved (request default 1,000 ms, not Live Flow's 500 ms visual rule).
+History can outlive enrichment. Proxy/self-invocation, async, sampling, deferred flush, and eviction limits are
+documented rather than inferred away.
+
+Replay follows the execution tree one step at a time, with observed failures shown on unwind after their children.
+Presentation pacing is bounded and distinct from measured latency; repeated shared-edge observations are retained.
+
+Public registration, manifests, conformance, immutable Jackson 2/3 wire compatibility, generated command metadata,
+and coupled docs are maintained together. The accessible tree remains alongside the lazy Three.js view and is the
+fallback for missing WebGL/motion. See [feature contract](features/diagnostics.md#_3d-explorer).
 
 ## 4. Cross-cutting work for every new panel
 

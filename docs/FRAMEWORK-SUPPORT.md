@@ -6,7 +6,7 @@ engine, the same console, and the same JSON contract, so what you learn on one c
 | Stack             | Panel availability                               | Setup                              |
 | ----------------- | ------------------------------------------------ | ---------------------------------- |
 | Spring MVC        | Every panel. This is the reference stack.        | [Setup](./SETUP.md)                |
-| Spring WebFlux    | Every panel except **HTTP Sessions**.            | [WebFlux setup](./setup/webflux.md) |
+| Spring WebFlux    | Every panel except **HTTP Sessions** and **3D Explorer** v1. | [WebFlux setup](./setup/webflux.md) |
 | Quarkus           | Most panels — see [below](#what-is-not-on-quarkus). | [Quarkus setup](./setup/quarkus.md) |
 
 ## Your app is the real answer
@@ -25,8 +25,11 @@ That is always current for your app and your dependencies. Prefer it over any li
 Everything works, including every action — setting log levels, running migrations, capturing heap dumps, and every
 advisor scan — behind the same safety rules as the servlet stack.
 
-The single exception is **HTTP Sessions**, which inventories servlet sessions through Spring Session's registry.
+**HTTP Sessions** inventories servlet sessions through Spring Session's registry.
 WebFlux is stateless by default and has no equivalent registry to list.
+
+**3D Explorer** v1 is also unsupported. It requires Spring MVC JVM; use Live Activity on WebFlux.
+Native images and Spring AOT mode do not support Explorer either, even with the MVC starter.
 
 ## What is not on Quarkus
 
@@ -42,8 +45,10 @@ covered by something else:
 | **HTTP Sessions**                       | Reactive and stateless by default, as on WebFlux.                                   |
 | **Transactions**                        | Boundary capture needs a Spring hook that Narayana and CDI do not expose.            |
 
-One panel, **JMS**, is not yet available: the capture targets Spring JMS. Use the **Kafka** or **RabbitMQ** panels for
+Two panels, **JMS** and **3D Explorer**, are not yet available. JMS capture targets Spring JMS. Use the **Kafka** or **RabbitMQ** panels for
 Quarkus Reactive Messaging.
+
+**3D Explorer** v1 is unsupported on Quarkus, with no added interception or headless tools. Use Live Activity instead.
 
 Two smaller gaps are worth knowing. The Hibernate advisor runs its mapping and configuration rules, but its query rules
 need Spring Data repository metadata that Panache does not expose. And some capture panels reconstruct their data from

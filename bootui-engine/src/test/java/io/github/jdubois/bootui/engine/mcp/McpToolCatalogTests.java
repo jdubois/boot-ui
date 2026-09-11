@@ -13,8 +13,8 @@ class McpToolCatalogTests {
 
     @Test
     void advertisesTheFullToolSurfacePerStack() {
-        assertThat(McpToolCatalog.entries()).hasSize(78);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(78);
+        assertThat(McpToolCatalog.entries()).hasSize(80);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(80);
         assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(77);
         assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(62);
     }
@@ -40,6 +40,22 @@ class McpToolCatalogTests {
                 .toList();
         assertThat(names).doesNotHaveDuplicates();
         assertThat(names).allSatisfy(name -> assertThat(name).matches("[a-z][a-z0-9_]*"));
+    }
+
+    @Test
+    void explorerReadsAreMvcOnlyAndUseCanonicalEventIdentity() {
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).doesNotContain("get_explorer", "get_explorer_event");
+        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).doesNotContain("get_explorer", "get_explorer_event");
+        for (String name : List.of("get_explorer", "get_explorer_event")) {
+            McpToolCatalog.Entry entry = McpToolCatalog.require(name, Stack.SPRING_MVC);
+            assertThat(entry.panelId()).isEqualTo(BootUiPanels.EXPLORER);
+            assertThat(entry.action()).isFalse();
+        }
+        assertThat(McpToolCatalog.require("get_explorer", Stack.SPRING_MVC).schema())
+                .isEqualTo(McpToolSchema.LIMIT);
+        assertThat(McpToolCatalog.require("get_explorer_event", Stack.SPRING_MVC)
+                        .schema())
+                .isEqualTo(McpToolSchema.ID);
     }
 
     @Test

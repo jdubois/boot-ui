@@ -184,6 +184,24 @@ DTOs.
 Treat unavailable panels honestly. Their backing library, capability, configuration, or adapter support may be absent.
 Do not install unrelated infrastructure solely to light up a panel unless the user asks.
 
+For a spatial request journey on **Spring MVC JVM**, use `get_explorer` / `bootui explorer list --limit 20 --json`,
+then `get_explorer_event` / `bootui explorer event <id> --json` with a canonical event id from the returned
+`activity.entries` (or Live Activity), not a trace id. These are read-only tools; discover them in the running catalog
+first. WebFlux, Quarkus, native images, and Spring AOT mode do not support Explorer v1.
+
+Explorer retains all ten canonical activity types (`REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, `CACHE`, `SCHEDULED`,
+`MESSAGING`, `MAIL`, `REST_CLIENT`, `FAULT_TOLERANCE`) plus a generic future-type fallback. Untraced/background events
+are still useful. Added synchronous bean proxy detail is on by default; `bootui.explorer.enabled=false` disables it.
+Changing capture requires restart and approval; never loosen Live Activity/Beans/Traces/source policy to obtain missing evidence. Capture
+requires telemetry and sampled HTTP context, remains local without the host exporter, and is bounded to 100 calls/32
+levels within the trace cap. It adds no arguments, return values, or exception messages.
+
+Interpret detail conservatively: historical bean/SQL evidence may have expired; SQL references are lexical evidence
+with possibly unknown database scope, not table health. Cache enrichment has no keys/values or inferred implicit PUT.
+Failed invocations are propagation evidence, not additional exception occurrences, and a handled exception is not
+automatically HTTP 500. Preserve canonical severity (request default 1,000 ms, distinct from Live Flow's 500 ms
+visual threshold), overlapping durations, and proxy/self-invocation/async limitations.
+
 ## Assess an application and propose an action plan
 
 Use this workflow for a whole-application assessment or "scan everything and tell me what to do" request. A focused

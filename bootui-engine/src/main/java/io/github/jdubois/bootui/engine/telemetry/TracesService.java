@@ -52,6 +52,8 @@ public final class TracesService {
             if (!selfClassifier.shouldIncludeTrace(bucket.spans())) {
                 continue;
             }
+            bucket = visible(bucket);
+            if (bucket.spans().isEmpty()) continue;
             retained++;
             if (summaries.size() < safeLimit) {
                 summaries.add(toSummary(bucket));
@@ -68,9 +70,31 @@ public final class TracesService {
         if (!selfClassifier.shouldIncludeTrace(bucket.spans())) {
             return Optional.empty();
         }
+        bucket = visible(bucket);
+        if (bucket.spans().isEmpty()) return Optional.empty();
         List<SpanDto> spans = new ArrayList<>(bucket.spans().size());
         for (NormalizedSpan span : bucket.spans()) {
-            spans.add(toSpanDto(span));
+            SpanDto dto = toSpanDto(span);
+            if ("bootui.explorer".equals(span.scope()) && !settings.localExceptionDetailsEnabled()) {
+                dto = new SpanDto(
+                        dto.traceId(),
+                        dto.spanId(),
+                        dto.parentSpanId(),
+                        dto.name(),
+                        dto.kind(),
+                        dto.serviceName(),
+                        dto.scope(),
+                        dto.startEpochNanos(),
+                        dto.endEpochNanos(),
+                        dto.durationNanos(),
+                        dto.statusCode(),
+                        dto.statusMessage(),
+                        dto.attributes().stream()
+                                .filter(attribute -> !attribute.key().startsWith("exception."))
+                                .toList(),
+                        dto.events());
+            }
+            spans.add(dto);
         }
         spans.sort(Comparator.comparingLong(SpanDto::startEpochNanos));
         return Optional.of(new TraceDetailDto(bucket.traceId(), spans));
@@ -78,6 +102,12 @@ public final class TracesService {
 
     public void clear() {
         store.clear();
+    }
+
+    private TelemetryStore.TraceBucket visible(TelemetryStore.TraceBucket bucket) {
+        return settings.localInvocationDetailsEnabled()
+                ? bucket
+                : bucket.filterSpans(span -> !"bootui.explorer".equals(span.scope()));
     }
 
     static TraceSummaryDto toSummary(TelemetryStore.TraceBucket bucket) {
@@ -104,7 +134,7 @@ public final class TracesService {
             if (AiSpanRecognizer.isAi(span)) {
                 hasAi = true;
             }
-            if (span.parentSpanId() == null) {
+            if (span.parentSpanId() == null && !"bootui.explorer".equals(span.scope())) {
                 if (earliest == null || span.startEpochNanos() < earliest.startEpochNanos()) {
                     earliest = span;
                 }
@@ -114,9 +144,10 @@ public final class TracesService {
             rootSpanName = earliest.name();
         } else if (!bucket.spans().isEmpty()) {
             NormalizedSpan first = bucket.spans().stream()
+                    .filter(span -> !"bootui.explorer".equals(span.scope()))
                     .min(Comparator.comparingLong(NormalizedSpan::startEpochNanos))
-                    .orElse(bucket.spans().get(0));
-            rootSpanName = first.name();
+                    .orElse(null);
+            rootSpanName = first == null ? null : first.name();
         }
         if (minStart == Long.MAX_VALUE) {
             minStart = 0L;

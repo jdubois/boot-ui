@@ -272,6 +272,8 @@ class BootUiAutoConfigurationTests {
                             GraalVmController.class,
                             CracController.class,
                             LiveActivityController.class,
+                            io.github.jdubois.bootui.autoconfigure.explorer.ExplorerController.class,
+                            io.github.jdubois.bootui.autoconfigure.explorer.SpringExplorerService.class,
                             EmailController.class,
                             SqlTraceController.class,
                             RestClientTraceController.class,

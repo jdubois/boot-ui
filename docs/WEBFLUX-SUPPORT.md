@@ -16,8 +16,8 @@ status where they don't.
 
 ## 2. Current status
 
-The WebFlux adapter serves the large majority of the panel surface — the same 58-panel manifest the servlet adapter
-reports, minus the one panel (**HTTP Sessions**, §6.7) that stays unavailable for stack reasons. Every available
+The WebFlux adapter serves the large majority of the panel surface — the same 59-panel manifest the servlet adapter
+reports, with **HTTP Sessions** (§6.7) and **3D Explorer** v1 unavailable for stack reasons. Every available
 action-capable panel behaves identically to the servlet adapter, behind the same shared `LocalhostGuard` write floor.
 
 ::: details Action-capable panels (identical to servlet)
@@ -47,9 +47,14 @@ capture/analyze/delete share one admission. Passive reads keep serving the last 
 same conflict to an in-band tool error. `WebFluxApiConformanceTest` runs the shared concurrent Architecture burst that
 pins this transport behavior.
 
-Only **HTTP Sessions** stays unavailable, with a panel-specific reason surfaced through `/bootui/api/panels` — and, in
+**HTTP Sessions** and **3D Explorer** stay unavailable, with panel-specific reasons surfaced through `/bootui/api/panels` — and, in
 turn, the sidebar tooltip and the panel's own alert banner (§6.7). `docs/features/` and the per-panel
 `unavailableReason` strings in `PanelsController` are the authoritative, current detail.
+
+**3D Explorer v1** requires Spring MVC on the JVM, outside native/AOT mode. WebFlux installs no Explorer bean advice,
+controller, or headless binding even if `bootui.explorer.enabled=true` is configured. Its manifest says unsupported
+and points to Live Activity; `get_explorer` and `get_explorer_event` remain in the shared catalog but are not
+advertised by the reactive registry. Existing Live Activity, telemetry, and source capture are unchanged.
 
 ## 3. Why this is feasible — evidence from the current codebase
 

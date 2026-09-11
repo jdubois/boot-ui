@@ -26,11 +26,12 @@ BootUI currently targets:
 
 Maturity is stated honestly: the **Spring Boot servlet adapter is complete** (all panels). The **Spring Boot WebFlux
 adapter** reuses the same engine and serves the large majority of panels unmodified or over a rebuilt reactive capture
-layer, including **Live Activity** (all nine signal types merge identically to the servlet adapter — see
+layer, including **Live Activity** (all ten canonical signal types are represented — see
 `docs/WEBFLUX-SUPPORT.md` §6.4), plus the raw Spring Security panel and the WebFlux-native 25-rule Security advisor; the
 raw Spring Security panel, the WebFlux-native 25-rule Security advisor, and REST Client capture over instrumented
 `WebClient` instances; HTTP Sessions is not applicable to a reactive,
-container-session-free stack — see `docs/WEBFLUX-SUPPORT.md` for the current per-panel status. The **Quarkus adapter
+container-session-free stack. **3D Explorer** v1 requires Spring MVC JVM and is unsupported on WebFlux, Quarkus,
+native images, and Spring AOT mode — see `docs/WEBFLUX-SUPPORT.md` for the current per-panel status. The **Quarkus adapter
 is being built out**, with panels lighting up as the shared engine grows; see `docs/QUARKUS-SUPPORT.md` for the
 current per-platform status.
 
@@ -1403,6 +1404,61 @@ Acceptance criteria:
   scheduling or replaying its evidence after resume.
 - Spring MVC, Spring WebFlux, and Quarkus serve the same shape, verified by the shared conformance suite.
 
+#### 5.14.2.2 3D Explorer
+
+A read-only **Overview** panel immediately after Live Activity, route `/explorer`, panel id `explorer`. It presents the
+same canonical query result in a Three.js scene and accessible execution tree, with optional local Spring-bean
+enrichment. Live Activity and Live Flow remain unchanged. Spring MVC JVM is supported; WebFlux, Quarkus, native
+images, and AOT mode expose explicit unsupported reasons and install no Explorer interception.
+
+All ten `ActivityEntryDto` types remain selectable: `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, `CACHE`, `SCHEDULED`,
+`MESSAGING`, `MAIL`, `REST_CLIENT`, and `FAULT_TOLERANCE`, with a generic future-type fallback. Untraced/background
+entries remain independent activity. Source IDs, summaries, severity, timing, request parentage, masking, live/persistent
+selection, filters, and paging are reused, not reconstructed from a second set of source buffers.
+
+`GET /explorer` returns `ExplorerReport(available, activity, setup)` relative to the configured API mount, with the
+same applicable `type`, `severity`, `since`, `limit`, `q`, `until`, `cursor`, and `pageSize` parameters as Live Activity.
+`GET /explorer/events/{id}` uses a canonical event id (never requires a trace id) and returns `ExplorerEventDto`:
+`found`, `event`, `related`, `invocations`, `links`, `sqlReferences`, `cacheOperations`, `warnings`, `partial`,
+`omittedInvocations`. Exact invocation links remain separate from canonical parentage; timing is expressed as safe
+relative millisecond offsets/durations. Immutable core records are JSON-library-free and compatible with Jackson 2/3.
+
+`bootui.panels.explorer.enabled` controls access, while `bootui.explorer.enabled=true` enables added capture by default.
+Set it to `false` to opt out; changes require restart. Capture requires active BootUI, enabled
+Explorer/Live Activity/Beans/Traces panels and telemetry. Only
+eligible synchronous HTTP proxy invocations with existing valid sampled context gain bean detail. With capture off
+or tracing unavailable, activity still works. Live Activity and underlying source policy also gate history and MCP/CLI;
+disabled Beans/source details must not leak through retained enrichment.
+
+Bean spans are appended locally to the existing trace store, never sent through the host's outbound exporter or used
+to alter host propagation. Capture is bounded before storage to 100 calls and 32 nested levels per request within the
+existing trace ceiling. No method arguments, return values, or exception messages are added. There is no second
+recorder, trace store, JDBC/cache wrapper, listener, persistence poller, external service, or schema scan.
+
+SQL-reference extraction is bounded lexical analysis of already captured SQL, not physical-table inventory or health.
+Unknown datasource/catalog/schema and incomplete/unsupported SQL, batch previews, and truncated evidence remain
+explicit. Up to 64 references are returned per selection; durations belong to statements, not each referenced table.
+Cache enrichment exposes only manager/cache/observed operation, never keys, key hashes, values, invented duration,
+or an inferred PUT after a loader lookup. Exception propagation follows observed failed invocations, stops at successful
+callers, and does not multiply Exceptions occurrences or force a handled request to HTTP 500. Messaging/mail evidence
+does not prove delivery, security denial is not automatically an exception, and fault-tolerance paths are never invented.
+
+Canonical severity is unchanged. Measured bean calls use the existing request threshold (default 1,000 ms), distinct
+from Live Flow's 500 ms visual threshold; SQL/REST sources keep their own slow flags. Nested durations overlap.
+Proxy self-invocation, non-advisable methods, unsupported async handoffs, background advice, deferred ORM writes,
+sampling, late roots, and independent eviction are reported honestly. Durable activity can outlive bean/SQL detail;
+the event remains visible with expired/partial evidence, without new span persistence.
+
+Replay is explicit playback of captured evidence; Pause is browser-only. The tree remains usable without WebGL or
+motion. Explorer plays one step at a time in execution-tree order, including failure unwind after captured children.
+Its bounded presentation pacing is distinct from recorded durations; repeated shared-edge calls are not dropped.
+No traffic, scans, or external calls run on navigation. Headless reads are `get_explorer` (`limit`) and
+`get_explorer_event` (required `id`), projected mechanically to `bootui explorer list` / `bootui explorer event`.
+See [3D Explorer](features/diagnostics.md#_3d-explorer) for setup and evidence limitations.
+Selected-event REST reads accept optional `timestamp` to pin a displayed version when a source ID is reused.
+Without it, reads select the newest matching entry from the same live/persistent mode as the canonical list.
+Exact versions that expired return `found=false`, never newer evidence sharing that ID.
+
 ### 5.14.3 Traces Panel
 
 Purpose: show distributed-trace waterfalls captured locally, so a request that fans out across cooperating local
@@ -2407,6 +2463,8 @@ Initial endpoints:
 | `/bootui/api/transactions`                   | GET    | Current bounded transaction-boundary snapshot and aggregate statistics                 |
 | `/bootui/api/activity`                       | GET    | Merged Live Activity stream and KPI summary (params: `type`, `severity`, `since`, `limit`, plus `q`, `until`, `cursor`, `pageSize` when persistence is enabled) |
 | `/bootui/api/activity/stream`                | GET    | Live Activity change notifications over Server-Sent Events (re-fetch trigger)           |
+| `/bootui/api/explorer`                       | GET    | Canonical activity page and optional bean-capture setup; same applicable activity query parameters, Spring MVC JVM only |
+| `/bootui/api/explorer/events/{id}`           | GET    | Canonical event detail, related activity, optional local invocations, exact links, SQL references and cache metadata; read-only |
 | `/bootui/api/activity/request/{id}`          | GET    | Per-request profile correlating SQL, exceptions, trace, and auth for one HTTP exchange   |
 | `/bootui/api/activity/use-existing-datasource` | POST | Hot-switch Live Activity from in-memory to the existing `DataSource` (confirmation-gated) |
 | `/bootui/api/email`                          | GET    | Captured outgoing email summaries and content-policy status                             |
@@ -2438,6 +2496,7 @@ Initial properties:
 | `bootui.show-banner`                         | `true`                                  | Print BootUI URL on startup.                                                                      |
 | `bootui.startup.enabled`                     | `true`                                  | Install a `BufferingApplicationStartup` automatically while BootUI is active.                     |
 | `bootui.startup.capacity`                    | `4096`                                  | Maximum startup steps retained by BootUI's auto-installed startup buffer.                         |
+| `bootui.explorer.enabled`                    | `true`                                  | Local bean capture on Spring MVC JVM; set to `false` to opt out. Changes require restart; enabled Explorer/Live Activity/Beans/Traces plus telemetry required. |
 | `bootui.enabled-profiles`                    | `dev,local`                             | Profiles that activate BootUI.                                                                    |
 | `bootui.disabled-profiles`                   | `prod,production`                       | Profiles that disable BootUI unless `bootui.enabled=ON`.                                          |
 | `bootui.overrides-file`                      | `.bootui/application-bootui.properties` | File used to persist local runtime configuration overrides; also locates `boot-ui.yml`.           |
@@ -2599,6 +2658,9 @@ Design rules:
   - Diagnostics: `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
     `get_sql_traces`, `get_transactions`, `get_traces`, `get_log_tail`, `get_http_exchanges`, and
     `get_rest_client_traces`.
+    Spring MVC JVM additionally advertises read-only `get_explorer` (`limit`) and `get_explorer_event` (required
+    canonical event `id`), gated by Explorer and Live Activity availability; bean/source policy is enforced by the
+    same controller as REST. Unsupported stacks/native/AOT do not advertise them.
   - Runtime and integration reads: `get_overview`, `get_health`, `get_config`, `get_beans`, `get_mappings`,
     `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`,
     `get_cache_stats`,
@@ -2731,6 +2793,7 @@ Top-level navigation:
 - Overview:
   - Overview.
   - Live Activity.
+  - 3D Explorer.
   - GitHub.
 - Advisors:
   - Architecture.

@@ -47,4 +47,16 @@ public final class SpringTelemetrySettings implements TelemetrySettings {
     public boolean enrichmentEnabled() {
         return properties.getTelemetry().isEnrich();
     }
+
+    @Override
+    public boolean localInvocationDetailsEnabled() {
+        return properties.isPanelEnabled("beans")
+                && properties.isPanelEnabled("explorer")
+                && properties.isPanelEnabled("activity");
+    }
+
+    @Override
+    public boolean localExceptionDetailsEnabled() {
+        return properties.isPanelEnabled("exceptions");
+    }
 }

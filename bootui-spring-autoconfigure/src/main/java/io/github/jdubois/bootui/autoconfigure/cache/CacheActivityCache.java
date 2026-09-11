@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure.cache;
 
+import io.github.jdubois.bootui.engine.cache.CacheActivityOperation;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
+import io.github.jdubois.bootui.spi.InvocationContextProvider;
 import java.util.concurrent.Callable;
 import org.springframework.cache.Cache;
 
@@ -43,33 +45,37 @@ final class CacheActivityCache implements Cache {
 
     @Override
     public ValueWrapper get(Object key) {
+        InvocationContextProvider.Context context = recorder.captureContext();
         ValueWrapper value = delegate.get(key);
-        recordGet(key, value != null);
+        recordGet(key, value != null, context);
         return value;
     }
 
     @Override
     public <T> T get(Object key, Class<T> type) {
+        InvocationContextProvider.Context context = recorder.captureContext();
         T value = delegate.get(key, type);
-        recordGet(key, value != null);
+        recordGet(key, value != null, context);
         return value;
     }
 
     @Override
     public <T> T get(Object key, Callable<T> valueLoader) {
+        InvocationContextProvider.Context context = recorder.captureContext();
         boolean[] loaded = {false};
         T value = delegate.get(key, () -> {
             loaded[0] = true;
             return valueLoader.call();
         });
-        recordGet(key, !loaded[0]);
+        recordGet(key, !loaded[0], context);
         return value;
     }
 
     @Override
     public void put(Object key, Object value) {
+        InvocationContextProvider.Context context = recorder.captureContext();
         delegate.put(key, value);
-        recorder.recordPut(managerName, getName(), key);
+        recorder.record(managerName, getName(), CacheActivityOperation.PUT, key, context);
     }
 
     @Override
@@ -79,8 +85,9 @@ final class CacheActivityCache implements Cache {
 
     @Override
     public void evict(Object key) {
+        InvocationContextProvider.Context context = recorder.captureContext();
         delegate.evict(key);
-        recorder.recordEvict(managerName, getName(), key);
+        recorder.record(managerName, getName(), CacheActivityOperation.EVICT, key, context);
     }
 
     @Override
@@ -90,8 +97,9 @@ final class CacheActivityCache implements Cache {
 
     @Override
     public void clear() {
+        InvocationContextProvider.Context context = recorder.captureContext();
         delegate.clear();
-        recorder.recordClear(managerName, getName());
+        recorder.record(managerName, getName(), CacheActivityOperation.CLEAR, null, context);
     }
 
     @Override
@@ -99,11 +107,8 @@ final class CacheActivityCache implements Cache {
         return delegate.invalidate();
     }
 
-    private void recordGet(Object key, boolean hit) {
-        if (hit) {
-            recorder.recordHit(managerName, getName(), key);
-        } else {
-            recorder.recordMiss(managerName, getName(), key);
-        }
+    private void recordGet(Object key, boolean hit, InvocationContextProvider.Context context) {
+        recorder.record(
+                managerName, getName(), hit ? CacheActivityOperation.HIT : CacheActivityOperation.MISS, key, context);
     }
 }

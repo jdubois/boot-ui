@@ -231,6 +231,18 @@ public final class JdbcActivityStore implements ActivityStore {
                 + " WHERE instance_id = ?");
         List<Object> params = new ArrayList<>();
         params.add(query.instanceId());
+        if (query.eventId() != null) {
+            sql.append(" AND entry_id = ?");
+            params.add(query.eventId());
+        }
+        if (query.correlationId() != null) {
+            sql.append(" AND correlation_id = ?");
+            params.add(query.correlationId());
+        }
+        if (query.parentId() != null) {
+            sql.append(" AND parent_entry_id = ?");
+            params.add(query.parentId());
+        }
 
         if (query.normalizedType() != null) {
             sql.append(" AND UPPER(entry_type) = ?");

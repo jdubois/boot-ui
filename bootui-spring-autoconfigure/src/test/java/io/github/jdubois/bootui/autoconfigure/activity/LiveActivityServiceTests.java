@@ -782,6 +782,29 @@ class LiveActivityServiceTests {
     }
 
     @Test
+    void selectingFilteredEvidenceUsesTheSameMergeBeforeItsDisplayCap() {
+        var recorder = new io.github.jdubois.bootui.engine.cache.CacheActivityRecorder(true, 10);
+        recorder.recordMiss("cacheManager", "orders", "43");
+        recorder.recordHit("cacheManager", "orders", "42");
+        BootUiProperties properties = new BootUiProperties();
+        properties.getActivity().setMaxEntries(1);
+        var service = serviceWithCache(null, null, null, null, null, recorder, properties);
+        var visible = service.report(null, "WARN", 0, 0).entries().get(0);
+        assertThat(service.retainedEntries()).hasSize(2).contains(visible);
+        var settings = mock(io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings.class);
+        when(settings.instanceId()).thenReturn("app");
+        var queries = new io.github.jdubois.bootui.engine.activity.LiveActivityQueryService(
+                service::report,
+                service::retainedEntries,
+                new io.github.jdubois.bootui.engine.activity.SwitchableActivityStore(
+                        new io.github.jdubois.bootui.engine.activity.InMemoryActivityStore(10)),
+                settings,
+                () -> false,
+                entry -> true);
+        assertThat(queries.select(visible.id(), visible.timestamp()).event()).isEqualTo(visible);
+    }
+
+    @Test
     void cacheEntryDetailCarriesOnlyTheHashedKeyNeverTheRawKey() {
         io.github.jdubois.bootui.engine.cache.CacheActivityRecorder recorder =
                 new io.github.jdubois.bootui.engine.cache.CacheActivityRecorder(true, 10);

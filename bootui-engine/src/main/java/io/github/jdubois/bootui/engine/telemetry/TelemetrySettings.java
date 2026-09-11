@@ -32,6 +32,16 @@ public interface TelemetrySettings {
         return true;
     }
 
+    /** Read-time access to locally captured application-bean detail, independent of host spans. */
+    default boolean localInvocationDetailsEnabled() {
+        return true;
+    }
+
+    /** Safe exception-type metadata on local invocations also follows the exception source policy. */
+    default boolean localExceptionDetailsEnabled() {
+        return true;
+    }
+
     /**
      * Fixed snapshot of telemetry settings, useful for tests and for adapters whose configuration
      * never changes at runtime.

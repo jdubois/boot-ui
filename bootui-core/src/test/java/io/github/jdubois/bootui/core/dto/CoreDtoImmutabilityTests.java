@@ -50,6 +50,13 @@ class CoreDtoImmutabilityTests {
                         OverviewDto.class,
                         RepositoriesReport.class,
                         PanelsReport.class,
+                        ExplorerReport.class,
+                        ExplorerEventDto.class,
+                        ExplorerSetupDto.class,
+                        ExplorerInvocationDto.class,
+                        ExplorerLinkDto.class,
+                        ExplorerSqlDto.class,
+                        ExplorerCacheDto.class,
                         MemoryReport.class,
                         ConfigReport.class);
     }

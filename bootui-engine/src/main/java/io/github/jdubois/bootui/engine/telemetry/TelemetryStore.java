@@ -49,6 +49,8 @@ public class TelemetryStore {
 
     private volatile boolean idleSuspended = false;
 
+    private static final String LOCAL_SCOPE = "bootui.explorer";
+
     public TelemetryStore(TelemetrySettings settings) {
         this.settings = settings;
         this.tracesById = new LinkedHashMap<>(256, 0.75f, false);
@@ -70,6 +72,106 @@ public class TelemetryStore {
 
     private static int clamp(int value, int min, int max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    /** Cheap eligibility check; reservations repeat it under the write lock. */
+    public boolean acceptsLocalSpans(String traceId) {
+        lock.readLock().lock();
+        try {
+            return settings.enabled() && !idleSuspended && traceId != null && !selfTraceIds.containsKey(traceId);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Reserves before invocation allocation. Keeps up to sixteen slots (at least one, one quarter
+     * of small traces) for host/framework spans, including the HTTP root which normally arrives last.
+     * Reservations and omission counters live in the existing bounded bucket, not a second index.
+     */
+    public LocalSpanReservation reserveLocalSpan(String traceId) {
+        lock.writeLock().lock();
+        try {
+            if (!settings.enabled() || idleSuspended || traceId == null || selfTraceIds.containsKey(traceId)) {
+                return null;
+            }
+            MutableTraceBucket bucket = tracesById.get(traceId);
+            int capacity = effectiveMaxSpansPerTrace();
+            int hostReserve = Math.min(16, Math.max(1, capacity / 4));
+            if (bucket == null) {
+                bucket = new MutableTraceBucket(traceId);
+                evictForNewTrace();
+                tracesById.put(traceId, bucket);
+            }
+            if (bucket.localCalls >= 100 || bucket.spans.size() + bucket.localReservations >= capacity - hostReserve) {
+                return null;
+            }
+            bucket.localCalls++;
+            bucket.localReservations++;
+            return new LocalSpanReservation(bucket);
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /** Saturating omission counter; never creates a bucket merely to count dropped work. */
+    public void omitLocalSpan(String traceId) {
+        lock.writeLock().lock();
+        try {
+            MutableTraceBucket bucket = tracesById.get(traceId);
+            if (bucket != null) {
+                bucket.omitLocalSpan();
+            }
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Completes a local reservation without exporting or reviving a cleared/evicted trace. Passing
+     * null abandons it (for example when policy changed during the invocation).
+     */
+    public boolean completeLocalSpan(LocalSpanReservation reservation, NormalizedSpan span) {
+        lock.writeLock().lock();
+        try {
+            if (reservation == null || reservation.completed) {
+                return false;
+            }
+            reservation.completed = true;
+            MutableTraceBucket bucket = reservation.bucket;
+            bucket.localReservations--;
+            if (span == null
+                    || idleSuspended
+                    || !settings.enabled()
+                    || tracesById.get(bucket.traceId) != bucket
+                    || selfTraceIds.containsKey(bucket.traceId)) {
+                return false;
+            }
+            if (!bucket.traceId.equals(span.traceId())
+                    || !LOCAL_SCOPE.equals(span.scope())
+                    || bucket.spans.size() >= effectiveMaxSpansPerTrace()) {
+                bucket.omitLocalSpan();
+                return false;
+            }
+            bucket.spans.add(span);
+            bucket.lastUpdateEpochNanos = Math.max(bucket.lastUpdateEpochNanos, span.endEpochNanos());
+            tracesById.remove(bucket.traceId);
+            tracesById.put(bucket.traceId, bucket);
+            return true;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    private void evictForNewTrace() {
+        while (tracesById.size() >= effectiveMaxTraces()) {
+            Iterator<String> iterator = tracesById.keySet().iterator();
+            if (!iterator.hasNext()) {
+                return;
+            }
+            iterator.next();
+            iterator.remove();
+        }
     }
 
     /**
@@ -113,22 +215,25 @@ public class TelemetryStore {
             MutableTraceBucket bucket = tracesById.remove(traceId);
             if (bucket == null) {
                 bucket = new MutableTraceBucket(traceId);
-                while (tracesById.size() >= effectiveMaxTraces()) {
-                    Iterator<Map.Entry<String, MutableTraceBucket>> it =
-                            tracesById.entrySet().iterator();
-                    if (!it.hasNext()) {
+                evictForNewTrace();
+            }
+            // Existing telemetry wins over local detail when a busy trace consumes the reservation.
+            if (!LOCAL_SCOPE.equals(span.scope()) && bucket.spans.size() >= effectiveMaxSpansPerTrace()) {
+                for (int i = bucket.spans.size() - 1; i >= 0; i--) {
+                    if (LOCAL_SCOPE.equals(bucket.spans.get(i).scope())) {
+                        bucket.spans.remove(i);
+                        bucket.omitLocalSpan();
                         break;
                     }
-                    it.next();
-                    it.remove();
                 }
             }
-            if (bucket.spans.size() < effectiveMaxSpansPerTrace()) {
+            boolean stored = bucket.spans.size() < effectiveMaxSpansPerTrace();
+            if (stored) {
                 bucket.spans.add(span);
             }
             bucket.lastUpdateEpochNanos = Math.max(bucket.lastUpdateEpochNanos, span.endEpochNanos());
             tracesById.put(traceId, bucket);
-            return true;
+            return stored;
         } finally {
             lock.writeLock().unlock();
         }
@@ -140,7 +245,9 @@ public class TelemetryStore {
     public List<TraceBucket> recentTraces(int limit) {
         lock.readLock().lock();
         try {
-            List<MutableTraceBucket> buckets = new ArrayList<>(tracesById.values());
+            List<MutableTraceBucket> buckets = tracesById.values().stream()
+                    .filter(bucket -> !bucket.spans.isEmpty())
+                    .toList();
             int resultSize = limit > 0 ? Math.min(limit, buckets.size()) : buckets.size();
             List<TraceBucket> ordered = new ArrayList<>(resultSize);
             for (int i = buckets.size() - 1; i >= buckets.size() - resultSize; i--) {
@@ -156,7 +263,7 @@ public class TelemetryStore {
         lock.readLock().lock();
         try {
             MutableTraceBucket bucket = tracesById.get(traceId);
-            return bucket == null ? null : bucket.snapshot();
+            return bucket == null || bucket.spans.isEmpty() ? null : bucket.snapshot();
         } finally {
             lock.readLock().unlock();
         }
@@ -165,7 +272,9 @@ public class TelemetryStore {
     public int retainedTraceCount() {
         lock.readLock().lock();
         try {
-            return tracesById.size();
+            return (int) tracesById.values().stream()
+                    .filter(bucket -> !bucket.spans.isEmpty())
+                    .count();
         } finally {
             lock.readLock().unlock();
         }
@@ -229,10 +338,14 @@ public class TelemetryStore {
 
         private final long lastUpdateEpochNanos;
 
-        private TraceBucket(String traceId, List<NormalizedSpan> spans, long lastUpdateEpochNanos) {
+        private final int omittedLocalSpans;
+
+        private TraceBucket(
+                String traceId, List<NormalizedSpan> spans, long lastUpdateEpochNanos, int omittedLocalSpans) {
             this.traceId = traceId;
             this.spans = List.copyOf(spans);
             this.lastUpdateEpochNanos = lastUpdateEpochNanos;
+            this.omittedLocalSpans = omittedLocalSpans;
         }
 
         public String traceId() {
@@ -243,8 +356,29 @@ public class TelemetryStore {
             return spans;
         }
 
+        /** A read projection only; never mutates retention or the original evidence. */
+        public TraceBucket filterSpans(java.util.function.Predicate<NormalizedSpan> include) {
+            return new TraceBucket(
+                    traceId, spans.stream().filter(include).toList(), lastUpdateEpochNanos, omittedLocalSpans);
+        }
+
         public long lastUpdateEpochNanos() {
             return lastUpdateEpochNanos;
+        }
+
+        /** Explorer omissions, saturating at Integer.MAX_VALUE; scoped to this retained trace bucket. */
+        public int omittedLocalSpans() {
+            return omittedLocalSpans;
+        }
+    }
+
+    /** Opaque, single-use reservation; invalidated by clear, idle suspension, self exclusion or eviction. */
+    public static final class LocalSpanReservation {
+        private final MutableTraceBucket bucket;
+        private boolean completed;
+
+        private LocalSpanReservation(MutableTraceBucket bucket) {
+            this.bucket = bucket;
         }
     }
 
@@ -256,12 +390,22 @@ public class TelemetryStore {
 
         private long lastUpdateEpochNanos;
 
+        private int localReservations;
+        private int localCalls;
+        private int omittedLocalSpans;
+
         private MutableTraceBucket(String traceId) {
             this.traceId = traceId;
         }
 
         private TraceBucket snapshot() {
-            return new TraceBucket(traceId, spans, lastUpdateEpochNanos);
+            return new TraceBucket(traceId, spans, lastUpdateEpochNanos, omittedLocalSpans);
+        }
+
+        private void omitLocalSpan() {
+            if (omittedLocalSpans < Integer.MAX_VALUE) {
+                omittedLocalSpans++;
+            }
         }
     }
 }

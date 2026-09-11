@@ -49,6 +49,14 @@ class McpToolDescriptionsTests {
                         .endsWith("."));
     }
 
+    @Test
+    void explorerGuidanceDistinguishesCanonicalActivityFromOptionalDetail() {
+        assertThat(McpToolDescriptions.spring("get_explorer"))
+                .contains("Read-only", "off by default", "restart", "All ten", "source policy", "canonical event id");
+        assertThat(McpToolDescriptions.spring("get_explorer_event"))
+                .contains("not a trace id", "expired", "not table health", "not extra exception", "no keys or values");
+    }
+
     /**
      * The Configuration search guidance is the one description agents were observed to misread: it must state the
      * relaxed-binding rule rather than merely name it, and it must keep {@code total} (every property, before

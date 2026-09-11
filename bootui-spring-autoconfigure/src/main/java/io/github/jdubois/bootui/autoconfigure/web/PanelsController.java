@@ -14,6 +14,7 @@ import io.github.jdubois.bootui.engine.websocket.WebSocketService;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.regex.Pattern;
+import org.springframework.aot.AotDetector;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReportEndpoint;
 import org.springframework.boot.actuate.beans.BeansEndpoint;
@@ -114,6 +115,7 @@ public class PanelsController {
                     BootUiPanels.CLI,
                     BootUiPanels.DATABASE_ADVISOR -> available();
             case BootUiPanels.MCP_SERVER -> availability(mcpServerAvailable(), mcpServerUnavailableReason());
+            case BootUiPanels.EXPLORER -> explorerAvailability();
             case BootUiPanels.JVM_TUNING ->
                 availability(
                         !nativeImageDetected(), "JVM Tuning is not applicable when running as a GraalVM native image");
@@ -222,6 +224,23 @@ public class PanelsController {
 
     private Availability available() {
         return availability(true, null);
+    }
+
+    private Availability explorerAvailability() {
+        if (isReactive()) {
+            return availability(false, "3D Explorer is not supported on Spring WebFlux in v1; use Live Activity.");
+        }
+        if (nativeImageDetected() || aotArtifactsDetected()) {
+            return availability(
+                    false, "3D Explorer is not supported in native images or AOT mode in v1; use Live Activity.");
+        }
+        return availability(
+                properties.isPanelEnabled(BootUiPanels.ACTIVITY),
+                "3D Explorer requires Live Activity; bootui.panels.activity.enabled=false.");
+    }
+
+    boolean aotArtifactsDetected() {
+        return AotDetector.useGeneratedArtifacts();
     }
 
     private Availability availability(boolean available, String unavailableReason) {

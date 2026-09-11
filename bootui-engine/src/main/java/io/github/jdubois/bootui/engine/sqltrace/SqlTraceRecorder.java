@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.engine.activity.BootUiJdbcCaptureGuard;
 import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
+import io.github.jdubois.bootui.spi.InvocationContextProvider;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -78,7 +79,45 @@ public final class SqlTraceRecorder implements IdleReclaimable {
             String thread,
             String traceId,
             List<String> parameters,
-            String callSite) {
+            String callSite,
+            String invocationId,
+            String dataSource) {
+
+        public CapturedStatement(
+                long id,
+                long timestamp,
+                String sql,
+                StatementType statementType,
+                Category category,
+                long durationMillis,
+                boolean success,
+                String errorMessage,
+                Long affectedRows,
+                int batchSize,
+                String connectionId,
+                String thread,
+                String traceId,
+                List<String> parameters,
+                String callSite) {
+            this(
+                    id,
+                    timestamp,
+                    sql,
+                    statementType,
+                    category,
+                    durationMillis,
+                    success,
+                    errorMessage,
+                    affectedRows,
+                    batchSize,
+                    connectionId,
+                    thread,
+                    traceId,
+                    parameters,
+                    callSite,
+                    null,
+                    null);
+        }
 
         public CapturedStatement {
             parameters = parameters == null ? List.of() : List.copyOf(parameters);
@@ -105,6 +144,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
     private volatile TraceIdProvider traceIdProvider = SqlTraceRecorder::mdcTraceId;
     private volatile SpanEnricher spanEnricher = SpanEnricher.NO_OP;
+    private volatile InvocationContextProvider invocationContextProvider = InvocationContextProvider.NO_OP;
 
     public SqlTraceRecorder(
             boolean enabled,
@@ -162,6 +202,24 @@ public final class SqlTraceRecorder implements IdleReclaimable {
         this.traceIdProvider = traceIdProvider == null ? SqlTraceRecorder::mdcTraceId : traceIdProvider;
     }
 
+    public void setInvocationContextProvider(InvocationContextProvider provider) {
+        invocationContextProvider = provider == null ? InvocationContextProvider.NO_OP : provider;
+    }
+
+    /** Snapshot at JDBC execute entry, including the existing trace provider, never at completion. */
+    public InvocationContextProvider.Context captureContext() {
+        if (!enabled || idleSuspended || !recording.get() || BootUiJdbcCaptureGuard.isSuppressed()) {
+            return InvocationContextProvider.EMPTY;
+        }
+        InvocationContextProvider.Context context = InvocationContextProvider.snapshot(invocationContextProvider);
+        String traceId = resolveTraceId();
+        if (traceId == null) {
+            return context;
+        }
+        return new InvocationContextProvider.Context(
+                traceId, traceId.equals(context.traceId()) ? context.invocationId() : null);
+    }
+
     /**
      * Installs the {@link SpanEnricher} used to stamp {@code bootui.sql.*} depth attributes on the active
      * request span as statements are recorded. Defaults to {@link SpanEnricher#NO_OP}; each adapter installs
@@ -212,6 +270,37 @@ public final class SqlTraceRecorder implements IdleReclaimable {
             int batchSize,
             String connectionId,
             String thread) {
+        record(
+                statementType,
+                category,
+                sql,
+                parameters,
+                durationMillis,
+                success,
+                errorMessage,
+                affectedRows,
+                batchSize,
+                connectionId,
+                thread,
+                captureContext(),
+                null);
+    }
+
+    /** Records the exact context snapshotted by the existing JDBC interceptor at execution entry. */
+    public void record(
+            StatementType statementType,
+            Category category,
+            String sql,
+            List<String> parameters,
+            long durationMillis,
+            boolean success,
+            String errorMessage,
+            Long affectedRows,
+            int batchSize,
+            String connectionId,
+            String thread,
+            InvocationContextProvider.Context context,
+            String dataSource) {
         if (!enabled || idleSuspended || !recording.get() || BootUiJdbcCaptureGuard.isSuppressed()) {
             return;
         }
@@ -228,9 +317,11 @@ public final class SqlTraceRecorder implements IdleReclaimable {
                 Math.max(0, batchSize),
                 connectionId,
                 thread,
-                resolveTraceId(),
+                context == null ? null : context.traceId(),
                 captureParameters ? List.copyOf(parameters == null ? List.of() : parameters) : List.of(),
-                captureCallSite ? currentCallSite() : null);
+                captureCallSite ? currentCallSite() : null,
+                context == null ? null : context.invocationId(),
+                dataSource);
         synchronized (lock) {
             buffer.addLast(entry);
             while (buffer.size() > maxEntries) {

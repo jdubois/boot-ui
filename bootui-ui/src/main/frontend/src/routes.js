@@ -51,6 +51,7 @@ const Copilot = () => import('./views/Copilot.vue')
 const McpServer = () => import('./views/McpServer.vue')
 const Cli = () => import('./views/Cli.vue')
 const LiveActivity = () => import('./views/LiveActivity.vue')
+const Explorer = () => import('./views/Explorer.vue')
 const Email = () => import('./views/Email.vue')
 const Kafka = () => import('./views/Kafka.vue')
 const RabbitMQ = () => import('./views/RabbitMQ.vue')
@@ -94,6 +95,18 @@ export const routes = [
       title: 'Live Activity',
       shortcut: 'la',
       keywords: ['realtime', 'live', 'stream', 'feed', 'events', 'recent']
+    }
+  },
+  {
+    path: '/explorer',
+    name: 'explorer',
+    component: Explorer,
+    meta: {
+      group: groups.overview,
+      icon: 'bi-box',
+      title: '3D Explorer',
+      shortcut: 'exl',
+      keywords: ['3d', 'explorer', 'journey', 'beans', 'calls', 'sql', 'cache', 'replay', 'activity']
     }
   },
   {

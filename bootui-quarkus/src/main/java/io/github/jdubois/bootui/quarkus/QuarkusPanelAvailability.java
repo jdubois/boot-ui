@@ -409,6 +409,8 @@ public class QuarkusPanelAvailability {
                     + " listener without far more invasive instrumentation, so this panel is not used here.");
 
     private static final Map<String, String> NOT_YET_AVAILABLE_REASONS = Map.of(
+            BootUiPanels.EXPLORER,
+            "3D Explorer is not supported on Quarkus in v1; use Live Activity. Bean capture requires Spring MVC on the JVM.",
             BootUiPanels.JMS,
             "Not yet available on Quarkus: BootUI's current JMS capture targets Spring JMS (JmsTemplate and"
                     + " @JmsListener). Use the Kafka or RabbitMQ panels for Quarkus Reactive Messaging.");

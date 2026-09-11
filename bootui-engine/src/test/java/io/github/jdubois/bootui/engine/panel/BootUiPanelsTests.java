@@ -69,6 +69,16 @@ class BootUiPanelsTests {
                 .withMessageContaining("duplicate API prefixes");
     }
 
+    @Test
+    void explorerRootAndCanonicalEventReadsArePanelGatedAndNotActions() {
+        Panel explorer = BootUiPanels.byId(BootUiPanels.EXPLORER).orElseThrow();
+        assertThat(explorer.title()).isEqualTo("3D Explorer");
+        assertThat(explorer.actionCapable()).isFalse();
+        assertThat(BootUiPanels.byApiPath("/explorer")).contains(explorer);
+        assertThat(BootUiPanels.byApiPath("/explorer/events/cache-17")).contains(explorer);
+        assertThat(BootUiPanels.byApiPath("/explorers")).isEmpty();
+    }
+
     private static String readString(Field field) {
         try {
             return (String) field.get(null);

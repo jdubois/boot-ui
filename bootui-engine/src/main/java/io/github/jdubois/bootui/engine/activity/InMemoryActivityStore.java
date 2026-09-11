@@ -59,6 +59,12 @@ public final class InMemoryActivityStore implements ActivityStore {
             if (!stored.instanceId().equals(query.instanceId())) {
                 continue;
             }
+            ActivityEntryDto entry = stored.entry();
+            if ((query.eventId() != null && !query.eventId().equals(entry.id()))
+                    || (query.correlationId() != null && !query.correlationId().equals(entry.correlationId()))
+                    || (query.parentId() != null && !query.parentId().equals(entry.parentId()))) {
+                continue;
+            }
             if (!matchesFilters(stored.entry(), type, severity, text, query.since(), query.until())) {
                 continue;
             }

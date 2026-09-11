@@ -1,5 +1,160 @@
 # Diagnostics
 
+## 3D Explorer
+
+![3D Explorer showing a real HTTP, bean, SQL and cache journey](../images/bootui-explorer.webp)
+
+**3D Explorer** lives in **Overview**, immediately after **Live Activity** (`/explorer`). It presents the same
+canonical activity feed in a Three.js scene with a readable execution tree, not a new monitor or simulated topology.
+Spring MVC on the JVM is supported; WebFlux, Quarkus, native images, and Spring AOT mode explicitly report unsupported
+in v1 and install no Explorer interception. Live Activity and its Live Flow mode remain unchanged.
+
+All ten canonical types are retained: `REQUEST`, `SQL`, `EXCEPTION`, `SECURITY`, `CACHE`, `SCHEDULED`, `MESSAGING`,
+`MAIL`, `REST_CLIENT`, and `FAULT_TOLERANCE`. Future types retain a generic readable event representation. A trace id
+is not required to select an event: scheduled work, consumed messages, and other uncorrelated activity remain
+independent entries rather than being forced beneath an HTTP request.
+
+### Setup and access
+
+Viewing existing activity requires no new capture setting. Bean detail is enabled by default on supported instances.
+To disable the additional bean advice while retaining the activity view, set:
+
+```properties
+bootui.explorer.enabled=false
+```
+
+The default is `true`; changing it requires an **application restart** to install or remove advice. Capture additionally
+requires active BootUI, enabled Explorer, Live Activity, Beans and Traces panels, and existing telemetry. Eligible
+synchronous HTTP requests must already have valid sampled tracing context. Explorer never enables tracing, SQL
+recording, parameter capture, or host sampling itself. With capture off or telemetry unavailable, the activity view
+still works and explains why bean detail is unavailable.
+
+`bootui.panels.explorer.enabled=false` rejects Explorer's API. Disabling Live Activity also blocks this alternative read
+path, including MCP/CLI. Live source-panel enable/capture/exposure policy and secret masking apply to historical data
+as well as fresh events. Disabling Beans removes bean detail; disabling a source never exposes its retained details
+through Explorer. SQL layers require the existing SQL Trace capability and evidence. There are no new start, stop,
+clear, database, or cache actions. Pause freezes browser refresh/playback, not server recording.
+
+### What the journey proves
+
+Selecting a traced request can show its observed controller, service, repository, other application-bean invocations,
+SQL executions, and SQL-derived references. These are **proxy invocations**: a cache hit can skip the method body,
+and repeated calls to one bean remain distinct invocations. Only capture-time evidence establishes an exact
+event-to-invocation link. Existing Live Activity request parentage remains separate, with its original confidence;
+timestamps, shared trace ids, or likely architectural layers never manufacture additional call edges.
+
+Bean spans are stored locally in the existing bounded trace store, **not emitted through the host application's
+outbound exporter**. There is no second trace store, HTTP recorder, SQL/cache wrapper, source listener, or persistence
+poller. Capture never records method arguments, return values, or exception messages. The thread-local scope is released
+on success and failure without changing host tracing context or propagation.
+
+| Evidence | Interpretation and limits |
+| --- | --- |
+| SQL references | Bounded lexical extraction from already captured SQL, not schema discovery, physical-table identity, or table health. Common SELECT/FROM/JOIN, INSERT, UPDATE, DELETE, and quoted/qualified identifiers are recognized conservatively. CTEs, subqueries, table-valued functions, unsupported syntax, truncated SQL, and batch previews remain partial/unavailable evidence. Datasource/catalog/schema can be unknown; same-named references are not assumed to be one physical table. Statement duration belongs to SQL, not to every referenced table. |
+| Cache operations | Manager + cache identity and observed HIT/MISS/PUT/EVICT/CLEAR metadata only; no keys, key hashes, values, or invented durations in the enrichment. MISS is not an error. A loader-based lookup records its result after the loader and does not prove an earlier miss or an implicit PUT. Uncaptured accessors (`retrieve`, `putIfAbsent`, `evictIfPresent`, `invalidate`) remain outside coverage. |
+| Exceptions | Failed invocations show where a failure escaped; they are not additional exception occurrences. Propagation follows only recorded failed parent-child edges and stops at a successful caller. Existing Exceptions grouping/occurrences stay authoritative. A handled exception does not imply HTTP 500, and a caught, unlogged internal failure can be invisible. |
+| Security | Preserve canonical grant/deny/audit meaning and source severity; a denial is not automatically an exception. |
+| Scheduled and messaging | Preserve background roots and recorded producer/consumer direction. A publish is not delivery confirmation; matching topics, timestamps, or trace ids do not invent end-to-end message causality. |
+| Mail and outbound HTTP | Captured mail is not proof of delivery. Outbound requests retain known status/timing, not inferred remote internals; the scene adds no mail payload or recipient data. |
+| Fault tolerance | Show only captured retries, rejections, timeouts, short circuits, or breaker transitions, without inventing attempts or paths. |
+
+Canonical event severity is copied unchanged. Spring's `bootui.activity.request-slow-threshold-ms` defaults to
+**1,000 ms**, and also labels measured bean invocations as slow. This is distinct from Live Flow's **500 ms** visual
+interaction threshold. SQL and REST Client keep their source slow flags; untimed events acquire no fabricated duration.
+Failed and slow remain separate facts, with failure taking animation precedence. Nested durations overlap and must
+not be added as request latency.
+
+### Bounds, history, and limitations
+
+The root GET reuses Live Activity's query selection, filters, source policy, and paging. Optional durable activity history
+can outlive in-memory bean, trace, and SQL evidence: the canonical event remains selectable with an expired/partial-detail
+explanation. There is no new persistence of bean detail. Missing parents, sampling, late-arriving roots, eviction,
+clear/restart races, and truncation never become a complete-looking successful trace.
+
+Bean capture is capped before storage at **100 invocations per request** and **32 nested levels**, additionally bounded
+by `bootui.telemetry.max-spans-per-trace`, with omitted counts reported. SQL-reference enrichment is bounded to
+64 references per selection. Related activity inherits existing query/source caps. Proxy self-invocation, methods that
+cannot be advised, unsupported async handoffs, and background bean advice are outside v1 coverage; their existing
+activity events still appear. Deferred ORM flush belongs to the scope in which SQL actually executed, not a guessed
+repository method.
+
+Advice is limited to singleton/static-target application proxies. New class proxies are not introduced for final
+classes, classes with callable final methods, or factory-created classes with only private constructors, because
+doing so could change application behavior or prevent startup. Existing
+compatible Spring Data and transaction/cache proxies retain their original semantics. Explorer does not change the
+application's proxy mode. In JDK-proxy mode, previously unproxied interface-backed beans are skipped when a new proxy
+would lose concrete-type assignability; existing compatible proxies can still be captured.
+
+Replay walks the execution tree one step at a time: each parent-to-child pulse completes before the next starts.
+Failed invocations first show the call entering, then show the observed failure while unwinding after their children;
+propagation still stops at successful callers. Repeated calls on a shared edge remain separate steps. Follow live uses
+the same sequential pacing for its bounded fresh-event batch, without building a backlog.
+
+Animation pacing is for readability, not recorded latency. Long sequences use compact pacing within the existing
+12-second presentation budget; actual durations and timestamps remain unchanged in the tree and inspector.
+Replay means playback of retained evidence, not live application execution. Initial load remains still; the DOM tree
+and inspector remain usable with reduced motion, on narrow screens, or when WebGL initialization fails. No sample
+traffic or external work runs on page load.
+
+### Browsing the 3D scene
+
+Focus the scene with **Tab** (or click a model), then use **← / →** to move between architectural stages and
+**↑ / ↓** to browse branches within a stage. Selection updates the execution tree and inspector; its full name is
+announced and the selected model has a focus ring. Grouped observations can be expanded with **Enter**.
+Use **Shift + arrows** to orbit, **+ / −** to zoom and **Home** to reset the camera without losing the selected journey.
+**Tab** continues to the next control; **Escape** leaves the scene. These shortcuts do not capture keys in the search
+field, execution tree or elsewhere on the page. Pointer drag and scroll still orbit and zoom.
+
+Use **Full screen** beside **Reset view** to give the scene the whole display. Arrow navigation, camera controls and
+selection remain available. **Exit full screen** or **Escape** returns to the panel and restores focus to the button.
+Fullscreen failures are reported without discarding the journey.
+
+Dense stages wrap into spaced rows and columns; cache/external observations and runtime signals sit separately from
+the architectural call path. Repeated identical fault-tolerance signals under the same captured parent share a model
+with an observation count, while every event and its timing remain in the tree and replay. Labels avoid both models
+and other labels, and camera framing includes the nearest as well as the furthest row.
+
+Models use locally bundled Bootstrap icon emblems and distinct silhouettes: HTTP gateways, controller signs, layered
+services, repository drawers, SQL terminals, database references and cache chips. Mail, messaging, security, scheduled
+work, fault tolerance and exceptions each have a corresponding model; unknown event types remain browsable as generic
+activity. Category accents are not health signals. Only recorded failure or slow evidence earns error or warning effects,
+and a database-shaped SQL reference still makes no claim about a physical table's health. Labels prioritize the selected
+node without overlapping neighboring labels; the complete evidence remains available in the tree and inspector.
+
+### Read-only API and agent access
+
+`GET /bootui/api/explorer` returns `ExplorerReport` (`available`, the unchanged `activity` report, and `setup`).
+It accepts Live Activity's `type`, `severity`, `since`, `limit`, and applicable history parameters `q`, `until`,
+`cursor`, `pageSize`. `GET /bootui/api/explorer/events/{id}` returns `ExplorerEventDto`: the selected canonical event,
+related entries, optional invocations and exact links, SQL references, cache operations, warnings, partial status,
+and omitted-invocation count. The id is a canonical **event id**, not a trace id.
+An optional `timestamp` query parameter pins the exact displayed evidence when source IDs restart or an aggregated
+event changes. The browser sends it automatically. Without it, detail reads the newest matching event in the current
+live/persistent query mode; expired versions never substitute a new event sharing the same id.
+
+On supported instances, `get_explorer` (`limit`) and `get_explorer_event` (required `id`) expose the same reads through
+MCP and the generated `bootui explorer list --limit 20` / `bootui explorer event <id>` commands. All mounts follow
+`bootui.path` / `bootui.api-path`; the existing local-only, authentication, and panel policies still apply.
+
+### Local overhead check
+
+A development-only check used Java 17.0.20.1 on macOS, the existing H2 sample, and sequential
+`GET /api/explorer-demo/3` requests: 300 warm-ups followed by 500 measurements in each separately launched JVM.
+The warm path returns a cache hit, so enabled capture observes two proxy invocations (controller + service), not
+repository/SQL work. Tracing and the existing activity capture stayed enabled in both runs.
+
+| Bean capture | Median HTTP round trip | p95 | Servlet-thread allocation/request |
+| --- | ---: | ---: | ---: |
+| Off (explicitly disabled; no Explorer proxies installed) | 1.378 ms | 2.195 ms | 96,653 bytes |
+| On (default) | 1.220 ms | 2.004 ms | 121,346 bytes |
+
+Allocation is the before/after delta from the JDK's `com.sun.management.ThreadMXBean`, accessed through an explicitly
+started local JMX connection, summed across `http-nio-8080-exec-*` threads. It excludes background exporter threads.
+The roughly 24.7 KB additional allocation per warm request is measurable; the small reversed latency difference is
+warm-up/machine noise, **not a speedup claim**. This bounded sample check is not a benchmark or performance guarantee.
+Real workloads, deeper call paths, exporter batching, retention pressure and enabled panels change the cost. No
+benchmark framework or application endpoint was added for measurement.
+
 ## Traces
 
 ![BootUI Traces panel](../images/bootui-traces.webp)

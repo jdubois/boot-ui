@@ -57,6 +57,11 @@ compromised.
 
 ### Rankings
 
+On Spring MVC JVM, [3D Explorer](diagnostics.md#_3d-explorer) can attach these existing executions to captured bean
+invocations and extract bounded lexical **SQL references**. It never queries a schema or treats a failed statement as
+table health. Unknown datasource/schema scope, unsupported syntax, truncation, and deferred ORM flush remain explicit
+limitations; no repository-to-table relationship is inferred from entity names.
+
 Above the execution list the panel ranks the retained window twice. Both tables deep-link into the filtered execution
 list below, so a slow ranking row is one click away from the individual executions behind it.
 

@@ -54,6 +54,7 @@
     { "id": "mcp-server", "title": "MCP Server", "actionCapable": true },
     { "id": "cli", "title": "Command Line", "actionCapable": false },
     { "id": "activity", "title": "Live Activity", "actionCapable": true },
+    { "id": "explorer", "title": "3D Explorer", "actionCapable": false },
     { "id": "email", "title": "Email", "actionCapable": true },
     { "id": "kafka", "title": "Kafka", "actionCapable": true },
     { "id": "rabbitmq", "title": "RabbitMQ", "actionCapable": true },

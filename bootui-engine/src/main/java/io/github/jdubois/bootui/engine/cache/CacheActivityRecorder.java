@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.cache;
 
+import io.github.jdubois.bootui.spi.InvocationContextProvider;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -36,6 +37,7 @@ public final class CacheActivityRecorder {
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
 
     private volatile TraceIdProvider traceIdProvider = CacheActivityRecorder::mdcTraceId;
+    private volatile InvocationContextProvider invocationContextProvider = InvocationContextProvider.NO_OP;
     private volatile boolean instrumentedManager;
 
     public CacheActivityRecorder(boolean enabled, int maxEntries) {
@@ -67,6 +69,23 @@ public final class CacheActivityRecorder {
         this.traceIdProvider = traceIdProvider == null ? CacheActivityRecorder::mdcTraceId : traceIdProvider;
     }
 
+    public void setInvocationContextProvider(InvocationContextProvider provider) {
+        invocationContextProvider = provider == null ? InvocationContextProvider.NO_OP : provider;
+    }
+
+    /** Snapshot before delegating a captured accessor, notably before a get(key, Callable) loader. */
+    public InvocationContextProvider.Context captureContext() {
+        if (!enabled) {
+            return InvocationContextProvider.EMPTY;
+        }
+        InvocationContextProvider.Context context = InvocationContextProvider.snapshot(invocationContextProvider);
+        String traceId = resolveTraceId();
+        return traceId == null
+                ? context
+                : new InvocationContextProvider.Context(
+                        traceId, traceId.equals(context.traceId()) ? context.invocationId() : null);
+    }
+
     /** Records a cache read that found a value. */
     public void recordHit(String managerName, String cacheName, Object key) {
         record(managerName, cacheName, CacheActivityOperation.HIT, key);
@@ -93,6 +112,16 @@ public final class CacheActivityRecorder {
     }
 
     private void record(String managerName, String cacheName, CacheActivityOperation operation, Object key) {
+        record(managerName, cacheName, operation, key, captureContext());
+    }
+
+    /** Completes an existing observation with its exact entry-time context, without reading keys/values anew. */
+    public void record(
+            String managerName,
+            String cacheName,
+            CacheActivityOperation operation,
+            Object key,
+            InvocationContextProvider.Context context) {
         if (!enabled) {
             return;
         }
@@ -104,8 +133,9 @@ public final class CacheActivityRecorder {
                     cacheName,
                     operation,
                     key == null ? null : hashKey(key),
-                    resolveTraceId(),
-                    Thread.currentThread().getName());
+                    context == null ? null : context.traceId(),
+                    Thread.currentThread().getName(),
+                    context == null ? null : context.invocationId());
             synchronized (lock) {
                 events.addLast(event);
                 while (events.size() > maxEntries) {

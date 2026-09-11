@@ -65,6 +65,19 @@ class BufferedActivityStoreTests {
     }
 
     @Test
+    void maximumPublicPageStillHasOneRowOfMergeLookahead() {
+        FakeDurableStore durable = new FakeDurableStore();
+        for (int i = 1; i <= 2001; i++) durable.accepted.add(stampedEntry(i, Integer.toString(i)));
+        try (BufferedActivityStore store =
+                new BufferedActivityStore(new InMemoryActivityStore(10), durable, LONG_INTERVAL, 100)) {
+            ActivityPage page = store.query(ActivityQuery.firstPage(INSTANCE).withPageSize(2000));
+            assertThat(page.entries()).hasSize(2000);
+            assertThat(page.hasMore()).isTrue();
+            assertThat(page.nextCursor()).isNotNull();
+        }
+    }
+
+    @Test
     void appendedEntriesAreVisibleImmediatelyBeforeAnyFlush() {
         FakeDurableStore durable = new FakeDurableStore();
         try (BufferedActivityStore store =

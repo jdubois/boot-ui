@@ -77,6 +77,14 @@ class QuarkusPanelAvailabilityTest {
     }
 
     @Test
+    void explorerIsExplicitlyUnsupportedEvenWhenCaptureIsRequested() {
+        PanelDto panel = manifestById(new StubConfig(Map.of("bootui.explorer.enabled", "true")))
+                .get(BootUiPanels.EXPLORER);
+        assertThat(panel.available()).isFalse();
+        assertThat(panel.unavailableReason()).contains("not supported on Quarkus in v1", "Live Activity", "Spring MVC");
+    }
+
+    @Test
     void springOnlyFinishersRedirectToTheirQuarkusEquivalents() {
         // Spring Data and Spring Security are NOT_APPLICABLE on Quarkus, but their reasons must point users at
         // the Quarkus-native panels that do cover the concern (Hibernate advisor / Security advisor).

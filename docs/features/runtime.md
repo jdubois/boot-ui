@@ -1,5 +1,10 @@
 # Runtime
 
+For an observed request journey on Spring MVC JVM, [3D Explorer](diagnostics.md#_3d-explorer) complements these runtime
+panels with existing activity and optional local bean calls. Slow or failed operations are evidence about those
+operations, not JVM or dependency health. Native images and Spring AOT mode do not support Explorer v1; Live Activity
+remains the activity view on those runtimes.
+
 ## Health
 
 ![BootUI Health panel](../images/bootui-health.webp)

@@ -16,6 +16,7 @@ import io.github.jdubois.bootui.autoconfigure.databaseadvisor.DatabaseAdvisorCon
 import io.github.jdubois.bootui.autoconfigure.exceptions.BootUiExceptionHandlerResolver;
 import io.github.jdubois.bootui.autoconfigure.exceptions.BootUiExceptionLogAppender;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
+import io.github.jdubois.bootui.autoconfigure.explorer.ExplorerController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateStatisticsController;
@@ -182,6 +183,7 @@ import tools.jackson.databind.ObjectMapper;
     GraalVmController.class,
     CracController.class,
     LiveActivityController.class,
+    ExplorerController.class,
     LiveServiceMapController.class,
     EmailController.class,
     KafkaController.class,
@@ -224,6 +226,7 @@ public class BootUiAutoConfiguration {
             GraalVmController.class.getName(),
             CracController.class.getName(),
             LiveActivityController.class.getName(),
+            ExplorerController.class.getName(),
             LiveServiceMapController.class.getName(),
             EmailController.class.getName(),
             KafkaController.class.getName(),

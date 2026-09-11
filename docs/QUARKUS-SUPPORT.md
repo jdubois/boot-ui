@@ -216,7 +216,7 @@ panel and is not claimed beyond the native-image tests that exercise that capabi
 producer builds the shared engine `CliService` over the same `QuarkusMcpTools` registry and `QuarkusMcpPanelPolicy`, and
 a thin JAX-RS resource maps the outcome onto HTTP status codes. It is enabled by default (`bootui.cli.enabled`), needs
 no MCP toggle, and is pinned to the Spring stacks by the shared CLI conformance suite. The 62 tools Quarkus advertises
-are a subset of the 78 Spring MVC exposes, so the catalog a client reads at runtime is authoritative.
+are a subset of the 80 Spring MVC exposes, so the catalog a client reads at runtime is authoritative.
 
 **Dev Services** is a Quarkus-native concept: a build-time `DevServicesResultBuildItem` snapshot captured via recorder +
 synthetic bean, with masked config and logs/restart unavailable. Service `type` is classified via the shared
@@ -500,14 +500,18 @@ No equivalent, low value, or superseded by Quarkus's own tooling:
   a custom interceptor ordered ahead of every other interceptor); the panel honestly reports *not applicable* rather
   than forcing a lower-fidelity capture path.
 
-### 5.6 Not yet available on Quarkus (1)
+### 5.6 Not yet available on Quarkus (2)
 
 - `JMS` uses Spring JMS (`JmsTemplate` and `@JmsListener`) today. Quarkus users can use the implemented Kafka and RabbitMQ
   panels while a Quarkus-native JMS capture layer remains unimplemented.
+- `3D Explorer` v1 requires Spring MVC JVM. The `explorer` manifest entry explicitly reports unsupported and points to
+  Live Activity. Quarkus installs no Explorer interceptor, resource, or producer, and `bootui.explorer.enabled` has no
+  effect. The shared catalog declares `get_explorer` / `get_explorer_event` as MVC-only, so Quarkus does not advertise
+  the tools or their CLI bindings. Existing Live Activity, capture and telemetry are unchanged.
 
-**Result:** 48 of the 58 panels ship on Quarkus: 27 are statically available and 21 are capability/detector-gated. The
-remaining 10 panels do not ship: 9 are intentionally not applicable (GraalVM, CRaC, Conditions, Startup Timeline, HTTP
-Sessions, Spring Data, Spring Security, Spring DevTools, Transactions), and 1 (`JMS`) is not yet available. By portability
+**Result:** 48 of the 59 panels ship on Quarkus: 27 are statically available and 21 are capability/detector-gated. The
+remaining 11 panels do not ship: 9 are intentionally not applicable (GraalVM, CRaC, Conditions, Startup Timeline, HTTP
+Sessions, Spring Data, Spring Security, Spring DevTools, Transactions), and 2 (`JMS`, `3D Explorer`) are not yet available. By portability
 strategy, the 48 shipped panels comprise 20 ported as-is, 12 source-swapped, 13 capture-rebuilt, and 3 replaced with a
 Quarkus-native panel. The Overview dashboard panel is available (its scoring dashboard renders client-side from the
 advisor endpoints, and the shell-chrome `GET /bootui/api/overview` endpoint is served on both adapters).
@@ -739,6 +743,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Database Connection Pools | **done**    | Rebuild | Pool model                       | `DataSourcePoolProvider` → Agroal           |
 | SQL Trace           | **done**    | Rebuild | SQL trace model                  | `SqlTraceSource` → Agroal/JDBC              |
 | Live Activity       | **done**    | Rebuild | Activity model                   | `RequestCaptureSource` → Vert.x; OTel trace-id correlation + trace-id-only profile drill-down; optional JDBC persistence backend via `QuarkusActivityCapture` (unconditional producers, identical to Spring); Kafka and RabbitMQ messaging capture via SmallRye `Outgoing`/`IncomingInterceptor` feeding the shared transport recorders; captured email (`MAIL`) reuses the shared `EmailCaptureService` directly, no separate capture needed |
+| 3D Explorer         | **planned** | Not yet | Canonical activity + local invocation projection | v1 requires Spring MVC JVM; no Quarkus interceptor, resource, or headless binding |
 | HTTP Exchanges      | **done**    | Rebuild | Exchange model                   | `HttpExchangeProvider` → Vert.x             |
 | Exceptions          | **done**    | Rebuild | Exception model                   | log handler + Vert.x failure handler + `PreExceptionMapperHandlerBuildItem` |
 | Security Logs       | **done**    | Rebuild | Audit model                      | `AuditEventProvider` → CDI events           |

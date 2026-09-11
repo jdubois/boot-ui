@@ -239,6 +239,58 @@ public abstract class AbstractMcpConformanceTest {
     }
 
     @Test
+    void testMcpExplorerToolsFollowAvailabilityAndRequireAnEventId() {
+        assertThat(enableMcp()).isTrue();
+        try {
+            boolean available = false;
+            for (JsonNode panel : probe().get("/bootui/api/panels").json().path("panels")) {
+                if ("explorer".equals(panel.path("id").asText())) {
+                    available = panel.path("available").asBoolean();
+                }
+            }
+            Response response = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of("Content-Type", "application/json"),
+                            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}");
+            java.util.List<String> names = new java.util.ArrayList<>();
+            response.json()
+                    .path("result")
+                    .path("tools")
+                    .forEach(tool -> names.add(tool.path("name").asText()));
+            assertThat(names.contains("get_explorer")).isEqualTo(available);
+            assertThat(names.contains("get_explorer_event")).isEqualTo(available);
+            if (available) {
+                Response missingId = probe().request(
+                                "POST",
+                                "/bootui/api/mcp",
+                                Map.of("Content-Type", "application/json"),
+                                "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\","
+                                        + "\"params\":{\"name\":\"get_explorer_event\",\"arguments\":{}}}");
+                assertThat(missingId.json().path("error").path("code").asInt()).isEqualTo(-32602);
+                Response report = probe().request(
+                                "POST",
+                                "/bootui/api/mcp",
+                                Map.of("Content-Type", "application/json"),
+                                "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\","
+                                        + "\"params\":{\"name\":\"get_explorer\",\"arguments\":{\"limit\":2}}}");
+                assertThat(report.status()).isEqualTo(200);
+                assertThat(report.json().path("result").path("isError").asBoolean())
+                        .isFalse();
+                assertThat(report.json()
+                                .path("result")
+                                .path("content")
+                                .get(0)
+                                .path("text")
+                                .asText())
+                        .contains("\"activity\"", "\"setup\"");
+            }
+        } finally {
+            disableMcp();
+        }
+    }
+
+    @Test
     void testMcpPingWhenEnabled() {
         assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
         try {

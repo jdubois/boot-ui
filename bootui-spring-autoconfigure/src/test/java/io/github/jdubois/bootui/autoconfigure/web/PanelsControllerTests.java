@@ -243,6 +243,14 @@ class PanelsControllerTests {
             context.refresh();
             BootUiProperties properties = new BootUiProperties();
             properties.getTelemetry().setEnabled(false);
+            properties
+                    .getPanels()
+                    .computeIfAbsent(BootUiPanels.BEANS, id -> new BootUiProperties.Panel())
+                    .setEnabled(false);
+            properties
+                    .getPanels()
+                    .computeIfAbsent(BootUiPanels.TRACES, id -> new BootUiProperties.Panel())
+                    .setEnabled(false);
             MockMvc mvc = standaloneSetup(new PanelsController(context, context.getEnvironment(), properties))
                     .build();
 
@@ -354,6 +362,12 @@ class PanelsControllerTests {
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.JVM_TUNING) + ".unavailableReason")
                             .value("JVM Tuning is not applicable when running as a GraalVM native image"))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.EXPLORER) + ".available")
+                            .value(false))
+                    .andExpect(
+                            jsonPath(panelPath(BootUiPanels.EXPLORER) + ".unavailableReason")
+                                    .value(
+                                            "3D Explorer is not supported in native images or AOT mode in v1; use Live Activity."))
                     .andExpect(jsonPath(panelPath(BootUiPanels.GRAALVM) + ".available")
                             .value(false))
                     .andExpect(
@@ -384,6 +398,55 @@ class PanelsControllerTests {
     }
 
     @Test
+    void explorerAvailabilityRequiresActivityButNotCaptureOrTelemetry() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.refresh();
+            BootUiProperties properties = new BootUiProperties();
+            properties.getTelemetry().setEnabled(false);
+            PanelsController controller = new PanelsController(context, context.getEnvironment(), properties);
+            assertThat(controller.panels().panels())
+                    .filteredOn(panel -> panel.id().equals(BootUiPanels.EXPLORER))
+                    .singleElement()
+                    .satisfies(panel -> {
+                        assertThat(panel.available()).isTrue();
+                        assertThat(panel.readOnly()).isFalse();
+                    });
+            properties
+                    .getPanels()
+                    .computeIfAbsent(BootUiPanels.ACTIVITY, id -> new BootUiProperties.Panel())
+                    .setEnabled(false);
+            assertThat(controller.panels().panels())
+                    .filteredOn(panel -> panel.id().equals(BootUiPanels.EXPLORER))
+                    .singleElement()
+                    .satisfies(panel -> {
+                        assertThat(panel.available()).isFalse();
+                        assertThat(panel.unavailableReason()).contains("requires Live Activity");
+                    });
+        }
+    }
+
+    @Test
+    void explorerIsUnsupportedWithAotArtifactsEvenOnTheJvm() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.refresh();
+            PanelsController controller =
+                    new PanelsController(context, context.getEnvironment(), new BootUiProperties()) {
+                        @Override
+                        boolean aotArtifactsDetected() {
+                            return true;
+                        }
+                    };
+            assertThat(controller.panels().panels())
+                    .filteredOn(panel -> panel.id().equals(BootUiPanels.EXPLORER))
+                    .singleElement()
+                    .satisfies(panel -> {
+                        assertThat(panel.available()).isFalse();
+                        assertThat(panel.unavailableReason()).contains("AOT mode");
+                    });
+        }
+    }
+
+    @Test
     void panelsReportsTheReactivePlatformAndDivergentAvailabilityUnderWebFlux() throws Exception {
         // GenericReactiveWebApplicationContext is the Spring Boot marker Spring uses for a genuine WebFlux
         // (reactive) ApplicationContext - the same shared PanelsController that BootUiReactiveAutoConfiguration
@@ -406,6 +469,10 @@ class PanelsControllerTests {
             mvc.perform(get("/bootui/api/panels"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.platform").value(PanelsReport.PLATFORM_SPRING_BOOT_REACTIVE))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.EXPLORER) + ".available")
+                            .value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.EXPLORER) + ".unavailableReason")
+                            .value(startsWith("3D Explorer is not supported on Spring WebFlux")))
                     .andExpect(jsonPath(panelPath(BootUiPanels.HTTP_SESSIONS) + ".available")
                             .value(false))
                     .andExpect(jsonPath(panelPath(BootUiPanels.HTTP_SESSIONS) + ".unavailableReason")

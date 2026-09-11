@@ -121,6 +121,8 @@ public final class McpToolCatalog {
             entry("vulnerabilities_scan", McpToolSchema.NONE, BootUiPanels.VULNERABILITIES, true, ALL_STACKS),
             entry("get_vulnerabilities_report", McpToolSchema.NONE, BootUiPanels.VULNERABILITIES, false, ALL_STACKS),
             entry("get_live_activity", McpToolSchema.LIMIT, BootUiPanels.ACTIVITY, false, ALL_STACKS),
+            entry("get_explorer", McpToolSchema.LIMIT, BootUiPanels.EXPLORER, false, Set.of(Stack.SPRING_MVC)),
+            entry("get_explorer_event", McpToolSchema.ID, BootUiPanels.EXPLORER, false, Set.of(Stack.SPRING_MVC)),
             entry("get_exceptions", McpToolSchema.NONE, BootUiPanels.EXCEPTIONS, false, ALL_STACKS),
             entry("get_exception_detail", McpToolSchema.ID, BootUiPanels.EXCEPTIONS, false, ALL_STACKS),
             entry("clear_exceptions", McpToolSchema.NONE, BootUiPanels.EXCEPTIONS, true, ALL_STACKS),

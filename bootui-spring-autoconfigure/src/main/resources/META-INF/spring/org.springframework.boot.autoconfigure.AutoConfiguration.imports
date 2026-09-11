@@ -3,3 +3,4 @@ io.github.jdubois.bootui.autoconfigure.BootUiReactiveAutoConfiguration
 io.github.jdubois.bootui.autoconfigure.BootUiSpringSecurityAutoConfiguration
 io.github.jdubois.bootui.autoconfigure.BootUiReactiveSpringSecurityAutoConfiguration
 io.github.jdubois.bootui.autoconfigure.BootUiShellGuardAutoConfiguration
+io.github.jdubois.bootui.autoconfigure.explorer.BootUiExplorerAutoConfiguration

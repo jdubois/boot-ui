@@ -198,6 +198,22 @@ refuse the action, and `panel disabled` when the panel is off. This is also how 
 Quarkus application advertises fewer tools than Spring MVC, and some Spring tools appear only when the
 corresponding library is on the classpath.
 
+## 3D Explorer
+
+For a read-only request journey on supported Spring MVC JVM applications:
+
+```bash
+bootui explorer list --limit 20 --json
+bootui explorer event <event-id> --json
+```
+
+Use a canonical id from `activity.entries` in the Explorer result (or from Live Activity), not a trace id. The list
+uses the same bounded `limit` as `bootui activity`; selected detail may contain local bean calls, SQL references, and
+cache-operation metadata, or explain unavailable/expired evidence. Capture defaults off and requires restart to enable;
+the commands never turn it on. Live Activity, Beans and source-panel policy still applies. WebFlux, Quarkus, native
+images and AOT mode do not advertise these reads. SQL references are not table health and failed calls are not new
+exception occurrences.
+
 ## The MCP server
 
 The MCP server is a panel like any other, so the CLI can inspect and toggle it — subject to that panel's own
@@ -294,6 +310,8 @@ exposes a tool is still what `bootui tools` says.
 | `bootui devtools livereload` | `trigger_devtools_livereload` | — | action | Spring MVC, WebFlux |
 | `bootui devtools status` | `get_devtools_status` | — | read | Spring MVC, WebFlux |
 | `bootui exceptions clear` | `clear_exceptions` | — | action | all |
+| `bootui explorer list` | `get_explorer` | `--limit` | read | Spring MVC JVM |
+| `bootui explorer event <id>` | `get_explorer_event` | required `id` | read | Spring MVC JVM |
 | `bootui exceptions list` | `get_exceptions` | — | read | all |
 | `bootui exceptions show` | `get_exception_detail` | `<id>` | read | all |
 | `bootui fault-tolerance` | `get_fault_tolerance` | — | read | all |

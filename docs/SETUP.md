@@ -116,6 +116,21 @@ paths below `/bootui/**` are reserved and rejected. When a custom path is active
 it is not a compatibility alias. See the [property reference](PROPERTIES.md#custom-ui-and-api-paths) for the complete
 contract.
 
+### 3D Explorer bean detail
+
+On Spring MVC JVM, open **3D Explorer** immediately below **Live Activity** to view existing activity without extra
+setup. Local bean-invocation detail is enabled by default for eligible synchronous traced HTTP requests.
+To disable this additional capture, set the following property and restart:
+
+```properties
+bootui.explorer.enabled=false
+```
+
+Capture defaults to `true` and also requires enabled Explorer, Live Activity, Beans, Traces, and telemetry. Visiting
+the panel never enables tracing, SQL capture, or host sampling. With capture off or no trace, existing events still
+appear. WebFlux, Quarkus, native images, and Spring AOT mode report unsupported in v1. Bean spans stay in BootUI's local
+trace store rather than entering the host's outbound exporter. See [setup and limitations](features/diagnostics.md#_3d-explorer).
+
 ## Next steps
 
 You are done — everything below is optional, and only when you need it.

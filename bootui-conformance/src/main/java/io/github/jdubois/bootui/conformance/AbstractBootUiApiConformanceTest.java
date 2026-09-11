@@ -1355,6 +1355,56 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void explorerHasBoundedCanonicalActivityAndSelectedEventContracts() {
+        assumeTrue(isPanelUsableInLiveManifest("explorer"), "Explorer requires Spring MVC JVM and Live Activity");
+        Response response = probe().get(api("/explorer?limit=2"));
+        assertThat(response.status()).isEqualTo(200);
+        JsonNode report = response.json();
+        assertThat(report.path("activity").path("entries").isArray()).isTrue();
+        JsonNode entries = report.path("activity").path("entries");
+        assertThat(entries.size()).isLessThanOrEqualTo(2);
+        assertThat(report.path("setup").path("beanCaptureEnabled").isBoolean()).isTrue();
+        assertThat(report.path("setup").path("beanDetailAvailable").isBoolean()).isTrue();
+        for (JsonNode event : entries) {
+            String id = event.path("id").asText();
+            assertThat(id).isNotBlank();
+            Response selected = probe().get(api("/explorer/events/" + URLEncoder.encode(id, StandardCharsets.UTF_8)
+                    + "?timestamp=" + event.path("timestamp").asLong()));
+            assertThat(selected.status()).isEqualTo(200);
+            JsonNode detail = selected.json();
+            assertThat(detail.path("found").isBoolean()).isTrue();
+            for (String field :
+                    List.of("related", "invocations", "links", "sqlReferences", "cacheOperations", "warnings")) {
+                assertThat(detail.path(field).isArray()).as(field).isTrue();
+            }
+            assertThat(detail.path("partial").isBoolean()).isTrue();
+            assertThat(detail.path("omittedInvocations").asInt(-1)).isNotNegative();
+            if (detail.path("found").asBoolean()) {
+                assertThat(detail.path("event").path("id").asText()).isEqualTo(id);
+                assertThat(detail.path("event").path("type")).isEqualTo(event.path("type"));
+                assertThat(detail.path("event").path("severity")).isEqualTo(event.path("severity"));
+                assertThat(detail.path("event").path("timestamp")).isEqualTo(event.path("timestamp"));
+            }
+        }
+    }
+
+    @Test
+    void explorerIsExplicitlyUnavailableOnUnsupportedStacks() {
+        assumeTrue(runtime() != Runtime.SPRING_MVC, "MVC has JVM and AOT-specific availability");
+        JsonNode panels = probe().get(api("/panels")).json().path("panels");
+        List<JsonNode> explorer = new ArrayList<>();
+        panels.forEach(panel -> {
+            if ("explorer".equals(panel.path("id").asText())) {
+                explorer.add(panel);
+            }
+        });
+        assertThat(explorer).singleElement().satisfies(panel -> {
+            assertThat(panel.path("available").asBoolean()).isFalse();
+            assertThat(panel.path("unavailableReason").asText()).contains("not supported", "Live Activity");
+        });
+    }
+
+    @Test
     void serviceMapIsBoundedAndCarriesOnlySafeIdentities() {
         assumeTrue(isPanelUsableInLiveManifest("activity"), "activity panel is not available in this environment");
 

@@ -13,6 +13,7 @@ import {expect, test} from './fixtures.js'
 const PANEL_HEADINGS = {
   overview: /^Overview/,
   activity: /Live Activity/,
+  explorer: /3D Explorer/,
   github: /^GitHub/,
   health: /^Health/,
   'http-sessions': /^HTTP Sessions/,

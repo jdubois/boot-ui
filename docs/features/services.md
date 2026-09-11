@@ -1,5 +1,11 @@
 # Services
 
+On Spring MVC JVM, [3D Explorer](diagnostics.md#_3d-explorer) also presents each service event already emitted into Live
+Activity. It adds no service listeners or monitoring. Scheduled work and consumed messages remain independent entry
+points when uncorrelated; outbound HTTP does not reveal remote internals, mail capture is not delivery, and fault
+tolerance events do not imply unobserved retries. Cache enrichment contains manager/cache/operation metadata only,
+without keys, values, durations, or guessed implicit PUTs. Exact bean links appear only where captured.
+
 ## Scheduled Tasks
 
 ![BootUI Scheduled Tasks panel](../images/bootui-scheduled-tasks.webp)

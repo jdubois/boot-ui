@@ -62,6 +62,8 @@ public final class CliCommandPaths {
             Map.entry("get_kafka_activity", "kafka"),
             Map.entry("get_liquibase_changesets", "db liquibase"),
             Map.entry("get_live_activity", "activity"),
+            Map.entry("get_explorer", "explorer list"),
+            Map.entry("get_explorer_event", "explorer event"),
             Map.entry("get_live_memory", "memory live"),
             Map.entry("get_log_tail", "logs tail"),
             Map.entry("get_loggers", "loggers"),

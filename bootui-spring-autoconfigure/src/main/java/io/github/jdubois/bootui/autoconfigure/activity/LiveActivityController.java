@@ -11,19 +11,17 @@ import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.SecurityLogsController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
-import io.github.jdubois.bootui.core.dto.ActivityPageInfo;
-import io.github.jdubois.bootui.core.dto.ActivityPersistenceOptionDto;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchRequest;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchResult;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
 import io.github.jdubois.bootui.engine.activity.ActivityCaptureFactory;
 import io.github.jdubois.bootui.engine.activity.ActivityCapturePoller;
-import io.github.jdubois.bootui.engine.activity.ActivityPage;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
-import io.github.jdubois.bootui.engine.activity.ActivityQuery;
+import io.github.jdubois.bootui.engine.activity.ActivitySourcePolicy;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchResponse;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchService;
+import io.github.jdubois.bootui.engine.activity.LiveActivityQueryService;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.email.EmailCaptureService;
@@ -85,6 +83,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class LiveActivityController {
 
     private final LiveActivityService service;
+    private final LiveActivityQueryService queries;
     private final LiveActivityCorrelator correlator;
     private final SecurityEventCorrelationRegistry securityCorrelations;
     private final BootUiChangeStream changeStream;
@@ -191,6 +190,13 @@ public class LiveActivityController {
         this.activityStore = activityStore;
         this.persistenceSettings = persistenceSettings;
         this.dataSourceProvider = dataSourceProvider;
+        this.queries = new LiveActivityQueryService(
+                service::report,
+                service::retainedEntries,
+                activityStore,
+                persistenceSettings,
+                () -> BootUiEngineConfiguration.resolveActivityDataSource(dataSourceProvider) != null,
+                entry -> ActivitySourcePolicy.permitted(entry, properties::isPanelEnabled));
         if (persistenceSettings.enabled()) {
             // Capture side of the persistence option: poll the same merged feed the panel itself reads,
             // stamping and appending whatever has not already been captured. Reusing this.service::report
@@ -236,39 +242,12 @@ public class LiveActivityController {
             @RequestParam(name = "until", required = false) Long until,
             @RequestParam(name = "cursor", required = false) String cursor,
             @RequestParam(name = "pageSize", required = false, defaultValue = "0") int pageSize) {
-        LiveActivityReport live = service.report(type, severity, since, limit);
-        ActivityPersistenceOptionDto persistenceOption = new ActivityPersistenceOptionDto(
-                activityStore.persistent(),
-                BootUiEngineConfiguration.resolveActivityDataSource(dataSourceProvider) != null,
-                persistenceSettings.tableName());
-        if (!activityStore.persistent()) {
-            return new LiveActivityReport(
-                    live.available(),
-                    live.entries(),
-                    live.typeCounts(),
-                    live.kpis(),
-                    live.sources(),
-                    live.warnings(),
-                    null,
-                    persistenceOption);
-        }
-        // Persistence active: the store (which itself merges its in-memory hot cache with the durable
-        // backend) serves entries and pagination, so recently captured entries are visible immediately
-        // and the dashboard can page back through history beyond what fits in memory. KPIs/type counts/
-        // sources/warnings stay computed from the current live merge above — that strip is an "at a
-        // glance, right now" summary, not scoped to whichever historical page happens to be browsed.
-        ActivityQuery query = new ActivityQuery(
-                persistenceSettings.instanceId(), type, severity, q, since > 0 ? since : null, until, cursor, pageSize);
-        ActivityPage page = activityStore.query(query);
-        return new LiveActivityReport(
-                live.available(),
-                page.entryDtos(),
-                live.typeCounts(),
-                live.kpis(),
-                live.sources(),
-                live.warnings(),
-                new ActivityPageInfo(true, page.nextCursor(), page.hasMore()),
-                persistenceOption);
+        return queries.report(type, severity, since, limit, q, until, cursor, pageSize);
+    }
+
+    /** Shared reads only; Explorer does not create another merger, recorder, or stream. */
+    public LiveActivityQueryService queries() {
+        return queries;
     }
 
     /**

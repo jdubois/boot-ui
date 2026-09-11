@@ -23,6 +23,11 @@ persistence is configured.
 
 ## Security Logs
 
+On supported Spring MVC JVM instances, [3D Explorer](diagnostics.md#_3d-explorer) retains these events with their
+canonical Live Activity severity and grant/deny/audit meaning. A denial does not become an exception automatically.
+The same source-panel access and masking policy applies; disabling Security Logs does not expose its retained details
+through the Explorer API or its agent tools.
+
 ![BootUI Security Logs panel](../images/bootui-security-logs.webp)
 
 The Security Logs panel reads recent Spring Boot audit events from the application's `AuditEventRepository`, including

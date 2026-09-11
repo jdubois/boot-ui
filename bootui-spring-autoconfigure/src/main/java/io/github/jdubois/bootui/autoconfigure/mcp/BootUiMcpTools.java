@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureControlle
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
 import io.github.jdubois.bootui.autoconfigure.databaseadvisor.DatabaseAdvisorController;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
+import io.github.jdubois.bootui.autoconfigure.explorer.ExplorerController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsController;
@@ -595,6 +596,23 @@ public class BootUiMcpTools {
 
         this.panelsController = panels.getIfAvailable();
         this.tools = List.copyOf(registry);
+    }
+
+    @Autowired
+    void addExplorerTools(ObjectProvider<ExplorerController> explorer) {
+        ExplorerController controller = explorer.getIfAvailable();
+        if (controller != null) {
+            List<McpTool> registry = new ArrayList<>(tools);
+            registry.add(tool(
+                    "get_explorer",
+                    McpToolDescriptions.spring("get_explorer"),
+                    args -> controller.report(null, null, 0, args.limit(), null, null, null, 0)));
+            registry.add(tool(
+                    "get_explorer_event",
+                    McpToolDescriptions.spring("get_explorer_event"),
+                    args -> controller.event(args.id())));
+            tools = List.copyOf(registry);
+        }
     }
 
     /** Test/extensibility hook that builds the registry from an explicit tool list. */

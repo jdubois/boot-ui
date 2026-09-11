@@ -203,6 +203,8 @@ public class BootUiProperties {
      * Live Activity panel settings (merged activity stream and per-request profiler).
      */
     private Activity activity = new Activity();
+
+    private Explorer explorer = new Explorer();
     /**
      * Email Viewer panel settings (captured outgoing mail).
      */
@@ -579,6 +581,14 @@ public class BootUiProperties {
 
     public void setActivity(Activity activity) {
         this.activity = activity == null ? new Activity() : activity;
+    }
+
+    public Explorer getExplorer() {
+        return explorer;
+    }
+
+    public void setExplorer(Explorer explorer) {
+        this.explorer = explorer == null ? new Explorer() : explorer;
     }
 
     public Email getEmail() {
@@ -2333,6 +2343,20 @@ public class BootUiProperties {
             this.executionTimeout = executionTimeout == null
                     ? Duration.ofMillis(McpProtocol.DEFAULT_EXECUTION_TIMEOUT_MILLIS)
                     : executionTimeout;
+        }
+    }
+
+    public static class Explorer {
+
+        /** Local bean advice; enabled by default, with changes requiring an application restart. */
+        private boolean enabled = true;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
         }
     }
 

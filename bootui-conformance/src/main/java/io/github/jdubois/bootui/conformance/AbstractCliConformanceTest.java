@@ -84,6 +84,37 @@ public abstract class AbstractCliConformanceTest {
     }
 
     @Test
+    void testExplorerReadToolsMatchRuntimeAvailabilityAndRequireCanonicalId() {
+        boolean available = false;
+        for (JsonNode panel : probe().get("/bootui/api/panels").json().path("panels")) {
+            if ("explorer".equals(panel.path("id").asText())) {
+                available = panel.path("available").asBoolean();
+            }
+        }
+        java.util.List<String> advertised = new java.util.ArrayList<>();
+        probe().get(CLI)
+                .json()
+                .path("tools")
+                .forEach(tool -> advertised.add(tool.path("name").asText()));
+        assertThat(advertised.contains("get_explorer")).isEqualTo(available);
+        assertThat(advertised.contains("get_explorer_event")).isEqualTo(available);
+        if (available) {
+            assertThat(catalogEntry("get_explorer").path("schema").asText()).isEqualTo("LIMIT");
+            assertThat(catalogEntry("get_explorer_event").path("schema").asText())
+                    .isEqualTo("ID");
+            assertThat(catalogEntry("get_explorer").path("action").asBoolean()).isFalse();
+            assertThat(catalogEntry("get_explorer_event").path("action").asBoolean())
+                    .isFalse();
+            Response response = invoke("get_explorer", "{\"limit\":2}");
+            assertThat(response.status()).isEqualTo(200);
+            assertThat(response.json().path("activity").path("entries").isArray())
+                    .isTrue();
+            assertThat(response.json().path("activity").path("entries").size()).isLessThanOrEqualTo(2);
+            assertThat(invoke("get_explorer_event", "{}").status()).isEqualTo(400);
+        }
+    }
+
+    @Test
     void testCliReadToolReturnsThePayloadWithoutAJsonRpcEnvelope() {
         Response response = invoke("get_overview", "{}");
 

@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.CapturedStatement;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.Category;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.StatementType;
+import io.github.jdubois.bootui.spi.InvocationContextProvider;
 import java.io.Closeable;
 import java.lang.reflect.Proxy;
 import java.sql.CallableStatement;
@@ -18,6 +19,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 
@@ -27,6 +29,44 @@ import org.junit.jupiter.api.Test;
  * exercised without a live database.
  */
 class SqlTracingProxiesTests {
+
+    @Test
+    void snapshotsExactContextAtExecuteAndBatchEntryAndCarriesDatasourceBeanName() throws Exception {
+        SqlTraceRecorder recorder = recorder();
+        AtomicReference<InvocationContextProvider.Context> current =
+                new AtomicReference<>(new InvocationContextProvider.Context("request", "service"));
+        recorder.setTraceIdProvider(() -> current.get().traceId());
+        recorder.setInvocationContextProvider(current::get);
+        DataSource ds = mock(DataSource.class);
+        Connection connection = mock(Connection.class);
+        Statement statement = mock(Statement.class);
+        when(ds.getConnection()).thenReturn(connection);
+        when(connection.createStatement()).thenReturn(statement);
+        when(statement.execute("select 1")).thenAnswer(invocation -> {
+            current.set(new InvocationContextProvider.Context("later-trace", "later-call"));
+            return true;
+        });
+        SQLException failure = new SQLException("driver failure");
+        when(statement.executeBatch()).thenAnswer(invocation -> {
+            current.set(InvocationContextProvider.EMPTY);
+            throw failure;
+        });
+        Statement traced = SqlTracingProxies.wrapNamed(ds, recorder, "ordersDataSource")
+                .getConnection()
+                .createStatement();
+        assertThat(traced.execute("select 1")).isTrue();
+        current.set(new InvocationContextProvider.Context("request", "repository"));
+        traced.addBatch("insert into orders values (1)");
+        assertThatThrownBy(traced::executeBatch).isSameAs(failure);
+
+        assertThat(recorder.recent()).extracting(CapturedStatement::id).containsExactly(2L, 1L);
+        assertThat(recorder.recent()).extracting(CapturedStatement::traceId).containsOnly("request");
+        assertThat(recorder.recent())
+                .extracting(CapturedStatement::invocationId)
+                .containsExactly("repository", "service");
+        assertThat(recorder.recent()).extracting(CapturedStatement::dataSource).containsOnly("ordersDataSource");
+        assertThat(recorder.recent().get(0).success()).isFalse();
+    }
 
     private SqlTraceRecorder recorder() {
         return new SqlTraceRecorder(true, true, true, false, 100, 100, 2000, 200, 5);
