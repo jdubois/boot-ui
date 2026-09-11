@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.client;
 
+import java.util.List;
 import java.util.Map;
+import java.util.function.IntConsumer;
 
 /** Renders JSON text: quoting for the tree model, and pretty-printing for terminal output. */
 public final class JsonWriter {
@@ -61,36 +63,38 @@ public final class JsonWriter {
 
     private static void write(JsonValue value, StringBuilder json, int depth) {
         if (value.isObject()) {
-            if (value.size() == 0) {
-                json.append("{}");
-                return;
-            }
-            json.append("{\n");
-            int index = 0;
-            for (String name : value.names()) {
+            List<String> names = value.names();
+            writeContainer(json, depth, '{', '}', names.size(), index -> {
+                String name = names.get(index);
                 indent(json, depth + 1).append(quote(name)).append(": ");
                 write(value.get(name), json, depth + 1);
-                json.append(++index < value.size() ? ",\n" : "\n");
-            }
-            indent(json, depth).append('}');
+            });
             return;
         }
         if (value.isArray()) {
-            if (value.size() == 0) {
-                json.append("[]");
-                return;
-            }
-            json.append("[\n");
-            int index = 0;
-            for (JsonValue element : value.values()) {
+            List<JsonValue> elements = value.values();
+            writeContainer(json, depth, '[', ']', elements.size(), index -> {
                 indent(json, depth + 1);
-                write(element, json, depth + 1);
-                json.append(++index < value.size() ? ",\n" : "\n");
-            }
-            indent(json, depth).append(']');
+                write(elements.get(index), json, depth + 1);
+            });
             return;
         }
         json.append(value.toJson());
+    }
+
+    /** Writes an object or array: an empty pair when there are no entries, otherwise one indented entry per line. */
+    private static void writeContainer(
+            StringBuilder json, int depth, char open, char close, int size, IntConsumer writeEntry) {
+        if (size == 0) {
+            json.append(open).append(close);
+            return;
+        }
+        json.append(open).append('\n');
+        for (int index = 0; index < size; index++) {
+            writeEntry.accept(index);
+            json.append(index + 1 < size ? ",\n" : "\n");
+        }
+        indent(json, depth).append(close);
     }
 
     private static StringBuilder indent(StringBuilder json, int depth) {
