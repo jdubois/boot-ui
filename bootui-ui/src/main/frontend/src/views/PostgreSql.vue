@@ -174,9 +174,14 @@ function databaseFindingCount(database) {
 
 // The engine marks a partially read section AVAILABLE with a reason, because the rows it did
 // read are real. That reason is what stops the section from claiming more than it checked, so
-// it is shown as PARTIAL rather than green.
+// it is shown as PARTIAL rather than green. A truncated section is partial for the same reason
+// even when it carries no reason of its own: the rows past the bound were never examined.
 function sectionPartial(section) {
-  return section.status === 'AVAILABLE' && !!section.reason
+  return section.status === 'AVAILABLE' && (!!section.reason || !!section.truncated)
+}
+
+function sectionPartialReason(section) {
+  return section.reason || 'a row bound was reached, so relations past it were not examined'
 }
 
 // A section only reads as "clean" when it was AVAILABLE, had zero findings, and read everything
@@ -192,7 +197,7 @@ function sectionSummary(section) {
       section.findingCount > 0
         ? `${section.findingCount} ${pluralize(section.findingCount, 'finding')}`
         : 'Checked and clean'
-    return sectionPartial(section) ? `Partially read — ${section.reason}` : findings
+    return sectionPartial(section) ? `Partially read — ${sectionPartialReason(section)}` : findings
   }
   if (section.status === 'SKIPPED') {
     return section.reason ? `Skipped — ${section.reason}` : 'Skipped'

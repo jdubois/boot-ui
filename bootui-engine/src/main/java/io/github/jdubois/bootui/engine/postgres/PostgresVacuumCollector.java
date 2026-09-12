@@ -51,12 +51,15 @@ final class PostgresVacuumCollector implements PostgresCollector {
         boolean autovacuumEnabled = !"off".equalsIgnoreCase(String.valueOf(data.setting("autovacuum")));
         double threshold = data.settingAsDouble("autovacuum_vacuum_threshold", 50);
         double scaleFactor = data.settingAsDouble("autovacuum_vacuum_scale_factor", 0.2);
+        // PostgreSQL 18 added a cap on the scaled threshold. Older servers have no such setting, so its
+        // absence means "no cap", which is exactly what a negative value means on a server that has it.
+        double maxThreshold = data.settingAsDouble("autovacuum_vacuum_max_threshold", -1);
 
         PostgresRows<PostgresVacuumDto> rows = PostgresQuery.readList(
                 context, "Vacuum statistics", SQL, context.limits().maxVacuumTables(), resultSet -> {
                     Long live = PostgresQuery.longOrNull(resultSet, "live_tuples");
                     Long dead = PostgresQuery.longOrNull(resultSet, "dead_tuples");
-                    Long trigger = vacuumThreshold(live, threshold, scaleFactor);
+                    Long trigger = vacuumThreshold(live, threshold, scaleFactor, maxThreshold);
                     return new PostgresVacuumDto(
                             resultSet.getString("schema_name"),
                             resultSet.getString("table_name"),
@@ -87,16 +90,21 @@ final class PostgresVacuumCollector implements PostgresCollector {
 
     /**
      * PostgreSQL compares an integer dead-tuple count against the fractional expression
-     * {@code autovacuum_vacuum_threshold + autovacuum_vacuum_scale_factor * reltuples}. Flooring that
-     * expression keeps the integer comparison {@code dead > floor(t)} exactly equivalent to PostgreSQL's
-     * {@code dead > t}, which rounding would not: a threshold of 999.6 rounds to 1000 and would wrongly
-     * report 1,000 dead tuples as not yet due.
+     * {@code autovacuum_vacuum_threshold + autovacuum_vacuum_scale_factor * reltuples}, capped since
+     * PostgreSQL 18 by {@code autovacuum_vacuum_max_threshold} when that setting is not negative.
+     * Flooring that expression keeps the integer comparison {@code dead > floor(t)} exactly equivalent to
+     * PostgreSQL's {@code dead > t}, which rounding would not: a threshold of 999.6 rounds to 1000 and
+     * would wrongly report 1,000 dead tuples as not yet due.
      */
-    static Long vacuumThreshold(Long liveTuples, double threshold, double scaleFactor) {
+    static Long vacuumThreshold(Long liveTuples, double threshold, double scaleFactor, double maxThreshold) {
         if (liveTuples == null) {
             return null;
         }
-        return (long) Math.floor(threshold + scaleFactor * liveTuples);
+        double trigger = threshold + scaleFactor * liveTuples;
+        if (maxThreshold >= 0) {
+            trigger = Math.min(trigger, maxThreshold);
+        }
+        return (long) Math.floor(trigger);
     }
 
     static Double deadTupleRatio(Long liveTuples, Long deadTuples) {

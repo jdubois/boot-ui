@@ -7,8 +7,9 @@ import java.util.List;
  *
  * @param inRecovery whether this server is a standby
  * @param checkpointsTimed checkpoints triggered by {@code checkpoint_timeout}
- * @param checkpointsRequested checkpoints forced by WAL volume — a high share means {@code max_wal_size} is
- *     too small for the write rate
+ * @param checkpointsRequested checkpoints that were requested rather than triggered by
+ *     {@code checkpoint_timeout}: WAL volume reaching {@code max_wal_size}, an explicit {@code CHECKPOINT}, and
+ *     other internally requested checkpoints all count here
  */
 public record PostgresReplicationDto(
         boolean inRecovery,

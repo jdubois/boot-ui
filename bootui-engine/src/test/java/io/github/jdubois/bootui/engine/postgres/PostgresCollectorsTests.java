@@ -291,6 +291,24 @@ class PostgresCollectorsTests {
         assertThat(replicaAddress(ValueExposure.METADATA_ONLY)).isEqualTo("******");
     }
 
+    @Test
+    void settingValuesAreWithheldUnderMetadataOnlyButStillDriveTheRules() throws SQLException {
+        var dataSource = PostgresTestDataSources.postgres();
+        PostgresDatabaseData data = new PostgresDatabaseData("primary");
+
+        new PostgresSettingsCollector()
+                .collect(PostgresTestDataSources.context(dataSource, 15, exposure(ValueExposure.METADATA_ONLY)), data);
+
+        // METADATA_ONLY means no value reaches the browser, MCP or CLI, even for an allow-listed
+        // operational setting; the raw value is still kept internally so "due?" stays computed against the
+        // server's real configuration rather than assumed defaults.
+        assertThat(data.settings())
+                .isNotEmpty()
+                .allSatisfy(setting -> assertThat(setting.value()).isEqualTo("******"));
+        assertThat(data.settingValues()).containsKey("autovacuum_vacuum_threshold");
+        assertThat(data.setting("autovacuum_vacuum_threshold")).isNotEqualTo("******");
+    }
+
     private static String replicaAddress(ValueExposure valueExposure) throws SQLException {
         var dataSource = PostgresTestDataSources.postgres()
                 .rows(

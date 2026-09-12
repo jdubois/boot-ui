@@ -158,15 +158,22 @@ class PostgresInsightServiceTests {
     }
 
     @Test
-    void aRefusedSessionPinIsRolledBackSoTheReadStillCompletes() {
+    void aRefusedSessionPinIsRolledBackButTheReadIsNotReportedAsFullyBounded() {
         var dataSource = PostgresTestDataSources.postgres()
                 .failPin("statement_timeout", "permission denied to set parameter for jdbc:******db/app");
 
         PostgresInsightReport report =
                 service(() -> discovery("primary", dataSource)).read();
 
+        assertThat(report.status()).isEqualTo("PARTIAL");
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.evidence().limitations())
+                .anySatisfy(limitation -> assertThat(limitation).contains("statement_timeout"));
         assertThat(report.databases()).singleElement().satisfies(database -> {
-            assertThat(database.status()).isEqualTo("SCANNED");
+            // The bounds are what make this read safe against a live server, so a read taken without them
+            // must not claim to be a clean, fully bounded scan.
+            assertThat(database.status()).isEqualTo("PARTIAL");
+            assertThat(database.message()).contains("statement_timeout");
             assertThat(database.sections())
                     .filteredOn(section -> section.id().equals(PostgresSectionIds.VITAL_SIGNS))
                     .singleElement()
@@ -305,6 +312,22 @@ class PostgresInsightServiceTests {
     private static PostgresInsightService service(Supplier<DatabaseAdvisorDataSourceDiscovery> supplier) {
         return PostgresInsightService.using(
                 supplier, exposure(ValueExposure.MASKED, true), FIXED_CLOCK, PostgresTestDataSources.limits());
+    }
+
+    @Test
+    void aDatasourceThatCouldNotBeDiscoveredKeepsTheReadFromLookingComplete() {
+        DatabaseAdvisorDataSourceDiscovery partialDiscovery = new DatabaseAdvisorDataSourceDiscovery(
+                List.of(new NamedDataSource("primary", PostgresTestDataSources.postgres())),
+                List.of(new DatabaseAdvisorDataSourceDiscovery.Failure("secondary", "bean creation failed")));
+
+        PostgresInsightReport report = service(() -> partialDiscovery).read();
+
+        // The datasource that never became inspectable is part of the application, so a report that reached
+        // only the others has not covered it.
+        assertThat(report.status()).isEqualTo("PARTIAL");
+        assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.evidence().limitations())
+                .anySatisfy(limitation -> assertThat(limitation).contains("secondary"));
     }
 
     private static DatabaseAdvisorDataSourceDiscovery discovery(String name, DataSource dataSource) {

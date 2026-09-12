@@ -22,7 +22,8 @@ cumulative statistics and current catalog state; they do not prove root cause or
   new enough to have it only in theory.
 - The cooperative read budget is 15 seconds. It is checked between collectors; JDBC connection acquisition and driver
   work may still take as long as the driver/server allow. A datasource the budget never reached is reported as an
-  explicit limitation, not silently omitted, so an exhausted budget cannot produce a clean-looking report.
+  explicit limitation, not silently omitted, so an exhausted budget cannot produce a clean-looking report. A datasource
+  that could not be discovered at all is reported the same way: the read is then `PARTIAL`, never `READ`.
 - Row and text bounds are fixed: 25 statements, 50 indexes, 25 largest relations, 25 autovacuum rows, 10 replicas,
   40 notable settings, and 400 characters per statement text. List reads fetch one row past the limit so truncation is
   visible instead of silently treated as complete.
@@ -31,11 +32,14 @@ cumulative statistics and current catalog state; they do not prove root cause or
   stays `AVAILABLE` and carries a reason; the UI shows it as partially read rather than clean.
 - Session pinning is itself savepoint-isolated. A role that may not set one of these parameters would otherwise abort the
   transaction before any savepoint existed, and an aborted PostgreSQL transaction refuses even `SAVEPOINT`; each failed
-  pin is rolled back and reported as a warning instead.
+  pin is rolled back and reported as a warning instead. Because the statement, lock and idle bounds are what make this
+  read safe against a live server, a database whose session could not be pinned in full is reported as `PARTIAL`, never
+  as a clean `SCANNED` read.
 - Values follow the global exposure policy. Under `MASKED` or `METADATA_ONLY`, statement text has its string literals and
   dollar-quoted bodies (`$$ ... $$` and `$tag$ ... $tag$`, how `CREATE FUNCTION` and `DO` blocks reach
-  `pg_stat_statements`) replaced, and `METADATA_ONLY` also masks replica `client_addr`. Error text is redacted before it
-  becomes a diagnostic.
+  `pg_stat_statements`) replaced, and `METADATA_ONLY` also masks replica `client_addr` and every `pg_settings` value —
+  the setting names, units and sources are still shown, and the raw values are still used internally to judge autovacuum
+  against the server's real configuration. Error text is redacted before it becomes a diagnostic.
 - Use a read-only application role with PostgreSQL's built-in `pg_monitor` role when possible. Without it, some
   replication and statistics views fail outright, and `pg_stat_activity` silently nulls the state of backends the role
   does not own. BootUI detects that case and reports the whole session breakdown as unknown rather than counting hidden
@@ -132,14 +136,16 @@ cumulative statistics and current catalog state; they do not prove root cause or
   statistics are reset.
 - **Learn more:** <https://www.postgresql.org/docs/current/explicit-locking.html>
 
-### PG-VITALS-008 — Queries spilling to temporary files
+### PG-VITALS-008 — Queries writing temporary files
 
 - **Severity:** LOW
 - **What it measures:** `pg_stat_database.temp_files` and `temp_bytes`.
 - **Threshold:** any temporary file (`> 0`).
 - **What to do:** Look at the largest statements first. Raising `work_mem` globally multiplies per operation, so a
   targeted query fix is usually cheaper.
-- **Caveat:** Cumulative statistics cover every client. A one-off maintenance query can account for the whole total.
+- **Caveat:** Cumulative statistics cover every client. The counter does not say which operation wrote the files — it
+  counts every query temporary file, not only a sort or hash spilling past `work_mem` — and a one-off maintenance query
+  can account for the whole total.
 - **Learn more:** <https://www.postgresql.org/docs/current/runtime-config-resource.html>
 
 ## Statements
@@ -206,10 +212,12 @@ cumulative statistics and current catalog state; they do not prove root cause or
 
 - **Severity:** MEDIUM
 - **What it measures:** estimated dead tuples from `pg_stat_user_tables` versus the autovacuum threshold computed from
-  the cluster-wide `autovacuum_vacuum_threshold` and `autovacuum_vacuum_scale_factor`.
+  the cluster-wide `autovacuum_vacuum_threshold`, `autovacuum_vacuum_scale_factor` and, on PostgreSQL 18 and later,
+  `autovacuum_vacuum_max_threshold`.
 - **Threshold:** `DEAD_TUPLE_MIN_ROWS = 1000`; findings appear for vacuum-due relations with at least 1,000 dead tuples.
   "Due" floors `autovacuum_vacuum_threshold + autovacuum_vacuum_scale_factor * live tuples` so that the integer
-  comparison matches PostgreSQL's own fractional one exactly.
+  comparison matches PostgreSQL's own fractional one exactly, and caps it with `autovacuum_vacuum_max_threshold` when
+  the server has that setting and it is not negative. A server without the setting, or with it disabled, has no cap.
 - **What to do:** Check whether autovacuum is keeping up; a long-running transaction or abandoned replication slot can
   hold the cleanup horizon back.
 - **Caveat:** Per-table `reloptions` overrides are not read, so "due" uses cluster-wide settings, and the threshold is

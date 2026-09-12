@@ -203,6 +203,22 @@ describe('PostgreSql', () => {
     expect(wrapper.text()).not.toContain('Checked and clean')
   })
 
+  it('never calls a truncated section clean, even without a reason of its own', async () => {
+    const {wrapper} = await mountWith(
+      report({
+        databases: [
+          database({
+            sections: [section('tables', 'Table access', 'AVAILABLE', {findingCount: 0, truncated: true})]
+          })
+        ]
+      })
+    )
+
+    expect(wrapper.text()).toContain('PARTIAL')
+    expect(wrapper.text()).toContain('Partially read —')
+    expect(wrapper.text()).not.toContain('Checked and clean')
+  })
+
   it('presents a failed read as a failure, never as a clean assessment', async () => {
     const {wrapper} = await mountWith(
       report({

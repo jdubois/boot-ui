@@ -33,6 +33,7 @@ final class PostgresDatabaseData {
     private List<PostgresSettingDto> settings = List.of();
     private PostgresReplicationDto replication;
     private boolean truncated;
+    private String unpinnedReason;
 
     PostgresDatabaseData(String dataSourceName) {
         this.dataSourceName = dataSourceName;
@@ -168,5 +169,22 @@ final class PostgresDatabaseData {
 
     void markTruncated() {
         truncated = true;
+    }
+
+    /**
+     * Why the session could not be pinned, or {@code null} when every pin was accepted.
+     *
+     * <p>An unpinned session is not a cosmetic failure: the documented statement, lock and idle bounds are
+     * what make this read safe to run against a live server, so a read taken without them must not be
+     * presented as a complete, bounded scan.</p>
+     */
+    String unpinnedReason() {
+        return unpinnedReason;
+    }
+
+    void markSessionUnpinned(String reason) {
+        if (reason != null && unpinnedReason == null) {
+            unpinnedReason = reason;
+        }
     }
 }

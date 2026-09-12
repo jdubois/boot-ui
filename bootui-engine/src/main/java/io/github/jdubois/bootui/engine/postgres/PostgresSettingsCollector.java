@@ -1,7 +1,10 @@
 package io.github.jdubois.bootui.engine.postgres;
 
+import io.github.jdubois.bootui.core.SecretMasker;
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.PostgresSectionDto;
 import io.github.jdubois.bootui.core.dto.PostgresSettingDto;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -36,13 +39,20 @@ final class PostgresSettingsCollector implements PostgresCollector {
 
     @Override
     public PostgresSectionDto collect(PostgresReadContext context, PostgresDatabaseData data) {
+        ExposurePolicy exposure = context.exposure();
+        boolean metadataOnly =
+                (exposure == null ? ValueExposure.MASKED : exposure.valueExposure()) == ValueExposure.METADATA_ONLY;
+        Map<String, String> rawValues = new LinkedHashMap<>();
         PostgresRows<PostgresSettingDto> rows = PostgresQuery.readList(
                 context, "Server settings", SQL, context.limits().maxSettings(), resultSet -> {
                     String name = resultSet.getString("name");
                     String value = resultSet.getString("setting");
+                    // The raw value is kept for the rules below, but METADATA_ONLY means exactly that: no
+                    // value reaches the browser, MCP or CLI, even from an allow-listed operational setting.
+                    rawValues.put(name, value);
                     return new PostgresSettingDto(
                             name,
-                            PostgresQueryText.truncate(value, 120),
+                            metadataOnly ? SecretMasker.MASKED_VALUE : PostgresQueryText.truncate(value, 120),
                             resultSet.getString("unit"),
                             resultSet.getString("source"),
                             NOTABLE_SETTINGS.get(name));
@@ -52,9 +62,7 @@ final class PostgresSettingsCollector implements PostgresCollector {
         }
         List<PostgresSettingDto> settings = new ArrayList<>(rows.rows());
         data.settings(settings);
-        for (PostgresSettingDto setting : settings) {
-            data.settingValues().put(setting.name(), setting.value());
-        }
+        data.settingValues().putAll(rawValues);
         return available(settings.size(), rows.truncated());
     }
 
@@ -67,6 +75,9 @@ final class PostgresSettingsCollector implements PostgresCollector {
         settings.put("autovacuum_freeze_max_age", "The transaction-id age that forces an anti-wraparound vacuum.");
         settings.put("autovacuum_vacuum_scale_factor", "Share of a table that must be dead before VACUUM runs.");
         settings.put("autovacuum_vacuum_threshold", "Fixed dead-row count added to the VACUUM scale factor.");
+        settings.put(
+                "autovacuum_vacuum_max_threshold",
+                "PostgreSQL 18 and later: the cap the scale factor may not push the VACUUM threshold past.");
         settings.put("checkpoint_timeout", "How often a time-triggered checkpoint runs.");
         settings.put("default_statistics_target", "How much detail ANALYZE collects for the planner.");
         settings.put("effective_cache_size", "The planner's estimate of the cache available to one query.");

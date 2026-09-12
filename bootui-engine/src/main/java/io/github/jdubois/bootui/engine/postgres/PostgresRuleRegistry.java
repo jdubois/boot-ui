@@ -236,13 +236,16 @@ final class PostgresRuleRegistry {
             rule(
                     "PG-VITALS-008",
                     PostgresSectionIds.VITAL_SIGNS,
-                    "Queries spilling to temporary files",
+                    "Queries writing temporary files",
                     "PERFORMANCE",
                     "LOW",
-                    "Sorts or hashes have exceeded work_mem and been written to disk.",
+                    "Queries have written temporary files to disk. pg_stat_database counts every query temporary "
+                            + "file, so the cause is not recorded; a sort or hash spilling past work_mem is the "
+                            + "most common one.",
                     "Look at the largest statements first; raising work_mem globally multiplies per-operation, "
                             + "so a targeted query fix is usually cheaper.",
-                    STATS_CAVEAT + " A one-off maintenance query can account for the whole total.",
+                    STATS_CAVEAT + " The counter does not say which operation wrote the files, and a one-off "
+                            + "maintenance query can account for the whole total.",
                     "https://www.postgresql.org/docs/current/runtime-config-resource.html",
                     data -> {
                         PostgresVitalSignsDto vitals = data.vitalSigns();

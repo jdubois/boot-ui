@@ -77,10 +77,23 @@ class PostgresHelpersTests {
     void vacuumThresholdFloorsSoTheComparisonMatchesPostgreSql() {
         // PostgreSQL compares an integer dead count against the fractional threshold + scale_factor * tuples.
         // 50 + 0.19992 * 5000 = 1049.6: 1,050 dead tuples are due, and rounding up to 1,050 would miss that.
-        assertThat(PostgresVacuumCollector.vacuumThreshold(5000L, 50d, 0.19992d))
+        assertThat(PostgresVacuumCollector.vacuumThreshold(5000L, 50d, 0.19992d, -1d))
                 .isEqualTo(1049L);
-        assertThat(PostgresVacuumCollector.vacuumThreshold(1000L, 50d, 0.2d)).isEqualTo(250L);
-        assertThat(PostgresVacuumCollector.vacuumThreshold(null, 50d, 0.2d)).isNull();
+        assertThat(PostgresVacuumCollector.vacuumThreshold(1000L, 50d, 0.2d, -1d))
+                .isEqualTo(250L);
+        assertThat(PostgresVacuumCollector.vacuumThreshold(null, 50d, 0.2d, -1d))
+                .isNull();
+    }
+
+    @Test
+    void vacuumThresholdHonoursThePostgreSql18Cap() {
+        // PostgreSQL 18 caps the scaled threshold with autovacuum_vacuum_max_threshold. Ignoring the cap
+        // would report a huge table as not yet due when PostgreSQL considers it due.
+        assertThat(PostgresVacuumCollector.vacuumThreshold(1_000_000_000L, 50d, 0.2d, 100_000_000d))
+                .isEqualTo(100_000_000L);
+        // A negative cap means the setting is disabled, and an older server has no such setting at all.
+        assertThat(PostgresVacuumCollector.vacuumThreshold(1_000_000_000L, 50d, 0.2d, -1d))
+                .isEqualTo(200_000_050L);
     }
 
     @Test
