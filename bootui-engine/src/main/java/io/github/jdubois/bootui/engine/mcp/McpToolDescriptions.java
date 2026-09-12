@@ -133,13 +133,21 @@ public final class McpToolDescriptions {
                             + "rollback ratios, connection usage, transaction-ID age, the top normalized statements, "
                             + "index and relation activity, autovacuum state, replication and notable settings. This "
                             + "is a runtime view, not an advisor: it grades nothing and emits no findings. The read is "
-                            + "bounded and read-only; any section the role or server version cannot supply is reported "
-                            + "as skipped with its reason rather than as an empty result."),
+                            + "bounded and read-only. Read every section's `reason` before trusting its rows: a "
+                            + "section BootUI read only partly stays `AVAILABLE` and carries a non-null `reason`, so "
+                            + "`status` alone does not mean complete, while `SKIPPED` and `FAILED` mark a section it "
+                            + "did not read at all. A `hint` is a methodology caveat on rows that were read, not "
+                            + "missing evidence. `truncated` means the row cap was reached, and any of these degrades "
+                            + "the database and report `status` to `PARTIAL`. The usual cause is a role without "
+                            + "pg_monitor membership, which hides other backends from the session list and the "
+                            + "statement text and replica details from their sections."),
             Map.entry(
                     "get_postgresql_report",
-                    "Return the last completed PostgreSQL runtime view without querying the server again. Its session "
-                            + "snapshot is only as current as that read, so prefer an active postgresql_read when the "
-                            + "question is about what the database is doing right now."),
+                    "Return the last completed PostgreSQL runtime view without querying the server again. Before any "
+                            + "read has run its `status` is `NOT_READ` and it carries no rows, which means nothing has "
+                            + "been looked at rather than that nothing is wrong. Its session snapshot is only as "
+                            + "current as that read, so prefer an active postgresql_read when the question is about "
+                            + "what the database is doing right now."),
             Map.entry(
                     "get_database_advisor_report",
                     "Return the last completed Database advisor report without querying schema metadata again. Use this "

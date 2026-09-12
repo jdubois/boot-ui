@@ -50,6 +50,31 @@ class McpToolDescriptionsTests {
     }
 
     /**
+     * The PostgreSQL panel reports an incompletely read section as {@code AVAILABLE} with a non-null
+     * {@code reason}, not as {@code SKIPPED}. An agent that branches on {@code status} alone therefore reads a
+     * partial section as complete evidence, so the description must state the rule rather than imply that
+     * unreadable evidence always changes the status.
+     */
+    @Test
+    void postgresqlReadDescriptionSeparatesAPartiallyReadSectionFromAnUnreadOne() {
+        assertThat(List.of(
+                        McpToolDescriptions.spring("postgresql_read"), McpToolDescriptions.quarkus("postgresql_read")))
+                .allSatisfy(description -> assertThat(description)
+                        .contains("stays `AVAILABLE` and carries a non-null `reason`")
+                        .contains("`status` alone does not mean complete")
+                        .contains("`SKIPPED` and `FAILED`")
+                        .contains("`hint` is a methodology caveat")
+                        .contains("`truncated`")
+                        .contains("`PARTIAL`")
+                        .doesNotContain("reported as skipped with its reason"));
+        assertThat(List.of(
+                        McpToolDescriptions.spring("get_postgresql_report"),
+                        McpToolDescriptions.quarkus("get_postgresql_report")))
+                .allSatisfy(description ->
+                        assertThat(description).contains("`NOT_READ`").contains("rather than that nothing is wrong"));
+    }
+
+    /**
      * The Configuration search guidance is the one description agents were observed to misread: it must state the
      * relaxed-binding rule rather than merely name it, and it must keep {@code total} (every property, before
      * filtering) apart from {@code matched} (the query hits), so a large {@code total} beside {@code matched: 0}
