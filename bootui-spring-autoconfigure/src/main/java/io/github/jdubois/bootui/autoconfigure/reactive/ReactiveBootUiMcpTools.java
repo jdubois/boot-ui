@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.mcp.SpringMcpToolFailures;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.pentesting.PentestingController;
+import io.github.jdubois.bootui.autoconfigure.postgres.PostgresqlController;
 import io.github.jdubois.bootui.autoconfigure.rabbit.RabbitController;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
@@ -92,6 +93,7 @@ public class ReactiveBootUiMcpTools {
             ObjectProvider<GraalVmController> graalvm,
             ObjectProvider<CracController> crac,
             ObjectProvider<DatabaseAdvisorController> databaseAdvisor,
+            ObjectProvider<PostgresqlController> postgresql,
             ObjectProvider<VulnerabilitiesController> vulnerabilities,
             ObjectProvider<LoggersController> loggers,
             ObjectProvider<ConditionsController> conditions,
@@ -122,6 +124,7 @@ public class ReactiveBootUiMcpTools {
         GraalVmController graalvmBean = graalvm.getIfAvailable();
         CracController cracBean = crac.getIfAvailable();
         DatabaseAdvisorController databaseAdvisorBean = databaseAdvisor.getIfAvailable();
+        PostgresqlController postgresqlBean = postgresql.getIfAvailable();
         VulnerabilitiesController vulnerabilitiesBean = vulnerabilities.getIfAvailable();
         LoggersController loggersBean = loggers.getIfAvailable();
         ConditionsController conditionsBean = conditions.getIfAvailable();
@@ -206,6 +209,16 @@ public class ReactiveBootUiMcpTools {
                     "get_database_advisor_report",
                     McpToolDescriptions.spring("get_database_advisor_report"),
                     args -> databaseAdvisorBean.databaseAdvisor()));
+        }
+        if (postgresqlBean != null) {
+            registry.add(tool(
+                    "postgresql_read",
+                    McpToolDescriptions.spring("postgresql_read"),
+                    args -> postgresqlBean.read()));
+            registry.add(tool(
+                    "get_postgresql_report",
+                    McpToolDescriptions.spring("get_postgresql_report"),
+                    args -> postgresqlBean.postgresql()));
         }
         if (vulnerabilitiesBean != null) {
             registry.add(tool(

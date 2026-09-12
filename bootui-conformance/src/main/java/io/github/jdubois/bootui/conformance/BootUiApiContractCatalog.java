@@ -115,6 +115,24 @@ public final class BootUiApiContractCatalog {
             advisor("hibernate", "/hibernate", "results"),
             advisor("database-advisor", "/database-advisor", "results"),
             read(
+                    "postgresql",
+                    "/postgresql",
+                    fields(
+                            "localOnly",
+                            JsonType.BOOLEAN,
+                            "disclaimer",
+                            JsonType.STRING,
+                            "status",
+                            JsonType.STRING,
+                            "severityCounts",
+                            JsonType.ARRAY,
+                            "databases",
+                            JsonType.ARRAY,
+                            "findings",
+                            JsonType.ARRAY,
+                            "diagnostics",
+                            JsonType.ARRAY)),
+            read(
                     "hibernate-statistics",
                     "/hibernate-statistics",
                     fields(
@@ -343,6 +361,7 @@ public final class BootUiApiContractCatalog {
         all(actions, "hibernate.scan", "hibernate", "POST", "/hibernate/scan");
         all(actions, "hibernate-statistics.enable", "hibernate-statistics", "POST", "/hibernate-statistics/enable");
         all(actions, "database-advisor.scan", "database-advisor", "POST", "/database-advisor/scan");
+        all(actions, "postgresql.read", "postgresql", "POST", "/postgresql/read");
         all(actions, "cache.clear", "cache", "POST", "/cache/clear");
         all(actions, "traces.clear", "traces", "DELETE", "/traces");
         all(actions, "exceptions.clear", "exceptions", "DELETE", "/exceptions");

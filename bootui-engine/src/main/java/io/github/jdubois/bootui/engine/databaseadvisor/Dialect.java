@@ -24,7 +24,7 @@ import java.util.Locale;
  * {@code "PostgreSQL"}) and never collide on the name check at all; H2's Oracle compatibility mode changes
  * SQL dialect behavior only; {@code getDatabaseProductName()} still reports {@code "H2"}.</p>
  */
-enum Dialect {
+public enum Dialect {
     POSTGRESQL("PostgreSQL"),
     MYSQL("MySQL"),
     MARIADB("MariaDB"),
@@ -37,12 +37,12 @@ enum Dialect {
         this.label = label;
     }
 
-    String label() {
+    public String label() {
         return label;
     }
 
     /** True for MySQL and MariaDB, which share the {@code information_schema} catalog augmentation. */
-    boolean isMySqlFamily() {
+    public boolean isMySqlFamily() {
         return this == MYSQL || this == MARIADB;
     }
 
@@ -58,7 +58,7 @@ enum Dialect {
      * {@code v$version} query confirms the server is genuine Oracle Database, not an Oracle-compatible
      * lookalike.</p>
      */
-    static Dialect detect(String productName, String productVersion, String jdbcUrl) {
+    public static Dialect detect(String productName, String productVersion, String jdbcUrl) {
         String product = normalize(productName);
         String version = normalize(productVersion);
         String url = normalize(jdbcUrl);

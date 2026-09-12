@@ -43,6 +43,8 @@ public final class BootUiPanels {
     public static final String HIBERNATE = "hibernate";
     public static final String HIBERNATE_STATISTICS = "hibernate-statistics";
     public static final String DATABASE_ADVISOR = "database-advisor";
+
+    public static final String POSTGRESQL = "postgresql";
     public static final String CACHE = "cache";
     public static final String SPRING_SECURITY = "spring-security";
     public static final String SECURITY = "security";
@@ -111,6 +113,7 @@ public final class BootUiPanels {
             new Panel(HIBERNATE, "Hibernate", true, "/hibernate"),
             new Panel(HIBERNATE_STATISTICS, "Hibernate Statistics", true, "/hibernate-statistics"),
             new Panel(DATABASE_ADVISOR, "Database", true, "/database-advisor"),
+            new Panel(POSTGRESQL, "PostgreSQL", true, "/postgresql"),
             new Panel(CACHE, "Cache", true, "/cache"),
             new Panel(TRACES, "Traces", true, "/traces"),
             new Panel(LOG_TAIL, "Log Tail", false, "/log-tail"),

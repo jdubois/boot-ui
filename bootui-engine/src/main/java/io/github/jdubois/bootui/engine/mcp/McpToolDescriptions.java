@@ -127,6 +127,17 @@ public final class McpToolDescriptions {
                     "Return the last completed Hibernate advisor report without starting a new mapping scan. Use this "
                             + "cached evidence before deciding whether an active hibernate_scan is necessary."),
             Map.entry(
+                    "postgresql_read",
+                    "Actively read PostgreSQL's own pg_stat_* and pg_catalog views for the application datasources: "
+                            + "cache hit and rollback ratios, connection usage, lock waits, transaction-ID age, top "
+                            + "normalized statements, unused indexes, table bloat and autovacuum health. The read is "
+                            + "bounded and read-only; any section the role or server version cannot supply is reported "
+                            + "as skipped with its reason rather than as a passing check."),
+            Map.entry(
+                    "get_postgresql_report",
+                    "Return the last completed PostgreSQL report without querying the server again. Use this cached "
+                            + "evidence before deciding whether an active postgresql_read is necessary."),
+            Map.entry(
                     "get_database_advisor_report",
                     "Return the last completed Database advisor report without querying schema metadata again. Use this "
                             + "cached evidence before deciding whether an active database_advisor_scan is necessary."),

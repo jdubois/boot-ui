@@ -30,6 +30,7 @@
     { "id": "hibernate", "title": "Hibernate", "actionCapable": true },
     { "id": "hibernate-statistics", "title": "Hibernate Statistics", "actionCapable": true },
     { "id": "database-advisor", "title": "Database", "actionCapable": true },
+    { "id": "postgresql", "title": "PostgreSQL", "actionCapable": true },
     { "id": "cache", "title": "Cache", "actionCapable": true },
     { "id": "traces", "title": "Traces", "actionCapable": true },
     { "id": "log-tail", "title": "Log Tail", "actionCapable": false },

@@ -182,6 +182,8 @@ public class PanelsController {
             case BootUiPanels.CRAC -> availability(cracAvailable(), cracUnavailableReason());
             case BootUiPanels.SQL_TRACE ->
                 availability(beanPresent(javax.sql.DataSource.class), "No DataSource bean is available");
+            case BootUiPanels.POSTGRESQL ->
+                availability(beanPresent(javax.sql.DataSource.class), "No DataSource bean is available");
             case BootUiPanels.TRANSACTIONS ->
                 availability(
                         beanPresent(ConfigurableTransactionManager.class),
