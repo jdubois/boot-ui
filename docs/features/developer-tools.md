@@ -33,7 +33,7 @@ groups:
   request or trace. `get_exception_detail` returns a selected exception group's stack trace, causes, and occurrences.
 - **Runtime and integration reads:** `get_overview`, `get_health`, `get_config`, `get_beans`, `get_mappings`,
   `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`, `get_cache_stats`,
-  `get_database_connection_pools`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
+  `get_database_connection_pools`, `get_postgresql_report`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
   `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
   `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
   `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_devtools_status`, `get_dev_services`,
@@ -42,7 +42,7 @@ groups:
 - **Bounded controls:** `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
   `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`, `resume_transaction_recording`,
   `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`, `resume_rest_client_recording`,
-  `analyze_heap_dump`, and `trigger_devtools_livereload`. Destructive, database-mutating, arbitrary-command,
+  `postgresql_read`, `analyze_heap_dump`, and `trigger_devtools_livereload`. Destructive, database-mutating, arbitrary-command,
   heap-capture/download, HTTP-probe, GitHub-write, and dev-service-restart operations are deliberately not exposed.
 
 Tools whose backing panel/controller is not present (for example Hibernate or Spring Security when those libraries are
