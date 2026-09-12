@@ -6,16 +6,22 @@ import io.github.jdubois.bootui.core.dto.PostgresStatementDto;
 /**
  * Ranks normalized statements from {@code pg_stat_statements} by total execution time.
  *
- * <p>Two things are version- and installation-gated, and both degrade the section rather than failing the
- * read: the extension may simply not be installed (reported with the exact {@code CREATE EXTENSION}
- * statement that would fix it), and PostgreSQL 13 renamed {@code total_time}/{@code mean_time} to
- * {@code total_exec_time}/{@code mean_exec_time}, so the column names are chosen from the server version
- * instead of being guessed.</p>
+ * <p>Two things are installation-gated, and both degrade the section rather than failing the read: the
+ * extension may simply not be installed (reported with the exact {@code CREATE EXTENSION} statement that
+ * would fix it), and {@code pg_stat_statements} 1.8 renamed {@code total_time}/{@code mean_time} to
+ * {@code total_exec_time}/{@code mean_exec_time}. That rename follows the <em>extension</em> version, not
+ * the server version: a PostgreSQL 13+ server that was upgraded without {@code ALTER EXTENSION ... UPDATE}
+ * still exposes the old names. The column names are therefore read from the catalog rather than inferred
+ * from the server version.</p>
  */
 final class PostgresStatementCollector implements PostgresCollector {
 
-    private static final String EXTENSION_SQL =
-            "select (count(*))::int as installed from pg_extension where extname = 'pg_stat_statements'";
+    private static final String EXTENSION_SQL = """
+            select (select count(*) from pg_extension where extname = 'pg_stat_statements')::int as installed,
+                   (select count(*) from pg_attribute a
+                      join pg_class c on c.oid = a.attrelid and c.relname = 'pg_stat_statements'
+                     where a.attname = 'total_exec_time' and not a.attisdropped)::int as exec_naming
+            """;
 
     static final String INSTALL_HINT = "Install the extension (shared_preload_libraries = 'pg_stat_statements', then "
             + "CREATE EXTENSION pg_stat_statements;) to rank statements by execution time.";
@@ -32,17 +38,25 @@ final class PostgresStatementCollector implements PostgresCollector {
 
     @Override
     public PostgresSectionDto collect(PostgresReadContext context, PostgresDatabaseData data) {
-        PostgresRows<Integer> extension = PostgresQuery.readOne(
-                context, "pg_stat_statements availability", EXTENSION_SQL, resultSet -> resultSet.getInt("installed"));
+        PostgresRows<Extension> extension = PostgresQuery.readOne(
+                context,
+                "pg_stat_statements availability",
+                EXTENSION_SQL,
+                resultSet -> new Extension(resultSet.getInt("installed") > 0, resultSet.getInt("exec_naming") > 0));
         if (!extension.available()) {
             return failed(extension.reason());
         }
-        if (extension.empty() || extension.rows().get(0) == 0) {
+        if (extension.empty() || !extension.rows().get(0).installed()) {
             return skipped("The pg_stat_statements extension is not installed on this server.", INSTALL_HINT);
         }
+        boolean execNaming = extension.rows().get(0).execNaming();
 
         PostgresRows<PostgresStatementDto> rows = PostgresQuery.readList(
-                context, "Statement statistics", sql(context), context.limits().maxStatements(), resultSet -> {
+                context,
+                "Statement statistics",
+                sql(execNaming),
+                context.limits().maxStatements(),
+                resultSet -> {
                     Long hits = PostgresQuery.longOrNull(resultSet, "shared_blks_hit");
                     Long reads = PostgresQuery.longOrNull(resultSet, "shared_blks_read");
                     return new PostgresStatementDto(
@@ -73,9 +87,8 @@ final class PostgresStatementCollector implements PostgresCollector {
         return total <= 0 ? null : hits.doubleValue() / total;
     }
 
-    /** PostgreSQL 13 renamed the timing columns; older servers still only have the {@code *_time} names. */
-    static String sql(PostgresReadContext context) {
-        boolean execNaming = context.atLeast(13);
+    /** pg_stat_statements 1.8 renamed the timing columns; older extension versions only have {@code *_time}. */
+    static String sql(boolean execNaming) {
         String total = execNaming ? "total_exec_time" : "total_time";
         String mean = execNaming ? "mean_exec_time" : "mean_time";
         String max = execNaming ? "max_exec_time" : "max_time";
@@ -86,4 +99,7 @@ final class PostgresStatementCollector implements PostgresCollector {
                 + " join pg_database d on d.oid = s.dbid and d.datname = current_database()"
                 + " order by s." + total + " desc nulls last limit ?";
     }
+
+    /** Whether the extension is installed, and whether it is new enough to use the {@code *_exec_time} names. */
+    private record Extension(boolean installed, boolean execNaming) {}
 }

@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.engine.support.CredentialRedaction;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Savepoint;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -15,6 +16,12 @@ import java.util.List;
  * {@code setMaxRows} as a driver-side backstop, and {@code setQueryTimeout} clamped to whatever is left of
  * the read budget. Failures are captured with a redacted reason rather than swallowed, so a section can say
  * "the statistics view refused" instead of reporting a clean result it never earned.</p>
+ *
+ * <p>Each query also runs inside its own savepoint. PostgreSQL aborts the entire transaction on <em>any</em>
+ * statement error, so without one, a single missing column, refused view or fired {@code statement_timeout}
+ * would leave every later section reporting "current transaction is aborted" instead of its own content —
+ * one absent extension would masquerade as a database-wide failure. Rolling back to the savepoint contains
+ * the failure to the query that caused it.</p>
  */
 final class PostgresQuery {
 
@@ -26,12 +33,13 @@ final class PostgresQuery {
 
     private PostgresQuery() {}
 
-    /** Reads a bounded list from a statement whose last placeholder is a trailing {@code limit ?}. */
+    /** Reads a bounded list from a statement whose only placeholder is a trailing {@code limit ?}. */
     static <T> PostgresRows<T> readList(
             PostgresReadContext context, String label, String sql, int max, RowMapper<T> mapper) {
         if (context.budget().exhausted()) {
             return PostgresRows.failed("The read budget ran out before " + label + " could be read.");
         }
+        Savepoint savepoint = savepoint(context);
         List<T> rows = new ArrayList<>();
         boolean truncated = false;
         try (PreparedStatement statement = context.connection().prepareStatement(sql)) {
@@ -52,8 +60,10 @@ final class PostgresQuery {
                 }
             }
         } catch (SQLException | RuntimeException ex) {
+            rollback(context, savepoint);
             return PostgresRows.failed(describe(label, ex));
         }
+        release(context, savepoint);
         return PostgresRows.available(rows, truncated);
     }
 
@@ -62,18 +72,63 @@ final class PostgresQuery {
         if (context.budget().exhausted()) {
             return PostgresRows.failed("The read budget ran out before " + label + " could be read.");
         }
+        Savepoint savepoint = savepoint(context);
+        PostgresRows<T> outcome;
         try (PreparedStatement statement = context.connection().prepareStatement(sql)) {
             statement.setQueryTimeout(context.timeoutSeconds());
             statement.setMaxRows(1);
             try (ResultSet resultSet = statement.executeQuery()) {
                 if (!resultSet.next()) {
-                    return PostgresRows.available(List.of(), false);
+                    outcome = PostgresRows.available(List.of(), false);
+                } else {
+                    T row = mapper.map(resultSet);
+                    outcome = PostgresRows.available(row == null ? List.of() : List.of(row), false);
                 }
-                T row = mapper.map(resultSet);
-                return PostgresRows.available(row == null ? List.of() : List.of(row), false);
             }
         } catch (SQLException | RuntimeException ex) {
+            rollback(context, savepoint);
             return PostgresRows.failed(describe(label, ex));
+        }
+        release(context, savepoint);
+        return outcome;
+    }
+
+    /**
+     * The savepoint a failing query is rolled back to, or {@code null} when the connection would not give
+     * one. A connection running in auto-commit — which only happens when pinning the read-only transaction
+     * failed — has nothing to abort, so the absence is not itself an error.
+     */
+    private static Savepoint savepoint(PostgresReadContext context) {
+        try {
+            return context.connection().getAutoCommit()
+                    ? null
+                    : context.connection().setSavepoint();
+        } catch (SQLException | RuntimeException ex) {
+            return null;
+        }
+    }
+
+    /** Contains a failed query: the transaction stays usable for the sections that come after it. */
+    private static void rollback(PostgresReadContext context, Savepoint savepoint) {
+        if (savepoint == null) {
+            return;
+        }
+        try {
+            context.connection().rollback(savepoint);
+        } catch (SQLException | RuntimeException ex) {
+            // The transaction is already unusable; the next query reports its own failure.
+        }
+    }
+
+    /** Drops a savepoint that was not needed, so a long read does not accumulate subtransactions. */
+    private static void release(PostgresReadContext context, Savepoint savepoint) {
+        if (savepoint == null) {
+            return;
+        }
+        try {
+            context.connection().releaseSavepoint(savepoint);
+        } catch (SQLException | RuntimeException ex) {
+            // Releasing is an optimization; an unreleased savepoint costs a little memory and nothing else.
         }
     }
 

@@ -19,7 +19,7 @@ final class PostgresTableCollector implements PostgresCollector {
                    seq_scan as sequential_scans, seq_tup_read as sequential_tuples,
                    idx_scan as index_scans
             from pg_stat_user_tables
-            order by pg_total_relation_size(relid) desc
+            order by total_size desc
             limit ?
             """;
 

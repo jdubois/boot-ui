@@ -14,6 +14,12 @@ cumulative statistics and current catalog state; they do not prove root cause or
 - Each datasource read runs in one read-only transaction. BootUI sets the JDBC connection read-only and pins
   `set transaction read only`, `statement_timeout = 5000ms`, `lock_timeout = 2000ms`, and
   `idle_in_transaction_session_timeout = 15000ms` for the session.
+- Every statistics query runs inside its own savepoint. PostgreSQL aborts the whole transaction on any statement error,
+  so without that isolation one permission error would make every later section report "current transaction is aborted"
+  instead of its own content.
+- Column and view availability is read from the catalog, never inferred from the server version: the
+  `pg_stat_statements` timing columns follow the extension version, and `pg_stat_checkpointer` may be absent on a server
+  new enough to have it only in theory.
 - The cooperative read budget is 15 seconds. It is checked between collectors; JDBC connection acquisition and driver
   work may still take as long as the driver/server allow.
 - Row and text bounds are fixed: 25 statements, 50 indexes, 25 largest relations, 25 autovacuum rows, 10 replicas,
@@ -21,8 +27,10 @@ cumulative statistics and current catalog state; they do not prove root cause or
   visible instead of silently treated as complete.
 - Each section reports `AVAILABLE`, `SKIPPED`, or `FAILED`. A skipped or failed section is a limitation, not a pass, and
   does not produce findings for rules that depend on that section.
-- Use a read-only application role with PostgreSQL's built-in `pg_monitor` role when possible. Without it, some session,
-  replication, and statistics views can under-report or fail.
+- Use a read-only application role with PostgreSQL's built-in `pg_monitor` role when possible. Without it, some
+  replication and statistics views fail outright, and `pg_stat_activity` silently nulls the state of backends the role
+  does not own. BootUI detects that case and reports the whole session breakdown as unknown rather than counting hidden
+  backends as idle and clean; the section is then `AVAILABLE` with a reason explaining what is missing.
 - The statement-ranking section requires `pg_stat_statements` to be loaded in `shared_preload_libraries` and installed
   with `CREATE EXTENSION pg_stat_statements;`.
 - PostgreSQL statistics are cumulative since the last statistics reset and cover every client of the database, not only
@@ -57,22 +65,25 @@ cumulative statistics and current catalog state; they do not prove root cause or
 ### PG-VITALS-003 — Connection usage close to max_connections
 
 - **Severity:** HIGH
-- **What it measures:** current sessions in `pg_stat_activity` for the database versus `max_connections`.
+- **What it measures:** client backends in `pg_stat_activity` across the whole server versus `max_connections`. The
+  count is server-wide on purpose, because `max_connections` is a cluster-wide ceiling shared by every database.
 - **Threshold:** `HIGH_CONNECTION_USAGE = 0.80`; findings appear at or above 80% of `max_connections`.
 - **What to do:** Reduce pool sizes across all clients or use a connection pooler. Raising `max_connections` trades one
   limit for memory pressure.
-- **Caveat:** Connections are counted across every client, so another application or leftover local session can be the
-  cause.
+- **Caveat:** Client backends are counted across the whole server, so another database, another application or a
+  leftover local session can be the cause.
 - **Learn more:** <https://www.postgresql.org/docs/current/runtime-config-connection.html>
 
 ### PG-VITALS-004 — Sessions idle in transaction
 
 - **Severity:** MEDIUM
-- **What it measures:** sessions whose `pg_stat_activity.state` is `idle in transaction` for the current database.
+- **What it measures:** client backends whose `pg_stat_activity.state` is `idle in transaction`.
 - **Threshold:** any idle-in-transaction session (`> 0`).
 - **What to do:** Find the owning code path and commit or roll back before doing non-database work. Configure
   `idle_in_transaction_session_timeout` to bound the damage.
-- **Caveat:** This is a point-in-time sample. A short-lived idle transaction can be missed, and a debugger session counts.
+- **Caveat:** This is a point-in-time sample. A short-lived idle transaction can be missed, and a debugger session
+  counts. The check is skipped entirely unless the BootUI role can see the state of other backends, which requires
+  `pg_monitor`.
 - **Learn more:** <https://www.postgresql.org/docs/current/monitoring-stats.html>
 
 ### PG-VITALS-005 — Sessions waiting on locks
@@ -82,8 +93,9 @@ cumulative statistics and current catalog state; they do not prove root cause or
 - **Threshold:** any blocked session (`> 0`).
 - **What to do:** Identify the blocking transaction and shorten it. Long transactions and idle-in-transaction sessions
   are the usual cause.
-- **Caveat:** This is a point-in-time sample; a lock wait that resolves between reads is not reported, and a brief wait is
-  normal under write contention.
+- **Caveat:** This is a point-in-time sample; a lock wait that resolves between reads is not reported, and a brief wait
+  is normal under write contention. The check is skipped entirely unless the BootUI role can see the state of other
+  backends, which requires `pg_monitor`.
 - **Learn more:** <https://www.postgresql.org/docs/current/explicit-locking.html>
 
 ### PG-VITALS-006 — Transaction id age approaching wraparound

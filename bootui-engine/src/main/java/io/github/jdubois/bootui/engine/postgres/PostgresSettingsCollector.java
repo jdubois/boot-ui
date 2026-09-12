@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.postgres;
 import io.github.jdubois.bootui.core.dto.PostgresSectionDto;
 import io.github.jdubois.bootui.core.dto.PostgresSettingDto;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -82,12 +83,12 @@ final class PostgresSettingsCollector implements PostgresCollector {
         settings.put("track_io_timing", "Off means per-statement I/O time is not measured at all.");
         settings.put("wal_level", "Determines what replication and recovery the WAL can support.");
         settings.put("work_mem", "Memory per sort or hash before it spills to temporary files.");
-        return Map.copyOf(settings);
+        return Collections.unmodifiableMap(settings);
     }
 
     private static String placeholders() {
         List<String> quoted = new ArrayList<>();
-        for (String name : notableSettings().keySet()) {
+        for (String name : NOTABLE_SETTINGS.keySet()) {
             quoted.add("'" + name + "'");
         }
         return String.join(", ", quoted);

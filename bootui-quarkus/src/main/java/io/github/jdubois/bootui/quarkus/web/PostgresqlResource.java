@@ -29,8 +29,9 @@ import jakarta.ws.rs.core.MediaType;
  *
  * <p>It is {@code @ApplicationScoped} (not the default per-request scope) because it caches the last report
  * in a {@code volatile} field across requests — the CDI analogue of the Spring controller's singleton with a
- * {@code volatile lastReport}. Both methods are {@code @Blocking}: {@code POST /read} opens JDBC connections
- * and runs several catalog/statistics queries per datasource, which must not run on the Vert.x event loop.</p>
+ * {@code volatile lastReport}. Only {@code POST /read} is {@code @Blocking}: it opens JDBC connections and
+ * runs several catalog/statistics queries per datasource, which must not run on the Vert.x event loop. The
+ * {@code GET} returns the cached field and stays on the event loop.</p>
  */
 @ApplicationScoped
 @Path("/bootui/api/postgresql")
@@ -47,7 +48,6 @@ public class PostgresqlResource {
     }
 
     @GET
-    @Blocking
     @Produces(MediaType.APPLICATION_JSON)
     public PostgresInsightReport postgresql() {
         return lastReport;

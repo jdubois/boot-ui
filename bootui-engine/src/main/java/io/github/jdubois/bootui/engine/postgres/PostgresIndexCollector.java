@@ -21,7 +21,7 @@ final class PostgresIndexCollector implements PostgresCollector {
                    exists (select 1 from pg_constraint c where c.conindid = s.indexrelid) as constraint_backed
             from pg_stat_user_indexes s
             join pg_index i on i.indexrelid = s.indexrelid
-            order by s.idx_scan asc nulls first, pg_relation_size(s.indexrelid) desc
+            order by s.idx_scan asc nulls first, size_bytes desc
             limit ?
             """;
 

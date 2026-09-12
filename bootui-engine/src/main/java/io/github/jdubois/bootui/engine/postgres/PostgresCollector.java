@@ -23,9 +23,14 @@ interface PostgresCollector {
         return new PostgresSectionDto(id(), title(), "AVAILABLE", null, null, rowCount, 0, truncated);
     }
 
-    /** A section that was read, but not completely; the reason says which part is missing. */
-    default PostgresSectionDto partial(int rowCount, String reason) {
-        return new PostgresSectionDto(id(), title(), "AVAILABLE", reason, null, rowCount, 0, false);
+    /**
+     * A section that was read, but not completely; the reason says which part is missing.
+     *
+     * <p>{@code truncated} is carried separately because a section can be both: hitting the row limit and
+     * losing a subsection to a privilege are independent, and collapsing them would hide the row limit.</p>
+     */
+    default PostgresSectionDto partial(int rowCount, String reason, boolean truncated) {
+        return new PostgresSectionDto(id(), title(), "AVAILABLE", reason, null, rowCount, 0, truncated);
     }
 
     /** A section BootUI deliberately did not read: no extension, no privilege, too old a server. */

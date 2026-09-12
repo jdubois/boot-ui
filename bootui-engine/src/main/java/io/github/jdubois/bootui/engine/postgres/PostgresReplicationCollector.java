@@ -10,13 +10,15 @@ import java.util.List;
  *
  * <p>Three things are gated. Replica lag is measured against {@code pg_current_wal_lsn()}, which only exists
  * on a primary, so it is skipped entirely in recovery. PostgreSQL 17 moved the checkpoint counters out of
- * {@code pg_stat_bgwriter} into {@code pg_stat_checkpointer}, so the view is chosen from the server version.
+ * {@code pg_stat_bgwriter} into {@code pg_stat_checkpointer}, so the view is chosen by asking the catalog
+ * which one exists rather than by trusting a server version the driver may not report.
  * Replication slots need a privilege a bare application role usually lacks, so an unreadable slot count
  * degrades the section instead of failing it.</p>
  */
 final class PostgresReplicationCollector implements PostgresCollector {
 
-    private static final String RECOVERY_SQL = "select pg_is_in_recovery() as in_recovery";
+    private static final String RECOVERY_SQL = "select pg_is_in_recovery() as in_recovery,"
+            + " (to_regclass('pg_catalog.pg_stat_checkpointer') is not null) as has_checkpointer";
 
     private static final String REPLICAS_SQL = """
             select application_name, client_addr::text as client_addr, state, sync_state,
@@ -46,13 +48,19 @@ final class PostgresReplicationCollector implements PostgresCollector {
 
     @Override
     public PostgresSectionDto collect(PostgresReadContext context, PostgresDatabaseData data) {
-        PostgresRows<Boolean> recovery = PostgresQuery.readOne(
-                context, "Recovery state", RECOVERY_SQL, resultSet -> resultSet.getBoolean("in_recovery"));
+        PostgresRows<ServerShape> recovery = PostgresQuery.readOne(
+                context,
+                "Recovery state",
+                RECOVERY_SQL,
+                resultSet ->
+                        new ServerShape(resultSet.getBoolean("in_recovery"), resultSet.getBoolean("has_checkpointer")));
         if (!recovery.available()) {
             return failed(recovery.reason());
         }
-        boolean inRecovery =
-                !recovery.empty() && Boolean.TRUE.equals(recovery.rows().get(0));
+        ServerShape shape = recovery.empty()
+                ? new ServerShape(false, false)
+                : recovery.rows().get(0);
+        boolean inRecovery = shape.inRecovery();
 
         List<PostgresReplicaDto> replicas = List.of();
         String limitation = null;
@@ -79,7 +87,7 @@ final class PostgresReplicationCollector implements PostgresCollector {
             limitation = "This server is a standby, so replica lag is not measurable from here.";
         }
 
-        Checkpoints checkpoints = readCheckpoints(context);
+        Checkpoints checkpoints = readCheckpoints(context, shape.hasCheckpointer());
         if (checkpoints == null) {
             limitation = limitation == null ? "The checkpoint counters could not be read." : limitation;
             checkpoints = new Checkpoints(null, null, null);
@@ -107,12 +115,12 @@ final class PostgresReplicationCollector implements PostgresCollector {
                 slotCounts.inactiveSlots(),
                 data.setting("wal_level")));
         int rowCount = replicas.size();
-        return limitation == null ? available(rowCount, false) : partial(rowCount, limitation);
+        return limitation == null ? available(rowCount, false) : partial(rowCount, limitation, false);
     }
 
     /** PostgreSQL 17 moved the checkpoint counters from {@code pg_stat_bgwriter} to {@code pg_stat_checkpointer}. */
-    static String checkpointSql(PostgresReadContext context) {
-        if (context.atLeast(17)) {
+    static String checkpointSql(boolean hasCheckpointer) {
+        if (hasCheckpointer) {
             return "select num_timed as checkpoints_timed, num_requested as checkpoints_requested,"
                     + " write_time as write_time from pg_stat_checkpointer";
         }
@@ -120,9 +128,9 @@ final class PostgresReplicationCollector implements PostgresCollector {
                 + " checkpoint_write_time as write_time from pg_stat_bgwriter";
     }
 
-    private Checkpoints readCheckpoints(PostgresReadContext context) {
+    private Checkpoints readCheckpoints(PostgresReadContext context, boolean hasCheckpointer) {
         PostgresRows<Checkpoints> rows =
-                PostgresQuery.readOne(context, "Checkpoint statistics", checkpointSql(context), resultSet -> {
+                PostgresQuery.readOne(context, "Checkpoint statistics", checkpointSql(hasCheckpointer), resultSet -> {
                     Double writeMillis = PostgresQuery.doubleOrNull(resultSet, "write_time");
                     return new Checkpoints(
                             PostgresQuery.longOrNull(resultSet, "checkpoints_timed"),
@@ -131,6 +139,9 @@ final class PostgresReplicationCollector implements PostgresCollector {
                 });
         return rows.available() && !rows.empty() ? rows.rows().get(0) : null;
     }
+
+    /** Whether this server is a standby, and whether it carries the PostgreSQL 17 checkpointer view. */
+    private record ServerShape(boolean inRecovery, boolean hasCheckpointer) {}
 
     private record Checkpoints(Long timed, Long requested, Double writeSeconds) {}
 

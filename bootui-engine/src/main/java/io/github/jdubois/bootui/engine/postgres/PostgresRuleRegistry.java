@@ -100,8 +100,9 @@ final class PostgresRuleRegistry {
                     "The server is running close to its hard ceiling on concurrent backends.",
                     "Reduce pool sizes across all clients, or put a connection pooler in front of the server. "
                             + "Raising max_connections trades one limit for memory pressure.",
-                    "Connections are counted across every client of this database, so another application or a "
-                            + "leftover session can be the cause.",
+                    "Client backends are counted across the whole server, because max_connections is a "
+                            + "cluster-wide ceiling; another database, another application or a leftover session "
+                            + "can be the cause.",
                     "https://www.postgresql.org/docs/current/runtime-config-connection.html",
                     data -> {
                         PostgresVitalSignsDto vitals = data.vitalSigns();
@@ -126,7 +127,8 @@ final class PostgresRuleRegistry {
                     "Find the owning code path and commit or roll back before doing non-database work. "
                             + "idle_in_transaction_session_timeout bounds the damage.",
                     "This is a point-in-time sample taken during the read; a short-lived idle transaction can be "
-                            + "missed, and a debugger session counts too.",
+                            + "missed, and a debugger session counts too. The check is skipped entirely unless the "
+                            + "BootUI role can see the state of other backends, which requires pg_monitor.",
                     "https://www.postgresql.org/docs/current/monitoring-stats.html",
                     data -> {
                         PostgresVitalSignsDto vitals = data.vitalSigns();
@@ -150,7 +152,8 @@ final class PostgresRuleRegistry {
                     "Identify the blocking transaction and shorten it. Long transactions and idle-in-transaction "
                             + "sessions are the usual cause.",
                     "This is a point-in-time sample; a lock wait that resolves between reads is not reported, and "
-                            + "a brief wait is normal under write contention.",
+                            + "a brief wait is normal under write contention. The check is skipped entirely unless "
+                            + "the BootUI role can see the state of other backends, which requires pg_monitor.",
                     "https://www.postgresql.org/docs/current/explicit-locking.html",
                     data -> {
                         PostgresVitalSignsDto vitals = data.vitalSigns();

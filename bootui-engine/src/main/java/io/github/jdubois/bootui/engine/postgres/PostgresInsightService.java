@@ -304,7 +304,7 @@ public final class PostgresInsightService {
                     diagnostics);
         }
 
-        List<PostgresFindingDto> findings = evaluate(name, data);
+        List<PostgresFindingDto> findings = evaluate(name, data, diagnostics);
         Map<String, Integer> countsBySection = new LinkedHashMap<>();
         for (PostgresFindingDto finding : findings) {
             countsBySection.merge(finding.sectionId(), 1, Integer::sum);
@@ -356,7 +356,8 @@ public final class PostgresInsightService {
         return complete && !data.truncated() ? "SCANNED" : "PARTIAL";
     }
 
-    private List<PostgresFindingDto> evaluate(String dataSourceName, PostgresDatabaseData data) {
+    private List<PostgresFindingDto> evaluate(
+            String dataSourceName, PostgresDatabaseData data, List<PostgresDiagnosticDto> diagnostics) {
         List<PostgresFindingDto> findings = new ArrayList<>();
         for (PostgresRule rule : PostgresRuleRegistry.rules()) {
             PostgresRuleDefinition definition = rule.definition();
@@ -367,6 +368,11 @@ public final class PostgresInsightService {
             try {
                 match = rule.evaluate(data);
             } catch (RuntimeException ex) {
+                diagnostics.add(new PostgresDiagnosticDto(
+                        dataSourceName + "/" + definition.id(),
+                        "ERROR",
+                        "The check could not be evaluated: "
+                                + CredentialRedaction.redact(String.valueOf(ex.getMessage()))));
                 continue;
             }
             if (match == null) {
@@ -396,16 +402,23 @@ public final class PostgresInsightService {
                 "set local lock_timeout = '" + limits.lockTimeout().toMillis() + "ms'",
                 "set local idle_in_transaction_session_timeout = '"
                         + limits.readBudget().toMillis() + "ms'");
-        for (String pin : pins) {
-            try (Statement statement = connection.createStatement()) {
-                statement.execute(pin);
-            } catch (SQLException | RuntimeException ex) {
-                diagnostics.add(new PostgresDiagnosticDto(
-                        name,
-                        "WARNING",
-                        "The session could not be pinned with \"" + pin + "\": "
-                                + CredentialRedaction.redact(String.valueOf(ex.getMessage()))));
+        try (Statement statement = connection.createStatement()) {
+            for (String pin : pins) {
+                try {
+                    statement.execute(pin);
+                } catch (SQLException | RuntimeException ex) {
+                    diagnostics.add(new PostgresDiagnosticDto(
+                            name,
+                            "WARNING",
+                            "The session could not be pinned with \"" + pin + "\": "
+                                    + CredentialRedaction.redact(String.valueOf(ex.getMessage()))));
+                }
             }
+        } catch (SQLException | RuntimeException ex) {
+            diagnostics.add(new PostgresDiagnosticDto(
+                    name,
+                    "WARNING",
+                    "The session could not be pinned: " + CredentialRedaction.redact(String.valueOf(ex.getMessage()))));
         }
     }
 
@@ -432,7 +445,10 @@ public final class PostgresInsightService {
             }
         } catch (SQLException | RuntimeException ex) {
             diagnostics.add(new PostgresDiagnosticDto(
-                    name, "WARNING", "The read-only transaction could not be rolled back: " + ex.getMessage()));
+                    name,
+                    "WARNING",
+                    "The read-only transaction could not be rolled back: "
+                            + CredentialRedaction.redact(String.valueOf(ex.getMessage()))));
         }
         try {
             if (readOnlyChanged) {
@@ -440,7 +456,10 @@ public final class PostgresInsightService {
             }
         } catch (SQLException | RuntimeException ex) {
             diagnostics.add(new PostgresDiagnosticDto(
-                    name, "WARNING", "The connection's read-only state could not be restored: " + ex.getMessage()));
+                    name,
+                    "WARNING",
+                    "The connection's read-only state could not be restored: "
+                            + CredentialRedaction.redact(String.valueOf(ex.getMessage()))));
         }
         try {
             if (autoCommitChanged) {
@@ -448,7 +467,10 @@ public final class PostgresInsightService {
             }
         } catch (SQLException | RuntimeException ex) {
             diagnostics.add(new PostgresDiagnosticDto(
-                    name, "WARNING", "The connection's auto-commit state could not be restored: " + ex.getMessage()));
+                    name,
+                    "WARNING",
+                    "The connection's auto-commit state could not be restored: "
+                            + CredentialRedaction.redact(String.valueOf(ex.getMessage()))));
         }
     }
 

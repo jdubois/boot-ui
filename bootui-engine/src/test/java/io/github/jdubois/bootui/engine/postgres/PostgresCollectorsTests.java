@@ -14,26 +14,20 @@ import org.junit.jupiter.api.Test;
 class PostgresCollectorsTests {
 
     @Test
-    void statementCollectorUsesVersionSpecificTimingColumns() throws SQLException {
-        var oldContext = PostgresTestDataSources.context(PostgresTestDataSources.postgres(), 12, exposure());
-        var newContext = PostgresTestDataSources.context(PostgresTestDataSources.postgres(), 13, exposure());
-
-        assertThat(PostgresStatementCollector.sql(oldContext))
+    void statementCollectorPicksTimingColumnsFromTheExtensionNotTheServer() {
+        assertThat(PostgresStatementCollector.sql(false))
                 .contains("s.total_time as total_time", "s.mean_time as mean_time")
                 .doesNotContain("total_exec_time");
-        assertThat(PostgresStatementCollector.sql(newContext))
+        assertThat(PostgresStatementCollector.sql(true))
                 .contains("s.total_exec_time as total_time", "s.mean_exec_time as mean_time");
     }
 
     @Test
-    void replicationCollectorUsesVersionSpecificCheckpointViews() throws SQLException {
-        assertThat(PostgresReplicationCollector.checkpointSql(
-                        PostgresTestDataSources.context(PostgresTestDataSources.postgres(), 16, exposure())))
+    void replicationCollectorPicksTheCheckpointViewThatExists() {
+        assertThat(PostgresReplicationCollector.checkpointSql(false))
                 .contains("pg_stat_bgwriter", "checkpoints_req")
                 .doesNotContain("pg_stat_checkpointer");
-        assertThat(PostgresReplicationCollector.checkpointSql(
-                        PostgresTestDataSources.context(PostgresTestDataSources.postgres(), 17, exposure())))
-                .contains("pg_stat_checkpointer", "num_requested");
+        assertThat(PostgresReplicationCollector.checkpointSql(true)).contains("pg_stat_checkpointer", "num_requested");
     }
 
     @Test
@@ -224,6 +218,59 @@ class PostgresCollectorsTests {
             assertThat(vacuum.lastVacuum()).isEqualTo(now);
         });
         assertThat(data.replication().replicationSlots()).isNull();
+    }
+
+    @Test
+    void aFailedQueryDoesNotPoisonTheSectionsReadAfterIt() throws SQLException {
+        // PostgreSQL aborts the enclosing transaction on any statement error; without a per-query
+        // savepoint every later collector would report "current transaction is aborted" instead of
+        // its own content.
+        var dataSource = PostgresTestDataSources.postgres()
+                .fail(PostgresTestDataSources.QueryKind.INDEXES, "permission denied for view pg_stat_user_indexes");
+        var connection = dataSource.getConnection();
+        connection.setAutoCommit(false);
+        var context = PostgresTestDataSources.context(connection, 15, exposure());
+        PostgresDatabaseData data = new PostgresDatabaseData("primary");
+
+        PostgresSectionDto indexes = new PostgresIndexCollector().collect(context, data);
+        PostgresSectionDto tables = new PostgresTableCollector().collect(context, data);
+
+        assertThat(indexes.status()).isEqualTo("FAILED");
+        assertThat(tables.status()).isEqualTo("AVAILABLE");
+        assertThat(tables.reason()).isNull();
+    }
+
+    @Test
+    void vitalSignsReportTheSessionBreakdownAsUnknownWhenBackendsAreHidden() throws SQLException {
+        // pg_stat_activity nulls state/wait_event_type for backends the role does not own, so counting
+        // those rows as "not active, not blocked" would manufacture a clean bill of health.
+        var dataSource = PostgresTestDataSources.postgres()
+                .rows(
+                        PostgresTestDataSources.QueryKind.ACTIVITY,
+                        PostgresTestDataSources.row(
+                                "sessions",
+                                40,
+                                "active_sessions",
+                                1,
+                                "idle_in_transaction",
+                                0,
+                                "blocked_sessions",
+                                0,
+                                "longest_transaction_seconds",
+                                null,
+                                "restricted_sessions",
+                                39));
+        PostgresDatabaseData data = new PostgresDatabaseData("primary");
+        var context = PostgresTestDataSources.context(dataSource, 15, exposure());
+
+        PostgresSectionDto section = new PostgresVitalSignsCollector().collect(context, data);
+
+        assertThat(section.status()).isEqualTo("AVAILABLE");
+        assertThat(section.reason()).contains("pg_stat_activity hides the state");
+        assertThat(data.vitalSigns().connections()).isEqualTo(40);
+        assertThat(data.vitalSigns().activeSessions()).isNull();
+        assertThat(data.vitalSigns().blockedSessions()).isNull();
+        assertThat(data.vitalSigns().longestTransactionSeconds()).isNull();
     }
 
     private static ExposurePolicy exposure() {

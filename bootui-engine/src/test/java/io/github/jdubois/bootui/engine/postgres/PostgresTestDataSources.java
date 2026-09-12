@@ -9,6 +9,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
+import java.sql.Savepoint;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.Duration;
@@ -55,8 +56,13 @@ final class PostgresTestDataSources {
 
     static PostgresReadContext context(ScriptedDataSource dataSource, int major, ExposurePolicy exposure)
             throws SQLException {
+        return context(dataSource.getConnection(), major, exposure);
+    }
+
+    /** For tests that need to drive the connection themselves, typically to leave auto-commit off. */
+    static PostgresReadContext context(Connection connection, int major, ExposurePolicy exposure) {
         return new PostgresReadContext(
-                dataSource.getConnection(),
+                connection,
                 io.github.jdubois.bootui.engine.databaseadvisor.DatabaseVersion.of(major, 0, major + ".0"),
                 PostgresReadBudget.of(Duration.ofSeconds(15), () -> 0),
                 limits(),
@@ -120,6 +126,10 @@ final class PostgresTestDataSources {
         private Connection connection() {
             AtomicBoolean autoCommit = new AtomicBoolean(true);
             AtomicBoolean readOnly = new AtomicBoolean(false);
+            // PostgreSQL aborts the whole transaction on any statement error and rejects every later
+            // statement with SQLSTATE 25P02 until it is rolled back, so the fixture models that too:
+            // without it, per-query savepoints would look unnecessary.
+            AtomicBoolean aborted = new AtomicBoolean(false);
             return Connection.class.cast(Proxy.newProxyInstance(
                     Connection.class.getClassLoader(),
                     new Class<?>[] {Connection.class},
@@ -137,9 +147,26 @@ final class PostgresTestDataSources {
                                 yield null;
                             }
                             case "createStatement" -> statement();
-                            case "prepareStatement" -> preparedStatement(String.valueOf(arguments[0]));
-                            case "rollback", "close" -> null;
+                            case "prepareStatement" -> preparedStatement(String.valueOf(arguments[0]), aborted);
+                            case "setSavepoint" -> savepoint();
+                            case "releaseSavepoint" -> null;
+                            case "rollback" -> {
+                                aborted.set(false);
+                                yield null;
+                            }
+                            case "close" -> null;
                             case "isClosed" -> false;
+                            default -> throw new SQLFeatureNotSupportedException(method.getName());
+                        };
+                    }));
+        }
+
+        private Savepoint savepoint() {
+            return Savepoint.class.cast(Proxy.newProxyInstance(
+                    Savepoint.class.getClassLoader(), new Class<?>[] {Savepoint.class}, (proxy, method, arguments) -> {
+                        return switch (method.getName()) {
+                            case "getSavepointName" -> "bootui";
+                            case "getSavepointId" -> 1;
                             default -> throw new SQLFeatureNotSupportedException(method.getName());
                         };
                     }));
@@ -172,7 +199,7 @@ final class PostgresTestDataSources {
                     }));
         }
 
-        private PreparedStatement preparedStatement(String sql) {
+        private PreparedStatement preparedStatement(String sql, AtomicBoolean aborted) {
             preparedSql.add(sql);
             QueryKind kind = QueryKind.of(sql);
             return PreparedStatement.class.cast(Proxy.newProxyInstance(
@@ -182,7 +209,14 @@ final class PostgresTestDataSources {
                         return switch (method.getName()) {
                             case "setQueryTimeout", "setMaxRows", "setInt", "close" -> null;
                             case "executeQuery" -> {
+                                if (aborted.get()) {
+                                    throw new SQLException(
+                                            "current transaction is aborted, commands ignored until end of"
+                                                    + " transaction block",
+                                            "25P02");
+                                }
                                 if (failures.containsKey(kind)) {
+                                    aborted.set(true);
                                     throw failures.get(kind);
                                 }
                                 yield resultSet(rows.getOrDefault(kind, defaultRows(kind)));
@@ -260,10 +294,12 @@ final class PostgresTestDataSources {
                             "blocked_sessions",
                             0,
                             "longest_transaction_seconds",
-                            0d));
-                case EXTENSION -> List.of(row("installed", 1));
+                            0d,
+                            "restricted_sessions",
+                            0));
+                case EXTENSION -> List.of(row("installed", 1, "exec_naming", 1));
                 case STATEMENTS, INDEXES, TABLES, VACUUM, REPLICAS -> List.of();
-                case RECOVERY -> List.of(row("in_recovery", false));
+                case RECOVERY -> List.of(row("in_recovery", false, "has_checkpointer", false));
                 case CHECKPOINTS ->
                     List.of(row("checkpoints_timed", 10L, "checkpoints_requested", 0L, "write_time", 0d));
                 case SLOTS -> List.of(row("slots", 0L, "inactive_slots", 0L));
@@ -308,7 +344,7 @@ final class PostgresTestDataSources {
             if (sql.contains("from pg_stat_user_indexes")) {
                 return INDEXES;
             }
-            if (sql.contains("order by pg_total_relation_size")) {
+            if (sql.contains("order by total_size")) {
                 return TABLES;
             }
             if (sql.contains("order by n_dead_tup")) {
