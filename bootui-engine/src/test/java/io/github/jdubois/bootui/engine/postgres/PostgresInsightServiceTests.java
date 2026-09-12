@@ -35,8 +35,7 @@ class PostgresInsightServiceTests {
         assertThat(report.status()).isEqualTo("NOT_READ");
         assertThat(report.readAt()).isNull();
         assertThat(report.databases()).isEmpty();
-        assertThat(report.findings()).isEmpty();
-        assertThat(report.evidence().usable()).isFalse();
+        assertThat(report.limitations()).isEmpty();
         assertThat(discoveries).hasValue(0);
         assertThat(dataSource.connections()).isZero();
     }
@@ -49,7 +48,6 @@ class PostgresInsightServiceTests {
         assertThat(report.status()).isEqualTo("DISABLED");
         assertThat(report.message()).contains("No PostgreSQL datasource was found");
         assertThat(report.databases()).isEmpty();
-        assertThat(report.findings()).isEmpty();
         assertThat(report.diagnostics()).singleElement().satisfies(diagnostic -> {
             assertThat(diagnostic.source()).isEqualTo("h2");
             assertThat(diagnostic.level()).isEqualTo("INFO");
@@ -64,7 +62,6 @@ class PostgresInsightServiceTests {
                 .read();
 
         assertThat(report.status()).isEqualTo("ERROR");
-        assertThat(report.evidence().usable()).isFalse();
         assertThat(report.databases()).singleElement().satisfies(database -> {
             assertThat(database.name()).isEqualTo("broken");
             assertThat(database.status()).isEqualTo("ERROR");
@@ -114,14 +111,108 @@ class PostgresInsightServiceTests {
                         .singleElement()
                         .satisfies(statement -> assertThat(statement.query())
                                 .isEqualTo("select * from users where password = '******'")));
-        assertThat(report.findings()).extracting(finding -> finding.id()).contains("PG-STATEMENTS-001");
-        assertThat(report.findings())
-                .flatExtracting(finding -> finding.samples())
-                .allSatisfy(sample -> assertThat(sample).doesNotContain("secret"));
     }
 
     @Test
-    void statementRulesAreNotEvaluatedWhenTheirSectionIsSkipped() {
+    void theSessionSnapshotIsReportedAsRowsAndItsStatementTextIsMasked() {
+        var dataSource = PostgresTestDataSources.postgres()
+                .rows(
+                        PostgresTestDataSources.QueryKind.SESSIONS,
+                        PostgresTestDataSources.row(
+                                "pid",
+                                4242,
+                                "user_name",
+                                "app",
+                                "application_name",
+                                "sample-app",
+                                "client_address",
+                                "127.0.0.1",
+                                "state",
+                                "active",
+                                "wait_event_type",
+                                "Lock",
+                                "wait_event",
+                                "transactionid",
+                                "blocked_by",
+                                "17",
+                                "state_seconds",
+                                12d,
+                                "transaction_seconds",
+                                30d,
+                                "query_seconds",
+                                12d,
+                                "query",
+                                "update accounts set token = 'sup3rs3cret' where id = 1"));
+
+        PostgresInsightReport report =
+                service(() -> discovery("primary", dataSource)).read();
+
+        assertThat(report.databases()).singleElement().satisfies(database -> {
+            assertThat(database.sections())
+                    .filteredOn(section -> section.id().equals(PostgresSectionIds.SESSIONS))
+                    .singleElement()
+                    .satisfies(section -> {
+                        assertThat(section.status()).isEqualTo("AVAILABLE");
+                        assertThat(section.rowCount()).isEqualTo(1);
+                    });
+            assertThat(database.sessions()).singleElement().satisfies(session -> {
+                assertThat(session.pid()).isEqualTo(4242);
+                assertThat(session.waitEventType()).isEqualTo("Lock");
+                assertThat(session.blockedBy()).isEqualTo("17");
+                assertThat(session.query()).doesNotContain("sup3rs3cret").contains("update accounts");
+            });
+        });
+    }
+
+    @Test
+    void sessionsOnlyThisRoleCannotSeeDegradeTheSectionInsteadOfReadingAsIdle() {
+        var dataSource = PostgresTestDataSources.postgres()
+                .rows(
+                        PostgresTestDataSources.QueryKind.SESSIONS,
+                        PostgresTestDataSources.row(
+                                "pid",
+                                4242,
+                                "user_name",
+                                "other",
+                                "application_name",
+                                null,
+                                "client_address",
+                                null,
+                                "state",
+                                null,
+                                "wait_event_type",
+                                null,
+                                "wait_event",
+                                null,
+                                "blocked_by",
+                                null,
+                                "state_seconds",
+                                null,
+                                "transaction_seconds",
+                                null,
+                                "query_seconds",
+                                null,
+                                "query",
+                                null));
+
+        PostgresInsightReport report =
+                service(() -> discovery("primary", dataSource)).read();
+
+        assertThat(report.status()).isEqualTo("PARTIAL");
+        assertThat(report.limitations())
+                .anySatisfy(limitation -> assertThat(limitation).contains("pg_stat_activity"));
+        assertThat(report.databases())
+                .singleElement()
+                .satisfies(database -> assertThat(database.sessions())
+                        .singleElement()
+                        .satisfies(session -> {
+                            assertThat(session.pid()).isEqualTo(4242);
+                            assertThat(session.state()).isNull();
+                        }));
+    }
+
+    @Test
+    void anAbsentStatementExtensionIsReportedAsASkippedSectionRatherThanAnEmptyOne() {
         var dataSource = PostgresTestDataSources.postgres()
                 .rows(PostgresTestDataSources.QueryKind.EXTENSION, PostgresTestDataSources.row("relation", null))
                 .rows(
@@ -154,8 +245,13 @@ class PostgresInsightServiceTests {
                 .satisfies(database -> assertThat(database.sections())
                         .filteredOn(section -> section.id().equals(PostgresSectionIds.STATEMENTS))
                         .singleElement()
-                        .satisfies(section -> assertThat(section.status()).isEqualTo("SKIPPED")));
-        assertThat(report.findings()).noneMatch(finding -> finding.id().startsWith("PG-STATEMENTS-"));
+                        .satisfies(section -> {
+                            assertThat(section.status()).isEqualTo("SKIPPED");
+                            assertThat(section.hint()).contains("CREATE EXTENSION pg_stat_statements");
+                        }));
+        assertThat(report.databases())
+                .singleElement()
+                .satisfies(database -> assertThat(database.statements()).isEmpty());
     }
 
     @Test
@@ -167,8 +263,7 @@ class PostgresInsightServiceTests {
                 service(() -> discovery("primary", dataSource)).read();
 
         assertThat(report.status()).isEqualTo("PARTIAL");
-        assertThat(report.evidence().coverageComplete()).isFalse();
-        assertThat(report.evidence().limitations())
+        assertThat(report.limitations())
                 .anySatisfy(limitation -> assertThat(limitation).contains("statement_timeout"));
         assertThat(report.databases()).singleElement().satisfies(database -> {
             // The bounds are what make this read safe against a live server, so a read taken without them
@@ -195,6 +290,7 @@ class PostgresInsightServiceTests {
     @Test
     void anExhaustedReadBudgetIsReportedInsteadOfLookingLikeACleanRead() {
         PostgresInsightLimits noBudget = new PostgresInsightLimits(
+                50,
                 25,
                 50,
                 25,
@@ -215,30 +311,10 @@ class PostgresInsightServiceTests {
         assertThat(report.status()).isEqualTo("ERROR");
         assertThat(report.message()).contains("read budget ran out");
         assertThat(report.databases()).isEmpty();
-        assertThat(report.evidence().usable()).isFalse();
         assertThat(report.diagnostics()).singleElement().satisfies(diagnostic -> {
             assertThat(diagnostic.source()).isEqualTo("primary");
             assertThat(diagnostic.level()).isEqualTo("WARNING");
         });
-    }
-
-    @Test
-    void findingsAreSortedByImportanceThenDatasourceThenRuleId() {
-        var first = unhealthy(PostgresTestDataSources.postgres());
-        var second = unhealthy(PostgresTestDataSources.postgres());
-
-        PostgresInsightReport report = service(() -> new DatabaseAdvisorDataSourceDiscovery(
-                        List.of(new NamedDataSource("b", second), new NamedDataSource("a", first)), List.of()))
-                .read();
-
-        assertThat(report.findings()).extracting(finding -> finding.severity()).startsWith("CRITICAL", "CRITICAL");
-        assertThat(report.findings())
-                .extracting(finding -> finding.dataSource())
-                .startsWith("a", "b");
-        assertThat(report.findings())
-                .extracting(finding -> finding.id())
-                .containsSubsequence("PG-VITALS-006", "PG-SETTINGS-001", "PG-SETTINGS-002");
-        assertThat(report.severityCounts()).isNotEmpty();
     }
 
     @Test
@@ -291,22 +367,6 @@ class PostgresInsightServiceTests {
                         .contains("Cache hit ratio", "Database size"));
     }
 
-    private static PostgresTestDataSources.ScriptedDataSource unhealthy(
-            PostgresTestDataSources.ScriptedDataSource dataSource) {
-        return dataSource
-                .rows(PostgresTestDataSources.QueryKind.VITALS, vitals(1000L, 1000L, 1024L))
-                .rows(
-                        PostgresTestDataSources.QueryKind.SETTINGS,
-                        PostgresTestDataSources.row(
-                                "name", "autovacuum", "setting", "off", "unit", null, "source", "default"),
-                        PostgresTestDataSources.row(
-                                "name", "fsync", "setting", "off", "unit", null, "source", "default"),
-                        PostgresTestDataSources.row(
-                                "name", "full_page_writes", "setting", "off", "unit", null, "source", "default"),
-                        PostgresTestDataSources.row(
-                                "name", "track_io_timing", "setting", "off", "unit", null, "source", "default"));
-    }
-
     private static java.util.Map<String, Object> vitals(long blocksHit, long blocksRead, long databaseSize) {
         return PostgresTestDataSources.row(
                 "database_name",
@@ -351,8 +411,7 @@ class PostgresInsightServiceTests {
         // The datasource that never became inspectable is part of the application, so a report that reached
         // only the others has not covered it.
         assertThat(report.status()).isEqualTo("PARTIAL");
-        assertThat(report.evidence().coverageComplete()).isFalse();
-        assertThat(report.evidence().limitations())
+        assertThat(report.limitations())
                 .anySatisfy(limitation -> assertThat(limitation).contains("secondary"));
     }
 

@@ -12,6 +12,7 @@ import java.time.Duration;
  * on the session itself so a blocked statistics query cannot outlive them.</p>
  */
 record PostgresInsightLimits(
+        int maxSessions,
         int maxStatements,
         int maxIndexes,
         int maxTables,
@@ -24,7 +25,7 @@ record PostgresInsightLimits(
         Duration lockTimeout) {
 
     static final PostgresInsightLimits DEFAULTS = new PostgresInsightLimits(
-            25, 50, 25, 25, 10, 40, 400, Duration.ofSeconds(15), Duration.ofSeconds(5), Duration.ofSeconds(2));
+            50, 25, 50, 25, 25, 10, 40, 400, Duration.ofSeconds(15), Duration.ofSeconds(5), Duration.ofSeconds(2));
 
     /** The whole-number seconds to hand to {@code Statement.setQueryTimeout}, at least one second. */
     int statementTimeoutSeconds() {

@@ -3,24 +3,6 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import PostgreSql from './PostgreSql.vue'
 
-function finding(id, title, severity, dataSource = 'default', overrides = {}) {
-  return {
-    id,
-    dataSource,
-    sectionId: 'vital-signs',
-    title,
-    category: 'Vital signs',
-    severity,
-    description: `${title} description.`,
-    evidence: `${id} evidence`,
-    samples: [`${id} sample`],
-    recommendation: `${title} recommendation.`,
-    caveat: `${title} caveat.`,
-    learnMoreUrl: 'https://example.com/postgresql-check',
-    ...overrides
-  }
-}
-
 function section(id, title, status, overrides = {}) {
   return {
     id,
@@ -29,8 +11,25 @@ function section(id, title, status, overrides = {}) {
     reason: null,
     hint: null,
     rowCount: 0,
-    findingCount: 0,
     truncated: false,
+    ...overrides
+  }
+}
+
+function session(overrides = {}) {
+  return {
+    pid: 4242,
+    user: 'app',
+    applicationName: 'sample-app',
+    clientAddress: '127.0.0.1',
+    state: 'active',
+    waitEventType: null,
+    waitEvent: null,
+    blockedBy: null,
+    stateSeconds: 0.4,
+    transactionSeconds: 0.9,
+    querySeconds: 0.4,
+    query: 'select * from orders where id = $1',
     ...overrides
   }
 }
@@ -43,7 +42,7 @@ function database(overrides = {}) {
     serverMajorVersion: 16,
     role: 'app',
     monitoringRole: true,
-    status: 'SCANNED',
+    status: 'READ',
     message: null,
     vitalSigns: {
       databaseName: 'appdb',
@@ -60,6 +59,7 @@ function database(overrides = {}) {
       deadlocks: 0
     },
     sections: [],
+    sessions: [],
     statements: [],
     indexes: [],
     tables: [],
@@ -73,33 +73,19 @@ function database(overrides = {}) {
 }
 
 function report(overrides = {}) {
-  const findings = overrides.findings ?? []
   return {
     localOnly: true,
-    disclaimer: 'PostgreSQL insight disclaimer.',
+    disclaimer: 'PostgreSQL runtime disclaimer.',
     status: 'READ',
     message: 'PostgreSQL read completed.',
     readAt: 1_700_000_000_000,
     databasesRead: 1,
-    findingsFound: findings.length,
     truncated: false,
     databases: [database()],
-    severityCounts: [
-      {severity: 'CRITICAL', count: severityCount(findings, 'CRITICAL')},
-      {severity: 'HIGH', count: severityCount(findings, 'HIGH')},
-      {severity: 'MEDIUM', count: severityCount(findings, 'MEDIUM')},
-      {severity: 'LOW', count: severityCount(findings, 'LOW')},
-      {severity: 'INFO', count: severityCount(findings, 'INFO')}
-    ],
     diagnostics: [],
-    evidence: {usable: true, coverageComplete: true, limitations: []},
-    ...overrides,
-    findings
+    limitations: [],
+    ...overrides
   }
-}
-
-function severityCount(findings, severity) {
-  return findings.filter((item) => item.severity === severity).length
 }
 
 async function mountWith(body, {status = 200} = {}) {
@@ -120,7 +106,6 @@ describe('PostgreSql', () => {
 
     expect(wrapper.text()).toContain('No PostgreSQL data yet')
     expect(wrapper.text()).toContain('Run the PostgreSQL read')
-    expect(wrapper.text()).not.toContain('Findings by severity')
   })
 
   it('renders a disabled report honestly as unavailable', async () => {
@@ -135,38 +120,110 @@ describe('PostgreSql', () => {
     )
 
     expect(wrapper.text()).toContain('No PostgreSQL datasource was detected.')
-    expect(wrapper.text()).not.toContain('Findings by severity')
   })
 
-  it('renders findings sorted by severity with their evidence', async () => {
+  it('renders the live session snapshot as a table', async () => {
     const {wrapper} = await mountWith(
       report({
-        findings: [
-          finding('PG-CACHE-001', 'Low informational note', 'INFO'),
-          finding('PG-VACUUM-001', 'High severity bloat', 'HIGH'),
-          finding('PG-TX-001', 'Medium severity idle transaction', 'MEDIUM')
+        databases: [
+          database({
+            sections: [section('sessions', 'Sessions', 'AVAILABLE', {rowCount: 2})],
+            sessions: [
+              session(),
+              session({
+                pid: 91,
+                state: 'idle in transaction',
+                waitEventType: 'Lock',
+                waitEvent: 'transactionid',
+                blockedBy: '4242',
+                query: 'update orders set total = $1 where id = $2'
+              })
+            ]
+          })
         ]
       })
     )
 
-    expect(wrapper.text()).toContain('Findings by severity')
-    expect(wrapper.text()).toContain('3 findings, sorted by severity')
-    expect(wrapper.text()).toContain('Evidence:')
-    expect(wrapper.findAll('.list-group-item h4').map((title) => title.text())).toEqual([
-      'High severity bloat',
-      'Medium severity idle transaction',
-      'Low informational note'
-    ])
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows).toHaveLength(2)
+    expect(wrapper.text()).toContain('select * from orders where id = $1')
+    expect(wrapper.text()).toContain('Lock/transactionid')
+    expect(wrapper.text()).toContain('4242')
+    // A blocked session is the one thing in this table a developer must not scroll past.
+    expect(rows[1].classes()).toContain('table-warning')
   })
 
-  it('shows a skipped section with its reason and hint, never as passing', async () => {
+  it('renders the statement, index, table and settings tables from the read', async () => {
     const {wrapper} = await mountWith(
       report({
         databases: [
           database({
             sections: [
-              section('vital-signs', 'Vital signs', 'AVAILABLE'),
-              section('statements', 'Statements', 'SKIPPED', {
+              section('statements', 'Statement ranking', 'AVAILABLE', {rowCount: 1}),
+              section('indexes', 'Index usage', 'AVAILABLE', {rowCount: 1}),
+              section('tables', 'Table access', 'AVAILABLE', {rowCount: 1}),
+              section('settings', 'Settings', 'AVAILABLE', {rowCount: 1})
+            ],
+            statements: [
+              {
+                queryId: '42',
+                query: 'select * from orders',
+                calls: 120,
+                totalTimeMs: 2400,
+                meanTimeMs: 20,
+                maxTimeMs: 95,
+                rows: 1200,
+                cacheHitRatio: 0.99
+              }
+            ],
+            indexes: [
+              {
+                schema: 'public',
+                table: 'orders',
+                index: 'orders_customer_idx',
+                scans: 0,
+                tuplesRead: 0,
+                sizeBytes: 2_097_152,
+                unique: false,
+                primaryKey: false,
+                constraintBacked: false
+              }
+            ],
+            tables: [
+              {
+                schema: 'public',
+                table: 'orders',
+                totalSizeBytes: 10_485_760,
+                tableSizeBytes: 8_388_608,
+                indexSizeBytes: 2_097_152,
+                liveTuples: 90_000,
+                deadTuples: 1_000,
+                sequentialScans: 40,
+                sequentialTuplesRead: 100,
+                indexScans: 900,
+                sequentialScanRatio: 0.04
+              }
+            ],
+            settings: [{name: 'work_mem', value: '4', unit: 'MB', source: 'default', note: 'Per-sort memory'}]
+          })
+        ]
+      })
+    )
+
+    expect(wrapper.text()).toContain('select * from orders')
+    expect(wrapper.text()).toContain('orders_customer_idx')
+    expect(wrapper.text()).toContain('public.orders')
+    expect(wrapper.text()).toContain('work_mem')
+    expect(wrapper.text()).toContain('Per-sort memory')
+  })
+
+  it('shows a skipped section with its reason and hint instead of an empty table', async () => {
+    const {wrapper} = await mountWith(
+      report({
+        databases: [
+          database({
+            sections: [
+              section('statements', 'Statement ranking', 'SKIPPED', {
                 reason: 'pg_stat_statements is not installed',
                 hint: 'CREATE EXTENSION pg_stat_statements;'
               })
@@ -176,21 +233,22 @@ describe('PostgreSql', () => {
       })
     )
 
-    expect(wrapper.text()).toContain('Skipped — pg_stat_statements is not installed')
+    expect(wrapper.text()).toContain('SKIPPED')
+    expect(wrapper.text()).toContain('pg_stat_statements is not installed')
     expect(wrapper.text()).toContain('CREATE EXTENSION pg_stat_statements;')
-    expect(wrapper.text()).toContain('Checked and clean')
+    expect(wrapper.findAll('tbody tr')).toHaveLength(0)
   })
 
-  it('shows an available section that carries a reason as partially read, not clean', async () => {
+  it('marks a section that carries a reason or a row bound as partially read', async () => {
     const {wrapper} = await mountWith(
       report({
         databases: [
           database({
             sections: [
-              section('vital-signs', 'Vital signs', 'AVAILABLE', {
-                reason: 'Session states are hidden from this role',
-                hint: 'Grant pg_monitor to the application role.'
-              })
+              section('sessions', 'Sessions', 'AVAILABLE', {
+                reason: 'pg_stat_activity hides the state of other backends'
+              }),
+              section('tables', 'Table access', 'AVAILABLE', {truncated: true})
             ]
           })
         ]
@@ -198,43 +256,24 @@ describe('PostgreSql', () => {
     )
 
     expect(wrapper.text()).toContain('PARTIAL')
-    expect(wrapper.text()).toContain('Partially read — Session states are hidden from this role')
-    expect(wrapper.text()).toContain('Grant pg_monitor to the application role.')
-    expect(wrapper.text()).not.toContain('Checked and clean')
+    expect(wrapper.text()).toContain('pg_stat_activity hides the state of other backends')
+    expect(wrapper.text()).toContain('A row bound was reached')
   })
 
-  it('never calls a truncated section clean, even without a reason of its own', async () => {
-    const {wrapper} = await mountWith(
-      report({
-        databases: [
-          database({
-            sections: [section('tables', 'Table access', 'AVAILABLE', {findingCount: 0, truncated: true})]
-          })
-        ]
-      })
-    )
-
-    expect(wrapper.text()).toContain('PARTIAL')
-    expect(wrapper.text()).toContain('Partially read —')
-    expect(wrapper.text()).not.toContain('Checked and clean')
-  })
-
-  it('presents a failed read as a failure, never as a clean assessment', async () => {
+  it('presents a failed read as a failure rather than an empty database', async () => {
     const {wrapper} = await mountWith(
       report({
         status: 'ERROR',
         message: 'The read budget ran out before any datasource was read, so nothing was inspected.',
         databases: [],
         databasesRead: 0,
-        findings: [],
-        evidence: {usable: false, coverageComplete: false, limitations: []}
+        limitations: ['primary: the read budget ran out before this datasource was read.']
       })
     )
 
     expect(wrapper.text()).toContain('Read failed.')
     expect(wrapper.text()).toContain('The read budget ran out')
-    expect(wrapper.text()).toContain('Nothing was assessed')
-    expect(wrapper.text()).not.toContain('No findings in the assessed evidence')
+    expect(wrapper.text()).toContain('What this read does not cover')
     expect(wrapper.find('.alert-danger').exists()).toBe(true)
   })
 

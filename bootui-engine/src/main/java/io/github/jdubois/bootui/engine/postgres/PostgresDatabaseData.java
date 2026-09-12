@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.postgres;
 import io.github.jdubois.bootui.core.dto.PostgresIndexDto;
 import io.github.jdubois.bootui.core.dto.PostgresReplicationDto;
 import io.github.jdubois.bootui.core.dto.PostgresSectionDto;
+import io.github.jdubois.bootui.core.dto.PostgresSessionDto;
 import io.github.jdubois.bootui.core.dto.PostgresSettingDto;
 import io.github.jdubois.bootui.core.dto.PostgresStatementDto;
 import io.github.jdubois.bootui.core.dto.PostgresTableDto;
@@ -14,10 +15,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The mutable accumulator one datasource's collectors fill in, and the rules then read.
+ * The mutable accumulator one datasource's collectors fill in.
  *
- * <p>It is deliberately not a DTO: it also carries the raw {@code pg_settings} values the rules need to
- * compute an autovacuum threshold against the server's real configuration rather than assumed defaults.</p>
+ * <p>It is deliberately not a DTO: it also carries the raw {@code pg_settings} values a later collector
+ * needs — the autovacuum threshold is computed against the server's real configuration rather than assumed
+ * defaults.</p>
  */
 final class PostgresDatabaseData {
 
@@ -26,6 +28,7 @@ final class PostgresDatabaseData {
     private final Map<String, String> settingValues = new LinkedHashMap<>();
 
     private PostgresVitalSignsDto vitalSigns;
+    private List<PostgresSessionDto> sessions = List.of();
     private List<PostgresStatementDto> statements = List.of();
     private List<PostgresIndexDto> indexes = List.of();
     private List<PostgresTableDto> tables = List.of();
@@ -54,12 +57,6 @@ final class PostgresDatabaseData {
         return List.copyOf(sections);
     }
 
-    /** True when the named section was read; rules whose evidence is missing must skip, not pass. */
-    boolean sectionAvailable(String sectionId) {
-        return sections.stream()
-                .anyMatch(section -> section.id().equals(sectionId) && "AVAILABLE".equals(section.status()));
-    }
-
     /** The named section as recorded, or {@code null} when no collector reported it. */
     PostgresSectionDto section(String sectionId) {
         return sections.stream()
@@ -68,31 +65,20 @@ final class PostgresDatabaseData {
                 .orElse(null);
     }
 
-    /** Replaces each section's finding count once the rules have run. */
-    void recordFindingCounts(Map<String, Integer> countsBySection) {
-        for (int i = 0; i < sections.size(); i++) {
-            PostgresSectionDto section = sections.get(i);
-            int count = countsBySection.getOrDefault(section.id(), 0);
-            sections.set(
-                    i,
-                    new PostgresSectionDto(
-                            section.id(),
-                            section.title(),
-                            section.status(),
-                            section.reason(),
-                            section.hint(),
-                            section.rowCount(),
-                            count,
-                            section.truncated()));
-        }
-    }
-
     PostgresVitalSignsDto vitalSigns() {
         return vitalSigns;
     }
 
     void vitalSigns(PostgresVitalSignsDto value) {
         this.vitalSigns = value;
+    }
+
+    List<PostgresSessionDto> sessions() {
+        return sessions;
+    }
+
+    void sessions(List<PostgresSessionDto> value) {
+        this.sessions = List.copyOf(value);
     }
 
     List<PostgresStatementDto> statements() {

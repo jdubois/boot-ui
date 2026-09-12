@@ -2,7 +2,7 @@
 import {actionBusyMessage, getJson, isActionBusyError} from '../api.js'
 import {computed, onMounted, ref} from 'vue'
 import {describeLoadError} from '../utils/loadError.js'
-import {formatBytes, formatClockTime, formatNumber} from '../utils/format.js'
+import {formatBytes, formatClockTime, formatNumber, formatRelative} from '../utils/format.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -19,25 +19,15 @@ const loading = ref(false)
 const initialLoading = ref(true)
 const showDiagnostics = ref(false)
 
-const SEVERITY_CLASSES = {
-  CRITICAL: 'text-bg-danger',
-  HIGH: 'text-bg-danger',
-  MEDIUM: 'text-bg-warning',
-  LOW: 'text-bg-info',
-  INFO: 'text-bg-secondary'
-}
-
-const SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
-
 const DATABASE_STATUS_CLASSES = {
-  SCANNED: 'text-bg-success',
+  READ: 'text-bg-success',
   PARTIAL: 'text-bg-warning',
   ERROR: 'text-bg-danger',
   DISABLED: 'text-bg-secondary'
 }
 
 const DATABASE_STATUS_LABELS = {
-  SCANNED: 'Read',
+  READ: 'Read',
   PARTIAL: 'Partly read',
   ERROR: 'Unreadable',
   DISABLED: 'Disabled'
@@ -62,6 +52,11 @@ const CHANGE_DIRECTION_ICONS = {
   SAME: 'bi-dash'
 }
 
+// A session is worth the reader's attention when it is doing something now: running a statement,
+// waiting on a lock, or holding a transaction open while idle. Everything else is an idle pool
+// connection, which is normal and noisy.
+const BUSY_STATES = ['active', 'idle in transaction', 'idle in transaction (aborted)']
+
 // The read has actually produced a database read once the status leaves NOT_READ, so an
 // empty prompt is only shown before the first read rather than hiding a real (possibly
 // disabled or errored) result.
@@ -71,23 +66,9 @@ const disabled = computed(() => report.value?.status === 'DISABLED')
 
 const databases = computed(() => report.value?.databases || [])
 const diagnostics = computed(() => report.value?.diagnostics || [])
-const severityCounts = computed(() => report.value?.severityCounts || [])
-
-const findings = computed(() =>
-  [...(report.value?.findings || [])].sort((left, right) => {
-    const severityDiff = severityRank(left.severity) - severityRank(right.severity)
-    if (severityDiff !== 0) return severityDiff
-    return (left.id || '').localeCompare(right.id || '')
-  })
-)
-
-const maxSeverityCount = computed(() => Math.max(1, ...severityCounts.value.map((item) => item.count)))
-
-const limitations = computed(() => report.value?.evidence?.limitations || [])
+const limitations = computed(() => report.value?.limitations || [])
 
 const readFailed = computed(() => hasRead.value && report.value?.status === 'ERROR')
-
-const nothingAssessed = computed(() => hasRead.value && report.value?.evidence?.usable === false)
 
 const incompleteReadMessage = computed(() => {
   if (!hasRead.value) return null
@@ -106,28 +87,14 @@ const incompleteReadMessage = computed(() => {
   if (reasons.length === 0) {
     // A report can be incomplete without carrying a single database row — an exhausted read budget, or a
     // discovery failure, leaves nothing to count. Reporting only per-database reasons would render that as
-    // a clean result.
+    // a complete result.
     if (report.value?.status === 'ERROR' || report.value?.status === 'PARTIAL') {
       return report.value.message || 'The read did not complete; see the diagnostics below.'
     }
     return null
   }
-  return `${reasons.join('; ')}. These are reported below as diagnostics and are not counted as findings.`
+  return `${reasons.join('; ')}. The tables below therefore do not cover everything.`
 })
-
-function severityRank(severity) {
-  const index = SEVERITY_ORDER.indexOf(severity)
-  return index === -1 ? SEVERITY_ORDER.length : index
-}
-
-function severityClass(severity) {
-  return SEVERITY_CLASSES[severity] || 'text-bg-light border text-dark'
-}
-
-function severityWidth(count) {
-  if (count === 0) return '0%'
-  return `${Math.max(3, (count / maxSeverityCount.value) * 100)}%`
-}
 
 function databaseStatusClass(status) {
   return DATABASE_STATUS_CLASSES[status] || 'text-bg-secondary'
@@ -163,49 +130,60 @@ function seconds(value) {
   return `${Number(value).toFixed(1)} s`
 }
 
+function millis(value) {
+  if (value == null) return '—'
+  return `${Number(value).toFixed(value < 10 ? 2 : 0)} ms`
+}
+
+function text(value) {
+  return value == null || value === '' ? '—' : value
+}
+
+function since(epochMillis) {
+  if (epochMillis == null) return 'never'
+  return formatRelative(epochMillis)
+}
+
 function readTime() {
   if (!report.value?.readAt) return ''
   return formatClockTime(report.value.readAt)
 }
 
-function databaseFindingCount(database) {
-  return findings.value.filter((finding) => finding.dataSource === database.name).length
+function section(database, id) {
+  return (database.sections || []).find((candidate) => candidate.id === id) || null
 }
 
 // The engine marks a partially read section AVAILABLE with a reason, because the rows it did
-// read are real. That reason is what stops the section from claiming more than it checked, so
-// it is shown as PARTIAL rather than green. A truncated section is partial for the same reason
-// even when it carries no reason of its own: the rows past the bound were never examined.
-function sectionPartial(section) {
-  return section.status === 'AVAILABLE' && (!!section.reason || !!section.truncated)
+// read are real. That reason is what stops the table from claiming more than it read, so it is
+// shown as PARTIAL rather than green. A truncated section is partial for the same reason even
+// when it carries no reason of its own: the rows past the bound were never read.
+function sectionPartial(candidate) {
+  return candidate.status === 'AVAILABLE' && (!!candidate.reason || !!candidate.truncated)
 }
 
-function sectionPartialReason(section) {
-  return section.reason || 'a row bound was reached, so rows past it were not examined'
+function sectionBadge(candidate) {
+  return sectionPartial(candidate) ? 'PARTIAL' : candidate.status
 }
 
-// A section only reads as "clean" when it was AVAILABLE, had zero findings, and read everything
-// it set out to read. PARTIAL, SKIPPED and FAILED always carry their reason, so a view BootUI
-// could not fully read never looks healthy.
-function sectionBadge(section) {
-  return sectionPartial(section) ? 'PARTIAL' : section.status
+function sectionNote(candidate) {
+  if (!candidate) return null
+  if (candidate.reason) return candidate.reason
+  if (candidate.truncated) return 'A row bound was reached, so rows past it were not read.'
+  return null
 }
 
-function sectionSummary(section) {
-  if (section.status === 'AVAILABLE') {
-    const findings =
-      section.findingCount > 0
-        ? `${section.findingCount} ${pluralize(section.findingCount, 'finding')}`
-        : 'Checked and clean'
-    return sectionPartial(section) ? `Partially read — ${sectionPartialReason(section)}` : findings
-  }
-  if (section.status === 'SKIPPED') {
-    return section.reason ? `Skipped — ${section.reason}` : 'Skipped'
-  }
-  if (section.status === 'FAILED') {
-    return section.reason ? `Failed — ${section.reason}` : 'Failed'
-  }
-  return section.reason || section.status
+function sectionReadable(candidate) {
+  return Boolean(candidate) && candidate.status === 'AVAILABLE'
+}
+
+function sessionBusy(session) {
+  return BUSY_STATES.includes(session.state) || Boolean(session.blockedBy)
+}
+
+function sessionRowClass(session) {
+  if (session.blockedBy) return 'table-warning'
+  if (session.state === 'active') return 'table-primary'
+  return ''
 }
 
 async function loadReport() {
@@ -269,7 +247,7 @@ onMounted(async () => {
     <PanelHeader
       icon="bi-database-fill-check"
       title="PostgreSQL"
-      subtitle="Bounded, read-only vital signs of the application's own PostgreSQL database, read on demand from its pg_stat_* and pg_catalog views."
+      subtitle="Bounded, read-only runtime view of the application's own PostgreSQL database, read on demand from its pg_stat_* and pg_catalog views."
       :loading="loading"
       :error="error"
     >
@@ -303,7 +281,7 @@ onMounted(async () => {
 
     <template v-else-if="report">
       <div class="alert alert-info">
-        <strong>Read-only PostgreSQL vital signs.</strong>
+        <strong>Read-only runtime view.</strong>
         {{ report.disclaimer }}
         <span v-if="readOnly">Reading is read-only. {{ readOnlyReason }}</span>
       </div>
@@ -312,7 +290,7 @@ onMounted(async () => {
         <div class="card-body text-center text-muted py-5">
           <i class="bi bi-database-fill-check fs-2 d-block mb-2"></i>
           <div class="fw-semibold text-body">No PostgreSQL data yet</div>
-          <div>Run the PostgreSQL read to inspect the database's own vital signs.</div>
+          <div>Run the PostgreSQL read to see what the database currently reports about itself.</div>
         </div>
       </div>
 
@@ -331,10 +309,7 @@ onMounted(async () => {
             >{{ report.message }}</span
           >
           <span v-if="readTime()">Read at {{ readTime() }}</span>
-          <span
-            >{{ report.databasesRead }} {{ pluralize(report.databasesRead, 'database') }} read ·
-            {{ report.findingsFound }} {{ pluralize(report.findingsFound, 'finding') }}</span
-          >
+          <span>{{ report.databasesRead }} {{ pluralize(report.databasesRead, 'database') }} read</span>
         </div>
 
         <div
@@ -348,91 +323,11 @@ onMounted(async () => {
         </div>
 
         <details v-if="limitations.length > 0" class="alert alert-warning">
-          <summary class="fw-semibold">Read limitations ({{ limitations.length }})</summary>
+          <summary class="fw-semibold">What this read does not cover ({{ limitations.length }})</summary>
           <ul class="mb-0 mt-2 small">
             <li v-for="(limitation, index) in limitations" :key="index">{{ limitation }}</li>
           </ul>
         </details>
-
-        <div class="card mb-3">
-          <div class="card-header"><h3 class="fs-6 fw-semibold mb-0">Findings by severity</h3></div>
-          <div class="card-body">
-            <div v-if="findings.length === 0 && nothingAssessed" class="text-center text-muted py-3">
-              <i class="bi bi-slash-circle fs-2 d-block mb-2"></i>
-              <div class="fw-semibold text-body">Nothing was assessed</div>
-              <div>No PostgreSQL statistics were read, so the absence of findings means nothing.</div>
-            </div>
-            <div v-else-if="findings.length === 0" class="text-center text-muted py-3">
-              <i class="bi bi-check2-circle fs-2 d-block mb-2"></i>
-              <div class="fw-semibold text-body">No findings in the assessed evidence</div>
-              <div>Sections that could not be read are listed below as skipped, not as passing.</div>
-            </div>
-            <div v-for="item in severityCounts" v-else :key="item.severity" class="row align-items-center g-2 mb-2">
-              <div class="col-3">
-                <span :class="severityClass(item.severity)" class="badge">{{ item.severity }}</span>
-              </div>
-              <div class="col">
-                <div :aria-label="`${item.severity} findings: ${item.count}`" class="progress" role="img">
-                  <div
-                    :class="severityClass(item.severity)"
-                    :style="{width: severityWidth(item.count)}"
-                    class="progress-bar"
-                  ></div>
-                </div>
-              </div>
-              <div class="col-auto small text-muted">{{ item.count }}</div>
-            </div>
-          </div>
-        </div>
-
-        <div v-if="findings.length > 0" class="card mb-3">
-          <div class="card-header">
-            <h3 class="fs-6 fw-semibold mb-0">Findings</h3>
-            <div class="text-muted small">
-              {{ findings.length }} {{ pluralize(findings.length, 'finding') }}, sorted by severity
-            </div>
-          </div>
-          <div class="list-group list-group-flush">
-            <div v-for="finding in findings" :key="finding.id" class="list-group-item">
-              <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-                <span :class="severityClass(finding.severity)" class="badge">{{ finding.severity }}</span>
-                <span v-if="finding.category" class="badge text-bg-light border font-monospace">{{
-                  finding.category
-                }}</span>
-                <span class="text-muted small font-monospace">{{ finding.id }}</span>
-                <span v-if="finding.dataSource" class="text-muted small font-monospace ms-auto"
-                  ><i class="bi bi-hdd-stack me-1"></i>{{ finding.dataSource }}</span
-                >
-              </div>
-              <h4 class="h6 mb-1">{{ finding.title }}</h4>
-              <div v-if="finding.description" class="small text-muted mb-2">{{ finding.description }}</div>
-              <div v-if="finding.evidence" class="small mb-2">
-                <strong>Evidence:</strong> <span class="font-monospace">{{ finding.evidence }}</span>
-              </div>
-              <div v-if="finding.samples && finding.samples.length" class="mb-2">
-                <div class="small fw-semibold">Samples</div>
-                <ul class="small mb-0">
-                  <li v-for="(sample, index) in finding.samples" :key="index" class="font-monospace">{{ sample }}</li>
-                </ul>
-              </div>
-              <div v-if="finding.recommendation" class="small mb-1">
-                <strong>Recommendation:</strong>
-                {{ finding.recommendation }}
-                <a
-                  v-if="finding.learnMoreUrl"
-                  :href="finding.learnMoreUrl"
-                  class="ms-1"
-                  rel="noopener noreferrer"
-                  target="_blank"
-                  >Learn more</a
-                >
-              </div>
-              <div v-if="finding.caveat" class="small text-muted">
-                <i class="bi bi-info-circle me-1"></i>{{ finding.caveat }}
-              </div>
-            </div>
-          </div>
-        </div>
 
         <div v-for="database in databases" :key="database.name" class="card mb-3">
           <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
@@ -461,7 +356,18 @@ onMounted(async () => {
           </div>
 
           <div v-if="database.vitalSigns" class="card-body border-bottom">
-            <h4 class="fs-6 fw-semibold mb-2">Vital signs</h4>
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+              <h4 class="fs-6 fw-semibold mb-0">Vital signs</h4>
+              <span
+                v-if="section(database, 'vital-signs')"
+                :class="sectionStatusClass(sectionBadge(section(database, 'vital-signs')))"
+                class="badge"
+                >{{ sectionBadge(section(database, 'vital-signs')) }}</span
+              >
+            </div>
+            <div v-if="sectionNote(section(database, 'vital-signs'))" class="small text-muted mb-2">
+              <i class="bi bi-info-circle me-1"></i>{{ sectionNote(section(database, 'vital-signs')) }}
+            </div>
             <div class="row g-3">
               <div class="col-6 col-md-3">
                 <div class="text-muted small">Cache hit ratio</div>
@@ -513,23 +419,285 @@ onMounted(async () => {
             </div>
           </div>
 
-          <div v-if="database.sections && database.sections.length" class="card-body border-bottom">
-            <h4 class="fs-6 fw-semibold mb-2">Sections</h4>
-            <ul class="list-unstyled mb-0">
-              <li v-for="section in database.sections" :key="section.id" class="mb-2">
-                <div class="d-flex flex-wrap align-items-center gap-2">
-                  <span :class="sectionStatusClass(sectionBadge(section))" class="badge">{{
-                    sectionBadge(section)
-                  }}</span>
-                  <span class="fw-semibold">{{ section.title }}</span>
-                  <span class="text-muted small">{{ sectionSummary(section) }}</span>
-                  <span v-if="section.truncated" class="badge text-bg-warning">Truncated</span>
+          <div
+            v-for="part in (database.sections || []).filter((candidate) => candidate.id !== 'vital-signs')"
+            :key="part.id"
+            class="card-body border-bottom"
+          >
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+              <h4 class="fs-6 fw-semibold mb-0">{{ part.title }}</h4>
+              <span :class="sectionStatusClass(sectionBadge(part))" class="badge">{{ sectionBadge(part) }}</span>
+              <span v-if="part.status === 'AVAILABLE'" class="text-muted small"
+                >{{ formatNumber(part.rowCount) }} {{ pluralize(part.rowCount, 'row') }}</span
+              >
+              <span v-if="part.truncated" class="badge text-bg-warning">Truncated</span>
+            </div>
+            <div v-if="sectionNote(part)" class="small text-muted mb-2">
+              <i class="bi bi-info-circle me-1"></i>{{ sectionNote(part) }}
+            </div>
+            <div v-if="part.hint" class="small text-muted font-monospace mb-2">
+              <i class="bi bi-lightbulb me-1"></i>{{ part.hint }}
+            </div>
+
+            <div v-if="part.id === 'sessions' && sectionReadable(part)" class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th scope="col">PID</th>
+                    <th scope="col">Role</th>
+                    <th scope="col">Application</th>
+                    <th scope="col">State</th>
+                    <th scope="col">Waiting on</th>
+                    <th scope="col">Blocked by</th>
+                    <th scope="col" class="text-end">Transaction</th>
+                    <th scope="col" class="text-end">In state</th>
+                    <th scope="col">Statement</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="session in database.sessions || []" :key="session.pid" :class="sessionRowClass(session)">
+                    <td class="font-monospace">{{ session.pid }}</td>
+                    <td class="font-monospace">{{ text(session.user) }}</td>
+                    <td class="font-monospace">{{ text(session.applicationName) }}</td>
+                    <td>
+                      <span class="font-monospace">{{ text(session.state) }}</span>
+                      <i v-if="sessionBusy(session)" class="bi bi-activity ms-1" aria-hidden="true"></i>
+                    </td>
+                    <td class="font-monospace">
+                      <template v-if="session.waitEventType"
+                        >{{ session.waitEventType }}<span v-if="session.waitEvent">/{{ session.waitEvent }}</span>
+                      </template>
+                      <template v-else>—</template>
+                    </td>
+                    <td class="font-monospace">{{ text(session.blockedBy) }}</td>
+                    <td class="font-monospace text-end">{{ seconds(session.transactionSeconds) }}</td>
+                    <td class="font-monospace text-end">{{ seconds(session.stateSeconds) }}</td>
+                    <td class="font-monospace small text-break">{{ text(session.query) }}</td>
+                  </tr>
+                  <tr v-if="(database.sessions || []).length === 0">
+                    <td class="text-muted" colspan="9">No client backend was connected at the time of the read.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div v-else-if="part.id === 'statements' && sectionReadable(part)" class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th scope="col">Normalized statement</th>
+                    <th scope="col" class="text-end">Calls</th>
+                    <th scope="col" class="text-end">Total</th>
+                    <th scope="col" class="text-end">Mean</th>
+                    <th scope="col" class="text-end">Max</th>
+                    <th scope="col" class="text-end">Rows</th>
+                    <th scope="col" class="text-end">Cache hit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="statement in database.statements || []" :key="statement.queryId">
+                    <td class="font-monospace small text-break">{{ text(statement.query) }}</td>
+                    <td class="font-monospace text-end">{{ formatNumber(statement.calls) }}</td>
+                    <td class="font-monospace text-end">{{ millis(statement.totalTimeMs) }}</td>
+                    <td class="font-monospace text-end">{{ millis(statement.meanTimeMs) }}</td>
+                    <td class="font-monospace text-end">{{ millis(statement.maxTimeMs) }}</td>
+                    <td class="font-monospace text-end">{{ formatNumber(statement.rows) }}</td>
+                    <td class="font-monospace text-end">{{ percent(statement.cacheHitRatio) }}</td>
+                  </tr>
+                  <tr v-if="(database.statements || []).length === 0">
+                    <td class="text-muted" colspan="7">pg_stat_statements reported no statement for this database.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div v-else-if="part.id === 'indexes' && sectionReadable(part)" class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th scope="col">Index</th>
+                    <th scope="col">Table</th>
+                    <th scope="col" class="text-end">Scans</th>
+                    <th scope="col" class="text-end">Tuples read</th>
+                    <th scope="col" class="text-end">Size</th>
+                    <th scope="col">Kind</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="index in database.indexes || []" :key="`${index.schema}.${index.index}`">
+                    <td class="font-monospace">{{ index.index }}</td>
+                    <td class="font-monospace">{{ index.schema }}.{{ index.table }}</td>
+                    <td class="font-monospace text-end">{{ formatNumber(index.scans) }}</td>
+                    <td class="font-monospace text-end">{{ formatNumber(index.tuplesRead) }}</td>
+                    <td class="font-monospace text-end">{{ formatBytes(index.sizeBytes) }}</td>
+                    <td class="small">
+                      <span v-if="index.primaryKey" class="badge text-bg-light border text-dark me-1">primary key</span>
+                      <span v-else-if="index.unique" class="badge text-bg-light border text-dark me-1">unique</span>
+                      <span
+                        v-if="index.constraintBacked && !index.primaryKey"
+                        class="badge text-bg-light border text-dark"
+                        >constraint</span
+                      >
+                    </td>
+                  </tr>
+                  <tr v-if="(database.indexes || []).length === 0">
+                    <td class="text-muted" colspan="6">No user index was reported for this database.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div v-else-if="part.id === 'tables' && sectionReadable(part)" class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th scope="col">Table</th>
+                    <th scope="col" class="text-end">Total size</th>
+                    <th scope="col" class="text-end">Indexes</th>
+                    <th scope="col" class="text-end">Live rows</th>
+                    <th scope="col" class="text-end">Dead rows</th>
+                    <th scope="col" class="text-end">Seq scans</th>
+                    <th scope="col" class="text-end">Index scans</th>
+                    <th scope="col" class="text-end">Seq share</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="table in database.tables || []" :key="`${table.schema}.${table.table}`">
+                    <td class="font-monospace">{{ table.schema }}.{{ table.table }}</td>
+                    <td class="font-monospace text-end">{{ formatBytes(table.totalSizeBytes) }}</td>
+                    <td class="font-monospace text-end">{{ formatBytes(table.indexSizeBytes) }}</td>
+                    <td class="font-monospace text-end">{{ formatNumber(table.liveTuples) }}</td>
+                    <td class="font-monospace text-end">{{ formatNumber(table.deadTuples) }}</td>
+                    <td class="font-monospace text-end">{{ formatNumber(table.sequentialScans) }}</td>
+                    <td class="font-monospace text-end">{{ formatNumber(table.indexScans) }}</td>
+                    <td class="font-monospace text-end">{{ percent(table.sequentialScanRatio) }}</td>
+                  </tr>
+                  <tr v-if="(database.tables || []).length === 0">
+                    <td class="text-muted" colspan="8">No user relation was reported for this database.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div v-else-if="part.id === 'vacuum' && sectionReadable(part)" class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th scope="col">Table</th>
+                    <th scope="col" class="text-end">Dead rows</th>
+                    <th scope="col" class="text-end">Dead share</th>
+                    <th scope="col" class="text-end">Autovacuum at</th>
+                    <th scope="col">Last vacuum</th>
+                    <th scope="col">Last analyze</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="relation in database.vacuum || []"
+                    :key="`${relation.schema}.${relation.table}`"
+                    :class="relation.vacuumDue ? 'table-warning' : ''"
+                  >
+                    <td class="font-monospace">
+                      {{ relation.schema }}.{{ relation.table }}
+                      <span v-if="!relation.autovacuumEnabled" class="badge text-bg-secondary ms-1"
+                        >autovacuum off</span
+                      >
+                    </td>
+                    <td class="font-monospace text-end">{{ formatNumber(relation.deadTuples) }}</td>
+                    <td class="font-monospace text-end">{{ percent(relation.deadTupleRatio) }}</td>
+                    <td class="font-monospace text-end">{{ formatNumber(relation.vacuumThreshold) }}</td>
+                    <td class="font-monospace small">{{ since(relation.lastAutoVacuum || relation.lastVacuum) }}</td>
+                    <td class="font-monospace small">{{ since(relation.lastAutoAnalyze || relation.lastAnalyze) }}</td>
+                  </tr>
+                  <tr v-if="(database.vacuum || []).length === 0">
+                    <td class="text-muted" colspan="6">No user relation was reported for this database.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div v-else-if="part.id === 'replication' && sectionReadable(part) && database.replication">
+              <div class="row g-3 mb-2">
+                <div class="col-6 col-md-3">
+                  <div class="text-muted small">Role</div>
+                  <div class="fw-semibold font-monospace">
+                    {{ database.replication.inRecovery ? 'standby' : 'primary' }}
+                  </div>
                 </div>
-                <div v-if="section.hint" class="small text-muted font-monospace ms-1">
-                  <i class="bi bi-lightbulb me-1"></i>{{ section.hint }}
+                <div class="col-6 col-md-3">
+                  <div class="text-muted small">WAL level</div>
+                  <div class="fw-semibold font-monospace">{{ text(database.replication.walLevel) }}</div>
                 </div>
-              </li>
-            </ul>
+                <div class="col-6 col-md-3">
+                  <div class="text-muted small">Checkpoints (timed / requested)</div>
+                  <div class="fw-semibold font-monospace">
+                    {{ formatNumber(database.replication.checkpointsTimed) }} /
+                    {{ formatNumber(database.replication.checkpointsRequested) }}
+                  </div>
+                </div>
+                <div class="col-6 col-md-3">
+                  <div class="text-muted small">Slots (inactive)</div>
+                  <div class="fw-semibold font-monospace">
+                    {{ formatNumber(database.replication.replicationSlots) }} ({{
+                      formatNumber(database.replication.inactiveReplicationSlots)
+                    }})
+                  </div>
+                </div>
+              </div>
+              <div v-if="(database.replication.replicas || []).length > 0" class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                  <thead>
+                    <tr>
+                      <th scope="col">Application</th>
+                      <th scope="col">Client</th>
+                      <th scope="col">State</th>
+                      <th scope="col">Sync</th>
+                      <th scope="col" class="text-end">Sent lag</th>
+                      <th scope="col" class="text-end">Flush lag</th>
+                      <th scope="col" class="text-end">Replay lag</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(replica, index) in database.replication.replicas" :key="index">
+                      <td class="font-monospace">{{ text(replica.applicationName) }}</td>
+                      <td class="font-monospace">{{ text(replica.clientAddress) }}</td>
+                      <td class="font-monospace">{{ text(replica.state) }}</td>
+                      <td class="font-monospace">{{ text(replica.syncState) }}</td>
+                      <td class="font-monospace text-end">{{ formatBytes(replica.sentLagBytes) }}</td>
+                      <td class="font-monospace text-end">{{ formatBytes(replica.flushLagBytes) }}</td>
+                      <td class="font-monospace text-end">{{ formatBytes(replica.replayLagBytes) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div v-else class="small text-muted">No streaming replica is connected to this server.</div>
+            </div>
+
+            <div v-else-if="part.id === 'settings' && sectionReadable(part)" class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead>
+                  <tr>
+                    <th scope="col">Setting</th>
+                    <th scope="col">Value</th>
+                    <th scope="col">Source</th>
+                    <th scope="col">Why it is shown</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="setting in database.settings || []" :key="setting.name">
+                    <td class="font-monospace">{{ setting.name }}</td>
+                    <td class="font-monospace">
+                      {{ text(setting.value) }}<span v-if="setting.unit"> {{ setting.unit }}</span>
+                    </td>
+                    <td class="font-monospace small">{{ text(setting.source) }}</td>
+                    <td class="small text-muted">{{ text(setting.note) }}</td>
+                  </tr>
+                  <tr v-if="(database.settings || []).length === 0">
+                    <td class="text-muted" colspan="4">No notable setting was reported by this server.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
 
           <div v-if="database.changes && database.changes.length" class="card-body">
@@ -549,7 +717,7 @@ onMounted(async () => {
             <div>
               <div class="fw-semibold">Read diagnostics</div>
               <div class="text-muted small">
-                {{ diagnostics.length }} {{ pluralize(diagnostics.length, 'note') }} — not counted as findings
+                {{ diagnostics.length }} {{ pluralize(diagnostics.length, 'note') }} about the read itself
               </div>
             </div>
             <button

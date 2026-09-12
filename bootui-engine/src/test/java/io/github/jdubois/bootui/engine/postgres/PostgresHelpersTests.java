@@ -115,7 +115,8 @@ class PostgresHelpersTests {
 
     @Test
     void defaultLimitsKeepTimeoutAtLeastOneSecond() {
-        assertThat(new PostgresInsightLimits(1, 1, 1, 1, 1, 1, 10, Duration.ofSeconds(1), Duration.ZERO, Duration.ZERO)
+        assertThat(new PostgresInsightLimits(
+                                1, 1, 1, 1, 1, 1, 1, 10, Duration.ofSeconds(1), Duration.ZERO, Duration.ZERO)
                         .statementTimeoutSeconds())
                 .isEqualTo(1);
     }

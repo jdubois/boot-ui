@@ -128,15 +128,18 @@ public final class McpToolDescriptions {
                             + "cached evidence before deciding whether an active hibernate_scan is necessary."),
             Map.entry(
                     "postgresql_read",
-                    "Actively read PostgreSQL's own pg_stat_* and pg_catalog views for the application datasources: "
-                            + "cache hit and rollback ratios, connection usage, lock waits, transaction-ID age, top "
-                            + "normalized statements, unused indexes, table bloat and autovacuum health. The read is "
+                    "Actively read PostgreSQL's own pg_stat_* and pg_catalog views for the application datasources "
+                            + "and return what the server currently reports: the live session snapshot, cache hit and "
+                            + "rollback ratios, connection usage, transaction-ID age, the top normalized statements, "
+                            + "index and relation activity, autovacuum state, replication and notable settings. This "
+                            + "is a runtime view, not an advisor: it grades nothing and emits no findings. The read is "
                             + "bounded and read-only; any section the role or server version cannot supply is reported "
-                            + "as skipped with its reason rather than as a passing check."),
+                            + "as skipped with its reason rather than as an empty result."),
             Map.entry(
                     "get_postgresql_report",
-                    "Return the last completed PostgreSQL report without querying the server again. Use this cached "
-                            + "evidence before deciding whether an active postgresql_read is necessary."),
+                    "Return the last completed PostgreSQL runtime view without querying the server again. Its session "
+                            + "snapshot is only as current as that read, so prefer an active postgresql_read when the "
+                            + "question is about what the database is doing right now."),
             Map.entry(
                     "get_database_advisor_report",
                     "Return the last completed Database advisor report without querying schema metadata again. Use this "

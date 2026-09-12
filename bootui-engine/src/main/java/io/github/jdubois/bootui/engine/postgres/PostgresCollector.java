@@ -20,7 +20,7 @@ interface PostgresCollector {
 
     /** A section that was read, with the rows it retained. */
     default PostgresSectionDto available(int rowCount, boolean truncated) {
-        return new PostgresSectionDto(id(), title(), "AVAILABLE", null, null, rowCount, 0, truncated);
+        return new PostgresSectionDto(id(), title(), "AVAILABLE", null, null, rowCount, truncated);
     }
 
     /**
@@ -30,16 +30,16 @@ interface PostgresCollector {
      * losing a subsection to a privilege are independent, and collapsing them would hide the row limit.</p>
      */
     default PostgresSectionDto partial(int rowCount, String reason, boolean truncated) {
-        return new PostgresSectionDto(id(), title(), "AVAILABLE", reason, null, rowCount, 0, truncated);
+        return new PostgresSectionDto(id(), title(), "AVAILABLE", reason, null, rowCount, truncated);
     }
 
     /** A section BootUI deliberately did not read: no extension, no privilege, too old a server. */
     default PostgresSectionDto skipped(String reason, String hint) {
-        return new PostgresSectionDto(id(), title(), "SKIPPED", reason, hint, 0, 0, false);
+        return new PostgresSectionDto(id(), title(), "SKIPPED", reason, hint, 0, false);
     }
 
     /** A section whose query failed; the redacted driver reason is preserved. */
     default PostgresSectionDto failed(String reason) {
-        return new PostgresSectionDto(id(), title(), "FAILED", reason, null, 0, 0, false);
+        return new PostgresSectionDto(id(), title(), "FAILED", reason, null, 0, false);
     }
 }

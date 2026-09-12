@@ -54,6 +54,7 @@ class PostgresCollectorsTests {
                 io.github.jdubois.bootui.engine.databaseadvisor.DatabaseVersion.of(15, 0, "15.0"),
                 PostgresReadBudget.of(java.time.Duration.ofSeconds(15), () -> 0),
                 new PostgresInsightLimits(
+                        50,
                         25,
                         50,
                         1,

@@ -1,13 +1,10 @@
 package io.github.jdubois.bootui.engine.postgres;
 
-import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.PostgresChangeDto;
 import io.github.jdubois.bootui.core.dto.PostgresDatabaseDto;
 import io.github.jdubois.bootui.core.dto.PostgresDiagnosticDto;
-import io.github.jdubois.bootui.core.dto.PostgresFindingDto;
 import io.github.jdubois.bootui.core.dto.PostgresInsightReport;
 import io.github.jdubois.bootui.core.dto.PostgresSectionDto;
-import io.github.jdubois.bootui.core.dto.PostgresSeverityCountDto;
 import io.github.jdubois.bootui.core.dto.PostgresTableDto;
 import io.github.jdubois.bootui.core.dto.PostgresVitalSignsDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
@@ -15,7 +12,6 @@ import io.github.jdubois.bootui.engine.action.SingleFlightAction;
 import io.github.jdubois.bootui.engine.databaseadvisor.DatabaseVersion;
 import io.github.jdubois.bootui.engine.databaseadvisor.Dialect;
 import io.github.jdubois.bootui.engine.support.CredentialRedaction;
-import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceDiscovery;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import io.github.jdubois.bootui.spi.NamedDataSource;
@@ -24,21 +20,24 @@ import java.sql.DatabaseMetaData;
 import java.sql.SQLException;
 import java.time.Clock;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 /**
- * Bounded, on-demand, read-only "vital signs" read of the application's own PostgreSQL database.
+ * Bounded, on-demand, read-only runtime view of the application's own PostgreSQL database.
  *
- * <p>It asks the database what it thinks of its own health — cache, transactions, connections, locks,
- * wraparound, statements, indexes, relations, autovacuum, replication and a curated set of settings — which
- * includes work done by every other client of that database. That is what separates it from the Database
- * Advisor (structural schema checks) and SQL Trace (statements this JVM executed).</p>
+ * <p>It shows what the database currently reports about itself — its live sessions, its cache, transaction,
+ * connection and wraparound counters, its slowest statements, its index and relation activity, its
+ * autovacuum state, its replication and a curated set of operational settings — which covers work done by
+ * every other client of that database. That is what separates it from the Database Advisor (structural
+ * schema checks) and SQL Trace (statements this JVM executed).</p>
+ *
+ * <p>It deliberately grades nothing. There are no rules, no severities and no score here: the panel reports
+ * the server's own numbers, says exactly which of them it could not read, and leaves the judgement to the
+ * developer looking at the application they are running.</p>
  *
  * <p>Every guarantee here is a refusal. It never writes, never cancels or terminates a backend, never reads
  * application rows, never persists a baseline to disk, and never runs on page render. Each read runs inside
@@ -51,17 +50,14 @@ public final class PostgresInsightService {
 
     private static final String DISCLAIMER =
             "Read-only reads of PostgreSQL's own pg_stat_* and pg_catalog views, bounded by row count and a "
-                    + "wall-clock budget. Statistics are cumulative since the last reset and cover every client of "
-                    + "the database, not only this application. These checks are review prompts, not verdicts.";
-
-    private static final Comparator<PostgresFindingDto> IMPORTANCE_ORDER = Comparator.comparingInt(
-                    (PostgresFindingDto finding) -> SeverityOrder.rank(finding.severity()))
-            .thenComparing(PostgresFindingDto::dataSource, Comparator.nullsLast(Comparator.naturalOrder()))
-            .thenComparing(PostgresFindingDto::id);
+                    + "wall-clock budget. The session list is a live snapshot; every other number is cumulative "
+                    + "since the last statistics reset and covers every client of the database, not only this "
+                    + "application.";
 
     private static final List<PostgresCollector> COLLECTORS = List.of(
             new PostgresSettingsCollector(),
             new PostgresVitalSignsCollector(),
+            new PostgresSessionCollector(),
             new PostgresStatementCollector(),
             new PostgresIndexCollector(),
             new PostgresTableCollector(),
@@ -110,10 +106,8 @@ public final class PostgresInsightService {
     public PostgresInsightReport initialReport() {
         return report(
                 "NOT_READ",
-                "PostgreSQL vital signs have not been read yet. Click Run PostgreSQL read to query the database's "
-                        + "own statistics views.",
+                "The database has not been read yet. Click Run PostgreSQL read to query its own statistics views.",
                 null,
-                List.of(),
                 List.of(),
                 List.of(),
                 false);
@@ -137,26 +131,23 @@ public final class PostgresInsightService {
                     "No DataSource beans were found to inspect.",
                     clock.millis(),
                     List.of(),
-                    List.of(),
                     diagnostics,
                     false);
         }
 
         PostgresReadBudget budget = PostgresReadBudget.of(limits.readBudget());
         List<PostgresDatabaseDto> databases = new ArrayList<>();
-        List<PostgresFindingDto> findings = new ArrayList<>();
         // Datasources the read never reached. They are neither successes nor failures, but leaving them out
         // of the status would let an exhausted budget produce a clean-looking report over a partial read.
         List<String> unread = new ArrayList<>();
         int postgresCandidates = 0;
         for (NamedDataSource dataSource : discovery.dataSources()) {
-            DatabaseRead read = readDataSource(dataSource, budget, diagnostics, unread);
-            if (read == null) {
+            PostgresDatabaseDto database = readDataSource(dataSource, budget, diagnostics, unread);
+            if (database == null) {
                 continue;
             }
             postgresCandidates++;
-            databases.add(read.database());
-            findings.addAll(read.findings());
+            databases.add(database);
         }
 
         if (postgresCandidates == 0) {
@@ -170,11 +161,9 @@ public final class PostgresInsightService {
             } else {
                 message = "No PostgreSQL datasource could be read.";
             }
-            return report(
-                    failed ? "ERROR" : "DISABLED", message, clock.millis(), List.of(), List.of(), diagnostics, false);
+            return report(failed ? "ERROR" : "DISABLED", message, clock.millis(), List.of(), diagnostics, false);
         }
 
-        findings.sort(IMPORTANCE_ORDER);
         boolean truncated = databases.stream().anyMatch(PostgresDatabaseDto::truncated);
         boolean anyError = databases.stream().anyMatch(database -> "ERROR".equals(database.status()));
         boolean anyPartial = databases.stream().anyMatch(database -> "PARTIAL".equals(database.status()));
@@ -201,7 +190,7 @@ public final class PostgresInsightService {
         for (DatabaseAdvisorDataSourceDiscovery.Failure failure : discovery.failures()) {
             limitations.add(failure.name() + ": this datasource could not be discovered.");
         }
-        return report(status, message, clock.millis(), databases, findings, diagnostics, truncated, limitations);
+        return report(status, message, clock.millis(), databases, diagnostics, truncated, limitations);
     }
 
     private DatabaseAdvisorDataSourceDiscovery discover() {
@@ -217,7 +206,7 @@ public final class PostgresInsightService {
     }
 
     /** Returns {@code null} when the datasource is not PostgreSQL, which is not a failure. */
-    private DatabaseRead readDataSource(
+    private PostgresDatabaseDto readDataSource(
             NamedDataSource dataSource,
             PostgresReadBudget budget,
             List<PostgresDiagnosticDto> diagnostics,
@@ -246,31 +235,30 @@ public final class PostgresInsightService {
             String reason = CredentialRedaction.redact(
                     ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage());
             diagnostics.add(new PostgresDiagnosticDto(dataSource.name(), "ERROR", reason));
-            return new DatabaseRead(
-                    new PostgresDatabaseDto(
-                            dataSource.name(),
-                            null,
-                            null,
-                            -1,
-                            null,
-                            false,
-                            "ERROR",
-                            reason,
-                            null,
-                            List.of(),
-                            List.of(),
-                            List.of(),
-                            List.of(),
-                            List.of(),
-                            null,
-                            List.of(),
-                            List.of(),
-                            false),
-                    List.of());
+            return new PostgresDatabaseDto(
+                    dataSource.name(),
+                    null,
+                    null,
+                    -1,
+                    null,
+                    false,
+                    "ERROR",
+                    reason,
+                    null,
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    null,
+                    List.of(),
+                    List.of(),
+                    false);
         }
     }
 
-    private DatabaseRead readDatabase(
+    private PostgresDatabaseDto readDatabase(
             String name,
             Connection connection,
             DatabaseVersion version,
@@ -302,7 +290,6 @@ public final class PostgresInsightService {
                             "The read budget ran out before this section was read.",
                             null,
                             0,
-                            0,
                             true));
                     data.markTruncated();
                     continue;
@@ -324,12 +311,6 @@ public final class PostgresInsightService {
                     diagnostics);
         }
 
-        List<PostgresFindingDto> findings = evaluate(name, data, diagnostics);
-        Map<String, Integer> countsBySection = new LinkedHashMap<>();
-        for (PostgresFindingDto finding : findings) {
-            countsBySection.merge(finding.sectionId(), 1, Integer::sum);
-        }
-        data.recordFindingCounts(countsBySection);
         for (PostgresSectionDto section : data.sections()) {
             if (!"AVAILABLE".equals(section.status())) {
                 diagnostics.add(new PostgresDiagnosticDto(
@@ -343,27 +324,26 @@ public final class PostgresInsightService {
 
         List<PostgresChangeDto> changes = changesFor(name, data);
         String status = statusOf(data);
-        return new DatabaseRead(
-                new PostgresDatabaseDto(
-                        name,
-                        data.vitalSigns() == null ? null : data.vitalSigns().databaseName(),
-                        version.describe(),
-                        version.major(),
-                        role.name(),
-                        role.monitoring(),
-                        status,
-                        data.unpinnedReason(),
-                        data.vitalSigns(),
-                        data.sections(),
-                        data.statements(),
-                        data.indexes(),
-                        data.tables(),
-                        data.vacuum(),
-                        data.replication(),
-                        data.settings(),
-                        changes,
-                        data.truncated()),
-                findings);
+        return new PostgresDatabaseDto(
+                name,
+                data.vitalSigns() == null ? null : data.vitalSigns().databaseName(),
+                version.describe(),
+                version.major(),
+                role.name(),
+                role.monitoring(),
+                status,
+                data.unpinnedReason(),
+                data.vitalSigns(),
+                data.sections(),
+                data.sessions(),
+                data.statements(),
+                data.indexes(),
+                data.tables(),
+                data.vacuum(),
+                data.replication(),
+                data.settings(),
+                changes,
+                data.truncated());
     }
 
     private static String statusOf(PostgresDatabaseData data) {
@@ -373,46 +353,7 @@ public final class PostgresInsightService {
         }
         boolean complete = data.sections().stream()
                 .allMatch(section -> "AVAILABLE".equals(section.status()) && section.reason() == null);
-        return complete && !data.truncated() && data.unpinnedReason() == null ? "SCANNED" : "PARTIAL";
-    }
-
-    private List<PostgresFindingDto> evaluate(
-            String dataSourceName, PostgresDatabaseData data, List<PostgresDiagnosticDto> diagnostics) {
-        List<PostgresFindingDto> findings = new ArrayList<>();
-        for (PostgresRule rule : PostgresRuleRegistry.rules()) {
-            PostgresRuleDefinition definition = rule.definition();
-            if (!data.sectionAvailable(definition.sectionId())) {
-                continue;
-            }
-            PostgresRuleMatch match;
-            try {
-                match = rule.evaluate(data);
-            } catch (RuntimeException ex) {
-                diagnostics.add(new PostgresDiagnosticDto(
-                        dataSourceName + "/" + definition.id(),
-                        "ERROR",
-                        "The check could not be evaluated: "
-                                + CredentialRedaction.redact(String.valueOf(ex.getMessage()))));
-                continue;
-            }
-            if (match == null) {
-                continue;
-            }
-            findings.add(new PostgresFindingDto(
-                    definition.id(),
-                    dataSourceName,
-                    definition.sectionId(),
-                    definition.title(),
-                    definition.category(),
-                    definition.severity(),
-                    definition.description(),
-                    match.evidence(),
-                    match.samples(),
-                    definition.recommendation(),
-                    definition.caveat(),
-                    definition.learnMoreUrl()));
-        }
-        return findings;
+        return complete && !data.truncated() && data.unpinnedReason() == null ? "READ" : "PARTIAL";
     }
 
     private String pinSession(Connection connection, String name, List<PostgresDiagnosticDto> diagnostics) {
@@ -581,10 +522,9 @@ public final class PostgresInsightService {
             String message,
             Long readAt,
             List<PostgresDatabaseDto> databases,
-            List<PostgresFindingDto> findings,
             List<PostgresDiagnosticDto> diagnostics,
             boolean truncated) {
-        return report(status, message, readAt, databases, findings, diagnostics, truncated, List.of());
+        return report(status, message, readAt, databases, diagnostics, truncated, List.of());
     }
 
     private PostgresInsightReport report(
@@ -592,14 +532,9 @@ public final class PostgresInsightService {
             String message,
             Long readAt,
             List<PostgresDatabaseDto> databases,
-            List<PostgresFindingDto> findings,
             List<PostgresDiagnosticDto> diagnostics,
             boolean truncated,
             List<String> readLimitations) {
-        List<PostgresSeverityCountDto> severityCounts =
-                SeverityOrder.counts(findings, PostgresFindingDto::severity).entrySet().stream()
-                        .map(entry -> new PostgresSeverityCountDto(entry.getKey(), entry.getValue()))
-                        .toList();
         return new PostgresInsightReport(
                 true,
                 DISCLAIMER,
@@ -607,48 +542,39 @@ public final class PostgresInsightService {
                 message,
                 readAt,
                 databases.size(),
-                findings.size(),
                 truncated,
                 databases,
-                findings,
-                severityCounts,
                 diagnostics,
-                evidenceOf(status, databases, truncated, readLimitations));
+                limitationsOf(databases, truncated, readLimitations));
     }
 
-    private static AdvisorEvidenceDto evidenceOf(
-            String status, List<PostgresDatabaseDto> databases, boolean truncated, List<String> readLimitations) {
-        if (!"READ".equals(status) && !"PARTIAL".equals(status)) {
-            return new AdvisorEvidenceDto(
-                    false,
-                    false,
-                    List.of(
-                            "NOT_READ".equals(status)
-                                    ? "The database has not been read yet."
-                                    : "No PostgreSQL statistics were read."));
-        }
+    /**
+     * Everything the numbers above do not cover, in one list.
+     *
+     * <p>A runtime view without this would be worse than no view: an empty session list because the role
+     * cannot see other backends looks exactly like an idle server, and a truncated relation list looks
+     * exactly like a small database. Each gap is therefore named next to the data it weakens.</p>
+     */
+    private static List<String> limitationsOf(
+            List<PostgresDatabaseDto> databases, boolean truncated, List<String> readLimitations) {
         List<String> limitations = new ArrayList<>(readLimitations);
-        boolean complete = !truncated && readLimitations.isEmpty();
         for (PostgresDatabaseDto database : databases) {
             for (PostgresSectionDto section : database.sections()) {
-                if (!"AVAILABLE".equals(section.status())) {
-                    complete = false;
-                    limitations.add(database.name() + "/" + section.id() + ": " + section.reason());
-                } else if (section.reason() != null) {
-                    complete = false;
+                if (!"AVAILABLE".equals(section.status()) || section.reason() != null) {
                     limitations.add(database.name() + "/" + section.id() + ": " + section.reason());
                 }
             }
             if (database.truncated()) {
-                complete = false;
                 limitations.add(database.name() + ": a row bound truncated the read.");
             }
             if ("PARTIAL".equals(database.status()) && database.message() != null) {
-                complete = false;
                 limitations.add(database.name() + ": " + database.message());
             }
         }
-        return new AdvisorEvidenceDto(true, complete, limitations);
+        if (truncated && limitations.isEmpty()) {
+            limitations.add("A row bound truncated the read.");
+        }
+        return List.copyOf(limitations);
     }
 
     private static int safeMajor(DatabaseMetaData metaData) {
@@ -676,6 +602,4 @@ public final class PostgresInsightService {
     }
 
     private record Role(String name, boolean monitoring) {}
-
-    private record DatabaseRead(PostgresDatabaseDto database, List<PostgresFindingDto> findings) {}
 }

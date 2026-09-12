@@ -25,7 +25,7 @@ import javax.sql.DataSource;
 final class PostgresTestDataSources {
 
     private static final PostgresInsightLimits DEFAULT_LIMITS = new PostgresInsightLimits(
-            25, 50, 25, 25, 10, 40, 400, Duration.ofSeconds(15), Duration.ofSeconds(5), Duration.ofSeconds(2));
+            50, 25, 50, 25, 25, 10, 40, 400, Duration.ofSeconds(15), Duration.ofSeconds(5), Duration.ofSeconds(2));
 
     private PostgresTestDataSources() {}
 
@@ -333,6 +333,32 @@ final class PostgresTestDataSources {
                             0d,
                             "restricted_sessions",
                             0));
+                case SESSIONS ->
+                    List.of(row(
+                            "pid",
+                            42,
+                            "user_name",
+                            "app",
+                            "application_name",
+                            "sample-app",
+                            "client_address",
+                            "127.0.0.1",
+                            "state",
+                            "active",
+                            "wait_event_type",
+                            null,
+                            "wait_event",
+                            null,
+                            "blocked_by",
+                            null,
+                            "state_seconds",
+                            0.2d,
+                            "transaction_seconds",
+                            0.4d,
+                            "query_seconds",
+                            0.2d,
+                            "query",
+                            "select 1"));
                 case EXTENSION -> List.of(row("relation", "pg_stat_statements", "exec_naming", 1));
                 case STATEMENTS, INDEXES, TABLES, VACUUM, REPLICAS -> List.of();
                 case RECOVERY -> List.of(row("in_recovery", false, "has_checkpointer", false));
@@ -348,6 +374,7 @@ final class PostgresTestDataSources {
         SETTINGS,
         VITALS,
         ACTIVITY,
+        SESSIONS,
         EXTENSION,
         STATEMENTS,
         INDEXES,
@@ -367,6 +394,9 @@ final class PostgresTestDataSources {
             }
             if (sql.contains("from pg_settings")) {
                 return SETTINGS;
+            }
+            if (sql.contains("pg_blocking_pids")) {
+                return SESSIONS;
             }
             if (sql.contains("from pg_stat_activity")) {
                 return ACTIVITY;
