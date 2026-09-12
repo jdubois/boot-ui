@@ -368,6 +368,60 @@ class PostgresInsightServiceTests {
                         .contains("Cache hit ratio", "Database size"));
     }
 
+    @Test
+    void aPartialReadKeepsTheBaselineOfTheSectionsItCouldNotRead() {
+        var healthy = PostgresTestDataSources.postgres()
+                .rows(PostgresTestDataSources.QueryKind.VITALS, vitals(90L, 10L, 1024L))
+                .rows(PostgresTestDataSources.QueryKind.TABLES, table(1L));
+        var moved = PostgresTestDataSources.postgres()
+                .rows(PostgresTestDataSources.QueryKind.VITALS, vitals(95L, 5L, 2048L))
+                .rows(PostgresTestDataSources.QueryKind.TABLES, table(2L));
+        // A read whose vital signs failed still produces the relation metrics, so it is not an empty read.
+        // Letting it replace the whole baseline would erase the cache and size values it never read, and the
+        // next healthy read would then report "no change" for numbers that had in fact moved.
+        var blind = PostgresTestDataSources.postgres()
+                .rows(PostgresTestDataSources.QueryKind.TABLES, table(1L))
+                .fail(PostgresTestDataSources.QueryKind.VITALS, "permission denied for view pg_stat_database");
+        DataSource[] current = {healthy};
+        PostgresInsightService service = service(() -> discovery("primary", current[0]));
+
+        service.read();
+        current[0] = blind;
+        service.read();
+        current[0] = moved;
+        PostgresInsightReport afterRecovery = service.read();
+
+        assertThat(afterRecovery.databases())
+                .singleElement()
+                .satisfies(database -> assertThat(database.changes())
+                        .extracting(PostgresChangeDto::metric)
+                        .contains("Cache hit ratio", "Database size"));
+    }
+
+    private static java.util.Map<String, Object> table(long deadTuples) {
+        return PostgresTestDataSources.row(
+                "schema_name",
+                "public",
+                "table_name",
+                "orders",
+                "total_size",
+                100L,
+                "table_size",
+                80L,
+                "index_size",
+                20L,
+                "live_tuples",
+                10L,
+                "dead_tuples",
+                deadTuples,
+                "sequential_scans",
+                1L,
+                "sequential_tuples",
+                10L,
+                "index_scans",
+                9L);
+    }
+
     private static java.util.Map<String, Object> vitals(long blocksHit, long blocksRead, long databaseSize) {
         return PostgresTestDataSources.row(
                 "database_name",

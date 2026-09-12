@@ -60,7 +60,16 @@ The panel runs one read-only transaction per datasource and pins `statement_time
 25 tables, 25 autovacuum rows, 10 replicas, and 40 settings), and truncation is reported as incomplete coverage rather
 than hidden. Every statistics query runs inside its own savepoint, because one error would otherwise abort the shared
 read-only transaction and make every later section report "current transaction is aborted" instead of its own content.
-No baseline is written to disk; only the previous read is kept in memory so the panel can show simple deltas.
+No baseline is written to disk; only the last value seen for each metric is kept in memory so the panel can show simple
+deltas. That baseline is merged rather than replaced, so a read that could not reach a section keeps the earlier value
+of that section instead of erasing it and reporting "no change" next time.
+
+The autovacuum section's "due" column is computed from the settings the server would actually use for each relation:
+the cluster's `autovacuum_vacuum_threshold` and `autovacuum_vacuum_scale_factor`, each overridden by that table's own
+`reloptions`, and suppressed where the table sets `autovacuum_enabled = false`. Two approximations are stated in the
+section rather than hidden: the estimate comes from `pg_stat_user_tables`, whereas autovacuum itself uses
+`pg_class.reltuples`, and only the dead-tuple trigger is modelled, so an insert-only table that PostgreSQL 13 and later
+would vacuum via `autovacuum_vacuum_insert_threshold` reads as "not due for dead tuples".
 
 Values are gated by the global exposure policy. Session statement text is the verbatim text the client sent, so it is
 redacted, masked and truncated exactly like the normalized text from `pg_stat_statements`. Under `MASKED` or

@@ -74,6 +74,42 @@ class PostgresHelpersTests {
     }
 
     @Test
+    void queryTextMasksEscapeStringsInsteadOfStoppingAtTheEscapedQuote() {
+        ExposurePolicy masked = exposure(ValueExposure.MASKED, true);
+
+        // In an E'' string a backslash escapes the quote, so matching it with the standard rule ends the
+        // literal early and publishes everything that followed it — here, the password.
+        assertThat(PostgresQueryText.sanitize(
+                        "select E'it\\'s' as note, password from users where password='hunter2'", masked, 200))
+                .doesNotContain("hunter2")
+                .doesNotContain("it\\'s");
+        // A statement cut off mid-literal by track_activity_query_size must mask to the end, not give up.
+        assertThat(PostgresQueryText.sanitize("select 'unterminated secret", masked, 200))
+                .doesNotContain("secret");
+        // The E must not be taken from the end of an identifier, which would corrupt the statement shown.
+        assertThat(PostgresQueryText.sanitize("select * from t where name like'a%'", masked, 200))
+                .contains("like'******'");
+    }
+
+    @Test
+    void vacuumDueHonoursPerTableReloptionsOverrides() {
+        // A table that sets its own autovacuum_vacuum_threshold is judged by that number, not the cluster's.
+        assertThat(PostgresVacuumCollector.override("10", 50d)).isEqualTo(10d);
+        assertThat(PostgresVacuumCollector.override(null, 50d)).isEqualTo(50d);
+        assertThat(PostgresVacuumCollector.override("not-a-number", 50d)).isEqualTo(50d);
+
+        // PostgreSQL accepts every unambiguous spelling of false for a boolean storage parameter.
+        assertThat(PostgresVacuumCollector.isFalse("false")).isTrue();
+        assertThat(PostgresVacuumCollector.isFalse("off")).isTrue();
+        assertThat(PostgresVacuumCollector.isFalse("n")).isTrue();
+        assertThat(PostgresVacuumCollector.isFalse("0")).isTrue();
+        assertThat(PostgresVacuumCollector.isFalse("true")).isFalse();
+        assertThat(PostgresVacuumCollector.isFalse(null)).isFalse();
+        // "o" is ambiguous between on and off; PostgreSQL rejects it, and it must not read as disabled.
+        assertThat(PostgresVacuumCollector.isFalse("o")).isFalse();
+    }
+
+    @Test
     void vacuumThresholdFloorsSoTheComparisonMatchesPostgreSql() {
         // PostgreSQL compares an integer dead count against the fractional threshold + scale_factor * tuples.
         // 50 + 0.19992 * 5000 = 1049.6: 1,050 dead tuples are due, and rounding up to 1,050 would miss that.

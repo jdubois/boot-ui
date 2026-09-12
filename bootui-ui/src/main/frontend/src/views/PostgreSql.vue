@@ -420,6 +420,14 @@ onMounted(async () => {
                 <div class="text-muted small">Deadlocks</div>
                 <div class="fw-semibold font-monospace">{{ formatNumber(database.vitalSigns.deadlocks) }}</div>
               </div>
+              <div class="col-6 col-md-3">
+                <div class="text-muted small">Temporary files</div>
+                <div class="fw-semibold font-monospace">{{ formatNumber(database.vitalSigns.temporaryFiles) }}</div>
+              </div>
+              <div class="col-6 col-md-3">
+                <div class="text-muted small">Temporary bytes</div>
+                <div class="fw-semibold font-monospace">{{ formatBytes(database.vitalSigns.temporaryBytes) }}</div>
+              </div>
             </div>
           </div>
 
@@ -455,13 +463,17 @@ onMounted(async () => {
                     <th scope="col">Blocked by</th>
                     <th scope="col" class="text-end">Transaction</th>
                     <th scope="col" class="text-end">In state</th>
+                    <th scope="col" class="text-end">Statement age</th>
                     <th scope="col">Statement</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="session in database.sessions || []" :key="session.pid" :class="sessionRowClass(session)">
                     <td class="font-monospace">{{ session.pid }}</td>
-                    <td class="font-monospace">{{ text(session.user) }}</td>
+                    <td class="font-monospace">
+                      {{ text(session.user) }}
+                      <div v-if="session.clientAddress" class="text-muted small">{{ session.clientAddress }}</div>
+                    </td>
                     <td class="font-monospace">{{ text(session.applicationName) }}</td>
                     <td>
                       <span class="font-monospace">{{ text(session.state) }}</span>
@@ -476,10 +488,11 @@ onMounted(async () => {
                     <td class="font-monospace">{{ text(session.blockedBy) }}</td>
                     <td class="font-monospace text-end">{{ seconds(session.transactionSeconds) }}</td>
                     <td class="font-monospace text-end">{{ seconds(session.stateSeconds) }}</td>
+                    <td class="font-monospace text-end">{{ seconds(session.querySeconds) }}</td>
                     <td class="font-monospace small text-break">{{ text(session.query) }}</td>
                   </tr>
                   <tr v-if="(database.sessions || []).length === 0">
-                    <td class="text-muted" colspan="9">No client backend was connected at the time of the read.</td>
+                    <td class="text-muted" colspan="10">No client backend was connected at the time of the read.</td>
                   </tr>
                 </tbody>
               </table>
@@ -557,6 +570,7 @@ onMounted(async () => {
                   <tr>
                     <th scope="col">Table</th>
                     <th scope="col" class="text-end">Total size</th>
+                    <th scope="col" class="text-end">Heap</th>
                     <th scope="col" class="text-end">Indexes</th>
                     <th scope="col" class="text-end">Live rows</th>
                     <th scope="col" class="text-end">Dead rows</th>
@@ -569,6 +583,7 @@ onMounted(async () => {
                   <tr v-for="table in database.tables || []" :key="`${table.schema}.${table.table}`">
                     <td class="font-monospace">{{ table.schema }}.{{ table.table }}</td>
                     <td class="font-monospace text-end">{{ formatBytes(table.totalSizeBytes) }}</td>
+                    <td class="font-monospace text-end">{{ formatBytes(table.tableSizeBytes) }}</td>
                     <td class="font-monospace text-end">{{ formatBytes(table.indexSizeBytes) }}</td>
                     <td class="font-monospace text-end">{{ formatNumber(table.liveTuples) }}</td>
                     <td class="font-monospace text-end">{{ formatNumber(table.deadTuples) }}</td>
@@ -577,7 +592,7 @@ onMounted(async () => {
                     <td class="font-monospace text-end">{{ percent(table.sequentialScanRatio) }}</td>
                   </tr>
                   <tr v-if="(database.tables || []).length === 0">
-                    <td class="text-muted" colspan="8">No user relation was reported for this database.</td>
+                    <td class="text-muted" colspan="9">No user relation was reported for this database.</td>
                   </tr>
                 </tbody>
               </table>
@@ -637,6 +652,12 @@ onMounted(async () => {
                   <div class="fw-semibold font-monospace">
                     {{ formatNumber(database.replication.checkpointsTimed) }} /
                     {{ formatNumber(database.replication.checkpointsRequested) }}
+                  </div>
+                </div>
+                <div class="col-6 col-md-3">
+                  <div class="text-muted small">Checkpoint write time</div>
+                  <div class="fw-semibold font-monospace">
+                    {{ seconds(database.replication.checkpointWriteSeconds) }}
                   </div>
                 </div>
                 <div class="col-6 col-md-3">

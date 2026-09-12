@@ -4,37 +4,48 @@ import io.github.jdubois.bootui.core.dto.PostgresSectionDto;
 import io.github.jdubois.bootui.core.dto.PostgresVacuumDto;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Reads autovacuum health from {@code pg_stat_user_tables}: dead-tuple ratio, the last (auto)vacuum and
  * (auto)analyze timestamps, and whether autovacuum is actually due.
  *
- * <p>"Due" is computed against the server's real {@code autovacuum_vacuum_threshold} and
- * {@code autovacuum_vacuum_scale_factor}, read by {@link PostgresSettingsCollector} in the same read, rather
- * than against the shipped defaults — a tuned server must not be judged by numbers it never used. Per-table
- * {@code reloptions} overrides are not read, so a table with its own autovacuum settings is judged by the
- * cluster values; that limitation is reported rather than hidden.</p>
+ * <p>"Due" is computed against the settings the server would actually use for each relation: the cluster's
+ * {@code autovacuum_vacuum_threshold} and {@code autovacuum_vacuum_scale_factor} read by
+ * {@link PostgresSettingsCollector} in the same read, each overridden by that table's own
+ * {@code reloptions} where it sets one, and suppressed entirely where the table sets
+ * {@code autovacuum_enabled = false}. A tuned server must not be judged by numbers it never used, and that
+ * applies per table as much as per cluster.</p>
  *
- * <p>Two deliberate approximations remain. The threshold is computed from {@code n_live_tup}, the
- * statistics collector's live-tuple estimate, whereas autovacuum itself uses {@code pg_class.reltuples};
- * the two agree except immediately after a bulk change. The comparison is strict, matching PostgreSQL's own
- * {@code n_dead_tup > threshold} test, so a table exactly at its threshold is not yet due.</p>
+ * <p>Two deliberate approximations remain, and both are reported rather than hidden. The threshold is
+ * computed from {@code n_live_tup}, the statistics collector's live-tuple estimate, whereas autovacuum
+ * itself uses {@code pg_class.reltuples}; the two agree except immediately after a bulk change. And only
+ * the dead-tuple trigger is modelled: since PostgreSQL 13 an insert-only table can also be vacuumed by
+ * {@code autovacuum_vacuum_insert_threshold}, so "not due" here means "not due for dead tuples". The
+ * comparison is strict, matching PostgreSQL's own {@code n_dead_tup > threshold} test, so a table exactly
+ * at its threshold is not yet due.</p>
  */
 final class PostgresVacuumCollector implements PostgresCollector {
 
-    private static final String SQL = """
-            select schemaname as schema_name, relname as table_name,
-                   n_live_tup as live_tuples, n_dead_tup as dead_tuples,
-                   last_vacuum, last_autovacuum, last_analyze, last_autoanalyze
-            from pg_stat_user_tables
-            order by n_dead_tup desc nulls last
+    static final String SQL = """
+            select s.schemaname as schema_name, s.relname as table_name,
+                   s.n_live_tup as live_tuples, s.n_dead_tup as dead_tuples,
+                   (select option_value from pg_options_to_table(c.reloptions)
+                      where option_name = 'autovacuum_vacuum_threshold') as rel_threshold,
+                   (select option_value from pg_options_to_table(c.reloptions)
+                      where option_name = 'autovacuum_vacuum_scale_factor') as rel_scale_factor,
+                   (select option_value from pg_options_to_table(c.reloptions)
+                      where option_name = 'autovacuum_enabled') as rel_autovacuum_enabled,
+                   s.last_vacuum, s.last_autovacuum, s.last_analyze, s.last_autoanalyze
+            from pg_stat_user_tables s join pg_class c on c.oid = s.relid
+            order by s.n_dead_tup desc nulls last
             limit ?
             """;
 
-    static final String RELOPTIONS_LIMITATION =
-            "Autovacuum \"due\" is computed from the cluster-wide autovacuum settings against the live-tuple "
-                    + "estimate in pg_stat_user_tables; per-table reloptions overrides are not read, and "
-                    + "autovacuum itself uses pg_class.reltuples.";
+    static final String ESTIMATE_LIMITATION =
+            "Autovacuum \"due\" is computed against the live-tuple estimate in pg_stat_user_tables, whereas "
+                    + "autovacuum itself uses pg_class.reltuples, and only the dead-tuple trigger is modelled: "
+                    + "an insert-only table can also be vacuumed by autovacuum_vacuum_insert_threshold.";
 
     @Override
     public String id() {
@@ -59,7 +70,11 @@ final class PostgresVacuumCollector implements PostgresCollector {
                 context, "Vacuum statistics", SQL, context.limits().maxVacuumTables(), resultSet -> {
                     Long live = PostgresQuery.longOrNull(resultSet, "live_tuples");
                     Long dead = PostgresQuery.longOrNull(resultSet, "dead_tuples");
-                    Long trigger = vacuumThreshold(live, threshold, scaleFactor, maxThreshold);
+                    double tableThreshold = override(resultSet.getString("rel_threshold"), threshold);
+                    double tableScaleFactor = override(resultSet.getString("rel_scale_factor"), scaleFactor);
+                    boolean tableAutovacuum =
+                            autovacuumEnabled && !isFalse(resultSet.getString("rel_autovacuum_enabled"));
+                    Long trigger = vacuumThreshold(live, tableThreshold, tableScaleFactor, maxThreshold);
                     return new PostgresVacuumDto(
                             resultSet.getString("schema_name"),
                             resultSet.getString("table_name"),
@@ -67,8 +82,8 @@ final class PostgresVacuumCollector implements PostgresCollector {
                             dead,
                             deadTupleRatio(live, dead),
                             trigger,
-                            dead != null && trigger != null && dead > trigger,
-                            autovacuumEnabled,
+                            tableAutovacuum && dead != null && trigger != null && dead > trigger,
+                            tableAutovacuum,
                             PostgresQuery.epochMillisOrNull(resultSet, "last_vacuum"),
                             PostgresQuery.epochMillisOrNull(resultSet, "last_autovacuum"),
                             PostgresQuery.epochMillisOrNull(resultSet, "last_analyze"),
@@ -85,7 +100,41 @@ final class PostgresVacuumCollector implements PostgresCollector {
                     "The autovacuum settings could not be read, so \"due\" is computed from PostgreSQL's defaults.",
                     rows.truncated());
         }
-        return available(retained.size(), rows.truncated());
+        return new PostgresSectionDto(
+                id(), title(), "AVAILABLE", null, ESTIMATE_LIMITATION, retained.size(), rows.truncated());
+    }
+
+    /**
+     * A per-table {@code reloptions} override, or the cluster value when the table sets none. An
+     * unparseable override falls back to the cluster value rather than to a guess.
+     */
+    static double override(String relOption, double clusterValue) {
+        if (relOption == null || relOption.isBlank()) {
+            return clusterValue;
+        }
+        try {
+            return Double.parseDouble(relOption.strip());
+        } catch (NumberFormatException ex) {
+            return clusterValue;
+        }
+    }
+
+    /**
+     * PostgreSQL accepts every spelling of a boolean storage parameter, so {@code autovacuum_enabled} can
+     * come back as {@code false}, {@code off}, {@code no}, {@code 0} or an abbreviation of any of them.
+     * Anything unrecognised is treated as "not disabled": autovacuum is on unless the table says otherwise.
+     */
+    static boolean isFalse(String relOption) {
+        if (relOption == null || relOption.isBlank()) {
+            return false;
+        }
+        String value = relOption.strip().toLowerCase(Locale.ROOT);
+        if ("0".equals(value) || "f".equals(value) || "n".equals(value)) {
+            return true;
+        }
+        // "o" alone is ambiguous between "on" and "off", and PostgreSQL rejects it; anything shorter than two
+        // characters that is not one of the unambiguous spellings above is not treated as a disabling value.
+        return value.length() >= 2 && ("false".startsWith(value) || "off".startsWith(value) || "no".startsWith(value));
     }
 
     /**

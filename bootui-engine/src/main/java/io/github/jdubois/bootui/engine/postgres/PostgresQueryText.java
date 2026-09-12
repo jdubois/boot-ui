@@ -22,7 +22,23 @@ import java.util.regex.Pattern;
  */
 final class PostgresQueryText {
 
-    private static final Pattern STRING_LITERAL = Pattern.compile("'(?:[^']|'')*'");
+    /**
+     * A quoted literal in either of PostgreSQL's two flavours, matched escape-string-first.
+     *
+     * <p>In a standard literal a backslash is an ordinary character and the only escape for a quote is
+     * {@code ''}. In an {@code E'...'} escape string {@code \'} also ends nothing, so matching one with the
+     * standard rule stops at the escaped quote and leaves the rest of the statement — including whatever
+     * followed it — unmasked. The escape-string alternative is therefore tried first.</p>
+     *
+     * <p>The {@code E} prefix is only recognised when it does not continue a word, so the trailing letter of
+     * an identifier such as {@code like'x'} is not mistaken for one and eaten by the replacement.</p>
+     *
+     * <p>Both alternatives also accept the end of input as a terminator. {@code pg_stat_activity} truncates
+     * its query text at {@code track_activity_query_size}, which can cut a statement mid-literal; an
+     * unterminated literal must mask to the end rather than fail to match and publish its opening.</p>
+     */
+    private static final Pattern STRING_LITERAL = Pattern.compile(
+            "(?<![A-Za-z0-9_$])[eE]'(?:[^'\\\\]|''|\\\\.)*(?:'|\\z)|'(?:[^']|'')*(?:'|\\z)", Pattern.DOTALL);
 
     /**
      * {@code $$ ... $$} and {@code $tag$ ... $tag$}. The two alternatives are spelled out rather than made

@@ -153,6 +153,48 @@ describe('PostgreSql', () => {
     expect(rows[1].classes()).toContain('table-warning')
   })
 
+  it('renders every session and vital-signs value the read reported, not only the headline ones', async () => {
+    // Each of these was carried by the report and silently dropped by the view. A number the server
+    // reported and BootUI parsed must reach the screen, or the panel is quietly less honest than its data.
+    const {wrapper} = await mountWith(
+      report({
+        databases: [
+          database({
+            sections: [
+              section('vital-signs', 'Vital signs', 'AVAILABLE'),
+              section('sessions', 'Sessions', 'AVAILABLE', {rowCount: 1}),
+              section('replication', 'Replication', 'AVAILABLE')
+            ],
+            vitalSigns: {
+              ...database().vitalSigns,
+              temporaryFiles: 7,
+              temporaryBytes: 3_145_728
+            },
+            sessions: [session({querySeconds: 12.5, clientAddress: '10.1.2.3'})],
+            replication: {
+              inRecovery: false,
+              replicas: [],
+              checkpointsTimed: 4,
+              checkpointsRequested: 1,
+              checkpointWriteSeconds: 6.5,
+              replicationSlots: 0,
+              inactiveReplicationSlots: 0,
+              walLevel: 'replica'
+            }
+          })
+        ]
+      })
+    )
+
+    const text = wrapper.text()
+    expect(text).toContain('10.1.2.3')
+    expect(text).toContain('12.5 s')
+    expect(text).toContain('Temporary files')
+    expect(text).toContain('Temporary bytes')
+    expect(text).toContain('Checkpoint write time')
+    expect(text).toContain('6.5 s')
+  })
+
   it('renders the statement, index, table and settings tables from the read', async () => {
     const {wrapper} = await mountWith(
       report({

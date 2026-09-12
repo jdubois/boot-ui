@@ -20,7 +20,7 @@ import java.sql.DatabaseMetaData;
 import java.sql.SQLException;
 import java.time.Clock;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -71,11 +71,12 @@ public final class PostgresInsightService {
     private final SingleFlightAction singleFlight = new SingleFlightAction();
 
     /**
-     * The previous read of this process, kept in memory only so a second read can show what moved. BootUI is
-     * a local developer console, not a monitoring platform: nothing here is written to disk, and restarting
-     * the application starts over.
+     * The last value this process saw for each metric of each datasource, kept in memory only so a later read
+     * can show what moved. It is merged rather than replaced, so a read that could not reach a section keeps
+     * that section's earlier value instead of erasing it. BootUI is a local developer console, not a
+     * monitoring platform: nothing here is written to disk, and restarting the application starts over.
      */
-    private final Map<String, List<PostgresMetric>> previousMetrics = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, PostgresMetric>> previousMetrics = new ConcurrentHashMap<>();
 
     public static PostgresInsightService using(
             Supplier<DatabaseAdvisorDataSourceDiscovery> dataSourceSupplier, ExposurePolicy exposure, Clock clock) {
@@ -218,6 +219,16 @@ public final class PostgresInsightService {
             return null;
         }
         try (Connection connection = dataSource.dataSource().getConnection()) {
+            // Acquiring a connection is the one step the cooperative budget cannot interrupt: it blocks
+            // inside the pool, bounded by the pool's own connection timeout, not by BootUI's. Re-checking
+            // here keeps a slow acquisition from being charged to the sections that follow, which would
+            // otherwise each report "the read budget ran out" and turn one slow pool into eight failures.
+            if (budget.exhausted()) {
+                String reason = "The read budget ran out while connecting to this datasource.";
+                diagnostics.add(new PostgresDiagnosticDto(dataSource.name(), "WARNING", reason));
+                unread.add(dataSource.name() + ": " + reason);
+                return null;
+            }
             DatabaseMetaData metaData = connection.getMetaData();
             Dialect dialect = Dialect.detect(
                     metaData.getDatabaseProductName(), metaData.getDatabaseProductVersion(), metaData.getURL());
@@ -439,13 +450,17 @@ public final class PostgresInsightService {
             // read is supposed to make.
             return List.of();
         }
-        List<PostgresMetric> previous = previousMetrics.put(name, current);
-        if (previous == null) {
-            return List.of();
+        // A partial read is merged into the baseline rather than replacing it, for the same reason. A section
+        // this read could not reach contributes no metric, and dropping its previous value would mean the
+        // next healthy read reported "no change" for a number that had in fact moved.
+        Map<String, PostgresMetric> before = previousMetrics.get(name);
+        Map<String, PostgresMetric> merged = before == null ? new LinkedHashMap<>() : new LinkedHashMap<>(before);
+        for (PostgresMetric metric : current) {
+            merged.put(metric.name(), metric);
         }
-        Map<String, PostgresMetric> before = new HashMap<>();
-        for (PostgresMetric metric : previous) {
-            before.put(metric.name(), metric);
+        previousMetrics.put(name, merged);
+        if (before == null) {
+            return List.of();
         }
         List<PostgresChangeDto> changes = new ArrayList<>();
         for (PostgresMetric metric : current) {

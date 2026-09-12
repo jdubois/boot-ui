@@ -411,7 +411,7 @@ final class PostgresTestDataSources {
             if (sql.contains("order by total_size")) {
                 return TABLES;
             }
-            if (sql.contains("order by n_dead_tup")) {
+            if (sql.contains("n_dead_tup desc")) {
                 return VACUUM;
             }
             if (sql.contains("pg_is_in_recovery")) {

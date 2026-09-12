@@ -2124,6 +2124,9 @@ Acceptance criteria:
   totals.
 - A session, statement, index, relation, autovacuum or settings row that the read retained is rendered in its section's
   table; a section that could not be read shows its reason and hint instead of an empty table.
+- Autovacuum "due" is computed per relation from the cluster autovacuum settings overridden by that table's own
+  `reloptions`, and the remaining approximations — the live-tuple estimate, and the unmodelled PostgreSQL 13+
+  insert-triggered trigger — are stated on the section.
 
 ### 5.18 Cache Panel
 
