@@ -2084,6 +2084,8 @@ Features:
 - Report per-section `AVAILABLE`, `SKIPPED`, or `FAILED` status for vital signs, sessions, statements, indexes, tables,
   vacuum, replication/WAL, and settings. Skipped or failed sections are reported with their reason and remain
   limitations, never empty tables.
+- Scope the session snapshot and the session breakdown to `current_database()`, and take the connection total from
+  `pg_stat_database` so it remains correct for a role that cannot see other backends.
 - Return, and render as tables, the rows each section read: the live `pg_stat_activity` session snapshot with state,
   wait event, blocking pids, transaction age and statement; the top normalized statements; index usage; relation size
   and access shape; autovacuum state; replication and WAL; and the curated settings.
@@ -2098,10 +2100,10 @@ Availability:
   URL, including through a wrapping driver, or the Quarkus `db-kind` — and never opens a connection. A datasource that
   declares no readable URL cannot be ruled out and keeps the panel available; a non-PostgreSQL datasource reached by the
   read is skipped with diagnostics rather than treated as a failure.
-- A read-only database role with `pg_monitor` membership is recommended for complete statistics. Without it,
-  `pg_stat_activity` still returns one row per backend but nulls the state, wait event and statement of backends the
-  role does not own, and replication and statistics views may fail; each gap degrades its section rather than
-  disappearing.
+- A read-only database role with `pg_monitor` membership is recommended for complete statistics. Without it
+  `pg_stat_activity` removes the rows of backends the role does not own while `pg_stat_statements` keeps its rows and
+  replaces the statement text with `<insufficient privilege>`; neither is detectable from the result set, so the read
+  probes `pg_read_all_stats` membership and degrades both sections rather than reporting a short, confident list.
 - The statements section is `SKIPPED` unless `pg_stat_statements` is installed.
 
 Out of scope for the current release surface:

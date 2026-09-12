@@ -345,10 +345,14 @@ onMounted(async () => {
             <span
               v-if="database.role"
               class="text-muted small font-monospace"
-              :title="database.monitoringRole ? 'Connected with pg_monitor' : 'Without pg_monitor'"
+              :title="
+                database.monitoringRole
+                  ? 'Can read the statistics of every backend'
+                  : 'Cannot read the statistics of other backends'
+              "
             >
               <i class="bi bi-person-badge me-1"></i>{{ database.role
-              }}<span v-if="database.monitoringRole"> · pg_monitor</span>
+              }}<span v-if="database.monitoringRole"> · pg_read_all_stats</span>
             </span>
           </div>
           <div v-if="database.message" class="card-body border-bottom small text-muted font-monospace">

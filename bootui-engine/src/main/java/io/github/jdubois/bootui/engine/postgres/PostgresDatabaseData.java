@@ -37,6 +37,7 @@ final class PostgresDatabaseData {
     private PostgresReplicationDto replication;
     private boolean truncated;
     private String unpinnedReason;
+    private boolean statisticsRestricted;
 
     PostgresDatabaseData(String dataSourceName) {
         this.dataSourceName = dataSourceName;
@@ -44,6 +45,24 @@ final class PostgresDatabaseData {
 
     String dataSourceName() {
         return dataSourceName;
+    }
+
+    /**
+     * Records whether the connected role lacks {@code pg_read_all_stats}.
+     *
+     * <p>This is the only reliable signal a collector has. PostgreSQL restricts its statistics views in two
+     * different and equally invisible ways: {@code pg_stat_activity} removes the rows of backends the role
+     * does not own, while {@code pg_stat_statements} keeps the rows and replaces the statement text with the
+     * literal {@code <insufficient privilege>}. Neither leaves a null a collector could notice, so a
+     * restricted read would otherwise produce a short, confident, complete-looking table.</p>
+     */
+    void markStatisticsRestricted(boolean restricted) {
+        this.statisticsRestricted = restricted;
+    }
+
+    /** Whether the connected role cannot see other roles' statistics. */
+    boolean statisticsRestricted() {
+        return statisticsRestricted;
     }
 
     void addSection(PostgresSectionDto section) {

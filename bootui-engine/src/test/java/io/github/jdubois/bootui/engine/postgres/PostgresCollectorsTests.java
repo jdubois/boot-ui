@@ -255,14 +255,39 @@ class PostgresCollectorsTests {
 
     @Test
     void vitalSignsReportTheSessionBreakdownAsUnknownWhenBackendsAreHidden() throws SQLException {
-        // pg_stat_activity nulls state/wait_event_type for backends the role does not own, so counting
-        // those rows as "not active, not blocked" would manufacture a clean bill of health.
         var dataSource = PostgresTestDataSources.postgres()
+                .rows(
+                        PostgresTestDataSources.QueryKind.VITALS,
+                        PostgresTestDataSources.row(
+                                "database_name",
+                                "app",
+                                "database_size",
+                                1024L,
+                                "xact_commit",
+                                100L,
+                                "xact_rollback",
+                                0L,
+                                "blks_read",
+                                1L,
+                                "blks_hit",
+                                99L,
+                                "backends",
+                                40,
+                                "deadlocks",
+                                0L,
+                                "temp_files",
+                                0L,
+                                "temp_bytes",
+                                0L,
+                                "xid_age",
+                                1L,
+                                "freeze_max_age",
+                                200000000L,
+                                "max_connections",
+                                100))
                 .rows(
                         PostgresTestDataSources.QueryKind.ACTIVITY,
                         PostgresTestDataSources.row(
-                                "sessions",
-                                40,
                                 "active_sessions",
                                 1,
                                 "idle_in_transaction",
@@ -270,20 +295,23 @@ class PostgresCollectorsTests {
                                 "blocked_sessions",
                                 0,
                                 "longest_transaction_seconds",
-                                null,
-                                "restricted_sessions",
-                                39));
+                                null));
         PostgresDatabaseData data = new PostgresDatabaseData("primary");
+        // A role without pg_read_all_stats does not see a nulled pg_stat_activity: PostgreSQL removes the
+        // rows of backends it does not own, so the survivors read as a calm, fully active server. Only the
+        // privilege probe can tell the difference.
+        data.markStatisticsRestricted(true);
         var context = PostgresTestDataSources.context(dataSource, 15, exposure());
 
         PostgresSectionDto section = new PostgresVitalSignsCollector().collect(context, data);
 
-        assertThat(section.status()).isEqualTo("AVAILABLE");
         assertThat(section.reason()).contains("pg_stat_activity hides the state");
-        assertThat(data.vitalSigns().connections()).isEqualTo(40);
         assertThat(data.vitalSigns().activeSessions()).isNull();
+        assertThat(data.vitalSigns().idleInTransactionSessions()).isNull();
         assertThat(data.vitalSigns().blockedSessions()).isNull();
         assertThat(data.vitalSigns().longestTransactionSeconds()).isNull();
+        // The connection total survives: it is summed from pg_stat_database, which every role reads in full.
+        assertThat(data.vitalSigns().connections()).isEqualTo(40);
     }
 
     @Test
@@ -361,5 +389,26 @@ class PostgresCollectorsTests {
                 return true;
             }
         };
+    }
+
+    @Test
+    void liveSessionAgesAreMeasuredFromTheStatementClockRatherThanTheTransactionClock() {
+        // Every collector shares one read-only transaction, so now() is frozen at the instant that
+        // transaction opened. Verified against PostgreSQL 18.6: three seconds into a read, now() reports an
+        // age of -3.00 s for a session whose statement started after the read began — and BootUI's own
+        // backend is always in that category, so its row would always show a negative age.
+        assertThat(PostgresSessionCollector.SQL).contains("clock_timestamp()").doesNotContain("now()");
+        assertThat(PostgresVitalSignsCollector.ACTIVITY_SQL)
+                .contains("clock_timestamp()")
+                .doesNotContain("now()");
+    }
+
+    @Test
+    void theSessionListIsScopedToTheDatabaseThePanelReports() {
+        // pg_stat_activity spans the whole cluster. Verified against PostgreSQL 18.6: without this filter a
+        // backend connected to a different database on the same server appears in the panel, statement text
+        // included, while every other section reports only current_database().
+        assertThat(PostgresSessionCollector.SQL).contains("a.datname = current_database()");
+        assertThat(PostgresVitalSignsCollector.ACTIVITY_SQL).contains("datname = current_database()");
     }
 }

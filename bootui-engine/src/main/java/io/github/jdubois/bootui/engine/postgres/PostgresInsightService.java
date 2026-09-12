@@ -281,6 +281,7 @@ public final class PostgresInsightService {
             readOnlyChanged = true;
             data.markSessionUnpinned(pinSession(connection, name, diagnostics));
             role = readRole(context);
+            data.markStatisticsRestricted(!role.monitoring());
             for (PostgresCollector collector : COLLECTORS) {
                 if (budget.exhausted()) {
                     data.addSection(new PostgresSectionDto(
@@ -381,7 +382,8 @@ public final class PostgresInsightService {
         PostgresRows<Role> rows = PostgresQuery.readOne(
                 context,
                 "Connected role",
-                "select current_user as role_name, pg_has_role(current_user, 'pg_monitor', 'member') as monitoring",
+                "select current_user as role_name,"
+                        + " pg_has_role(current_user, 'pg_read_all_stats', 'usage') as monitoring",
                 resultSet -> new Role(resultSet.getString("role_name"), resultSet.getBoolean("monitoring")));
         return rows.available() && !rows.empty() ? rows.rows().get(0) : new Role(null, false);
     }

@@ -307,6 +307,8 @@ final class PostgresTestDataSources {
                             1L,
                             "blks_hit",
                             99L,
+                            "backends",
+                            1,
                             "deadlocks",
                             0L,
                             "temp_files",
@@ -321,8 +323,6 @@ final class PostgresTestDataSources {
                             100));
                 case ACTIVITY ->
                     List.of(row(
-                            "sessions",
-                            1,
                             "active_sessions",
                             1,
                             "idle_in_transaction",
@@ -330,9 +330,7 @@ final class PostgresTestDataSources {
                             "blocked_sessions",
                             0,
                             "longest_transaction_seconds",
-                            0d,
-                            "restricted_sessions",
-                            0));
+                            0d));
                 case SESSIONS ->
                     List.of(row(
                             "pid",

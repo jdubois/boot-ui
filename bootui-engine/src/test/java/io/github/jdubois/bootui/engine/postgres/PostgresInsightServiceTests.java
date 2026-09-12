@@ -165,50 +165,51 @@ class PostgresInsightServiceTests {
     }
 
     @Test
-    void sessionsOnlyThisRoleCannotSeeDegradeTheSectionInsteadOfReadingAsIdle() {
-        var dataSource = PostgresTestDataSources.postgres()
+    void aRoleThatCannotReadOtherBackendsDegradesTheSessionListInsteadOfLookingQuiet() {
+        // Verified against PostgreSQL 18.6: a role without pg_read_all_stats does not receive a
+        // pg_stat_activity with nulled columns, it receives a shorter result set — three client backends for
+        // a superuser, one for an unprivileged role. Nothing in the rows themselves reveals the omission, so
+        // a section that trusted the result set would report a calm, single-session server as fully read.
+        DataSource dataSource = PostgresTestDataSources.postgres()
                 .rows(
-                        PostgresTestDataSources.QueryKind.SESSIONS,
-                        PostgresTestDataSources.row(
-                                "pid",
-                                4242,
-                                "user_name",
-                                "other",
-                                "application_name",
-                                null,
-                                "client_address",
-                                null,
-                                "state",
-                                null,
-                                "wait_event_type",
-                                null,
-                                "wait_event",
-                                null,
-                                "blocked_by",
-                                null,
-                                "state_seconds",
-                                null,
-                                "transaction_seconds",
-                                null,
-                                "query_seconds",
-                                null,
-                                "query",
-                                null));
+                        PostgresTestDataSources.QueryKind.ROLE,
+                        PostgresTestDataSources.row("role_name", "app", "monitoring", false));
 
         PostgresInsightReport report =
                 service(() -> discovery("primary", dataSource)).read();
 
         assertThat(report.status()).isEqualTo("PARTIAL");
         assertThat(report.limitations())
-                .anySatisfy(limitation -> assertThat(limitation).contains("pg_stat_activity"));
+                .anySatisfy(limitation ->
+                        assertThat(limitation).contains("pg_stat_activity hides the backends this role does not own"));
         assertThat(report.databases())
                 .singleElement()
-                .satisfies(database -> assertThat(database.sessions())
+                .satisfies(database -> assertThat(database.sections())
+                        .filteredOn(section -> "sessions".equals(section.id()))
                         .singleElement()
-                        .satisfies(session -> {
-                            assertThat(session.pid()).isEqualTo(4242);
-                            assertThat(session.state()).isNull();
-                        }));
+                        .satisfies(section -> assertThat(section.reason())
+                                .contains("pg_stat_activity hides the backends this role does not own")));
+    }
+
+    @Test
+    void aRestrictedRoleAlsoDegradesTheStatementRankingItCannotFullyIdentify() {
+        // pg_stat_statements restricts the opposite way to pg_stat_activity: it keeps every row, with real
+        // call counts and timings, and replaces only the text with "<insufficient privilege>". Trusting the
+        // row count alone would present that placeholder as the application's top statement.
+        DataSource dataSource = PostgresTestDataSources.postgres()
+                .rows(
+                        PostgresTestDataSources.QueryKind.ROLE,
+                        PostgresTestDataSources.row("role_name", "app", "monitoring", false));
+
+        PostgresInsightReport report =
+                service(() -> discovery("primary", dataSource)).read();
+
+        assertThat(report.databases())
+                .singleElement()
+                .satisfies(database -> assertThat(database.sections())
+                        .filteredOn(section -> "statements".equals(section.id()))
+                        .singleElement()
+                        .satisfies(section -> assertThat(section.reason()).contains("insufficient privilege")));
     }
 
     @Test

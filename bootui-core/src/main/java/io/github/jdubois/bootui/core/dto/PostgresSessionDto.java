@@ -7,10 +7,11 @@ package io.github.jdubois.bootui.core.dto;
  * since the last statistics reset, while this one is a snapshot of what the server is doing at the instant
  * of the read.</p>
  *
- * <p>Every component except {@link #pid()} is nullable, because {@code pg_stat_activity} degrades by nulling
- * columns rather than by hiding rows: a role that is not a member of {@code pg_monitor} still sees one row
- * per backend, but the state, wait event and statement of backends it does not own come back {@code NULL}.
- * A null is therefore "not visible to this role", never "idle and harmless".</p>
+ * <p>Every component except {@link #pid()} is nullable, because a column the reading role may not see comes
+ * back {@code NULL}. A null is therefore "not visible to this role", never "idle and harmless". Note that a
+ * role without {@code pg_read_all_stats} does not merely lose columns: {@code pg_stat_activity} hides the
+ * whole row of every backend it does not own, which is why the collector degrades the section from the
+ * server-reported privilege rather than from anything in the result set.</p>
  *
  * @param pid the backend's process id
  * @param user the role the backend authenticated as

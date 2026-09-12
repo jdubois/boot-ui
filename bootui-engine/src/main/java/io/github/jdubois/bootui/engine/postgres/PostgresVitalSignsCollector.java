@@ -7,17 +7,22 @@ import io.github.jdubois.bootui.core.dto.PostgresVitalSignsDto;
  * Reads the database's own vital signs from {@code pg_stat_database}, {@code pg_database} and
  * {@code pg_stat_activity}.
  *
- * <p>The session half is read separately from the counter half on purpose. It is also read <em>server-wide</em>
- * rather than for the current database, because {@code max_connections} is a cluster-wide ceiling that every
- * database and every background backend shares: comparing one database's sessions against it would quietly
- * under-report a server that is actually at its limit.</p>
+ * <p>The session half is read separately from the counter half on purpose. The connection total stays
+ * <em>server-wide</em>, because {@code max_connections} is a cluster-wide ceiling that every database and
+ * every background backend shares: comparing one database's sessions against it would quietly under-report a
+ * server that is actually at its limit. The state breakdown, by contrast, describes this database's own
+ * sessions, matching the Sessions table.</p>
  *
- * <p>{@code pg_stat_activity} degrades by nulling columns, not by refusing: a role that is not a member of
- * {@code pg_monitor} still sees one row per backend, but {@code state}, {@code wait_event_type} and
- * {@code xact_start} come back {@code NULL} for backends it does not own. Counting those rows as "not
- * active, not blocked, not idle in transaction" would manufacture a clean bill of health, so restricted rows
- * are detected and the whole session breakdown is reported as unknown, with the section marked partially
- * read. The counters that were read correctly — cache, transactions, wraparound — are kept either way.</p>
+ * <p>A role without {@code pg_read_all_stats} does not see a degraded {@code pg_stat_activity}: PostgreSQL
+ * removes the rows of backends it does not own, leaving nothing in the result set to notice. Counting the
+ * survivors would manufacture a clean bill of health — "one session, active, nothing blocked" — so the whole
+ * state breakdown is reported as unknown whenever the privilege probe says the role is restricted, and the
+ * section is marked partially read. The counters that were read correctly — cache, transactions, wraparound —
+ * are kept either way.</p>
+ *
+ * <p>For that reason the connection total is taken from {@code pg_stat_database.numbackends} summed across
+ * the cluster rather than by counting {@code pg_stat_activity} rows: that sum is both server-wide, so it
+ * pairs with {@code max_connections}, and reported in full to every role.</p>
  */
 final class PostgresVitalSignsCollector implements PostgresCollector {
 
@@ -28,6 +33,7 @@ final class PostgresVitalSignsCollector implements PostgresCollector {
                    d.xact_rollback as xact_rollback,
                    d.blks_read as blks_read,
                    d.blks_hit as blks_hit,
+                   (select sum(numbackends)::int from pg_stat_database) as backends,
                    d.deadlocks as deadlocks,
                    d.temp_files as temp_files,
                    d.temp_bytes as temp_bytes,
@@ -45,15 +51,14 @@ final class PostgresVitalSignsCollector implements PostgresCollector {
                     + "(active, idle in transaction, blocked, oldest transaction) is unknown. Grant the BootUI "
                     + "role membership of pg_monitor to read it.";
 
-    private static final String ACTIVITY_SQL = """
-            select (count(*))::int as sessions,
-                   (count(*) filter (where state = 'active'))::int as active_sessions,
+    static final String ACTIVITY_SQL = """
+            select (count(*) filter (where state = 'active'))::int as active_sessions,
                    (count(*) filter (where state like 'idle in transaction%'))::int as idle_in_transaction,
                    (count(*) filter (where wait_event_type = 'Lock'))::int as blocked_sessions,
-                   (count(*) filter (where state is null and pid <> pg_backend_pid()))::int as restricted_sessions,
-                   max(extract(epoch from (now() - xact_start))) as longest_transaction_seconds
+                   max(extract(epoch from (clock_timestamp() - xact_start))) as longest_transaction_seconds
             from pg_stat_activity
             where backend_type = 'client backend'
+              and datname = current_database()
             """;
 
     @Override
@@ -79,6 +84,7 @@ final class PostgresVitalSignsCollector implements PostgresCollector {
                         PostgresQuery.longOrNull(resultSet, "xact_rollback"),
                         PostgresQuery.longOrNull(resultSet, "blks_read"),
                         PostgresQuery.longOrNull(resultSet, "blks_hit"),
+                        PostgresQuery.intOrNull(resultSet, "backends"),
                         PostgresQuery.longOrNull(resultSet, "deadlocks"),
                         PostgresQuery.longOrNull(resultSet, "temp_files"),
                         PostgresQuery.longOrNull(resultSet, "temp_bytes"),
@@ -100,17 +106,15 @@ final class PostgresVitalSignsCollector implements PostgresCollector {
                 "Session activity",
                 ACTIVITY_SQL,
                 resultSet -> new SessionCounters(
-                        PostgresQuery.intOrNull(resultSet, "sessions"),
                         PostgresQuery.intOrNull(resultSet, "active_sessions"),
                         PostgresQuery.intOrNull(resultSet, "idle_in_transaction"),
                         PostgresQuery.intOrNull(resultSet, "blocked_sessions"),
-                        PostgresQuery.doubleOrNull(resultSet, "longest_transaction_seconds"),
-                        PostgresQuery.intOrNull(resultSet, "restricted_sessions")));
+                        PostgresQuery.doubleOrNull(resultSet, "longest_transaction_seconds")));
         SessionCounters session =
                 sessions.available() && !sessions.empty() ? sessions.rows().get(0) : SessionCounters.unknown();
-        boolean restricted = session.restrictedSessions() != null && session.restrictedSessions() > 0;
+        boolean restricted = data.statisticsRestricted();
         if (restricted) {
-            session = session.withoutStateBreakdown();
+            session = SessionCounters.unknown();
         }
 
         data.vitalSigns(new PostgresVitalSignsDto(
@@ -119,9 +123,9 @@ final class PostgresVitalSignsCollector implements PostgresCollector {
                 ratio(row.rolledBack(), sum(row.committed(), row.rolledBack())),
                 row.committed(),
                 row.rolledBack(),
-                session.sessions(),
+                row.backends(),
                 row.maxConnections(),
-                ratio(toLong(session.sessions()), toLong(row.maxConnections())),
+                ratio(toLong(row.backends()), toLong(row.maxConnections())),
                 session.activeSessions(),
                 session.idleInTransaction(),
                 session.longestTransactionSeconds(),
@@ -167,6 +171,7 @@ final class PostgresVitalSignsCollector implements PostgresCollector {
             Long rolledBack,
             Long blocksRead,
             Long blocksHit,
+            Integer backends,
             Long deadlocks,
             Long temporaryFiles,
             Long temporaryBytes,
@@ -175,23 +180,13 @@ final class PostgresVitalSignsCollector implements PostgresCollector {
             Integer maxConnections) {}
 
     private record SessionCounters(
-            Integer sessions,
             Integer activeSessions,
             Integer idleInTransaction,
             Integer blockedSessions,
-            Double longestTransactionSeconds,
-            Integer restrictedSessions) {
+            Double longestTransactionSeconds) {
 
         static SessionCounters unknown() {
-            return new SessionCounters(null, null, null, null, null, null);
-        }
-
-        /**
-         * Drops everything that depends on per-backend state, keeping the connection count, which
-         * {@code pg_stat_activity} reports for every backend regardless of ownership.
-         */
-        SessionCounters withoutStateBreakdown() {
-            return new SessionCounters(sessions, null, null, null, null, restrictedSessions);
+            return new SessionCounters(null, null, null, null);
         }
     }
 }

@@ -10,10 +10,16 @@ import io.github.jdubois.bootui.core.dto.PostgresSessionDto;
  * statistics reset, while this one answers "what is the database doing right now" — which session is active,
  * which is idle inside an open transaction, which is waiting on a lock and on whom.</p>
  *
- * <p>{@code pg_stat_activity} degrades by nulling columns rather than by hiding rows, so a role without
- * {@code pg_monitor} still sees one row per backend but no state, wait event or statement for backends it
- * does not own. Those rows are kept — hiding them would under-report the server's real load — and the
- * section is reported as partially read so the blanks read as "not visible", never as "idle".</p>
+ * <p>A role without {@code pg_read_all_stats} does not see a degraded version of this view: PostgreSQL
+ * removes the rows of backends the role does not own entirely. Nothing in the result set reveals that, so
+ * the section cannot infer its own completeness and instead asks the privilege probe taken before the read.
+ * Without the privilege the list is reported as partially read, because a short list here means "this is
+ * all I am allowed to see", never "this is all there is".</p>
+ *
+ * <p>Ages are measured against {@code clock_timestamp()} rather than {@code now()}. Every collector shares
+ * one read-only transaction, so {@code now()} is frozen at the instant that transaction opened: it would
+ * understate every age by however long the read has already taken, and report a negative age for any
+ * session — including BootUI's own — whose statement began after the read started.</p>
  *
  * <p>Unlike {@code pg_stat_statements}, the statement text here is the verbatim text the client sent, so it
  * goes through the same redaction, masking and truncation as every other value BootUI exposes.</p>
@@ -21,11 +27,11 @@ import io.github.jdubois.bootui.core.dto.PostgresSessionDto;
 final class PostgresSessionCollector implements PostgresCollector {
 
     static final String RESTRICTED_LIMITATION =
-            "pg_stat_activity hides the state and statement of backends this role does not own, so some "
-                    + "sessions are listed without them. Grant the BootUI role membership of pg_monitor to read "
-                    + "them.";
+            "pg_stat_activity hides the backends this role does not own, so this list covers only BootUI's "
+                    + "own sessions and is not the server's real activity. Grant the BootUI role membership of "
+                    + "pg_monitor to see every session.";
 
-    private static final String SQL = """
+    static final String SQL = """
             select a.pid as pid,
                    a.usename as user_name,
                    a.application_name as application_name,
@@ -35,12 +41,13 @@ final class PostgresSessionCollector implements PostgresCollector {
                    a.wait_event as wait_event,
                    (select string_agg(blocker::text, ', ') from unnest(pg_blocking_pids(a.pid)) as blocker)
                        as blocked_by,
-                   extract(epoch from (now() - a.state_change)) as state_seconds,
-                   extract(epoch from (now() - a.xact_start)) as transaction_seconds,
-                   extract(epoch from (now() - a.query_start)) as query_seconds,
+                   extract(epoch from (clock_timestamp() - a.state_change)) as state_seconds,
+                   extract(epoch from (clock_timestamp() - a.xact_start)) as transaction_seconds,
+                   extract(epoch from (clock_timestamp() - a.query_start)) as query_seconds,
                    a.query as query
             from pg_stat_activity a
             where a.backend_type = 'client backend'
+              and a.datname = current_database()
             order by (a.state = 'active') desc nulls last,
                      coalesce(a.xact_start, a.query_start) asc nulls last,
                      a.pid asc
@@ -67,8 +74,9 @@ final class PostgresSessionCollector implements PostgresCollector {
                 resultSet -> new PostgresSessionDto(
                         resultSet.getInt("pid"),
                         resultSet.getString("user_name"),
-                        PostgresQueryText.truncate(
+                        PostgresQueryText.sanitize(
                                 resultSet.getString("application_name"),
+                                context.exposure(),
                                 context.limits().maxQueryTextLength()),
                         resultSet.getString("client_address"),
                         resultSet.getString("state"),
@@ -86,8 +94,7 @@ final class PostgresSessionCollector implements PostgresCollector {
             return failed(rows.reason());
         }
         data.sessions(rows.rows());
-        boolean restricted = rows.rows().stream().anyMatch(session -> session.state() == null);
-        if (restricted) {
+        if (data.statisticsRestricted()) {
             return partial(rows.rows().size(), RESTRICTED_LIMITATION, rows.truncated());
         }
         return available(rows.rows().size(), rows.truncated());

@@ -8,7 +8,7 @@ import java.util.List;
  * @param name the adapter-reported datasource name
  * @param status {@code READ}, {@code PARTIAL} or {@code ERROR}
  * @param message the failure or partial-read reason, already redacted and truncated; {@code null} when clean
- * @param role the role the read connected as, and whether it holds {@code pg_monitor}
+ * @param role the role the read connected as, and whether it can read the statistics of other backends
  */
 public record PostgresDatabaseDto(
         String name,

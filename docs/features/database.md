@@ -39,7 +39,9 @@ numbers, names every section it could not read, and leaves the judgement to you.
 shown as skipped or failed with their reason, so a missing extension never looks like an empty table.
 
 The **Sessions** table is the only genuinely live part: it is a snapshot of `pg_stat_activity` at the instant of the
-read, with each backend's state, wait event, blocking pids, transaction age and statement. Everything else is
+read, with each backend's state, wait event, blocking pids, transaction age and statement. It lists the client
+backends of the database this datasource connects to, not every database in the cluster, and ages are measured
+against the server's statement clock so they stay true however long the read itself takes. Everything else is
 cumulative since the last statistics reset. A second read adds a short "what changed since the previous read" list,
 kept in memory only.
 
@@ -76,11 +78,14 @@ decision is taken from declared configuration alone — the JDBC URL each dataso
 driver such as `jdbc:aws-wrapper:postgresql://...`), or the Quarkus `db-kind` — so rendering the sidebar still contacts no
 database. A datasource that declares no readable URL cannot be ruled out, so the panel stays available when the
 PostgreSQL driver is on the classpath, and a non-PostgreSQL datasource reached by the read is skipped with a clear
-diagnostic. Use a read-only database role that is a member of `pg_monitor` when possible; without it,
-`pg_stat_activity` returns one row per backend but hides the state, wait event and statement of backends the role does
-not own, and some replication and statistics views can fail or under-report. Each of those gaps degrades the section to
-partially read rather than being silently dropped. The statement ranking section additionally requires
-`pg_stat_statements`.
+diagnostic. Use a read-only database role that is a member of `pg_monitor` when possible. Without it PostgreSQL
+restricts its statistics views in two different and individually invisible ways: `pg_stat_activity` **removes** the rows
+of backends the role does not own, so the session list silently shrinks to BootUI's own connections, while
+`pg_stat_statements` **keeps** every row and replaces the statement text with `<insufficient privilege>`. Neither leaves
+anything in the result set to notice, so BootUI asks the server instead — it probes `pg_read_all_stats` membership
+before reading — and marks both sections partially read when the privilege is missing. The connection total is taken
+from `pg_stat_database`, which every role reads in full, so it stays correct either way. The statement ranking section
+additionally requires `pg_stat_statements`.
 
 :::
 

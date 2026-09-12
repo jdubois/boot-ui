@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.core.dto.PostgresReplicaDto;
 import io.github.jdubois.bootui.core.dto.PostgresReplicationDto;
 import io.github.jdubois.bootui.core.dto.PostgresSectionDto;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -70,7 +71,10 @@ final class PostgresReplicationCollector implements PostgresCollector {
         boolean inRecovery = shape.inRecovery();
 
         List<PostgresReplicaDto> replicas = List.of();
-        String limitation = null;
+        // Every sub-read's limitation is kept: on a standby the expected "lag is not measurable" note would
+        // otherwise mask a genuine checkpoint or replication-slot failure read straight after it.
+        List<String> limitations = new ArrayList<>();
+        boolean truncated = false;
         if (!inRecovery) {
             PostgresRows<PostgresReplicaDto> rows = PostgresQuery.readList(
                     context,
@@ -87,19 +91,20 @@ final class PostgresReplicationCollector implements PostgresCollector {
                             PostgresQuery.longOrNull(resultSet, "replay_lag")));
             if (rows.available()) {
                 replicas = rows.rows();
+                truncated = rows.truncated();
             } else {
-                limitation = rows.reason();
+                limitations.add(rows.reason());
             }
         } else {
-            limitation = "This server is a standby, so replica lag is not measurable from here.";
+            limitations.add("This server is a standby, so replica lag is not measurable from here.");
         }
 
         PostgresRows<Checkpoints> checkpointRows = readCheckpoints(context, shape.hasCheckpointer());
         Checkpoints checkpoints = checkpointRows.available() && !checkpointRows.empty()
                 ? checkpointRows.rows().get(0)
                 : new Checkpoints(null, null, null);
-        if (!checkpointRows.available() && limitation == null) {
-            limitation = checkpointRows.reason();
+        if (!checkpointRows.available()) {
+            limitations.add(checkpointRows.reason());
         }
 
         PostgresRows<Slots> slots = PostgresQuery.readOne(
@@ -110,8 +115,8 @@ final class PostgresReplicationCollector implements PostgresCollector {
                         PostgresQuery.longOrNull(resultSet, "slots"),
                         PostgresQuery.longOrNull(resultSet, "inactive_slots")));
         Slots slotCounts = slots.available() && !slots.empty() ? slots.rows().get(0) : new Slots(null, null);
-        if (!slots.available() && limitation == null) {
-            limitation = slots.reason();
+        if (!slots.available()) {
+            limitations.add(slots.reason());
         }
 
         data.replication(new PostgresReplicationDto(
@@ -124,7 +129,12 @@ final class PostgresReplicationCollector implements PostgresCollector {
                 slotCounts.inactiveSlots(),
                 data.setting("wal_level")));
         int rowCount = replicas.size();
-        return limitation == null ? available(rowCount, false) : partial(rowCount, limitation, false);
+        if (truncated) {
+            limitations.add("More replicas are connected than the read's replica bound allows.");
+        }
+        return limitations.isEmpty()
+                ? available(rowCount, false)
+                : partial(rowCount, String.join(" ", limitations), truncated);
     }
 
     /** PostgreSQL 17 moved the checkpoint counters from {@code pg_stat_bgwriter} to {@code pg_stat_checkpointer}. */

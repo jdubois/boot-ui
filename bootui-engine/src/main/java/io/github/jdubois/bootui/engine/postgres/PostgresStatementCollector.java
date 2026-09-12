@@ -87,8 +87,25 @@ final class PostgresStatementCollector implements PostgresCollector {
             return failed(rows.reason());
         }
         data.statements(rows.rows());
+        if (data.statisticsRestricted()) {
+            return partial(rows.rows().size(), RESTRICTED_LIMITATION, rows.truncated());
+        }
         return available(rows.rows().size(), rows.truncated());
     }
+
+    /**
+     * The literal PostgreSQL substitutes for a statement the connected role may not read.
+     *
+     * <p>{@code pg_stat_statements} restricts the opposite way to {@code pg_stat_activity}: it keeps every
+     * row, with real call counts and timings, and replaces only the text. Rendering those rows as if they
+     * were statements would present this placeholder as the application's top query.</p>
+     */
+    static final String INSUFFICIENT_PRIVILEGE = "<insufficient privilege>";
+
+    static final String RESTRICTED_LIMITATION =
+            "pg_stat_statements shows the text of statements run by other roles as \"<insufficient "
+                    + "privilege>\"; their timings are real but the statements cannot be identified. Grant the "
+                    + "BootUI role membership of pg_monitor to read them.";
 
     private static Double hitRatio(Long hits, Long reads) {
         if (hits == null || reads == null) {
