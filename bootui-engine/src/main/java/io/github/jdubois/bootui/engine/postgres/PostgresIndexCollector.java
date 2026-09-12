@@ -13,8 +13,7 @@ import io.github.jdubois.bootui.core.dto.PostgresSectionDto;
  */
 final class PostgresIndexCollector implements PostgresCollector {
 
-    private static final String SQL =
-            """
+    private static final String SQL = """
             select s.schemaname as schema_name, s.relname as table_name, s.indexrelname as index_name,
                    s.idx_scan as scans, s.idx_tup_read as tuples_read,
                    pg_relation_size(s.indexrelid) as size_bytes,

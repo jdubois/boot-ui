@@ -186,10 +186,7 @@ public class QuarkusMcpTools {
         addIfAvailable(
                 registry,
                 availability,
-                tool(
-                        "postgresql_read",
-                        McpToolDescriptions.quarkus("postgresql_read"),
-                        args -> postgresql.read()));
+                tool("postgresql_read", McpToolDescriptions.quarkus("postgresql_read"), args -> postgresql.read()));
         addIfAvailable(
                 registry,
                 availability,

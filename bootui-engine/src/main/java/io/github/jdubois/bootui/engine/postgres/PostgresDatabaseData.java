@@ -55,7 +55,8 @@ final class PostgresDatabaseData {
 
     /** True when the named section was read; rules whose evidence is missing must skip, not pass. */
     boolean sectionAvailable(String sectionId) {
-        return sections.stream().anyMatch(section -> section.id().equals(sectionId) && "AVAILABLE".equals(section.status()));
+        return sections.stream()
+                .anyMatch(section -> section.id().equals(sectionId) && "AVAILABLE".equals(section.status()));
     }
 
     /** Replaces each section's finding count once the rules have run. */

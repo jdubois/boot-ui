@@ -17,8 +17,7 @@ import java.util.List;
  */
 final class PostgresVacuumCollector implements PostgresCollector {
 
-    private static final String SQL =
-            """
+    private static final String SQL = """
             select schemaname as schema_name, relname as table_name,
                    n_live_tup as live_tuples, n_dead_tup as dead_tuples,
                    last_vacuum, last_autovacuum, last_analyze, last_autoanalyze
@@ -47,8 +46,8 @@ final class PostgresVacuumCollector implements PostgresCollector {
         double threshold = data.settingAsDouble("autovacuum_vacuum_threshold", 50);
         double scaleFactor = data.settingAsDouble("autovacuum_vacuum_scale_factor", 0.2);
 
-        PostgresRows<PostgresVacuumDto> rows =
-                PostgresQuery.readList(context, "Vacuum statistics", SQL, context.limits().maxVacuumTables(), resultSet -> {
+        PostgresRows<PostgresVacuumDto> rows = PostgresQuery.readList(
+                context, "Vacuum statistics", SQL, context.limits().maxVacuumTables(), resultSet -> {
                     Long live = PostgresQuery.longOrNull(resultSet, "live_tuples");
                     Long dead = PostgresQuery.longOrNull(resultSet, "dead_tuples");
                     Long trigger = vacuumThreshold(live, threshold, scaleFactor);

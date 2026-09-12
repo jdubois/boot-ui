@@ -10,8 +10,7 @@ import io.github.jdubois.bootui.core.dto.PostgresTableDto;
  */
 final class PostgresTableCollector implements PostgresCollector {
 
-    private static final String SQL =
-            """
+    private static final String SQL = """
             select schemaname as schema_name, relname as table_name,
                    pg_total_relation_size(relid) as total_size,
                    pg_table_size(relid) as table_size,
@@ -36,8 +35,8 @@ final class PostgresTableCollector implements PostgresCollector {
 
     @Override
     public PostgresSectionDto collect(PostgresReadContext context, PostgresDatabaseData data) {
-        PostgresRows<PostgresTableDto> rows =
-                PostgresQuery.readList(context, "Table statistics", SQL, context.limits().maxTables(), resultSet -> {
+        PostgresRows<PostgresTableDto> rows = PostgresQuery.readList(
+                context, "Table statistics", SQL, context.limits().maxTables(), resultSet -> {
                     Long sequentialScans = PostgresQuery.longOrNull(resultSet, "sequential_scans");
                     Long indexScans = PostgresQuery.longOrNull(resultSet, "index_scans");
                     return new PostgresTableDto(

@@ -299,7 +299,9 @@ class QuarkusPanelAvailabilityTest {
         // Like SQL Trace, the PostgreSQL panel needs a JDBC datasource: with none present it must surface an
         // honest, panel-specific hint pointing at a PostgreSQL datasource, NOT the generic "not yet" reason.
         PanelDto postgresql = manifestById().get(BootUiPanels.POSTGRESQL);
-        assertThat(postgresql).as("the PostgreSQL panel is present in the manifest").isNotNull();
+        assertThat(postgresql)
+                .as("the PostgreSQL panel is present in the manifest")
+                .isNotNull();
         assertThat(postgresql.available()).isFalse();
         assertThat(postgresql.unavailableReason())
                 .doesNotContain("Not yet available")

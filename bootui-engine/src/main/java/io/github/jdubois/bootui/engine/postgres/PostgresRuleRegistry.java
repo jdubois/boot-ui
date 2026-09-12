@@ -60,8 +60,9 @@ final class PostgresRuleRegistry {
                         if (vitals.cacheHitRatio() >= LOW_CACHE_HIT_RATIO) {
                             return null;
                         }
-                        return PostgresRuleMatch.of("Cache hit ratio is " + PostgresFormat.percent(vitals.cacheHitRatio())
-                                + ", below the " + PostgresFormat.percent(LOW_CACHE_HIT_RATIO) + " review threshold.");
+                        return PostgresRuleMatch.of(
+                                "Cache hit ratio is " + PostgresFormat.percent(vitals.cacheHitRatio()) + ", below the "
+                                        + PostgresFormat.percent(LOW_CACHE_HIT_RATIO) + " review threshold.");
                     }),
             rule(
                     "PG-VITALS-002",
@@ -86,7 +87,8 @@ final class PostgresRuleRegistry {
                         return PostgresRuleMatch.of(PostgresFormat.percent(vitals.rollbackRatio())
                                 + " of completed transactions rolled back ("
                                 + PostgresFormat.count(vitals.transactionsRolledBack()) + " of "
-                                + PostgresFormat.count(sum(vitals.transactionsCommitted(), vitals.transactionsRolledBack()))
+                                + PostgresFormat.count(
+                                        sum(vitals.transactionsCommitted(), vitals.transactionsRolledBack()))
                                 + ").");
                     }),
             rule(
@@ -180,7 +182,8 @@ final class PostgresRuleRegistry {
                         if (vitals.wraparoundUsageRatio() < WRAPAROUND_WARNING_RATIO) {
                             return null;
                         }
-                        return PostgresRuleMatch.of("Transaction id age is " + PostgresFormat.count(vitals.transactionIdAge())
+                        return PostgresRuleMatch.of("Transaction id age is "
+                                + PostgresFormat.count(vitals.transactionIdAge())
                                 + " of autovacuum_freeze_max_age " + PostgresFormat.count(vitals.wraparoundLimit())
                                 + " (" + PostgresFormat.percent(vitals.wraparoundUsageRatio()) + ").");
                     }),
@@ -201,8 +204,8 @@ final class PostgresRuleRegistry {
                         if (vitals == null || vitals.deadlocks() == null || vitals.deadlocks() <= 0) {
                             return null;
                         }
-                        return PostgresRuleMatch.of(vitals.deadlocks() + " deadlock(s) recorded since the last "
-                                + "statistics reset.");
+                        return PostgresRuleMatch.of(
+                                vitals.deadlocks() + " deadlock(s) recorded since the last " + "statistics reset.");
                     }),
             rule(
                     "PG-VITALS-008",
@@ -229,8 +232,8 @@ final class PostgresRuleRegistry {
                     "Statements with a high mean execution time",
                     "PERFORMANCE",
                     "MEDIUM",
-                    "At least one frequently executed statement averages more than "
-                            + (long) SLOW_STATEMENT_MEAN_MILLIS + " ms per call.",
+                    "At least one frequently executed statement averages more than " + (long) SLOW_STATEMENT_MEAN_MILLIS
+                            + " ms per call.",
                     "Run EXPLAIN (ANALYZE, BUFFERS) on the statement before changing anything; the fix is often "
                             + "an index or a narrower result, not a server setting.",
                     "Statement text is normalized by PostgreSQL and the timings are averages: a bimodal "
@@ -333,8 +336,7 @@ final class PostgresRuleRegistry {
                             return null;
                         }
                         return PostgresRuleMatch.of(
-                                matched + " index(es) larger than 1 MB have never been scanned on this node.",
-                                samples);
+                                matched + " index(es) larger than 1 MB have never been scanned on this node.", samples);
                     }),
             rule(
                     "PG-TABLE-001",
@@ -359,7 +361,8 @@ final class PostgresRuleRegistry {
                                     || table.sequentialScanRatio() < SEQUENTIAL_SCAN_RATIO) {
                                 continue;
                             }
-                            if (table.sequentialScans() == null || table.sequentialScans() < SEQUENTIAL_SCAN_MIN_SCANS) {
+                            if (table.sequentialScans() == null
+                                    || table.sequentialScans() < SEQUENTIAL_SCAN_MIN_SCANS) {
                                 continue;
                             }
                             matched++;
@@ -408,7 +411,8 @@ final class PostgresRuleRegistry {
                         if (matched == 0) {
                             return null;
                         }
-                        return PostgresRuleMatch.of(matched + " relation(s) are past their autovacuum threshold.", samples);
+                        return PostgresRuleMatch.of(
+                                matched + " relation(s) are past their autovacuum threshold.", samples);
                     }),
             rule(
                     "PG-VACUUM-002",

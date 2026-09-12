@@ -1,0 +1,60 @@
+package io.github.jdubois.bootui.engine.postgres;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.LinkedHashSet;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.junit.jupiter.api.Test;
+
+class PostgresDocumentationTests {
+
+    private static final Pattern CHECK_HEADING = Pattern.compile("(?m)^### (PG-[A-Z]+-[0-9]{3}) (?:—|--|-) (.+)$");
+
+    @Test
+    void catalogDocumentsEveryActiveRuleWithMatchingTitleAndSeverity() throws IOException {
+        String documentation = Files.readString(postgresChecksDocumentation());
+        Set<String> documentedRuleIds = new LinkedHashSet<>();
+        Matcher headings = CHECK_HEADING.matcher(documentation);
+        while (headings.find()) {
+            documentedRuleIds.add(headings.group(1));
+        }
+
+        Set<String> activeRuleIds = new LinkedHashSet<>();
+        for (PostgresRule rule : PostgresRuleRegistry.rules()) {
+            PostgresRuleDefinition definition = rule.definition();
+            activeRuleIds.add(definition.id());
+
+            String heading = "### " + definition.id() + " — " + definition.title();
+            int sectionStart = documentation.indexOf(heading);
+            assertThat(sectionStart)
+                    .as("documentation heading for %s", definition.id())
+                    .isNotNegative();
+            int nextSection = documentation.indexOf("\n### ", sectionStart + heading.length());
+            String section =
+                    documentation.substring(sectionStart, nextSection < 0 ? documentation.length() : nextSection);
+            assertThat(section)
+                    .as("documented severity for %s", definition.id())
+                    .contains("- **Severity:** " + definition.severity());
+        }
+
+        assertThat(documentedRuleIds).containsExactlyElementsOf(activeRuleIds);
+    }
+
+    private static Path postgresChecksDocumentation() {
+        Path workingDirectory = Path.of("").toAbsolutePath();
+        for (Path candidate : new Path[] {
+            workingDirectory.resolve("docs/POSTGRESQL-CHECKS.md"),
+            workingDirectory.resolve("../docs/POSTGRESQL-CHECKS.md").normalize()
+        }) {
+            if (Files.isRegularFile(candidate)) {
+                return candidate;
+            }
+        }
+        throw new IllegalStateException("docs/POSTGRESQL-CHECKS.md could not be located from " + workingDirectory);
+    }
+}

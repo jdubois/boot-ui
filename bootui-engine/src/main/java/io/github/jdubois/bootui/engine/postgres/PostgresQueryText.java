@@ -29,7 +29,10 @@ final class PostgresQueryText {
         if (valueExposure == ValueExposure.METADATA_ONLY) {
             return SecretMasker.MASKED_VALUE;
         }
-        String text = WHITESPACE.matcher(CredentialRedaction.redact(query)).replaceAll(" ").strip();
+        String text = WHITESPACE
+                .matcher(CredentialRedaction.redact(query))
+                .replaceAll(" ")
+                .strip();
         if (valueExposure != ValueExposure.FULL && (exposure == null || exposure.maskSecrets())) {
             text = STRING_LITERAL.matcher(text).replaceAll("'" + SecretMasker.MASKED_VALUE + "'");
         }

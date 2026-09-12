@@ -428,6 +428,42 @@ safe in an application with no JDBC datasource extension; a bean with no such qu
 
 :::
 
+## PostgreSQL
+
+The PostgreSQL panel reads a point-in-time, read-only snapshot of the application's own PostgreSQL database statistics.
+It answers "what does PostgreSQL report about this database right now?" across cache hit ratio, rollbacks, connections,
+locks, transaction-id age, statement rankings, index usage, large relations, autovacuum, replication/WAL, and selected
+settings. The read is explicit: opening the panel shows the last report, and nothing queries PostgreSQL until you click
+**Read vital signs**.
+
+This is not the Database advisor and not SQL Trace:
+
+- **Database advisor** checks physical schema structure — keys, indexes, constraints, sequences, and Hibernate mapping
+  cross-references — from metadata and vendor catalogs.
+- **SQL Trace** shows statements this JVM recently issued through BootUI's local JDBC instrumentation.
+- **PostgreSQL** reads PostgreSQL's own cumulative `pg_stat_*` and `pg_catalog` views, which include work from every
+  client of the database and statistics since the last reset.
+
+See [PostgreSQL checks](../POSTGRESQL-CHECKS.md) for every rule, threshold, caveat, and bound.
+
+::: details Safety and bounds
+
+The panel runs one read-only transaction per datasource and pins `statement_timeout` to 5 seconds, `lock_timeout` to
+2 seconds, and the read budget to 15 seconds. List sections are capped (25 statements, 50 indexes, 25 tables,
+25 autovacuum rows, 10 replicas, and 40 settings), and truncation is reported as incomplete coverage rather than hidden.
+No baseline is written to disk; only the previous read is kept in memory so the panel can show simple deltas.
+
+:::
+
+::: details Availability and permissions
+
+The panel is available on Spring MVC, Spring WebFlux, and Quarkus when a JDBC datasource can be discovered. A
+non-PostgreSQL datasource is skipped with a clear diagnostic. Use a read-only database role that is a member of
+`pg_monitor` when possible; without it, some session, replication, and statistics views can fail or under-report. The
+statement ranking section additionally requires `pg_stat_statements`.
+
+:::
+
 ## Hibernate
 
 ![BootUI Hibernate panel](../images/bootui-hibernate.webp)

@@ -23,6 +23,9 @@ read-only flag).
 
 :::
 
+The PostgreSQL vital-signs panel is an advisor-style database diagnostic. See [Advisors](advisors.md#postgresql) for its canonical panel documentation.
+
+
 ## SQL Trace
 
 ![BootUI SQL Trace panel](../images/bootui-sql-trace.webp)

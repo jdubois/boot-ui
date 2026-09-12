@@ -69,6 +69,7 @@ const groups = [
       'SPRING-CHECKS.md',
       'HIBERNATE-CHECKS.md',
       'DATABASE-ADVISOR-CHECKS.md',
+      'POSTGRESQL-CHECKS.md',
       'SECURITY-CHECKS.md',
       'VULNERABILITIES-CHECKS.md',
       'MEMORY-CHECKS.md',

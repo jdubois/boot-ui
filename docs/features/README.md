@@ -6,7 +6,7 @@ the search box to jump straight to a panel by name.
 | Group | Panels | What it answers |
 | ----- | ------ | --------------- |
 | [Overview](./overview.md) | Overview · Live Activity · GitHub | Is my app healthy, and what did it just do? |
-| [Advisors](./advisors.md) | Architecture · REST API · Spring · Quarkus · Database · Hibernate · Memory · Security · Pentesting · Vulnerabilities | What is wrong with my app, and how do I fix it? |
+| [Advisors](./advisors.md) | Architecture · REST API · Spring · Quarkus · Database · PostgreSQL · Hibernate · Memory · Security · Pentesting · Vulnerabilities | What is wrong with my app, and how do I fix it? |
 | [Runtime](./runtime.md) | Health · HTTP Sessions · Metrics · Live Memory · JVM Tuning · Heap Dump · Threads · Startup Timeline · GraalVM · CRaC | How is the JVM behaving right now? |
 | [Configuration](./configuration.md) | Configuration · Profile Diff · Loggers · Beans · Conditions · Mappings | What configuration and wiring is actually effective? |
 | [Database](./database.md) | Connection Pools · SQL Trace · Hibernate Statistics · Transactions · Spring Data · Flyway · Liquibase | What is my app doing to the database? |

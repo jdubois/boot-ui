@@ -23,7 +23,7 @@ features:
     link: /features/diagnostics
     linkText: Diagnostics panels
   - title: Database insight
-    details: Inspect connection pools, SQL traces, Hibernate statistics, transactions, Spring Data repositories, Flyway, and Liquibase.
+    details: Inspect connection pools, PostgreSQL vital signs, SQL traces, Hibernate statistics, transactions, Spring Data repositories, Flyway, and Liquibase.
     link: /features/database
     linkText: Database panels
   - title: Services and integrations
@@ -65,8 +65,8 @@ is unavailable, BootUI returns stable empty responses or shows an actionable emp
 
 - Runtime views for health, metrics, memory, threads, heap dumps, startup timing, and JVM tuning.
 - Configuration tools for masked properties, profile diffs, runtime overrides, loggers, beans, conditions, and mappings.
-- Data and service panels for database pools, Spring Data, Hibernate, Flyway, Liquibase, caches, scheduled tasks, and dev
-  services.
+- Data and service panels for database pools, PostgreSQL vital signs, Spring Data, Hibernate, Flyway, Liquibase, caches,
+  scheduled tasks, and dev services.
 - Diagnostics and security panels for traces, logs, HTTP exchanges, local probes, architecture checks, GraalVM readiness,
   dependency vulnerabilities, Spring Security, and security advisors.
 - Developer tooling dashboards for Spring DevTools, GitHub, Copilot, and Claude Code local activity.

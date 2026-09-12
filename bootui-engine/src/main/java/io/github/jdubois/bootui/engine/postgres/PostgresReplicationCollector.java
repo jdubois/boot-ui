@@ -18,8 +18,7 @@ final class PostgresReplicationCollector implements PostgresCollector {
 
     private static final String RECOVERY_SQL = "select pg_is_in_recovery() as in_recovery";
 
-    private static final String REPLICAS_SQL =
-            """
+    private static final String REPLICAS_SQL = """
             select application_name, client_addr::text as client_addr, state, sync_state,
                    pg_wal_lsn_diff(pg_current_wal_lsn(), sent_lsn) as sent_lag,
                    pg_wal_lsn_diff(pg_current_wal_lsn(), flush_lsn) as flush_lag,
@@ -29,8 +28,7 @@ final class PostgresReplicationCollector implements PostgresCollector {
             limit ?
             """;
 
-    private static final String SLOTS_SQL =
-            """
+    private static final String SLOTS_SQL = """
             select (count(*))::int as slots,
                    (count(*) filter (where not active))::int as inactive_slots
             from pg_replication_slots
@@ -53,7 +51,8 @@ final class PostgresReplicationCollector implements PostgresCollector {
         if (!recovery.available()) {
             return failed(recovery.reason());
         }
-        boolean inRecovery = !recovery.empty() && Boolean.TRUE.equals(recovery.rows().get(0));
+        boolean inRecovery =
+                !recovery.empty() && Boolean.TRUE.equals(recovery.rows().get(0));
 
         List<PostgresReplicaDto> replicas = List.of();
         String limitation = null;
@@ -122,8 +121,8 @@ final class PostgresReplicationCollector implements PostgresCollector {
     }
 
     private Checkpoints readCheckpoints(PostgresReadContext context) {
-        PostgresRows<Checkpoints> rows = PostgresQuery.readOne(
-                context, "Checkpoint statistics", checkpointSql(context), resultSet -> {
+        PostgresRows<Checkpoints> rows =
+                PostgresQuery.readOne(context, "Checkpoint statistics", checkpointSql(context), resultSet -> {
                     Double writeMillis = PostgresQuery.doubleOrNull(resultSet, "write_time");
                     return new Checkpoints(
                             PostgresQuery.longOrNull(resultSet, "checkpoints_timed"),

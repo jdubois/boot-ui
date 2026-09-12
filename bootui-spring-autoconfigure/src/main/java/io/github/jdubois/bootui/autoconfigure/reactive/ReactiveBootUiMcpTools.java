@@ -212,9 +212,7 @@ public class ReactiveBootUiMcpTools {
         }
         if (postgresqlBean != null) {
             registry.add(tool(
-                    "postgresql_read",
-                    McpToolDescriptions.spring("postgresql_read"),
-                    args -> postgresqlBean.read()));
+                    "postgresql_read", McpToolDescriptions.spring("postgresql_read"), args -> postgresqlBean.read()));
             registry.add(tool(
                     "get_postgresql_report",
                     McpToolDescriptions.spring("get_postgresql_report"),

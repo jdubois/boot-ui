@@ -14,8 +14,7 @@ import io.github.jdubois.bootui.core.dto.PostgresVitalSignsDto;
  */
 final class PostgresVitalSignsCollector implements PostgresCollector {
 
-    private static final String DATABASE_SQL =
-            """
+    private static final String DATABASE_SQL = """
             select current_database() as database_name,
                    pg_database_size(current_database()) as database_size,
                    d.xact_commit as xact_commit,
@@ -34,8 +33,7 @@ final class PostgresVitalSignsCollector implements PostgresCollector {
             where d.datname = current_database()
             """;
 
-    private static final String ACTIVITY_SQL =
-            """
+    private static final String ACTIVITY_SQL = """
             select (count(*))::int as sessions,
                    (count(*) filter (where state = 'active'))::int as active_sessions,
                    (count(*) filter (where state like 'idle in transaction%'))::int as idle_in_transaction,
@@ -57,8 +55,11 @@ final class PostgresVitalSignsCollector implements PostgresCollector {
 
     @Override
     public PostgresSectionDto collect(PostgresReadContext context, PostgresDatabaseData data) {
-        PostgresRows<DatabaseCounters> counters =
-                PostgresQuery.readOne(context, "Database statistics", DATABASE_SQL, resultSet -> new DatabaseCounters(
+        PostgresRows<DatabaseCounters> counters = PostgresQuery.readOne(
+                context,
+                "Database statistics",
+                DATABASE_SQL,
+                resultSet -> new DatabaseCounters(
                         resultSet.getString("database_name"),
                         PostgresQuery.longOrNull(resultSet, "database_size"),
                         PostgresQuery.longOrNull(resultSet, "xact_commit"),
@@ -81,8 +82,11 @@ final class PostgresVitalSignsCollector implements PostgresCollector {
         }
         DatabaseCounters row = counters.rows().get(0);
 
-        PostgresRows<SessionCounters> sessions =
-                PostgresQuery.readOne(context, "Session activity", ACTIVITY_SQL, resultSet -> new SessionCounters(
+        PostgresRows<SessionCounters> sessions = PostgresQuery.readOne(
+                context,
+                "Session activity",
+                ACTIVITY_SQL,
+                resultSet -> new SessionCounters(
                         PostgresQuery.intOrNull(resultSet, "sessions"),
                         PostgresQuery.intOrNull(resultSet, "active_sessions"),
                         PostgresQuery.intOrNull(resultSet, "idle_in_transaction"),

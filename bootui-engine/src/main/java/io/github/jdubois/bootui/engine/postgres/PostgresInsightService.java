@@ -179,11 +179,12 @@ public final class PostgresInsightService {
         String status = anyError && databases.stream().allMatch(database -> "ERROR".equals(database.status()))
                 ? "ERROR"
                 : (anyError || anyPartial || truncated ? "PARTIAL" : "READ");
-        String message = switch (status) {
-            case "ERROR" -> "No PostgreSQL datasource could be read.";
-            case "PARTIAL" -> "Some subsystems could not be read; see the section status and diagnostics.";
-            default -> null;
-        };
+        String message =
+                switch (status) {
+                    case "ERROR" -> "No PostgreSQL datasource could be read.";
+                    case "PARTIAL" -> "Some subsystems could not be read; see the section status and diagnostics.";
+                    default -> null;
+                };
         return report(status, message, clock.millis(), databases, findings, diagnostics, truncated);
     }
 
@@ -209,7 +210,8 @@ public final class PostgresInsightService {
         }
         try (Connection connection = dataSource.dataSource().getConnection()) {
             DatabaseMetaData metaData = connection.getMetaData();
-            Dialect dialect = Dialect.detect(metaData.getDatabaseProductName(), metaData.getDatabaseProductVersion(), metaData.getURL());
+            Dialect dialect = Dialect.detect(
+                    metaData.getDatabaseProductName(), metaData.getDatabaseProductVersion(), metaData.getURL());
             if (dialect != Dialect.POSTGRESQL) {
                 diagnostics.add(new PostgresDiagnosticDto(
                         dataSource.name(),
@@ -217,8 +219,8 @@ public final class PostgresInsightService {
                         "Skipped: this datasource is " + dialect.label() + ", not PostgreSQL."));
                 return null;
             }
-            DatabaseVersion version = DatabaseVersion.of(
-                    safeMajor(metaData), safeMinor(metaData), safeProductVersion(metaData));
+            DatabaseVersion version =
+                    DatabaseVersion.of(safeMajor(metaData), safeMinor(metaData), safeProductVersion(metaData));
             return readDatabase(dataSource.name(), connection, version, budget, diagnostics);
         } catch (SQLException | RuntimeException ex) {
             String reason = CredentialRedaction.redact(
@@ -292,7 +294,14 @@ public final class PostgresInsightService {
                     ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage());
             diagnostics.add(new PostgresDiagnosticDto(name, "ERROR", reason));
         } finally {
-            restore(connection, originalAutoCommit, autoCommitChanged, originalReadOnly, readOnlyChanged, name, diagnostics);
+            restore(
+                    connection,
+                    originalAutoCommit,
+                    autoCommitChanged,
+                    originalReadOnly,
+                    readOnlyChanged,
+                    name,
+                    diagnostics);
         }
 
         List<PostgresFindingDto> findings = evaluate(name, data);
@@ -385,7 +394,8 @@ public final class PostgresInsightService {
                 "set transaction read only",
                 "set local statement_timeout = '" + limits.statementTimeout().toMillis() + "ms'",
                 "set local lock_timeout = '" + limits.lockTimeout().toMillis() + "ms'",
-                "set local idle_in_transaction_session_timeout = '" + limits.readBudget().toMillis() + "ms'");
+                "set local idle_in_transaction_session_timeout = '"
+                        + limits.readBudget().toMillis() + "ms'");
         for (String pin : pins) {
             try (Statement statement = connection.createStatement()) {
                 statement.execute(pin);
@@ -487,12 +497,16 @@ public final class PostgresInsightService {
             add(
                     metrics,
                     "Database size",
-                    vitals.databaseSizeBytes() == null ? null : vitals.databaseSizeBytes().doubleValue(),
+                    vitals.databaseSizeBytes() == null
+                            ? null
+                            : vitals.databaseSizeBytes().doubleValue(),
                     PostgresFormat.bytes(vitals.databaseSizeBytes()));
             add(
                     metrics,
                     "Transaction id age",
-                    vitals.transactionIdAge() == null ? null : vitals.transactionIdAge().doubleValue(),
+                    vitals.transactionIdAge() == null
+                            ? null
+                            : vitals.transactionIdAge().doubleValue(),
                     PostgresFormat.count(vitals.transactionIdAge()));
         }
         long deadTuples = 0;
@@ -523,11 +537,10 @@ public final class PostgresInsightService {
             List<PostgresFindingDto> findings,
             List<PostgresDiagnosticDto> diagnostics,
             boolean truncated) {
-        List<PostgresSeverityCountDto> severityCounts = SeverityOrder.counts(findings, PostgresFindingDto::severity)
-                .entrySet()
-                .stream()
-                .map(entry -> new PostgresSeverityCountDto(entry.getKey(), entry.getValue()))
-                .toList();
+        List<PostgresSeverityCountDto> severityCounts =
+                SeverityOrder.counts(findings, PostgresFindingDto::severity).entrySet().stream()
+                        .map(entry -> new PostgresSeverityCountDto(entry.getKey(), entry.getValue()))
+                        .toList();
         return new PostgresInsightReport(
                 true,
                 DISCLAIMER,
@@ -544,14 +557,16 @@ public final class PostgresInsightService {
                 evidenceOf(status, databases, truncated));
     }
 
-    private static AdvisorEvidenceDto evidenceOf(String status, List<PostgresDatabaseDto> databases, boolean truncated) {
+    private static AdvisorEvidenceDto evidenceOf(
+            String status, List<PostgresDatabaseDto> databases, boolean truncated) {
         if (!"READ".equals(status) && !"PARTIAL".equals(status)) {
             return new AdvisorEvidenceDto(
                     false,
                     false,
-                    List.of("NOT_READ".equals(status)
-                            ? "The database has not been read yet."
-                            : "No PostgreSQL statistics were read."));
+                    List.of(
+                            "NOT_READ".equals(status)
+                                    ? "The database has not been read yet."
+                                    : "No PostgreSQL statistics were read."));
         }
         List<String> limitations = new ArrayList<>();
         boolean complete = !truncated;

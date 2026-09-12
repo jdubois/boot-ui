@@ -30,9 +30,7 @@ final class PostgresFormat {
             size /= 1024;
             unit++;
         }
-        return unit == 0
-                ? value + " B"
-                : String.format(Locale.ROOT, "%.1f %s", size, units[unit]);
+        return unit == 0 ? value + " B" : String.format(Locale.ROOT, "%.1f %s", size, units[unit]);
     }
 
     static String count(Long value) {

@@ -17,9 +17,8 @@ final class PostgresStatementCollector implements PostgresCollector {
     private static final String EXTENSION_SQL =
             "select (count(*))::int as installed from pg_extension where extname = 'pg_stat_statements'";
 
-    static final String INSTALL_HINT =
-            "Install the extension (shared_preload_libraries = 'pg_stat_statements', then "
-                    + "CREATE EXTENSION pg_stat_statements;) to rank statements by execution time.";
+    static final String INSTALL_HINT = "Install the extension (shared_preload_libraries = 'pg_stat_statements', then "
+            + "CREATE EXTENSION pg_stat_statements;) to rank statements by execution time.";
 
     @Override
     public String id() {
