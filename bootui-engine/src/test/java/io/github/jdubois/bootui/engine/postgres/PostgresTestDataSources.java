@@ -333,7 +333,7 @@ final class PostgresTestDataSources {
                             0d,
                             "restricted_sessions",
                             0));
-                case EXTENSION -> List.of(row("installed", 1, "exec_naming", 1));
+                case EXTENSION -> List.of(row("relation", "pg_stat_statements", "exec_naming", 1));
                 case STATEMENTS, INDEXES, TABLES, VACUUM, REPLICAS -> List.of();
                 case RECOVERY -> List.of(row("in_recovery", false, "has_checkpointer", false));
                 case CHECKPOINTS ->
@@ -371,7 +371,7 @@ final class PostgresTestDataSources {
             if (sql.contains("from pg_stat_activity")) {
                 return ACTIVITY;
             }
-            if (sql.contains("from pg_extension")) {
+            if (sql.contains("pg_extension")) {
                 return EXTENSION;
             }
             if (sql.contains("from pg_stat_statements")) {

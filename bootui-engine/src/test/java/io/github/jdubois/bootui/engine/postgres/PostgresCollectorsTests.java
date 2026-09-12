@@ -15,11 +15,23 @@ class PostgresCollectorsTests {
 
     @Test
     void statementCollectorPicksTimingColumnsFromTheExtensionNotTheServer() {
-        assertThat(PostgresStatementCollector.sql(false))
+        assertThat(PostgresStatementCollector.sql("pg_stat_statements", false))
                 .contains("s.total_time as total_time", "s.mean_time as mean_time")
                 .doesNotContain("total_exec_time");
-        assertThat(PostgresStatementCollector.sql(true))
+        assertThat(PostgresStatementCollector.sql("pg_stat_statements", true))
                 .contains("s.total_exec_time as total_time", "s.mean_exec_time as mean_time");
+    }
+
+    @Test
+    void statementCollectorUsesTheCatalogResolvedViewAndRefusesAnUnexpectedName() {
+        assertThat(PostgresStatementCollector.sql("monitoring.pg_stat_statements", true))
+                .contains("from monitoring.pg_stat_statements s");
+        assertThat(PostgresStatementCollector.sql("\"My Schema\".pg_stat_statements", true))
+                .contains("from \"My Schema\".pg_stat_statements s");
+        assertThat(PostgresStatementCollector.sql("evil; drop table orders --", true))
+                .contains("from pg_stat_statements s")
+                .doesNotContain("drop table");
+        assertThat(PostgresStatementCollector.sql(null, true)).contains("from pg_stat_statements s");
     }
 
     @Test
@@ -66,7 +78,7 @@ class PostgresCollectorsTests {
     @Test
     void missingPgStatStatementsExtensionIsSkippedWithActionableHint() throws SQLException {
         var dataSource = PostgresTestDataSources.postgres()
-                .rows(PostgresTestDataSources.QueryKind.EXTENSION, PostgresTestDataSources.row("installed", 0));
+                .rows(PostgresTestDataSources.QueryKind.EXTENSION, PostgresTestDataSources.row("relation", null));
         PostgresDatabaseData data = new PostgresDatabaseData("primary");
 
         PostgresSectionDto section = new PostgresStatementCollector()

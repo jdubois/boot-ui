@@ -145,9 +145,12 @@ public final class PostgresInsightService {
         PostgresReadBudget budget = PostgresReadBudget.of(limits.readBudget());
         List<PostgresDatabaseDto> databases = new ArrayList<>();
         List<PostgresFindingDto> findings = new ArrayList<>();
+        // Datasources the read never reached. They are neither successes nor failures, but leaving them out
+        // of the status would let an exhausted budget produce a clean-looking report over a partial read.
+        List<String> unread = new ArrayList<>();
         int postgresCandidates = 0;
         for (NamedDataSource dataSource : discovery.dataSources()) {
-            DatabaseRead read = readDataSource(dataSource, budget, diagnostics);
+            DatabaseRead read = readDataSource(dataSource, budget, diagnostics, unread);
             if (read == null) {
                 continue;
             }
@@ -157,18 +160,18 @@ public final class PostgresInsightService {
         }
 
         if (postgresCandidates == 0) {
-            String message = discovery.failures().isEmpty()
-                    ? "No PostgreSQL datasource was found. This panel reads PostgreSQL's own statistics views, so "
-                            + "it has nothing to report for other database products."
-                    : "No PostgreSQL datasource could be read.";
+            boolean failed = !discovery.failures().isEmpty() || !unread.isEmpty();
+            String message;
+            if (!unread.isEmpty()) {
+                message = "The read budget ran out before any datasource was read, so nothing was inspected.";
+            } else if (discovery.failures().isEmpty()) {
+                message = "No PostgreSQL datasource was found. This panel reads PostgreSQL's own statistics views, "
+                        + "so it has nothing to report for other database products.";
+            } else {
+                message = "No PostgreSQL datasource could be read.";
+            }
             return report(
-                    discovery.failures().isEmpty() ? "DISABLED" : "ERROR",
-                    message,
-                    clock.millis(),
-                    List.of(),
-                    List.of(),
-                    diagnostics,
-                    false);
+                    failed ? "ERROR" : "DISABLED", message, clock.millis(), List.of(), List.of(), diagnostics, false);
         }
 
         findings.sort(IMPORTANCE_ORDER);
@@ -177,14 +180,17 @@ public final class PostgresInsightService {
         boolean anyPartial = databases.stream().anyMatch(database -> "PARTIAL".equals(database.status()));
         String status = anyError && databases.stream().allMatch(database -> "ERROR".equals(database.status()))
                 ? "ERROR"
-                : (anyError || anyPartial || truncated ? "PARTIAL" : "READ");
+                : (anyError || anyPartial || truncated || !unread.isEmpty() ? "PARTIAL" : "READ");
         String message =
                 switch (status) {
                     case "ERROR" -> "No PostgreSQL datasource could be read.";
-                    case "PARTIAL" -> "Some subsystems could not be read; see the section status and diagnostics.";
+                    case "PARTIAL" ->
+                        unread.isEmpty()
+                                ? "Some subsystems could not be read; see the section status and diagnostics."
+                                : "The read budget ran out before every datasource was read; see the diagnostics.";
                     default -> null;
                 };
-        return report(status, message, clock.millis(), databases, findings, diagnostics, truncated);
+        return report(status, message, clock.millis(), databases, findings, diagnostics, truncated, unread);
     }
 
     private DatabaseAdvisorDataSourceDiscovery discover() {
@@ -201,10 +207,14 @@ public final class PostgresInsightService {
 
     /** Returns {@code null} when the datasource is not PostgreSQL, which is not a failure. */
     private DatabaseRead readDataSource(
-            NamedDataSource dataSource, PostgresReadBudget budget, List<PostgresDiagnosticDto> diagnostics) {
+            NamedDataSource dataSource,
+            PostgresReadBudget budget,
+            List<PostgresDiagnosticDto> diagnostics,
+            List<String> unread) {
         if (budget.exhausted()) {
-            diagnostics.add(new PostgresDiagnosticDto(
-                    dataSource.name(), "WARNING", "The read budget ran out before this datasource was read."));
+            String reason = "The read budget ran out before this datasource was read.";
+            diagnostics.add(new PostgresDiagnosticDto(dataSource.name(), "WARNING", reason));
+            unread.add(dataSource.name() + ": " + reason);
             return null;
         }
         try (Connection connection = dataSource.dataSource().getConnection()) {
@@ -519,6 +529,11 @@ public final class PostgresInsightService {
                             : vitals.transactionIdAge().doubleValue(),
                     PostgresFormat.count(vitals.transactionIdAge()));
         }
+        // Only the largest relations are retained, so this is explicitly a subset total rather than a
+        // database-wide one. A truncated read is skipped outright: the membership of the list would differ
+        // between reads, and comparing two different sets of tables would manufacture a movement.
+        PostgresSectionDto tables = data.section(PostgresSectionIds.TABLES);
+        boolean comparable = tables != null && "AVAILABLE".equals(tables.status()) && !tables.truncated();
         long deadTuples = 0;
         boolean anyTable = false;
         for (PostgresTableDto table : data.tables()) {
@@ -527,8 +542,8 @@ public final class PostgresInsightService {
                 anyTable = true;
             }
         }
-        if (anyTable) {
-            add(metrics, "Dead tuples", (double) deadTuples, Long.toString(deadTuples));
+        if (comparable && anyTable) {
+            add(metrics, "Dead tuples in the largest relations", (double) deadTuples, PostgresFormat.count(deadTuples));
         }
         return List.copyOf(metrics);
     }
@@ -547,6 +562,18 @@ public final class PostgresInsightService {
             List<PostgresFindingDto> findings,
             List<PostgresDiagnosticDto> diagnostics,
             boolean truncated) {
+        return report(status, message, readAt, databases, findings, diagnostics, truncated, List.of());
+    }
+
+    private PostgresInsightReport report(
+            String status,
+            String message,
+            Long readAt,
+            List<PostgresDatabaseDto> databases,
+            List<PostgresFindingDto> findings,
+            List<PostgresDiagnosticDto> diagnostics,
+            boolean truncated,
+            List<String> unread) {
         List<PostgresSeverityCountDto> severityCounts =
                 SeverityOrder.counts(findings, PostgresFindingDto::severity).entrySet().stream()
                         .map(entry -> new PostgresSeverityCountDto(entry.getKey(), entry.getValue()))
@@ -564,11 +591,11 @@ public final class PostgresInsightService {
                 findings,
                 severityCounts,
                 diagnostics,
-                evidenceOf(status, databases, truncated));
+                evidenceOf(status, databases, truncated, unread));
     }
 
     private static AdvisorEvidenceDto evidenceOf(
-            String status, List<PostgresDatabaseDto> databases, boolean truncated) {
+            String status, List<PostgresDatabaseDto> databases, boolean truncated, List<String> unread) {
         if (!"READ".equals(status) && !"PARTIAL".equals(status)) {
             return new AdvisorEvidenceDto(
                     false,
@@ -578,8 +605,8 @@ public final class PostgresInsightService {
                                     ? "The database has not been read yet."
                                     : "No PostgreSQL statistics were read."));
         }
-        List<String> limitations = new ArrayList<>();
-        boolean complete = !truncated;
+        List<String> limitations = new ArrayList<>(unread);
+        boolean complete = !truncated && unread.isEmpty();
         for (PostgresDatabaseDto database : databases) {
             for (PostgresSectionDto section : database.sections()) {
                 if (!"AVAILABLE".equals(section.status())) {

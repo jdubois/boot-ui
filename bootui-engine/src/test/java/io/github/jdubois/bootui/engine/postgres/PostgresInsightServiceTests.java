@@ -122,7 +122,7 @@ class PostgresInsightServiceTests {
     @Test
     void statementRulesAreNotEvaluatedWhenTheirSectionIsSkipped() {
         var dataSource = PostgresTestDataSources.postgres()
-                .rows(PostgresTestDataSources.QueryKind.EXTENSION, PostgresTestDataSources.row("installed", 0))
+                .rows(PostgresTestDataSources.QueryKind.EXTENSION, PostgresTestDataSources.row("relation", null))
                 .rows(
                         PostgresTestDataSources.QueryKind.STATEMENTS,
                         PostgresTestDataSources.row(
@@ -182,6 +182,36 @@ class PostgresInsightServiceTests {
         // The pins that follow the refused one still run, which is only possible because the failed pin was
         // rolled back to its own savepoint: an aborted PostgreSQL transaction rejects every later statement.
         assertThat(dataSource.executedSql()).contains("set local lock_timeout = '2000ms'");
+    }
+
+    @Test
+    void anExhaustedReadBudgetIsReportedInsteadOfLookingLikeACleanRead() {
+        PostgresInsightLimits noBudget = new PostgresInsightLimits(
+                25,
+                50,
+                25,
+                25,
+                10,
+                40,
+                400,
+                java.time.Duration.ZERO,
+                java.time.Duration.ofSeconds(5),
+                java.time.Duration.ofSeconds(2));
+        PostgresInsightReport report = PostgresInsightService.using(
+                        () -> discovery("primary", PostgresTestDataSources.postgres()),
+                        exposure(ValueExposure.MASKED, true),
+                        FIXED_CLOCK,
+                        noBudget)
+                .read();
+
+        assertThat(report.status()).isEqualTo("ERROR");
+        assertThat(report.message()).contains("read budget ran out");
+        assertThat(report.databases()).isEmpty();
+        assertThat(report.evidence().usable()).isFalse();
+        assertThat(report.diagnostics()).singleElement().satisfies(diagnostic -> {
+            assertThat(diagnostic.source()).isEqualTo("primary");
+            assertThat(diagnostic.level()).isEqualTo("WARNING");
+        });
     }
 
     @Test

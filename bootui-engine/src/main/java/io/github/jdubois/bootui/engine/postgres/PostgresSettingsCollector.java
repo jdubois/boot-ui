@@ -60,7 +60,8 @@ final class PostgresSettingsCollector implements PostgresCollector {
 
     private static Map<String, String> notableSettings() {
         Map<String, String> settings = new LinkedHashMap<>();
-        settings.put("autovacuum", "Autovacuum off means dead tuples and transaction ids are never reclaimed.");
+        settings.put(
+                "autovacuum", "Off means routine vacuum and analyze never run; anti-wraparound vacuum still does.");
         settings.put("autovacuum_analyze_scale_factor", "Share of a table that must change before ANALYZE runs.");
         settings.put("autovacuum_analyze_threshold", "Fixed row count added to the ANALYZE scale factor.");
         settings.put("autovacuum_freeze_max_age", "The transaction-id age that forces an anti-wraparound vacuum.");

@@ -56,7 +56,8 @@ final class PostgresRuleRegistry {
                     "Low buffer cache hit ratio",
                     "PERFORMANCE",
                     "MEDIUM",
-                    "Most reads are being served from disk rather than from PostgreSQL's own buffer cache.",
+                    "An unusually large share of reads had to go to disk rather than being served from PostgreSQL's "
+                            + "own buffer cache.",
                     "Check shared_buffers against the working set, and confirm the host has enough free memory "
                             + "for the operating system page cache before changing anything.",
                     STATS_CAVEAT + " A database that was recently restarted, or one whose working set is "
@@ -374,14 +375,16 @@ final class PostgresRuleRegistry {
             rule(
                     "PG-TABLE-001",
                     PostgresSectionIds.TABLES,
-                    "Large relations answered mostly by sequential scans",
+                    "Large relations scanned mostly sequentially",
                     "PERFORMANCE",
                     "MEDIUM",
-                    "A relation larger than " + PostgresFormat.bytes(SEQUENTIAL_SCAN_MIN_BYTES)
-                            + " is being read almost entirely by sequential scans.",
+                    "Most scans started on a relation larger than " + PostgresFormat.bytes(SEQUENTIAL_SCAN_MIN_BYTES)
+                            + " were sequential rather than index scans.",
                     "Check the predicates the application uses against this table and index the selective ones. "
                             + "Confirm with EXPLAIN before adding an index.",
-                    "Sequential scanning is correct for a small or fully cached table, and for a query that "
+                    "The ratio counts scan invocations (seq_scan against idx_scan), not rows or blocks read, so "
+                            + "one enormous sequential scan and one trivial one count the same. Sequential "
+                            + "scanning is also correct for a small or fully cached table, and for a query that "
                             + "genuinely reads most rows; the counters cannot tell the two apart.",
                     "https://www.postgresql.org/docs/current/indexes.html",
                     data -> {
@@ -403,15 +406,16 @@ final class PostgresRuleRegistry {
                             if (samples.size() < MAX_SAMPLES) {
                                 samples.add(PostgresFormat.relation(table.schema(), table.table()) + " ("
                                         + PostgresFormat.bytes(table.totalSizeBytes()) + ", "
-                                        + PostgresFormat.percent(table.sequentialScanRatio()) + " sequential over "
-                                        + table.sequentialScans() + " scans)");
+                                        + PostgresFormat.percent(table.sequentialScanRatio())
+                                        + " of scan invocations sequential, over " + table.sequentialScans()
+                                        + " sequential scans)");
                             }
                         }
                         if (matched == 0) {
                             return null;
                         }
                         return PostgresRuleMatch.of(
-                                matched + " large relation(s) are read almost entirely by sequential scans.", samples);
+                                matched + " large relation(s) are scanned mostly sequentially.", samples);
                     }),
             rule(
                     "PG-VACUUM-001",
@@ -522,11 +526,16 @@ final class PostgresRuleRegistry {
                     "Inactive replication slot",
                     "AVAILABILITY",
                     "HIGH",
-                    "A replication slot exists with no client attached. PostgreSQL keeps every WAL segment the "
-                            + "slot has not consumed, so the disk fills and the cleanup horizon stops moving.",
+                    "A replication slot exists with no client attached. PostgreSQL retains the WAL an inactive "
+                            + "slot has not consumed, so the disk can fill; a logical slot additionally holds the "
+                            + "catalog cleanup horizon back.",
                     "Reattach the consumer or drop the slot. An abandoned slot is one of the few local "
                             + "misconfigurations that can take a server down outright.",
-                    "A slot can be legitimately inactive for a moment while its consumer reconnects.",
+                    "A slot can be legitimately inactive for a moment while its consumer reconnects. This check "
+                            + "reads only the active flag: it does not distinguish physical from logical slots, "
+                            + "and a slot whose WAL was already dropped under max_slot_wal_keep_size no longer "
+                            + "retains anything. Check pg_replication_slots.wal_status and slot_type before "
+                            + "concluding how much is at risk.",
                     "https://www.postgresql.org/docs/current/warm-standby.html",
                     data -> {
                         PostgresReplicationDto replication = data.replication();
@@ -544,11 +553,12 @@ final class PostgresRuleRegistry {
                     "Autovacuum is disabled",
                     "MAINTENANCE",
                     "HIGH",
-                    "Autovacuum is off cluster-wide, so dead tuples are never reclaimed and transaction ids are "
-                            + "never frozen automatically.",
+                    "Autovacuum is off cluster-wide, so routine vacuum and analyze never run: dead tuples are "
+                            + "not reclaimed and planner statistics go stale.",
                     "Turn autovacuum back on. Tuning its thresholds is almost always better than disabling it.",
                     "A cluster that is genuinely maintained by an external scheduled VACUUM is not broken, only "
-                            + "unusual.",
+                            + "unusual. PostgreSQL still starts anti-wraparound vacuum workers even with autovacuum "
+                            + "off, so this is not an imminent wraparound, only the loss of routine maintenance.",
                     "https://www.postgresql.org/docs/current/routine-vacuuming.html",
                     data -> {
                         if (!"off".equalsIgnoreCase(String.valueOf(data.setting("autovacuum")))) {

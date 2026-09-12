@@ -13,13 +13,24 @@ import io.github.jdubois.bootui.core.dto.PostgresStatementDto;
  * the server version: a PostgreSQL 13+ server that was upgraded without {@code ALTER EXTENSION ... UPDATE}
  * still exposes the old names. The column names are therefore read from the catalog rather than inferred
  * from the server version.</p>
+ *
+ * <p>The view is also located through the catalog rather than through {@code search_path}. An extension
+ * installed into a dedicated schema — a common convention for monitoring extensions — is reported as
+ * installed by {@code pg_extension} while an unqualified {@code from pg_stat_statements} fails with
+ * "relation does not exist". Rendering the view's {@code oid} as {@code regclass} yields the name
+ * PostgreSQL itself would use, schema-qualified and quoted only when {@code search_path} makes that
+ * necessary.</p>
  */
 final class PostgresStatementCollector implements PostgresCollector {
 
     private static final String EXTENSION_SQL = """
-            select (select count(*) from pg_extension where extname = 'pg_stat_statements')::int as installed,
+            select (select c.oid::regclass::text
+                      from pg_class c
+                      join pg_extension e on e.extname = 'pg_stat_statements' and e.extnamespace = c.relnamespace
+                     where c.relname = 'pg_stat_statements') as relation,
                    (select count(*) from pg_attribute a
                       join pg_class c on c.oid = a.attrelid and c.relname = 'pg_stat_statements'
+                      join pg_extension e on e.extname = 'pg_stat_statements' and e.extnamespace = c.relnamespace
                      where a.attname = 'total_exec_time' and not a.attisdropped)::int as exec_naming
             """;
 
@@ -42,19 +53,19 @@ final class PostgresStatementCollector implements PostgresCollector {
                 context,
                 "pg_stat_statements availability",
                 EXTENSION_SQL,
-                resultSet -> new Extension(resultSet.getInt("installed") > 0, resultSet.getInt("exec_naming") > 0));
+                resultSet -> new Extension(resultSet.getString("relation"), resultSet.getInt("exec_naming") > 0));
         if (!extension.available()) {
             return failed(extension.reason());
         }
-        if (extension.empty() || !extension.rows().get(0).installed()) {
+        if (extension.empty() || extension.rows().get(0).relation() == null) {
             return skipped("The pg_stat_statements extension is not installed on this server.", INSTALL_HINT);
         }
-        boolean execNaming = extension.rows().get(0).execNaming();
+        Extension installed = extension.rows().get(0);
 
         PostgresRows<PostgresStatementDto> rows = PostgresQuery.readList(
                 context,
                 "Statement statistics",
-                sql(execNaming),
+                sql(installed.relation(), installed.execNaming()),
                 context.limits().maxStatements(),
                 resultSet -> {
                     Long hits = PostgresQuery.longOrNull(resultSet, "shared_blks_hit");
@@ -87,19 +98,32 @@ final class PostgresStatementCollector implements PostgresCollector {
         return total <= 0 ? null : hits.doubleValue() / total;
     }
 
+    /**
+     * The catalog-resolved relation name, accepted only when it looks like the identifier PostgreSQL itself
+     * renders. The value comes from the inspected server's own {@code pg_class}, never from a user, but this
+     * query is assembled as text, so an unexpected shape falls back to the bare name rather than being
+     * interpolated.
+     */
+    private static final java.util.regex.Pattern RELATION_NAME = java.util.regex.Pattern.compile(
+            "(?:[a-z_][a-z0-9_$]*|\"(?:[^\"]|\"\")+\")" + "(?:\\.(?:[a-z_][a-z0-9_$]*|\"(?:[^\"]|\"\")+\"))?");
+
     /** pg_stat_statements 1.8 renamed the timing columns; older extension versions only have {@code *_time}. */
-    static String sql(boolean execNaming) {
+    static String sql(String relation, boolean execNaming) {
+        String view = relation != null && RELATION_NAME.matcher(relation).matches() ? relation : "pg_stat_statements";
         String total = execNaming ? "total_exec_time" : "total_time";
         String mean = execNaming ? "mean_exec_time" : "mean_time";
         String max = execNaming ? "max_exec_time" : "max_time";
         return "select s.queryid::text as query_id, s.query as query, s.calls as calls, s." + total
                 + " as total_time, s." + mean + " as mean_time, s." + max + " as max_time, s.rows as rows_returned,"
                 + " s.shared_blks_hit as shared_blks_hit, s.shared_blks_read as shared_blks_read"
-                + " from pg_stat_statements s"
+                + " from " + view + " s"
                 + " join pg_database d on d.oid = s.dbid and d.datname = current_database()"
                 + " order by s." + total + " desc nulls last limit ?";
     }
 
-    /** Whether the extension is installed, and whether it is new enough to use the {@code *_exec_time} names. */
-    private record Extension(boolean installed, boolean execNaming) {}
+    /**
+     * The view's catalog-resolved name, {@code null} when the extension is not installed, and whether it is
+     * new enough to use the {@code *_exec_time} column names.
+     */
+    private record Extension(String relation, boolean execNaming) {}
 }

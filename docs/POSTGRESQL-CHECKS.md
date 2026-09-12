@@ -21,7 +21,8 @@ cumulative statistics and current catalog state; they do not prove root cause or
   `pg_stat_statements` timing columns follow the extension version, and `pg_stat_checkpointer` may be absent on a server
   new enough to have it only in theory.
 - The cooperative read budget is 15 seconds. It is checked between collectors; JDBC connection acquisition and driver
-  work may still take as long as the driver/server allow.
+  work may still take as long as the driver/server allow. A datasource the budget never reached is reported as an
+  explicit limitation, not silently omitted, so an exhausted budget cannot produce a clean-looking report.
 - Row and text bounds are fixed: 25 statements, 50 indexes, 25 largest relations, 25 autovacuum rows, 10 replicas,
   40 notable settings, and 400 characters per statement text. List reads fetch one row past the limit so truncation is
   visible instead of silently treated as complete.
@@ -40,7 +41,8 @@ cumulative statistics and current catalog state; they do not prove root cause or
   does not own. BootUI detects that case and reports the whole session breakdown as unknown rather than counting hidden
   backends as idle and clean; the section is then `AVAILABLE` with a reason explaining what is missing.
 - The statement-ranking section requires `pg_stat_statements` to be loaded in `shared_preload_libraries` and installed
-  with `CREATE EXTENSION pg_stat_statements;`.
+  with `CREATE EXTENSION pg_stat_statements;`. The view is located through `pg_extension`, so an extension installed
+  into a schema outside `search_path` is still read.
 - PostgreSQL statistics are cumulative since the last statistics reset and cover every client of the database, not only
   this application or this JVM.
 - Unused-index scan counts are per node. A primary can show zero scans for an index a replica still uses, and statistics
@@ -52,7 +54,8 @@ cumulative statistics and current catalog state; they do not prove root cause or
 ### PG-VITALS-001 — Low buffer cache hit ratio
 
 - **Severity:** MEDIUM
-- **What it measures:** `pg_stat_database.blks_hit` versus `blks_read` for the current database.
+- **What it measures:** `pg_stat_database.blks_hit` versus `blks_read` for the current database. Below the threshold
+  means an unusually large share of reads went to disk, not that most reads did.
 - **Threshold:** `LOW_CACHE_HIT_RATIO = 0.90`; findings appear below a 90% hit ratio, and only once the database has
   completed at least `MIN_COMPLETED_TRANSACTIONS = 1000` transactions.
 - **What to do:** Check `shared_buffers` against the working set, and confirm the host has enough free memory for the OS
@@ -182,16 +185,18 @@ cumulative statistics and current catalog state; they do not prove root cause or
 
 ## Tables
 
-### PG-TABLE-001 — Large relations answered mostly by sequential scans
+### PG-TABLE-001 — Large relations scanned mostly sequentially
 
 - **Severity:** MEDIUM
-- **What it measures:** relation size and sequential-scan share from `pg_stat_user_tables`.
+- **What it measures:** relation size and the share of scan invocations that were sequential (`seq_scan` against
+  `idx_scan`) from `pg_stat_user_tables`.
 - **Threshold:** `SEQUENTIAL_SCAN_MIN_BYTES = 52428800`, `SEQUENTIAL_SCAN_RATIO = 0.90`, and
   `SEQUENTIAL_SCAN_MIN_SCANS = 50`; findings appear for relations at least 50 MB where at least 90% of 50 or more scans
   are sequential.
 - **What to do:** Check the predicates the application uses against the table and index the selective ones. Confirm with
   `EXPLAIN` before adding an index.
-- **Caveat:** Sequential scanning is correct for small or fully cached tables and for queries that genuinely read most
+- **Caveat:** The ratio counts scan invocations, not rows or blocks read, so one enormous sequential scan and one
+  trivial one count the same. Sequential scanning is correct for small or fully cached tables and for queries that genuinely read most
   rows; the counters cannot tell those cases apart.
 - **Learn more:** <https://www.postgresql.org/docs/current/indexes.html>
 
@@ -203,6 +208,8 @@ cumulative statistics and current catalog state; they do not prove root cause or
 - **What it measures:** estimated dead tuples from `pg_stat_user_tables` versus the autovacuum threshold computed from
   the cluster-wide `autovacuum_vacuum_threshold` and `autovacuum_vacuum_scale_factor`.
 - **Threshold:** `DEAD_TUPLE_MIN_ROWS = 1000`; findings appear for vacuum-due relations with at least 1,000 dead tuples.
+  "Due" floors `autovacuum_vacuum_threshold + autovacuum_vacuum_scale_factor * live tuples` so that the integer
+  comparison matches PostgreSQL's own fractional one exactly.
 - **What to do:** Check whether autovacuum is keeping up; a long-running transaction or abandoned replication slot can
   hold the cleanup horizon back.
 - **Caveat:** Per-table `reloptions` overrides are not read, so "due" uses cluster-wide settings, and the threshold is
@@ -244,7 +251,10 @@ cumulative statistics and current catalog state; they do not prove root cause or
 - **What it measures:** inactive rows in `pg_replication_slots`.
 - **Threshold:** any inactive replication slot (`> 0`).
 - **What to do:** Reattach the consumer or drop the slot. An abandoned slot can fill disk and hold cleanup back.
-- **Caveat:** A slot can be legitimately inactive for a moment while its consumer reconnects.
+- **Caveat:** A slot can be legitimately inactive for a moment while its consumer reconnects. Only the active flag is
+  read: physical and logical slots are not distinguished, and a slot whose WAL was already dropped under
+  `max_slot_wal_keep_size` no longer retains anything. Check `pg_replication_slots.wal_status` and `slot_type` before
+  concluding how much is at risk.
 - **Learn more:** <https://www.postgresql.org/docs/current/warm-standby.html>
 
 ## Settings
@@ -256,6 +266,8 @@ cumulative statistics and current catalog state; they do not prove root cause or
 - **Threshold:** `autovacuum = off`.
 - **What to do:** Turn autovacuum back on. Tuning its thresholds is almost always better than disabling it.
 - **Caveat:** A cluster genuinely maintained by an external scheduled `VACUUM` is not broken, only unusual.
+  PostgreSQL still starts anti-wraparound vacuum workers with `autovacuum = off`, so this reports the loss of
+  routine maintenance, not an imminent wraparound.
 - **Learn more:** <https://www.postgresql.org/docs/current/routine-vacuuming.html>
 
 ### PG-SETTINGS-002 — Crash-safety setting disabled

@@ -74,6 +74,16 @@ class PostgresHelpersTests {
     }
 
     @Test
+    void vacuumThresholdFloorsSoTheComparisonMatchesPostgreSql() {
+        // PostgreSQL compares an integer dead count against the fractional threshold + scale_factor * tuples.
+        // 50 + 0.19992 * 5000 = 1049.6: 1,050 dead tuples are due, and rounding up to 1,050 would miss that.
+        assertThat(PostgresVacuumCollector.vacuumThreshold(5000L, 50d, 0.19992d))
+                .isEqualTo(1049L);
+        assertThat(PostgresVacuumCollector.vacuumThreshold(1000L, 50d, 0.2d)).isEqualTo(250L);
+        assertThat(PostgresVacuumCollector.vacuumThreshold(null, 50d, 0.2d)).isNull();
+    }
+
+    @Test
     void rowsDistinguishEmptyAvailableFromFailedAndCopyRows() {
         List<String> mutable = new java.util.ArrayList<>(List.of("one"));
         PostgresRows<String> rows = PostgresRows.available(mutable, true);

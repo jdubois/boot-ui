@@ -85,11 +85,18 @@ final class PostgresVacuumCollector implements PostgresCollector {
         return available(retained.size(), rows.truncated());
     }
 
+    /**
+     * PostgreSQL compares an integer dead-tuple count against the fractional expression
+     * {@code autovacuum_vacuum_threshold + autovacuum_vacuum_scale_factor * reltuples}. Flooring that
+     * expression keeps the integer comparison {@code dead > floor(t)} exactly equivalent to PostgreSQL's
+     * {@code dead > t}, which rounding would not: a threshold of 999.6 rounds to 1000 and would wrongly
+     * report 1,000 dead tuples as not yet due.
+     */
     static Long vacuumThreshold(Long liveTuples, double threshold, double scaleFactor) {
         if (liveTuples == null) {
             return null;
         }
-        return Math.round(threshold + scaleFactor * liveTuples);
+        return (long) Math.floor(threshold + scaleFactor * liveTuples);
     }
 
     static Double deadTupleRatio(Long liveTuples, Long deadTuples) {

@@ -85,6 +85,10 @@ const maxSeverityCount = computed(() => Math.max(1, ...severityCounts.value.map(
 
 const limitations = computed(() => report.value?.evidence?.limitations || [])
 
+const readFailed = computed(() => hasRead.value && report.value?.status === 'ERROR')
+
+const nothingAssessed = computed(() => hasRead.value && report.value?.evidence?.usable === false)
+
 const incompleteReadMessage = computed(() => {
   if (!hasRead.value) return null
   const reasons = []
@@ -99,7 +103,15 @@ const incompleteReadMessage = computed(() => {
   if (report.value?.truncated) {
     reasons.push('a read bound was reached, so some rows may be missing')
   }
-  if (reasons.length === 0) return null
+  if (reasons.length === 0) {
+    // A report can be incomplete without carrying a single database row — an exhausted read budget, or a
+    // discovery failure, leaves nothing to count. Reporting only per-database reasons would render that as
+    // a clean result.
+    if (report.value?.status === 'ERROR' || report.value?.status === 'PARTIAL') {
+      return report.value.message || 'The read did not complete; see the diagnostics below.'
+    }
+    return null
+  }
   return `${reasons.join('; ')}. These are reported below as diagnostics and are not counted as findings.`
 })
 
@@ -304,7 +316,13 @@ onMounted(async () => {
           <span
             v-if="report.message"
             class="badge"
-            :class="report.status === 'READ' ? 'text-bg-success' : 'text-bg-warning'"
+            :class="
+              report.status === 'READ'
+                ? 'text-bg-success'
+                : report.status === 'ERROR'
+                  ? 'text-bg-danger'
+                  : 'text-bg-warning'
+            "
             >{{ report.message }}</span
           >
           <span v-if="readTime()">Read at {{ readTime() }}</span>
@@ -314,9 +332,13 @@ onMounted(async () => {
           >
         </div>
 
-        <div v-if="incompleteReadMessage" class="alert alert-warning" role="status">
+        <div
+          v-if="incompleteReadMessage"
+          :class="readFailed ? 'alert alert-danger' : 'alert alert-warning'"
+          role="status"
+        >
           <i class="bi bi-exclamation-triangle me-1"></i>
-          <strong>Incomplete read.</strong>
+          <strong>{{ readFailed ? 'Read failed.' : 'Incomplete read.' }}</strong>
           {{ incompleteReadMessage }}
         </div>
 
@@ -330,7 +352,12 @@ onMounted(async () => {
         <div class="card mb-3">
           <div class="card-header"><h3 class="fs-6 fw-semibold mb-0">Findings by severity</h3></div>
           <div class="card-body">
-            <div v-if="findings.length === 0" class="text-center text-muted py-3">
+            <div v-if="findings.length === 0 && nothingAssessed" class="text-center text-muted py-3">
+              <i class="bi bi-slash-circle fs-2 d-block mb-2"></i>
+              <div class="fw-semibold text-body">Nothing was assessed</div>
+              <div>No PostgreSQL statistics were read, so the absence of findings means nothing.</div>
+            </div>
+            <div v-else-if="findings.length === 0" class="text-center text-muted py-3">
               <i class="bi bi-check2-circle fs-2 d-block mb-2"></i>
               <div class="fw-semibold text-body">No findings in the assessed evidence</div>
               <div>Sections that could not be read are listed below as skipped, not as passing.</div>

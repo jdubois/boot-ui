@@ -59,6 +59,14 @@ final class PostgresDatabaseData {
                 .anyMatch(section -> section.id().equals(sectionId) && "AVAILABLE".equals(section.status()));
     }
 
+    /** The named section as recorded, or {@code null} when no collector reported it. */
+    PostgresSectionDto section(String sectionId) {
+        return sections.stream()
+                .filter(section -> section.id().equals(sectionId))
+                .findFirst()
+                .orElse(null);
+    }
+
     /** Replaces each section's finding count once the rules have run. */
     void recordFindingCounts(Map<String, Integer> countsBySection) {
         for (int i = 0; i < sections.size(); i++) {

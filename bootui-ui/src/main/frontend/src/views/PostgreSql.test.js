@@ -203,6 +203,25 @@ describe('PostgreSql', () => {
     expect(wrapper.text()).not.toContain('Checked and clean')
   })
 
+  it('presents a failed read as a failure, never as a clean assessment', async () => {
+    const {wrapper} = await mountWith(
+      report({
+        status: 'ERROR',
+        message: 'The read budget ran out before any datasource was read, so nothing was inspected.',
+        databases: [],
+        databasesRead: 0,
+        findings: [],
+        evidence: {usable: false, coverageComplete: false, limitations: []}
+      })
+    )
+
+    expect(wrapper.text()).toContain('Read failed.')
+    expect(wrapper.text()).toContain('The read budget ran out')
+    expect(wrapper.text()).toContain('Nothing was assessed')
+    expect(wrapper.text()).not.toContain('No findings in the assessed evidence')
+    expect(wrapper.find('.alert-danger').exists()).toBe(true)
+  })
+
   it('runs the read via POST when the button is clicked', async () => {
     const {wrapper, fetchMock} = await mountWith(report({status: 'NOT_READ', readAt: null, databasesRead: 0}))
     fetchMock.mockClear()
