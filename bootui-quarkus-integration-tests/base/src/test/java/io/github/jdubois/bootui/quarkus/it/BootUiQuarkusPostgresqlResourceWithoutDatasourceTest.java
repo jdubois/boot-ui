@@ -51,11 +51,11 @@ class BootUiQuarkusPostgresqlResourceWithoutDatasourceTest {
                 .as("the PostgreSQL panel is present in the manifest")
                 .isNotNull();
         assertThat(postgresql.path("available").asBoolean(true))
-                .as("the panel is unavailable without a JDBC datasource — it reads PostgreSQL's own views")
+                .as("the panel is unavailable without a PostgreSQL datasource — it reads PostgreSQL's own views")
                 .isFalse();
         assertThat(postgresql.path("unavailableReason").asText(""))
                 .as("the panel carries an honest, PostgreSQL-specific hint")
-                .contains("JDBC datasource");
+                .contains("PostgreSQL datasource");
     }
 
     @Test

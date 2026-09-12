@@ -1920,47 +1920,6 @@ Acceptance criteria:
 - Equivalent inputs produce the same findings and report shape on Spring MVC, Spring WebFlux, and Quarkus, subject only
   to the documented Quarkus datasource-naming difference.
 
-### 5.17.4.1 PostgreSQL Panel
-
-Purpose: answer "What do PostgreSQL's own statistics and catalog views report about this database right now?"
-
-Data sources:
-
-- Discovered application JDBC `DataSource` beans, using the same datasource discovery seam as the Database advisor.
-- PostgreSQL `pg_stat_*`, `pg_catalog`, `pg_settings`, `pg_stat_statements` when installed, and replication/catalog views.
-
-Features:
-
-- Return an initial `NOT_READ` report until the developer explicitly invokes `POST /bootui/api/postgresql/read`.
-- Run a bounded read-only transaction with pinned `statement_timeout`, `lock_timeout`, and idle-in-transaction timeout.
-- Report per-section `AVAILABLE`, `SKIPPED`, or `FAILED` status for vital signs, statements, indexes, tables, vacuum,
-  replication/WAL, and settings. Skipped or failed sections remain limitations, not passing checks.
-- Evaluate the fixed rule catalogue documented in `docs/POSTGRESQL-CHECKS.md`, with stable `PG-*` identifiers, severities,
-  recommendations, caveats, and learn-more links.
-- Keep only the previous read in memory to show simple deltas; no baseline is written to disk.
-
-Availability:
-
-- Spring MVC, Spring WebFlux, and Quarkus expose the same endpoint and report contract when a JDBC datasource is present.
-  Non-PostgreSQL datasources are skipped with diagnostics rather than treated as failures.
-- A read-only database role with `pg_monitor` membership is recommended for complete statistics. Without it, PostgreSQL
-  may hide or fail session, replication, and statistics views.
-- The statements section is `SKIPPED` unless `pg_stat_statements` is installed.
-
-Out of scope for the current release surface:
-
-- Monitoring, alerting, baselining to disk, query-plan capture, DDL, cancelling sessions, changing settings, or reading
-  application table rows.
-- Attributing PostgreSQL counters to this JVM only; the counters are cumulative since the last reset and cover every
-  client of the database.
-
-Acceptance criteria:
-
-- Opening the panel never contacts PostgreSQL; only the explicit read action does.
-- The read action is blocked by global read-only mode and `bootui.panels.postgresql.read-only`, despite being read-only at
-  the database.
-- Row caps, timeouts, and section failures produce partial/diagnostic reports instead of silent clean reports.
-
 ### 5.17.5 Transactions Panel
 
 Purpose: answer "Which transaction boundaries recently ran, how did they complete, how were they nested, and which ones
@@ -2106,6 +2065,52 @@ Acceptance criteria:
   identically on Spring MVC, Spring WebFlux, and Quarkus, and returns the same report shape on all three.
 - The Database advisor's `DB-RUNTIME-001` rule reports only statement shapes with repeated distinct texts and a literal
   in a filtering position, states its confidence and limitations, and includes no captured literal values.
+
+### 5.17.7 PostgreSQL Panel
+
+Purpose: answer "What do PostgreSQL's own statistics and catalog views report about this database right now?"
+
+Data sources:
+
+- Discovered application JDBC `DataSource` beans, using the same datasource discovery seam as the Database advisor.
+- PostgreSQL `pg_stat_*`, `pg_catalog`, `pg_settings`, `pg_stat_statements` when installed, and replication/catalog views.
+
+Features:
+
+- Return an initial `NOT_READ` report until the developer explicitly invokes `POST /bootui/api/postgresql/read`.
+- Run a bounded read-only transaction with pinned `statement_timeout`, `lock_timeout`, and idle-in-transaction timeout.
+- Report per-section `AVAILABLE`, `SKIPPED`, or `FAILED` status for vital signs, statements, indexes, tables, vacuum,
+  replication/WAL, and settings. Skipped or failed sections remain limitations, not passing checks.
+- Evaluate the fixed rule catalogue documented in `docs/POSTGRESQL-CHECKS.md`, with stable `PG-*` identifiers, severities,
+  recommendations, caveats, and learn-more links.
+- Keep only the previous read in memory to show simple deltas; no baseline is written to disk.
+
+Availability:
+
+- Spring MVC, Spring WebFlux, and Quarkus expose the same endpoint and report contract, and offer the panel only when a
+  PostgreSQL datasource is configured. Availability is decided from declared configuration alone — a datasource's JDBC
+  URL, including through a wrapping driver, or the Quarkus `db-kind` — and never opens a connection. A datasource that
+  declares no readable URL cannot be ruled out and keeps the panel available; a non-PostgreSQL datasource reached by the
+  read is skipped with diagnostics rather than treated as a failure.
+- A read-only database role with `pg_monitor` membership is recommended for complete statistics. Without it, PostgreSQL
+  may hide or fail session, replication, and statistics views.
+- The statements section is `SKIPPED` unless `pg_stat_statements` is installed.
+
+Out of scope for the current release surface:
+
+- Monitoring, alerting, baselining to disk, query-plan capture, DDL, cancelling sessions, changing settings, or reading
+  application table rows.
+- Attributing PostgreSQL counters to this JVM only; the counters are cumulative since the last reset and cover every
+  client of the database.
+
+Acceptance criteria:
+
+- Opening the panel never contacts PostgreSQL; only the explicit read action does.
+- The read action is blocked by global read-only mode and `bootui.panels.postgresql.read-only`, despite being read-only at
+  the database.
+- Row caps, timeouts, and section failures produce partial/diagnostic reports instead of silent clean reports.
+- The panel reports a runtime observation of one database, not a repeatable assessment of the application, so it carries
+  no score and never contributes to the Overview dashboard's advisor scoring or retained-findings totals.
 
 ### 5.18 Cache Panel
 
@@ -2780,7 +2785,6 @@ Top-level navigation:
   - REST API.
   - Spring.
   - Database.
-  - PostgreSQL.
   - Hibernate.
   - Memory.
   - Security.
@@ -2806,6 +2810,7 @@ Top-level navigation:
   - Mappings.
 - Database:
   - Database Connection Pools.
+  - PostgreSQL.
   - Transactions.
   - SQL Trace.
   - Hibernate Statistics.

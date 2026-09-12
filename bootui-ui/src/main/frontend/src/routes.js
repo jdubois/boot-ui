@@ -203,32 +203,6 @@ export const routes = [
     }
   },
   {
-    path: '/postgresql',
-    name: 'postgresql',
-    component: PostgreSql,
-    meta: {
-      group: groups.advisors,
-      icon: 'bi-database-fill-check',
-      title: 'PostgreSQL',
-      shortcut: 'pg',
-      keywords: [
-        'postgres',
-        'postgresql',
-        'pg_stat',
-        'pg_catalog',
-        'vital signs',
-        'vacuum',
-        'autovacuum',
-        'bloat',
-        'cache hit',
-        'wraparound',
-        'replication',
-        'connections',
-        'indexes'
-      ]
-    }
-  },
-  {
     path: '/hibernate',
     name: 'hibernate',
     component: Hibernate,
@@ -559,6 +533,32 @@ export const routes = [
       title: 'Database Connection Pools',
       shortcut: 'dc',
       keywords: ['hikari', 'hikaricp', 'datasource', 'connection pool', 'jdbc', 'connections']
+    }
+  },
+  {
+    path: '/postgresql',
+    name: 'postgresql',
+    component: PostgreSql,
+    meta: {
+      group: groups.database,
+      icon: 'bi-database-fill-check',
+      title: 'PostgreSQL',
+      shortcut: 'pg',
+      keywords: [
+        'postgres',
+        'postgresql',
+        'pg_stat',
+        'pg_catalog',
+        'vital signs',
+        'vacuum',
+        'autovacuum',
+        'bloat',
+        'cache hit',
+        'wraparound',
+        'replication',
+        'connections',
+        'indexes'
+      ]
     }
   },
   {

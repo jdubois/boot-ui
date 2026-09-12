@@ -8,12 +8,14 @@ import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels.Panel;
+import io.github.jdubois.bootui.engine.postgres.PostgresDataSourceDetection;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.AiFrameworkDetector;
 import io.github.jdubois.bootui.engine.websocket.WebSocketService;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.regex.Pattern;
+import org.springframework.beans.BeansException;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReportEndpoint;
 import org.springframework.boot.actuate.beans.BeansEndpoint;
@@ -182,8 +184,7 @@ public class PanelsController {
             case BootUiPanels.CRAC -> availability(cracAvailable(), cracUnavailableReason());
             case BootUiPanels.SQL_TRACE ->
                 availability(beanPresent(javax.sql.DataSource.class), "No DataSource bean is available");
-            case BootUiPanels.POSTGRESQL ->
-                availability(beanPresent(javax.sql.DataSource.class), "No DataSource bean is available");
+            case BootUiPanels.POSTGRESQL -> availability(postgresAvailable(), postgresUnavailableReason());
             case BootUiPanels.TRANSACTIONS ->
                 availability(
                         beanPresent(ConfigurableTransactionManager.class),
@@ -375,6 +376,48 @@ public class PanelsController {
 
     private RestClientTraceRecorder restClientTraceRecorder() {
         return applicationContext.getBeanProvider(RestClientTraceRecorder.class).getIfAvailable();
+    }
+
+    /**
+     * The PostgreSQL panel is available only when a PostgreSQL datasource is actually configured: it reads
+     * {@code pg_stat_*}/{@code pg_catalog} and has nothing to say about any other database.
+     *
+     * <p>The check never opens a connection, because rendering the panel must contact nothing: it reads the
+     * JDBC URL each {@code DataSource} bean declares. A datasource that declares no readable URL cannot be
+     * ruled out, so the panel stays available whenever the PostgreSQL driver is also on the classpath, and the
+     * read action then reports the honest per-datasource diagnostic.</p>
+     */
+    private boolean postgresAvailable() {
+        if (!beanPresent(javax.sql.DataSource.class)) {
+            return false;
+        }
+        boolean anyUnknownUrl = false;
+        for (String beanName : applicationContext.getBeanNamesForType(javax.sql.DataSource.class)) {
+            javax.sql.DataSource dataSource;
+            try {
+                dataSource = applicationContext.getBean(beanName, javax.sql.DataSource.class);
+            } catch (BeansException ex) {
+                anyUnknownUrl = true;
+                continue;
+            }
+            String url = PostgresDataSourceDetection.jdbcUrlOf(dataSource);
+            if (url == null) {
+                anyUnknownUrl = true;
+            } else if (PostgresDataSourceDetection.isPostgresJdbcUrl(url)) {
+                return true;
+            }
+        }
+        if (PostgresDataSourceDetection.isPostgresJdbcUrl(environment.getProperty("spring.datasource.url"))) {
+            return true;
+        }
+        return anyUnknownUrl && classPresent("org.postgresql.Driver");
+    }
+
+    private String postgresUnavailableReason() {
+        if (!beanPresent(javax.sql.DataSource.class)) {
+            return "No DataSource bean is available";
+        }
+        return "No PostgreSQL datasource is configured";
     }
 
     private boolean hikariAvailable() {

@@ -23,8 +23,52 @@ read-only flag).
 
 :::
 
-The PostgreSQL vital-signs panel is an advisor-style database diagnostic. See [Advisors](advisors.md#postgresql) for its canonical panel documentation.
+## PostgreSQL
 
+![BootUI PostgreSQL panel](../images/bootui-postgresql.webp)
+
+The PostgreSQL panel reads a point-in-time, read-only snapshot of the application's own PostgreSQL database statistics.
+It answers "what does PostgreSQL report about this database right now?" across cache hit ratio, rollbacks, connections,
+locks, transaction-id age, statement rankings, index usage, large relations, autovacuum, replication/WAL, and selected
+settings. The read is explicit: opening the panel shows the last report, and nothing queries PostgreSQL until you click
+**Run PostgreSQL read**.
+
+This is not the Database advisor and not SQL Trace:
+
+- **Database advisor** checks physical schema structure — keys, indexes, constraints, sequences, and Hibernate mapping
+  cross-references — from metadata and vendor catalogs.
+- **SQL Trace** shows statements this JVM recently issued through BootUI's local JDBC instrumentation.
+- **PostgreSQL** reads PostgreSQL's own cumulative `pg_stat_*` and `pg_catalog` views, which include work from every
+  client of the database and statistics since the last reset.
+
+See [PostgreSQL checks](../POSTGRESQL-CHECKS.md) for every rule, threshold, caveat, and bound.
+
+::: details Safety and bounds
+
+The panel runs one read-only transaction per datasource and pins `statement_timeout` to 5 seconds, `lock_timeout` to
+2 seconds, and the read budget to 15 seconds. List sections are capped (25 statements, 50 indexes, 25 tables,
+25 autovacuum rows, 10 replicas, and 40 settings), and truncation is reported as incomplete coverage rather than hidden.
+No baseline is written to disk; only the previous read is kept in memory so the panel can show simple deltas.
+
+Values are gated by the global exposure policy. Under `MASKED` or `METADATA_ONLY`, statement text has string literals
+and dollar-quoted bodies (`$$ ... $$`, `$tag$ ... $tag$`, which is how `CREATE FUNCTION` and `DO` blocks reach
+`pg_stat_statements`) replaced before it leaves the engine, and replica `client_addr` is masked under
+`METADATA_ONLY`. Error messages from failed statistics reads are redacted the same way before becoming a diagnostic.
+
+:::
+
+::: details Availability and permissions
+
+The panel is available on Spring MVC, Spring WebFlux, and Quarkus only when a PostgreSQL datasource is configured. That
+decision is taken from declared configuration alone — the JDBC URL each datasource exposes (including through a wrapping
+driver such as `jdbc:aws-wrapper:postgresql://...`), or the Quarkus `db-kind` — so rendering the sidebar still contacts no
+database. A datasource that declares no readable URL cannot be ruled out, so the panel stays available when the
+PostgreSQL driver is on the classpath, and a non-PostgreSQL datasource reached by the read is skipped with a clear
+diagnostic. Use a read-only database role that is a member of
+`pg_monitor` when possible; without it, some session, replication, and statistics views can fail or under-report. The
+statement ranking section additionally requires `pg_stat_statements`.
+
+:::
 
 ## SQL Trace
 

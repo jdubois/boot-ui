@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.agent.AgentSessionStore;
 import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.postgres.PostgresDataSourceDetection;
 import io.github.jdubois.bootui.quarkus.agent.QuarkusClaudeCodeProperties;
 import io.github.jdubois.bootui.quarkus.agent.QuarkusCopilotProperties;
 import io.smallrye.config.SmallRyeConfig;
@@ -343,8 +344,9 @@ public class QuarkusPanelAvailability {
                     + " (e.g. quarkus-jdbc-h2) so SQL executions can be traced.";
 
     private static final String POSTGRESQL_ABSENT =
-            "Not available: no JDBC datasource is on the classpath. Add a PostgreSQL datasource"
-                    + " (e.g. quarkus-jdbc-postgresql) so its vital signs can be read.";
+            "Not available: no PostgreSQL datasource is configured. Add a PostgreSQL datasource"
+                    + " (quarkus-jdbc-postgresql with quarkus.datasource.db-kind=postgresql) so its vital signs"
+                    + " can be read.";
 
     private static final String PROFILE_DIFF_ABSENT =
             "Not available: no profiles are active. Run with a profile (e.g. quarkus.profile=dev) to"
@@ -492,6 +494,7 @@ public class QuarkusPanelAvailability {
     private final boolean flywayPresent;
     private final boolean liquibasePresent;
     private final boolean connectionPoolsPresent;
+    private final boolean postgresConfigured;
 
     private final boolean devServicesPresent;
 
@@ -539,6 +542,7 @@ public class QuarkusPanelAvailability {
                 config.getOptionalValue(LIQUIBASE_PRESENT_KEY, Boolean.class).orElse(false);
         this.connectionPoolsPresent = config.getOptionalValue(CONNECTION_POOLS_PRESENT_KEY, Boolean.class)
                 .orElse(false);
+        this.postgresConfigured = postgresConfigured(config);
         this.devServicesPresent =
                 config.getOptionalValue(DEV_SERVICES_PRESENT_KEY, Boolean.class).orElse(false);
         this.emailPresent =
@@ -582,7 +586,7 @@ public class QuarkusPanelAvailability {
                 Map.entry(BootUiPanels.REST_CLIENT_TRACE, restClientTracePresent),
                 Map.entry(BootUiPanels.SECURITY_LOGS, securityLogsAvailable),
                 Map.entry(BootUiPanels.SQL_TRACE, connectionPoolsPresent),
-                Map.entry(BootUiPanels.POSTGRESQL, connectionPoolsPresent),
+                Map.entry(BootUiPanels.POSTGRESQL, connectionPoolsPresent && postgresConfigured),
                 Map.entry(BootUiPanels.PROFILE_DIFF, profilesActive),
                 Map.entry(BootUiPanels.REST_API, restApiPresent),
                 Map.entry(BootUiPanels.COPILOT, copilotPanelAvailable),
@@ -594,6 +598,42 @@ public class QuarkusPanelAvailability {
             return false;
         }
         return Files.isDirectory(AgentSessionStore.resolveDir(settings));
+    }
+
+    /**
+     * Whether this application declares a PostgreSQL datasource, read from configuration only.
+     *
+     * <p>The PostgreSQL panel reads {@code pg_stat_*}/{@code pg_catalog}, so it is meaningless against any
+     * other database and is not offered at all unless PostgreSQL is configured. Quarkus declares its
+     * datasources in configuration ({@code db-kind}, or a JDBC URL), which makes this decidable without
+     * opening a connection — the panel must contact nothing until the explicit read action.</p>
+     */
+    private static boolean postgresConfigured(Config config) {
+        for (String name : config.getPropertyNames()) {
+            if (name == null || !name.startsWith("quarkus.datasource.")) {
+                continue;
+            }
+            boolean dbKind = name.endsWith(".db-kind");
+            if (!dbKind && !name.endsWith(".jdbc.url")) {
+                continue;
+            }
+            String value = configValue(config, name);
+            if (dbKind
+                    ? PostgresDataSourceDetection.isPostgresDbKind(value)
+                    : PostgresDataSourceDetection.isPostgresJdbcUrl(value)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Reads one property defensively: an unresolvable expression must not fail the whole manifest. */
+    private static String configValue(Config config, String name) {
+        try {
+            return config.getOptionalValue(name, String.class).orElse(null);
+        } catch (RuntimeException unresolvable) {
+            return null;
+        }
     }
 
     private static boolean activeProfiles(Config config) {
