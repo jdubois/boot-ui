@@ -181,7 +181,7 @@ function sectionPartial(section) {
 }
 
 function sectionPartialReason(section) {
-  return section.reason || 'a row bound was reached, so relations past it were not examined'
+  return section.reason || 'a row bound was reached, so rows past it were not examined'
 }
 
 // A section only reads as "clean" when it was AVAILABLE, had zero findings, and read everything
