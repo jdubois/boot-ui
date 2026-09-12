@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.core;
 
 import java.util.Locale;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 /**
@@ -70,35 +71,44 @@ public final class BootUiPathNormalizer {
         while (trimmed.length() > 1 && trimmed.endsWith("/")) {
             trimmed = trimmed.substring(0, trimmed.length() - 1);
         }
+        String normalized = trimmed;
 
         reject(
                 trimmed.equals("/"),
-                propertyName + " must not be '/' (the root path would intercept every application request).");
-        reject(hasDotSegment(trimmed), propertyName + " must not contain '.' or '..' path segments: '" + trimmed + "'");
-        reject(trimmed.contains("?"), propertyName + " must not contain a query component ('?'): '" + trimmed + "'");
-        reject(trimmed.contains("#"), propertyName + " must not contain a fragment component ('#'): '" + trimmed + "'");
+                () -> propertyName + " must not be '/' (the root path would intercept every application request).");
+        reject(
+                hasDotSegment(trimmed),
+                () -> propertyName + " must not contain '.' or '..' path segments: '" + normalized + "'");
+        reject(
+                trimmed.contains("?"),
+                () -> propertyName + " must not contain a query component ('?'): '" + normalized + "'");
+        reject(
+                trimmed.contains("#"),
+                () -> propertyName + " must not contain a fragment component ('#'): '" + normalized + "'");
         String lowercase = trimmed.toLowerCase(Locale.ROOT);
         reject(
                 lowercase.contains("%2f") || lowercase.contains("%5c"),
-                propertyName + " must not contain encoded path separators ('%2F' or '%5C'): '" + trimmed + "'");
+                () -> propertyName + " must not contain encoded path separators ('%2F' or '%5C'): '" + normalized
+                        + "'");
         reject(
                 trimmed.contains("//"),
-                propertyName + " must not contain consecutive slashes ('//'): '" + trimmed + "'");
+                () -> propertyName + " must not contain consecutive slashes ('//'): '" + normalized + "'");
         reject(
                 !SAFE_PATH.matcher(trimmed).matches(),
-                propertyName + " may contain only letters, digits, '-', '_', '.', '~', and '/' path separators: '"
-                        + trimmed
+                () -> propertyName + " may contain only letters, digits, '-', '_', '.', '~', and '/' path separators: '"
+                        + normalized
                         + "'");
         reject(
                 rejectInternalChild && !trimmed.equals(DEFAULT_PATH) && trimmed.startsWith(DEFAULT_PATH + "/"),
-                propertyName + " must not use the reserved internal '/bootui/**' namespace: '" + trimmed + "'");
+                () -> propertyName + " must not use the reserved internal '/bootui/**' namespace: '" + normalized
+                        + "'");
 
         return trimmed;
     }
 
-    private static void reject(boolean condition, String message) {
+    private static void reject(boolean condition, Supplier<String> message) {
         if (condition) {
-            throw new IllegalArgumentException(message);
+            throw new IllegalArgumentException(message.get());
         }
     }
 
