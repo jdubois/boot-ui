@@ -86,8 +86,10 @@ final class PostgresTestDataSources {
         private final int minor;
         private final Map<QueryKind, List<Map<String, Object>>> rows = new HashMap<>();
         private final Map<QueryKind, SQLException> failures = new HashMap<>();
+        private final Map<String, SQLException> pinFailures = new HashMap<>();
         private int connections;
         private final List<String> preparedSql = new ArrayList<>();
+        private final List<String> executedSql = new ArrayList<>();
 
         private ScriptedDataSource(
                 boolean postgresDefaults, String productName, String productVersion, int major, int minor) {
@@ -102,6 +104,10 @@ final class PostgresTestDataSources {
             return connections;
         }
 
+        List<String> executedSql() {
+            return List.copyOf(executedSql);
+        }
+
         List<String> preparedSql() {
             return List.copyOf(preparedSql);
         }
@@ -109,6 +115,12 @@ final class PostgresTestDataSources {
         @SafeVarargs
         final ScriptedDataSource rows(QueryKind kind, Map<String, Object>... rows) {
             this.rows.put(kind, List.of(rows));
+            return this;
+        }
+
+        /** Makes any session-pin statement containing {@code fragment} fail and abort the transaction. */
+        ScriptedDataSource failPin(String fragment, String message) {
+            pinFailures.put(fragment, new SQLException(message));
             return this;
         }
 
@@ -146,9 +158,17 @@ final class PostgresTestDataSources {
                                 readOnly.set((Boolean) arguments[0]);
                                 yield null;
                             }
-                            case "createStatement" -> statement();
+                            case "createStatement" -> statement(aborted);
                             case "prepareStatement" -> preparedStatement(String.valueOf(arguments[0]), aborted);
-                            case "setSavepoint" -> savepoint();
+                            case "setSavepoint" -> {
+                                if (aborted.get()) {
+                                    throw new SQLException(
+                                            "current transaction is aborted, commands ignored until end of"
+                                                    + " transaction block",
+                                            "25P02");
+                                }
+                                yield savepoint();
+                            }
                             case "releaseSavepoint" -> null;
                             case "rollback" -> {
                                 aborted.set(false);
@@ -188,11 +208,27 @@ final class PostgresTestDataSources {
                     }));
         }
 
-        private Statement statement() {
+        private Statement statement(AtomicBoolean aborted) {
             return Statement.class.cast(Proxy.newProxyInstance(
                     Statement.class.getClassLoader(), new Class<?>[] {Statement.class}, (proxy, method, arguments) -> {
                         return switch (method.getName()) {
-                            case "execute" -> true;
+                            case "execute" -> {
+                                String sql = String.valueOf(arguments[0]);
+                                executedSql.add(sql);
+                                if (aborted.get()) {
+                                    throw new SQLException(
+                                            "current transaction is aborted, commands ignored until end of"
+                                                    + " transaction block",
+                                            "25P02");
+                                }
+                                for (Map.Entry<String, SQLException> failure : pinFailures.entrySet()) {
+                                    if (sql.contains(failure.getKey())) {
+                                        aborted.set(true);
+                                        throw failure.getValue();
+                                    }
+                                }
+                                yield true;
+                            }
                             case "close" -> null;
                             default -> throw new SQLFeatureNotSupportedException(method.getName());
                         };

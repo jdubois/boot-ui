@@ -20,12 +20,22 @@ import java.util.function.Function;
 final class PostgresRuleRegistry {
 
     static final double LOW_CACHE_HIT_RATIO = 0.90;
+    /**
+     * The completed transactions a database must have before its cumulative ratios mean anything. A
+     * development database that has just started can read a 40% rollback ratio from two failed statements,
+     * or a 50% cache hit ratio from a handful of cold reads, and reporting that as a finding would train the
+     * reader to ignore the panel.
+     */
+    static final long MIN_COMPLETED_TRANSACTIONS = 1_000;
+
     static final double HIGH_ROLLBACK_RATIO = 0.05;
     static final double HIGH_CONNECTION_USAGE = 0.80;
     static final double WRAPAROUND_WARNING_RATIO = 0.50;
     static final double SLOW_STATEMENT_MEAN_MILLIS = 100;
     static final long SLOW_STATEMENT_MIN_CALLS = 10;
     static final double DOMINANT_STATEMENT_SHARE = 0.50;
+    static final int MIN_RANKED_STATEMENTS = 5;
+    static final double MIN_RANKED_TOTAL_MILLIS = 1_000;
     static final long UNUSED_INDEX_MIN_BYTES = 1024L * 1024L;
     static final long SEQUENTIAL_SCAN_MIN_BYTES = 50L * 1024L * 1024L;
     static final double SEQUENTIAL_SCAN_RATIO = 0.90;
@@ -50,19 +60,26 @@ final class PostgresRuleRegistry {
                     "Check shared_buffers against the working set, and confirm the host has enough free memory "
                             + "for the operating system page cache before changing anything.",
                     STATS_CAVEAT + " A database that was recently restarted, or one whose working set is "
-                            + "genuinely larger than memory, reads a low ratio without being misconfigured.",
+                            + "genuinely larger than memory, reads a low ratio without being misconfigured. "
+                            + "Nothing is reported below " + MIN_COMPLETED_TRANSACTIONS + " completed "
+                            + "transactions, because a ratio over a handful of them means nothing.",
                     "https://www.postgresql.org/docs/current/runtime-config-resource.html",
                     data -> {
                         PostgresVitalSignsDto vitals = data.vitalSigns();
                         if (vitals == null || vitals.cacheHitRatio() == null) {
                             return null;
                         }
+                        Long completed = sum(vitals.transactionsCommitted(), vitals.transactionsRolledBack());
+                        if (completed == null || completed < MIN_COMPLETED_TRANSACTIONS) {
+                            return null;
+                        }
                         if (vitals.cacheHitRatio() >= LOW_CACHE_HIT_RATIO) {
                             return null;
                         }
-                        return PostgresRuleMatch.of(
-                                "Cache hit ratio is " + PostgresFormat.percent(vitals.cacheHitRatio()) + ", below the "
-                                        + PostgresFormat.percent(LOW_CACHE_HIT_RATIO) + " review threshold.");
+                        return PostgresRuleMatch.of("Cache hit ratio is "
+                                + PostgresFormat.percent(vitals.cacheHitRatio()) + " over "
+                                + PostgresFormat.count(completed) + " completed transactions, below the "
+                                + PostgresFormat.percent(LOW_CACHE_HIT_RATIO) + " review threshold.");
                     }),
             rule(
                     "PG-VITALS-002",
@@ -74,11 +91,16 @@ final class PostgresRuleRegistry {
                     "Correlate with the Exceptions and SQL Trace panels: rollbacks usually mean failing "
                             + "statements, constraint violations, or a retry loop rather than deliberate aborts.",
                     STATS_CAVEAT + " Applications that use rollback deliberately (tests, dry runs) are expected "
-                            + "to read high here.",
+                            + "to read high here. Nothing is reported below " + MIN_COMPLETED_TRANSACTIONS
+                            + " completed transactions, because a ratio over a handful of them means nothing.",
                     "https://www.postgresql.org/docs/current/monitoring-stats.html",
                     data -> {
                         PostgresVitalSignsDto vitals = data.vitalSigns();
                         if (vitals == null || vitals.rollbackRatio() == null) {
+                            return null;
+                        }
+                        Long completed = sum(vitals.transactionsCommitted(), vitals.transactionsRolledBack());
+                        if (completed == null || completed < MIN_COMPLETED_TRANSACTIONS) {
                             return null;
                         }
                         if (vitals.rollbackRatio() <= HIGH_ROLLBACK_RATIO) {
@@ -273,7 +295,10 @@ final class PostgresRuleRegistry {
                     "Start tuning here: the dominant statement is where a fix has the most effect, even when its "
                             + "mean time looks acceptable.",
                     "The share is computed over the statements BootUI retained, not over the server's entire "
-                            + "workload.",
+                            + "workload. It is reported only once at least " + MIN_RANKED_STATEMENTS
+                            + " statements were ranked and they account for at least "
+                            + (long) MIN_RANKED_TOTAL_MILLIS + " ms in total, because with two near-idle "
+                            + "statements one of them necessarily dominates.",
                     "https://www.postgresql.org/docs/current/pgstatstatements.html",
                     data -> {
                         double total = 0;
@@ -287,7 +312,9 @@ final class PostgresRuleRegistry {
                                 top = statement;
                             }
                         }
-                        if (top == null || total <= 0 || data.statements().size() < 2) {
+                        if (top == null
+                                || total < MIN_RANKED_TOTAL_MILLIS
+                                || data.statements().size() < MIN_RANKED_STATEMENTS) {
                             return null;
                         }
                         double share = top.totalTimeMs() / total;
@@ -306,14 +333,15 @@ final class PostgresRuleRegistry {
                     "Indexes never scanned on this node",
                     "MAINTENANCE",
                     "LOW",
-                    "An index larger than 1 MB has never been used by a scan on this server, while still costing "
-                            + "write time and disk space.",
+                    "An index larger than " + PostgresFormat.bytes(UNUSED_INDEX_MIN_BYTES)
+                            + " has never been used by a scan on this server, while still costing write time "
+                            + "and disk space.",
                     "Confirm on every node before dropping anything, then drop the index concurrently if it is "
                             + "genuinely unused.",
                     "Scan counts are per node and reset with the statistics. A primary can show zero scans for an "
                             + "index a read replica depends on, and an index created since the last reset has had "
-                            + "no chance to be used. Constraint-backed and primary-key indexes are excluded because "
-                            + "they enforce correctness regardless of scans.",
+                            + "no chance to be used. Primary-key, constraint-backed and unique indexes are all "
+                            + "excluded, because they enforce correctness whether or not a query ever scans them.",
                     "https://www.postgresql.org/docs/current/monitoring-stats.html",
                     data -> {
                         List<String> samples = new ArrayList<>();
@@ -339,7 +367,9 @@ final class PostgresRuleRegistry {
                             return null;
                         }
                         return PostgresRuleMatch.of(
-                                matched + " index(es) larger than 1 MB have never been scanned on this node.", samples);
+                                matched + " index(es) larger than " + PostgresFormat.bytes(UNUSED_INDEX_MIN_BYTES)
+                                        + " have never been scanned on this node.",
+                                samples);
                     }),
             rule(
                     "PG-TABLE-001",
@@ -347,7 +377,8 @@ final class PostgresRuleRegistry {
                     "Large relations answered mostly by sequential scans",
                     "PERFORMANCE",
                     "MEDIUM",
-                    "A relation larger than 50 MB is being read almost entirely by sequential scans.",
+                    "A relation larger than " + PostgresFormat.bytes(SEQUENTIAL_SCAN_MIN_BYTES)
+                            + " is being read almost entirely by sequential scans.",
                     "Check the predicates the application uses against this table and index the selective ones. "
                             + "Confirm with EXPLAIN before adding an index.",
                     "Sequential scanning is correct for a small or fully cached table, and for a query that "
@@ -458,13 +489,17 @@ final class PostgresRuleRegistry {
             rule(
                     "PG-REPLICATION-001",
                     PostgresSectionIds.REPLICATION,
-                    "Checkpoints forced by WAL volume",
+                    "Requested checkpoints outnumber timed checkpoints",
                     "PERFORMANCE",
                     "MEDIUM",
-                    "More checkpoints were requested because WAL filled up than were triggered by "
-                            + "checkpoint_timeout, which spreads far less of the write cost over time.",
-                    "Raise max_wal_size so checkpoints are time-driven under the normal write rate.",
-                    STATS_CAVEAT + " A bulk load or a restore can account for the whole imbalance.",
+                    "More checkpoints were requested than were triggered by checkpoint_timeout. A requested "
+                            + "checkpoint spreads far less of the write cost over time than a timed one.",
+                    "The usual cause is WAL reaching max_wal_size under the normal write rate, which raising "
+                            + "max_wal_size fixes. Rule out the other causes first: an explicit CHECKPOINT, a "
+                            + "base backup, and a clean shutdown are all counted here too.",
+                    STATS_CAVEAT + " A bulk load or a restore can account for the whole imbalance. PostgreSQL "
+                            + "counts requested checkpoints without recording why each was requested, so this "
+                            + "reports the imbalance and not its cause.",
                     "https://www.postgresql.org/docs/current/wal-configuration.html",
                     data -> {
                         PostgresReplicationDto replication = data.replication();
@@ -478,8 +513,8 @@ final class PostgresRuleRegistry {
                             return null;
                         }
                         return PostgresRuleMatch.of(replication.checkpointsRequested()
-                                + " checkpoint(s) were forced by WAL volume against "
-                                + replication.checkpointsTimed() + " triggered by checkpoint_timeout.");
+                                + " requested checkpoint(s) against " + replication.checkpointsTimed()
+                                + " triggered by checkpoint_timeout.");
                     }),
             rule(
                     "PG-REPLICATION-002",

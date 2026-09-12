@@ -453,6 +453,11 @@ The panel runs one read-only transaction per datasource and pins `statement_time
 25 autovacuum rows, 10 replicas, and 40 settings), and truncation is reported as incomplete coverage rather than hidden.
 No baseline is written to disk; only the previous read is kept in memory so the panel can show simple deltas.
 
+Values are gated by the global exposure policy. Under `MASKED` or `METADATA_ONLY`, statement text has string literals
+and dollar-quoted bodies (`$$ ... $$`, `$tag$ ... $tag$`, which is how `CREATE FUNCTION` and `DO` blocks reach
+`pg_stat_statements`) replaced before it leaves the engine, and replica `client_addr` is masked under
+`METADATA_ONLY`. Error messages from failed statistics reads are redacted the same way before becoming a diagnostic.
+
 :::
 
 ::: details Availability and permissions

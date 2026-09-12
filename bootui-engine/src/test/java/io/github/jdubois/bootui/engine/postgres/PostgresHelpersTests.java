@@ -58,6 +58,22 @@ class PostgresHelpersTests {
     }
 
     @Test
+    void queryTextMasksDollarQuotedBodies() {
+        ExposurePolicy masked = exposure(ValueExposure.MASKED, true);
+
+        assertThat(PostgresQueryText.sanitize(
+                        "do $$ begin perform set_config('x', 'secret', false); end $$", masked, 200))
+                .doesNotContain("secret")
+                .contains("do $$******$$");
+        assertThat(PostgresQueryText.sanitize(
+                        "create function f() returns int as $body$ select 42 $body$ language sql", masked, 200))
+                .doesNotContain("42")
+                .contains("language sql");
+        assertThat(PostgresQueryText.sanitize("do $$ unterminated body", masked, 200))
+                .doesNotContain("unterminated");
+    }
+
+    @Test
     void rowsDistinguishEmptyAvailableFromFailedAndCopyRows() {
         List<String> mutable = new java.util.ArrayList<>(List.of("one"));
         PostgresRows<String> rows = PostgresRows.available(mutable, true);

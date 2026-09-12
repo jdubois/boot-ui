@@ -114,10 +114,18 @@ class PostgresRuleRegistryTests {
                 ruleCase(
                         "PG-STATEMENTS-002",
                         PostgresSectionIds.STATEMENTS,
-                        data -> data.statements(
-                                List.of(statement(1L, 49d, 10d), statement(1L, 49d, 10d), statement(1L, 2d, 10d))),
-                        data -> data.statements(
-                                List.of(statement(1L, 50d, 10d), statement(1L, 25d, 10d), statement(1L, 25d, 10d)))),
+                        data -> data.statements(List.of(
+                                statement(1L, 200d, 10d),
+                                statement(1L, 200d, 10d),
+                                statement(1L, 200d, 10d),
+                                statement(1L, 200d, 10d),
+                                statement(1L, 200d, 10d))),
+                        data -> data.statements(List.of(
+                                statement(1L, 600d, 10d),
+                                statement(1L, 100d, 10d),
+                                statement(1L, 100d, 10d),
+                                statement(1L, 100d, 10d),
+                                statement(1L, 100d, 10d)))),
                 ruleCase(
                         "PG-INDEX-001",
                         PostgresSectionIds.INDEXES,
@@ -199,8 +207,8 @@ class PostgresRuleRegistryTests {
                 "app",
                 cacheHitRatio,
                 rollbackRatio,
-                100L,
-                5L,
+                10_000L,
+                500L,
                 connections,
                 100,
                 connections / 100d,

@@ -14,6 +14,11 @@ import java.util.List;
  * than against the shipped defaults — a tuned server must not be judged by numbers it never used. Per-table
  * {@code reloptions} overrides are not read, so a table with its own autovacuum settings is judged by the
  * cluster values; that limitation is reported rather than hidden.</p>
+ *
+ * <p>Two deliberate approximations remain. The threshold is computed from {@code n_live_tup}, the
+ * statistics collector's live-tuple estimate, whereas autovacuum itself uses {@code pg_class.reltuples};
+ * the two agree except immediately after a bulk change. The comparison is strict, matching PostgreSQL's own
+ * {@code n_dead_tup > threshold} test, so a table exactly at its threshold is not yet due.</p>
  */
 final class PostgresVacuumCollector implements PostgresCollector {
 
@@ -27,8 +32,9 @@ final class PostgresVacuumCollector implements PostgresCollector {
             """;
 
     static final String RELOPTIONS_LIMITATION =
-            "Autovacuum \"due\" is computed from the cluster-wide autovacuum settings; per-table reloptions "
-                    + "overrides are not read.";
+            "Autovacuum \"due\" is computed from the cluster-wide autovacuum settings against the live-tuple "
+                    + "estimate in pg_stat_user_tables; per-table reloptions overrides are not read, and "
+                    + "autovacuum itself uses pg_class.reltuples.";
 
     @Override
     public String id() {
@@ -58,7 +64,7 @@ final class PostgresVacuumCollector implements PostgresCollector {
                             dead,
                             deadTupleRatio(live, dead),
                             trigger,
-                            dead != null && trigger != null && dead >= trigger,
+                            dead != null && trigger != null && dead > trigger,
                             autovacuumEnabled,
                             PostgresQuery.epochMillisOrNull(resultSet, "last_vacuum"),
                             PostgresQuery.epochMillisOrNull(resultSet, "last_autovacuum"),

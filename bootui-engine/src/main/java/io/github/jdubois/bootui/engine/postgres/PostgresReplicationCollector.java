@@ -1,8 +1,11 @@
 package io.github.jdubois.bootui.engine.postgres;
 
+import io.github.jdubois.bootui.core.SecretMasker;
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.PostgresReplicaDto;
 import io.github.jdubois.bootui.core.dto.PostgresReplicationDto;
 import io.github.jdubois.bootui.core.dto.PostgresSectionDto;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.util.List;
 
 /**
@@ -14,6 +17,10 @@ import java.util.List;
  * which one exists rather than by trusting a server version the driver may not report.
  * Replication slots need a privilege a bare application role usually lacks, so an unreadable slot count
  * degrades the section instead of failing it.</p>
+ *
+ * <p>A replica's {@code client_addr} is a value, not metadata: it identifies a host on the operator's
+ * network. It is therefore masked under {@link io.github.jdubois.bootui.core.ValueExposure#METADATA_ONLY},
+ * the same policy that masks statement text.</p>
  */
 final class PostgresReplicationCollector implements PostgresCollector {
 
@@ -72,7 +79,7 @@ final class PostgresReplicationCollector implements PostgresCollector {
                     context.limits().maxReplicas(),
                     resultSet -> new PostgresReplicaDto(
                             resultSet.getString("application_name"),
-                            resultSet.getString("client_addr"),
+                            clientAddress(resultSet.getString("client_addr"), context),
                             resultSet.getString("state"),
                             resultSet.getString("sync_state"),
                             PostgresQuery.longOrNull(resultSet, "sent_lag"),
@@ -87,10 +94,12 @@ final class PostgresReplicationCollector implements PostgresCollector {
             limitation = "This server is a standby, so replica lag is not measurable from here.";
         }
 
-        Checkpoints checkpoints = readCheckpoints(context, shape.hasCheckpointer());
-        if (checkpoints == null) {
-            limitation = limitation == null ? "The checkpoint counters could not be read." : limitation;
-            checkpoints = new Checkpoints(null, null, null);
+        PostgresRows<Checkpoints> checkpointRows = readCheckpoints(context, shape.hasCheckpointer());
+        Checkpoints checkpoints = checkpointRows.available() && !checkpointRows.empty()
+                ? checkpointRows.rows().get(0)
+                : new Checkpoints(null, null, null);
+        if (!checkpointRows.available() && limitation == null) {
+            limitation = checkpointRows.reason();
         }
 
         PostgresRows<Slots> slots = PostgresQuery.readOne(
@@ -128,16 +137,24 @@ final class PostgresReplicationCollector implements PostgresCollector {
                 + " checkpoint_write_time as write_time from pg_stat_bgwriter";
     }
 
-    private Checkpoints readCheckpoints(PostgresReadContext context, boolean hasCheckpointer) {
-        PostgresRows<Checkpoints> rows =
-                PostgresQuery.readOne(context, "Checkpoint statistics", checkpointSql(hasCheckpointer), resultSet -> {
-                    Double writeMillis = PostgresQuery.doubleOrNull(resultSet, "write_time");
-                    return new Checkpoints(
-                            PostgresQuery.longOrNull(resultSet, "checkpoints_timed"),
-                            PostgresQuery.longOrNull(resultSet, "checkpoints_requested"),
-                            writeMillis == null ? null : writeMillis / 1000d);
-                });
-        return rows.available() && !rows.empty() ? rows.rows().get(0) : null;
+    private PostgresRows<Checkpoints> readCheckpoints(PostgresReadContext context, boolean hasCheckpointer) {
+        return PostgresQuery.readOne(context, "Checkpoint statistics", checkpointSql(hasCheckpointer), resultSet -> {
+            Double writeMillis = PostgresQuery.doubleOrNull(resultSet, "write_time");
+            return new Checkpoints(
+                    PostgresQuery.longOrNull(resultSet, "checkpoints_timed"),
+                    PostgresQuery.longOrNull(resultSet, "checkpoints_requested"),
+                    writeMillis == null ? null : writeMillis / 1000d);
+        });
+    }
+
+    /** A replica's address, masked when the exposure policy allows metadata only. */
+    private static String clientAddress(String address, PostgresReadContext context) {
+        if (address == null) {
+            return null;
+        }
+        ExposurePolicy exposure = context.exposure();
+        ValueExposure valueExposure = exposure == null ? ValueExposure.MASKED : exposure.valueExposure();
+        return valueExposure == ValueExposure.METADATA_ONLY ? SecretMasker.MASKED_VALUE : address;
     }
 
     /** Whether this server is a standby, and whether it carries the PostgreSQL 17 checkpointer view. */

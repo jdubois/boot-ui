@@ -273,6 +273,51 @@ class PostgresCollectorsTests {
         assertThat(data.vitalSigns().longestTransactionSeconds()).isNull();
     }
 
+    @Test
+    void replicaClientAddressFollowsTheExposurePolicy() throws SQLException {
+        assertThat(replicaAddress(ValueExposure.MASKED)).isEqualTo("10.0.0.7/32");
+        assertThat(replicaAddress(ValueExposure.METADATA_ONLY)).isEqualTo("******");
+    }
+
+    private static String replicaAddress(ValueExposure valueExposure) throws SQLException {
+        var dataSource = PostgresTestDataSources.postgres()
+                .rows(
+                        PostgresTestDataSources.QueryKind.REPLICAS,
+                        PostgresTestDataSources.row(
+                                "application_name",
+                                "replica",
+                                "client_addr",
+                                "10.0.0.7/32",
+                                "state",
+                                "streaming",
+                                "sync_state",
+                                "async",
+                                "sent_lag",
+                                0L,
+                                "flush_lag",
+                                0L,
+                                "replay_lag",
+                                0L));
+        PostgresDatabaseData data = new PostgresDatabaseData("primary");
+        new PostgresReplicationCollector()
+                .collect(PostgresTestDataSources.context(dataSource, 15, exposure(valueExposure)), data);
+        return data.replication().replicas().get(0).clientAddress();
+    }
+
+    private static ExposurePolicy exposure(ValueExposure valueExposure) {
+        return new ExposurePolicy() {
+            @Override
+            public ValueExposure valueExposure() {
+                return valueExposure;
+            }
+
+            @Override
+            public boolean maskSecrets() {
+                return true;
+            }
+        };
+    }
+
     private static ExposurePolicy exposure() {
         return new ExposurePolicy() {
             @Override

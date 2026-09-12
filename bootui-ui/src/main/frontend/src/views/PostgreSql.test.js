@@ -181,6 +181,28 @@ describe('PostgreSql', () => {
     expect(wrapper.text()).toContain('Checked and clean')
   })
 
+  it('shows an available section that carries a reason as partially read, not clean', async () => {
+    const {wrapper} = await mountWith(
+      report({
+        databases: [
+          database({
+            sections: [
+              section('vital-signs', 'Vital signs', 'AVAILABLE', {
+                reason: 'Session states are hidden from this role',
+                hint: 'Grant pg_monitor to the application role.'
+              })
+            ]
+          })
+        ]
+      })
+    )
+
+    expect(wrapper.text()).toContain('PARTIAL')
+    expect(wrapper.text()).toContain('Partially read — Session states are hidden from this role')
+    expect(wrapper.text()).toContain('Grant pg_monitor to the application role.')
+    expect(wrapper.text()).not.toContain('Checked and clean')
+  })
+
   it('runs the read via POST when the button is clicked', async () => {
     const {wrapper, fetchMock} = await mountWith(report({status: 'NOT_READ', readAt: null, databasesRead: 0}))
     fetchMock.mockClear()

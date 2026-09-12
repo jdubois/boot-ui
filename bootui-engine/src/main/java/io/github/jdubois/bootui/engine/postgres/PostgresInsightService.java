@@ -22,7 +22,6 @@ import io.github.jdubois.bootui.spi.NamedDataSource;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -402,23 +401,12 @@ public final class PostgresInsightService {
                 "set local lock_timeout = '" + limits.lockTimeout().toMillis() + "ms'",
                 "set local idle_in_transaction_session_timeout = '"
                         + limits.readBudget().toMillis() + "ms'");
-        try (Statement statement = connection.createStatement()) {
-            for (String pin : pins) {
-                try {
-                    statement.execute(pin);
-                } catch (SQLException | RuntimeException ex) {
-                    diagnostics.add(new PostgresDiagnosticDto(
-                            name,
-                            "WARNING",
-                            "The session could not be pinned with \"" + pin + "\": "
-                                    + CredentialRedaction.redact(String.valueOf(ex.getMessage()))));
-                }
+        for (String pin : pins) {
+            String reason = PostgresQuery.pin(connection, pin);
+            if (reason != null) {
+                diagnostics.add(new PostgresDiagnosticDto(
+                        name, "WARNING", "The session could not be pinned with \"" + pin + "\": " + reason));
             }
-        } catch (SQLException | RuntimeException ex) {
-            diagnostics.add(new PostgresDiagnosticDto(
-                    name,
-                    "WARNING",
-                    "The session could not be pinned: " + CredentialRedaction.redact(String.valueOf(ex.getMessage()))));
         }
     }
 

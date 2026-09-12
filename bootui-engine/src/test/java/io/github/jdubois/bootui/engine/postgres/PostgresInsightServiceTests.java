@@ -158,6 +158,33 @@ class PostgresInsightServiceTests {
     }
 
     @Test
+    void aRefusedSessionPinIsRolledBackSoTheReadStillCompletes() {
+        var dataSource = PostgresTestDataSources.postgres()
+                .failPin("statement_timeout", "permission denied to set parameter for jdbc:******db/app");
+
+        PostgresInsightReport report =
+                service(() -> discovery("primary", dataSource)).read();
+
+        assertThat(report.databases()).singleElement().satisfies(database -> {
+            assertThat(database.status()).isEqualTo("SCANNED");
+            assertThat(database.sections())
+                    .filteredOn(section -> section.id().equals(PostgresSectionIds.VITAL_SIGNS))
+                    .singleElement()
+                    .satisfies(section -> assertThat(section.status()).isEqualTo("AVAILABLE"));
+        });
+        assertThat(report.diagnostics()).anySatisfy(diagnostic -> {
+            assertThat(diagnostic.level()).isEqualTo("WARNING");
+            assertThat(diagnostic.message())
+                    .contains("statement_timeout")
+                    .contains("******db/app")
+                    .doesNotContain("sup3rs3cret");
+        });
+        // The pins that follow the refused one still run, which is only possible because the failed pin was
+        // rolled back to its own savepoint: an aborted PostgreSQL transaction rejects every later statement.
+        assertThat(dataSource.executedSql()).contains("set local lock_timeout = '2000ms'");
+    }
+
+    @Test
     void findingsAreSortedByImportanceThenDatasourceThenRuleId() {
         var first = unhealthy(PostgresTestDataSources.postgres());
         var second = unhealthy(PostgresTestDataSources.postgres());

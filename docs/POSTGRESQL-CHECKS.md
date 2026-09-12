@@ -26,7 +26,15 @@ cumulative statistics and current catalog state; they do not prove root cause or
   40 notable settings, and 400 characters per statement text. List reads fetch one row past the limit so truncation is
   visible instead of silently treated as complete.
 - Each section reports `AVAILABLE`, `SKIPPED`, or `FAILED`. A skipped or failed section is a limitation, not a pass, and
-  does not produce findings for rules that depend on that section.
+  does not produce findings for rules that depend on that section. A section that was read but could not be read in full
+  stays `AVAILABLE` and carries a reason; the UI shows it as partially read rather than clean.
+- Session pinning is itself savepoint-isolated. A role that may not set one of these parameters would otherwise abort the
+  transaction before any savepoint existed, and an aborted PostgreSQL transaction refuses even `SAVEPOINT`; each failed
+  pin is rolled back and reported as a warning instead.
+- Values follow the global exposure policy. Under `MASKED` or `METADATA_ONLY`, statement text has its string literals and
+  dollar-quoted bodies (`$$ ... $$` and `$tag$ ... $tag$`, how `CREATE FUNCTION` and `DO` blocks reach
+  `pg_stat_statements`) replaced, and `METADATA_ONLY` also masks replica `client_addr`. Error text is redacted before it
+  becomes a diagnostic.
 - Use a read-only application role with PostgreSQL's built-in `pg_monitor` role when possible. Without it, some
   replication and statistics views fail outright, and `pg_stat_activity` silently nulls the state of backends the role
   does not own. BootUI detects that case and reports the whole session breakdown as unknown rather than counting hidden
@@ -45,7 +53,8 @@ cumulative statistics and current catalog state; they do not prove root cause or
 
 - **Severity:** MEDIUM
 - **What it measures:** `pg_stat_database.blks_hit` versus `blks_read` for the current database.
-- **Threshold:** `LOW_CACHE_HIT_RATIO = 0.90`; findings appear below a 90% hit ratio.
+- **Threshold:** `LOW_CACHE_HIT_RATIO = 0.90`; findings appear below a 90% hit ratio, and only once the database has
+  completed at least `MIN_COMPLETED_TRANSACTIONS = 1000` transactions.
 - **What to do:** Check `shared_buffers` against the working set, and confirm the host has enough free memory for the OS
   page cache before changing settings.
 - **Caveat:** Cumulative statistics are counted since the last statistics reset and cover every client, not only this
@@ -56,7 +65,8 @@ cumulative statistics and current catalog state; they do not prove root cause or
 
 - **Severity:** MEDIUM
 - **What it measures:** rolled-back transactions versus committed plus rolled-back transactions in `pg_stat_database`.
-- **Threshold:** `HIGH_ROLLBACK_RATIO = 0.05`; findings appear above 5% rollbacks.
+- **Threshold:** `HIGH_ROLLBACK_RATIO = 0.05`; findings appear above 5% rollbacks, and only once the database has
+  completed at least `MIN_COMPLETED_TRANSACTIONS = 1000` transactions.
 - **What to do:** Correlate with the Exceptions and SQL Trace panels; rollbacks usually mean failing statements,
   constraint violations, or retry loops rather than deliberate aborts.
 - **Caveat:** Cumulative statistics cover every client. Test suites and dry-run workflows may deliberately roll back.
@@ -149,7 +159,8 @@ cumulative statistics and current catalog state; they do not prove root cause or
 - **What it measures:** each retained `pg_stat_statements` row's total execution time as a share of the retained ranked
   total.
 - **Threshold:** `DOMINANT_STATEMENT_SHARE = 0.50`; findings appear when one retained statement accounts for at least half
-  of retained statement time and at least two statements were retained.
+  of retained statement time, at least `MIN_RANKED_STATEMENTS = 5` statements were retained, and they total at least
+  `MIN_RANKED_TOTAL_MILLIS = 1000` ms. With fewer statements a share above 50% is arithmetic rather than evidence.
 - **What to do:** Start tuning here: the dominant statement is where a fix has the most effect, even when its mean time
   looks acceptable.
 - **Caveat:** The share is computed over the statements BootUI retained, not the server's entire workload.
@@ -194,8 +205,9 @@ cumulative statistics and current catalog state; they do not prove root cause or
 - **Threshold:** `DEAD_TUPLE_MIN_ROWS = 1000`; findings appear for vacuum-due relations with at least 1,000 dead tuples.
 - **What to do:** Check whether autovacuum is keeping up; a long-running transaction or abandoned replication slot can
   hold the cleanup horizon back.
-- **Caveat:** Per-table `reloptions` overrides are not read, so "due" uses cluster-wide settings. Autovacuum may also be
-  running right now, making the backlog transient.
+- **Caveat:** Per-table `reloptions` overrides are not read, so "due" uses cluster-wide settings, and the threshold is
+  computed from the `pg_stat_user_tables` live-tuple estimate while autovacuum itself uses `pg_class.reltuples`.
+  Autovacuum may also be running right now, making the backlog transient.
 - **Learn more:** <https://www.postgresql.org/docs/current/routine-vacuuming.html>
 
 ### PG-VACUUM-002 — High dead-tuple ratio
@@ -212,15 +224,18 @@ cumulative statistics and current catalog state; they do not prove root cause or
 
 ## Replication
 
-### PG-REPLICATION-001 — Checkpoints forced by WAL volume
+### PG-REPLICATION-001 — Requested checkpoints outnumber timed checkpoints
 
 - **Severity:** MEDIUM
 - **What it measures:** requested checkpoints versus time-triggered checkpoints from `pg_stat_bgwriter` or, on
   PostgreSQL 17+, `pg_stat_checkpointer`.
-- **Threshold:** `FORCED_CHECKPOINT_MIN = 5`; findings appear when at least five checkpoints were requested by WAL volume
-  and requested checkpoints outnumber timed checkpoints.
-- **What to do:** Raise `max_wal_size` so checkpoints are time-driven under the normal write rate.
+- **Threshold:** `FORCED_CHECKPOINT_MIN = 5`; findings appear when at least five checkpoints were requested and
+  requested checkpoints outnumber timed checkpoints.
+- **What to do:** The usual cause is WAL reaching `max_wal_size`, which raising `max_wal_size` fixes. Rule out an
+  explicit `CHECKPOINT`, a base backup and a clean shutdown first: PostgreSQL counts all of those as requested.
 - **Caveat:** Cumulative statistics cover every client. A bulk load or restore can account for the whole imbalance.
+  PostgreSQL counts requested checkpoints without recording why each was requested, so this reports the imbalance
+  and not its cause.
 - **Learn more:** <https://www.postgresql.org/docs/current/wal-configuration.html>
 
 ### PG-REPLICATION-002 — Inactive replication slot

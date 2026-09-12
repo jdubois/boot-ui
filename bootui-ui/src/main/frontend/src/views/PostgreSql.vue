@@ -45,6 +45,7 @@ const DATABASE_STATUS_LABELS = {
 
 const SECTION_STATUS_CLASSES = {
   AVAILABLE: 'text-bg-success',
+  PARTIAL: 'text-bg-warning',
   SKIPPED: 'text-bg-secondary',
   FAILED: 'text-bg-danger'
 }
@@ -159,13 +160,27 @@ function databaseFindingCount(database) {
   return findings.value.filter((finding) => finding.dataSource === database.name).length
 }
 
-// A section only reads as "clean" when it was AVAILABLE with zero findings; SKIPPED and
-// FAILED are always surfaced with their reason so an unreadable view never looks healthy.
+// The engine marks a partially read section AVAILABLE with a reason, because the rows it did
+// read are real. That reason is what stops the section from claiming more than it checked, so
+// it is shown as PARTIAL rather than green.
+function sectionPartial(section) {
+  return section.status === 'AVAILABLE' && !!section.reason
+}
+
+// A section only reads as "clean" when it was AVAILABLE, had zero findings, and read everything
+// it set out to read. PARTIAL, SKIPPED and FAILED always carry their reason, so a view BootUI
+// could not fully read never looks healthy.
+function sectionBadge(section) {
+  return sectionPartial(section) ? 'PARTIAL' : section.status
+}
+
 function sectionSummary(section) {
   if (section.status === 'AVAILABLE') {
-    return section.findingCount > 0
-      ? `${section.findingCount} ${pluralize(section.findingCount, 'finding')}`
-      : 'Checked and clean'
+    const findings =
+      section.findingCount > 0
+        ? `${section.findingCount} ${pluralize(section.findingCount, 'finding')}`
+        : 'Checked and clean'
+    return sectionPartial(section) ? `Partially read — ${section.reason}` : findings
   }
   if (section.status === 'SKIPPED') {
     return section.reason ? `Skipped — ${section.reason}` : 'Skipped'
@@ -471,12 +486,14 @@ onMounted(async () => {
             <ul class="list-unstyled mb-0">
               <li v-for="section in database.sections" :key="section.id" class="mb-2">
                 <div class="d-flex flex-wrap align-items-center gap-2">
-                  <span :class="sectionStatusClass(section.status)" class="badge">{{ section.status }}</span>
+                  <span :class="sectionStatusClass(sectionBadge(section))" class="badge">{{
+                    sectionBadge(section)
+                  }}</span>
                   <span class="fw-semibold">{{ section.title }}</span>
                   <span class="text-muted small">{{ sectionSummary(section) }}</span>
                   <span v-if="section.truncated" class="badge text-bg-warning">Truncated</span>
                 </div>
-                <div v-if="section.status !== 'AVAILABLE' && section.hint" class="small text-muted font-monospace ms-1">
+                <div v-if="section.hint" class="small text-muted font-monospace ms-1">
                   <i class="bi bi-lightbulb me-1"></i>{{ section.hint }}
                 </div>
               </li>
