@@ -121,6 +121,7 @@ class QuarkusMcpToolsTest {
                         mock(MappingsResource.class),
                         mock(OverviewResource.class),
                         mock(DatabaseAdvisorResource.class),
+                        mock(PostgresqlResource.class),
                         mock(VulnerabilitiesResource.class),
                         mock(LoggersResource.class),
                         mock(ScheduledResource.class),

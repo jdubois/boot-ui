@@ -9,6 +9,7 @@ const HttpSessions = () => import('./views/HttpSessions.vue')
 const Loggers = () => import('./views/Loggers.vue')
 const DatabaseConnectionPools = () => import('./views/DatabaseConnectionPools.vue')
 const DatabaseAdvisor = () => import('./views/DatabaseAdvisor.vue')
+const PostgreSql = () => import('./views/PostgreSql.vue')
 const SqlTrace = () => import('./views/SqlTrace.vue')
 const Transactions = () => import('./views/Transactions.vue')
 const RestClientTrace = () => import('./views/RestClientTrace.vue')
@@ -198,6 +199,32 @@ export const routes = [
         'mysql',
         'discrepancy',
         'jdbc metadata'
+      ]
+    }
+  },
+  {
+    path: '/postgresql',
+    name: 'postgresql',
+    component: PostgreSql,
+    meta: {
+      group: groups.advisors,
+      icon: 'bi-database-fill-check',
+      title: 'PostgreSQL',
+      shortcut: 'pg',
+      keywords: [
+        'postgres',
+        'postgresql',
+        'pg_stat',
+        'pg_catalog',
+        'vital signs',
+        'vacuum',
+        'autovacuum',
+        'bloat',
+        'cache hit',
+        'wraparound',
+        'replication',
+        'connections',
+        'indexes'
       ]
     }
   },

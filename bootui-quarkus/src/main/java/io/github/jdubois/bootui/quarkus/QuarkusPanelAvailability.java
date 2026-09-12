@@ -342,6 +342,10 @@ public class QuarkusPanelAvailability {
             "Not available: no JDBC datasource is on the classpath. Add a Quarkus JDBC datasource"
                     + " (e.g. quarkus-jdbc-h2) so SQL executions can be traced.";
 
+    private static final String POSTGRESQL_ABSENT =
+            "Not available: no JDBC datasource is on the classpath. Add a PostgreSQL datasource"
+                    + " (e.g. quarkus-jdbc-postgresql) so its vital signs can be read.";
+
     private static final String PROFILE_DIFF_ABSENT =
             "Not available: no profiles are active. Run with a profile (e.g. quarkus.profile=dev) to"
                     + " compare profile-specific configuration.";
@@ -437,6 +441,7 @@ public class QuarkusPanelAvailability {
             Map.entry(BootUiPanels.WEBSOCKETS, WEBSOCKETS_ABSENT),
             Map.entry(BootUiPanels.REST_CLIENT_TRACE, REST_CLIENT_TRACE_ABSENT),
             Map.entry(BootUiPanels.SQL_TRACE, SQL_TRACE_ABSENT),
+            Map.entry(BootUiPanels.POSTGRESQL, POSTGRESQL_ABSENT),
             Map.entry(BootUiPanels.PROFILE_DIFF, PROFILE_DIFF_ABSENT),
             Map.entry(BootUiPanels.REST_API, REST_API_ABSENT),
             Map.entry(BootUiPanels.SECURITY_LOGS, SECURITY_LOGS_ABSENT),
@@ -577,6 +582,7 @@ public class QuarkusPanelAvailability {
                 Map.entry(BootUiPanels.REST_CLIENT_TRACE, restClientTracePresent),
                 Map.entry(BootUiPanels.SECURITY_LOGS, securityLogsAvailable),
                 Map.entry(BootUiPanels.SQL_TRACE, connectionPoolsPresent),
+                Map.entry(BootUiPanels.POSTGRESQL, connectionPoolsPresent),
                 Map.entry(BootUiPanels.PROFILE_DIFF, profilesActive),
                 Map.entry(BootUiPanels.REST_API, restApiPresent),
                 Map.entry(BootUiPanels.COPILOT, copilotPanelAvailable),

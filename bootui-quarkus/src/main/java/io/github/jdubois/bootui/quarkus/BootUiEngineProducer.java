@@ -43,6 +43,7 @@ import io.github.jdubois.bootui.engine.memory.MemoryScanner;
 import io.github.jdubois.bootui.engine.metrics.MeterSelfFilter;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
+import io.github.jdubois.bootui.engine.postgres.PostgresInsightService;
 import io.github.jdubois.bootui.engine.quarkusapp.QuarkusAppScanner;
 import io.github.jdubois.bootui.engine.quarkussecurity.QuarkusSecurityScanner;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
@@ -819,6 +820,27 @@ public class BootUiEngineProducer {
                 () -> sqlTraceRecorders.isResolvable() ? sqlTraceRecorders.get().entries(false) : List.of();
         return DatabaseAdvisorScanner.usingDiscovery(
                 dataSourceProvider::discover, discovery, observedStatements, Clock.systemUTC());
+    }
+
+    /**
+     * The PostgreSQL "vital signs" service. Produced <em>unconditionally</em> for the same reason as
+     * {@link #databaseAdvisorScanner}: {@code javax.sql.DataSource} is core JDK, so
+     * {@link QuarkusDatabaseAdvisorDataSourceProvider} is constructed directly here and simply returns an
+     * empty discovery when {@code Instance<DataSource>} is unsatisfied — the read then renders a
+     * NOT_READ/empty report instead of failing. It is given the concrete {@link QuarkusExposurePolicy} bean
+     * (the live-policy shape, mirroring {@link #threadDumpService}) so adding more {@code ExposurePolicy}
+     * beans later can never make this wiring ambiguous. The read never runs on page render — it is only
+     * invoked by {@code POST /bootui/api/postgresql/read} — and every query it issues is read-only, bounded
+     * by row count and a wall-clock budget on the database session. The panel's honest availability (a JDBC
+     * datasource must be present) is decided separately by {@code QuarkusPanelAvailability}.
+     */
+    @Produces
+    @Singleton
+    public PostgresInsightService postgresInsightService(
+            @Any Instance<DataSource> dataSources, QuarkusExposurePolicy exposure) {
+        QuarkusDatabaseAdvisorDataSourceProvider dataSourceProvider =
+                new QuarkusDatabaseAdvisorDataSourceProvider(dataSources);
+        return PostgresInsightService.using(dataSourceProvider::discover, exposure, Clock.systemUTC());
     }
 
     /**

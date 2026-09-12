@@ -295,6 +295,30 @@ class QuarkusPanelAvailabilityTest {
     }
 
     @Test
+    void postgresqlIsUnavailableWithAHintWhenNoDatasourceIsPresent() {
+        // Like SQL Trace, the PostgreSQL panel needs a JDBC datasource: with none present it must surface an
+        // honest, panel-specific hint pointing at a PostgreSQL datasource, NOT the generic "not yet" reason.
+        PanelDto postgresql = manifestById().get(BootUiPanels.POSTGRESQL);
+        assertThat(postgresql).as("the PostgreSQL panel is present in the manifest").isNotNull();
+        assertThat(postgresql.available()).isFalse();
+        assertThat(postgresql.unavailableReason())
+                .doesNotContain("Not yet available")
+                .containsIgnoringCase("JDBC datasource")
+                .containsIgnoringCase("PostgreSQL");
+    }
+
+    @Test
+    void postgresqlIsAvailableWhenAJdbcDatasourceIsPresent() {
+        StubConfig withDatasource =
+                new StubConfig(Map.of(QuarkusPanelAvailability.CONNECTION_POOLS_PRESENT_KEY, "true"));
+        PanelDto postgresql = manifestById(withDatasource).get(BootUiPanels.POSTGRESQL);
+        assertThat(postgresql.available())
+                .as("PostgreSQL is lit up when a JDBC datasource is present")
+                .isTrue();
+        assertThat(postgresql.unavailableReason()).isNull();
+    }
+
+    @Test
     void panelIsEnabledByDefault() {
         assertThat(manifestById().get(BootUiPanels.MEMORY).enabled()).isTrue();
     }
