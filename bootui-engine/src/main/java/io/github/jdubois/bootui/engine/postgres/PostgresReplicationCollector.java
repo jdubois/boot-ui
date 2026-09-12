@@ -44,6 +44,18 @@ final class PostgresReplicationCollector implements PostgresCollector {
             from pg_replication_slots
             """;
 
+    /**
+     * {@code pg_stat_replication} joins {@code pg_stat_get_activity} with {@code pg_stat_get_wal_senders}.
+     * A role without {@code pg_read_all_stats} still sees one row per connected replica — the replica count
+     * is therefore trustworthy — but every WAL-sender detail ({@code state}, {@code sync_state}, the three
+     * lag columns) and {@code client_addr} come back as NULL. Rendering those blanks as though they were the
+     * server's answer would be a lie, so their presence degrades the section.
+     */
+    static final String RESTRICTED_REPLICA_LIMITATION =
+            "pg_stat_replication hides the WAL-sender details of replicas this role does not own, so each "
+                    + "replica's state, sync state and lag are unknown even though the replicas themselves are "
+                    + "listed. Grant the BootUI role membership of pg_monitor to read them.";
+
     @Override
     public String id() {
         return PostgresSectionIds.REPLICATION;
@@ -92,6 +104,9 @@ final class PostgresReplicationCollector implements PostgresCollector {
             if (rows.available()) {
                 replicas = rows.rows();
                 truncated = rows.truncated();
+                if (!replicas.isEmpty() && data.statisticsRestricted()) {
+                    limitations.add(RESTRICTED_REPLICA_LIMITATION);
+                }
             } else {
                 limitations.add(rows.reason());
             }

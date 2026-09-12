@@ -110,6 +110,21 @@ class PostgresHelpersTests {
     }
 
     @Test
+    void theVacuumQueryReadsEveryPerTableAutovacuumOverridePostgreSqlHonours() {
+        // PostgreSQL 18 added autovacuum_vacuum_max_threshold, and accepts it as a table storage parameter
+        // like the three older ones. Reading only the cluster value would cap the wrong tables.
+        assertThat(PostgresVacuumCollector.SQL)
+                .contains("'autovacuum_vacuum_threshold'")
+                .contains("'autovacuum_vacuum_scale_factor'")
+                .contains("'autovacuum_vacuum_max_threshold'")
+                .contains("'autovacuum_enabled'");
+        // 50 + 0.2 * 1000 = 250, but a table that caps itself at 100 is due at 100.
+        assertThat(PostgresVacuumCollector.vacuumThreshold(
+                        1000L, 50d, 0.2d, PostgresVacuumCollector.override("100", -1d)))
+                .isEqualTo(100L);
+    }
+
+    @Test
     void vacuumThresholdFloorsSoTheComparisonMatchesPostgreSql() {
         // PostgreSQL compares an integer dead count against the fractional threshold + scale_factor * tuples.
         // 50 + 0.19992 * 5000 = 1049.6: 1,050 dead tuples are due, and rounding up to 1,050 would miss that.

@@ -470,6 +470,126 @@ class PostgresInsightServiceTests {
                 .anySatisfy(limitation -> assertThat(limitation).contains("secondary"));
     }
 
+    @Test
+    void aRestrictedRoleDegradesTheReplicaListItCanOnlyCountRatherThanDescribe() {
+        // pg_stat_replication joins pg_stat_get_activity with pg_stat_get_wal_senders. A role without
+        // pg_read_all_stats still sees one row per replica, so the count is real, but every WAL-sender
+        // detail comes back NULL. Verified against PostgreSQL 18.6 with a live walsender attached.
+        var dataSource = PostgresTestDataSources.postgres()
+                .rows(
+                        PostgresTestDataSources.QueryKind.ROLE,
+                        PostgresTestDataSources.row("role_name", "app", "monitoring", false))
+                .rows(
+                        PostgresTestDataSources.QueryKind.REPLICAS,
+                        PostgresTestDataSources.row(
+                                "application_name",
+                                "standby",
+                                "client_addr",
+                                null,
+                                "state",
+                                null,
+                                "sync_state",
+                                null,
+                                "sent_lag",
+                                null,
+                                "flush_lag",
+                                null,
+                                "replay_lag",
+                                null));
+
+        PostgresInsightReport report =
+                service(() -> discovery("primary", dataSource)).read();
+
+        assertThat(report.databases())
+                .singleElement()
+                .satisfies(database -> assertThat(database.sections())
+                        .filteredOn(section -> PostgresSectionIds.REPLICATION.equals(section.id()))
+                        .singleElement()
+                        .satisfies(section -> assertThat(section.reason())
+                                .contains("WAL-sender details")
+                                .contains("pg_monitor")));
+    }
+
+    @Test
+    void aRestrictedRoleWithNoReplicaAttachedStillReportsReplicationAsRead() {
+        // The replica rows themselves are visible to any role, so "no replica is connected" is a trustworthy
+        // answer even when the WAL-sender columns would have been hidden. Degrading here would cry wolf.
+        var dataSource = PostgresTestDataSources.postgres()
+                .rows(
+                        PostgresTestDataSources.QueryKind.ROLE,
+                        PostgresTestDataSources.row("role_name", "app", "monitoring", false));
+
+        PostgresInsightReport report =
+                service(() -> discovery("primary", dataSource)).read();
+
+        assertThat(report.databases())
+                .singleElement()
+                .satisfies(database -> assertThat(database.sections())
+                        .filteredOn(section -> PostgresSectionIds.REPLICATION.equals(section.id()))
+                        .singleElement()
+                        .satisfies(section -> assertThat(section.reason()).isNull()));
+    }
+
+    @Test
+    void statementTextTheServerRefusedIsHonouredEvenWhenTheRoleProbeSaidItWouldNotBe() {
+        // The pg_read_all_stats probe predicts this on a stock server, but a managed or forked PostgreSQL
+        // may answer the probe differently from the way its pg_stat_statements decides. What the server
+        // actually returned is the better evidence.
+        var dataSource = PostgresTestDataSources.postgres()
+                .rows(
+                        PostgresTestDataSources.QueryKind.STATEMENTS,
+                        PostgresTestDataSources.row(
+                                "query_id",
+                                null,
+                                "query",
+                                "<insufficient privilege>",
+                                "calls",
+                                12L,
+                                "total_time",
+                                8d,
+                                "mean_time",
+                                0.6d,
+                                "max_time",
+                                2d,
+                                "rows_returned",
+                                3L,
+                                "shared_blks_hit",
+                                1L,
+                                "shared_blks_read",
+                                0L));
+
+        PostgresInsightReport report =
+                service(() -> discovery("primary", dataSource)).read();
+
+        assertThat(report.databases()).singleElement().satisfies(database -> {
+            assertThat(database.monitoringRole()).isTrue();
+            assertThat(database.sections())
+                    .filteredOn(section -> PostgresSectionIds.STATEMENTS.equals(section.id()))
+                    .singleElement()
+                    .satisfies(section -> assertThat(section.reason()).contains("insufficient privilege"));
+        });
+    }
+
+    @Test
+    void aConnectionThatCouldNotBeHandedBackAsBorrowedKeepsTheReadFromClaimingToBeClean() {
+        // A failed rollback may leave the read's transaction open and hands a pooled connection back in a
+        // state the application did not give it. That is a caveat on the read, not a silent diagnostic.
+        var dataSource = PostgresTestDataSources.postgres().failRollback("connection has been closed");
+
+        PostgresInsightReport report =
+                service(() -> discovery("primary", dataSource)).read();
+
+        assertThat(report.status()).isEqualTo("PARTIAL");
+        assertThat(report.databases()).singleElement().satisfies(database -> {
+            assertThat(database.status()).isEqualTo("PARTIAL");
+            assertThat(database.message()).contains("could not be rolled back");
+        });
+        assertThat(report.diagnostics()).anySatisfy(diagnostic -> {
+            assertThat(diagnostic.level()).isEqualTo("WARNING");
+            assertThat(diagnostic.message()).contains("could not be rolled back");
+        });
+    }
+
     private static DatabaseAdvisorDataSourceDiscovery discovery(String name, DataSource dataSource) {
         return new DatabaseAdvisorDataSourceDiscovery(List.of(new NamedDataSource(name, dataSource)), List.of());
     }

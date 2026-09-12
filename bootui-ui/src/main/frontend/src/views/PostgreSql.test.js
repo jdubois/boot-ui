@@ -319,6 +319,43 @@ describe('PostgreSql', () => {
     expect(wrapper.find('.alert-danger').exists()).toBe(true)
   })
 
+  it('shows the later of a manual and an automatic vacuum, not always the automatic one', async () => {
+    // A manual VACUUM run after the last autovacuum is the more recent truth about the table.
+    const now = Date.now()
+    const {wrapper} = await mountWith(
+      report({
+        readAt: now,
+        databases: [
+          database({
+            sections: [section('vacuum', 'Autovacuum health', 'AVAILABLE', {rowCount: 1})],
+            vacuum: [
+              {
+                schema: 'public',
+                table: 'orders',
+                liveTuples: 1000,
+                deadTuples: 10,
+                deadTupleRatio: 0.01,
+                vacuumThreshold: 250,
+                vacuumDue: false,
+                autovacuumEnabled: true,
+                lastVacuum: now - 10_000,
+                lastAutoVacuum: now - 7_200_000,
+                lastAnalyze: now - 10_000,
+                lastAutoAnalyze: now - 7_200_000
+              }
+            ]
+          })
+        ]
+      })
+    )
+
+    const row = wrapper.findAll('tr').find((candidate) => candidate.text().includes('orders'))
+    // The manual vacuum ran 10 seconds ago; the autovacuum two hours ago. Preferring the automatic one
+    // would report the table as two hours stale.
+    expect(row.text()).toContain('10s ago')
+    expect(row.text()).not.toContain('2h ago')
+  })
+
   it('runs the read via POST when the button is clicked', async () => {
     const {wrapper, fetchMock} = await mountWith(report({status: 'NOT_READ', readAt: null, databasesRead: 0}))
     fetchMock.mockClear()

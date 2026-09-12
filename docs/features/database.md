@@ -65,8 +65,9 @@ deltas. That baseline is merged rather than replaced, so a read that could not r
 of that section instead of erasing it and reporting "no change" next time.
 
 The autovacuum section's "due" column is computed from the settings the server would actually use for each relation:
-the cluster's `autovacuum_vacuum_threshold` and `autovacuum_vacuum_scale_factor`, each overridden by that table's own
-`reloptions`, and suppressed where the table sets `autovacuum_enabled = false`. Two approximations are stated in the
+the cluster's `autovacuum_vacuum_threshold`, `autovacuum_vacuum_scale_factor` and — on PostgreSQL 18 and later —
+`autovacuum_vacuum_max_threshold`, each overridden by that table's own `reloptions`, and suppressed where the table sets
+`autovacuum_enabled = false`. Two approximations are stated in the
 section rather than hidden: the estimate comes from `pg_stat_user_tables`, whereas autovacuum itself uses
 `pg_class.reltuples`, and only the dead-tuple trigger is modelled, so an insert-only table that PostgreSQL 13 and later
 would vacuum via `autovacuum_vacuum_insert_threshold` reads as "not due for dead tuples".
@@ -92,7 +93,11 @@ restricts its statistics views in two different and individually invisible ways:
 of backends the role does not own, so the session list silently shrinks to BootUI's own connections, while
 `pg_stat_statements` **keeps** every row and replaces the statement text with `<insufficient privilege>`. Neither leaves
 anything in the result set to notice, so BootUI asks the server instead — it probes `pg_read_all_stats` membership
-before reading — and marks both sections partially read when the privilege is missing. The connection total is taken
+before reading — and marks both sections partially read when the privilege is missing. The statement ranking is also
+degraded whenever the placeholder actually appears, so a managed or forked PostgreSQL that answers the probe
+differently from the way it restricts the view is still reported honestly. `pg_stat_replication` restricts a third way
+again: every connected replica is still listed, so the replica count is trustworthy, but each one's state, sync state
+and lag come back empty, and that degrades the replication section too. The connection total is taken
 from `pg_stat_database`, which every role reads in full, so it stays correct either way. The statement ranking section
 additionally requires `pg_stat_statements`.
 

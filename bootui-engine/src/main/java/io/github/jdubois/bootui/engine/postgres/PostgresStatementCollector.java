@@ -87,7 +87,9 @@ final class PostgresStatementCollector implements PostgresCollector {
             return failed(rows.reason());
         }
         data.statements(rows.rows());
-        if (data.statisticsRestricted()) {
+        boolean placeholders =
+                rows.rows().stream().anyMatch(statement -> INSUFFICIENT_PRIVILEGE.equals(statement.query()));
+        if (data.statisticsRestricted() || placeholders) {
             return partial(rows.rows().size(), RESTRICTED_LIMITATION, rows.truncated());
         }
         return available(rows.rows().size(), rows.truncated());
@@ -99,6 +101,11 @@ final class PostgresStatementCollector implements PostgresCollector {
      * <p>{@code pg_stat_statements} restricts the opposite way to {@code pg_stat_activity}: it keeps every
      * row, with real call counts and timings, and replaces only the text. Rendering those rows as if they
      * were statements would present this placeholder as the application's top query.</p>
+     *
+     * <p>The {@code pg_read_all_stats} probe predicts this on a stock server, but the section is degraded on
+     * the placeholder actually appearing as well: a managed or forked PostgreSQL may answer the probe
+     * differently from the way its {@code pg_stat_statements} decides, and what the server returned is
+     * better evidence than what it was asked about its own permissions.</p>
      */
     static final String INSUFFICIENT_PRIVILEGE = "<insufficient privilege>";
 

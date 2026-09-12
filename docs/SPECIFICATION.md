@@ -2103,7 +2103,9 @@ Availability:
 - A read-only database role with `pg_monitor` membership is recommended for complete statistics. Without it
   `pg_stat_activity` removes the rows of backends the role does not own while `pg_stat_statements` keeps its rows and
   replaces the statement text with `<insufficient privilege>`; neither is detectable from the result set, so the read
-  probes `pg_read_all_stats` membership and degrades both sections rather than reporting a short, confident list.
+  probes `pg_read_all_stats` membership and degrades both sections rather than reporting a short, confident list. The
+  statement ranking is degraded on the placeholder appearing as well as on the probe. `pg_stat_replication` restricts a
+  third way: every replica is still listed, but its state, sync state and lag are hidden, which degrades that section.
 - The statements section is `SKIPPED` unless `pg_stat_statements` is installed.
 
 Out of scope for the current release surface:
@@ -2125,8 +2127,10 @@ Acceptance criteria:
 - A session, statement, index, relation, autovacuum or settings row that the read retained is rendered in its section's
   table; a section that could not be read shows its reason and hint instead of an empty table.
 - Autovacuum "due" is computed per relation from the cluster autovacuum settings overridden by that table's own
-  `reloptions`, and the remaining approximations — the live-tuple estimate, and the unmodelled PostgreSQL 13+
-  insert-triggered trigger — are stated on the section.
+  `reloptions` (including PostgreSQL 18's `autovacuum_vacuum_max_threshold`), and the remaining approximations — the
+  live-tuple estimate, and the unmodelled PostgreSQL 13+ insert-triggered trigger — are stated on the section.
+- A borrowed connection that could not be restored to the state it was found in degrades the read, exactly like a
+  session whose bounds could not be pinned, rather than only appearing in the diagnostics.
 
 ### 5.18 Cache Panel
 

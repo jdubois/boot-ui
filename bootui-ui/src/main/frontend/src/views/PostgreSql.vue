@@ -144,6 +144,14 @@ function since(epochMillis) {
   return formatRelative(epochMillis)
 }
 
+// A manual VACUUM can be more recent than the last autovacuum, so report the later of the two rather
+// than always preferring the automatic one.
+function latest(first, second) {
+  if (first == null) return second
+  if (second == null) return first
+  return Math.max(first, second)
+}
+
 function readTime() {
   if (!report.value?.readAt) return ''
   return formatClockTime(report.value.readAt)
@@ -625,8 +633,12 @@ onMounted(async () => {
                     <td class="font-monospace text-end">{{ formatNumber(relation.deadTuples) }}</td>
                     <td class="font-monospace text-end">{{ percent(relation.deadTupleRatio) }}</td>
                     <td class="font-monospace text-end">{{ formatNumber(relation.vacuumThreshold) }}</td>
-                    <td class="font-monospace small">{{ since(relation.lastAutoVacuum || relation.lastVacuum) }}</td>
-                    <td class="font-monospace small">{{ since(relation.lastAutoAnalyze || relation.lastAnalyze) }}</td>
+                    <td class="font-monospace small">
+                      {{ since(latest(relation.lastAutoVacuum, relation.lastVacuum)) }}
+                    </td>
+                    <td class="font-monospace small">
+                      {{ since(latest(relation.lastAutoAnalyze, relation.lastAnalyze)) }}
+                    </td>
                   </tr>
                   <tr v-if="(database.vacuum || []).length === 0">
                     <td class="text-muted" colspan="6">No user relation was reported for this database.</td>

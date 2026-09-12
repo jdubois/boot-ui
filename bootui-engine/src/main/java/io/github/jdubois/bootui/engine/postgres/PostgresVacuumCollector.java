@@ -35,6 +35,8 @@ final class PostgresVacuumCollector implements PostgresCollector {
                    (select option_value from pg_options_to_table(c.reloptions)
                       where option_name = 'autovacuum_vacuum_scale_factor') as rel_scale_factor,
                    (select option_value from pg_options_to_table(c.reloptions)
+                      where option_name = 'autovacuum_vacuum_max_threshold') as rel_max_threshold,
+                   (select option_value from pg_options_to_table(c.reloptions)
                       where option_name = 'autovacuum_enabled') as rel_autovacuum_enabled,
                    s.last_vacuum, s.last_autovacuum, s.last_analyze, s.last_autoanalyze
             from pg_stat_user_tables s join pg_class c on c.oid = s.relid
@@ -72,9 +74,10 @@ final class PostgresVacuumCollector implements PostgresCollector {
                     Long dead = PostgresQuery.longOrNull(resultSet, "dead_tuples");
                     double tableThreshold = override(resultSet.getString("rel_threshold"), threshold);
                     double tableScaleFactor = override(resultSet.getString("rel_scale_factor"), scaleFactor);
+                    double tableMaxThreshold = override(resultSet.getString("rel_max_threshold"), maxThreshold);
                     boolean tableAutovacuum =
                             autovacuumEnabled && !isFalse(resultSet.getString("rel_autovacuum_enabled"));
-                    Long trigger = vacuumThreshold(live, tableThreshold, tableScaleFactor, maxThreshold);
+                    Long trigger = vacuumThreshold(live, tableThreshold, tableScaleFactor, tableMaxThreshold);
                     return new PostgresVacuumDto(
                             resultSet.getString("schema_name"),
                             resultSet.getString("table_name"),

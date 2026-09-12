@@ -320,7 +320,8 @@ public final class PostgresInsightService {
                     originalReadOnly,
                     readOnlyChanged,
                     name,
-                    diagnostics);
+                    diagnostics,
+                    data);
         }
 
         for (PostgresSectionDto section : data.sections()) {
@@ -344,7 +345,7 @@ public final class PostgresInsightService {
                 role.name(),
                 role.monitoring(),
                 status,
-                data.unpinnedReason(),
+                data.readCaveat(),
                 data.vitalSigns(),
                 data.sections(),
                 data.sessions(),
@@ -365,7 +366,7 @@ public final class PostgresInsightService {
         }
         boolean complete = data.sections().stream()
                 .allMatch(section -> "AVAILABLE".equals(section.status()) && section.reason() == null);
-        return complete && !data.truncated() && data.unpinnedReason() == null ? "READ" : "PARTIAL";
+        return complete && !data.truncated() && data.readCaveat() == null ? "READ" : "PARTIAL";
     }
 
     private String pinSession(Connection connection, String name, List<PostgresDiagnosticDto> diagnostics) {
@@ -406,39 +407,37 @@ public final class PostgresInsightService {
             boolean originalReadOnly,
             boolean readOnlyChanged,
             String name,
-            List<PostgresDiagnosticDto> diagnostics) {
+            List<PostgresDiagnosticDto> diagnostics,
+            PostgresDatabaseData data) {
         try {
             if (autoCommitChanged) {
                 connection.rollback();
             }
         } catch (SQLException | RuntimeException ex) {
-            diagnostics.add(new PostgresDiagnosticDto(
-                    name,
-                    "WARNING",
-                    "The read-only transaction could not be rolled back: "
-                            + CredentialRedaction.redact(String.valueOf(ex.getMessage()))));
+            String message = "The read-only transaction could not be rolled back: "
+                    + CredentialRedaction.redact(String.valueOf(ex.getMessage()));
+            diagnostics.add(new PostgresDiagnosticDto(name, "WARNING", message));
+            data.markConnectionNotRestored(message);
         }
         try {
             if (readOnlyChanged) {
                 connection.setReadOnly(originalReadOnly);
             }
         } catch (SQLException | RuntimeException ex) {
-            diagnostics.add(new PostgresDiagnosticDto(
-                    name,
-                    "WARNING",
-                    "The connection's read-only state could not be restored: "
-                            + CredentialRedaction.redact(String.valueOf(ex.getMessage()))));
+            String message = "The connection's read-only state could not be restored: "
+                    + CredentialRedaction.redact(String.valueOf(ex.getMessage()));
+            diagnostics.add(new PostgresDiagnosticDto(name, "WARNING", message));
+            data.markConnectionNotRestored(message);
         }
         try {
             if (autoCommitChanged) {
                 connection.setAutoCommit(originalAutoCommit);
             }
         } catch (SQLException | RuntimeException ex) {
-            diagnostics.add(new PostgresDiagnosticDto(
-                    name,
-                    "WARNING",
-                    "The connection's auto-commit state could not be restored: "
-                            + CredentialRedaction.redact(String.valueOf(ex.getMessage()))));
+            String message = "The connection's auto-commit state could not be restored: "
+                    + CredentialRedaction.redact(String.valueOf(ex.getMessage()));
+            diagnostics.add(new PostgresDiagnosticDto(name, "WARNING", message));
+            data.markConnectionNotRestored(message);
         }
     }
 

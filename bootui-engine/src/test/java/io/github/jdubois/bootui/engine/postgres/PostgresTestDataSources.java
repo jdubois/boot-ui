@@ -87,6 +87,7 @@ final class PostgresTestDataSources {
         private final Map<QueryKind, List<Map<String, Object>>> rows = new HashMap<>();
         private final Map<QueryKind, SQLException> failures = new HashMap<>();
         private final Map<String, SQLException> pinFailures = new HashMap<>();
+        private SQLException rollbackFailure;
         private int connections;
         private final List<String> preparedSql = new ArrayList<>();
         private final List<String> executedSql = new ArrayList<>();
@@ -121,6 +122,15 @@ final class PostgresTestDataSources {
         /** Makes any session-pin statement containing {@code fragment} fail and abort the transaction. */
         ScriptedDataSource failPin(String fragment, String message) {
             pinFailures.put(fragment, new SQLException(message));
+            return this;
+        }
+
+        /**
+         * Makes the final rollback fail, modelling a connection that cannot be handed back to the pool in
+         * the state it was borrowed in.
+         */
+        ScriptedDataSource failRollback(String message) {
+            rollbackFailure = new SQLException(message);
             return this;
         }
 
@@ -171,6 +181,9 @@ final class PostgresTestDataSources {
                             }
                             case "releaseSavepoint" -> null;
                             case "rollback" -> {
+                                if (rollbackFailure != null && arguments == null) {
+                                    throw rollbackFailure;
+                                }
                                 aborted.set(false);
                                 yield null;
                             }

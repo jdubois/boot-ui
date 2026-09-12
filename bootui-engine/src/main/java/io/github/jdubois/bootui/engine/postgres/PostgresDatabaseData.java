@@ -37,6 +37,7 @@ final class PostgresDatabaseData {
     private PostgresReplicationDto replication;
     private boolean truncated;
     private String unpinnedReason;
+    private String notRestoredReason;
     private boolean statisticsRestricted;
 
     PostgresDatabaseData(String dataSourceName) {
@@ -191,5 +192,34 @@ final class PostgresDatabaseData {
         if (reason != null && unpinnedReason == null) {
             unpinnedReason = reason;
         }
+    }
+
+    /**
+     * Why the borrowed connection could not be put back the way it was found, or {@code null} when it was.
+     *
+     * <p>A failed rollback may leave the read's transaction open, and a failed auto-commit or read-only
+     * restoration hands a pooled connection back to the application in a state it did not have. Either is a
+     * caveat on the read as a whole, so it degrades the database exactly like an unpinned session rather
+     * than living only in the diagnostics list.</p>
+     */
+    String notRestoredReason() {
+        return notRestoredReason;
+    }
+
+    void markConnectionNotRestored(String reason) {
+        if (reason != null && notRestoredReason == null) {
+            notRestoredReason = reason;
+        }
+    }
+
+    /** Every caveat that applies to the read as a whole rather than to one section. */
+    String readCaveat() {
+        if (unpinnedReason == null) {
+            return notRestoredReason;
+        }
+        if (notRestoredReason == null) {
+            return unpinnedReason;
+        }
+        return unpinnedReason + " " + notRestoredReason;
     }
 }
