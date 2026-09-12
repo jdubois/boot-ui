@@ -5318,26 +5318,42 @@ const postgresql = {
   message: null,
   readAt: nowMillis - 9 * 1000,
   databasesRead: 1,
-  findingsFound: 5,
+  findingsFound: 6,
   truncated: false,
   evidence: {usable: true, coverageComplete: true, limitations: []},
   severityCounts: [
     {severity: 'CRITICAL', count: 0},
     {severity: 'HIGH', count: 1},
-    {severity: 'MEDIUM', count: 3},
+    {severity: 'MEDIUM', count: 4},
     {severity: 'LOW', count: 1},
     {severity: 'INFO', count: 0}
   ],
   findings: [
+    {
+      id: 'PG-VITALS-005',
+      dataSource: 'dataSource',
+      sectionId: 'vital-signs',
+      title: 'Sessions waiting on locks',
+      category: 'CONCURRENCY',
+      severity: 'HIGH',
+      description: 'At least one backend is blocked waiting for a lock another backend holds.',
+      evidence: '3 session(s) are waiting on a lock.',
+      samples: [],
+      recommendation:
+        'Identify the blocking transaction and shorten it. Long transactions and idle-in-transaction sessions are the usual cause.',
+      caveat:
+        'This is a point-in-time sample; a lock wait that resolves between reads is not reported, and a brief wait is normal under write contention.',
+      learnMoreUrl: 'https://www.postgresql.org/docs/current/explicit-locking.html'
+    },
     {
       id: 'PG-VITALS-004',
       dataSource: 'dataSource',
       sectionId: 'vital-signs',
       title: 'Sessions idle in transaction',
       category: 'CONCURRENCY',
-      severity: 'HIGH',
+      severity: 'MEDIUM',
       description:
-        'A backend is holding an open transaction without doing any work, which keeps its locks and holds back the cleanup horizon for the whole database.',
+        'A backend is holding an open transaction while doing nothing, which keeps its locks and blocks vacuum from reclaiming rows newer than its snapshot.',
       evidence: '2 session(s) are idle in transaction; the oldest running transaction is 412.6 s old.',
       samples: [],
       recommendation:
@@ -5445,7 +5461,7 @@ const postgresql = {
         activeSessions: 6,
         idleInTransactionSessions: 2,
         longestTransactionSeconds: 412.6,
-        blockedSessions: 0,
+        blockedSessions: 3,
         transactionIdAge: 21648213,
         wraparoundLimit: 200000000,
         wraparoundUsageRatio: 0.1082,
@@ -5462,7 +5478,7 @@ const postgresql = {
           reason: null,
           hint: null,
           rowCount: 1,
-          findingCount: 1,
+          findingCount: 2,
           truncated: false
         },
         {
