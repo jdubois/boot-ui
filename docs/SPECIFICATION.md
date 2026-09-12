@@ -2068,7 +2068,9 @@ Acceptance criteria:
 
 ### 5.17.7 PostgreSQL Panel
 
-Purpose: answer "What do PostgreSQL's own statistics and catalog views report about this database right now?"
+Purpose: answer "What do PostgreSQL's own statistics and catalog views report about this database right now?", as a
+runtime view rather than an assessment. The panel shows the server's own numbers and grades none of them: it carries no
+rule catalogue, no findings, no severities and no score.
 
 Data sources:
 
@@ -2079,10 +2081,14 @@ Features:
 
 - Return an initial `NOT_READ` report until the developer explicitly invokes `POST /bootui/api/postgresql/read`.
 - Run a bounded read-only transaction with pinned `statement_timeout`, `lock_timeout`, and idle-in-transaction timeout.
-- Report per-section `AVAILABLE`, `SKIPPED`, or `FAILED` status for vital signs, statements, indexes, tables, vacuum,
-  replication/WAL, and settings. Skipped or failed sections remain limitations, not passing checks.
-- Evaluate the fixed rule catalogue documented in `docs/POSTGRESQL-CHECKS.md`, with stable `PG-*` identifiers, severities,
-  recommendations, caveats, and learn-more links.
+- Report per-section `AVAILABLE`, `SKIPPED`, or `FAILED` status for vital signs, sessions, statements, indexes, tables,
+  vacuum, replication/WAL, and settings. Skipped or failed sections are reported with their reason and remain
+  limitations, never empty tables.
+- Return, and render as tables, the rows each section read: the live `pg_stat_activity` session snapshot with state,
+  wait event, blocking pids, transaction age and statement; the top normalized statements; index usage; relation size
+  and access shape; autovacuum state; replication and WAL; and the curated settings.
+- Carry a report-level list of what the read does not cover, assembled from every degraded section, truncation and
+  unread datasource.
 - Keep only the previous read in memory to show simple deltas; no baseline is written to disk.
 
 Availability:
@@ -2092,8 +2098,10 @@ Availability:
   URL, including through a wrapping driver, or the Quarkus `db-kind` — and never opens a connection. A datasource that
   declares no readable URL cannot be ruled out and keeps the panel available; a non-PostgreSQL datasource reached by the
   read is skipped with diagnostics rather than treated as a failure.
-- A read-only database role with `pg_monitor` membership is recommended for complete statistics. Without it, PostgreSQL
-  may hide or fail session, replication, and statistics views.
+- A read-only database role with `pg_monitor` membership is recommended for complete statistics. Without it,
+  `pg_stat_activity` still returns one row per backend but nulls the state, wait event and statement of backends the
+  role does not own, and replication and statistics views may fail; each gap degrades its section rather than
+  disappearing.
 - The statements section is `SKIPPED` unless `pg_stat_statements` is installed.
 
 Out of scope for the current release surface:
@@ -2110,7 +2118,10 @@ Acceptance criteria:
   the database.
 - Row caps, timeouts, and section failures produce partial/diagnostic reports instead of silent clean reports.
 - The panel reports a runtime observation of one database, not a repeatable assessment of the application, so it carries
-  no score and never contributes to the Overview dashboard's advisor scoring or retained-findings totals.
+  no findings and no score, and never contributes to the Overview dashboard's advisor scoring or retained-findings
+  totals.
+- A session, statement, index, relation, autovacuum or settings row that the read retained is rendered in its section's
+  table; a section that could not be read shows its reason and hint instead of an empty table.
 
 ### 5.18 Cache Panel
 

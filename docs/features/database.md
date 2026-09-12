@@ -27,11 +27,21 @@ read-only flag).
 
 ![BootUI PostgreSQL panel](../images/bootui-postgresql.webp)
 
-The PostgreSQL panel reads a point-in-time, read-only snapshot of the application's own PostgreSQL database statistics.
-It answers "what does PostgreSQL report about this database right now?" across cache hit ratio, rollbacks, connections,
-locks, transaction-id age, statement rankings, index usage, large relations, autovacuum, replication/WAL, and selected
-settings. The read is explicit: opening the panel shows the last report, and nothing queries PostgreSQL until you click
-**Run PostgreSQL read**.
+The PostgreSQL panel is a runtime view of the application's own PostgreSQL database. It answers "what does PostgreSQL
+report about this database right now?" and shows the answer as tables you read yourself: the live session snapshot, the
+vital signs (cache hit ratio, rollbacks, connections, transaction-id age, database size, deadlocks), the top normalized
+statements, index usage, relation size and access shape, autovacuum state, replication and WAL, and a curated set of
+operational settings. The read is explicit: opening the panel shows the last report, and nothing queries PostgreSQL
+until you click **Run PostgreSQL read**.
+
+It grades nothing. There is no rule catalogue, no severity, and no score here — the panel reports the server's own
+numbers, names every section it could not read, and leaves the judgement to you. Sections that could not be read are
+shown as skipped or failed with their reason, so a missing extension never looks like an empty table.
+
+The **Sessions** table is the only genuinely live part: it is a snapshot of `pg_stat_activity` at the instant of the
+read, with each backend's state, wait event, blocking pids, transaction age and statement. Everything else is
+cumulative since the last statistics reset. A second read adds a short "what changed since the previous read" list,
+kept in memory only.
 
 This is not the Database advisor and not SQL Trace:
 
@@ -41,16 +51,18 @@ This is not the Database advisor and not SQL Trace:
 - **PostgreSQL** reads PostgreSQL's own cumulative `pg_stat_*` and `pg_catalog` views, which include work from every
   client of the database and statistics since the last reset.
 
-See [PostgreSQL checks](../POSTGRESQL-CHECKS.md) for every rule, threshold, caveat, and bound.
-
 ::: details Safety and bounds
 
 The panel runs one read-only transaction per datasource and pins `statement_timeout` to 5 seconds, `lock_timeout` to
-2 seconds, and the read budget to 15 seconds. List sections are capped (25 statements, 50 indexes, 25 tables,
-25 autovacuum rows, 10 replicas, and 40 settings), and truncation is reported as incomplete coverage rather than hidden.
+2 seconds, and the read budget to 15 seconds. List sections are capped (50 sessions, 25 statements, 50 indexes,
+25 tables, 25 autovacuum rows, 10 replicas, and 40 settings), and truncation is reported as incomplete coverage rather
+than hidden. Every statistics query runs inside its own savepoint, because one error would otherwise abort the shared
+read-only transaction and make every later section report "current transaction is aborted" instead of its own content.
 No baseline is written to disk; only the previous read is kept in memory so the panel can show simple deltas.
 
-Values are gated by the global exposure policy. Under `MASKED` or `METADATA_ONLY`, statement text has string literals
+Values are gated by the global exposure policy. Session statement text is the verbatim text the client sent, so it is
+redacted, masked and truncated exactly like the normalized text from `pg_stat_statements`. Under `MASKED` or
+`METADATA_ONLY`, statement text has string literals
 and dollar-quoted bodies (`$$ ... $$`, `$tag$ ... $tag$`, which is how `CREATE FUNCTION` and `DO` blocks reach
 `pg_stat_statements`) replaced before it leaves the engine, and replica `client_addr` is masked under
 `METADATA_ONLY`. Error messages from failed statistics reads are redacted the same way before becoming a diagnostic.
@@ -64,9 +76,11 @@ decision is taken from declared configuration alone — the JDBC URL each dataso
 driver such as `jdbc:aws-wrapper:postgresql://...`), or the Quarkus `db-kind` — so rendering the sidebar still contacts no
 database. A datasource that declares no readable URL cannot be ruled out, so the panel stays available when the
 PostgreSQL driver is on the classpath, and a non-PostgreSQL datasource reached by the read is skipped with a clear
-diagnostic. Use a read-only database role that is a member of
-`pg_monitor` when possible; without it, some session, replication, and statistics views can fail or under-report. The
-statement ranking section additionally requires `pg_stat_statements`.
+diagnostic. Use a read-only database role that is a member of `pg_monitor` when possible; without it,
+`pg_stat_activity` returns one row per backend but hides the state, wait event and statement of backends the role does
+not own, and some replication and statistics views can fail or under-report. Each of those gaps degrades the section to
+partially read rather than being silently dropped. The statement ranking section additionally requires
+`pg_stat_statements`.
 
 :::
 

@@ -5307,137 +5307,19 @@ for (const report of [
   }
 }
 
-// The PostgreSQL panel reads PostgreSQL's own statistics views, so its mock mirrors what the engine
-// produces for a single healthy datasource with a few real findings: evidence strings, section
-// statuses and severity tallies all follow the rule catalogue in docs/POSTGRESQL-CHECKS.md.
+// The PostgreSQL panel is a runtime view of PostgreSQL's own statistics views, so its mock mirrors what
+// the engine produces for a single datasource: a live pg_stat_activity session snapshot plus the
+// cumulative statistics sections, each reported with its row count and read status, and no findings.
 const postgresql = {
   localOnly: true,
   disclaimer:
-    "Read-only reads of PostgreSQL's own pg_stat_* and pg_catalog views, bounded by row count and a wall-clock budget. Statistics are cumulative since the last reset and cover every client of the database, not only this application. These checks are review prompts, not verdicts.",
+    "Read-only reads of PostgreSQL's own pg_stat_* and pg_catalog views, bounded by row count and a wall-clock budget. The session list is a live snapshot; every other number is cumulative since the last statistics reset and covers every client of the database, not only this application.",
   status: 'READ',
   message: null,
   readAt: nowMillis - 9 * 1000,
   databasesRead: 1,
-  findingsFound: 6,
   truncated: false,
-  evidence: {usable: true, coverageComplete: true, limitations: []},
-  severityCounts: [
-    {severity: 'CRITICAL', count: 0},
-    {severity: 'HIGH', count: 1},
-    {severity: 'MEDIUM', count: 4},
-    {severity: 'LOW', count: 1},
-    {severity: 'INFO', count: 0}
-  ],
-  findings: [
-    {
-      id: 'PG-VITALS-005',
-      dataSource: 'dataSource',
-      sectionId: 'vital-signs',
-      title: 'Sessions waiting on locks',
-      category: 'CONCURRENCY',
-      severity: 'HIGH',
-      description: 'At least one backend is blocked waiting for a lock another backend holds.',
-      evidence: '3 session(s) are waiting on a lock.',
-      samples: [],
-      recommendation:
-        'Identify the blocking transaction and shorten it. Long transactions and idle-in-transaction sessions are the usual cause.',
-      caveat:
-        'This is a point-in-time sample; a lock wait that resolves between reads is not reported, and a brief wait is normal under write contention.',
-      learnMoreUrl: 'https://www.postgresql.org/docs/current/explicit-locking.html'
-    },
-    {
-      id: 'PG-VITALS-004',
-      dataSource: 'dataSource',
-      sectionId: 'vital-signs',
-      title: 'Sessions idle in transaction',
-      category: 'CONCURRENCY',
-      severity: 'MEDIUM',
-      description:
-        'A backend is holding an open transaction while doing nothing, which keeps its locks and blocks vacuum from reclaiming rows newer than its snapshot.',
-      evidence: '2 session(s) are idle in transaction; the oldest running transaction is 412.6 s old.',
-      samples: [],
-      recommendation:
-        'Find the owning code path and commit or roll back before doing non-database work. idle_in_transaction_session_timeout bounds the damage.',
-      caveat:
-        'This is a point-in-time sample taken during the read; a short-lived idle transaction can be missed, and a debugger session counts too.',
-      learnMoreUrl: 'https://www.postgresql.org/docs/current/monitoring-stats.html'
-    },
-    {
-      id: 'PG-STATEMENTS-001',
-      dataSource: 'dataSource',
-      sectionId: 'statements',
-      title: 'Statements with a high mean execution time',
-      category: 'PERFORMANCE',
-      severity: 'MEDIUM',
-      description: 'At least one frequently executed statement averages more than 100 ms per call.',
-      evidence: '2 ranked statement(s) average at least 100 ms per call.',
-      samples: [
-        '486.2 ms mean over 1204 calls: select o.id, o.total from orders o join order_lines l on l.order_id = o.id where o.customer_id = $1',
-        '153.7 ms mean over 318 calls: select count(*) from audit_events where created_at >= $1'
-      ],
-      recommendation:
-        'Run EXPLAIN (ANALYZE, BUFFERS) on the statement before changing anything; the fix is often an index or a narrower result, not a server setting.',
-      caveat:
-        'Statement text is normalized by PostgreSQL and the timings are averages: a bimodal statement (cached versus cold) hides behind its mean.',
-      learnMoreUrl: 'https://www.postgresql.org/docs/current/pgstatstatements.html'
-    },
-    {
-      id: 'PG-TABLE-001',
-      dataSource: 'dataSource',
-      sectionId: 'tables',
-      title: 'Large relations scanned mostly sequentially',
-      category: 'PERFORMANCE',
-      severity: 'MEDIUM',
-      description: 'Most scans started on a relation larger than 50.0 MB were sequential rather than index scans.',
-      evidence: '1 large relation(s) are scanned mostly sequentially.',
-      samples: ['public.audit_events (612.4 MB, 98.7% of scan invocations sequential, over 1841 sequential scans)'],
-      recommendation:
-        'Check the predicates the application uses against this table and index the selective ones. Confirm with EXPLAIN before adding an index.',
-      caveat:
-        'The ratio counts scan invocations (seq_scan against idx_scan), not rows or blocks read, so one enormous sequential scan and one trivial one count the same.',
-      learnMoreUrl: 'https://www.postgresql.org/docs/current/indexes.html'
-    },
-    {
-      id: 'PG-VACUUM-001',
-      dataSource: 'dataSource',
-      sectionId: 'vacuum',
-      title: 'Tables past their autovacuum threshold',
-      category: 'MAINTENANCE',
-      severity: 'MEDIUM',
-      description:
-        "A relation holds more dead tuples than the server's own autovacuum threshold, so autovacuum is due and has not caught up.",
-      evidence: '2 relation(s) are past their autovacuum threshold.',
-      samples: [
-        'public.audit_events has 184320 dead tuples against a threshold of 92150',
-        'public.order_lines has 21480 dead tuples against a threshold of 18306'
-      ],
-      recommendation:
-        'Check whether autovacuum is keeping up at all; a long-running transaction or an abandoned replication slot can hold the cleanup horizon back.',
-      caveat:
-        'Per-table reloptions overrides are not read, so "due" uses cluster-wide settings. Autovacuum may also be running right now, in which case the backlog is transient.',
-      learnMoreUrl: 'https://www.postgresql.org/docs/current/routine-vacuuming.html'
-    },
-    {
-      id: 'PG-INDEX-001',
-      dataSource: 'dataSource',
-      sectionId: 'indexes',
-      title: 'Indexes never scanned on this node',
-      category: 'MAINTENANCE',
-      severity: 'LOW',
-      description:
-        'An index larger than 1.0 MB has never been used by a scan on this server, while still costing write time and disk space.',
-      evidence: '2 index(es) larger than 1.0 MB have never been scanned on this node.',
-      samples: [
-        'public.audit_events index idx_audit_events_actor (24.6 MB, 0 scans)',
-        'public.orders index idx_orders_promo_code (3.1 MB, 0 scans)'
-      ],
-      recommendation:
-        'Confirm on every node before dropping anything, then drop the index concurrently if it is genuinely unused.',
-      caveat:
-        'Scan counts are per node and reset with the statistics. A primary can show zero scans for an index a read replica depends on.',
-      learnMoreUrl: 'https://www.postgresql.org/docs/current/monitoring-stats.html'
-    }
-  ],
+  limitations: [],
   databases: [
     {
       name: 'dataSource',
@@ -5446,7 +5328,7 @@ const postgresql = {
       serverMajorVersion: 18,
       role: 'bootui_reader',
       monitoringRole: true,
-      status: 'SCANNED',
+      status: 'READ',
       message: null,
       truncated: false,
       vitalSigns: {
@@ -5461,7 +5343,7 @@ const postgresql = {
         activeSessions: 6,
         idleInTransactionSessions: 2,
         longestTransactionSeconds: 412.6,
-        blockedSessions: 3,
+        blockedSessions: 1,
         transactionIdAge: 21648213,
         wraparoundLimit: 200000000,
         wraparoundUsageRatio: 0.1082,
@@ -5478,7 +5360,15 @@ const postgresql = {
           reason: null,
           hint: null,
           rowCount: 1,
-          findingCount: 2,
+          truncated: false
+        },
+        {
+          id: 'sessions',
+          title: 'Sessions',
+          status: 'AVAILABLE',
+          reason: null,
+          hint: null,
+          rowCount: 4,
           truncated: false
         },
         {
@@ -5487,8 +5377,7 @@ const postgresql = {
           status: 'AVAILABLE',
           reason: null,
           hint: null,
-          rowCount: 25,
-          findingCount: 1,
+          rowCount: 4,
           truncated: false
         },
         {
@@ -5497,8 +5386,7 @@ const postgresql = {
           status: 'AVAILABLE',
           reason: null,
           hint: null,
-          rowCount: 38,
-          findingCount: 1,
+          rowCount: 3,
           truncated: false
         },
         {
@@ -5507,8 +5395,7 @@ const postgresql = {
           status: 'AVAILABLE',
           reason: null,
           hint: null,
-          rowCount: 17,
-          findingCount: 1,
+          rowCount: 3,
           truncated: false
         },
         {
@@ -5517,8 +5404,7 @@ const postgresql = {
           status: 'AVAILABLE',
           reason: null,
           hint: null,
-          rowCount: 17,
-          findingCount: 1,
+          rowCount: 3,
           truncated: false
         },
         {
@@ -5528,7 +5414,6 @@ const postgresql = {
           reason: null,
           hint: null,
           rowCount: 1,
-          findingCount: 0,
           truncated: false
         },
         {
@@ -5537,17 +5422,274 @@ const postgresql = {
           status: 'AVAILABLE',
           reason: null,
           hint: null,
-          rowCount: 23,
-          findingCount: 0,
+          rowCount: 4,
           truncated: false
         }
       ],
-      statements: [],
-      indexes: [],
-      tables: [],
-      vacuum: [],
-      replication: null,
-      settings: [],
+      sessions: [
+        {
+          pid: 48219,
+          user: 'bootui_sample',
+          applicationName: 'bootui-sample-app',
+          clientAddress: '127.0.0.1',
+          state: 'active',
+          waitEventType: null,
+          waitEvent: null,
+          blockedBy: null,
+          stateSeconds: 0.4,
+          transactionSeconds: 0.4,
+          querySeconds: 0.4,
+          query: 'select o.id, o.total from orders o where o.customer_id = $1 order by o.created_at desc'
+        },
+        {
+          pid: 48224,
+          user: 'bootui_sample',
+          applicationName: 'bootui-sample-app',
+          clientAddress: '127.0.0.1',
+          state: 'active',
+          waitEventType: 'Lock',
+          waitEvent: 'transactionid',
+          blockedBy: '48231',
+          stateSeconds: 12.7,
+          transactionSeconds: 13.1,
+          querySeconds: 12.7,
+          query: 'update orders set status = $1 where id = $2'
+        },
+        {
+          pid: 48231,
+          user: 'bootui_sample',
+          applicationName: 'bootui-sample-app',
+          clientAddress: '127.0.0.1',
+          state: 'idle in transaction',
+          waitEventType: 'Client',
+          waitEvent: 'ClientRead',
+          blockedBy: null,
+          stateSeconds: 412.6,
+          transactionSeconds: 412.9,
+          querySeconds: 412.6,
+          query: 'select * from orders where id = $1 for update'
+        },
+        {
+          pid: 48240,
+          user: 'bootui_reader',
+          applicationName: 'BootUI',
+          clientAddress: '127.0.0.1',
+          state: 'active',
+          waitEventType: null,
+          waitEvent: null,
+          blockedBy: null,
+          stateSeconds: 0.02,
+          transactionSeconds: 0.03,
+          querySeconds: 0.02,
+          query: 'select a.pid, a.usename, a.state from pg_stat_activity a'
+        }
+      ],
+      statements: [
+        {
+          queryId: '-4512837465019283746',
+          query: 'select o.id, o.total from orders o where o.customer_id = $1 order by o.created_at desc',
+          calls: 184213,
+          totalTimeMs: 412783.4,
+          meanTimeMs: 2.24,
+          maxTimeMs: 318.7,
+          rows: 1842130,
+          cacheHitRatio: 0.9987
+        },
+        {
+          queryId: '8812736451029384756',
+          query: 'update orders set status = $1 where id = $2',
+          calls: 42871,
+          totalTimeMs: 98214.7,
+          meanTimeMs: 2.29,
+          maxTimeMs: 1284.3,
+          rows: 42871,
+          cacheHitRatio: 0.9992
+        },
+        {
+          queryId: '-1029384756102938475',
+          query: 'select c.id, c.email from customers c where lower(c.email) = $1',
+          calls: 91240,
+          totalTimeMs: 74128.9,
+          meanTimeMs: 0.81,
+          maxTimeMs: 42.1,
+          rows: 91240,
+          cacheHitRatio: 0.9964
+        },
+        {
+          queryId: '5647382910564738291',
+          query: 'insert into audit_events (id, payload, created_at) values ($1, $2, $3)',
+          calls: 218400,
+          totalTimeMs: 61284.2,
+          meanTimeMs: 0.28,
+          maxTimeMs: 18.4,
+          rows: 218400,
+          cacheHitRatio: 0.9999
+        }
+      ],
+      indexes: [
+        {
+          schema: 'public',
+          table: 'orders',
+          index: 'orders_pkey',
+          scans: 1284712,
+          tuplesRead: 1284712,
+          sizeBytes: 41943040,
+          unique: true,
+          primaryKey: true,
+          constraintBacked: true
+        },
+        {
+          schema: 'public',
+          table: 'orders',
+          index: 'orders_customer_created_idx',
+          scans: 184213,
+          tuplesRead: 1842130,
+          sizeBytes: 62914560,
+          unique: false,
+          primaryKey: false,
+          constraintBacked: false
+        },
+        {
+          schema: 'public',
+          table: 'audit_events',
+          index: 'audit_events_payload_gin_idx',
+          scans: 0,
+          tuplesRead: 0,
+          sizeBytes: 402653184,
+          unique: false,
+          primaryKey: false,
+          constraintBacked: false
+        }
+      ],
+      tables: [
+        {
+          schema: 'public',
+          table: 'audit_events',
+          totalSizeBytes: 1073741824,
+          tableSizeBytes: 671088640,
+          indexSizeBytes: 402653184,
+          liveTuples: 21840000,
+          deadTuples: 412800,
+          sequentialScans: 18,
+          sequentialTuplesRead: 392000000,
+          indexScans: 4210,
+          sequentialScanRatio: 0.0043
+        },
+        {
+          schema: 'public',
+          table: 'orders',
+          totalSizeBytes: 524288000,
+          tableSizeBytes: 419430400,
+          indexSizeBytes: 104857600,
+          liveTuples: 4128366,
+          deadTuples: 18420,
+          sequentialScans: 4,
+          sequentialTuplesRead: 16513464,
+          indexScans: 1468925,
+          sequentialScanRatio: 0.0000027
+        },
+        {
+          schema: 'public',
+          table: 'customers',
+          totalSizeBytes: 94371840,
+          tableSizeBytes: 67108864,
+          indexSizeBytes: 27262976,
+          liveTuples: 412836,
+          deadTuples: 1284,
+          sequentialScans: 91,
+          sequentialTuplesRead: 37568076,
+          indexScans: 91240,
+          sequentialScanRatio: 0.000997
+        }
+      ],
+      vacuum: [
+        {
+          schema: 'public',
+          table: 'audit_events',
+          liveTuples: 21840000,
+          deadTuples: 412800,
+          deadTupleRatio: 0.0189,
+          vacuumThreshold: 4368050,
+          vacuumDue: false,
+          autovacuumEnabled: true,
+          lastVacuum: null,
+          lastAutoVacuum: nowMillis - 42 * 60 * 1000,
+          lastAnalyze: null,
+          lastAutoAnalyze: nowMillis - 42 * 60 * 1000
+        },
+        {
+          schema: 'public',
+          table: 'orders',
+          liveTuples: 4128366,
+          deadTuples: 18420,
+          deadTupleRatio: 0.0045,
+          vacuumThreshold: 825723,
+          vacuumDue: false,
+          autovacuumEnabled: true,
+          lastVacuum: nowMillis - 6 * 60 * 60 * 1000,
+          lastAutoVacuum: nowMillis - 18 * 60 * 1000,
+          lastAnalyze: null,
+          lastAutoAnalyze: nowMillis - 18 * 60 * 1000
+        },
+        {
+          schema: 'public',
+          table: 'customers',
+          liveTuples: 412836,
+          deadTuples: 1284,
+          deadTupleRatio: 0.0031,
+          vacuumThreshold: 82617,
+          vacuumDue: false,
+          autovacuumEnabled: true,
+          lastVacuum: null,
+          lastAutoVacuum: nowMillis - 3 * 60 * 60 * 1000,
+          lastAnalyze: null,
+          lastAutoAnalyze: nowMillis - 3 * 60 * 60 * 1000
+        }
+      ],
+      replication: {
+        inRecovery: false,
+        replicas: [
+          {
+            applicationName: 'bootui_sample_standby',
+            clientAddress: '127.0.0.1',
+            state: 'streaming',
+            syncState: 'async',
+            sentLagBytes: 0,
+            flushLagBytes: 16384,
+            replayLagBytes: 32768
+          }
+        ],
+        checkpointsTimed: 4128,
+        checkpointsRequested: 12,
+        checkpointWriteSeconds: 184.7,
+        replicationSlots: 1,
+        inactiveReplicationSlots: 0,
+        walLevel: 'replica'
+      },
+      settings: [
+        {
+          name: 'shared_buffers',
+          value: '2048',
+          unit: 'MB',
+          source: 'configuration file',
+          note: 'Shared buffer cache size'
+        },
+        {name: 'work_mem', value: '4', unit: 'MB', source: 'default', note: 'Per-sort and per-hash memory'},
+        {
+          name: 'max_connections',
+          value: '100',
+          unit: null,
+          source: 'configuration file',
+          note: 'Cluster-wide connection ceiling'
+        },
+        {
+          name: 'autovacuum_vacuum_scale_factor',
+          value: '0.2',
+          unit: null,
+          source: 'default',
+          note: 'Share of a relation that must be dead before autovacuum runs'
+        }
+      ],
       changes: [
         {metric: 'Cache hit ratio', previous: '99.2%', current: '99.4%', direction: 'UP'},
         {metric: 'Rollback ratio', previous: '0.3%', current: '0.4%', direction: 'UP'},
@@ -5707,8 +5849,8 @@ const screenshots = [
     'PostgreSQL',
     'bootui-postgresql.webp',
     async (page) => {
-      await page.getByText('Sessions idle in transaction').waitFor()
-      await page.getByText('Statements with a high mean execution time').waitFor()
+      await page.getByText('idle in transaction').first().waitFor()
+      await page.getByText('orders_customer_created_idx').waitFor()
     }
   ],
   ['hibernate', 'Hibernate', 'bootui-hibernate.webp', waitForText('FetchType.EAGER')],
