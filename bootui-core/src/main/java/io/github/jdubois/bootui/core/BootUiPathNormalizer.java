@@ -37,7 +37,7 @@ public final class BootUiPathNormalizer {
      * Normalizes and validates a configured base path.
      *
      * @param path the raw {@code bootui.path} value from configuration
-     * @return the normalized path (trailing slash stripped, otherwise unchanged)
+     * @return the trimmed path (trailing slash stripped, otherwise unchanged)
      * @throws IllegalArgumentException when the path fails validation
      */
     public static String normalize(String path) {
@@ -51,7 +51,7 @@ public final class BootUiPathNormalizer {
      * {@code /bootui} mount, as the default {@code /bootui/api} does.</p>
      *
      * @param path the raw {@code bootui.api-path} value
-     * @return the normalized API path
+     * @return the trimmed API path
      * @throws IllegalArgumentException when the path fails validation
      */
     public static String normalizeApiPath(String path) {
@@ -71,8 +71,9 @@ public final class BootUiPathNormalizer {
         while (trimmed.length() > 1 && trimmed.endsWith("/")) {
             trimmed = trimmed.substring(0, trimmed.length() - 1);
         }
+        // A separate final copy is required because "trimmed" is reassigned above and therefore cannot be
+        // captured by the lambdas below.
         String normalized = trimmed;
-
         reject(
                 trimmed.equals("/"),
                 () -> propertyName + " must not be '/' (the root path would intercept every application request).");
