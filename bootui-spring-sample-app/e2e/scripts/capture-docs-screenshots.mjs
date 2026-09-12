@@ -106,6 +106,7 @@ const panelOrder = [
   ['architecture', 'Architecture'],
   ['rest-api', 'REST API'],
   ['database-advisor', 'Database'],
+  ['postgresql', 'PostgreSQL'],
   ['mcp-server', 'MCP Server'],
   ['cli', 'Command Line'],
   ['devtools', 'Spring DevTools'],
@@ -5306,6 +5307,248 @@ for (const report of [
   }
 }
 
+// The PostgreSQL panel reads PostgreSQL's own statistics views, so its mock mirrors what the engine
+// produces for a single healthy datasource with a few real findings: evidence strings, section
+// statuses and severity tallies all follow the rule catalogue in docs/POSTGRESQL-CHECKS.md.
+const postgresql = {
+  localOnly: true,
+  disclaimer:
+    "Read-only reads of PostgreSQL's own pg_stat_* and pg_catalog views, bounded by row count and a wall-clock budget. Statistics are cumulative since the last reset and cover every client of the database, not only this application. These checks are review prompts, not verdicts.",
+  status: 'READ',
+  message: null,
+  readAt: nowMillis - 9 * 1000,
+  databasesRead: 1,
+  findingsFound: 5,
+  truncated: false,
+  evidence: {usable: true, coverageComplete: true, limitations: []},
+  severityCounts: [
+    {severity: 'CRITICAL', count: 0},
+    {severity: 'HIGH', count: 1},
+    {severity: 'MEDIUM', count: 3},
+    {severity: 'LOW', count: 1},
+    {severity: 'INFO', count: 0}
+  ],
+  findings: [
+    {
+      id: 'PG-VITALS-004',
+      dataSource: 'dataSource',
+      sectionId: 'vital-signs',
+      title: 'Sessions idle in transaction',
+      category: 'CONCURRENCY',
+      severity: 'HIGH',
+      description:
+        'A backend is holding an open transaction without doing any work, which keeps its locks and holds back the cleanup horizon for the whole database.',
+      evidence: '2 session(s) are idle in transaction; the oldest running transaction is 412.6 s old.',
+      samples: [],
+      recommendation:
+        'Find the owning code path and commit or roll back before doing non-database work. idle_in_transaction_session_timeout bounds the damage.',
+      caveat:
+        'This is a point-in-time sample taken during the read; a short-lived idle transaction can be missed, and a debugger session counts too.',
+      learnMoreUrl: 'https://www.postgresql.org/docs/current/monitoring-stats.html'
+    },
+    {
+      id: 'PG-STATEMENTS-001',
+      dataSource: 'dataSource',
+      sectionId: 'statements',
+      title: 'Statements with a high mean execution time',
+      category: 'PERFORMANCE',
+      severity: 'MEDIUM',
+      description: 'At least one frequently executed statement averages more than 100 ms per call.',
+      evidence: '2 ranked statement(s) average at least 100 ms per call.',
+      samples: [
+        '486.2 ms mean over 1204 calls: select o.id, o.total from orders o join order_lines l on l.order_id = o.id where o.customer_id = $1',
+        '153.7 ms mean over 318 calls: select count(*) from audit_events where created_at >= $1'
+      ],
+      recommendation:
+        'Run EXPLAIN (ANALYZE, BUFFERS) on the statement before changing anything; the fix is often an index or a narrower result, not a server setting.',
+      caveat:
+        'Statement text is normalized by PostgreSQL and the timings are averages: a bimodal statement (cached versus cold) hides behind its mean.',
+      learnMoreUrl: 'https://www.postgresql.org/docs/current/pgstatstatements.html'
+    },
+    {
+      id: 'PG-TABLE-001',
+      dataSource: 'dataSource',
+      sectionId: 'tables',
+      title: 'Large relations scanned mostly sequentially',
+      category: 'PERFORMANCE',
+      severity: 'MEDIUM',
+      description: 'Most scans started on a relation larger than 50.0 MB were sequential rather than index scans.',
+      evidence: '1 large relation(s) are scanned mostly sequentially.',
+      samples: ['public.audit_events (612.4 MB, 98.7% of scan invocations sequential, over 1841 sequential scans)'],
+      recommendation:
+        'Check the predicates the application uses against this table and index the selective ones. Confirm with EXPLAIN before adding an index.',
+      caveat:
+        'The ratio counts scan invocations (seq_scan against idx_scan), not rows or blocks read, so one enormous sequential scan and one trivial one count the same.',
+      learnMoreUrl: 'https://www.postgresql.org/docs/current/indexes.html'
+    },
+    {
+      id: 'PG-VACUUM-001',
+      dataSource: 'dataSource',
+      sectionId: 'vacuum',
+      title: 'Tables past their autovacuum threshold',
+      category: 'MAINTENANCE',
+      severity: 'MEDIUM',
+      description:
+        "A relation holds more dead tuples than the server's own autovacuum threshold, so autovacuum is due and has not caught up.",
+      evidence: '2 relation(s) are past their autovacuum threshold.',
+      samples: [
+        'public.audit_events has 184320 dead tuples against a threshold of 92150',
+        'public.order_lines has 21480 dead tuples against a threshold of 18306'
+      ],
+      recommendation:
+        'Check whether autovacuum is keeping up at all; a long-running transaction or an abandoned replication slot can hold the cleanup horizon back.',
+      caveat:
+        'Per-table reloptions overrides are not read, so "due" uses cluster-wide settings. Autovacuum may also be running right now, in which case the backlog is transient.',
+      learnMoreUrl: 'https://www.postgresql.org/docs/current/routine-vacuuming.html'
+    },
+    {
+      id: 'PG-INDEX-001',
+      dataSource: 'dataSource',
+      sectionId: 'indexes',
+      title: 'Indexes never scanned on this node',
+      category: 'MAINTENANCE',
+      severity: 'LOW',
+      description:
+        'An index larger than 1.0 MB has never been used by a scan on this server, while still costing write time and disk space.',
+      evidence: '2 index(es) larger than 1.0 MB have never been scanned on this node.',
+      samples: [
+        'public.audit_events index idx_audit_events_actor (24.6 MB, 0 scans)',
+        'public.orders index idx_orders_promo_code (3.1 MB, 0 scans)'
+      ],
+      recommendation:
+        'Confirm on every node before dropping anything, then drop the index concurrently if it is genuinely unused.',
+      caveat:
+        'Scan counts are per node and reset with the statistics. A primary can show zero scans for an index a read replica depends on.',
+      learnMoreUrl: 'https://www.postgresql.org/docs/current/monitoring-stats.html'
+    }
+  ],
+  databases: [
+    {
+      name: 'dataSource',
+      databaseName: 'bootui_sample',
+      serverVersion: 'PostgreSQL 18.0',
+      serverMajorVersion: 18,
+      role: 'bootui_reader',
+      monitoringRole: true,
+      status: 'SCANNED',
+      message: null,
+      truncated: false,
+      vitalSigns: {
+        databaseName: 'bootui_sample',
+        cacheHitRatio: 0.9941,
+        rollbackRatio: 0.0038,
+        transactionsCommitted: 4128366,
+        transactionsRolledBack: 15742,
+        connections: 23,
+        maxConnections: 100,
+        connectionUsageRatio: 0.23,
+        activeSessions: 6,
+        idleInTransactionSessions: 2,
+        longestTransactionSeconds: 412.6,
+        blockedSessions: 0,
+        transactionIdAge: 21648213,
+        wraparoundLimit: 200000000,
+        wraparoundUsageRatio: 0.1082,
+        databaseSizeBytes: 1824361676,
+        deadlocks: 0,
+        temporaryFiles: 0,
+        temporaryBytes: 0
+      },
+      sections: [
+        {
+          id: 'vital-signs',
+          title: 'Vital signs',
+          status: 'AVAILABLE',
+          reason: null,
+          hint: null,
+          rowCount: 1,
+          findingCount: 1,
+          truncated: false
+        },
+        {
+          id: 'statements',
+          title: 'Statement ranking',
+          status: 'AVAILABLE',
+          reason: null,
+          hint: null,
+          rowCount: 25,
+          findingCount: 1,
+          truncated: false
+        },
+        {
+          id: 'indexes',
+          title: 'Index usage',
+          status: 'AVAILABLE',
+          reason: null,
+          hint: null,
+          rowCount: 38,
+          findingCount: 1,
+          truncated: false
+        },
+        {
+          id: 'tables',
+          title: 'Largest relations',
+          status: 'AVAILABLE',
+          reason: null,
+          hint: null,
+          rowCount: 17,
+          findingCount: 1,
+          truncated: false
+        },
+        {
+          id: 'vacuum',
+          title: 'Autovacuum health',
+          status: 'AVAILABLE',
+          reason: null,
+          hint: null,
+          rowCount: 17,
+          findingCount: 1,
+          truncated: false
+        },
+        {
+          id: 'replication',
+          title: 'Replication, checkpoints and WAL',
+          status: 'AVAILABLE',
+          reason: null,
+          hint: null,
+          rowCount: 1,
+          findingCount: 0,
+          truncated: false
+        },
+        {
+          id: 'settings',
+          title: 'Notable settings',
+          status: 'AVAILABLE',
+          reason: null,
+          hint: null,
+          rowCount: 23,
+          findingCount: 0,
+          truncated: false
+        }
+      ],
+      statements: [],
+      indexes: [],
+      tables: [],
+      vacuum: [],
+      replication: null,
+      settings: [],
+      changes: [
+        {metric: 'Cache hit ratio', previous: '99.2%', current: '99.4%', direction: 'UP'},
+        {metric: 'Rollback ratio', previous: '0.3%', current: '0.4%', direction: 'UP'},
+        {metric: 'Connections', previous: '19', current: '23', direction: 'UP'},
+        {metric: 'Database size', previous: '1.6 GB', current: '1.7 GB', direction: 'UP'}
+      ]
+    }
+  ],
+  diagnostics: [
+    {
+      source: 'dataSource',
+      level: 'INFO',
+      message: 'Session pinned with statement_timeout=5s, lock_timeout=2s, transaction read only.'
+    }
+  ]
+}
+
 const screenshots = [
   [
     'overview',
@@ -5441,6 +5684,15 @@ const screenshots = [
     async (page) => {
       await page.getByText('Tables without a primary key').waitFor()
       await page.getByText('Mapped foreign key column has no physical index').waitFor()
+    }
+  ],
+  [
+    'postgresql',
+    'PostgreSQL',
+    'bootui-postgresql.webp',
+    async (page) => {
+      await page.getByText('Sessions idle in transaction').waitFor()
+      await page.getByText('Statements with a high mean execution time').waitFor()
     }
   ],
   ['hibernate', 'Hibernate', 'bootui-hibernate.webp', waitForText('FetchType.EAGER')],
@@ -6163,6 +6415,7 @@ async function handleApiRoute(route) {
   if (endpoint.startsWith('data/repositories/')) return fulfillJson(route, dataDetail)
   if (endpoint === 'database-advisor' || endpoint === 'database-advisor/scan')
     return fulfillJson(route, databaseAdvisor)
+  if (endpoint === 'postgresql' || endpoint === 'postgresql/read') return fulfillJson(route, postgresql)
   if (endpoint === 'hibernate') return fulfillJson(route, hibernate)
   if (endpoint === 'hibernate/scan') return fulfillJson(route, hibernate)
   if (endpoint === 'hibernate-statistics' || endpoint === 'hibernate-statistics/enable')

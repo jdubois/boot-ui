@@ -430,11 +430,13 @@ safe in an application with no JDBC datasource extension; a bean with no such qu
 
 ## PostgreSQL
 
+![BootUI PostgreSQL panel](../images/bootui-postgresql.webp)
+
 The PostgreSQL panel reads a point-in-time, read-only snapshot of the application's own PostgreSQL database statistics.
 It answers "what does PostgreSQL report about this database right now?" across cache hit ratio, rollbacks, connections,
 locks, transaction-id age, statement rankings, index usage, large relations, autovacuum, replication/WAL, and selected
 settings. The read is explicit: opening the panel shows the last report, and nothing queries PostgreSQL until you click
-**Read vital signs**.
+**Run PostgreSQL read**.
 
 This is not the Database advisor and not SQL Trace:
 

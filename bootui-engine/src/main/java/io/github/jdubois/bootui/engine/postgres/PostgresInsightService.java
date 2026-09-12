@@ -110,7 +110,7 @@ public final class PostgresInsightService {
     public PostgresInsightReport initialReport() {
         return report(
                 "NOT_READ",
-                "PostgreSQL vital signs have not been read yet. Click Read vital signs to query the database's "
+                "PostgreSQL vital signs have not been read yet. Click Run PostgreSQL read to query the database's "
                         + "own statistics views.",
                 null,
                 List.of(),
