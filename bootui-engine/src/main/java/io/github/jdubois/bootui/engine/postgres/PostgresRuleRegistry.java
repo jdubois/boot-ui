@@ -300,25 +300,28 @@ final class PostgresRuleRegistry {
                             + "mean time looks acceptable.",
                     "The share is computed over the statements BootUI retained, not over the server's entire "
                             + "workload. It is reported only once at least " + MIN_RANKED_STATEMENTS
-                            + " statements were ranked and they account for at least "
+                            + " statements carried a timing and they account for at least "
                             + (long) MIN_RANKED_TOTAL_MILLIS + " ms in total, because with two near-idle "
                             + "statements one of them necessarily dominates.",
                     "https://www.postgresql.org/docs/current/pgstatstatements.html",
                     data -> {
                         double total = 0;
+                        int timed = 0;
                         PostgresStatementDto top = null;
                         for (PostgresStatementDto statement : data.statements()) {
                             if (statement.totalTimeMs() == null) {
                                 continue;
                             }
                             total += statement.totalTimeMs();
+                            timed++;
                             if (top == null || statement.totalTimeMs() > top.totalTimeMs()) {
                                 top = statement;
                             }
                         }
-                        if (top == null
-                                || total < MIN_RANKED_TOTAL_MILLIS
-                                || data.statements().size() < MIN_RANKED_STATEMENTS) {
+                        // The minimum-evidence gate has to count the statements the share is actually
+                        // computed over. A row with no timing contributes nothing to the denominator, so
+                        // counting it would let a two-statement comparison pass as a five-statement one.
+                        if (top == null || total < MIN_RANKED_TOTAL_MILLIS || timed < MIN_RANKED_STATEMENTS) {
                             return null;
                         }
                         double share = top.totalTimeMs() / total;

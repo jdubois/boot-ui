@@ -168,8 +168,9 @@ cumulative statistics and current catalog state; they do not prove root cause or
 - **What it measures:** each retained `pg_stat_statements` row's total execution time as a share of the retained ranked
   total.
 - **Threshold:** `DOMINANT_STATEMENT_SHARE = 0.50`; findings appear when one retained statement accounts for at least half
-  of retained statement time, at least `MIN_RANKED_STATEMENTS = 5` statements were retained, and they total at least
-  `MIN_RANKED_TOTAL_MILLIS = 1000` ms. With fewer statements a share above 50% is arithmetic rather than evidence.
+  of retained statement time, at least `MIN_RANKED_STATEMENTS = 5` statements carried a timing, and they total at least
+  `MIN_RANKED_TOTAL_MILLIS = 1000` ms. A row without a timing contributes nothing to the share and is not counted
+  towards the minimum. With fewer statements a share above 50% is arithmetic rather than evidence.
 - **What to do:** Start tuning here: the dominant statement is where a fix has the most effect, even when its mean time
   looks acceptable.
 - **Caveat:** The share is computed over the statements BootUI retained, not the server's entire workload.

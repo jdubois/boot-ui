@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.postgres;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.core.dto.PostgresChangeDto;
 import io.github.jdubois.bootui.core.dto.PostgresInsightReport;
 import io.github.jdubois.bootui.spi.DatabaseAdvisorDataSourceDiscovery;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
@@ -263,6 +264,31 @@ class PostgresInsightServiceTests {
         assertThat(newServiceFirstRead.databases())
                 .singleElement()
                 .satisfies(database -> assertThat(database.changes()).isEmpty());
+    }
+
+    @Test
+    void aReadThatProducedNoMetricsDoesNotDiscardTheComparisonBaseline() {
+        var healthy = PostgresTestDataSources.postgres()
+                .rows(PostgresTestDataSources.QueryKind.VITALS, vitals(90L, 10L, 1024L));
+        var moved = PostgresTestDataSources.postgres()
+                .rows(PostgresTestDataSources.QueryKind.VITALS, vitals(95L, 5L, 2048L));
+        DataSource[] current = {healthy};
+        PostgresInsightService service = service(() -> discovery("primary", current[0]));
+
+        service.read();
+        // A datasource that could not be reached at all produces no comparable metric. Replacing the
+        // baseline with that empty read would silently throw away the comparison the next healthy read owes
+        // the user.
+        current[0] = PostgresTestDataSources.failing("connection failed for jdbc:******db/app");
+        service.read();
+        current[0] = moved;
+        PostgresInsightReport afterRecovery = service.read();
+
+        assertThat(afterRecovery.databases())
+                .singleElement()
+                .satisfies(database -> assertThat(database.changes())
+                        .extracting(PostgresChangeDto::metric)
+                        .contains("Cache hit ratio", "Database size"));
     }
 
     private static PostgresTestDataSources.ScriptedDataSource unhealthy(

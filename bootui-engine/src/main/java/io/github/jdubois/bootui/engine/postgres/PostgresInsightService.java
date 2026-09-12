@@ -490,8 +490,14 @@ public final class PostgresInsightService {
 
     private List<PostgresChangeDto> changesFor(String name, PostgresDatabaseData data) {
         List<PostgresMetric> current = metricsOf(data);
+        if (current.isEmpty()) {
+            // A read that produced no comparable metric — a refused role, a failed connection — must not
+            // replace the baseline. Overwriting it would silently discard the comparison the next healthy
+            // read is supposed to make.
+            return List.of();
+        }
         List<PostgresMetric> previous = previousMetrics.put(name, current);
-        if (previous == null || current.isEmpty()) {
+        if (previous == null) {
             return List.of();
         }
         Map<String, PostgresMetric> before = new HashMap<>();

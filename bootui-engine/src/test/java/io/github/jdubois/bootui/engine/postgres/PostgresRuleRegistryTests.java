@@ -64,6 +64,25 @@ class PostgresRuleRegistryTests {
                 .noneMatch(rule -> rule.definition().id().startsWith("PG-STATEMENTS-"));
     }
 
+    @Test
+    void aStatementWithNoTimingDoesNotCountTowardsTheDominantShareEvidence() {
+        // pg_stat_statements without timing tracking returns rows with no total time. They contribute
+        // nothing to the share, so counting them would let a two-statement comparison — where a share above
+        // half is arithmetic rather than evidence — pass the five-statement minimum.
+        PostgresDatabaseData data = data(PostgresSectionIds.STATEMENTS);
+        data.statements(List.of(
+                statement(1L, 900d, 10d),
+                statement(1L, 200d, 10d),
+                untimedStatement(),
+                untimedStatement(),
+                untimedStatement()));
+
+        assertThat(PostgresRuleRegistry.rules())
+                .filteredOn(rule -> rule.definition().id().equals("PG-STATEMENTS-002"))
+                .singleElement()
+                .satisfies(rule -> assertThat(rule.evaluate(data)).isNull());
+    }
+
     private static List<RuleCase> cases() {
         return List.of(
                 ruleCase(
@@ -227,6 +246,10 @@ class PostgresRuleRegistryTests {
 
     private static PostgresStatementDto statement(long calls, double totalTime, double meanTime) {
         return new PostgresStatementDto("1", "select * from orders", calls, totalTime, meanTime, meanTime, 1L, null);
+    }
+
+    private static PostgresStatementDto untimedStatement() {
+        return new PostgresStatementDto("1", "select * from orders", 1L, null, null, null, 1L, null);
     }
 
     private static PostgresIndexDto index(long scans, long sizeBytes) {
