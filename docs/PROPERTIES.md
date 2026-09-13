@@ -183,6 +183,7 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | Configuration   | Conditions                | `conditions`                | `bootui.panels.conditions.enabled`                | Not applicable; view-only.                |
 | Configuration   | Mappings                  | `mappings`                  | `bootui.panels.mappings.enabled`                  | Not applicable; view-only.                |
 | Database        | Database Connection Pools | `database-connection-pools` | `bootui.panels.database-connection-pools.enabled` | Not applicable; view-only.                |
+| Database        | PostgreSQL                | `postgresql`                | `bootui.panels.postgresql.enabled`                | `bootui.panels.postgresql.read-only`      |
 | Database        | Transactions              | `transactions`              | `bootui.panels.transactions.enabled`              | `bootui.panels.transactions.read-only`    |
 | Database        | SQL Trace                 | `sql-trace`                 | `bootui.panels.sql-trace.enabled`                 | `bootui.panels.sql-trace.read-only`       |
 | Database        | Hibernate Statistics      | `hibernate-statistics`      | `bootui.panels.hibernate-statistics.enabled`      | `bootui.panels.hibernate-statistics.read-only` |

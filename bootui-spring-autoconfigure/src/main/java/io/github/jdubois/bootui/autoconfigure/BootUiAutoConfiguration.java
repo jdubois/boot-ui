@@ -37,6 +37,7 @@ import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
 import io.github.jdubois.bootui.autoconfigure.pentesting.*;
+import io.github.jdubois.bootui.autoconfigure.postgres.PostgresqlController;
 import io.github.jdubois.bootui.autoconfigure.rabbit.RabbitController;
 import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
 import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceController;
@@ -146,6 +147,7 @@ import tools.jackson.databind.ObjectMapper;
     LiquibaseController.class,
     DatabaseConnectionPoolsController.class,
     DatabaseAdvisorController.class,
+    PostgresqlController.class,
     SpringCacheController.class,
     DevServicesController.class,
     VulnerabilitiesController.class,
@@ -506,6 +508,7 @@ public class BootUiAutoConfiguration {
                 ObjectProvider<GraalVmController> graalvm,
                 ObjectProvider<CracController> crac,
                 ObjectProvider<DatabaseAdvisorController> databaseAdvisor,
+                ObjectProvider<PostgresqlController> postgresql,
                 ObjectProvider<VulnerabilitiesController> vulnerabilities,
                 ObjectProvider<LoggersController> loggers,
                 ObjectProvider<ConditionsController> conditions,
@@ -537,6 +540,7 @@ public class BootUiAutoConfiguration {
                     graalvm,
                     crac,
                     databaseAdvisor,
+                    postgresql,
                     vulnerabilities,
                     loggers,
                     conditions,

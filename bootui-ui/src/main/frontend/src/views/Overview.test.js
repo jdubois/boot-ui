@@ -315,6 +315,17 @@ describe('Overview', () => {
     expect(wrapper.text()).toContain('Run all scanners')
   })
 
+  it('never reads or scores the PostgreSQL panel, which observes a database rather than assessing the app', async () => {
+    stubFetch({})
+    const wrapper = mountOverview({
+      panels: [...allPanels.panels, {id: 'postgresql', available: true, enabled: true}]
+    })
+    await flushPromises()
+
+    expect(fetch.mock.calls.map(([url]) => String(url)).some((url) => url.includes('postgresql'))).toBe(false)
+    expect(wrapper.text()).not.toContain('PostgreSQL')
+  })
+
   it('reads every supported cached advisor once on initial KeepAlive activation', async () => {
     stubFetch(Object.fromEntries(onlyPanels().panels.map(({id}) => [`api/${id}`, severityReport([])])))
     const {wrapper} = mountKeptAlive({

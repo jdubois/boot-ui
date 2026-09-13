@@ -16,7 +16,7 @@ status where they don't.
 
 ## 2. Current status
 
-The WebFlux adapter serves the large majority of the panel surface — the same 58-panel manifest the servlet adapter
+The WebFlux adapter serves the large majority of the panel surface — the same 59-panel manifest the servlet adapter
 reports, minus the one panel (**HTTP Sessions**, §6.7) that stays unavailable for stack reasons. Every available
 action-capable panel behaves identically to the servlet adapter, behind the same shared `LocalhostGuard` write floor.
 
@@ -36,6 +36,7 @@ action-capable panel behaves identically to the servlet adapter, behind the same
 | SQL Trace            | toggle recording / clear             |
 | Transactions         | clear / toggle recording             |
 | REST Client          | clear / toggle recording             |
+| PostgreSQL           | read vital signs                      |
 | Exceptions           | triage                               |
 | Advisor scans        | Architecture, Spring, Hibernate, Pentesting, REST API, Security, Memory, Vulnerabilities/OSV |
 
@@ -143,7 +144,7 @@ WebFlux blocking-execution policy, and requests rejected by the preceding safety
 | `Not yet ported` | Deliberately deferred, no reactive implementation wired yet                      |
 | `Not applicable` | No faithful reactive analog exists for this panel's concept                      |
 
-### 6.1 Ported as-is (42 panels)
+### 6.1 Ported as-is (43 panels)
 
 Bulk-imported from the servlet adapter's `@RestController`s with no code changes at all — confirming these controllers
 were already framework-neutral in practice, not just in the engine underneath them.
@@ -151,7 +152,7 @@ were already framework-neutral in practice, not just in the engine underneath th
 | Panels ported unchanged |
 | ----------------------- |
 | Overview, GitHub, Beans, Conditions, Configuration, Mappings, Health, Loggers, Startup Timeline, Spring Data |
-| Database, Hibernate, Hibernate Statistics, Flyway, Liquibase, Database Connection Pools, Cache, Dev Services |
+| Database, Hibernate, Hibernate Statistics, PostgreSQL, Flyway, Liquibase, Database Connection Pools, Cache, Dev Services |
 | Vulnerabilities, Scheduled Tasks, Fault Tolerance, HTTP Probe, Pentesting, Heap Dump, Architecture, REST API advisor |
 | Profile Diff, Spring advisor[^spring-advisor-reactive], Live Memory, JVM Tuning, Metrics, Spring DevTools, Traces, AI Framework |
 | GraalVM, CRaC, Threads, Memory, Email, Kafka, RabbitMQ, JMS |
@@ -540,7 +541,8 @@ for populated, correctly-nested (`parentId`) trace ids — none of which a unit 
 - **`bootui-spring-webflux-sample-app`** is a minimal WebFlux app (Netty, `spring-boot-starter-webflux`, deliberately no
   `spring-boot-starter-web`) with `notes`/`scheduling`/`greeting` packages, seeded with a scheduled task and an H2
   datasource (Flyway + Liquibase migrations on separate baselined schemas) so the data-source-backed panels (Flyway,
-  Liquibase, Database Connection Pools, SQL Trace) have something real to show.
+  Liquibase, Database Connection Pools, SQL Trace, PostgreSQL) have something real to show or a truthful wrong-vendor
+  skip.
 - **`bootui-conformance`** gained `expected-panels-webflux.json` — identical to `expected-panels-spring.json` except
   `platform: "spring-boot-reactive"`, itself evidence the shared-contract thesis holds even in the golden fixture — and
   the sample app's `WebFluxApiConformanceTest extends AbstractBootUiApiConformanceTest` reuses the entire shared HTTP

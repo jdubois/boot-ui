@@ -295,6 +295,75 @@ class QuarkusPanelAvailabilityTest {
     }
 
     @Test
+    void postgresqlIsUnavailableWithAHintWhenNoDatasourceIsPresent() {
+        // The PostgreSQL panel reads PostgreSQL's own catalog and statistics views, so it is offered only when
+        // a PostgreSQL datasource is configured: with none it must surface an honest, panel-specific hint, NOT
+        // the generic "not yet" reason.
+        PanelDto postgresql = manifestById().get(BootUiPanels.POSTGRESQL);
+        assertThat(postgresql)
+                .as("the PostgreSQL panel is present in the manifest")
+                .isNotNull();
+        assertThat(postgresql.available()).isFalse();
+        assertThat(postgresql.unavailableReason())
+                .doesNotContain("Not yet available")
+                .containsIgnoringCase("PostgreSQL datasource");
+    }
+
+    @Test
+    void postgresqlStaysUnavailableWhenTheOnlyDatasourceIsAnotherDatabase() {
+        StubConfig otherDatabase = new StubConfig(Map.of(
+                QuarkusPanelAvailability.CONNECTION_POOLS_PRESENT_KEY,
+                "true",
+                "quarkus.datasource.db-kind",
+                "h2",
+                "quarkus.datasource.jdbc.url",
+                "jdbc:h2:mem:sample"));
+        PanelDto postgresql = manifestById(otherDatabase).get(BootUiPanels.POSTGRESQL);
+        assertThat(postgresql.available())
+                .as("an H2 datasource is not a reason to offer PostgreSQL vital signs")
+                .isFalse();
+        assertThat(postgresql.unavailableReason()).containsIgnoringCase("PostgreSQL datasource");
+    }
+
+    @Test
+    void postgresqlIsAvailableWhenAPostgresDatasourceIsConfigured() {
+        StubConfig withPostgres = new StubConfig(Map.of(
+                QuarkusPanelAvailability.CONNECTION_POOLS_PRESENT_KEY,
+                "true",
+                "quarkus.datasource.db-kind",
+                "postgresql"));
+        PanelDto postgresql = manifestById(withPostgres).get(BootUiPanels.POSTGRESQL);
+        assertThat(postgresql.available())
+                .as("PostgreSQL is lit up when a PostgreSQL datasource is configured")
+                .isTrue();
+        assertThat(postgresql.unavailableReason()).isNull();
+    }
+
+    @Test
+    void postgresqlIsAvailableForANamedDatasourceDeclaredByUrl() {
+        StubConfig namedDatasource = new StubConfig(Map.of(
+                QuarkusPanelAvailability.CONNECTION_POOLS_PRESENT_KEY,
+                "true",
+                "quarkus.datasource.db-kind",
+                "h2",
+                "quarkus.datasource.reporting.jdbc.url",
+                "jdbc:postgresql://localhost:5432/reporting"));
+        assertThat(manifestById(namedDatasource).get(BootUiPanels.POSTGRESQL).available())
+                .as("a second, PostgreSQL datasource is enough to offer the panel")
+                .isTrue();
+    }
+
+    @Test
+    void postgresqlStaysUnavailableWithoutAJdbcDatasourceExtension() {
+        StubConfig configuredButNotWired = new StubConfig(Map.of("quarkus.datasource.db-kind", "postgresql"));
+        assertThat(manifestById(configuredButNotWired)
+                        .get(BootUiPanels.POSTGRESQL)
+                        .available())
+                .as("configuration alone cannot be read without a JDBC datasource extension")
+                .isFalse();
+    }
+
+    @Test
     void panelIsEnabledByDefault() {
         assertThat(manifestById().get(BootUiPanels.MEMORY).enabled()).isTrue();
     }

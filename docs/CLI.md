@@ -288,6 +288,8 @@ exposes a tool is still what `bootui tools` says.
 | `bootui db flyway` | `get_flyway_migrations` | — | read | all |
 | `bootui db liquibase` | `get_liquibase_changesets` | — | read | all |
 | `bootui db pools` | `get_database_connection_pools` | — | read | all |
+| `bootui db postgres read` | `postgresql_read` | — | action | all |
+| `bootui db postgres report` | `get_postgresql_report` | — | read | all |
 | `bootui db report` | `get_database_advisor_report` | — | read | all |
 | `bootui db scan` | `database_advisor_scan` | — | action | all |
 | `bootui dev-services` | `get_dev_services` | — | read | all |

@@ -9,6 +9,7 @@ const HttpSessions = () => import('./views/HttpSessions.vue')
 const Loggers = () => import('./views/Loggers.vue')
 const DatabaseConnectionPools = () => import('./views/DatabaseConnectionPools.vue')
 const DatabaseAdvisor = () => import('./views/DatabaseAdvisor.vue')
+const PostgreSql = () => import('./views/PostgreSql.vue')
 const SqlTrace = () => import('./views/SqlTrace.vue')
 const Transactions = () => import('./views/Transactions.vue')
 const RestClientTrace = () => import('./views/RestClientTrace.vue')
@@ -532,6 +533,32 @@ export const routes = [
       title: 'Database Connection Pools',
       shortcut: 'dc',
       keywords: ['hikari', 'hikaricp', 'datasource', 'connection pool', 'jdbc', 'connections']
+    }
+  },
+  {
+    path: '/postgresql',
+    name: 'postgresql',
+    component: PostgreSql,
+    meta: {
+      group: groups.database,
+      icon: 'bi-database-fill-check',
+      title: 'PostgreSQL',
+      shortcut: 'pg',
+      keywords: [
+        'postgres',
+        'postgresql',
+        'pg_stat',
+        'pg_catalog',
+        'vital signs',
+        'vacuum',
+        'autovacuum',
+        'bloat',
+        'cache hit',
+        'wraparound',
+        'replication',
+        'connections',
+        'indexes'
+      ]
     }
   },
   {

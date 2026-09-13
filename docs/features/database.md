@@ -23,6 +23,86 @@ read-only flag).
 
 :::
 
+## PostgreSQL
+
+![BootUI PostgreSQL panel](../images/bootui-postgresql.webp)
+
+The PostgreSQL panel is a runtime view of the application's own PostgreSQL database. It answers "what does PostgreSQL
+report about this database right now?" and shows the answer as tables you read yourself: the live session snapshot, the
+vital signs (cache hit ratio, rollbacks, connections, transaction-id age, database size, deadlocks), the top normalized
+statements, index usage, relation size and access shape, autovacuum state, replication and WAL, and a curated set of
+operational settings. The read is explicit: opening the panel shows the last report, and nothing queries PostgreSQL
+until you click **Run PostgreSQL read**.
+
+It grades nothing. There is no rule catalogue, no severity, and no score here — the panel reports the server's own
+numbers, names every section it could not read, and leaves the judgement to you. Sections that could not be read are
+shown as skipped or failed with their reason, so a missing extension never looks like an empty table.
+
+The **Sessions** table is the only genuinely live part: it is a snapshot of `pg_stat_activity` at the instant of the
+read, with each backend's state, wait event, blocking pids, transaction age and statement. It lists the client
+backends of the database this datasource connects to, not every database in the cluster, and ages are measured
+against the server's statement clock so they stay true however long the read itself takes. Everything else is
+cumulative since the last statistics reset. A second read adds a short "what changed since the previous read" list,
+kept in memory only.
+
+This is not the Database advisor and not SQL Trace:
+
+- **Database advisor** checks physical schema structure — keys, indexes, constraints, sequences, and Hibernate mapping
+  cross-references — from metadata and vendor catalogs.
+- **SQL Trace** shows statements this JVM recently issued through BootUI's local JDBC instrumentation.
+- **PostgreSQL** reads PostgreSQL's own cumulative `pg_stat_*` and `pg_catalog` views, which include work from every
+  client of the database and statistics since the last reset.
+
+::: details Safety and bounds
+
+The panel runs one read-only transaction per datasource and pins `statement_timeout` to 5 seconds, `lock_timeout` to
+2 seconds, and the read budget to 15 seconds. List sections are capped (50 sessions, 25 statements, 50 indexes,
+25 tables, 25 autovacuum rows, 10 replicas, and 40 settings), and truncation is reported as incomplete coverage rather
+than hidden. Every statistics query runs inside its own savepoint, because one error would otherwise abort the shared
+read-only transaction and make every later section report "current transaction is aborted" instead of its own content.
+No baseline is written to disk; only the last value seen for each metric is kept in memory so the panel can show simple
+deltas. That baseline is merged rather than replaced, so a read that could not reach a section keeps the earlier value
+of that section instead of erasing it and reporting "no change" next time.
+
+The autovacuum section's "due" column is computed from the settings the server would actually use for each relation:
+the cluster's `autovacuum_vacuum_threshold`, `autovacuum_vacuum_scale_factor` and — on PostgreSQL 18 and later —
+`autovacuum_vacuum_max_threshold`, each overridden by that table's own `reloptions`, and suppressed where the table sets
+`autovacuum_enabled = false`. Two approximations are stated in the
+section rather than hidden: the estimate comes from `pg_stat_user_tables`, whereas autovacuum itself uses
+`pg_class.reltuples`, and only the dead-tuple trigger is modelled, so an insert-only table that PostgreSQL 13 and later
+would vacuum via `autovacuum_vacuum_insert_threshold` reads as "not due for dead tuples".
+
+Values are gated by the global exposure policy. Session statement text is the verbatim text the client sent, so it is
+redacted, masked and truncated exactly like the normalized text from `pg_stat_statements`. Under `MASKED` or
+`METADATA_ONLY`, statement text has string literals
+and dollar-quoted bodies (`$$ ... $$`, `$tag$ ... $tag$`, which is how `CREATE FUNCTION` and `DO` blocks reach
+`pg_stat_statements`) replaced before it leaves the engine, and replica `client_addr` is masked under
+`METADATA_ONLY`. Error messages from failed statistics reads are redacted the same way before becoming a diagnostic.
+
+:::
+
+::: details Availability and permissions
+
+The panel is available on Spring MVC, Spring WebFlux, and Quarkus only when a PostgreSQL datasource is configured. That
+decision is taken from declared configuration alone — the JDBC URL each datasource exposes (including through a wrapping
+driver such as `jdbc:aws-wrapper:postgresql://...`), or the Quarkus `db-kind` — so rendering the sidebar still contacts no
+database. A datasource that declares no readable URL cannot be ruled out, so the panel stays available when the
+PostgreSQL driver is on the classpath, and a non-PostgreSQL datasource reached by the read is skipped with a clear
+diagnostic. Use a read-only database role that is a member of `pg_monitor` when possible. Without it PostgreSQL
+restricts its statistics views in two different and individually invisible ways: `pg_stat_activity` **removes** the rows
+of backends the role does not own, so the session list silently shrinks to BootUI's own connections, while
+`pg_stat_statements` **keeps** every row and replaces the statement text with `<insufficient privilege>`. Neither leaves
+anything in the result set to notice, so BootUI asks the server instead — it probes `pg_read_all_stats` membership
+before reading — and marks both sections partially read when the privilege is missing. The statement ranking is also
+degraded whenever the placeholder actually appears, so a managed or forked PostgreSQL that answers the probe
+differently from the way it restricts the view is still reported honestly. `pg_stat_replication` restricts a third way
+again: every connected replica is still listed, so the replica count is trustworthy, but each one's state, sync state
+and lag come back empty, and that degrades the replication section too. The connection total is taken
+from `pg_stat_database`, which every role reads in full, so it stays correct either way. The statement ranking section
+additionally requires `pg_stat_statements`.
+
+:::
+
 ## SQL Trace
 
 ![BootUI SQL Trace panel](../images/bootui-sql-trace.webp)

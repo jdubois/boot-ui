@@ -77,6 +77,7 @@ import io.github.jdubois.bootui.engine.memory.MemoryScanner;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
+import io.github.jdubois.bootui.engine.postgres.PostgresInsightService;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
@@ -224,6 +225,19 @@ public class BootUiEngineConfiguration {
                     return recorder == null ? List.of() : recorder.entries(false);
                 },
                 Clock.systemUTC());
+    }
+
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    PostgresInsightService bootUiPostgresInsightService(
+            ObjectProvider<ListableBeanFactory> beanFactoryProvider, BootUiExposure exposure) {
+        // javax.sql.DataSource is core JDK, so DataSource discovery needs no @ConditionalOnClass gating; the
+        // same Spring discovery that feeds the Database Advisor is reused, and the read runs on demand
+        // (POST /read), never at bean construction.
+        SpringDatabaseAdvisorDataSourceProvider dataSourceProvider =
+                new SpringDatabaseAdvisorDataSourceProvider(beanFactoryProvider);
+        return PostgresInsightService.using(dataSourceProvider::discover, exposure, Clock.systemUTC());
     }
 
     @Bean

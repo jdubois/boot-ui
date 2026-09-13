@@ -10,16 +10,16 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
  * @param patch the patch level parsed from the version string, or {@code -1} when it is not parseable
  * @param text the raw product version string, or {@code null}
  */
-record DatabaseVersion(int major, int minor, int patch, String text) {
+public record DatabaseVersion(int major, int minor, int patch, String text) {
 
-    static final DatabaseVersion UNKNOWN = new DatabaseVersion(-1, -1, -1, null);
+    public static final DatabaseVersion UNKNOWN = new DatabaseVersion(-1, -1, -1, null);
 
-    boolean known() {
+    public boolean known() {
         return major >= 0;
     }
 
     /** True when this version is at least {@code major.minor}; {@code false} when the version is unknown. */
-    boolean atLeast(int requiredMajor, int requiredMinor) {
+    public boolean atLeast(int requiredMajor, int requiredMinor) {
         if (!known()) {
             return false;
         }
@@ -30,7 +30,7 @@ record DatabaseVersion(int major, int minor, int patch, String text) {
     }
 
     /** True when this version is at least {@code major.minor.patch}; {@code false} when unknown. */
-    boolean atLeast(int requiredMajor, int requiredMinor, int requiredPatch) {
+    public boolean atLeast(int requiredMajor, int requiredMinor, int requiredPatch) {
         if (!atLeast(requiredMajor, requiredMinor)) {
             return false;
         }
@@ -40,7 +40,7 @@ record DatabaseVersion(int major, int minor, int patch, String text) {
         return patch >= requiredPatch;
     }
 
-    String describe() {
+    public String describe() {
         return text == null || text.isBlank() ? "unknown version" : text;
     }
 
@@ -48,7 +48,7 @@ record DatabaseVersion(int major, int minor, int patch, String text) {
      * Builds a version from the driver's numeric accessors, using the raw version string only to recover a
      * patch level (drivers expose no {@code getDatabasePatchVersion()}).
      */
-    static DatabaseVersion of(int major, int minor, String text) {
+    public static DatabaseVersion of(int major, int minor, String text) {
         return new DatabaseVersion(major, minor, parsePatch(text, major, minor), text);
     }
 

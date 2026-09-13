@@ -176,7 +176,7 @@ those fields so the same UI build renders the correct sidebar and status on each
 > the canonical JSON `409` response, while Heap Dump capture/analyze/delete share one mutation-domain admission. MCP
 > returns the same busy message in-band, and passive reads continue serving the last completed report.
 
-### 5.1 Ported as-is — framework-agnostic or same library (20)
+### 5.1 Ported as-is — framework-agnostic or same library (21)
 
 Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter adds at most a trivial supplier.
 
@@ -186,6 +186,7 @@ Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter add
 | `Metrics`                                             | Micrometer — same API                                                             |
 | `Hibernate` advisor                                   | Same 71-rule registry/report contract; unit-specific native observations and explicit incomplete scans; Spring Data query rules are inapplicable without verified JPA repository metadata |
 | `Hibernate Statistics`                                | Standalone Database-section panel over `org.hibernate.stat.Statistics`, gated on the same Hibernate ORM capability as the advisor; its runtime-enable action has the same read-only and cross-site-write protection as Spring |
+| `PostgreSQL`                                          | Read-only runtime view of the application's own PostgreSQL database (live `pg_stat_activity` sessions plus the `pg_stat_*`/`pg_catalog` statistics tables) via the shared `PostgresInsightService`; the Quarkus adapter adds only the same `DataSource` discovery supplier the Database advisor uses. Available only when a PostgreSQL datasource is configured (an Agroal datasource plus a `postgresql` `db-kind` or a PostgreSQL JDBC URL, read from configuration without opening a connection); any other database reports SKIPPED/empty if reached. The read is user-triggered (`POST /bootui/api/postgresql/read`), single-flighted, row- and wall-clock-bounded, and never runs on page load |
 | `Vulnerabilities`                                     | Classpath SBOM/Maven metadata + OSV                                               |
 | `HTTP Probe`                                          | Local HTTP probing                                                                |
 | `AI Framework`                                        | —                                                                                 |
@@ -215,8 +216,8 @@ panel and is not claimed beyond the native-image tests that exercise that capabi
 **Command-line endpoint** (`/bootui/api/cli`) is served at full parity with Spring MVC and Spring WebFlux: a CDI
 producer builds the shared engine `CliService` over the same `QuarkusMcpTools` registry and `QuarkusMcpPanelPolicy`, and
 a thin JAX-RS resource maps the outcome onto HTTP status codes. It is enabled by default (`bootui.cli.enabled`), needs
-no MCP toggle, and is pinned to the Spring stacks by the shared CLI conformance suite. The 62 tools Quarkus advertises
-are a subset of the 78 Spring MVC exposes, so the catalog a client reads at runtime is authoritative.
+no MCP toggle, and is pinned to the Spring stacks by the shared CLI conformance suite. The 64 tools Quarkus advertises
+are a subset of the 80 Spring MVC exposes, so the catalog a client reads at runtime is authoritative.
 
 **Dev Services** is a Quarkus-native concept: a build-time `DevServicesResultBuildItem` snapshot captured via recorder +
 synthetic bean, with masked config and logs/restart unavailable. Service `type` is classified via the shared
@@ -505,10 +506,10 @@ No equivalent, low value, or superseded by Quarkus's own tooling:
 - `JMS` uses Spring JMS (`JmsTemplate` and `@JmsListener`) today. Quarkus users can use the implemented Kafka and RabbitMQ
   panels while a Quarkus-native JMS capture layer remains unimplemented.
 
-**Result:** 48 of the 58 panels ship on Quarkus: 27 are statically available and 21 are capability/detector-gated. The
+**Result:** 49 of the 59 panels ship on Quarkus: 27 are statically available and 22 are capability/detector-gated. The
 remaining 10 panels do not ship: 9 are intentionally not applicable (GraalVM, CRaC, Conditions, Startup Timeline, HTTP
 Sessions, Spring Data, Spring Security, Spring DevTools, Transactions), and 1 (`JMS`) is not yet available. By portability
-strategy, the 48 shipped panels comprise 20 ported as-is, 12 source-swapped, 13 capture-rebuilt, and 3 replaced with a
+strategy, the 49 shipped panels comprise 21 ported as-is, 12 source-swapped, 13 capture-rebuilt, and 3 replaced with a
 Quarkus-native panel. The Overview dashboard panel is available (its scoring dashboard renders client-side from the
 advisor endpoints, and the shell-chrome `GET /bootui/api/overview` endpoint is served on both adapters).
 
@@ -714,6 +715,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Hibernate           | as-is       | Port    | Hibernate advisor engine         | `EntityManagerFactoryProvider`              |
 | Hibernate Statistics | as-is      | Port    | `HibernateStatisticsService`     | `HibernateStatisticsProvider` (same Hibernate ORM capability gate as the Hibernate advisor) |
 | Database            | as-is       | Port    | Database advisor rule engine     | `DataSourceProvider` (Agroal `@DataSource` qualifier names read reflectively, positional fallback; SQL Trace wrapper de-duplicated to its physical pool; `javax.sql.DataSource` is unconditional, no capability gating) |
+| PostgreSQL          | as-is       | Port    | `PostgresInsightService`         | `DataSourceProvider` (reused from the Database advisor); available only when a PostgreSQL datasource is configured (`db-kind=postgresql` or a PostgreSQL JDBC URL) alongside an Agroal datasource |
 | Vulnerabilities     | as-is       | Port    | OSV scanner + dependency catalog | —                                           |
 | Pentesting          | as-is       | Port    | Pentesting engine                | CORS/OIDC/TLS metadata; Spring endpoint inventory explicitly unavailable |
 | HTTP Probe          | as-is       | Port    | HTTP probe service               | —                                           |

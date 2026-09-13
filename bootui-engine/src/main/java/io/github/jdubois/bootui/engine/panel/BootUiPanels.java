@@ -43,6 +43,8 @@ public final class BootUiPanels {
     public static final String HIBERNATE = "hibernate";
     public static final String HIBERNATE_STATISTICS = "hibernate-statistics";
     public static final String DATABASE_ADVISOR = "database-advisor";
+
+    public static final String POSTGRESQL = "postgresql";
     public static final String CACHE = "cache";
     public static final String SPRING_SECURITY = "spring-security";
     public static final String SECURITY = "security";
@@ -106,6 +108,7 @@ public final class BootUiPanels {
             new Panel(PENTESTING, "Pentesting", true, "/pentesting"),
             new Panel(SCHEDULED, "Scheduled Tasks", false, "/scheduled"),
             new Panel(DATABASE_CONNECTION_POOLS, "Database Connection Pools", false, "/database-connection-pools"),
+            new Panel(POSTGRESQL, "PostgreSQL", true, "/postgresql"),
             new Panel(TRANSACTIONS, "Transactions", true, "/transactions"),
             new Panel(DATA, "Spring Data", false, "/data"),
             new Panel(HIBERNATE, "Hibernate", true, "/hibernate"),

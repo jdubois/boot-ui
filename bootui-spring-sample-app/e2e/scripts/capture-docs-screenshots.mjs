@@ -75,6 +75,7 @@ const panelOrder = [
   ['conditions', 'Conditions'],
   ['mappings', 'Mappings'],
   ['database-connection-pools', 'Database Connection Pools'],
+  ['postgresql', 'PostgreSQL'],
   ['transactions', 'Transactions'],
   ['sql-trace', 'SQL Trace'],
   ['hibernate-statistics', 'Hibernate Statistics'],
@@ -5306,6 +5307,406 @@ for (const report of [
   }
 }
 
+// The PostgreSQL panel is a runtime view of PostgreSQL's own statistics views, so its mock mirrors what
+// the engine produces for a single datasource: a live pg_stat_activity session snapshot plus the
+// cumulative statistics sections, each reported with its row count and read status, and no findings.
+const postgresql = {
+  localOnly: true,
+  disclaimer:
+    "Read-only reads of PostgreSQL's own pg_stat_* and pg_catalog views, bounded by row count and a wall-clock budget. The session list is a live snapshot; every other number is cumulative since the last statistics reset and covers every client of the database, not only this application.",
+  status: 'READ',
+  message: null,
+  readAt: nowMillis - 9 * 1000,
+  databasesRead: 1,
+  truncated: false,
+  limitations: [],
+  databases: [
+    {
+      name: 'dataSource',
+      databaseName: 'bootui_sample',
+      serverVersion: 'PostgreSQL 18.0',
+      serverMajorVersion: 18,
+      role: 'bootui_reader',
+      monitoringRole: true,
+      status: 'READ',
+      message: null,
+      truncated: false,
+      vitalSigns: {
+        databaseName: 'bootui_sample',
+        cacheHitRatio: 0.9941,
+        rollbackRatio: 0.0038,
+        transactionsCommitted: 4128366,
+        transactionsRolledBack: 15742,
+        connections: 23,
+        maxConnections: 100,
+        connectionUsageRatio: 0.23,
+        activeSessions: 6,
+        idleInTransactionSessions: 2,
+        longestTransactionSeconds: 412.6,
+        blockedSessions: 1,
+        transactionIdAge: 21648213,
+        wraparoundLimit: 200000000,
+        wraparoundUsageRatio: 0.1082,
+        databaseSizeBytes: 1824361676,
+        deadlocks: 0,
+        temporaryFiles: 0,
+        temporaryBytes: 0
+      },
+      sections: [
+        {
+          id: 'vital-signs',
+          title: 'Vital signs',
+          status: 'AVAILABLE',
+          reason: null,
+          hint: null,
+          rowCount: 1,
+          truncated: false
+        },
+        {
+          id: 'sessions',
+          title: 'Sessions',
+          status: 'AVAILABLE',
+          reason: null,
+          hint: null,
+          rowCount: 4,
+          truncated: false
+        },
+        {
+          id: 'statements',
+          title: 'Statement ranking',
+          status: 'AVAILABLE',
+          reason: null,
+          hint: null,
+          rowCount: 4,
+          truncated: false
+        },
+        {
+          id: 'indexes',
+          title: 'Index usage',
+          status: 'AVAILABLE',
+          reason: null,
+          hint: null,
+          rowCount: 3,
+          truncated: false
+        },
+        {
+          id: 'tables',
+          title: 'Largest relations',
+          status: 'AVAILABLE',
+          reason: null,
+          hint: null,
+          rowCount: 3,
+          truncated: false
+        },
+        {
+          id: 'vacuum',
+          title: 'Autovacuum health',
+          status: 'AVAILABLE',
+          reason: null,
+          hint: null,
+          rowCount: 3,
+          truncated: false
+        },
+        {
+          id: 'replication',
+          title: 'Replication, checkpoints and WAL',
+          status: 'AVAILABLE',
+          reason: null,
+          hint: null,
+          rowCount: 1,
+          truncated: false
+        },
+        {
+          id: 'settings',
+          title: 'Notable settings',
+          status: 'AVAILABLE',
+          reason: null,
+          hint: null,
+          rowCount: 4,
+          truncated: false
+        }
+      ],
+      sessions: [
+        {
+          pid: 48219,
+          user: 'bootui_sample',
+          applicationName: 'bootui-sample-app',
+          clientAddress: '127.0.0.1',
+          state: 'active',
+          waitEventType: null,
+          waitEvent: null,
+          blockedBy: null,
+          stateSeconds: 0.4,
+          transactionSeconds: 0.4,
+          querySeconds: 0.4,
+          query: 'select o.id, o.total from orders o where o.customer_id = $1 order by o.created_at desc'
+        },
+        {
+          pid: 48224,
+          user: 'bootui_sample',
+          applicationName: 'bootui-sample-app',
+          clientAddress: '127.0.0.1',
+          state: 'active',
+          waitEventType: 'Lock',
+          waitEvent: 'transactionid',
+          blockedBy: '48231',
+          stateSeconds: 12.7,
+          transactionSeconds: 13.1,
+          querySeconds: 12.7,
+          query: 'update orders set status = $1 where id = $2'
+        },
+        {
+          pid: 48231,
+          user: 'bootui_sample',
+          applicationName: 'bootui-sample-app',
+          clientAddress: '127.0.0.1',
+          state: 'idle in transaction',
+          waitEventType: 'Client',
+          waitEvent: 'ClientRead',
+          blockedBy: null,
+          stateSeconds: 412.6,
+          transactionSeconds: 412.9,
+          querySeconds: 412.6,
+          query: 'select * from orders where id = $1 for update'
+        },
+        {
+          pid: 48240,
+          user: 'bootui_reader',
+          applicationName: 'BootUI',
+          clientAddress: '127.0.0.1',
+          state: 'active',
+          waitEventType: null,
+          waitEvent: null,
+          blockedBy: null,
+          stateSeconds: 0.02,
+          transactionSeconds: 0.03,
+          querySeconds: 0.02,
+          query: 'select a.pid, a.usename, a.state from pg_stat_activity a'
+        }
+      ],
+      statements: [
+        {
+          queryId: '-4512837465019283746',
+          query: 'select o.id, o.total from orders o where o.customer_id = $1 order by o.created_at desc',
+          calls: 184213,
+          totalTimeMs: 412783.4,
+          meanTimeMs: 2.24,
+          maxTimeMs: 318.7,
+          rows: 1842130,
+          cacheHitRatio: 0.9987
+        },
+        {
+          queryId: '8812736451029384756',
+          query: 'update orders set status = $1 where id = $2',
+          calls: 42871,
+          totalTimeMs: 98214.7,
+          meanTimeMs: 2.29,
+          maxTimeMs: 1284.3,
+          rows: 42871,
+          cacheHitRatio: 0.9992
+        },
+        {
+          queryId: '-1029384756102938475',
+          query: 'select c.id, c.email from customers c where lower(c.email) = $1',
+          calls: 91240,
+          totalTimeMs: 74128.9,
+          meanTimeMs: 0.81,
+          maxTimeMs: 42.1,
+          rows: 91240,
+          cacheHitRatio: 0.9964
+        },
+        {
+          queryId: '5647382910564738291',
+          query: 'insert into audit_events (id, payload, created_at) values ($1, $2, $3)',
+          calls: 218400,
+          totalTimeMs: 61284.2,
+          meanTimeMs: 0.28,
+          maxTimeMs: 18.4,
+          rows: 218400,
+          cacheHitRatio: 0.9999
+        }
+      ],
+      indexes: [
+        {
+          schema: 'public',
+          table: 'orders',
+          index: 'orders_pkey',
+          scans: 1284712,
+          tuplesRead: 1284712,
+          sizeBytes: 41943040,
+          unique: true,
+          primaryKey: true,
+          constraintBacked: true
+        },
+        {
+          schema: 'public',
+          table: 'orders',
+          index: 'orders_customer_created_idx',
+          scans: 184213,
+          tuplesRead: 1842130,
+          sizeBytes: 62914560,
+          unique: false,
+          primaryKey: false,
+          constraintBacked: false
+        },
+        {
+          schema: 'public',
+          table: 'audit_events',
+          index: 'audit_events_payload_gin_idx',
+          scans: 0,
+          tuplesRead: 0,
+          sizeBytes: 402653184,
+          unique: false,
+          primaryKey: false,
+          constraintBacked: false
+        }
+      ],
+      tables: [
+        {
+          schema: 'public',
+          table: 'audit_events',
+          totalSizeBytes: 1073741824,
+          tableSizeBytes: 671088640,
+          indexSizeBytes: 402653184,
+          liveTuples: 21840000,
+          deadTuples: 412800,
+          sequentialScans: 18,
+          sequentialTuplesRead: 392000000,
+          indexScans: 4210,
+          sequentialScanRatio: 0.0043
+        },
+        {
+          schema: 'public',
+          table: 'orders',
+          totalSizeBytes: 524288000,
+          tableSizeBytes: 419430400,
+          indexSizeBytes: 104857600,
+          liveTuples: 4128366,
+          deadTuples: 18420,
+          sequentialScans: 4,
+          sequentialTuplesRead: 16513464,
+          indexScans: 1468925,
+          sequentialScanRatio: 0.0000027
+        },
+        {
+          schema: 'public',
+          table: 'customers',
+          totalSizeBytes: 94371840,
+          tableSizeBytes: 67108864,
+          indexSizeBytes: 27262976,
+          liveTuples: 412836,
+          deadTuples: 1284,
+          sequentialScans: 91,
+          sequentialTuplesRead: 37568076,
+          indexScans: 91240,
+          sequentialScanRatio: 0.000997
+        }
+      ],
+      vacuum: [
+        {
+          schema: 'public',
+          table: 'audit_events',
+          liveTuples: 21840000,
+          deadTuples: 412800,
+          deadTupleRatio: 0.0189,
+          vacuumThreshold: 4368050,
+          vacuumDue: false,
+          autovacuumEnabled: true,
+          lastVacuum: null,
+          lastAutoVacuum: nowMillis - 42 * 60 * 1000,
+          lastAnalyze: null,
+          lastAutoAnalyze: nowMillis - 42 * 60 * 1000
+        },
+        {
+          schema: 'public',
+          table: 'orders',
+          liveTuples: 4128366,
+          deadTuples: 18420,
+          deadTupleRatio: 0.0045,
+          vacuumThreshold: 825723,
+          vacuumDue: false,
+          autovacuumEnabled: true,
+          lastVacuum: nowMillis - 6 * 60 * 60 * 1000,
+          lastAutoVacuum: nowMillis - 18 * 60 * 1000,
+          lastAnalyze: null,
+          lastAutoAnalyze: nowMillis - 18 * 60 * 1000
+        },
+        {
+          schema: 'public',
+          table: 'customers',
+          liveTuples: 412836,
+          deadTuples: 1284,
+          deadTupleRatio: 0.0031,
+          vacuumThreshold: 82617,
+          vacuumDue: false,
+          autovacuumEnabled: true,
+          lastVacuum: null,
+          lastAutoVacuum: nowMillis - 3 * 60 * 60 * 1000,
+          lastAnalyze: null,
+          lastAutoAnalyze: nowMillis - 3 * 60 * 60 * 1000
+        }
+      ],
+      replication: {
+        inRecovery: false,
+        replicas: [
+          {
+            applicationName: 'bootui_sample_standby',
+            clientAddress: '127.0.0.1',
+            state: 'streaming',
+            syncState: 'async',
+            sentLagBytes: 0,
+            flushLagBytes: 16384,
+            replayLagBytes: 32768
+          }
+        ],
+        checkpointsTimed: 4128,
+        checkpointsRequested: 12,
+        checkpointWriteSeconds: 184.7,
+        replicationSlots: 1,
+        inactiveReplicationSlots: 0,
+        walLevel: 'replica'
+      },
+      settings: [
+        {
+          name: 'shared_buffers',
+          value: '2048',
+          unit: 'MB',
+          source: 'configuration file',
+          note: 'Shared buffer cache size'
+        },
+        {name: 'work_mem', value: '4', unit: 'MB', source: 'default', note: 'Per-sort and per-hash memory'},
+        {
+          name: 'max_connections',
+          value: '100',
+          unit: null,
+          source: 'configuration file',
+          note: 'Cluster-wide connection ceiling'
+        },
+        {
+          name: 'autovacuum_vacuum_scale_factor',
+          value: '0.2',
+          unit: null,
+          source: 'default',
+          note: 'Share of a relation that must be dead before autovacuum runs'
+        }
+      ],
+      changes: [
+        {metric: 'Cache hit ratio', previous: '99.2%', current: '99.4%', direction: 'UP'},
+        {metric: 'Rollback ratio', previous: '0.3%', current: '0.4%', direction: 'UP'},
+        {metric: 'Connections', previous: '19', current: '23', direction: 'UP'},
+        {metric: 'Database size', previous: '1.6 GB', current: '1.7 GB', direction: 'UP'}
+      ]
+    }
+  ],
+  diagnostics: [
+    {
+      source: 'dataSource',
+      level: 'INFO',
+      message: 'Session pinned with statement_timeout=5s, lock_timeout=2s, transaction read only.'
+    }
+  ]
+}
+
 const screenshots = [
   [
     'overview',
@@ -5441,6 +5842,15 @@ const screenshots = [
     async (page) => {
       await page.getByText('Tables without a primary key').waitFor()
       await page.getByText('Mapped foreign key column has no physical index').waitFor()
+    }
+  ],
+  [
+    'postgresql',
+    'PostgreSQL',
+    'bootui-postgresql.webp',
+    async (page) => {
+      await page.getByText('idle in transaction').first().waitFor()
+      await page.getByText('orders_customer_created_idx').waitFor()
     }
   ],
   ['hibernate', 'Hibernate', 'bootui-hibernate.webp', waitForText('FetchType.EAGER')],
@@ -6163,6 +6573,7 @@ async function handleApiRoute(route) {
   if (endpoint.startsWith('data/repositories/')) return fulfillJson(route, dataDetail)
   if (endpoint === 'database-advisor' || endpoint === 'database-advisor/scan')
     return fulfillJson(route, databaseAdvisor)
+  if (endpoint === 'postgresql' || endpoint === 'postgresql/read') return fulfillJson(route, postgresql)
   if (endpoint === 'hibernate') return fulfillJson(route, hibernate)
   if (endpoint === 'hibernate/scan') return fulfillJson(route, hibernate)
   if (endpoint === 'hibernate-statistics' || endpoint === 'hibernate-statistics/enable')

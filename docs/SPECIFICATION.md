@@ -2066,6 +2066,72 @@ Acceptance criteria:
 - The Database advisor's `DB-RUNTIME-001` rule reports only statement shapes with repeated distinct texts and a literal
   in a filtering position, states its confidence and limitations, and includes no captured literal values.
 
+### 5.17.7 PostgreSQL Panel
+
+Purpose: answer "What do PostgreSQL's own statistics and catalog views report about this database right now?", as a
+runtime view rather than an assessment. The panel shows the server's own numbers and grades none of them: it carries no
+rule catalogue, no findings, no severities and no score.
+
+Data sources:
+
+- Discovered application JDBC `DataSource` beans, using the same datasource discovery seam as the Database advisor.
+- PostgreSQL `pg_stat_*`, `pg_catalog`, `pg_settings`, `pg_stat_statements` when installed, and replication/catalog views.
+
+Features:
+
+- Return an initial `NOT_READ` report until the developer explicitly invokes `POST /bootui/api/postgresql/read`.
+- Run a bounded read-only transaction with pinned `statement_timeout`, `lock_timeout`, and idle-in-transaction timeout.
+- Report per-section `AVAILABLE`, `SKIPPED`, or `FAILED` status for vital signs, sessions, statements, indexes, tables,
+  vacuum, replication/WAL, and settings. Skipped or failed sections are reported with their reason and remain
+  limitations, never empty tables.
+- Scope the session snapshot and the session breakdown to `current_database()`, and take the connection total from
+  `pg_stat_database` so it remains correct for a role that cannot see other backends.
+- Return, and render as tables, the rows each section read: the live `pg_stat_activity` session snapshot with state,
+  wait event, blocking pids, transaction age and statement; the top normalized statements; index usage; relation size
+  and access shape; autovacuum state; replication and WAL; and the curated settings.
+- Carry a report-level list of what the read does not cover, assembled from every degraded section, truncation and
+  unread datasource.
+- Keep only the previous read in memory to show simple deltas; no baseline is written to disk.
+
+Availability:
+
+- Spring MVC, Spring WebFlux, and Quarkus expose the same endpoint and report contract, and offer the panel only when a
+  PostgreSQL datasource is configured. Availability is decided from declared configuration alone — a datasource's JDBC
+  URL, including through a wrapping driver, or the Quarkus `db-kind` — and never opens a connection. A datasource that
+  declares no readable URL cannot be ruled out and keeps the panel available; a non-PostgreSQL datasource reached by the
+  read is skipped with diagnostics rather than treated as a failure.
+- A read-only database role with `pg_monitor` membership is recommended for complete statistics. Without it
+  `pg_stat_activity` removes the rows of backends the role does not own while `pg_stat_statements` keeps its rows and
+  replaces the statement text with `<insufficient privilege>`; neither is detectable from the result set, so the read
+  probes `pg_read_all_stats` membership and degrades both sections rather than reporting a short, confident list. The
+  statement ranking is degraded on the placeholder appearing as well as on the probe. `pg_stat_replication` restricts a
+  third way: every replica is still listed, but its state, sync state and lag are hidden, which degrades that section.
+- The statements section is `SKIPPED` unless `pg_stat_statements` is installed.
+
+Out of scope for the current release surface:
+
+- Monitoring, alerting, baselining to disk, query-plan capture, DDL, cancelling sessions, changing settings, or reading
+  application table rows.
+- Attributing PostgreSQL counters to this JVM only; the counters are cumulative since the last reset and cover every
+  client of the database.
+
+Acceptance criteria:
+
+- Opening the panel never contacts PostgreSQL; only the explicit read action does.
+- The read action is blocked by global read-only mode and `bootui.panels.postgresql.read-only`, despite being read-only at
+  the database.
+- Row caps, timeouts, and section failures produce partial/diagnostic reports instead of silent clean reports.
+- The panel reports a runtime observation of one database, not a repeatable assessment of the application, so it carries
+  no findings and no score, and never contributes to the Overview dashboard's advisor scoring or retained-findings
+  totals.
+- A session, statement, index, relation, autovacuum or settings row that the read retained is rendered in its section's
+  table; a section that could not be read shows its reason and hint instead of an empty table.
+- Autovacuum "due" is computed per relation from the cluster autovacuum settings overridden by that table's own
+  `reloptions` (including PostgreSQL 18's `autovacuum_vacuum_max_threshold`), and the remaining approximations — the
+  live-tuple estimate, and the unmodelled PostgreSQL 13+ insert-triggered trigger — are stated on the section.
+- A borrowed connection that could not be restored to the state it was found in degrades the read, exactly like a
+  session whose bounds could not be pinned, rather than only appearing in the diagnostics.
+
 ### 5.18 Cache Panel
 
 Purpose: answer "Which cache managers and caches exist, how are they used, and can I clear them during local
@@ -2348,6 +2414,8 @@ Initial endpoints:
 | `/bootui/api/hibernate-statistics/enable` | POST | Enable Hibernate statistics collection for the current runtime                         |
 | `/bootui/api/database-advisor`       | GET    | Latest Database advisor report, with per-datasource read status and scan diagnostics   |
 | `/bootui/api/database-advisor/scan`  | POST   | Run explicit read-only, bounded physical-schema checks                                 |
+| `/bootui/api/postgresql`             | GET    | Latest PostgreSQL vital-signs report without starting a database read                  |
+| `/bootui/api/postgresql/read`        | POST   | Run an explicit bounded, read-only PostgreSQL statistics read                          |
 | `/bootui/api/sql-trace`                       | GET    | Retained SQL execution report and aggregate statistics                                |
 | `/bootui/api/sql-trace/insights`              | GET    | Ranked normalized statements and request-route attribution over the retained window   |
 | `/bootui/api/sql-trace/clear`                 | POST   | Clear the retained SQL execution buffer                                                |
@@ -2602,7 +2670,7 @@ Design rules:
   - Runtime and integration reads: `get_overview`, `get_health`, `get_config`, `get_beans`, `get_mappings`,
     `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`,
     `get_cache_stats`,
-    `get_database_connection_pools`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
+    `get_database_connection_pools`, `get_postgresql_report`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
     `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
     `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
     `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_devtools_status`, `get_dev_services`,
@@ -2610,7 +2678,7 @@ Design rules:
   - Bounded actions: `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
     `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
     `resume_transaction_recording`, `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`,
-    `resume_rest_client_recording`, `analyze_heap_dump`, and `trigger_devtools_livereload`.
+    `resume_rest_client_recording`, `postgresql_read`, `analyze_heap_dump`, and `trigger_devtools_livereload`.
 
   Heap capture/download, HTTP probes, database/cache mutations, GitHub writes, dev-service restarts, and arbitrary agent
   commands are deliberately excluded. Tools whose backing controller is absent or not applicable to the running stack
@@ -2762,6 +2830,7 @@ Top-level navigation:
   - Mappings.
 - Database:
   - Database Connection Pools.
+  - PostgreSQL.
   - Transactions.
   - SQL Trace.
   - Hibernate Statistics.

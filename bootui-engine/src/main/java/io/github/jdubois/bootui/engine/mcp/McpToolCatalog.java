@@ -118,6 +118,8 @@ public final class McpToolCatalog {
                     Set.of(Stack.SPRING_MVC, Stack.SPRING_WEBFLUX)),
             entry("database_advisor_scan", McpToolSchema.NONE, BootUiPanels.DATABASE_ADVISOR, true, ALL_STACKS),
             entry("get_database_advisor_report", McpToolSchema.NONE, BootUiPanels.DATABASE_ADVISOR, false, ALL_STACKS),
+            entry("postgresql_read", McpToolSchema.NONE, BootUiPanels.POSTGRESQL, true, ALL_STACKS),
+            entry("get_postgresql_report", McpToolSchema.NONE, BootUiPanels.POSTGRESQL, false, ALL_STACKS),
             entry("vulnerabilities_scan", McpToolSchema.NONE, BootUiPanels.VULNERABILITIES, true, ALL_STACKS),
             entry("get_vulnerabilities_report", McpToolSchema.NONE, BootUiPanels.VULNERABILITIES, false, ALL_STACKS),
             entry("get_live_activity", McpToolSchema.LIMIT, BootUiPanels.ACTIVITY, false, ALL_STACKS),

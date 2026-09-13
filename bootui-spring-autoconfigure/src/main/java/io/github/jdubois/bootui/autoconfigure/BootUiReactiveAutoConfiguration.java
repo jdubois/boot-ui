@@ -24,6 +24,7 @@ import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
 import io.github.jdubois.bootui.autoconfigure.pentesting.PentestingController;
+import io.github.jdubois.bootui.autoconfigure.postgres.PostgresqlController;
 import io.github.jdubois.bootui.autoconfigure.rabbit.RabbitController;
 import io.github.jdubois.bootui.autoconfigure.reactive.BootUiJsonWebFluxConfigurer;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveActivitySignalFilter;
@@ -241,6 +242,7 @@ import tools.jackson.databind.ObjectMapper;
     LiquibaseController.class,
     DatabaseConnectionPoolsController.class,
     DatabaseAdvisorController.class,
+    PostgresqlController.class,
     SpringCacheController.class,
     DevServicesController.class,
     VulnerabilitiesController.class,
@@ -314,6 +316,7 @@ public class BootUiReactiveAutoConfiguration {
             HealthController.class.getName(),
             DatabaseConnectionPoolsController.class.getName(),
             DatabaseAdvisorController.class.getName(),
+            PostgresqlController.class.getName(),
             HttpExchangesController.class.getName(),
             HttpProbeController.class.getName(),
             HeapDumpController.class.getName(),
@@ -409,6 +412,7 @@ public class BootUiReactiveAutoConfiguration {
                 ObjectProvider<GraalVmController> graalvm,
                 ObjectProvider<CracController> crac,
                 ObjectProvider<DatabaseAdvisorController> databaseAdvisor,
+                ObjectProvider<PostgresqlController> postgresql,
                 ObjectProvider<VulnerabilitiesController> vulnerabilities,
                 ObjectProvider<LoggersController> loggers,
                 ObjectProvider<ConditionsController> conditions,
@@ -440,6 +444,7 @@ public class BootUiReactiveAutoConfiguration {
                     graalvm,
                     crac,
                     databaseAdvisor,
+                    postgresql,
                     vulnerabilities,
                     loggers,
                     conditions,
