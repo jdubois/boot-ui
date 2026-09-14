@@ -89,7 +89,7 @@
         <archunit.version>1.5.0</archunit.version>
         <asm.version>9.10.1</asm.version>
         <!-- Test-scope only: compiles the engine's Kotlin advisor fixtures. No BootUI module ships Kotlin. -->
-        <kotlin.version>2.4.10</kotlin.version>
+        <kotlin.version>2.4.20</kotlin.version>
         <jacoco-maven-plugin.version>0.8.15</jacoco-maven-plugin.version>
         <central.autoPublish>true</central.autoPublish>
         <maven-antrun-plugin.version>3.2.0</maven-antrun-plugin.version>
