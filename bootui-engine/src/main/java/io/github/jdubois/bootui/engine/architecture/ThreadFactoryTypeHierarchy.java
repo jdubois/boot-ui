@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.architecture;
 
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassReader;
 import java.net.URL;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -11,7 +12,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.objectweb.asm.ClassReader;
 
 /** Scan-local hierarchy lookup for types ArchUnit omits from invokedynamic-only dependencies. */
 final class ThreadFactoryTypeHierarchy {

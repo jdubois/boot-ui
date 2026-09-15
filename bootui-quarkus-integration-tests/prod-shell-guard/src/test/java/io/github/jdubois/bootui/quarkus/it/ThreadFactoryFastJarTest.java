@@ -17,7 +17,7 @@ class ThreadFactoryFastJarTest {
             .setExpectExit(true);
 
     @Test
-    void scansApplicationJarResourcesUsingItsPrivateReader() {
+    void scansApplicationJarResourcesUsingArchUnitsEmbeddedReader() {
         assertThat(application.getExitCode()).isZero();
         assertThat(application.getStartupConsoleOutput())
                 .contains("THREAD_FACTORY_PACKAGED_OK", ".jar!/", "/quarkus-app/app/");

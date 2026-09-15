@@ -1,7 +1,7 @@
 dist/
 coverage/
 node_modules/
-playwright-report/
+playwright-report*/
 target/
-test-results/
+test-results*/
 **/src/generated/

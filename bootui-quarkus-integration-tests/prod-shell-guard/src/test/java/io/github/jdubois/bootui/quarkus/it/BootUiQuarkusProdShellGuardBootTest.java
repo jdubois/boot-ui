@@ -111,4 +111,15 @@ class BootUiQuarkusProdShellGuardBootTest {
                 .as("the independently configured API path must be a plain 404 in production")
                 .isEqualTo(404);
     }
+
+    @Test
+    void mysqlCachedAndActionEndpointsStayDarkAtBothConfiguredAndDefaultMounts() {
+        for (String api : java.util.List.of("/host/internal/bootui-api", "/host/bootui/api", "/bootui/api")) {
+            assertThat(probe().get(api + "/mysql").status()).as(api).isEqualTo(404);
+            assertThat(probe().post(api + "/mysql/read", Map.of("Content-Type", "application/json"))
+                            .status())
+                    .as(api)
+                    .isEqualTo(404);
+        }
+    }
 }

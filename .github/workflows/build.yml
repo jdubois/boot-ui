@@ -45,6 +45,9 @@ jobs:
       - name: Test Docker image retention
         run: python3 -B -m unittest discover -s .github/scripts -p 'test_docker_retention*.py'
 
+      - name: Test MySQL live-evidence gate
+        run: python3 -B -m unittest discover -s .github/scripts -p 'test_mysql_live_tests.py'
+
       - name: Set up JDK ${{ matrix.java }}
         uses: actions/setup-java@v6
         with:
@@ -72,6 +75,25 @@ jobs:
       # bootui-quarkus-integration-tests/base/pom.xml).
       - name: Build all modules with coverage
         run: ./mvnw -T 1C -B -ntp -Pcoverage clean install
+
+      - name: Require executed MySQL collector and Spring HTTP tests
+        run: >
+          python3 .github/scripts/check-mysql-live-tests.py
+          bootui-spring-autoconfigure/target/surefire-reports
+          MySqlExecutionLiveTests MySqlPermissionsLiveTests MySqlCollectorsLiveTests
+          MySqlReplicationLiveTests MySqlDigestOverflowLiveTests MySqlPerformanceSchemaOffLiveTests
+          MySqlInstrumentationLiveTests MySqlIdentifierCaseLiveTests MySqlHttpLiveTests
+
+      - name: Run MySQL Quarkus HTTP contract
+        run: >
+          ./mvnw -B -ntp -pl bootui-quarkus-integration-tests/datasource
+          -Pmysql-live test -Dtest=BootUiQuarkusMySqlLiveTest
+
+      - name: Require executed MySQL Quarkus HTTP tests
+        run: >
+          python3 .github/scripts/check-mysql-live-tests.py
+          bootui-quarkus-integration-tests/datasource/target/surefire-reports
+          BootUiQuarkusMySqlLiveTest
 
       - name: Publish coverage summary
         if: ${{ !cancelled() }}

@@ -17,11 +17,11 @@
     "bootstrap": "5.3.8",
     "bootstrap-icons": "1.13.1",
     "vue": "3.5.42",
-    "vue-router": "5.3.0"
+    "vue-router": "5.3.1"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "6.0.8",
-    "@vitest/coverage-v8": "4.1.11",
+    "@vitest/coverage-v8": "5.0.0",
     "@vue/test-utils": "2.5.0",
     "fonteditor-core": "2.6.3",
     "jsdom": "30.0.1",
@@ -29,7 +29,7 @@
     "typescript": "^6.0.3",
     "vite": "8.2.2",
     "vite-plugin-checker": "^0.14.5",
-    "vitest": "4.1.11",
+    "vitest": "5.0.0",
     "vue-tsc": "^3.3.11"
   },
   "overrides": {

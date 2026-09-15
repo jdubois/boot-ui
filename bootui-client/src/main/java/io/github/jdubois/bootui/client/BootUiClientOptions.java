@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.client;
 
 import java.time.Duration;
-import java.util.Objects;
 
 /**
  * Where to reach a BootUI instance and how.
@@ -74,7 +73,7 @@ public record BootUiClientOptions(String baseUrl, String apiPath, String token, 
         while (value.endsWith("/")) {
             value = value.substring(0, value.length() - 1);
         }
-        return Objects.requireNonNullElse(value.isEmpty() ? DEFAULT_API_PATH : value, DEFAULT_API_PATH);
+        return value.isEmpty() ? DEFAULT_API_PATH : value;
     }
 
     /** Redacts the token, so logging these options cannot leak a credential. */

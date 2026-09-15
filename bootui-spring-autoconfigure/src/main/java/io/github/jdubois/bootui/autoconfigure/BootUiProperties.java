@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure;
 import io.github.jdubois.bootui.core.BootUiPathNormalizer;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
+import io.github.jdubois.bootui.engine.mysql.MySqlRowLimits;
 import io.github.jdubois.bootui.engine.postgres.PostgresRowLimits;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -145,6 +146,8 @@ public class BootUiProperties {
     private SqlTrace sqlTrace = new SqlTrace();
     /** Per-datasource row limits for the PostgreSQL panel. */
     private Postgresql postgresql = new Postgresql();
+    /** Per-datasource row limits for on-demand MySQL diagnostics. */
+    private Mysql mysql = new Mysql();
     /**
      * Transactions panel settings.
      */
@@ -464,6 +467,14 @@ public class BootUiProperties {
 
     public void setPostgresql(Postgresql postgresql) {
         this.postgresql = postgresql == null ? new Postgresql() : postgresql;
+    }
+
+    public Mysql getMysql() {
+        return mysql;
+    }
+
+    public void setMysql(Mysql mysql) {
+        this.mysql = mysql == null ? new Mysql() : mysql;
     }
 
     public Transactions getTransactions() {
@@ -1167,6 +1178,80 @@ public class BootUiProperties {
 
         public void setMaxSettings(int maxSettings) {
             this.maxSettings = PostgresRowLimits.requireValid("bootui.postgresql.max-settings", maxSettings);
+        }
+    }
+
+    public static class Mysql {
+
+        /** Maximum session rows per datasource; positive and below 2147483647. Requires restart. */
+        private int maxSessions = 100;
+        /** Maximum normalized statements ranked by total execution time. Requires restart. */
+        private int maxStatements = 100;
+        /** Maximum index activity rows per datasource. Requires restart. */
+        private int maxIndexes = 500;
+        /** Maximum table rows per datasource. Requires restart. */
+        private int maxTables = 200;
+        /** Maximum lock-wait observations per datasource. Requires restart. */
+        private int maxLockWaits = 100;
+        /** Maximum local replication channels per datasource. Requires restart. */
+        private int maxReplicationChannels = 10;
+        /** Maximum displayed settings from the fixed allow-list. Requires restart. */
+        private int maxSettings = 40;
+
+        public int getMaxSessions() {
+            return maxSessions;
+        }
+
+        public void setMaxSessions(int value) {
+            maxSessions = MySqlRowLimits.requireValid("bootui.mysql.max-sessions", value);
+        }
+
+        public int getMaxStatements() {
+            return maxStatements;
+        }
+
+        public void setMaxStatements(int value) {
+            maxStatements = MySqlRowLimits.requireValid("bootui.mysql.max-statements", value);
+        }
+
+        public int getMaxIndexes() {
+            return maxIndexes;
+        }
+
+        public void setMaxIndexes(int value) {
+            maxIndexes = MySqlRowLimits.requireValid("bootui.mysql.max-indexes", value);
+        }
+
+        public int getMaxTables() {
+            return maxTables;
+        }
+
+        public void setMaxTables(int value) {
+            maxTables = MySqlRowLimits.requireValid("bootui.mysql.max-tables", value);
+        }
+
+        public int getMaxLockWaits() {
+            return maxLockWaits;
+        }
+
+        public void setMaxLockWaits(int value) {
+            maxLockWaits = MySqlRowLimits.requireValid("bootui.mysql.max-lock-waits", value);
+        }
+
+        public int getMaxReplicationChannels() {
+            return maxReplicationChannels;
+        }
+
+        public void setMaxReplicationChannels(int value) {
+            maxReplicationChannels = MySqlRowLimits.requireValid("bootui.mysql.max-replication-channels", value);
+        }
+
+        public int getMaxSettings() {
+            return maxSettings;
+        }
+
+        public void setMaxSettings(int value) {
+            maxSettings = MySqlRowLimits.requireValid("bootui.mysql.max-settings", value);
         }
     }
 
