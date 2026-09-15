@@ -43,7 +43,7 @@ class BootUiEngineProducerPostgresqlConfigTest {
                 "bootui.postgresql.max-settings", "17"));
         Instance<DataSource> dataSources = mock(Instance.class);
         var service = new BootUiEngineProducer()
-                .postgresInsightService(dataSources, mock(QuarkusExposurePolicy.class), config);
+                .postgresInsightService(dataSources, mock(QuarkusExposurePolicy.class), config, null);
 
         assertThat(service)
                 .extracting(

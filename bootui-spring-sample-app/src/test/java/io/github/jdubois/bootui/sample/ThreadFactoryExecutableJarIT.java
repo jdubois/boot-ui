@@ -11,6 +11,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
+import java.util.jar.JarInputStream;
 import java.util.jar.JarOutputStream;
 import java.util.zip.CRC32;
 import org.junit.jupiter.api.Test;
@@ -21,7 +22,7 @@ class ThreadFactoryExecutableJarIT {
     Path directory;
 
     @Test
-    void scansRealBootNestedResourcesUsingItsPrivateReader() throws Exception {
+    void scansRealBootNestedResourcesUsingArchUnitsEmbeddedReaderWithoutBundlingAnotherCopy() throws Exception {
         Path executable = directory.resolve("probe.jar");
         try (JarFile sample = new JarFile(System.getProperty("sample.jar"))) {
             var manifest = sample.getManifest();
@@ -35,6 +36,15 @@ class ThreadFactoryExecutableJarIT {
                             || entry.getName().equals("BOOT-INF/classpath.idx")
                             || entry.getName().startsWith("BOOT-INF/lib/asm-")) {
                         continue;
+                    }
+                    if (entry.getName().startsWith("BOOT-INF/lib/bootui-engine-")) {
+                        try (JarInputStream engine = new JarInputStream(sample.getInputStream(entry))) {
+                            for (JarEntry engineEntry; (engineEntry = engine.getNextJarEntry()) != null; ) {
+                                assertThat(engineEntry.getName())
+                                        .as("the engine must not bundle its own ASM copy")
+                                        .doesNotContain("/asm/");
+                            }
+                        }
                     }
                     JarEntry copy = new JarEntry(entry.getName());
                     if (entry.getMethod() == JarEntry.STORED) {

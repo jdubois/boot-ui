@@ -15,11 +15,14 @@ import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.framework.ProxyFactory;
+import org.springframework.aop.target.AbstractLazyCreationTargetSource;
 import org.springframework.boot.web.context.reactive.GenericReactiveWebApplicationContext;
 import org.springframework.context.support.GenericApplicationContext;
+import org.springframework.jdbc.datasource.SimpleDriverDataSource;
 import org.springframework.jms.core.JmsTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.ConfigurableTransactionManager;
@@ -234,6 +237,227 @@ class PanelsControllerTests {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath(panelPath(BootUiPanels.DATABASE_CONNECTION_POOLS) + ".available")
                             .value(true));
+        }
+    }
+
+    /**
+     * A lazy {@code @Bean DataSource} is declared but not created, so nothing about it can be read on page
+     * load and Spring cannot type-match it to Hikari either. Availability previously answered "no pool" for
+     * that, hiding a perfectly ordinary Hikari pool; it must stay a candidate instead — and the bean's
+     * supplier must not run, because creating a pool is exactly what rendering the sidebar may not do.
+     */
+    @Test
+    void panelsKeepsDatabaseConnectionPoolsAvailableWithoutCallingALazyDataSourceBeanSupplier() throws Exception {
+        AtomicBoolean supplierCalled = new AtomicBoolean();
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(
+                    "dataSource",
+                    DataSource.class,
+                    () -> {
+                        supplierCalled.set(true);
+                        return new HikariDataSource();
+                    },
+                    definition -> definition.setLazyInit(true));
+            context.refresh();
+            MockMvc mvc = standaloneSetup(
+                            new PanelsController(context, context.getEnvironment(), new BootUiProperties()))
+                    .build();
+
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath(panelPath(BootUiPanels.DATABASE_CONNECTION_POOLS) + ".available")
+                            .value(true));
+            assertThat(supplierCalled)
+                    .as("the manifest must not create the pool to decide the panel is available")
+                    .isFalse();
+            assertThat(context.getBeanFactory().getSingleton("dataSource")).isNull();
+        }
+    }
+
+    /**
+     * An unrecognised wrapper cannot be ruled out, and the only way to ask it would be {@code isWrapperFor} /
+     * {@code unwrap} — arbitrary third-party code on the page-load path, which may resolve a lazy delegate.
+     * The panel therefore stays a candidate and the datasource is never called at all.
+     */
+    @Test
+    void panelsKeepsDatabaseConnectionPoolsAvailableWithoutCallingAnOpaqueWrapper() throws Exception {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean("dataSource", DataSource.class, OpaqueDataSource::new);
+            context.refresh();
+            MockMvc mvc = standaloneSetup(
+                            new PanelsController(context, context.getEnvironment(), new BootUiProperties()))
+                    .build();
+
+            // The fixture throws from unwrap/isWrapperFor/getConnection, so any probe fails this outright.
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath(panelPath(BootUiPanels.DATABASE_CONNECTION_POOLS) + ".available")
+                            .value(true));
+        }
+    }
+
+    /**
+     * A dynamic AOP target source creates its target on <em>any</em> invocation, so a URL getter that looks
+     * like a harmless read initializes the bean. The shared declaration walk must not hand such a proxy to the
+     * pool check or to the URL-based database detectors; the panel stays a candidate and nothing is resolved.
+     */
+    @Test
+    void panelsKeepsDatabaseConnectionPoolsAvailableWithoutResolvingALazyAopTarget() throws Exception {
+        AtomicBoolean resolved = new AtomicBoolean();
+        ProxyFactory proxyFactory = new ProxyFactory();
+        // A URL getter on the proxied interface is what the MySQL/PostgreSQL detectors reflectively look for.
+        proxyFactory.setInterfaces(UrlAwareDataSource.class);
+        proxyFactory.setTargetSource(new AbstractLazyCreationTargetSource() {
+            @Override
+            public Class<?> getTargetClass() {
+                return UrlAwareDataSource.class;
+            }
+
+            @Override
+            protected Object createObject() {
+                resolved.set(true);
+                throw new AssertionError("Rendering the panel manifest must not resolve a dynamic AOP target");
+            }
+        });
+        DataSource proxy = (DataSource) proxyFactory.getProxy();
+
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean("dataSource", DataSource.class, () -> proxy);
+            context.refresh();
+            MockMvc mvc = standaloneSetup(
+                            new PanelsController(context, context.getEnvironment(), new BootUiProperties()))
+                    .build();
+
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath(panelPath(BootUiPanels.DATABASE_CONNECTION_POOLS) + ".available")
+                            .value(true));
+            assertThat(resolved)
+                    .as("no panel check may invoke a method on a dynamically proxied datasource")
+                    .isFalse();
+        }
+    }
+
+    /**
+     * The other half of the contract: a pool that is terminal by construction — it builds its own connections
+     * from a driver and can neither be nor contain a Hikari pool — proves absence, so the panel stays
+     * unavailable and says why.
+     */
+    @Test
+    void panelsMarksDatabaseConnectionPoolsUnavailableForAKnownTerminalNonHikariPool() throws Exception {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean("dataSource", DataSource.class, SimpleDriverDataSource::new);
+            context.refresh();
+            MockMvc mvc = standaloneSetup(
+                            new PanelsController(context, context.getEnvironment(), new BootUiProperties()))
+                    .build();
+
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath(panelPath(BootUiPanels.DATABASE_CONNECTION_POOLS) + ".available")
+                            .value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.DATABASE_CONNECTION_POOLS) + ".unavailableReason")
+                            .value("The configured DataSource beans are not backed by a supported connection pool"));
+        }
+    }
+
+    /**
+     * Coherence between the manifest and the panel's own data path: whenever discovery can produce a pool, the
+     * manifest must have advertised the panel. Here the wrapper only gives up its Hikari pool through
+     * {@code unwrap}, which discovery is allowed to call and the manifest is not.
+     */
+    @Test
+    void anAdvertisedPoolIsNeverHiddenByTheManifestThatTheProviderCanStillFind() throws Exception {
+        HikariDataSource pool = mock(HikariDataSource.class);
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean("dataSource", DataSource.class, () -> new UnwrappingDataSource(pool));
+            context.refresh();
+            MockMvc mvc = standaloneSetup(
+                            new PanelsController(context, context.getEnvironment(), new BootUiProperties()))
+                    .build();
+
+            assertThat(HikariDataSourceDiscovery.discover(context.getBeanFactory()))
+                    .as("the panel's own read finds the pool behind the wrapper")
+                    .hasSize(1);
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath(panelPath(BootUiPanels.DATABASE_CONNECTION_POOLS) + ".available")
+                            .value(true));
+        }
+    }
+
+    /** A datasource interface that exposes a URL getter, as most real pools and several wrappers do. */
+    private interface UrlAwareDataSource extends DataSource {
+        String getJdbcUrl();
+    }
+
+    /**
+     * A datasource BootUI knows nothing about. Every question the manifest is forbidden to ask fails loudly;
+     * it deliberately declares no URL getter, so the database detectors simply read no declaration from it.
+     */
+    private static class OpaqueDataSource implements DataSource {
+        @Override
+        public boolean isWrapperFor(Class<?> iface) {
+            throw refuse("isWrapperFor");
+        }
+
+        @Override
+        public <T> T unwrap(Class<T> iface) {
+            throw refuse("unwrap");
+        }
+
+        @Override
+        public java.sql.Connection getConnection() {
+            throw refuse("getConnection");
+        }
+
+        @Override
+        public java.sql.Connection getConnection(String username, String password) {
+            throw refuse("getConnection");
+        }
+
+        @Override
+        public java.io.PrintWriter getLogWriter() {
+            return null;
+        }
+
+        @Override
+        public void setLogWriter(java.io.PrintWriter out) {}
+
+        @Override
+        public void setLoginTimeout(int seconds) {}
+
+        @Override
+        public int getLoginTimeout() {
+            return 0;
+        }
+
+        @Override
+        public java.util.logging.Logger getParentLogger() {
+            return java.util.logging.Logger.getGlobal();
+        }
+
+        private static AssertionError refuse(String method) {
+            return new AssertionError("Rendering the panel manifest must not call " + method + "() on a datasource");
+        }
+    }
+
+    /** The same opaque shape, but one that does honour {@code unwrap} once a caller is allowed to ask. */
+    private static final class UnwrappingDataSource extends OpaqueDataSource {
+        private final DataSource delegate;
+
+        private UnwrappingDataSource(DataSource delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public boolean isWrapperFor(Class<?> iface) {
+            return iface.isInstance(delegate);
+        }
+
+        @Override
+        public <T> T unwrap(Class<T> iface) {
+            return iface.cast(delegate);
         }
     }
 

@@ -13,10 +13,24 @@ class McpToolCatalogTests {
 
     @Test
     void advertisesTheFullToolSurfacePerStack() {
-        assertThat(McpToolCatalog.entries()).hasSize(87);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(87);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(86);
-        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(71);
+        assertThat(McpToolCatalog.entries()).hasSize(89);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(89);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(88);
+        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(73);
+    }
+
+    @Test
+    void mysqlCachedReadAndActionShareThePanelOnEveryStack() {
+        for (Stack stack : Stack.values()) {
+            var read = McpToolCatalog.require("get_mysql_report", stack);
+            var action = McpToolCatalog.require("mysql_read", stack);
+            assertThat(read.panelId()).isEqualTo(BootUiPanels.MYSQL);
+            assertThat(action.panelId()).isEqualTo(read.panelId());
+            assertThat(read.action()).isFalse();
+            assertThat(action.action()).isTrue();
+            assertThat(read.schema()).isEqualTo(McpToolSchema.NONE);
+            assertThat(action.schema()).isEqualTo(McpToolSchema.NONE);
+        }
     }
 
     @Test

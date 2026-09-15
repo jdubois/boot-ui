@@ -10,7 +10,7 @@ import java.util.concurrent.ThreadFactory;
 
 public class ThreadFactoryProbe {
     public static void main(String[] args) throws Exception {
-        Class.forName("io.github.jdubois.bootui.engine.internal.asm.ClassReader");
+        Class.forName("com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassReader");
         try (InputStream input = ThreadFactoryProbe.class.getResourceAsStream("NewerClassFile.class")) {
             try {
                 Class.forName("org.objectweb.asm.ClassReader")

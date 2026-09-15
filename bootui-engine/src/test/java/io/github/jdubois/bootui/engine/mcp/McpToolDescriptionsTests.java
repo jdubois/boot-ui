@@ -10,6 +10,26 @@ import org.junit.jupiter.api.Test;
 class McpToolDescriptionsTests {
 
     @Test
+    void mysqlGuidanceDistinguishesActiveWorkScopeAndMissingEvidence() {
+        for (Function<String, String> descriptions :
+                List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
+            assertThat(descriptions.apply("mysql_read"))
+                    .contains(
+                            "bounded",
+                            "read-only",
+                            "scope",
+                            "server-wide",
+                            "exact decimal strings",
+                            "permission",
+                            "instrumentation",
+                            "timeout",
+                            "raw session/sample SQL");
+            assertThat(descriptions.apply("get_mysql_report"))
+                    .contains("without contacting", "NOT_READ", "exposure-policy", "readAt", "approved");
+        }
+    }
+
+    @Test
     void advisorDescriptionsDistinguishSamplesRetentionAndCachedPagination() {
         for (String advisor :
                 List.of("architecture", "hibernate", "spring", "rest_api", "memory", "security", "database_advisor")) {
