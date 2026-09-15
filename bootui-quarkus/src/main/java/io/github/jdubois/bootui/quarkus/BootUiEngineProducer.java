@@ -42,6 +42,8 @@ import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.memory.MemoryScanner;
 import io.github.jdubois.bootui.engine.metrics.MeterSelfFilter;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
+import io.github.jdubois.bootui.engine.mysql.MySqlInsightService;
+import io.github.jdubois.bootui.engine.mysql.MySqlRowLimits;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
 import io.github.jdubois.bootui.engine.postgres.PostgresInsightService;
 import io.github.jdubois.bootui.engine.postgres.PostgresRowLimits;
@@ -137,6 +139,10 @@ public class BootUiEngineProducer {
     void validatePostgresqlLimits(
             @jakarta.enterprise.event.Observes io.quarkus.runtime.StartupEvent event, Config config) {
         postgresRowLimits(config);
+    }
+
+    void validateMySqlLimits(@jakarta.enterprise.event.Observes io.quarkus.runtime.StartupEvent event, Config config) {
+        mySqlRowLimits(config);
     }
 
     @Produces
@@ -829,9 +835,10 @@ public class BootUiEngineProducer {
             @Any Instance<DataSource> dataSources,
             Instance<EntityDiscoverySource> entityDiscoverySources,
             Instance<SqlTraceRecorder> sqlTraceRecorders,
+            BeanManager beanManager,
             Config config) {
         QuarkusDatabaseAdvisorDataSourceProvider dataSourceProvider =
-                new QuarkusDatabaseAdvisorDataSourceProvider(dataSources);
+                new QuarkusDatabaseAdvisorDataSourceProvider(dataSources, beanManager);
         Supplier<EntityDiscovery> discovery;
         if (entityDiscoverySources.isUnsatisfied()) {
             discovery = () -> EntityDiscovery.empty("Hibernate ORM is not configured on this Quarkus application.");
@@ -874,9 +881,12 @@ public class BootUiEngineProducer {
     @Produces
     @Singleton
     public PostgresInsightService postgresInsightService(
-            @Any Instance<DataSource> dataSources, QuarkusExposurePolicy exposure, Config config) {
+            @Any Instance<DataSource> dataSources,
+            QuarkusExposurePolicy exposure,
+            Config config,
+            BeanManager beanManager) {
         QuarkusDatabaseAdvisorDataSourceProvider dataSourceProvider =
-                new QuarkusDatabaseAdvisorDataSourceProvider(dataSources);
+                new QuarkusDatabaseAdvisorDataSourceProvider(dataSources, beanManager);
         return PostgresInsightService.using(
                 dataSourceProvider::discover, exposure, Clock.systemUTC(), postgresRowLimits(config));
     }
@@ -899,6 +909,43 @@ public class BootUiEngineProducer {
         return config.getConfigValue(property).getRawValue() == null
                 ? defaultValue
                 : config.getValue(property, Integer.class);
+    }
+
+    /**
+     * Always safe to wire in dev/test, including applications without Agroal or a MySQL driver.
+     * Discovery is deferred until the explicit read; neither factory nor cached GET resolves pool beans.
+     */
+    @Produces
+    @Singleton
+    public MySqlInsightService mySqlInsightService(
+            @Any Instance<DataSource> dataSources,
+            QuarkusExposurePolicy exposure,
+            Config config,
+            BeanManager beanManager) {
+        QuarkusDatabaseAdvisorDataSourceProvider provider =
+                new QuarkusDatabaseAdvisorDataSourceProvider(dataSources, beanManager);
+        return MySqlInsightService.using(provider::discover, exposure, Clock.systemUTC(), mySqlRowLimits(config));
+    }
+
+    static MySqlRowLimits mySqlRowLimits(Config config) {
+        MySqlRowLimits defaults = MySqlRowLimits.defaults();
+        return new MySqlRowLimits(
+                mySqlRowLimit(config, "max-sessions", defaults.maxSessions()),
+                mySqlRowLimit(config, "max-statements", defaults.maxStatements()),
+                mySqlRowLimit(config, "max-indexes", defaults.maxIndexes()),
+                mySqlRowLimit(config, "max-tables", defaults.maxTables()),
+                mySqlRowLimit(config, "max-lock-waits", defaults.maxLockWaits()),
+                mySqlRowLimit(config, "max-replication-channels", defaults.maxReplicationChannels()),
+                mySqlRowLimit(config, "max-settings", defaults.maxSettings()));
+    }
+
+    private static int mySqlRowLimit(Config config, String name, int defaultValue) {
+        String property = "bootui.mysql." + name;
+        // An explicitly blank value is an error, not a request for the default.
+        int value = config.getConfigValue(property).getRawValue() == null
+                ? defaultValue
+                : config.getValue(property, Integer.class);
+        return MySqlRowLimits.requireValid(property, value);
     }
 
     /**

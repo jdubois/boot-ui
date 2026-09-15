@@ -116,3 +116,24 @@ and the others have no Quarkus equivalent.)
 For the authoritative, per-panel availability, see [Features](../features/README.md) and
 [Framework support](../FRAMEWORK-SUPPORT.md). To try a fully wired Quarkus app, see
 [Try the sample app](../TRY-SAMPLE-APP.md#bootui-on-quarkus).
+
+### MySQL prerequisites
+
+The [MySQL operational panel](../features/database.md#mysql) uses an existing default or named JDBC datasource
+with the `io.quarkus:quarkus-jdbc-mysql` extension and a MySQL declaration (`quarkus.datasource.db-kind=mysql`, or the
+corresponding named datasource configuration). A reactive MySQL client alone is not supported.
+Oracle MySQL 8.4 LTS is the tested server line, with live coverage on 8.4.6; MariaDB is a separate unsupported
+follow-up.
+
+Keep credentials in the application's existing secure configuration. BootUI creates no monitoring datasource and
+starts no database or sample workload when the panel opens. Only **Run MySQL read** performs bounded, blocking JDBC
+collection; cached GET/MCP/CLI report reads perform no SQL. The same [startup row caps](../PROPERTIES.md#mysql),
+permissions, masking, and panel read-only policy apply as on Spring. Without the JDBC capability the panel is
+unavailable, and production builds remain completely dark.
+
+For the repository's optional demonstration, the
+[Quarkus sample README](https://github.com/jdubois/boot-ui/tree/main/bootui-quarkus-sample-app#readme) documents the
+`mysql-diagnostics` Maven profile plus `dev,mysql-diagnostics` runtime profiles. Its named `mysql` pool reads
+`BOOTUI_SAMPLE_MYSQL_URL`, `BOOTUI_SAMPLE_MYSQL_USERNAME`, and `BOOTUI_SAMPLE_MYSQL_PASSWORD`;
+Dev Services is explicitly disabled for that pool. Supply your own local
+fixture and credentials rather than expecting the profile or BootUI to create a database.

@@ -156,6 +156,228 @@ do not invalidate a successfully read replica list.
 
 :::
 
+## MySQL
+
+To try this panel with the application's real workload, the Spring MVC sample has a
+[`docker-mysql` profile](https://github.com/jdubois/boot-ui/tree/main/bootui-spring-sample-app#run-it-with-docker-and-mysql).
+It replaces PostgreSQL with MySQL 8.4.6 for JPA and both migration tools, enables statement instrumentation, and
+provisions the sample account's diagnostic grants. Run `bootui-spring-sample-app/run-local-mysql.sh` for the
+lightweight MySQL-and-Redis stack; Kafka and Ollama are disabled, with no AI model downloads.
+No separate Maven profile is required.
+
+::: tip Tested compatibility
+**Oracle MySQL 8.4 LTS** is the tested server line, using `mysql:8.4.6` on Java 17:
+
+| Stack | JDBC driver | Pool |
+| --- | --- | --- |
+| Spring MVC and WebFlux | Connector/J 9.7.0 | HikariCP 7.0.2 |
+| Quarkus | Connector/J 9.6.0 | Agroal 3.0.1 |
+
+MariaDB is a separate, unsupported follow-up. MySQL 5.7, other MySQL lines, compatible/managed flavors, and other
+driver/pool combinations are not certified by this matrix. JDBC support does not imply R2DBC or reactive-client support.
+:::
+
+![BootUI MySQL panel](../images/bootui-mysql.webp)
+
+MySQL is an operational sibling to PostgreSQL: **what does the connected server report, and which observations can
+be associated with this datasource's schema?** It is not the Database advisor, SQL Trace, or a monitoring service.
+There are no grades, severities, advisor recommendations, or contributions to Overview scores.
+
+Opening the panel reads only the latest in-memory report. **Run MySQL read** explicitly collects a new observation;
+there is no automatic query or refresh. Per datasource, vital signs stay visible above the Sessions, Statements,
+Indexes, Tables, InnoDB, Replication, and Settings tabs. Counts and local filters describe only retained rows.
+
+| Area | Evidence and limits |
+| --- | --- |
+| Vital signs | Server-wide uptime, connections, buffer-pool and lock/log counters. These are not this JVM's pool metrics; table storage estimates are in Tables, not a schema-size vital sign. |
+| Sessions and blocking | Default-schema-associated sessions, state age, optional transaction age, bounded row-lock relationships, and separately identified metadata waits. A sleeping session can still hold a transaction; state age is not transaction age. |
+| Statements | Normalized digests ranked by total execution time, with calls, durations, rows examined/sent, errors, and temporary-table evidence where collected. No raw or sampled SQL. |
+| Indexes | Selected-schema handler-operation statistics, not query counts or physical disk reads. The null-index bucket includes inserts; no recorded reads is not advice to drop an index. |
+| Tables | Selected-schema engine, estimated rows/storage, and available table I/O. InnoDB estimates can be cached; BootUI does not run `COUNT(*)`, refresh statistics, or sum shared tablespace free space as reclaimable bytes. |
+| InnoDB | Allow-listed buffer/dirty-page, log-wait, lock/deadlock, and history-list evidence where available and enabled. This is not PostgreSQL autovacuum. |
+| Basic replication | The connected server's receiver/applier channel state, coordinator errors, and bounded worker/error summaries. No precise end-to-end lag, downstream topology discovery, or Group Replication administration. |
+| Settings | A fixed safe allow-list of global settings, not a variable dump. Values changed for BootUI's inspection session are not presented as application defaults. |
+
+### Read and report contract
+
+These paths use the default API mount; custom `bootui.api-path` and application base paths apply normally.
+
+| Surface | Cached evidence — no connection or SQL | Explicit collection |
+| --- | --- | --- |
+| REST | `GET /bootui/api/mysql` | `POST /bootui/api/mysql/read` |
+| MCP | `get_mysql_report` | `mysql_read` |
+| CLI | `bootui db mysql report` | `bootui db mysql read` |
+
+Neither operation accepts SQL, a schema selector, or a server address. Collection uses the application's existing
+datasources and credentials. Global `bootui.read-only` or `bootui.panels.mysql.read-only` blocks the action even though
+it does not modify application data: it initiates external work. Cached reads remain allowed. Disabling
+`bootui.panels.mysql.enabled` blocks both. The existing localhost, Host, authentication, and cross-site-write guards
+apply; an overlapping read is refused, not queued or automatically retried.
+
+Reports distinguish `NOT_READ`, `READ`, `PARTIAL`, `ERROR`, and `DISABLED`. `READ` means applicable sections completed
+within their declared scope, not that the database is healthy. A section is `AVAILABLE`, `SKIPPED`, or `FAILED`, with
+a reason when evidence is incomplete. Independent usable rows survive a failed section; no usable datasource evidence
+from a supported target means `ERROR`. No supported datasource means `DISABLED`. A successfully read empty replication
+list is different from unknown replication after a failed read.
+
+The cache contains sanitized data, not raw values saved for later masking. An exposure-policy change invalidates it
+and returns an explained `NOT_READ` state without SQL. A new explicit read is required, including after relaxing
+exposure. Collection is an interval, not an atomic cross-table snapshot, and the report can become stale.
+
+### Scope, precision, and comparisons
+
+- **Server** evidence can include other applications. Do not add repeated server counters from multiple pools pointing
+  at one instance.
+- **Selected schema** describes table/index metadata visible to the connected account. With no selected schema,
+  schema-specific sections are skipped; BootUI does not enumerate every database.
+- **Default-schema-associated** sessions and digests are not an inventory of every statement touching that schema:
+  fully qualified cross-schema SQL may be associated elsewhere.
+- Unknown values are `null`, not zero. Large/unsigned counters, byte sizes, and numeric identifiers are
+  **exact decimal strings in JSON**. Bounded row counts and typed duration fields are numbers; generic metrics carry
+  a nullable string `value` alongside their unit, scope, and source. Preserve exact strings when parsing or sorting;
+  do not coerce them through an unsafe JavaScript `Number`. Timer fields carry explicit millisecond/second units.
+- The first read has no invented rates. Later comparisons need compatible datasource, server identity, scope, and
+  counter provenance, with their own observation interval. Restart/reset or server-change evidence invalidates a
+  baseline; a partial read does not turn an older valid observation into a fresh one. Nothing is persisted to disk.
+  Counter comparisons use the status query's own observation window, not the later completion of all collectors.
+  Restart detection accounts for that window and integer-second uptime, so a slow subsequent section does not
+  masquerade as a restarted database.
+
+### Availability and permissions
+
+The panel supports the same JDBC capability on **Spring MVC, Spring WebFlux, and Quarkus**, including default and named
+datasources. WebFlux does not require a servlet stack, but **R2DBC-only applications are unavailable**. On Quarkus,
+use the MySQL JDBC extension (`quarkus-jdbc-mysql`) and a configured JDBC datasource; a reactive MySQL client alone
+does not qualify. BootUI stays absent in Quarkus production builds.
+
+Sidebar/tool discovery reads local declarations only, never a database. A candidate with unresolved vendor metadata
+is not proof of MySQL support: the explicit action verifies the connected server and reports unsupported targets.
+Wrapped/routing datasources must still lead to supported JDBC targets. Routing can select a replica; evidence
+describes the actual connected server, not a presumed primary. Quarkus requires an active JDBC MySQL declaration
+and Connector/J presence; unknown and reactive-only declarations are unavailable.
+
+Use the application's existing account and grant only the visibility the operator approves. There is no MySQL
+equivalent of a single `pg_monitor` capability flag. Table readability, active-role privileges, collection enabled
+state, and timing availability are separate evidence.
+
+| Optional visibility | What to authorize and what it unlocks |
+| --- | --- |
+| Status and settings | Probe readability of `performance_schema.global_status` before requesting additional permissions. An explicit table grant is not universally required for it: the restricted MySQL 8.4.6 fixture reads it without one. An unreadable status source can fall back to fixed-name `SHOW GLOBAL STATUS`. Settings use fixed `@@global` expressions, not a `global_variables` table read. |
+| Session state | `SELECT` on `performance_schema.threads`. Reading `threads` exposes other users' thread rows **without `PROCESS`**; this is a meaningful permission decision. Current statement text is not selected, and `events_statements_current` is not required. |
+| Blocking | `SELECT` on `performance_schema.data_lock_waits`, `data_locks`, and `metadata_locks` for the corresponding wait evidence. |
+| Statement ranking | `SELECT` on `performance_schema.events_statements_summary_by_digest`, with the relevant collection and timing enabled. Global digest collection depends on `global_instrumentation` and `statements_digest`, not `thread_instrumentation`. |
+| Table/index activity | `SELECT` on `performance_schema.table_io_waits_summary_by_table` and `table_io_waits_summary_by_index_usage`, with enabled global, handler, and matching object instrumentation. Information Schema object visibility still follows application-object permissions. |
+| Instrumentation explanation | `SELECT` on `performance_schema.setup_consumers`, `setup_instruments`, and `setup_objects`. Denied probes leave collection state unknown, not enabled. |
+| Replication | Table-specific `SELECT` on the receiver/applier status tables actually read: `replication_connection_status`, `replication_applier_status`, `replication_applier_status_by_coordinator`, and `replication_applier_status_by_worker` in `performance_schema`. No replication administration is needed. |
+| Additional InnoDB detail | Optional global `PROCESS` for `information_schema.innodb_trx` and `innodb_metrics`. Other readable sections remain useful without it. |
+
+This is a capability map, not a blanket minimum-grant script: inspect the reported source and the role active on the
+application connection before changing permissions. Do not grant `SUPER`, use an administrative account, or grant all of
+`performance_schema.*` merely to make the panel complete. BootUI never enables consumers, instruments, or InnoDB
+metrics and never resets statistics.
+
+Table/index activity respects MySQL's effective object configuration: exact table, schema wildcard, then global
+wildcard. Object matching uses MySQL's identifier normalization; `%` is a whole-name wildcard, not a SQL `LIKE`
+pattern. At most 1,024 relevant table rules are inspected. Missing or bounded configuration evidence remains
+unknown rather than falling back to an assumed enabled rule. Uninstrumented/unknown objects retain readable
+catalog metadata, but affected activity counters are withheld; untimed objects retain counts but not durations.
+These limitations are explained per section rather than displayed as zero activity or `0 ms`.
+
+Metadata-lock evidence separately checks `wait/lock/metadata/sql/mdl`; an empty list with disabled or unknown
+instrumentation cannot establish absence. Like table I/O, metadata-lock collection needs global instrumentation,
+not the per-thread consumer. Sessions and independently read row-lock waits remain visible.
+
+Replication state/error tables remain readable when Performance Schema is disabled; BootUI does not use the
+transaction-timing columns that disappear in that mode. Coordinator-only errors are included, and an unread
+error source produces partial coverage rather than certifying zero errors.
+
+### Safety and bounds
+
+The execution bounds are a **15-second cooperative total read budget**,
+a **5-second server SELECT limit**, a **2-second metadata-lock wait limit**, and **400 characters of displayed
+normalized statement text**. SELECTs use MySQL `MAX_EXECUTION_TIME` hints capped by the remaining budget.
+The borrowed connection also gets a JDBC network guard of **at most 7 seconds**, retaining a tighter existing
+positive timeout, to bound control/SHOW I/O that SELECT limits do not cover.
+
+When `performance_schema.global_status` is denied or otherwise unreadable, the fallback is `SHOW GLOBAL STATUS`
+with a `WHERE Variable_name IN (...)` filter containing **17 fixed safe names**. That allow-list bounds output;
+**SHOW does not share SELECT's `MAX_EXECUTION_TIME` guarantee**. Its I/O is guarded by
+`Connection.setNetworkTimeout` at the smaller of an existing positive timeout and 7,000 ms, or 7,000 ms when none
+is set. The original network timeout is restored afterward.
+
+These are not a hard end-to-end deadline or a fresh 15 seconds per datasource. The application pool controls
+connection-acquisition waiting, which can exceed the cooperative budget; application connection/socket configuration
+remains separate. Raising a CLI timeout does not extend the collector's budget or change the pool. BootUI deliberately
+uses neither `Statement.setQueryTimeout` nor `Statement.cancel`, avoiding Connector/J's auxiliary `KILL QUERY`
+connections. The server and network guards do not depend on Connector/J's `enableQueryTimeouts` option being enabled.
+
+The seven startup row caps, identical across the three JDBC adapters, are:
+
+```properties
+bootui.mysql.max-sessions=100
+bootui.mysql.max-statements=100
+bootui.mysql.max-indexes=500
+bootui.mysql.max-tables=200
+bootui.mysql.max-lock-waits=100
+bootui.mysql.max-replication-channels=10
+bootui.mysql.max-settings=40
+```
+
+Each applies per datasource. Values must be positive integers below `2147483647`; invalid values fail startup, and
+zero is not unlimited. **Restart after changing a cap.** SQL-side bounds and an extra-row check distinguish exactly
+the cap from omitted rows, without counting the omitted inventory. Lock relationships and replication worker detail
+are bounded too; index limits must not silently cut a composite definition. Settings and InnoDB remain allow-listed.
+See the [property reference](../PROPERTIES.md#mysql).
+
+`truncated=true` means a BootUI row cap omitted results, not a failed query or timeout. MySQL digest overflow, disabled
+instrumentation, denied sources, and time exhaustion have separate explanations. Local filters cannot retrieve
+omitted rows, and there is no pagination/details API in this first scope. A cap-only `PARTIAL` report identifies the
+retained window without suggesting that a source failed or needs additional permissions. The MySQL UI treats these
+normal bounds as neutral **Limited** labels and section-local row-count notes, not a warning banner or amber
+partial-read badges. Actual permission problems, timeouts, unavailable instrumentation, and other read failures
+remain warnings or errors, including when a row cap is also reached. REST, MCP, and CLI still retain the honest
+`PARTIAL`/`truncated` coverage contract.
+
+Collection snapshots actual session settings, sets `transaction_read_only=1`, starts `START TRANSACTION READ ONLY`,
+and verifies the server read-only setting. It deliberately avoids `Connection.setReadOnly`: that hint can reroute a
+driver connection and need not propagate to the server. Manual-commit connections are refused before metadata or SQL,
+without commit or rollback; BootUI cannot distinguish a pool default from an application-owned transaction.
+
+After collection, BootUI rolls back only its own transaction and restores the original auto-commit, session settings,
+and network timeout before returning the connection. A restoration failure triggers JDBC abort before closing the
+pool handle. If abort also fails, one handle is quarantined rather than returned to the pool, and further collection
+is disabled until the pool and BootUI are restarted. Live tests verify cleanup and physical connection eviction
+with the driver/pool combinations listed above.
+Monitoring itself consumes resources even when no application data is changed.
+
+No application rows, `LOCK_DATA` key values, `QUERY_SAMPLE_TEXT`, `PROCESSLIST_INFO`, or `TRX_QUERY` are selected.
+Only normalized digest text may be exposed, after masking, credential redaction, exposure policy, and length bounds.
+Metadata-only mode withholds statement text and sensitive addresses. Raw JDBC URLs, arbitrary server errors,
+replication secrets, and variable dumps are excluded in every mode. There are no session-kill controls, SQL console,
+query plans, DDL, maintenance commands, or controls to change server/application configuration or instrumentation.
+
+### When evidence is missing
+
+| Situation | Interpretation and next step |
+| --- | --- |
+| No supported JDBC datasource / wrong vendor | Check the application's driver and datasource declarations. MariaDB and reactive-only clients are outside this panel's first scope. Do not create another monitoring pool automatically. |
+| Permission denied / inactive role | Keep readable sections. Review the named source with the operator; table access and the role active on this connection matter, not just a grant recorded elsewhere. |
+| Performance Schema, digests, or timing disabled | Missing evidence is not an idle workload or zero latency. Some status/replication evidence can remain readable with Performance Schema disabled. BootUI does not enable anything automatically. |
+| Manual-commit pool default | Collection is refused to protect application transactions. Review the pool contract; do not change application transaction settings just to silence the diagnostic. |
+| Restoration and abort both fail | The unsafe handle is quarantined and further collection is disabled. Restart the affected pool and BootUI before retrying; do not bypass the safeguard. |
+| Timeout / acquisition wait | Check section reasons and the pool/network timeout configuration separately. Completed evidence remains usable; a timeout is not truncation or a healthy empty section. |
+| Row cap only | Read the retained top-N window and named limitations. Raising a startup cap needs a restart and another authorized read; it cannot recover the old omitted rows or fix server digest overflow. |
+| No default schema / replication read unavailable | Schema-specific sections or channel state are unknown/skipped as explained. Do not infer an empty database or no replication from missing evidence. |
+
+Primary MySQL documentation: [thread scope and visibility](https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/performance-schema-threads-table.html),
+[table privileges](https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/performance-schema-table-characteristics.html),
+[lock data sensitivity](https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/performance-schema-data-locks-table.html),
+[statement summaries and digest overflow](https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/performance-schema-statement-summary-tables.html),
+[table estimates](https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/information-schema-tables-table.html),
+[InnoDB metrics](https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/information-schema-innodb-metrics-table.html),
+[replication evidence](https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/performance-schema-replication-tables.html),
+and [Connector/J buffering and why its auxiliary cancellation path is avoided](https://docs.oracle.com/cd/E17952_01/connector-j-en/connector-j-reference-implementation-notes.html).
+
 ## SQL Trace
 
 ![BootUI SQL Trace panel](../images/bootui-sql-trace.webp)

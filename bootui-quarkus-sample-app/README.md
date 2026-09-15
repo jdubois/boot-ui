@@ -63,6 +63,42 @@ This is harmless if the Spring app is not running (the export just fails quietly
 disabled in the Docker image below, which has no Spring app nearby.
 
 
+## Optional MySQL diagnostics
+
+The `mysql-diagnostics` Maven profile adds Connector/J through `quarkus-jdbc-mysql`; the matching runtime profile adds a
+**named** `mysql` datasource. The default PostgreSQL datasource, Hibernate model, and migration demos are unchanged.
+Neither profile is active by default, and MySQL Dev Services is explicitly disabled.
+
+Use Oracle MySQL 8.4 LTS (the live fixture pins `mysql:8.4.6`), not MariaDB. Set connection details for an existing
+local synthetic database and its restricted account outside source control:
+
+```bash
+export BOOTUI_SAMPLE_MYSQL_URL='jdbc:mysql://localhost:3306/bootui_mysql?connectTimeout=3000&socketTimeout=5000'
+export BOOTUI_SAMPLE_MYSQL_USERNAME='bootui_reader'
+# Set BOOTUI_SAMPLE_MYSQL_PASSWORD in your shell or secret manager; do not commit it.
+./mvnw -Dmaven.repo.local=.m2 -pl bootui-quarkus-sample-app -am -Pmysql-diagnostics -DskipTests install
+./mvnw -Dmaven.repo.local=.m2 -f bootui-quarkus-sample-app/pom.xml -Pmysql-diagnostics quarkus:dev \
+  -Dquarkus.profile=dev,mysql-diagnostics
+```
+
+Create a small disposable schema/table and run a few SELECTs deliberately using your database client to provide
+statement and table observations. BootUI never seeds data, changes instrumentation, or runs a database query when
+you open the panel: choose **Run MySQL read** to collect. Read-only BootUI policy blocks that external action while
+still allowing the last cached report. Missing monitoring grants produce partial evidence, not a clean bill of
+health; see [MySQL permissions, scopes, and limitations](../docs/features/database.md#mysql) before adding grants.
+Do not point the sample at production or use root as its datasource account. Stop the sample and remove only your
+disposable schema/container when finished.
+
+The extension's real-MySQL HTTP integration test is separate from the ordinary Docker-free H2 suite:
+
+```bash
+./mvnw -Dmaven.repo.local=.m2 -pl bootui-quarkus-integration-tests/datasource \
+  -Pmysql-live test -Dtest=BootUiQuarkusMySqlLiveTest
+```
+
+Use JDK 17, 21, or 25 and a running Docker daemon. This explicit lane fails rather than silently skipping if Docker
+or the pinned server is unavailable. Install current reactor dependencies first when working from source.
+
 ## Importing into an IDE (IntelliJ IDEA)
 
 This module is part of the **always-on** Maven reactor, so IntelliJ imports it as a Java/Maven module on

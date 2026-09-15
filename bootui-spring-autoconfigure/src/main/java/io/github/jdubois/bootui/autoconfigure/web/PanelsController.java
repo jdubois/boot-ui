@@ -1,11 +1,13 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.datasource.DataSourceDeclarations;
 import io.github.jdubois.bootui.core.dto.PanelDto;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.agent.AgentSessionStore;
 import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
+import io.github.jdubois.bootui.engine.mysql.MySqlDataSourceDetection;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels.Panel;
 import io.github.jdubois.bootui.engine.postgres.PostgresDataSourceDetection;
@@ -14,8 +16,8 @@ import io.github.jdubois.bootui.engine.telemetry.AiFrameworkDetector;
 import io.github.jdubois.bootui.engine.websocket.WebSocketService;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
-import org.springframework.beans.BeansException;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.actuate.autoconfigure.condition.ConditionsReportEndpoint;
 import org.springframework.boot.actuate.beans.BeansEndpoint;
@@ -185,6 +187,12 @@ public class PanelsController {
             case BootUiPanels.SQL_TRACE ->
                 availability(beanPresent(javax.sql.DataSource.class), "No DataSource bean is available");
             case BootUiPanels.POSTGRESQL -> availability(postgresAvailable(), postgresUnavailableReason());
+            case BootUiPanels.MYSQL ->
+                availability(
+                        declaredDatabaseAvailable(MySqlDataSourceDetection::isMySqlJdbcUrl, "com.mysql.cj.jdbc.Driver"),
+                        applicationContext.getBeanNamesForType(javax.sql.DataSource.class, true, false).length == 0
+                                ? "No JDBC DataSource bean is available; reactive clients alone are not supported."
+                                : "No MySQL JDBC datasource is configured. MariaDB requires a separate integration.");
             case BootUiPanels.TRANSACTIONS ->
                 availability(
                         beanPresent(ConfigurableTransactionManager.class),
@@ -388,29 +396,25 @@ public class PanelsController {
      * read action then reports the honest per-datasource diagnostic.</p>
      */
     private boolean postgresAvailable() {
-        if (!beanPresent(javax.sql.DataSource.class)) {
+        return declaredDatabaseAvailable(PostgresDataSourceDetection::isPostgresJdbcUrl, "org.postgresql.Driver");
+    }
+
+    private boolean declaredDatabaseAvailable(Predicate<String> matches, String driverClass) {
+        DataSourceDeclarations.Snapshot declarations = DataSourceDeclarations.inspect(applicationContext);
+        if (!declarations.present()) {
             return false;
         }
-        boolean anyUnknownUrl = false;
-        for (String beanName : applicationContext.getBeanNamesForType(javax.sql.DataSource.class)) {
-            javax.sql.DataSource dataSource;
-            try {
-                dataSource = applicationContext.getBean(beanName, javax.sql.DataSource.class);
-            } catch (BeansException ex) {
-                anyUnknownUrl = true;
-                continue;
-            }
+        boolean anyUnknownUrl = declarations.incomplete();
+        for (javax.sql.DataSource dataSource : declarations.sources()) {
             String url = PostgresDataSourceDetection.jdbcUrlOf(dataSource);
             if (url == null) {
                 anyUnknownUrl = true;
-            } else if (PostgresDataSourceDetection.isPostgresJdbcUrl(url)) {
+            } else if (matches.test(url)) {
                 return true;
             }
         }
-        if (PostgresDataSourceDetection.isPostgresJdbcUrl(environment.getProperty("spring.datasource.url"))) {
-            return true;
-        }
-        return anyUnknownUrl && classPresent("org.postgresql.Driver");
+        return anyUnknownUrl
+                && (matches.test(environment.getProperty("spring.datasource.url")) || classPresent(driverClass));
     }
 
     private String postgresUnavailableReason() {
@@ -420,16 +424,54 @@ public class PanelsController {
         return "No PostgreSQL datasource is configured";
     }
 
+    /**
+     * Whether the Database Connection Pools panel has anything to show.
+     *
+     * <p>Answered from objects that already exist, never by creating one: the manifest renders on page load, so
+     * it may not instantiate a lazy {@code DataSource} bean, resolve a dynamic proxy target, or borrow a
+     * connection. That makes "no Hikari pool" undecidable in three real configurations — a lazy or not-yet-created
+     * datasource bean, a wrapper hidden behind a dynamic AOP target source, and a pool that will not answer the
+     * JDBC wrapper query. Each of those stays a <em>candidate</em>: the panel's own read resolves beans and
+     * reports honestly, whereas hiding a configured pool leaves no way to find out. Only a pool that positively
+     * declares it is not Hikari (and an application with no {@code DataSource} bean at all) makes the panel
+     * unavailable.</p>
+     */
     private boolean hikariAvailable() {
-        return classPresent("com.zaxxer.hikari.HikariDataSource")
-                && HikariDataSourceDiscovery.hasAny(applicationContext);
+        if (!classPresent("com.zaxxer.hikari.HikariDataSource")) {
+            return false;
+        }
+        if (applicationContext.getBeanNamesForType(com.zaxxer.hikari.HikariDataSource.class, true, false).length > 0) {
+            return true;
+        }
+        DataSourceDeclarations.Snapshot declarations = DataSourceDeclarations.inspect(applicationContext);
+        if (!declarations.present()) {
+            return false;
+        }
+        // A declaration that could not be observed at all — a lazy bean, or a wrapper that would not describe
+        // its target — is exactly the case that cannot be ruled out without constructing something.
+        boolean undecided = declarations.incomplete();
+        for (javax.sql.DataSource source : declarations.sources()) {
+            switch (HikariDataSourceDiscovery.inspectExisting(source)) {
+                case PRESENT -> {
+                    return true;
+                }
+                case UNKNOWN -> undecided = true;
+                case ABSENT -> {
+                    // A pool that declares it neither is nor wraps Hikari is proven absent.
+                }
+            }
+        }
+        return undecided;
     }
 
     private String hikariUnavailableReason() {
         if (!classPresent("com.zaxxer.hikari.HikariDataSource")) {
             return "No supported JDBC connection pool implementation is available";
         }
-        return "No database connection pool beans are available";
+        if (applicationContext.getBeanNamesForType(javax.sql.DataSource.class, true, false).length == 0) {
+            return "No database connection pool beans are available";
+        }
+        return "The configured DataSource beans are not backed by a supported connection pool";
     }
 
     private boolean flywayAvailable() {
