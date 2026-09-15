@@ -10,6 +10,7 @@ const Loggers = () => import('./views/Loggers.vue')
 const DatabaseConnectionPools = () => import('./views/DatabaseConnectionPools.vue')
 const DatabaseAdvisor = () => import('./views/DatabaseAdvisor.vue')
 const PostgreSql = () => import('./views/PostgreSql.vue')
+const MySql = () => import('./views/MySql.vue')
 const SqlTrace = () => import('./views/SqlTrace.vue')
 const Transactions = () => import('./views/Transactions.vue')
 const RestClientTrace = () => import('./views/RestClientTrace.vue')
@@ -559,6 +560,18 @@ export const routes = [
         'connections',
         'indexes'
       ]
+    }
+  },
+  {
+    path: '/mysql',
+    name: 'mysql',
+    component: MySql,
+    meta: {
+      group: groups.database,
+      icon: 'bi-database-check',
+      title: 'MySQL',
+      shortcut: 'my',
+      keywords: ['mysql', 'innodb', 'performance schema', 'sessions', 'locks', 'replication', 'jdbc']
     }
   },
   {

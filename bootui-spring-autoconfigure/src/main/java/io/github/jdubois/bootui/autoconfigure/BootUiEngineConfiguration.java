@@ -75,6 +75,8 @@ import io.github.jdubois.bootui.engine.mappings.MappingsService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.memory.MemoryScanner;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
+import io.github.jdubois.bootui.engine.mysql.MySqlInsightService;
+import io.github.jdubois.bootui.engine.mysql.MySqlRowLimits;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.pentesting.PentestingScanner;
 import io.github.jdubois.bootui.engine.postgres.PostgresInsightService;
@@ -261,6 +263,30 @@ public class BootUiEngineConfiguration {
                         postgresql.getMaxVacuumTables(),
                         postgresql.getMaxReplicas(),
                         postgresql.getMaxSettings()));
+    }
+
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    MySqlInsightService bootUiMySqlInsightService(
+            ObjectProvider<ListableBeanFactory> beanFactoryProvider,
+            BootUiExposure exposure,
+            BootUiProperties properties) {
+        SpringDatabaseAdvisorDataSourceProvider provider =
+                new SpringDatabaseAdvisorDataSourceProvider(beanFactoryProvider);
+        BootUiProperties.Mysql mysql = properties.getMysql();
+        return MySqlInsightService.using(
+                provider::discover,
+                exposure,
+                Clock.systemUTC(),
+                new MySqlRowLimits(
+                        mysql.getMaxSessions(),
+                        mysql.getMaxStatements(),
+                        mysql.getMaxIndexes(),
+                        mysql.getMaxTables(),
+                        mysql.getMaxLockWaits(),
+                        mysql.getMaxReplicationChannels(),
+                        mysql.getMaxSettings()));
     }
 
     @Bean

@@ -176,7 +176,28 @@ those fields so the same UI build renders the correct sidebar and status on each
 > the canonical JSON `409` response, while Heap Dump capture/analyze/delete share one mutation-domain admission. MCP
 > returns the same busy message in-band, and passive reads continue serving the last completed report.
 
-### 5.1 Ported as-is — framework-agnostic or same library (21)
+**MySQL is implemented** through the same shared engine/report as MVC and WebFlux, using default or named **JDBC**
+datasources. Oracle MySQL 8.4 LTS is the tested server line; the Quarkus live fixture uses 8.4.6 with
+Connector/J 9.6.0 and Agroal 3.0.1, including custom-mount REST/MCP/CLI contracts and physical connection eviction.
+The manifest requires Agroal/JDBC capability, classloading-safe Connector/J presence, and an active JDBC MySQL
+declaration (`db-kind=mysql` or a recognized JDBC URL, including supported wrapping/routing forms), without resolving
+a datasource bean. Unknown, MariaDB, and reactive-only declarations are unavailable;
+`quarkus-reactive-mysql-client` alone is insufficient. MariaDB is a separate unsupported follow-up.
+
+The thin resource returns the sanitized cache for `GET <api-path>/mysql` and performs the explicit
+`POST <api-path>/mysql/read` as blocking work off the event loop. REST, MCP (`get_mysql_report` / `mysql_read`), and
+CLI (`bootui db mysql report` / `read`) share collection, cache, bounds, and policy. Discovery and cached reads
+perform no SQL. The seven static `bootui.mysql.*` caps are read from MicroProfile Config with the same positive-integer
+validation and restart semantics as Spring.
+
+Missing JDBC capability/datasource means **unavailable**, not a startup classloading error or a permanently
+not-applicable panel. In `LaunchMode.NORMAL`, neither its data-bearing resource nor CDI service is wired.
+Positive MySQL HTTP/conformance coverage runs in the existing datasource integration module's opt-in `mysql-live`
+profile; default H2/Docker-free coverage remains independent.
+The Docker-required selector is `BootUiQuarkusMySqlLiveTest`, isolated under `src/mysql-live/java`.
+See [MySQL](features/database.md#mysql) for partial evidence, permissions, and execution bounds.
+
+### 5.1 Ported as-is — framework-agnostic or same library (22)
 
 Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter adds at most a trivial supplier.
 
@@ -187,6 +208,7 @@ Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter add
 | `Hibernate` advisor                                   | Same 71-rule registry/report contract; unit-specific native observations and explicit incomplete scans; Spring Data query rules are inapplicable without verified JPA repository metadata |
 | `Hibernate Statistics`                                | Standalone Database-section panel over `org.hibernate.stat.Statistics`, gated on the same Hibernate ORM capability as the advisor; its runtime-enable action has the same read-only and cross-site-write protection as Spring |
 | `PostgreSQL`                                          | Read-only runtime view of the application's own PostgreSQL database (live `pg_stat_activity` sessions plus the `pg_stat_*`/`pg_catalog` statistics tables) via the shared `PostgresInsightService`; the Quarkus adapter adds only the same `DataSource` discovery supplier the Database advisor uses. Available only when a PostgreSQL datasource is configured (an Agroal datasource plus a `postgresql` `db-kind` or a PostgreSQL JDBC URL, read from configuration without opening a connection); any other database reports SKIPPED/empty if reached. The read is user-triggered (`POST /bootui/api/postgresql/read`), single-flighted, row- and wall-clock-bounded, and never runs on page load |
+| `MySQL`                                              | Shared JDBC operational engine and sanitized cache; default/named MySQL datasource required. Explicit blocking read only, no SQL during discovery or cached GET. See [MySQL](features/database.md#mysql). |
 | `Vulnerabilities`                                     | Classpath SBOM/Maven metadata + OSV                                               |
 | `HTTP Probe`                                          | Local HTTP probing                                                                |
 | `AI Framework`                                        | —                                                                                 |
@@ -506,10 +528,10 @@ No equivalent, low value, or superseded by Quarkus's own tooling:
 - `JMS` uses Spring JMS (`JmsTemplate` and `@JmsListener`) today. Quarkus users can use the implemented Kafka and RabbitMQ
   panels while a Quarkus-native JMS capture layer remains unimplemented.
 
-**Result:** 49 of the 59 panels ship on Quarkus: 27 are statically available and 22 are capability/detector-gated. The
+**Result:** 50 of the 60 panels ship on Quarkus: 27 are statically available and 23 are capability/detector-gated. The
 remaining 10 panels do not ship: 9 are intentionally not applicable (GraalVM, CRaC, Conditions, Startup Timeline, HTTP
 Sessions, Spring Data, Spring Security, Spring DevTools, Transactions), and 1 (`JMS`) is not yet available. By portability
-strategy, the 49 shipped panels comprise 21 ported as-is, 12 source-swapped, 13 capture-rebuilt, and 3 replaced with a
+strategy, the 50 supported entries comprise 22 ported as-is, 12 source-swapped, 13 capture-rebuilt, and 3 replaced with a
 Quarkus-native panel. The Overview dashboard panel is available (its scoring dashboard renders client-side from the
 advisor endpoints, and the shell-chrome `GET /bootui/api/overview` endpoint is served on both adapters).
 
@@ -716,6 +738,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Hibernate Statistics | as-is      | Port    | `HibernateStatisticsService`     | `HibernateStatisticsProvider` (same Hibernate ORM capability gate as the Hibernate advisor) |
 | Database            | as-is       | Port    | Database advisor rule engine     | `DataSourceProvider` (Agroal `@DataSource` qualifier names read reflectively, positional fallback; SQL Trace wrapper de-duplicated to its physical pool; `javax.sql.DataSource` is unconditional, no capability gating) |
 | PostgreSQL          | as-is       | Port    | `PostgresInsightService`         | `DataSourceProvider` (reused from the Database advisor); available only when a PostgreSQL datasource is configured (`db-kind=postgresql` or a PostgreSQL JDBC URL) alongside an Agroal datasource |
+| MySQL               | as-is       | Port    | `MySqlInsightService`            | Reused JDBC datasource discovery; MySQL declaration plus JDBC capability, not a reactive client alone. Shared cached report and explicit blocking read. |
 | Vulnerabilities     | as-is       | Port    | OSV scanner + dependency catalog | —                                           |
 | Pentesting          | as-is       | Port    | Pentesting engine                | CORS/OIDC/TLS metadata; Spring endpoint inventory explicitly unavailable |
 | HTTP Probe          | as-is       | Port    | HTTP probe service               | —                                           |

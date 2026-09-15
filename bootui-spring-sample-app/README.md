@@ -9,7 +9,7 @@ the Playwright suite under `e2e/` exercises.
 - The `bootui-spring-boot-starter` dependency on a real Spring Boot 4 app.
 - BootUI auto-activating in local development (the `dev`/`docker` profiles, or via `spring-boot-devtools`).
 - A relational Spring Data repository so the Spring Data panel has data to show
-  (in-memory H2 by default, PostgreSQL with the `docker` profile).
+  (in-memory H2 by default, PostgreSQL with `docker`, MySQL with `docker-mysql`).
 - Optional PostgreSQL, Redis, Kafka, and Ollama Docker Compose services (`compose.yaml`, enabled by the `docker`
   profile) so the Spring Data, Database Connection Pools, Cache, Kafka, AI Framework, and Dev Services panels have
   realistic infrastructure to show.
@@ -73,6 +73,76 @@ docker compose -f bootui-spring-sample-app/compose.yaml exec -T postgres \
 ```
 
 These commands run from the repository root. The extension setup is Docker-only; the default `dev` profile still uses H2.
+
+## Run it with Docker and MySQL
+
+Use MySQL 8.4.6 **as the application's primary database**, with Redis for caching and no Kafka or Ollama.
+The dedicated launcher builds the sample and runs the lightweight stack:
+
+```bash
+./bootui-spring-sample-app/run-local-mysql.sh
+```
+
+The original `run-local.sh` continues to run the Docker-free `dev` profile. Both scripts use the isolated `.m2`
+repository and forward additional Maven arguments to the application launch.
+
+No Maven profile or externally configured database is needed. Spring Boot starts
+[`compose-mysql.yaml`](compose-mysql.yaml), discovers MySQL's dynamically mapped localhost port and credentials,
+and uses it for JPA, Flyway, and Liquibase. Redis reuses the existing Docker service definition. Kafka and Ollama
+auto-configuration are disabled, so this profile makes no broker connections or AI model downloads; Kafka and chat
+operations report unavailable. The normal `dev` and full PostgreSQL `docker` profiles are unchanged.
+
+The container enables statement instrumentation and grants the sample's non-root `bootui` account the diagnostic
+reads needed by the MySQL panel. Its passwords are development-only fixtures, not production credentials.
+MySQL-specific Flyway migrations preserve the demo's two applied and two pending migrations without changing
+the PostgreSQL/H2 migration files; the shared Liquibase changelogs work on either database.
+
+Open <http://localhost:8080/bootui/#/mysql>, exercise <http://localhost:8080/api/sample/products>, then click
+**Run MySQL read**. The report should show `bootui_sample`, the sample tables, and normalized application statements.
+Opening the panel alone still performs no diagnostic query.
+Startup can already produce more than 100 distinct statement digests; **Limited results** then describes the
+normal top-100 ranking, not a failed read. All sections should otherwise be readable.
+
+The MySQL variant has its own Compose project, so old PostgreSQL containers cannot become an additional datasource
+candidate. Both database/cache host ports are dynamic. For parallel worktrees set a unique `COMPOSE_PROJECT_NAME`
+and select a different application port:
+
+```bash
+COMPOSE_PROJECT_NAME=my-mysql-sample ./bootui-spring-sample-app/run-local-mysql.sh \
+  -Dspring-boot.run.arguments=--server.port=8085
+```
+
+To stop this variant explicitly, from the repository root:
+
+```bash
+docker compose -f bootui-spring-sample-app/compose-mysql.yaml down
+```
+
+The diagnostic grants in [`docker/mysql/init.sql`](docker/mysql/init.sql) run only when MySQL initializes a new
+data directory. Existing databases need those grants applied by an administrator. The sample creates its JPA
+schema on startup and is for disposable development data.
+
+## Optional MySQL diagnostics
+
+Keep the default H2 application and migrations while inspecting an existing local MySQL 8.4 database through a
+separate named pool. Set `BOOTUI_SAMPLE_MYSQL_URL`, `BOOTUI_SAMPLE_MYSQL_USERNAME`, and
+`BOOTUI_SAMPLE_MYSQL_PASSWORD` in your local environment, then enable the Spring profile:
+
+```bash
+./mvnw -Dmaven.repo.local=.m2 -pl bootui-spring-sample-app \
+  spring-boot:run -Dspring-boot.run.profiles=dev,mysql-diagnostics
+```
+
+The URL should select a schema, for example `jdbc:mysql://localhost:3306/bootui_sample`. Use an account with only the
+diagnostic grants you need; see [MySQL permissions and limits](../docs/features/database.md#mysql).
+Opening MySQL serves the cached report. Click **Run MySQL read** to collect evidence. BootUI does not create the
+database, seed tables, or enable monitoring. Generate any desired synthetic workload separately and deliberately.
+
+The WebFlux sample supports the same optional Spring profile and environment variables; substitute
+`bootui-spring-webflux-sample-app` and additionally pass `-Pmysql-diagnostics` to include its optional driver.
+Neither sample requires MySQL in its normal `dev` profile. The `docker-mysql` primary-database variant above
+belongs to this MVC sample.
+Stop the sample to close its auxiliary pool; this profile creates no containers or volumes to clean up.
 
 ## Visit BootUI
 
