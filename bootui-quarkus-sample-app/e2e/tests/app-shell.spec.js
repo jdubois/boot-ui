@@ -33,6 +33,7 @@ const PANEL_HEADINGS = {
   mappings: /HTTP mappings/,
   'database-connection-pools': /Database Connection Pools/,
   postgresql: /^PostgreSQL/,
+  mysql: /^MySQL/,
   'database-advisor': /^Database$/,
   'sql-trace': /SQL Trace/,
   data: /Spring Data repositories/,

@@ -2158,6 +2158,70 @@ Acceptance criteria:
 - A borrowed connection that could not be restored to the state it was found in degrades the read, exactly like a
   session whose bounds could not be pinned, rather than only appearing in the diagnostics.
 
+### 5.17.8 MySQL Panel
+
+MySQL is an operational sibling to PostgreSQL, not another Database advisor. Oracle MySQL 8.4 LTS is the tested
+server line, with live coverage on 8.4.6 using Spring's Connector/J 9.7.0 / HikariCP 7.0.2 and Quarkus'
+Connector/J 9.6.0 / Agroal 3.0.1. MariaDB, MySQL 5.7, other MySQL lines, and compatible/managed flavors are not certified.
+
+- Use existing default/named JDBC datasources on Spring MVC, Spring WebFlux, and Quarkus. R2DBC-only and
+  reactive-client-only applications are unavailable, not partially supported JDBC applications. Discovery uses
+  local declarations without borrowing a connection; the action verifies the connected vendor/server.
+- Cover vital signs, sessions with bounded blocking relationships, normalized statement ranking, index activity,
+  table estimates, InnoDB, basic local replication-channel state, and allow-listed settings. There are no grades,
+  advisor rules/recommendations, severity counts, or contributions to Overview scores.
+- `GET /bootui/api/mysql` returns the latest sanitized in-memory report, initially `NOT_READ`. Only explicit
+  `POST /bootui/api/mysql/read` starts collection; there are no SQL/schema/endpoint arguments or automatic refresh.
+  MCP `get_mysql_report` / `mysql_read` and CLI `bootui db mysql report` / `bootui db mysql read` share that cache.
+- Enforce one single-flight read across transports. Apply existing canonical policy/busy responses and global/panel
+  read-only controls, even though collection does not mutate application data. Quarkus remains production-dark.
+- Distinguish report states `NOT_READ`, `READ`, `PARTIAL`, `ERROR`, `DISABLED` and per-section
+  `AVAILABLE`, `SKIPPED`, `FAILED` with reasons. `READ` asserts completion within declared scope, never health.
+  Partial sub-reads preserve independent usable rows; no usable evidence from supported targets means `ERROR`.
+  No supported datasource means `DISABLED`. An empty successful channel read is evidence; failed replication reads
+  are unknown.
+- Identify `SERVER`, `SELECTED_SCHEMA`, and `DEFAULT_SCHEMA_ASSOCIATED` evidence. Missing schema skips schema-specific
+  work rather than enumerating databases. Default-schema association is not exhaustive cross-schema attribution;
+  repeated server counters from multiple pools must not be summed.
+- Return unknown values as `null`, distinguish observed zero, and preserve large/unsigned counters, byte sizes, and
+  numeric identifiers as exact decimal strings in JSON. Bounded row counts and typed duration fields remain numbers;
+  generic metric `value` fields are nullable strings with explicit unit, scope, and source. Converted timers name
+  their millisecond/second units. Both serializers and the UI must preserve precision.
+- Declare readability, collection enabled/disabled/unknown, and timing separately. Permissions, active roles,
+  instrumentation filters, server digest overflow, cached estimates, and BootUI top-N bounds qualify evidence.
+  Never treat missing timing as zero latency or handler operations as query/physical-I/O counts.
+  Global digest collection requires `global_instrumentation` and `statements_digest`, not `thread_instrumentation`.
+- Keep comparisons in memory, with each baseline's own interval and compatible datasource/server/scope/provenance.
+  Restart/reset or server changes invalidate affected comparisons; unavailable counters do not produce rates.
+- Use the seven static per-datasource `bootui.mysql.*` caps documented in [Properties](PROPERTIES.md#mysql).
+  Positive values below `2147483647` are required at startup. An extra-row check establishes truncation, not a full
+  cap alone. Bound nested lock/worker detail and preserve logical composite-index integrity.
+- Reserve `truncated` for row omissions. Timeouts and failed/disabled sources have their own section reasons.
+  Current bounds are a 15-second cooperative whole-read budget, 5-second server SELECT limit, 2-second metadata-lock
+  wait limit, and 400 displayed statement characters. The JDBC network guard is
+  at most 7 seconds, preserving a tighter existing positive timeout. Application-controlled pool acquisition can
+  exceed the cooperative budget; connection/socket configuration is separate. These are not hard end-to-end deadlines.
+- Use server `MAX_EXECUTION_TIME` hints capped by the remaining budget for SELECTs. If
+  `performance_schema.global_status` is unreadable, use `SHOW GLOBAL STATUS` filtered to 17 fixed safe names:
+  the allow-list bounds output, and the JDBC network guard covers I/O. Do not claim a SELECT execution-time
+  guarantee for SHOW or control statements. Restore the original network timeout afterward.
+- Use neither `Statement.setQueryTimeout` nor `Statement.cancel`, avoiding Connector/J's auxiliary `KILL QUERY`
+  connections regardless of `enableQueryTimeouts`. Establish a BootUI-owned transaction through actual
+  `SET SESSION transaction_read_only=1` and `START TRANSACTION READ ONLY`, and verify the server setting.
+  Do not use the routing-sensitive `Connection.setReadOnly` hint.
+- Refuse manual-commit connections before metadata/SQL without committing or rolling them back. Roll back only
+  BootUI's transaction and restore original session/network/auto-commit state before returning a handle. On cleanup
+  failure, abort before closing; if abort fails, quarantine the handle and disable collection until the pool and
+  BootUI restart. Do not force fresh Information Schema statistics.
+- Never select `LOCK_DATA`, `QUERY_SAMPLE_TEXT`, `PROCESSLIST_INFO`, `TRX_QUERY`, application rows, arbitrary
+  variables, or replication secrets. Only normalized digests pass through masking, redaction, exposure, and text
+  bounds. Invalidate the sanitized cache on exposure-policy changes without SQL, including changes during collection.
+
+Out of scope: raw/sample SQL, a SQL console, query-plan execution, session-kill controls, maintenance/DDL,
+instrumentation enable/reset, persistent monitoring, precise end-to-end replication lag, and topology administration.
+Live restricted-account and MySQL-available REST/MCP/CLI contracts cover all three adapters, including custom mounts
+and pooled connection cleanup. See [MySQL](features/database.md#mysql) and the [roadmap](PLAN.md).
+
 ### 5.18 Cache Panel
 
 Purpose: answer "Which cache managers and caches exist, how are they used, and can I clear them during local
@@ -2477,6 +2541,8 @@ Initial endpoints:
 | `/bootui/api/database-advisor/scan`  | POST   | Run explicit read-only, bounded physical-schema checks                                 |
 | `/bootui/api/postgresql`             | GET    | Latest PostgreSQL vital-signs report without starting a database read                  |
 | `/bootui/api/postgresql/read`        | POST   | Run an explicit bounded, read-only PostgreSQL statistics read                          |
+| `/bootui/api/mysql`                  | GET    | Latest cached MySQL report; never opens a connection or runs SQL                        |
+| `/bootui/api/mysql/read`             | POST   | Explicit bounded MySQL operational read through application JDBC datasources            |
 | `/bootui/api/sql-trace`                       | GET    | Retained SQL execution report and aggregate statistics                                |
 | `/bootui/api/sql-trace/insights`              | GET    | Ranked normalized statements and request-route attribution over the retained window   |
 | `/bootui/api/sql-trace/clear`                 | POST   | Clear the retained SQL execution buffer                                                |
@@ -2732,7 +2798,7 @@ Design rules:
   - Runtime and integration reads: `get_overview`, `get_health`, `get_config`, `get_beans`, `get_mappings`,
     `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`,
     `get_cache_stats`,
-    `get_database_connection_pools`, `get_postgresql_report`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
+    `get_database_connection_pools`, `get_postgresql_report`, `get_mysql_report`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
     `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
     `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
     `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_devtools_status`, `get_dev_services`,
@@ -2740,7 +2806,12 @@ Design rules:
   - Bounded actions: `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
     `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
     `resume_transaction_recording`, `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`,
-    `resume_rest_client_recording`, `postgresql_read`, `analyze_heap_dump`, and `trigger_devtools_livereload`.
+    `resume_rest_client_recording`, `postgresql_read`, `mysql_read`, `analyze_heap_dump`, and `trigger_devtools_livereload`.
+
+  MySQL (§5.17.8) exposes cached read `get_mysql_report` and action `mysql_read`, both
+  argument-free, on MVC/WebFlux/Quarkus with a supported JDBC datasource. The generated CLI equivalents are
+  `bootui db mysql report` and `bootui db mysql read`. Agents must request approval before active collection and
+  interpret partial evidence and server scope rather than applying advisor-score semantics.
 
   Heap capture/download, HTTP probes, database/cache mutations, GitHub writes, dev-service restarts, and arbitrary agent
   commands are deliberately excluded. Tools whose backing controller is absent or not applicable to the running stack
@@ -2893,6 +2964,7 @@ Top-level navigation:
 - Database:
   - Database Connection Pools.
   - PostgreSQL.
+  - MySQL.
   - Transactions.
   - SQL Trace.
   - Hibernate Statistics.

@@ -161,6 +161,35 @@ before the application is stopped.
 The full command table is at `https://github.com/jdubois/boot-ui/blob/main/docs/CLI.md`; each command maps to the MCP
 tool of the same behavior.
 
+### Read MySQL operational evidence
+
+The MySQL operational panel supports Oracle MySQL 8.4 LTS, with live coverage on 8.4.6; check the running catalog
+for the application's actual capability. It uses JDBC on Spring MVC, WebFlux, and Quarkus, including named datasources.
+MariaDB, R2DBC-only, and reactive-client-only
+applications are unsupported by this first scope; do not install another pool just to enable diagnostics.
+
+1. Prefer `bootui db mysql report --json` / `get_mysql_report`. This reads the sanitized cache, never MySQL.
+2. Only after an explicit request or approval, use `bootui db mysql read --json` / `mysql_read`. It is an action
+   that performs bounded external collection despite being read-only at the database. Both tools take no arguments;
+   never supply SQL, a schema, or a server address.
+3. Read report status, section reasons, capabilities, observation times, and limitations. The eight areas are vital
+   signs, sessions/blocking, statements, indexes, tables, InnoDB, basic replication, and settings. This is not an
+   advisor: there are no grades or recommendations, and partial/unknown evidence is not a pass.
+4. Preserve scope: server-wide counters include other clients, and default-schema-associated sessions/digests do not
+   cover every cross-schema access. Table sizes/rows may be cached estimates; no recorded index activity is not
+   evidence that an index is safe to drop. Failed channel reads do not establish absence of replication.
+5. Preserve exact decimal-string counters, byte sizes, and numeric IDs; never round them through JavaScript `Number`.
+   `null` means unknown, not zero. Row caps (`truncated`) differ from permissions, disabled instrumentation, server
+   digest overflow, or timeout failures. Local filters cover retained rows only.
+
+Do not retry busy/partial/failed reads automatically, enable instrumentation, grant `PROCESS`/other privileges,
+request raw session/sample SQL or lock keys, or relax exposure/read-only policy. Exposure changes invalidate the cache
+without SQL, including when relaxed; an explained `NOT_READ` still needs approval for new collection.
+The seven `bootui.mysql.max-*` row limits are static positive integers below `2147483647`, requiring restart;
+raising a CLI timeout does not extend collector or pool budgets. Consult the
+[MySQL guide](https://github.com/jdubois/boot-ui/blob/main/docs/features/database.md#mysql) for exact keys,
+capability-specific permissions, tested driver/pool combinations, and execution bounds.
+
 ### Read retained advisor violations
 
 The Architecture, Hibernate, Spring/Quarkus application, REST API, Memory, Security, and Database advisors report
@@ -210,8 +239,9 @@ DTOs.
 3. Use Live Activity to correlate recent requests, SQL, exceptions, security events, scheduled work, messaging, and mail.
 4. Open the dedicated diagnostic command or panel for full detail.
 5. Answer with read commands where you can. Do not run a tool the catalog marks as an action — every `… scan`,
-   `clear`, `pause`, `resume`, and heap analysis — unless the user asked for it or approves after you name it. Prefer
-   an existing `… report` over a fresh scan, and treat `vulnerabilities scan` as always requiring approval because it
+   `clear`, `pause`, `resume`, database operational `read`, and heap analysis — unless the user asked for it or approves
+   after you name it. Prefer an existing `… report` over a fresh scan, and treat `vulnerabilities scan` as always
+   requiring approval because it
    sends package names/versions to OSV.dev and, when enabled, CVE ids to FIRST for EPSS enrichment. Inspect scan status,
    message, inventory coverage and skipped packages; partial evidence and UNKNOWN severity are not a clean result.
    Fixed versions are affected-interval candidates, not guaranteed compatible upgrades. EPSS is the highest available

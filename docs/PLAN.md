@@ -5,8 +5,9 @@
 BootUI adds a safe, local-only developer console to a running application, shipping on **Spring Boot 4 (servlet and
 WebFlux starters) and Quarkus (an extension)** from one shared, framework-neutral engine that serves the same Vue UI and
 the same `/bootui/api/**` contract on every runtime. The released surface covers 58 panels across runtime introspection,
-configuration, database migrations, services, diagnostics, project health, and developer tooling. The next planned panel
-is a read-only **MongoDB** operational view, scoped in §3.5.
+configuration, database migrations, services, diagnostics, project health, and developer tooling. A **MySQL**
+operational sibling to PostgreSQL is delivered (§3.17); the planned **MongoDB** operational view (§3.5) remains
+a separate workstream.
 
 The priorities for every item below remain unchanged:
 
@@ -28,13 +29,18 @@ Each new panel must:
 
 ## 2. Roadmap status and next workstream
 
-MongoDB is the next bounded feature workstream. BootUI already recognizes Spring Data MongoDB repositories in the
+MySQL's bounded operational view is **delivered**, with Oracle MySQL 8.4.6 live coverage through JDBC on all three
+stacks. Its source/runtime acceptance and browser integration are verified (§3.17).
+MariaDB remains a separate unsupported follow-up.
+
+MongoDB remains the next planned feature workstream. BootUI already recognizes Spring Data MongoDB repositories in the
 Spring Data panel, but it has no framework-neutral operational view of MongoDB clients, topology, databases,
 collections, or indexes, and the existing JDBC/Flyway/Liquibase panels cannot represent those concepts. The new panel
 will therefore be additive rather than an extension of the SQL-specific panels.
 
 | Priority | Feature                  | Group    | Primary data source                    | Mutation? | Status  |
 | -------- | ------------------------ | -------- | -------------------------------------- | --------- | ------- |
+| Delivered | MySQL operational view  | Database | Existing application JDBC datasources | No application-data mutation; explicit read | Delivered |
 | Next     | MongoDB operational view | Database | Spring/Quarkus MongoDB client adapters | No        | Planned |
 | Planned  | Declarative HTTP client registry | Services | Spring HTTP clients / Quarkus REST Client metadata | No | Planned |
 | Planned  | gRPC | Services | Spring gRPC / Quarkus gRPC registries and metrics | No | Planned |
@@ -752,6 +758,53 @@ Acceptance criteria:
 - High-cardinality managers/caches/tiers/statistics are bounded with visible truncation and deterministic ordering.
 - Fixtures cover single-tier, composed, opaque, dynamic, local/distributed-declared, statistics-present/absent, zero/reset
   counters, incompatible scopes, adapter unavailability, existing clear policy, and high-cardinality truncation.
+
+### 3.17 MySQL operational view — Database ✅ Delivered
+
+Delivered scope: one `mysql` panel beside PostgreSQL, backed by the framework-neutral engine and existing JDBC
+datasource discovery. Spring MVC, WebFlux with JDBC, and Quarkus with JDBC share one report, policy, and agent
+surface. Oracle MySQL 8.4 LTS is the tested server line, using 8.4.6 with Spring Connector/J 9.7.0 / HikariCP 7.0.2
+and Quarkus Connector/J 9.6.0 / Agroal 3.0.1. No MariaDB, other-line, or compatible-server certification is implied.
+
+- Covers all eight areas: vital signs, sessions/blocking, normalized statements, indexes, tables, InnoDB, basic local
+  replication, and curated settings. Sections retain usable evidence with explicit denied/disabled/failed reasons,
+  scope labels, unknown values, estimates, and row-cap limitations.
+- `GET /bootui/api/mysql`, `get_mysql_report`, and `bootui db mysql report` read only the sanitized cache.
+  `POST /bootui/api/mysql/read`, `mysql_read`, and `bootui db mysql read` explicitly collect through one shared
+  single-flight admission. No SQL on page load, discovery, or cache invalidation after exposure-policy changes.
+- Keeps collection read-only, bounded, and fail-closed, preserving application transactions and pooled connection state.
+  Enforces global/panel read-only, localhost/Host/cross-site policy, and optional-dependency safety on all adapters.
+- No scores or advisor recommendations, application rows, raw/sample/session SQL, lock key values, automatic
+  instrumentation changes, maintenance, query plans, or topology/precise replication-lag claims.
+
+The [feature contract](features/database.md#mysql) and [properties](PROPERTIES.md#mysql) specify defaults,
+permissions, exact decimal-string counters, scope, and troubleshooting. The 15-second cooperative read,
+5-second SELECT, 2-second metadata-lock, and 400-character text bounds are verified. The at-most-7-second JDBC
+network guard separately covers control/SHOW I/O; pool acquisition remains application-controlled.
+
+Verified source/runtime acceptance:
+
+- [x] Pinned MySQL 8.4.6 live tests prove every collector, restricted grants/active roles, disabled instrumentation,
+      timeouts, and safe pool cleanup; required scenarios execute rather than skip.
+- [x] Available and unavailable MVC/WebFlux/Quarkus REST, MCP, and CLI contracts agree, including no-SQL cached reads,
+      exposure invalidation, partial results, exact numeric strings, and policy/busy responses.
+- [x] All seven Spring live suites, including the four MVC/WebFlux × default/custom-mount HTTP cases, pass.
+      Quarkus custom-mount REST/MCP/CLI and Agroal physical connection eviction pass.
+- [x] Global digest collection does not require thread instrumentation, and cap-only partial results do not suggest
+      source failure; unit and genuine MySQL regressions verify both.
+- [x] Generated CLI manifest, Vue unit/navigation checks, optional sample setups, and screenshot are integrated.
+- [x] The Java 17 coverage reactor and focused final runtime regressions pass.
+
+Final integration follow-through:
+
+- [x] Complete the four full browser suites against the integrated change; all 80 MySQL browser cases pass
+      across Spring MVC, Spring WebFlux, custom mounts, and Quarkus.
+- [x] Rebuild documentation after final content synchronization.
+
+Mocks and a green H2-only conformance run do not establish MySQL support. See
+[live MySQL contributor validation](https://github.com/jdubois/boot-ui/blob/main/CONTRIBUTING.md#live-mysql-validation)
+for the executable commands.
+This feature does not replace or expand the MongoDB scope above.
 
 ## 4. Cross-cutting work for every new panel
 

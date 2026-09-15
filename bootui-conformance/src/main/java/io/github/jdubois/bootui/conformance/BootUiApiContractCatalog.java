@@ -137,6 +137,18 @@ public final class BootUiApiContractCatalog {
                             "limitations",
                             JsonType.ARRAY)),
             read(
+                    "mysql",
+                    "/mysql",
+                    fields(
+                            "localOnly", JsonType.BOOLEAN,
+                            "disclaimer", JsonType.STRING,
+                            "status", JsonType.STRING,
+                            "dataSourcesRead", JsonType.INTEGER,
+                            "truncated", JsonType.BOOLEAN,
+                            "dataSources", JsonType.ARRAY,
+                            "diagnostics", JsonType.ARRAY,
+                            "limitations", JsonType.ARRAY)),
+            read(
                     "hibernate-statistics",
                     "/hibernate-statistics",
                     fields(
@@ -366,6 +378,7 @@ public final class BootUiApiContractCatalog {
         all(actions, "hibernate-statistics.enable", "hibernate-statistics", "POST", "/hibernate-statistics/enable");
         all(actions, "database-advisor.scan", "database-advisor", "POST", "/database-advisor/scan");
         all(actions, "postgresql.read", "postgresql", "POST", "/postgresql/read");
+        all(actions, "mysql.read", "mysql", "POST", "/mysql/read");
         all(actions, "cache.clear", "cache", "POST", "/cache/clear");
         all(actions, "traces.clear", "traces", "DELETE", "/traces");
         all(actions, "exceptions.clear", "exceptions", "DELETE", "/exceptions");

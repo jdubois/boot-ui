@@ -167,6 +167,32 @@
       "summary": "Return the current Liquibase change-set history and status without running update."
     },
     {
+      "name": "mysql_read",
+      "command": "db mysql read",
+      "schema": "NONE",
+      "panel": "mysql",
+      "action": true,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Actively read the application's MySQL JDBC datasources using bounded, read-only statistics queries."
+    },
+    {
+      "name": "get_mysql_report",
+      "command": "db mysql report",
+      "schema": "NONE",
+      "panel": "mysql",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Return the last completed MySQL operational report without contacting the database."
+    },
+    {
       "name": "get_database_connection_pools",
       "command": "db pools",
       "schema": "NONE",

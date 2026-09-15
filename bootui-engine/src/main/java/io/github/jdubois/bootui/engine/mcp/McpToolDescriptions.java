@@ -156,6 +156,24 @@ public final class McpToolDescriptions {
                     "Return the last completed Database advisor report without querying schema metadata again. Use this "
                             + "cached evidence before deciding whether an active database_advisor_scan is necessary."),
             Map.entry(
+                    "mysql_read",
+                    "Actively read the application's MySQL JDBC datasources using bounded, read-only statistics "
+                            + "queries. Returns sessions and blocking, normalized statement rankings, table/index "
+                            + "activity, InnoDB metrics, local replication channels and curated settings. This is "
+                            + "an operational observation, not an advisor or health score. Inspect each section's "
+                            + "scope, reason and hint: server-wide counters include other clients, and default-schema "
+                            + "association is not exhaustive access to that schema. Unknown values are null; large "
+                            + "counters are exact decimal strings. Row-cap truncation is distinct from permission, "
+                            + "instrumentation and timeout limitations. An empty replication list establishes absence "
+                            + "only when its section was successfully read. Never enables monitoring, reads application "
+                            + "records or returns raw session/sample SQL."),
+            Map.entry(
+                    "get_mysql_report",
+                    "Return the last completed MySQL operational report without contacting the database. NOT_READ "
+                            + "means no current evidence, not a healthy database; exposure-policy changes invalidate "
+                            + "the cached report. Check readAt, per-section scope and limitations before using it. "
+                            + "Use mysql_read only when an explicitly approved fresh observation is needed."),
+            Map.entry(
                     "get_memory_report",
                     "Return the last completed Memory advisor report without triggering a class histogram or full GC. "
                             + "Use this cached evidence before deciding whether an active memory_scan is necessary."),
