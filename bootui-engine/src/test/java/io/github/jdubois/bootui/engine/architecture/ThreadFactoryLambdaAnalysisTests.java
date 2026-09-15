@@ -11,6 +11,8 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.JarURLConnection;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -65,12 +67,17 @@ class ThreadFactoryLambdaAnalysisTests {
             output.write(fixtureBytes(true));
             output.closeEntry();
         }
-        try (JarFile input = new JarFile(jar.toFile())) {
-            ArchitectureRuleResultDto result =
-                    new NoDirectThreadInstantiationRule().evaluate(context(new ClassFileImporter().importJar(input)));
-            assertThat(result.status()).isEqualTo("VIOLATION");
-            assertThat(result.violationCount()).isEqualTo(1);
+        var connection = (JarURLConnection)
+                URI.create("jar:" + jar.toUri() + "!/").toURL().openConnection();
+        JavaClasses classes;
+        // ArchUnit reopens the JAR through the URL cache; own that handle so Windows can delete it.
+        try (JarFile input = connection.getJarFile()) {
+            classes = new ClassFileImporter().importJar(input);
         }
+        ArchitectureRuleResultDto result = new NoDirectThreadInstantiationRule().evaluate(context(classes));
+        assertThat(result.status()).isEqualTo("VIOLATION");
+        assertThat(result.violationCount()).isEqualTo(1);
+        Files.delete(jar);
     }
 
     @Test

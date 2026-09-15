@@ -130,7 +130,20 @@ this positive limit is shared by Spring MVC, WebFlux, and Quarkus. See
 | ------------------------------------------------------------------ | ---------------------------------------------------------------- |
 | Understand when BootUI turns on, or keep it out of your prod build | [Activation and safety](setup/activation.md)                     |
 | Run BootUI on WebFlux or Quarkus                                   | [Spring WebFlux](setup/webflux.md) · [Quarkus](setup/quarkus.md) |
+| Inspect MySQL operational evidence                                 | [MySQL prerequisites, permissions, and bounds](features/database.md#mysql) |
 | Run inside Docker, or in a command-line app                        | [Non-standard runtimes](setup/environments.md)                   |
 | Fix something that is not working                                  | [Troubleshooting](setup/troubleshooting.md)                      |
 | Look up a property                                                 | [Property reference](PROPERTIES.md)                              |
 | See what each panel does                                           | [Features](features/README.md)                                   |
+
+The MySQL panel reuses a configured application JDBC datasource and MySQL Connector/J; it does not create
+a monitoring pool or require Hibernate. Oracle MySQL 8.4 LTS is the tested server line, with live coverage on 8.4.6;
+MariaDB and R2DBC-only access are not covered. Keep connection credentials in the application's existing secure
+configuration. Opening the panel reads only cached evidence; collection and any additional grants require an
+explicit decision. No database or workload is started automatically.
+
+The repository's optional sample setup uses the `mysql-diagnostics` profile and
+`BOOTUI_SAMPLE_MYSQL_URL`, `BOOTUI_SAMPLE_MYSQL_USERNAME`, and `BOOTUI_SAMPLE_MYSQL_PASSWORD`.
+See the [Spring sample README](https://github.com/jdubois/boot-ui/tree/main/bootui-spring-sample-app#readme)
+for the exact launch command and deliberately generated workload; this is not required for an existing application
+datasource.

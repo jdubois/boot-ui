@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import com.zaxxer.hikari.HikariDataSource;
+import io.github.jdubois.bootui.autoconfigure.datasource.SpringAopDataSources;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -11,7 +12,6 @@ import java.util.Set;
 import javax.sql.DataSource;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.ListableBeanFactory;
-import org.springframework.util.ClassUtils;
 
 public final class HikariDataSourceDiscovery {
 
@@ -79,6 +79,83 @@ public final class HikariDataSourceDiscovery {
         return hikariTarget(dataSource, true);
     }
 
+    /** What an <em>already-created</em> datasource object says about a Hikari pool behind it. */
+    public enum HikariPresence {
+        /** A Hikari pool was reached. */
+        PRESENT,
+        /** This is a known connection pool that is not Hikari and cannot contain one. */
+        ABSENT,
+        /** Nothing could be decided without creating a bean, resolving a dynamic proxy, or calling into the pool. */
+        UNKNOWN
+    }
+
+    /**
+     * Connection-pool implementations that are terminal by construction: each builds its own connections from a
+     * driver or its own internal pool, so it can neither be nor contain a Hikari pool. Recognising them by type
+     * is the only way to <em>prove</em> absence without calling into the object.
+     *
+     * <p>Checking for a URL getter would not do: a wrapper can expose {@code getJdbcUrl()}/{@code getUrl()} just
+     * as readily as a pool, so a URL is evidence of a datasource, never evidence of a terminal one.</p>
+     */
+    private static final Set<String> TERMINAL_NON_HIKARI_POOLS = Set.of(
+            "org.apache.tomcat.jdbc.pool.DataSource",
+            "org.apache.commons.dbcp2.BasicDataSource",
+            "com.alibaba.druid.pool.DruidDataSource",
+            "oracle.ucp.jdbc.PoolDataSourceImpl",
+            "org.springframework.jdbc.datasource.DriverManagerDataSource",
+            "org.springframework.jdbc.datasource.SimpleDriverDataSource",
+            "org.springframework.jdbc.datasource.SingleConnectionDataSource");
+
+    /**
+     * Classifies an already-created {@code DataSource} for the panel manifest, which must render without I/O or
+     * side effects. Nothing here creates a bean, resolves a dynamic proxy target, or invokes a single method on
+     * a datasource whose implementation BootUI does not control.
+     *
+     * <p>Only three things can settle the question safely, and they are all type inspection: the object
+     * <em>is</em> a Hikari pool; a <em>static</em> AOP target source or BootUI's own tracing proxy already holds
+     * the real object, so the same question can be asked of that; or the object is a known terminal pool that
+     * is not Hikari.</p>
+     *
+     * <p>Everything else is {@link HikariPresence#UNKNOWN} — deliberately, not as an oversight. An unrecognised
+     * wrapper might delegate to Hikari, but the only way to ask is {@code isWrapperFor}/{@code unwrap}, which is
+     * arbitrary third-party code on the page-load path; a lazily created delegate can start a pool there. So the
+     * manifest treats unknown as a candidate: the panel's own read is allowed to resolve fully and reports the
+     * honest result, whereas hiding a configured pool leaves the user no way to find out it exists.</p>
+     */
+    public static HikariPresence inspectExisting(DataSource dataSource) {
+        if (dataSource == null) {
+            return HikariPresence.UNKNOWN;
+        }
+        if (dataSource instanceof HikariDataSource) {
+            return HikariPresence.PRESENT;
+        }
+        if (SpringAopDataSources.isProxy(dataSource)) {
+            DataSource target = SpringAopDataSources.staticTarget(dataSource);
+            return target == null ? HikariPresence.UNKNOWN : inspectExisting(target);
+        }
+        if (isBootUiTracingProxy(dataSource)) {
+            // BootUI's own proxy: it can only ever wrap a DataSource that already exists, and its unwrap is
+            // this codebase's code, not a third party's.
+            DataSource target = tracedTarget(dataSource);
+            return target == null ? HikariPresence.UNKNOWN : inspectExisting(target);
+        }
+        return isTerminalNonHikariPool(dataSource.getClass()) ? HikariPresence.ABSENT : HikariPresence.UNKNOWN;
+    }
+
+    private static boolean isTerminalNonHikariPool(Class<?> type) {
+        // A user subclass may override acquisition to delegate to a different pool.
+        return TERMINAL_NON_HIKARI_POOLS.contains(type.getName());
+    }
+
+    private static DataSource tracedTarget(DataSource dataSource) {
+        try {
+            DataSource target = dataSource.unwrap(DataSource.class);
+            return target == dataSource ? null : target;
+        } catch (SQLException | RuntimeException | LinkageError ex) {
+            return null;
+        }
+    }
+
     private static HikariDataSource hikariTarget(DataSource dataSource, boolean existingOnly) {
         if (dataSource instanceof HikariDataSource hikariDataSource) {
             return hikariDataSource;
@@ -91,33 +168,13 @@ public final class HikariDataSourceDiscovery {
     }
 
     private static HikariDataSource advisedTarget(DataSource dataSource, boolean existingOnly) {
-        ClassLoader classLoader = HikariDataSourceDiscovery.class.getClassLoader();
-        if (!ClassUtils.isPresent("org.springframework.aop.framework.Advised", classLoader)) {
+        if (!SpringAopDataSources.isProxy(dataSource)) {
             return null;
         }
-        try {
-            Class<?> advisedType = ClassUtils.forName("org.springframework.aop.framework.Advised", classLoader);
-            if (!advisedType.isInstance(dataSource)) {
-                return null;
-            }
-            Object targetSource = advisedType.getMethod("getTargetSource").invoke(dataSource);
-            if (targetSource == null) {
-                return null;
-            }
-            Class<?> targetSourceType = ClassUtils.forName("org.springframework.aop.TargetSource", classLoader);
-            if (existingOnly
-                    && !Boolean.TRUE.equals(
-                            targetSourceType.getMethod("isStatic").invoke(targetSource))) {
-                return null;
-            }
-            Object target = targetSourceType.getMethod("getTarget").invoke(targetSource);
-            if (target == dataSource || !(target instanceof DataSource targetDataSource)) {
-                return null;
-            }
-            return hikariTarget(targetDataSource, existingOnly);
-        } catch (ReflectiveOperationException | LinkageError | RuntimeException ex) {
-            return null;
-        }
+        DataSource target = existingOnly
+                ? SpringAopDataSources.staticTarget(dataSource)
+                : SpringAopDataSources.resolvedTarget(dataSource);
+        return target == null ? null : hikariTarget(target, existingOnly);
     }
 
     private static boolean isBootUiTracingProxy(DataSource dataSource) {
