@@ -251,6 +251,38 @@ refuse the action, and `panel disabled` when the panel is off. This is also how 
 Quarkus application advertises fewer tools than Spring MVC, and some Spring tools appear only when the
 corresponding library is on the classpath.
 
+### MySQL reads
+
+The MySQL command pair is the projection of `get_mysql_report` and `mysql_read`, not a SQL console. It supports
+MVC, WebFlux with JDBC, and Quarkus with JDBC. Oracle MySQL 8.4 LTS is the tested server line, with live coverage on
+8.4.6. MariaDB, R2DBC-only, and reactive-client-only configurations are not supported.
+Check `bootui tools` first: availability depends on the application's version, datasource, and panel policy.
+
+```bash
+bootui db mysql report --json
+```
+
+`report` reads only the latest sanitized cache. It never connects to MySQL. When a fresh observation is explicitly
+requested or approved:
+
+```bash
+bootui db mysql read --json
+```
+
+`read` is an **action** despite its name. It collects through the application's existing datasources; neither command
+accepts SQL, schema, endpoint, or pagination arguments. Global or MySQL panel read-only policy blocks collection but
+permits cached reports. Standard [exit codes](#exit-codes) and transport limits apply; increasing `--timeout` changes
+the client's wait, not MySQL collection or pool-acquisition bounds.
+
+Exit `0` means a report was returned, not complete coverage or a healthy database. Inspect its status, section
+reasons, timestamps, and limitations. Row-cap truncation, server digest overflow, missing permissions/instrumentation,
+and timeouts are different limitations. Missing replication evidence is not an empty successful channel list.
+Preserve exact decimal-string counters, byte sizes, and numeric IDs; `null` means unknown. Scope can be server-wide
+or default-schema-associated, not application-only. There are no scores or advisor recommendations.
+Exposure-policy changes invalidate the cache without SQL; request approval for another read rather than silently
+refreshing an explained `NOT_READ`.
+See [MySQL](features/database.md#mysql).
+
 ## The MCP server
 
 The MCP server is a panel like any other, so the CLI can inspect and toggle it — subject to that panel's own
@@ -341,6 +373,8 @@ exposes a tool is still what `bootui tools` says.
 | `bootui crac scan` | `crac_scan` | — | action | Spring MVC, WebFlux |
 | `bootui db flyway` | `get_flyway_migrations` | — | read | all |
 | `bootui db liquibase` | `get_liquibase_changesets` | — | read | all |
+| `bootui db mysql read` | `mysql_read` | — | action | all with MySQL JDBC |
+| `bootui db mysql report` | `get_mysql_report` | — | read | all with MySQL JDBC |
 | `bootui db pools` | `get_database_connection_pools` | — | read | all |
 | `bootui db postgres read` | `postgresql_read` | — | action | all |
 | `bootui db postgres report` | `get_postgresql_report` | — | read | all |

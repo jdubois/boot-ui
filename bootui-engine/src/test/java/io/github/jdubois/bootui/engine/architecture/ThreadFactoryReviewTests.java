@@ -4,6 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassReader;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassVisitor;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassWriter;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.Handle;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.MethodVisitor;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.Opcodes;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.Type;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import io.github.jdubois.bootui.engine.architecture.kotlinfixtures.KotlinNonFactoryThreadLambda;
 import io.github.jdubois.bootui.engine.architecture.kotlinfixtures.KotlinScheduledThreadFactory;
@@ -15,13 +22,6 @@ import java.util.List;
 import java.util.concurrent.ThreadFactory;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.ClassVisitor;
-import org.objectweb.asm.ClassWriter;
-import org.objectweb.asm.Handle;
-import org.objectweb.asm.MethodVisitor;
-import org.objectweb.asm.Opcodes;
-import org.objectweb.asm.Type;
 
 class ThreadFactoryReviewTests {
     @TempDir

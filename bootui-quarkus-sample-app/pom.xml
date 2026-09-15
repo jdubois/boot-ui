@@ -232,6 +232,15 @@
     </build>
 
     <profiles>
+        <profile>
+            <id>mysql-diagnostics</id>
+            <dependencies>
+                <dependency>
+                    <groupId>io.quarkus</groupId>
+                    <artifactId>quarkus-jdbc-mysql</artifactId>
+                </dependency>
+            </dependencies>
+        </profile>
         <!--
             On a JDK newer than the Quarkus 3.33 platform supports (17/21/25), the build-time Hibernate ORM
             ByteBuddy enhancement run by the quarkus-maven-plugin `build` goal cannot read the running JVM's

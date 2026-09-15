@@ -4,6 +4,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
 import sharp from 'sharp'
+import {mysqlReport} from '../scenarios/mysql-fixture.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const e2eDir = path.resolve(__dirname, '..')
@@ -76,6 +77,7 @@ const panelOrder = [
   ['mappings', 'Mappings'],
   ['database-connection-pools', 'Database Connection Pools'],
   ['postgresql', 'PostgreSQL'],
+  ['mysql', 'MySQL'],
   ['transactions', 'Transactions'],
   ['sql-trace', 'SQL Trace'],
   ['hibernate-statistics', 'Hibernate Statistics'],
@@ -5856,6 +5858,18 @@ const screenshots = [
     }
   ],
   ['hibernate', 'Hibernate', 'bootui-hibernate.webp', waitForText('FetchType.EAGER')],
+  [
+    'mysql',
+    'MySQL',
+    'bootui-mysql.webp',
+    async (page) => {
+      await page.getByRole('tab', {name: /^Statements/}).click()
+      await page.getByRole('heading', {name: 'Vital signs', exact: true}).waitFor()
+      await page
+        .getByRole('cell', {name: 'SELECT `status` , COUNT ( * ) FROM `orders` GROUP BY `status`', exact: true})
+        .waitFor()
+    }
+  ],
   ['flyway', 'Flyway', 'bootui-flyway.webp', waitForText('V3__add_catalog_tags.sql')],
   ['liquibase', 'Liquibase', 'bootui-liquibase.webp', waitForText('003-add-location')],
   ['spring-security', 'Spring Security', 'bootui-spring-security.webp', waitForText('/api/sample/hello')],
@@ -6399,6 +6413,12 @@ try {
     })
     await showActiveMenuItem(page, title)
     await page.waitForTimeout(250)
+    if (route === 'mysql') {
+      const firstRow = await page.getByRole('tabpanel').locator('tbody tr').first().boundingBox()
+      if (!firstRow || firstRow.y + firstRow.height > viewport.height) {
+        throw new Error('The MySQL screenshot must show retained statement evidence, not only its toolbar.')
+      }
+    }
     const pngBuffer = await page.screenshot({
       fullPage: false,
       animations: 'disabled'
@@ -6576,6 +6596,7 @@ async function handleApiRoute(route) {
   if (endpoint === 'database-advisor' || endpoint === 'database-advisor/scan')
     return fulfillJson(route, databaseAdvisor)
   if (endpoint === 'postgresql' || endpoint === 'postgresql/read') return fulfillJson(route, postgresql)
+  if (endpoint === 'mysql' || endpoint === 'mysql/read') return fulfillJson(route, mysqlReport())
   if (endpoint === 'hibernate') return fulfillJson(route, hibernate)
   if (endpoint === 'hibernate/scan') return fulfillJson(route, hibernate)
   if (endpoint === 'hibernate-statistics' || endpoint === 'hibernate-statistics/enable')

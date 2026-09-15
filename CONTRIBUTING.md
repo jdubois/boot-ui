@@ -273,7 +273,8 @@ installing the reactor dependencies, run the affected conformance class:
 
 The Architecture ThreadFactory exemption also has packaged-runtime regressions. The Spring check runs at
 `verify`, after the executable jar is repackaged; it scans nested resources and Java 27 bytecode with an intentionally
-older host ASM alongside BootUI's private reader. The Quarkus check launches a standalone fast-jar scanner probe,
+older host ASM alongside ArchUnit's embedded reader, and verifies that the engine does not bundle another ASM copy.
+The Quarkus check launches a standalone fast-jar scanner probe,
 without enabling BootUI's production HTTP surface:
 
 ```bash
@@ -285,6 +286,80 @@ without enabling BootUI's production HTTP surface:
 
 Use an absolute isolated-repository path for the packaged Quarkus test: its fork resolves Maven dependencies from a
 different working directory, so a relative `.m2` would point at a different repository.
+
+ThreadFactory analysis deliberately uses `com.tngtech.archunit.thirdparty.org.objectweb.asm`, an internal package in
+the existing ArchUnit dependency, rather than shipping another reader or depending on a host framework's ASM version.
+When upgrading ArchUnit, verify this internal API with `NoDirectThreadInstantiationRuleTests`,
+`ThreadFactoryLambdaAnalysisTests`, and `ThreadFactoryReviewTests`, then run both packaged-runtime checks above.
+The Spring fixture's ASM 9.8 dependency must remain older than the reader so it continues to exercise isolation.
+
+### Live MySQL validation
+
+MySQL diagnostics require **real Oracle MySQL 8.4** evidence, not the existing MariaDB advisor tests or mocked JDBC
+rows. The tested fixture image is `mysql:8.4.6`. Spring uses Connector/J 9.7.0 with HikariCP 7.0.2; Quarkus uses
+Connector/J 9.6.0 with Agroal 3.0.1.
+Docker (or a Testcontainers-compatible runtime) must be available. Use Java 17 for the delivery baseline:
+JDKs outside 17, 21, and 25 can silently skip Quarkus augmentation.
+
+From the repository root, install the current reactor dependencies into one worktree-local repository before running
+the Spring live suites and Quarkus `mysql-live` profile:
+
+```bash
+./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" -Pcoverage clean install
+```
+
+Then run the live collectors and opt-in Quarkus HTTP fixture:
+
+```bash
+./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" \
+  -pl bootui-spring-autoconfigure test -Dtest='MySql*LiveTests'
+
+./mvnw -B -ntp -Dmaven.repo.local="$PWD/.m2" \
+  -pl bootui-quarkus-integration-tests/datasource \
+  -Pmysql-live test -Dtest=BootUiQuarkusMySqlLiveTest
+```
+
+The Spring wildcard deliberately includes the full real-server suite set, not only execution/permissions smoke tests:
+
+| Suites | Evidence |
+| --- | --- |
+| `MySqlExecutionLiveTests`, `MySqlPermissionsLiveTests` | Transaction/timeout/cleanup safety and restricted-account/active-role behavior. |
+| `MySqlCollectorsLiveTests`, `MySqlPerformanceSchemaOffLiveTests` | All eight collectors and independently readable evidence with Performance Schema disabled. |
+| `MySqlDigestOverflowLiveTests`, `MySqlReplicationLiveTests` | Real digest-capacity overflow, running/stopped/errored channels, and channel visibility with Performance Schema disabled. |
+| `MySqlInstrumentationLiveTests`, `MySqlIdentifierCaseLiveTests` | Global/handler/object collection and timing, denied configuration, real metadata waits, and server-side identifier case normalization. |
+| `MySqlHttpLiveTests` | Four MVC/WebFlux × default/custom-mount live HTTP cases. |
+
+Do not infer minimum grants from the status-fallback fixture: MySQL 8.4.6 lets its restricted account read
+`performance_schema.global_status` without an explicit table grant. The fallback test deliberately injects a
+test-only join to denied `setup_actors` to produce a real permission error before the permitted, fixed-name SHOW.
+It proves fallback handling and the network guard, not that ordinary status reads require that extra grant.
+
+The `mysql-live` profile isolates optional MySQL dependencies and sources under `src/mysql-live/java`; the normal
+datasource module stays H2-based and Docker-free. Docker is mandatory for this opt-in fixture.
+`MySqlHttpLiveTests` supplies the Spring MVC/WebFlux live HTTP coverage. All three stacks need MySQL-available
+REST/MCP/CLI contracts. Existing availability-driven H2/no-datasource conformance can pass while never
+reading MySQL. Mocked browser responses prove interaction and rendering, not SQL, privileges, or adapter wiring.
+
+Live HTTP fixtures must explicitly call `MySqlReportContract.verify(BootUiHttpProbe, origin, apiPath)` from
+`bootui-conformance`, starting with a fresh service in `NOT_READ` and `bootui.mcp.enabled=ON`. The helper covers the
+available manifest, REST collection/cache, CLI/MCP cached equality and action publication, and cross-site rejection;
+`assertRead(JsonNode)` checks a collected report. Generic REST/MCP/CLI baseline runners do not invoke this positive
+helper automatically.
+
+Required live evidence includes all eight collectors with restricted accounts and active roles; Performance Schema,
+digests, or timing disabled; denied tables and optional `PROCESS`; named/mixed datasources; no default schema;
+blocking/metadata waits; basic running/stopped/errored replication; row-cap edges; timeout/cancellation;
+manual-commit refusal; and pooled state restoration or safe discard. A driver/pool cleanup failure is not a reason
+to weaken safety assertions.
+
+Inspect Surefire XML totals: required suites must exist, execute tests, and contain no skipped required scenarios.
+CI uses `.github/scripts/check-mysql-live-tests.py` for its expected-suite/no-skip gate. Keep its required suite list
+aligned with every Spring suite above and `BootUiQuarkusMySqlLiveTest`; execution, permissions, and HTTP smoke tests
+alone do not prove the collector, disabled-instrumentation, overflow, or replication requirements.
+Record the actual pinned MySQL patch image, Connector/J and pool versions. A green build with all container tests
+skipped is not MySQL validation. Complete all four browser suites and `npm install && npm run docs:build` as part of
+the integrated change; capture the feature screenshot only after the final runtime/fixture contract agrees.
+See the [MySQL feature contract](docs/features/database.md#mysql).
 
 ### Panel metadata workflow
 

@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
+import org.springframework.util.ClassUtils;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilter;
 import org.springframework.web.server.WebFilterChain;
@@ -28,6 +29,9 @@ import reactor.core.publisher.Mono;
  * counterpart, rather than relying on a URL-pattern registration.</p>
  */
 public abstract class AbstractReactiveBootUiFilter implements WebFilter {
+
+    private static final boolean REACTOR_NETTY_PRESENT = ClassUtils.isPresent(
+            "reactor.netty.http.server.HttpServerResponse", AbstractReactiveBootUiFilter.class.getClassLoader());
 
     protected final BootUiProperties properties;
 
@@ -81,6 +85,9 @@ public abstract class AbstractReactiveBootUiFilter implements WebFilter {
      */
     protected Mono<Void> writeJson(ServerWebExchange exchange, HttpStatusCode status, String json) {
         ServerHttpResponse response = exchange.getResponse();
+        if (status.isError() && REACTOR_NETTY_PRESENT) {
+            ReactorNettyRejectionPolicy.closeHttp1Connection(response);
+        }
         response.setStatusCode(status);
         response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
         DataBuffer buffer = response.bufferFactory().wrap(json.getBytes(StandardCharsets.UTF_8));

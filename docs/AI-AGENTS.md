@@ -202,7 +202,7 @@ the classpath) are simply not advertised.
 - **Core context and integration reads:** `get_overview`, `get_health`, `get_config` (masked), `get_beans`,
   `get_mappings`, `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`,
   `get_cache_stats`,
-  `get_database_connection_pools`, `get_postgresql_report`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
+  `get_database_connection_pools`, `get_postgresql_report`, `get_mysql_report`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
   `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
   `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
   `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_devtools_status`, `get_dev_services`,
@@ -211,9 +211,36 @@ the classpath) are simply not advertised.
 - **Bounded controls (actions):** `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
   `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`, `resume_transaction_recording`,
   `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`, `resume_rest_client_recording`,
-  `postgresql_read`, `analyze_heap_dump`, and `trigger_devtools_livereload`. They never capture or download a heap dump,
+  `postgresql_read`, `mysql_read`, `analyze_heap_dump`, and `trigger_devtools_livereload`. They never capture or download a heap dump,
   execute an HTTP probe, mutate a database, clear a cache, write GitHub state, restart a dev service, or run an agent
   command.
+
+### MySQL operational evidence
+
+MySQL exposes two argument-free tools on MVC, WebFlux with JDBC, and Quarkus with JDBC:
+
+| Tool | Behavior |
+| --- | --- |
+| `get_mysql_report` | Read the latest sanitized in-memory report without opening a connection or executing SQL. |
+| `mysql_read` | Explicitly collect bounded operational evidence through the application's existing JDBC datasources. |
+
+Oracle MySQL 8.4 LTS is the tested server line, with live coverage on 8.4.6. MariaDB and reactive-client-only
+or R2DBC-only applications are outside this scope. Check the running catalog for the application's actual capability.
+
+Read the cache first. Ask for approval before `mysql_read`, naming the database collection even though it is
+read-only: it performs external work and is blocked by global/panel read-only policy. Do not automatically repeat
+a busy, failed, partial, or stale read. A change in exposure policy invalidates the cache without SQL; an explained
+`NOT_READ` is not authorization to collect again.
+
+These are observations, not advisor findings or scores. Inspect report status, per-section reasons, capabilities,
+timestamps, and limitations. `PARTIAL` can mean retained top-N rows, disabled/unknown instrumentation, denied
+permissions, or a timeout; `truncated` identifies row omissions only. Failed replication evidence is not "no
+replication." Server-wide counters and default-schema-associated sessions/digests are not this JVM's workload.
+Unknown values are `null`; large/unsigned counters, byte sizes, and numeric IDs are exact decimal strings and must
+retain precision.
+Do not request raw session/sample SQL or lock values, infer recommendations from absent metrics, grant privileges,
+or enable Performance Schema automatically. See [MySQL](features/database.md#mysql) for the eight areas and
+capability-specific permissions, and [CLI equivalents](CLI.md#mysql-reads).
 
 ### Reading retained advisor violations
 

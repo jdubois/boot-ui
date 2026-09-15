@@ -6,6 +6,13 @@ import com.tngtech.archunit.core.domain.JavaCodeUnit;
 import com.tngtech.archunit.core.domain.JavaConstructorCall;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaModifier;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassReader;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassVisitor;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.Handle;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.Label;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.MethodVisitor;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.Opcodes;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.Type;
 import io.github.jdubois.bootui.engine.archunit.KotlinBytecode;
 import java.io.IOException;
 import java.io.InputStream;
@@ -24,17 +31,13 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ThreadFactory;
 import java.util.stream.Collectors;
-import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.ClassVisitor;
-import org.objectweb.asm.Handle;
-import org.objectweb.asm.Label;
-import org.objectweb.asm.MethodVisitor;
-import org.objectweb.asm.Opcodes;
-import org.objectweb.asm.Type;
 
 /**
  * Retains the actual lambda body for Thread constructor sites: ArchUnit folds Java lambda accesses
  * into their enclosing method and does not expose the SAM type.
+ *
+ * <p>Uses ArchUnit's internal, relocated ASM to avoid a duplicate reader. ArchUnit upgrades must pass
+ * the reader and packaged-runtime regressions described in CONTRIBUTING.md.
  */
 final class ThreadFactoryLambdaAnalysis {
 

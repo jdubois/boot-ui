@@ -8,9 +8,14 @@ import static org.mockito.Mockito.when;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassReader;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassWriter;
+import com.tngtech.archunit.thirdparty.org.objectweb.asm.Opcodes;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.JarURLConnection;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -21,9 +26,6 @@ import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.ClassWriter;
-import org.objectweb.asm.Opcodes;
 
 class ThreadFactoryLambdaAnalysisTests {
     private static final Class<?> FIXTURE = NoDirectThreadInstantiationRuleTests.MixedConstruction.class;
@@ -65,12 +67,17 @@ class ThreadFactoryLambdaAnalysisTests {
             output.write(fixtureBytes(true));
             output.closeEntry();
         }
-        try (JarFile input = new JarFile(jar.toFile())) {
-            ArchitectureRuleResultDto result =
-                    new NoDirectThreadInstantiationRule().evaluate(context(new ClassFileImporter().importJar(input)));
-            assertThat(result.status()).isEqualTo("VIOLATION");
-            assertThat(result.violationCount()).isEqualTo(1);
+        var connection = (JarURLConnection)
+                URI.create("jar:" + jar.toUri() + "!/").toURL().openConnection();
+        JavaClasses classes;
+        // ArchUnit reopens the JAR through the URL cache; own that handle so Windows can delete it.
+        try (JarFile input = connection.getJarFile()) {
+            classes = new ClassFileImporter().importJar(input);
         }
+        ArchitectureRuleResultDto result = new NoDirectThreadInstantiationRule().evaluate(context(classes));
+        assertThat(result.status()).isEqualTo("VIOLATION");
+        assertThat(result.violationCount()).isEqualTo(1);
+        Files.delete(jar);
     }
 
     @Test

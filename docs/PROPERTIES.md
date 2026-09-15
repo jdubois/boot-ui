@@ -27,6 +27,9 @@ written in **exact kebab-case**. Safety policy is read **live, per request**; a 
 stays on and non-loopback access stays denied). Most keys below are honored identically on both
 adapters. Static bounds such as the PostgreSQL row limits require an application restart on every adapter.
 
+The [MySQL properties](#mysql) follow the same JDBC-backed cross-adapter configuration contract and static-limit
+restart requirements.
+
 **Activation.** Spring decides activation at runtime from `bootui.enabled` and the
 `enabled-profiles` / `disabled-profiles` lists (plus DevTools). Quarkus decides activation at
 **build time from the launch mode**: the console is wired in `dev` and `test` and is completely
@@ -184,6 +187,7 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | Configuration   | Mappings                  | `mappings`                  | `bootui.panels.mappings.enabled`                  | Not applicable; view-only.                |
 | Database        | Database Connection Pools | `database-connection-pools` | `bootui.panels.database-connection-pools.enabled` | Not applicable; view-only.                |
 | Database        | PostgreSQL                | `postgresql`                | `bootui.panels.postgresql.enabled`                | `bootui.panels.postgresql.read-only`      |
+| Database        | MySQL                    | `mysql`                     | `bootui.panels.mysql.enabled`                     | `bootui.panels.mysql.read-only`           |
 | Database        | Transactions              | `transactions`              | `bootui.panels.transactions.enabled`              | `bootui.panels.transactions.read-only`    |
 | Database        | SQL Trace                 | `sql-trace`                 | `bootui.panels.sql-trace.enabled`                 | `bootui.panels.sql-trace.read-only`       |
 | Database        | Hibernate Statistics      | `hibernate-statistics`      | `bootui.panels.hibernate-statistics.enabled`      | `bootui.panels.hibernate-statistics.read-only` |
@@ -401,6 +405,38 @@ the affected sections; timeouts and permission failures remain distinct explanat
 In the UI, a statement-ranking cap alone is an informational note inside that section, not a page-wide warning.
 Other capped sections and actual read problems still produce visible warnings.
 See [PostgreSQL](features/database.md#postgresql) for read behavior and availability.
+
+### MySQL
+
+These defaults apply to Spring MVC, Spring WebFlux with JDBC, and Quarkus with JDBC.
+They do not add R2DBC or reactive-client-only support. Browser, REST, MCP, and CLI reads share the same limits.
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `bootui.panels.mysql.enabled` | `true` | Show the MySQL panel when a supported JDBC datasource is configured; disabling it blocks cached reads and collection. |
+| `bootui.panels.mysql.read-only` | `false` | Block explicit collection while keeping cached evidence readable. Global `bootui.read-only=true` also blocks collection. |
+| `bootui.mysql.max-sessions` | `100` | Maximum retained session rows per datasource; session association follows the selected default schema. |
+| `bootui.mysql.max-statements` | `100` | Maximum retained normalized statement-digest rows per datasource, ranked by total execution time where timing is available. |
+| `bootui.mysql.max-indexes` | `500` | Maximum retained logical index entries per datasource; a composite definition must not be silently cut by a raw-row cap. |
+| `bootui.mysql.max-tables` | `200` | Maximum retained table entries in the datasource's selected schema. |
+| `bootui.mysql.max-lock-waits` | `100` | Maximum retained lock-wait entries per datasource; related lock data is also bounded. |
+| `bootui.mysql.max-replication-channels` | `10` | Maximum retained local replication-channel entries per datasource, not downstream topology or an unbounded worker list. |
+| `bootui.mysql.max-settings` | `40` | Maximum retained entries from the fixed safe settings allow-list per datasource. Does not restrict mandatory safety/capability probes or expose new names when raised. |
+
+The seven row limits are **static: restart the application after changing them**, including changes saved through
+Spring's Configuration panel. Every value must be an integer from `1` to `2147483646`, inclusive. Invalid,
+non-positive, and overflowing values fail startup with a property-specific error; zero is not unlimited.
+The upper endpoint reserves one extra row for truncation detection, not a recommended operating size.
+
+Current timing/text bounds are 15 seconds for the cooperative whole read, 5 seconds per server-bounded SELECT,
+2 seconds for metadata-lock waiting, and 400 displayed statement characters.
+The inspection connection's JDBC network guard is at most 7 seconds, retaining a tighter existing positive timeout;
+it covers control/SHOW I/O and is restored after collection. The `SHOW GLOBAL STATUS` fallback uses 17 fixed safe
+names, not the SELECT execution-time guarantee or `max-settings`. These are not extra configuration properties
+or hard end-to-end deadlines. Pool acquisition can exceed the cooperative budget; application connection/socket
+configuration remains separate. Increasing row caps changes neither these bounds nor the settings/InnoDB allow-lists.
+Row omissions set `truncated`; timeouts, denied sources, and disabled instrumentation remain distinct limitations.
+See [MySQL](features/database.md#mysql) for permissions, evidence scopes, and safety.
 
 ### Memory
 
