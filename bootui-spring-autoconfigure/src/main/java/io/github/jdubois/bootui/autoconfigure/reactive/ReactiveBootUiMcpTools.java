@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.autoconfigure.kafka.KafkaController;
 import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.mcp.SpringMcpToolFailures;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
+import io.github.jdubois.bootui.autoconfigure.mysql.MySqlController;
 import io.github.jdubois.bootui.autoconfigure.pentesting.PentestingController;
 import io.github.jdubois.bootui.autoconfigure.postgres.PostgresqlController;
 import io.github.jdubois.bootui.autoconfigure.rabbit.RabbitController;
@@ -94,6 +95,7 @@ public class ReactiveBootUiMcpTools {
             ObjectProvider<CracController> crac,
             ObjectProvider<DatabaseAdvisorController> databaseAdvisor,
             ObjectProvider<PostgresqlController> postgresql,
+            ObjectProvider<MySqlController> mysql,
             ObjectProvider<VulnerabilitiesController> vulnerabilities,
             ObjectProvider<LoggersController> loggers,
             ObjectProvider<ConditionsController> conditions,
@@ -125,6 +127,7 @@ public class ReactiveBootUiMcpTools {
         CracController cracBean = crac.getIfAvailable();
         DatabaseAdvisorController databaseAdvisorBean = databaseAdvisor.getIfAvailable();
         PostgresqlController postgresqlBean = postgresql.getIfAvailable();
+        MySqlController mysqlBean = mysql.getIfAvailable();
         VulnerabilitiesController vulnerabilitiesBean = vulnerabilities.getIfAvailable();
         LoggersController loggersBean = loggers.getIfAvailable();
         ConditionsController conditionsBean = conditions.getIfAvailable();
@@ -241,6 +244,11 @@ public class ReactiveBootUiMcpTools {
                     "get_postgresql_report",
                     McpToolDescriptions.spring("get_postgresql_report"),
                     args -> postgresqlBean.postgresql()));
+        }
+        if (mysqlBean != null) {
+            registry.add(tool("mysql_read", McpToolDescriptions.spring("mysql_read"), args -> mysqlBean.read()));
+            registry.add(tool(
+                    "get_mysql_report", McpToolDescriptions.spring("get_mysql_report"), args -> mysqlBean.report()));
         }
         if (vulnerabilitiesBean != null) {
             registry.add(tool(

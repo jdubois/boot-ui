@@ -34,6 +34,7 @@ import io.github.jdubois.bootui.autoconfigure.mcp.McpServerState;
 import io.github.jdubois.bootui.autoconfigure.mcp.SpringMcpPanelPolicy;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.autoconfigure.mysql.MySqlController;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
 import io.github.jdubois.bootui.autoconfigure.pentesting.*;
@@ -149,6 +150,7 @@ import tools.jackson.databind.ObjectMapper;
     DatabaseConnectionPoolsController.class,
     DatabaseAdvisorController.class,
     PostgresqlController.class,
+    MySqlController.class,
     SpringCacheController.class,
     DevServicesController.class,
     VulnerabilitiesController.class,
@@ -510,6 +512,7 @@ public class BootUiAutoConfiguration {
                 ObjectProvider<CracController> crac,
                 ObjectProvider<DatabaseAdvisorController> databaseAdvisor,
                 ObjectProvider<PostgresqlController> postgresql,
+                ObjectProvider<MySqlController> mysql,
                 ObjectProvider<VulnerabilitiesController> vulnerabilities,
                 ObjectProvider<LoggersController> loggers,
                 ObjectProvider<ConditionsController> conditions,
@@ -542,6 +545,7 @@ public class BootUiAutoConfiguration {
                     crac,
                     databaseAdvisor,
                     postgresql,
+                    mysql,
                     vulnerabilities,
                     loggers,
                     conditions,

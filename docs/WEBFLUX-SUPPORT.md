@@ -16,9 +16,13 @@ status where they don't.
 
 ## 2. Current status
 
-The WebFlux adapter serves the large majority of the panel surface — the same 59-panel manifest the servlet adapter
+The WebFlux adapter serves the large majority of the panel surface — the same 60-panel manifest the servlet adapter
 reports, minus the one panel (**HTTP Sessions**, §6.7) that stays unavailable for stack reasons. Every available
 action-capable panel behaves identically to the servlet adapter, behind the same shared `LocalhostGuard` write floor.
+
+**MySQL uses the same shared controller/report on MVC and WebFlux** when the application has a supported **JDBC**
+datasource. Oracle MySQL 8.4 LTS is the tested line, with 8.4.6 live coverage using Connector/J 9.7.0 and
+HikariCP 7.0.2. R2DBC-only applications and MariaDB are outside this scope. See [MySQL](features/database.md#mysql).
 
 ::: details Action-capable panels (identical to servlet)
 
@@ -37,6 +41,7 @@ action-capable panel behaves identically to the servlet adapter, behind the same
 | Transactions         | clear / toggle recording             |
 | REST Client          | clear / toggle recording             |
 | PostgreSQL           | read vital signs                      |
+| MySQL                | operational read                     |
 | Exceptions           | triage                               |
 | Advisor scans        | Architecture, Spring, Hibernate, Pentesting, REST API, Security, Memory, Vulnerabilities/OSV |
 
@@ -109,6 +114,11 @@ Every safety rule mirrors the servlet adapter over a reactive binding; only requ
   JSON body. Only the plumbing (`ServerWebExchange` instead of `HttpServletRequest`/`HttpServletResponse`) differs.
 - **Same per-panel gating.** `ReactivePanelAccessFilter` enforces `bootui.panels.*` (enable/read-only) via the same
   `BootUiPanels` registry the servlet `PanelAccessFilter` uses — same config keys, same canonical JSON 403 body.
+- **Early rejection connection handling.** On Reactor Netty, BootUI's filter-generated JSON errors close the
+  HTTP/1.x connection after sending the response. This avoids a queued keep-alive read stall in Reactor Netty 1.3.7
+  ([upstream report](https://github.com/reactor/reactor-netty/issues/4361)) without reading a rejected request's
+  untrusted body. Clients reconnect normally; rejection decisions and JSON stay unchanged. Accepted requests,
+  HTTP/2, and other WebFlux server implementations retain their existing connection behavior.
 - **Same configurable path contract.** `bootui.path` moves the shell, assets, APIs, streams, downloads, and action
   endpoints together; `bootui.api-path` can override the derived `<bootui.path>/api` mount independently. Both compose
   with `spring.webflux.base-path` exactly once. A dedicated WebFlux static-resource handler serves the configured mount,
@@ -144,7 +154,7 @@ WebFlux blocking-execution policy, and requests rejected by the preceding safety
 | `Not yet ported` | Deliberately deferred, no reactive implementation wired yet                      |
 | `Not applicable` | No faithful reactive analog exists for this panel's concept                      |
 
-### 6.1 Ported as-is (43 panels)
+### 6.1 Ported as-is (44 panels)
 
 Bulk-imported from the servlet adapter's `@RestController`s with no code changes at all — confirming these controllers
 were already framework-neutral in practice, not just in the engine underneath them.
@@ -152,7 +162,7 @@ were already framework-neutral in practice, not just in the engine underneath th
 | Panels ported unchanged |
 | ----------------------- |
 | Overview, GitHub, Beans, Conditions, Configuration, Mappings, Health, Loggers, Startup Timeline, Spring Data |
-| Database, Hibernate, Hibernate Statistics, PostgreSQL, Flyway, Liquibase, Database Connection Pools, Cache, Dev Services |
+| Database, Hibernate, Hibernate Statistics, PostgreSQL, MySQL, Flyway, Liquibase, Database Connection Pools, Cache, Dev Services |
 | Vulnerabilities, Scheduled Tasks, Fault Tolerance, HTTP Probe, Pentesting, Heap Dump, Architecture, REST API advisor |
 | Profile Diff, Spring advisor[^spring-advisor-reactive], Live Memory, JVM Tuning, Metrics, Spring DevTools, Traces, AI Framework |
 | GraalVM, CRaC, Threads, Memory, Email, Kafka, RabbitMQ, JMS |
@@ -161,6 +171,21 @@ These controllers keep their synchronous servlet-facing signatures. On WebFlux, 
 `ReactiveBootUiHandlerAdapter` dispatches their argument resolution and handler invocation on bounded-elastic threads,
 so controller-local scheduler annotations or endpoint allowlists are not required and new shared handlers cannot
 accidentally inherit the Reactor Netty event loop.
+
+::: details MySQL integration
+
+The MySQL operational panel follows this shared-controller pattern: the engine owns collection and the sanitized
+cache, while both Spring autoconfigurations bind the same GET/POST contract. `GET <api-path>/mysql`, manifest
+discovery, and `get_mysql_report` must never acquire a connection or execute SQL. Only explicit
+`POST <api-path>/mysql/read` / `mysql_read` collects, off the Netty event loop through
+`ReactiveBootUiHandlerAdapter`, with the same single-flight and panel read-only policy as MVC.
+
+Default/named JDBC datasource discovery is reused; installing a MySQL driver without a supported datasource does not
+provide diagnostics. The same seven startup `bootui.mysql.*` caps apply and require restart. Live tests cover
+least-privilege collection, driver cleanup, and positive MySQL REST/MCP/CLI behavior on default and custom mounts.
+A reactive app with only R2DBC remains unavailable with a JDBC-specific hint.
+
+:::
 
 ::: details Messaging panels (Kafka, RabbitMQ, JMS)
 

@@ -36,6 +36,7 @@ import io.github.jdubois.bootui.quarkus.web.LoggersResource;
 import io.github.jdubois.bootui.quarkus.web.MappingsResource;
 import io.github.jdubois.bootui.quarkus.web.MemoryResource;
 import io.github.jdubois.bootui.quarkus.web.MetricsResource;
+import io.github.jdubois.bootui.quarkus.web.MySqlResource;
 import io.github.jdubois.bootui.quarkus.web.OverviewResource;
 import io.github.jdubois.bootui.quarkus.web.PentestingResource;
 import io.github.jdubois.bootui.quarkus.web.PostgresqlResource;
@@ -110,6 +111,7 @@ public class QuarkusMcpTools {
             OverviewResource overview,
             DatabaseAdvisorResource databaseAdvisor,
             PostgresqlResource postgresql,
+            MySqlResource mysql,
             VulnerabilitiesResource vulnerabilities,
             LoggersResource loggers,
             ScheduledResource scheduled,
@@ -243,6 +245,14 @@ public class QuarkusMcpTools {
                         "get_postgresql_report",
                         McpToolDescriptions.quarkus("get_postgresql_report"),
                         args -> postgresql.postgresql()));
+        addIfAvailable(
+                registry,
+                availability,
+                tool("mysql_read", McpToolDescriptions.quarkus("mysql_read"), args -> mysql.read()));
+        addIfAvailable(
+                registry,
+                availability,
+                tool("get_mysql_report", McpToolDescriptions.quarkus("get_mysql_report"), args -> mysql.mysql()));
         addIfAvailable(
                 registry,
                 availability,

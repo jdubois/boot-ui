@@ -20,6 +20,18 @@ scripts read it too.
 
 That is always current for your app and your dependencies. Prefer it over any list in the documentation.
 
+### JDBC diagnostics are datasource-specific
+
+An HTTP stack does not determine a database client's capabilities. PostgreSQL needs its corresponding JDBC
+datasource; the **[MySQL operational panel](features/database.md#mysql)** provides the same JDBC-backed
+behavior on MVC, WebFlux, and Quarkus. Default and named JDBC datasources are in scope. A WebFlux app with only R2DBC,
+or a Quarkus app with only a reactive MySQL client, cannot use this panel.
+
+Oracle MySQL 8.4 LTS is the tested server line, with live coverage on 8.4.6. MariaDB is a separate unsupported
+follow-up; the Database advisor's existing MySQL/MariaDB checks do not establish operational-panel support.
+No other MySQL line or compatible flavor is certified by this test target; the feature guide lists the tested
+driver/pool combinations.
+
 ## Spring WebFlux
 
 Everything works, including every action — setting log levels, running migrations, capturing heap dumps, and every

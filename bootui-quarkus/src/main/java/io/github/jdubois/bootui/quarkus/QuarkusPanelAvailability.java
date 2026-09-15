@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.core.dto.PanelDto;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.agent.AgentSessionStore;
 import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
+import io.github.jdubois.bootui.engine.mysql.MySqlDataSourceDetection;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.postgres.PostgresDataSourceDetection;
 import io.github.jdubois.bootui.quarkus.agent.QuarkusClaudeCodeProperties;
@@ -348,6 +349,11 @@ public class QuarkusPanelAvailability {
                     + " (quarkus-jdbc-postgresql with quarkus.datasource.db-kind=postgresql) so its vital signs"
                     + " can be read.";
 
+    private static final String MYSQL_ABSENT =
+            "Not available: no supported MySQL JDBC datasource is declared. Add quarkus-jdbc-mysql and"
+                    + " configure an active JDBC datasource with db-kind=mysql or a recognized MySQL JDBC URL."
+                    + " Unknown declarations are not verified; MariaDB and reactive-only clients are not supported.";
+
     private static final String PROFILE_DIFF_ABSENT =
             "Not available: no profiles are active. Run with a profile (e.g. quarkus.profile=dev) to"
                     + " compare profile-specific configuration.";
@@ -444,6 +450,7 @@ public class QuarkusPanelAvailability {
             Map.entry(BootUiPanels.REST_CLIENT_TRACE, REST_CLIENT_TRACE_ABSENT),
             Map.entry(BootUiPanels.SQL_TRACE, SQL_TRACE_ABSENT),
             Map.entry(BootUiPanels.POSTGRESQL, POSTGRESQL_ABSENT),
+            Map.entry(BootUiPanels.MYSQL, MYSQL_ABSENT),
             Map.entry(BootUiPanels.PROFILE_DIFF, PROFILE_DIFF_ABSENT),
             Map.entry(BootUiPanels.REST_API, REST_API_ABSENT),
             Map.entry(BootUiPanels.SECURITY_LOGS, SECURITY_LOGS_ABSENT),
@@ -528,6 +535,10 @@ public class QuarkusPanelAvailability {
 
     @Inject
     public QuarkusPanelAvailability(Config config) {
+        this(config, mySqlJdbcDriverPresent());
+    }
+
+    QuarkusPanelAvailability(Config config, boolean mySqlJdbcDriverPresent) {
         this.hibernatePresent =
                 config.getOptionalValue(HIBERNATE_PRESENT_KEY, Boolean.class).orElse(false);
         this.schedulingPresent =
@@ -587,6 +598,9 @@ public class QuarkusPanelAvailability {
                 Map.entry(BootUiPanels.SECURITY_LOGS, securityLogsAvailable),
                 Map.entry(BootUiPanels.SQL_TRACE, connectionPoolsPresent),
                 Map.entry(BootUiPanels.POSTGRESQL, connectionPoolsPresent && postgresConfigured),
+                Map.entry(
+                        BootUiPanels.MYSQL,
+                        connectionPoolsPresent && mySqlJdbcDriverPresent && mySqlConfigured(config)),
                 Map.entry(BootUiPanels.PROFILE_DIFF, profilesActive),
                 Map.entry(BootUiPanels.REST_API, restApiPresent),
                 Map.entry(BootUiPanels.COPILOT, copilotPanelAvailable),
@@ -625,6 +639,51 @@ public class QuarkusPanelAvailability {
             }
         }
         return false;
+    }
+
+    /**
+     * Reads declarations only: even resolving a lazy datasource bean can activate a pool. Final server
+     * flavor detection belongs to the explicit read, not manifest or MCP discovery.
+     */
+    private static boolean mySqlConfigured(Config config) {
+        for (String name : config.getPropertyNames()) {
+            if (name == null || !name.startsWith("quarkus.datasource.")) {
+                continue;
+            }
+            boolean dbKind = name.endsWith(".db-kind");
+            if (!dbKind && !name.endsWith(".jdbc.url")) {
+                continue;
+            }
+            String prefix = name.substring(0, name.length() - (dbKind ? ".db-kind".length() : ".jdbc.url".length()));
+            // quarkus.datasource[."name"].jdbc is the JDBC-datasource toggle: DataSourceJdbcBuildTimeConfig
+            // declares enabled() with @WithParentName, so the key is the group's own name, not ".jdbc.enabled"
+            // (which Quarkus does not define at all). A datasource turned off there has no pool to read.
+            if ("false".equalsIgnoreCase(configValue(config, prefix + ".active"))
+                    || "false".equalsIgnoreCase(configValue(config, prefix + ".jdbc"))) {
+                continue;
+            }
+            String kind = configValue(config, prefix + ".db-kind");
+            // A declared different vendor wins over an ambiguous wrapping URL.
+            if (kind != null && !kind.isBlank() && !MySqlDataSourceDetection.isMySqlDbKind(kind)) {
+                continue;
+            }
+            if (MySqlDataSourceDetection.isMySqlDbKind(kind)
+                    || MySqlDataSourceDetection.isMySqlJdbcUrl(configValue(config, prefix + ".jdbc.url"))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean mySqlJdbcDriverPresent() {
+        try {
+            // Loading without initialization cannot register a driver, start a pool, or contact a server.
+            Class.forName(
+                    "com.mysql.cj.jdbc.Driver", false, Thread.currentThread().getContextClassLoader());
+            return true;
+        } catch (ClassNotFoundException | LinkageError absent) {
+            return false;
+        }
     }
 
     /** Reads one property defensively: an unresolvable expression must not fail the whole manifest. */

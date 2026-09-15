@@ -308,14 +308,18 @@ class DependencyCatalogTests {
         Path mystery = plainJar("BOOT-INF/lib/mystery-1.0.jar");
         try (URLClassLoader loader = new URLClassLoader(
                 new URL[] {described.toUri().toURL(), mystery.toUri().toURL()}, null)) {
-            DependencyInventory inventory =
-                    withClassPathInventory(new PathMatchingResourcePatternResolver(loader), ".");
+            var resolver = new PathMatchingResourcePatternResolver(loader);
+            // The temporary JAR must not outlive the loader in Spring's URL connection cache.
+            resolver.setUseCaches(false);
+            DependencyInventory inventory = withClassPathInventory(resolver, ".");
 
             assertThat(inventory.dependencies())
                     .extracting(DependencyDto::packageName)
                     .containsExactly("com.acme:widget");
             assertThat(inventory.coverage()).isEqualTo(DependencyCoverageDto.of(2, 1, List.of("mystery-1.0.jar")));
         }
+        Files.delete(described);
+        Files.delete(mystery);
     }
 
     @Test
