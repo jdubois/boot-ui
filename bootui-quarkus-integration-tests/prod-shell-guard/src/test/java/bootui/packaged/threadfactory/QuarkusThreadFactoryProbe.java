@@ -8,7 +8,7 @@ import java.util.concurrent.ThreadFactory;
 
 public class QuarkusThreadFactoryProbe {
     public static void main(String[] args) throws ClassNotFoundException {
-        Class.forName("io.github.jdubois.bootui.engine.internal.asm.ClassReader");
+        Class.forName("com.tngtech.archunit.thirdparty.org.objectweb.asm.ClassReader");
         var report = ArchitectureScanner.usingClasspath(
                         () -> List.of(QuarkusThreadFactoryProbe.class.getPackageName()),
                         ArchitecturePlatform.QUARKUS,

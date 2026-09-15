@@ -76,6 +76,35 @@ class QuarkusMcpToolsTest {
     }
 
     @Test
+    void mysqlToolsUseTheNativeResourceAndAreAbsentWithoutTheCapability() throws Exception {
+        QuarkusPanelAvailability availability = mock(QuarkusPanelAvailability.class);
+        when(availability.isPanelAvailable(anyString())).thenReturn(true);
+        MySqlResource mysql = mock(MySqlResource.class);
+        var constructor = QuarkusMcpTools.class.getDeclaredConstructors()[0];
+        Object[] arguments = java.util.Arrays.stream(constructor.getParameterTypes())
+                .map(type -> type == QuarkusPanelAvailability.class
+                        ? availability
+                        : type == MySqlResource.class ? mysql : mock(type))
+                .toArray();
+        List<McpTool> tools = ((QuarkusMcpTools) constructor.newInstance(arguments)).tools();
+        org.mockito.Mockito.verifyNoInteractions(mysql);
+        invoke(tools, "get_mysql_report", new McpArguments(null, 100, null));
+        verify(mysql).mysql();
+        invoke(tools, "mysql_read", new McpArguments(null, 100, null));
+        verify(mysql).read();
+        assertThat(tools)
+                .filteredOn(tool -> tool.name().equals("mysql_read"))
+                .singleElement()
+                .satisfies(tool -> {
+                    assertThat(tool.action()).isTrue();
+                    assertThat(tool.schema()).isEqualTo(McpToolSchema.NONE);
+                    assertThat(tool.panelId()).isEqualTo(BootUiPanels.MYSQL);
+                });
+        when(availability.isPanelAvailable(BootUiPanels.MYSQL)).thenReturn(false);
+        assertThat(tools(availability)).extracting(McpTool::name).doesNotContain("mysql_read", "get_mysql_report");
+    }
+
+    @Test
     void advertisesCompleteMaximumCatalogWhenEveryPanelIsAvailable() {
         QuarkusPanelAvailability availability = mock(QuarkusPanelAvailability.class);
         when(availability.isPanelAvailable(anyString())).thenReturn(true);
@@ -177,6 +206,7 @@ class QuarkusMcpToolsTest {
                         mock(OverviewResource.class),
                         mock(DatabaseAdvisorResource.class),
                         mock(PostgresqlResource.class),
+                        mock(MySqlResource.class),
                         mock(VulnerabilitiesResource.class),
                         mock(LoggersResource.class),
                         mock(ScheduledResource.class),

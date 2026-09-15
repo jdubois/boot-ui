@@ -115,5 +115,21 @@ The following panel is not available:
 
 - **HTTP Sessions** — not applicable: it is the servlet container's `HttpSession` API, with no reactive equivalent.
 
+### MySQL prerequisites
+
+The [MySQL operational panel](../features/database.md#mysql) supports WebFlux applications with an existing
+default or named **JDBC `DataSource`** and MySQL Connector/J. An R2DBC `ConnectionFactory` alone is not supported;
+BootUI does not add a second pool, Hibernate, or servlet dependencies to compensate. Oracle MySQL 8.4 LTS is the
+tested server line, with live coverage on 8.4.6; MariaDB is a separate unsupported follow-up.
+
+Use the application's existing secure datasource configuration. Opening MySQL shows the cached report;
+**Run MySQL read** explicitly performs bounded JDBC collection through BootUI's blocking-execution boundary.
+The same [row caps](../PROPERTIES.md#mysql), permissions, masking, and read-only policy apply as on MVC.
+
+The optional repository sample uses `mysql-diagnostics` and the shared `BOOTUI_SAMPLE_MYSQL_URL`,
+`BOOTUI_SAMPLE_MYSQL_USERNAME`, and `BOOTUI_SAMPLE_MYSQL_PASSWORD` variables. Follow the
+[WebFlux sample README](https://github.com/jdubois/boot-ui/tree/main/bootui-spring-webflux-sample-app#readme)
+for its launch command; the panel itself never generates a workload.
+
 For the authoritative, per-panel detail and the reasoning behind each gap, see [Features](../features/README.md) and
 [Framework support](../FRAMEWORK-SUPPORT.md).
