@@ -31,7 +31,9 @@ Read the documentation at <https://www.julien-dubois.com/boot-ui/>.
 ## Use with AI agents
 
 BootUI exposes a local, opt-in [Model Context Protocol](https://modelcontextprotocol.io) server so AI coding agents
-(GitHub Copilot, Claude Code, …) can run its advisors and read runtime diagnostics while fixing your code. It also pairs
+(GitHub Copilot, Claude Code, …) can run its advisors and read runtime diagnostics while fixing your code. Install the
+agent skill with `gh skill install jdubois/boot-ui bootui`, or, in Claude Code, add this repository as a plugin
+marketplace with `/plugin marketplace add jdubois/boot-ui` to get the skill and the MCP server in one step. It also pairs
 with [Coffilot](https://github.com/jdubois/coffilot), a GitHub Copilot canvas extension that builds, runs, and scans your
 app from the GitHub Copilot App's side panel. See the [AI agents guide](https://www.julien-dubois.com/boot-ui/ai-agents).
 

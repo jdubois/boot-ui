@@ -6,10 +6,11 @@ and runtime diagnostics in the browser, BootUI can expose the very same, already
 **consult your running application before proposing a fix** and **verify the fix afterwards** — all without leaving your
 editor or chat.
 
-This page explains how to connect an agent to BootUI's MCP server, when to reach for the [CLI](CLI.md) instead, walks
-through a concrete example (fixing Hibernate findings), and shows how BootUI pairs with
-[Coffilot](https://www.julien-dubois.com/coffilot/) to build, run, and scan your app from the GitHub Copilot App's side
-panel.
+This page explains how to install BootUI's agent skill — as a [skill](#install-the-bootui-agent-skill) for GitHub
+Copilot or as a [plugin](#install-the-bootui-claude-code-plugin) for Claude Code — how to connect an agent to BootUI's
+MCP server, when to reach for the [CLI](CLI.md) instead, walks through a concrete example (fixing Hibernate findings),
+and shows how BootUI pairs with [Coffilot](https://www.julien-dubois.com/coffilot/) to build, run, and scan your app
+from the GitHub Copilot App's side panel.
 
 ## Why use BootUI from an agent
 
@@ -43,7 +44,8 @@ talks to the world:
 - **Use the [MCP server](#connect-an-agent-to-the-bootui-mcp-server)** when your agent or IDE speaks MCP natively
   (GitHub Copilot, Claude Code, and other MCP-aware clients). The agent discovers tools, schemas, and descriptions
   automatically and calls them as native tool calls — no shell commands, no JSON parsing glue code. This is the
-  primary path this page walks through, and what the [BootUI agent skill](#install-the-bootui-agent-skill) and
+  primary path this page walks through, and what the [BootUI agent skill](#install-the-bootui-agent-skill), the
+  [Claude Code plugin](#install-the-bootui-claude-code-plugin), and
   [Coffilot](#coffilot-bootui-in-the-github-copilot-app-s-side-panel) wire up automatically.
 - **Use the [CLI](CLI.md)** when the agent's host can only run shell commands — a sandboxed or cloud agent without MCP
   wiring, a CI job, or a human running one-off checks in a terminal or script. The BootUI agent skill falls back to
@@ -72,6 +74,50 @@ The skill works with Copilot cloud agent, Copilot CLI, the GitHub Copilot app, C
 supported IDEs. Like any third-party skill, review its instructions before installation. You can also copy
 `skills/bootui` into a project's `.github/skills` directory manually.
 
+Agents that read skills from a project directory rather than from GitHub can install the same skill with:
+
+```bash
+npx skills add jdubois/boot-ui
+```
+
+Claude Code users should prefer the [plugin](#install-the-bootui-claude-code-plugin), which installs this skill and
+wires up the MCP server in one step.
+
+## Install the BootUI Claude Code plugin
+
+For [Claude Code](https://claude.com/claude-code), BootUI ships a plugin that bundles the same agent skill **and** the
+MCP server connection, so there is no separate `claude mcp add` step. Add the marketplace and install it:
+
+```
+/plugin marketplace add jdubois/boot-ui
+/plugin install bootui@bootui
+```
+
+The plugin registers the `bootui` skill and an HTTP MCP server pointing at `http://127.0.0.1:8080/bootui/api/mcp`.
+
+Two things to know before your first call:
+
+1. **The MCP server is off by default.** The plugin cannot turn it on for you — it lives in *your* application. Set
+   `bootui.mcp.enabled=ON`, or flip the toggle in the **MCP Server** panel (`/bootui/#/mcp-server`), as described in
+   [Connect an agent to the BootUI MCP server](#connect-an-agent-to-the-bootui-mcp-server). Until then every tool call
+   answers that the server is disabled.
+2. **If your application does not listen on port 8080**, set `BOOTUI_MCP_URL` before starting Claude Code. The plugin
+   reads it and falls back to the address above when it is unset, so this also covers a custom
+   [`bootui.api-path`](PROPERTIES.md) or an application reached from a container:
+
+   ```bash
+   export BOOTUI_MCP_URL=http://127.0.0.1:8081/bootui/api/mcp
+   ```
+
+An agent reaching BootUI from anywhere other than loopback must also present the bearer token; the plugin's
+configuration carries no header, so register that server yourself with the
+[`claude mcp add` form below](#connect-an-agent-to-the-bootui-mcp-server) instead.
+
+Because BootUI is loopback-only by default, the plugin asks for no credentials and stores nothing. It is published from
+this repository, so `/plugin marketplace update bootui` picks up every change to the skill. The plugin changes no
+policy of its own: the [safety model](#safety-model) below — panel availability, read-only flags, and confirmation for
+mutating actions — applies exactly as it does to any other MCP client.
+
 ## Connect an agent to the BootUI MCP server
 
 The BootUI MCP server is a local, opt-in JSON-RPC 2.0 endpoint at `POST /bootui/api/mcp`. It is **disabled by default**
@@ -99,7 +145,8 @@ explicitly enabled, which requires authentication.
    }
    ```
 
-   Claude Code registers the server from a terminal in your project:
+   Claude Code registers the server from a terminal in your project — though the
+   [plugin](#install-the-bootui-claude-code-plugin) does this for you:
 
    ```bash
    claude mcp add --transport http bootui http://127.0.0.1:8080/bootui/api/mcp
@@ -360,8 +407,9 @@ When you do not know which panel to investigate first, ask your coding agent for
 > Assess this application using BootUI. Start with existing evidence and ask before fresh scans. Give me a prioritized,
 > evidence-backed action plan, and do not modify anything until I approve specific actions.
 
-The [BootUI skill](#install-the-bootui-agent-skill) teaches this workflow through MCP, the CLI, or the plain HTTP
-command-line endpoint. MCP clients with prompt support can select **`assess_application`** instead. BootUI advertises
+The BootUI skill — installed [on its own](#install-the-bootui-agent-skill) or through the
+[Claude Code plugin](#install-the-bootui-claude-code-plugin) — teaches this workflow through MCP, the CLI, or the plain
+HTTP command-line endpoint. MCP clients with prompt support can select **`assess_application`** instead. BootUI advertises
 three argument-free prompts: `diagnose_runtime_issue` for a focused runtime failure, `review_application` for a focused
 advisor review, and `assess_application` for a broader assessment and approval-gated plan. Clients without prompt support
 can use the skill and the request above; there is no `bootui assess` command or new assessment tool.

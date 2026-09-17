@@ -84,8 +84,10 @@ Connection details (transport, protocol revision, and the `bootui.mcp.max-result
 ready-to-use, copyable client configuration pointing at this running app, with one tab per client because they do not
 agree on a shape: **VS Code** (`.vscode/mcp.json`, a `servers` block), **Claude Code** (a `claude mcp add --transport
 http` command), **Cursor** (`~/.cursor/mcp.json`, an `mcpServers` entry keyed on `url` with no `type`), and **Other
-clients** (the `mcpServers` shape with an explicit type, which is also what Claude Code writes into `.mcp.json`). To
-wire it into an agent, point the client at the loopback HTTP endpoint of your running app:
+clients** (the `mcpServers` shape with an explicit type, which is also what Claude Code writes into `.mcp.json`). Claude
+Code users can skip that step entirely with the [BootUI plugin](../AI-AGENTS.md#install-the-bootui-claude-code-plugin),
+which registers this server for them. To wire it into an agent by hand, point the client at the loopback HTTP endpoint
+of your running app:
 
 ```json
 {
