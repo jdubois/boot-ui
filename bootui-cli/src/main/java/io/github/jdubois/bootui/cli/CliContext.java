@@ -230,33 +230,28 @@ final class CliContext {
      * do advertise it rather than leaving the reader to guess.
      */
     private String describe(BootUiClient client, ToolManifest.Tool tool, ToolOutcome outcome, String message) {
-        switch (outcome) {
-            case UNKNOWN_TOOL:
-                return "This application does not expose '" + tool.name() + "'." + unknownToolHint(client, tool);
-            case REFUSED_BY_POLICY:
-                return message + " (panel '" + tool.panel() + "')";
-            case UNAUTHENTICATED:
-                return message
+        return switch (outcome) {
+            case UNKNOWN_TOOL ->
+                "This application does not expose '" + tool.name() + "'." + unknownToolHint(client, tool);
+            case REFUSED_BY_POLICY -> message + " (panel '" + tool.panel() + "')";
+            case UNAUTHENTICATED ->
+                message
                         + ". A non-loopback --url needs --token, and BootUI only answers requests it "
                         + "considers local.";
-            case ENDPOINT_DISABLED:
-                return "The BootUI command-line endpoint is disabled on this application. "
+            case ENDPOINT_DISABLED ->
+                "The BootUI command-line endpoint is disabled on this application. "
                         + "Set bootui.cli.enabled=true to allow it.";
-            default:
-                return message;
-        }
+            default -> message;
+        };
     }
 
     private static int exitCodeFor(ToolOutcome outcome) {
         // A refusal is a statement about how the target is configured, not a failed request, so a script can
         // tell "BootUI said no" apart from "the call did not work".
-        switch (outcome) {
-            case REFUSED_BY_POLICY:
-            case ENDPOINT_DISABLED:
-                return ExitCodes.REFUSED;
-            default:
-                return ExitCodes.ERROR;
-        }
+        return switch (outcome) {
+            case REFUSED_BY_POLICY, ENDPOINT_DISABLED -> ExitCodes.REFUSED;
+            default -> ExitCodes.ERROR;
+        };
     }
 
     /**
