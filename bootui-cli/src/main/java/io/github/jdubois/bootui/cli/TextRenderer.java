@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.UnaryOperator;
 
 /**
  * Renders a tool payload for a human.
@@ -127,31 +128,44 @@ final class TextRenderer {
                 widths[i] = Math.max(widths[i], row.get(i).length());
             }
         }
-        out.append(indent);
-        for (int i = 0; i < columns.size(); i++) {
-            out.append(bold(pad(safe(columns.get(i)), i == columns.size() - 1 ? 0 : widths[i])));
-            if (i < columns.size() - 1) {
-                out.append("  ");
-            }
+        List<String> headerCells = new ArrayList<>(columns.size());
+        for (String column : columns) {
+            headerCells.add(safe(column));
         }
-        out.append('\n').append(indent);
-        for (int i = 0; i < columns.size(); i++) {
-            out.append(dim("-".repeat(widths[i])));
-            if (i < columns.size() - 1) {
-                out.append("  ");
-            }
+        out.append(indent)
+                .append(formatRow(headerCells, widths, false, this::bold))
+                .append('\n');
+
+        List<String> separatorCells = new ArrayList<>(widths.length);
+        for (int width : widths) {
+            separatorCells.add("-".repeat(width));
         }
-        out.append('\n');
+        out.append(indent)
+                .append(formatRow(separatorCells, widths, true, this::dim))
+                .append('\n');
+
         for (List<String> row : rows) {
-            out.append(indent);
-            for (int i = 0; i < row.size(); i++) {
-                out.append(pad(row.get(i), i == row.size() - 1 ? 0 : widths[i]));
-                if (i < row.size() - 1) {
-                    out.append("  ");
-                }
-            }
-            out.append('\n');
+            out.append(indent)
+                    .append(formatRow(row, widths, false, UnaryOperator.identity()))
+                    .append('\n');
         }
+    }
+
+    /**
+     * Joins one table row: each cell is padded to its column width (the last column is left
+     * unpadded unless {@code padLast}, so a row never carries trailing whitespace) and passed
+     * through {@code style} for bold/dim highlighting, with two spaces between columns.
+     */
+    private static String formatRow(List<String> cells, int[] widths, boolean padLast, UnaryOperator<String> style) {
+        StringBuilder row = new StringBuilder();
+        for (int i = 0; i < cells.size(); i++) {
+            int width = (i == cells.size() - 1 && !padLast) ? 0 : widths[i];
+            row.append(style.apply(pad(cells.get(i), width)));
+            if (i < cells.size() - 1) {
+                row.append("  ");
+            }
+        }
+        return row.toString();
     }
 
     private String scalar(JsonValue value) {
