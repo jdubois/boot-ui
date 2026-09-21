@@ -64,13 +64,29 @@ final class CliContext {
         return err;
     }
 
+    /**
+     * Opens a client, runs one call against it, and reports {@link BootUiClientException} the same way every
+     * command does.
+     *
+     * <p>Every command below did this by hand — open the client in a try-with-resources, run its own request,
+     * catch the same exception, call the same {@link #fail}. Centralising it here means a command is only
+     * ever the request that is actually distinct about it.
+     */
+    private int withClient(Function<BootUiClient, Integer> action) {
+        try (BootUiClient client = newClient()) {
+            return action.apply(client);
+        } catch (BootUiClientException failure) {
+            return fail(failure);
+        }
+    }
+
     private BootUiClient newClient() {
         return clientFactory.apply(options.toClientOptions(environment));
     }
 
     /** Calls one tool and reports it. */
     int invokeTool(ToolManifest.Tool tool, String query, Integer limit, String id, String scanId, Integer offset) {
-        try (BootUiClient client = newClient()) {
+        return withClient(client -> {
             Map<String, JsonValue> arguments = new LinkedHashMap<>();
             if (query != null) {
                 arguments.put("query", JsonValue.of(query));
@@ -96,9 +112,7 @@ final class CliContext {
             err.println(describe(client, tool, result.outcome(), result.errorMessage()));
             err.flush();
             return exitCodeFor(result.outcome());
-        } catch (BootUiClientException failure) {
-            return fail(failure);
-        }
+        });
     }
 
     /**
@@ -128,7 +142,7 @@ final class CliContext {
 
     /** Prints what the target instance advertises, which is the authority over the bundled manifest. */
     int listTools() {
-        try (BootUiClient client = newClient()) {
+        return withClient(client -> {
             JsonValue document = client.get(CliPaths.CLI);
             if (options.json(terminal)) {
                 out.println(document.toJson());
@@ -157,20 +171,16 @@ final class CliContext {
             summary.put("tools", JsonValue.array(rows));
             emit(JsonValue.object(summary), null);
             return ExitCodes.SUCCESS;
-        } catch (BootUiClientException failure) {
-            return fail(failure);
-        }
+        });
     }
 
     /** Reads the MCP Server panel. */
     int mcpStatus() {
-        try (BootUiClient client = newClient()) {
+        return withClient(client -> {
             JsonValue status = client.get(CliPaths.MCP_SERVER);
             emit(status, status.toJson());
             return ExitCodes.SUCCESS;
-        } catch (BootUiClientException failure) {
-            return fail(failure);
-        }
+        });
     }
 
     /**
@@ -180,13 +190,11 @@ final class CliContext {
      * the CLI does not get a privileged path to it.
      */
     int mcpToggle(boolean enabled) {
-        try (BootUiClient client = newClient()) {
+        return withClient(client -> {
             JsonValue status = client.post(CliPaths.MCP_TOGGLE, "{\"enabled\":" + enabled + "}");
             emit(status, status.toJson());
             return ExitCodes.SUCCESS;
-        } catch (BootUiClientException failure) {
-            return fail(failure);
-        }
+        });
     }
 
     private static String status(BootUiCatalog.CatalogTool tool) {
