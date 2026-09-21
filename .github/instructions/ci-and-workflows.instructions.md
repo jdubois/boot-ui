@@ -16,8 +16,9 @@ applyTo: ".github/workflows/**,.github/scripts/**,.github/dependabot.yml,Dockerf
   stay version-free: they resolve the version at run time, and a literal version would not be rewritten by a release.
   `install.sh` must also pass `shellcheck -s sh`.
 - `build.yml` is the Java 17 baseline: it is the gate for formatting, the full reactor with coverage, the SBOM, and the
-  Spring and Quarkus Playwright suites. `jdk-compatibility.yml` covers Java 21 and 25 with a focused build. Keep new
-  checks on the baseline workflow unless they are genuinely JDK-specific.
+  Spring and Quarkus Playwright suites. `jdk-compatibility.yml` covers Java 21 and 25 with a focused build, plus a
+  non-blocking Java 27 early-warning lane that stays `continue-on-error` until Spring Boot and Quarkus document
+  support for it. Keep new checks on the baseline workflow unless they are genuinely JDK-specific.
 - Quarkus/Hibernate build-time augmentation is gated to the JDKs the shared Quarkus LTS platform supports. Preserve the
   JDK skip profile and the matrix gating rather than widening a job onto an unsupported JDK.
 - Keep workflow permissions least-privilege and never echo secrets into command arguments or logs.
