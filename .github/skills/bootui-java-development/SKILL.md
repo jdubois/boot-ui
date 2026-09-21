@@ -8,7 +8,7 @@ description: Use when implementing, debugging, refactoring, or testing existing 
 Use this skill for substantive Java maintenance in this repository. It provides an investigation and implementation
 workflow, not a replacement for repository instructions or a requirement to delegate work.
 
-Follow [repository instructions](../../copilot-instructions.md) and the relevant
+Follow [repository instructions](../../../AGENTS.md) and the relevant
 [path-scoped instructions](../../instructions/). Consult [the module map](../../../docs/REPOSITORY.md) when locating
 ownership. Build and delivery requirements remain authoritative in [CONTRIBUTING.md](../../../CONTRIBUTING.md) and,
 when selected, the [vertical-PR agent](../../agents/bootui-vertical-pr.agent.md).
