@@ -1,0 +1,26 @@
+{
+  "name": "bootui",
+  "displayName": "BootUI",
+  "description": "Ask a running Spring Boot or Quarkus application about itself: architecture, Spring, Hibernate, memory, security, pentest, GraalVM and CRaC advisors plus live runtime diagnostics, over BootUI's local MCP server.",
+  "author": {
+    "name": "Julien Dubois",
+    "url": "https://github.com/jdubois"
+  },
+  "homepage": "https://www.julien-dubois.com/boot-ui/ai-agents",
+  "repository": "https://github.com/jdubois/boot-ui",
+  "license": "Apache-2.0",
+  "keywords": [
+    "spring-boot",
+    "quarkus",
+    "java",
+    "mcp",
+    "observability",
+    "diagnostics"
+  ],
+  "mcpServers": {
+    "bootui": {
+      "type": "http",
+      "url": "${BOOTUI_MCP_URL:-http://127.0.0.1:8080/bootui/api/mcp}"
+    }
+  }
+}
