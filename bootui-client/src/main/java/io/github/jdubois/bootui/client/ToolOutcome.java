@@ -42,27 +42,18 @@ public enum ToolOutcome {
         if (status >= 200 && status < 300) {
             return SUCCESS;
         }
-        switch (status) {
-            case 400:
-                return INVALID_REQUEST;
-            case 401:
-                // Authentication is about the caller, not about how the target's panels are configured, so
-                // it must not be reported as a policy refusal a CI job would treat as "skip".
-                return UNAUTHENTICATED;
-            case 403:
-                return REFUSED_BY_POLICY;
-            case 404:
-                return UNKNOWN_TOOL;
-            case 409:
-            case 429:
-                return BUSY;
-            case 503:
-                return ENDPOINT_DISABLED;
-            case 504:
-                return TIMED_OUT;
-            default:
-                return SERVER_ERROR;
-        }
+        return switch (status) {
+            case 400 -> INVALID_REQUEST;
+            // Authentication is about the caller, not about how the target's panels are configured, so
+            // it must not be reported as a policy refusal a CI job would treat as "skip".
+            case 401 -> UNAUTHENTICATED;
+            case 403 -> REFUSED_BY_POLICY;
+            case 404 -> UNKNOWN_TOOL;
+            case 409, 429 -> BUSY;
+            case 503 -> ENDPOINT_DISABLED;
+            case 504 -> TIMED_OUT;
+            default -> SERVER_ERROR;
+        };
     }
 
     /** Whether the tool answered. */
