@@ -69,10 +69,6 @@ final class CliContext {
     }
 
     /** Calls one tool and reports it. */
-    int invokeTool(ToolManifest.Tool tool, String query, Integer limit, String id) {
-        return invokeTool(tool, query, limit, id, null, null);
-    }
-
     int invokeTool(ToolManifest.Tool tool, String query, Integer limit, String id, String scanId, Integer offset) {
         try (BootUiClient client = newClient()) {
             Map<String, JsonValue> arguments = new LinkedHashMap<>();
