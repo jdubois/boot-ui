@@ -5,7 +5,7 @@ All notable changes to BootUI are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.18.0] - 2026-09-16
+## [1.18.0] - 2026-09-21
 
 Feature release adding PostgreSQL and MySQL operational diagnostics across Spring MVC, Spring WebFlux, and Quarkus,
 with matching REST, MCP, and CLI access. Advisors now retain bounded, paginated violation details beyond their compact
@@ -36,6 +36,12 @@ false positives, while vulnerability coverage improves for extracted Spring Boot
   default to 100 with a maximum of 1,000. Existing counts, previews, scores, and dismissals are preserved. Retention
   truncation is explicit and separate from evidence coverage; GraalVM/CRaC, Pentesting, and Vulnerabilities retain
   their distinct result models ([#1037](https://github.com/jdubois/boot-ui/pull/1037)).
+
+- **Claude Code plugin.** `/plugin marketplace add jdubois/boot-ui` followed by `/plugin install bootui@bootui`
+  installs the BootUI skill and registers the local MCP server in one step, pointing at
+  `http://127.0.0.1:8080/bootui/api/mcp` unless `BOOTUI_MCP_URL` overrides it. The shipped skill is a byte-for-byte
+  copy of the canonical `skills/bootui/SKILL.md`, enforced by a build test, and the plugin is versioned by commit SHA
+  rather than by the BootUI release ([#1068](https://github.com/jdubois/boot-ui/pull/1068)).
 
 - **MySQL-backed Docker sample profile.** Run the Spring MVC sample with `docker-mysql` to use MySQL instead of
   PostgreSQL for JPA, Flyway, and Liquibase, with diagnostic grants and statement instrumentation ready for the MySQL
