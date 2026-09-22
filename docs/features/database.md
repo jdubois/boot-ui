@@ -1,21 +1,20 @@
 # Database
 
-Hibernate and Database Advisor keep compact rule samples separately from the latest scan's retained details.
-Use their **View violations** control or paginated per-rule REST/MCP/CLI reads to inspect more findings without
-executing SQL or running another scan. Retrieval ranges and retention warnings are separate from schema/observation
-coverage; see [advisor violation retrieval](advisors.md#reading-every-retained-violation).
+These panels read the database your application is already connected to. The rule-based scans live in the
+[Database and Hibernate advisors](advisors.md).
 
 ## Database Connection Pools
 
 ![BootUI Database Connection Pools panel](../images/bootui-database-connection-pools.webp)
 
-Inspects supported JDBC connection pool beans, read-only. It never executes SQL, borrows connections, or resizes pools,
-and fails closed when no supported pool implementation or pool beans are present.
+The Database Connection Pools panel inspects supported JDBC pool beans. It is read-only: it never executes SQL,
+borrows a connection, or resizes a pool, and it fails closed when no supported pool implementation or pool bean is
+present.
 
-For each pool it shows the pool identity, masked JDBC URL and username, driver, min/max sizing, and timeout/lifetime
-settings, and surfaces a clear unavailable reason for closed or uninitialized pools. A local live chart polls bounded
-snapshots of active, idle, total, and pending connections every two seconds so you can watch saturation trends without
-leaving BootUI.
+For each pool it shows the pool identity, the masked JDBC URL and username, the driver, the minimum and maximum
+sizing, and the timeout and lifetime settings. Closed and uninitialized pools carry a clear unavailable reason. A live
+chart polls bounded snapshots of active, idle, total, and pending connections every two seconds, so you can watch
+saturation trends without leaving the console.
 
 ::: details On Quarkus: served over Agroal
 

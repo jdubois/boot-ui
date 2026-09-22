@@ -2,95 +2,113 @@
 
 ![BootUI Overview panel](../images/bootui-overview.webp)
 
-The Overview panel is BootUI's landing page: a guided "understand your app in minutes" dashboard rather than a static
-summary. It opens with the standard panel header and a link to the running application's homepage.
+The Overview panel is BootUI's landing page. It opens with the standard panel header and a link to the running
+application's homepage, and its centrepiece is an on-demand findings and coverage summary.
 
-Its centrepiece is an **on-demand findings and coverage summary**. Nothing is scanned on load. Overview reads
-the existing cached reports on initial navigation and when you return from another panel, including scans started in
-an advisor panel or by a local agent. These GET requests never start a scan, probe, or external query. Before any scan
-has run the summary shows how many visible advisors have been assessed and a prompt to run them.
+Nothing is scanned on load. Overview reads the existing cached reports on first navigation and when you return from
+another panel, including scans started in an advisor panel or by a local agent. Those GET requests never start a scan,
+a probe, or an external query. Before any scan has run, the summary reports how many visible advisors have been
+assessed and prompts you to run them.
 
-The prominent **Overall score** is the rounded arithmetic mean of eligible, available, visible advisor scores
-and the GitHub security-alert score when eligible. **Average of N scores** identifies the contributing count.
-The original color-coded circular gauge places the number at its centre, alongside a compact summary and a
-**Points deducted per score** grid. Each eligible contributor shows its own score minus 100; these deductions
-are not added together to calculate the overall score. The gauge's familiar **Good** (80–100), **Needs attention**
-(50–79), and **At risk** (0–49) bands describe the scored results, not application safety or assessment completeness.
-The layout is horizontal on desktop and stacks on narrow screens. Assessment, failure, retained-severity, and
-scan-notes counts remain visible in the summary.
-Unscanned, invalid, missing, and confirmed-empty assessments contribute neither zero nor 100. With no eligible
-scores the summary reads **Not scored** and prompts an explicit scan. Usable partial reports contribute their
-unchanged known-findings scores, without a penalty for missing checks. This is an average of the scored reports,
-not a universal health or coverage verdict; running another clean scanner can change it without fixing a finding.
-GraalVM and CRaC readiness scans do not contribute to this average. Running only those scanners leaves the
-Overview **Not scored**, not zero or **At risk**. A genuine eligible score of zero still contributes normally.
-Retained finding severities and assessment counts remain visible, including findings from reports that cannot score.
-Overview score numbers use green at 80–100, amber at 50–79, and red below 50, including GitHub.
-Light mode uses the more saturated semantic colors for these numbers and a stronger overall ring; dark mode retains
-its light text colors.
-These historical bands help prioritize review; they do not measure safety or coverage. Numeric scores and
-retained severity labels remain visible, so meaning does not depend on color alone.
-**Run all scanners** triggers every available scanner, or run each card individually. After a run-all, a dismissible tip
-points to the MCP Server panel, since enabling it lets an AI agent read these same results and fix the findings for you.
+**Run all scanners** triggers every available scanner, or you can run each card on its own. After a run-all, a
+dismissible tip points at the MCP Server panel, since enabling it lets an AI agent read these same results and fix the
+findings for you.
 
-Each scanner card leads with a large 0–100 **Known-findings score** for an eligible assessment, followed by retained
-severity counts. Usable scores have a neutral **Scan complete** status: the scan has finished, not necessarily assessed
-every applicable check. Secondary diagnostics remain inside
-each advisor's **Scan notes**, accessible through **Open panel**, without repeated reminders on the cards.
-Unscored cards show a compact **Not scored** label instead of the detailed assessment explanation; **Open panel**
-opens the advisor with the full reason. Confirmed empty scope keeps its distinct **Not applicable** label.
-The severity-based scanners are Architecture,
-Memory, REST API, Spring, Database, Hibernate, Security, Pentesting, and Vulnerabilities. Each starts at 100 and
-subtracts a fixed weighted penalty per finding — critical 25, high 10, medium 3, low 1 — so a complete clean scan stays
-at 100. Both `SCANNED` and `PARTIAL` can score known findings or completed applicable evidence. Skipped, failed,
-vacuous, or unknown-only evidence cannot establish a score; `ERROR`, `DISABLED`, and `NOT_SCANNED` never score.
-Limited coverage does not change known-finding penalties, even at 100. Overview summarizes the number of
-advisors with scan notes instead of repeating each scanner's coverage explanations. This includes partial scans
-and completed scans whose coverage is incomplete or unknown, even when they cannot establish a score.
-Confirmed empty scope is different: a complete scan with `evidence.usable: false`, `coverageComplete: true`,
-and no limitations stays unscored and reads **Not applicable**, without increasing the scan-notes count or contributing
-a fabricated 100. It counts as assessed, as do accepted `SCANNED`/`PARTIAL` reports with valid explicit evidence,
-even if that evidence cannot support a number. Missing legacy evidence does not count as assessed.
-Unscanned and failed reports do not count as assessed; request failures are shown separately, preserving any last report.
-Unscanned, failed, disabled, and unavailable
-scanners do not inflate the scan-notes count. Full reasons for usable results remain in each panel's keyboard-accessible,
-initially collapsed **Scan notes**. Unscored reasons stay visible in the advisor panel, while request failures remain
-visible on the Overview card too. The count is of advisors, never inferred
-checks: report limitations may be aggregated or capped.
-Vulnerabilities can score known findings despite inventory/query/detail gaps; UNKNOWN has no penalty but cannot
-establish eligibility even after dismissal. A clean dependency needs completed query and detail evidence and a
-genuinely empty retained advisory list. See [Score eligibility](advisors.md#score-eligibility).
+### Overall score
 
-GitHub is not a severity scanner and is excluded from advisor counts and severity totals. Its card shows
-connection/authentication state and the reported Dependabot, secret-scanning, and code-scanning signals.
-Its connected status badge reads **Connected**.
-Only available numeric counts are displayed as open alerts; unavailable or missing counts are not zero.
-Its **Security-alert score** subtracts 10 points per reported alert from 100, clamped to 0–100. This is an
-alert-count heuristic, not an assignment of HIGH severity. Eligibility requires an available, connected,
-authenticated report and exactly one `AVAILABLE` signal with a nonnegative safe integer count for each of
-`Dependabot alerts`, `Code scanning alerts`, and `Secret scanning alerts`. Confirmed zeros score 100;
-missing, empty, malformed, duplicate, or unavailable signals leave GitHub **Not scored**, even when another signal
-reports known alerts. Actual counts remain visible, and unscored GitHub is excluded from the overall average.
-Refreshing or a request failure preserves the last accepted report and its score; a newly received unavailable
-report clears that score. Connecting or refreshing remains user-triggered, including
-**Run all scanners** when GitHub is the only available card.
+The overall score is the rounded arithmetic mean of the eligible, available, visible advisor scores, plus the GitHub
+security-alert score when that is eligible. **Average of N scores** names the contributing count, and the **Points
+deducted per score** grid shows each contributor's own score minus 100. Those deductions are not summed to produce the
+overall score.
 
-No coverage percentage or application-wide completeness claim is inferred. Dismissals remove penalties,
-not safety concerns or evidence gaps.
-Disabled and unavailable panels are excluded; automatic reads wait for the
-panel manifest and only use supported, enabled advisor endpoints.
-Returning from a panel refreshes cached reports with GET requests, including Vulnerabilities after
-dismissal or restoration. A busy or failed request retains the last accepted report with a warning or error; an
-authoritative new report replaces its old assessment, scoring usable partial evidence and excluding failed or
-unusable reports. A `NOT_SCANNED` response, such as after an application
-restart, replaces the old findings and returns the card to **Run scan**. An Overview scan already in progress finishes
-before the return-navigation refresh reads its updated report.
+The gauge bands are **Good** (80–100), **Needs attention** (50–79), and **At risk** (0–49). They describe the scored
+results and help prioritize review. They do not measure application safety or assessment completeness, and running one
+more clean scanner can raise the average without fixing a single finding. Numeric scores and retained severity labels
+stay visible, so meaning never depends on color alone.
 
-The panel is fully available on every adapter. The scoring dashboard is rendered entirely in the browser: the shell
-reads each advisor's own reports and displays its independent score, so no backend dashboard service is
-involved. The shell chrome around every panel — application name, framework and version, Java version, active profiles,
-and active/disabled status — comes from the same framework-neutral `GET /bootui/api/overview` endpoint both adapters
-expose.
+With no eligible scores the summary reads **Not scored** and prompts an explicit scan. Unscanned, invalid, missing, and
+confirmed-empty assessments contribute neither 0 nor 100, and GraalVM and CRaC readiness scans never contribute at all,
+so running only those leaves Overview **Not scored** rather than at zero. A genuine eligible score of zero does
+contribute. Usable partial reports contribute their known-findings score unchanged, with no penalty for missing checks.
+
+### Scanner cards
+
+Each card leads with a 0–100 known-findings score for an eligible assessment, followed by its retained severity counts.
+The severity-based scanners are Architecture, Memory, REST API, Spring, Database, Hibernate, Security, Pentesting, and
+Vulnerabilities. Each starts at 100 and subtracts a fixed weighted penalty per finding, so a complete clean scan stays
+at 100:
+
+| Severity | Penalty |
+| -------- | ------- |
+| Critical | 25 |
+| High | 10 |
+| Medium | 3 |
+| Low | 1 |
+| Info | 0 |
+
+Limited coverage never changes those penalties, even at 100. A card carries one of three statuses:
+
+| Status | Meaning |
+| ------ | ------- |
+| **Scan complete** | The scan finished. It did not necessarily assess every applicable check. |
+| **Not scored** | No eligible score. **Open panel** shows the full reason. |
+| **Not applicable** | Confirmed empty scope: a complete scan with no usable evidence, complete coverage, and no limitations. |
+
+Secondary diagnostics stay in each advisor's collapsed **Scan notes**, reachable through **Open panel**. Overview
+summarizes how many advisors have scan notes instead of repeating each explanation, counting partial scans and
+completed scans whose coverage is incomplete or unknown. Unscanned, failed, disabled, and unavailable scanners never
+inflate that count, and neither does confirmed-empty scope.
+
+::: details What can and cannot establish a score
+
+`SCANNED` and `PARTIAL` reports can score known findings or completed applicable evidence. Skipped, failed, vacuous,
+and unknown-only evidence cannot, and `ERROR`, `DISABLED`, and `NOT_SCANNED` never score.
+
+A report counts as assessed when it is an accepted `SCANNED` or `PARTIAL` report with valid explicit evidence, even if
+that evidence cannot support a number. Confirmed-empty scope counts as assessed too. Missing legacy evidence, unscanned
+reports, and failed reports do not, and request failures are reported separately while preserving the last report.
+
+Vulnerabilities can score known findings despite inventory, query, or detail gaps. UNKNOWN carries no penalty but
+cannot establish eligibility, even after dismissal. A clean dependency needs completed query and detail evidence and a
+genuinely empty retained advisory list. See [score eligibility](advisors.md#score-eligibility).
+
+:::
+
+Dismissals remove penalties, not safety concerns or evidence gaps. No coverage percentage or application-wide
+completeness claim is inferred.
+
+### GitHub card
+
+GitHub is not a severity scanner, so it is excluded from the advisor counts and severity totals. Its card shows
+connection and authentication state and the reported Dependabot, secret-scanning, and code-scanning signals. Only
+available numeric counts are shown as open alerts, because an unavailable count is not a zero.
+
+Its security-alert score subtracts 10 points per reported alert from 100, clamped to 0–100. That is an alert-count
+heuristic, not an assignment of HIGH severity. Eligibility requires an available, connected, authenticated report with
+exactly one `AVAILABLE` signal carrying a nonnegative safe integer count for each of Dependabot alerts, code scanning
+alerts, and secret scanning alerts. Confirmed zeros score 100. Missing, empty, malformed, duplicate, and unavailable
+signals leave GitHub **Not scored**, even when another signal reports known alerts, and an unscored GitHub is excluded
+from the overall average. The actual counts stay visible either way.
+
+Connecting and refreshing are always user-triggered, including through **Run all scanners** when GitHub is the only
+available card. Refreshing or a failed request preserves the last accepted report and its score, while a newly received
+unavailable report clears that score.
+
+### Refresh behavior
+
+Disabled and unavailable panels are excluded, and automatic reads wait for the panel manifest and use only supported,
+enabled advisor endpoints. Returning from a panel refreshes the cached reports with GET requests, including
+Vulnerabilities after a dismissal or restoration.
+
+A busy or failed request keeps the last accepted report and adds a warning or an error. An authoritative new report
+replaces the old assessment, scoring usable partial evidence and excluding failed or unusable reports. A `NOT_SCANNED`
+response, such as after an application restart, replaces the old findings and returns the card to **Run scan**. A scan
+already in progress finishes before the return-navigation refresh reads its updated report.
+
+The panel is available on every adapter. The scoring dashboard is rendered entirely in the browser: the shell reads
+each advisor's own reports and displays its independent score, so no backend dashboard service is involved. The shell
+chrome around every panel — application name, framework and version, Java version, active profiles, and active or
+disabled status — comes from the framework-neutral `GET /bootui/api/overview` endpoint every adapter exposes.
 
 ## Live Activity
 

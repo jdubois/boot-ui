@@ -1,21 +1,18 @@
 # AI agents
 
-BootUI is built to be driven by local AI coding agents — GitHub Copilot, Claude Code, and any other client that speaks
-the [Model Context Protocol](https://modelcontextprotocol.io) (MCP). Instead of only showing a human the advisor findings
-and runtime diagnostics in the browser, BootUI can expose the very same, already-sanitized data to an agent so it can
-**consult your running application before proposing a fix** and **verify the fix afterwards** — all without leaving your
-editor or chat.
+BootUI can expose its advisor findings and runtime diagnostics to a local AI coding agent, so the agent can consult
+your running application before proposing a fix and verify the fix afterwards. It works with GitHub Copilot, Claude
+Code, and any other client that speaks the [Model Context Protocol](https://modelcontextprotocol.io) (MCP).
 
-This page explains how to install BootUI's agent skill — as a [skill](#install-the-bootui-agent-skill) for GitHub
-Copilot or as a [plugin](#install-the-bootui-claude-code-plugin) for Claude Code — how to connect an agent to BootUI's
-MCP server, when to reach for the [CLI](CLI.md) instead, walks through a concrete example (fixing Hibernate findings),
-and shows how BootUI pairs with [Coffilot](https://www.julien-dubois.com/coffilot/) to build, run, and scan your app
-from the GitHub Copilot App's side panel.
+This page covers installing the agent [skill](#install-the-bootui-agent-skill) or the
+[Claude Code plugin](#install-the-bootui-claude-code-plugin), connecting an agent to the MCP server, choosing between
+that and the [CLI](CLI.md), a worked example that fixes Hibernate findings, and how BootUI pairs with
+[Coffilot](https://www.julien-dubois.com/coffilot/).
 
 ## Why use BootUI from an agent
 
-An AI agent reading your source code can only guess at runtime behavior. BootUI closes that gap by giving the agent
-grounded, machine-readable context from the *actually running* application:
+An agent reading your source code can only guess at runtime behavior. BootUI gives it machine-readable context from
+the running application instead:
 
 - **Advisor scans** — architecture, REST API, Spring, Hibernate, JVM memory, Spring Security, pentesting, GraalVM and
   CRaC readiness. The agent gets the same prioritized, severity-ranked findings the panels show, with remediation hints.
@@ -26,30 +23,30 @@ grounded, machine-readable context from the *actually running* application:
 - **Core context** — application overview, health, effective configuration (secrets masked), beans, and request
   mappings.
 
-Because every tool reuses the same controllers and immutable DTOs as the browser UI, the agent sees exactly the masked,
-bounded shape a human would — never raw, unfiltered internals.
+Every tool reuses the same controllers and immutable DTOs as the browser UI, so the agent sees the same masked,
+bounded shape a human would, never raw internals.
 
-Pentesting's `pentest_scan` and `get_pentest_report` tools, their CLI equivalents, and the REST API retain accepted
-findings with `dismissed: true`. Their finding totals and severity counts include only active findings. Dismissals use
-the exact `PT-*` check ID from the shared local store; they do not carry over from Security rule IDs. Reading the
-cached report reflects dismiss/restore without rescanning, while scan evidence and coverage limits remain unchanged.
+::: details Dismissed Pentesting findings
+`pentest_scan`, `get_pentest_report`, their CLI equivalents, and the REST API retain accepted findings with
+`dismissed: true`, while finding totals and severity counts include only active findings. Dismissals use the exact
+`PT-*` check ID from the shared local store and do not carry over from Security rule IDs. Reading the cached report
+reflects a dismissal or restoration without rescanning, and scan evidence and coverage limits are unchanged.
+:::
 
 ## MCP server or CLI?
 
-Every BootUI tool is available two ways, and both give the agent identical data: the same registry, the same panel
-policy, the same masked, bounded DTOs. The CLI cannot offer a diagnostic the MCP server does not, and cannot lack one
-it does — the command table is generated from the tool registry at build time. Pick whichever fits how your agent
-talks to the world:
+Both surfaces give the agent identical data: the same registry, the same panel policy, the same masked, bounded DTOs.
+The CLI can neither offer a diagnostic the MCP server lacks nor miss one it has, because its command table is generated
+from the tool registry at build time.
 
-- **Use the [MCP server](#connect-an-agent-to-the-bootui-mcp-server)** when your agent or IDE speaks MCP natively
-  (GitHub Copilot, Claude Code, and other MCP-aware clients). The agent discovers tools, schemas, and descriptions
-  automatically and calls them as native tool calls — no shell commands, no JSON parsing glue code. This is the
-  primary path this page walks through, and what the [BootUI agent skill](#install-the-bootui-agent-skill), the
-  [Claude Code plugin](#install-the-bootui-claude-code-plugin), and
-  [Coffilot](#coffilot-bootui-in-the-github-copilot-app-s-side-panel) wire up automatically.
-- **Use the [CLI](CLI.md)** when the agent's host can only run shell commands — a sandboxed or cloud agent without MCP
-  wiring, a CI job, or a human running one-off checks in a terminal or script. The BootUI agent skill falls back to
-  calling `bootui` commands directly whenever its host doesn't already expose BootUI's MCP tools natively.
+Use the [MCP server](#connect-an-agent-to-the-bootui-mcp-server) when your agent or IDE speaks MCP natively. The agent
+discovers tools, schemas, and descriptions automatically and calls them as native tool calls, with no shell commands
+and no JSON parsing glue. This is the path the rest of this page follows, and what the agent skill, the Claude Code
+plugin, and Coffilot wire up for you.
+
+Use the [CLI](CLI.md) when the agent's host can only run shell commands: a sandboxed or cloud agent with no MCP wiring,
+a CI job, or a human running one-off checks. The agent skill falls back to `bootui` commands whenever its host does not
+already expose BootUI's MCP tools.
 
 ## Install the BootUI agent skill
 
