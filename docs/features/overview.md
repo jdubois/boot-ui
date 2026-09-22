@@ -46,13 +46,18 @@ at 100:
 | Low | 1 |
 | Info | 0 |
 
-Limited coverage never changes those penalties, even at 100. A card carries one of three statuses:
+Limited coverage never changes those penalties, even at 100.
 
-| Status | Meaning |
-| ------ | ------- |
-| **Scan complete** | The scan finished. It did not necessarily assess every applicable check. |
+A card shows its scan status as a badge — `Not scanned yet`, `Scan complete`, `Incomplete`, `Scan failed`, or
+`Scan disabled` — and, next to it, how the report was assessed:
+
+| Assessment | Meaning |
+| ---------- | ------- |
+| A score | The report is eligible. **Scan complete** means the scan finished, not that it assessed every applicable check. |
 | **Not scored** | No eligible score. **Open panel** shows the full reason. |
-| **Not applicable** | Confirmed empty scope: a complete scan with no usable evidence, complete coverage, and no limitations. |
+| **Not applicable** | Confirmed empty scope: `usable: false`, `coverageComplete: true`, and no limitations. |
+
+A card that has never been scanned keeps its **Run scan** action.
 
 Secondary diagnostics stay in each advisor's collapsed **Scan notes**, reachable through **Open panel**. Overview
 summarizes how many advisors have scan notes instead of repeating each explanation, counting partial scans and
@@ -80,14 +85,15 @@ completeness claim is inferred.
 ### GitHub card
 
 GitHub is not a severity scanner, so it is excluded from the advisor counts and severity totals. Its card shows
-connection and authentication state and the reported Dependabot, secret-scanning, and code-scanning signals. Only
+connection and authentication state, reading **Connected** when connected, plus the reported Dependabot,
+secret-scanning, and code-scanning signals. Only
 available numeric counts are shown as open alerts, because an unavailable count is not a zero.
 
 Its security-alert score subtracts 10 points per reported alert from 100, clamped to 0–100. That is an alert-count
 heuristic, not an assignment of HIGH severity. Eligibility requires an available, connected, authenticated report with
-exactly one `AVAILABLE` signal carrying a nonnegative safe integer count for each of Dependabot alerts, code scanning
-alerts, and secret scanning alerts. Confirmed zeros score 100. Missing, empty, malformed, duplicate, and unavailable
-signals leave GitHub **Not scored**, even when another signal reports known alerts, and an unscored GitHub is excluded
+exactly one `AVAILABLE` signal carrying a nonnegative safe integer count for each of `Dependabot alerts`,
+`Code scanning alerts`, and `Secret scanning alerts`, matched exactly. Confirmed zeros score 100. Missing, empty,
+malformed, duplicate, and unavailable signals leave GitHub **Not scored**, even when another signal reports known alerts, and an unscored GitHub is excluded
 from the overall average. The actual counts stay visible either way.
 
 Connecting and refreshing are always user-triggered, including through **Run all scanners** when GitHub is the only

@@ -30,8 +30,9 @@ Point your client at the loopback HTTP endpoint of the running application:
 }
 ```
 
-The panel shows a ready-to-use configuration for this running application, with one tab per client, because clients do
-not agree on a shape: **VS Code** uses a `servers` block in `.vscode/mcp.json`, **Claude Code** uses a
+The panel shows the transport, the protocol revision, and the `bootui.mcp.max-results` cap, alongside a ready-to-use
+configuration for this running application. There is one tab per client, because clients do not agree on a shape:
+**VS Code** uses a `servers` block in `.vscode/mcp.json`, **Claude Code** uses a
 `claude mcp add --transport http` command, **Cursor** uses an `mcpServers` entry keyed on `url` with no `type` in
 `~/.cursor/mcp.json`, and **Other clients** use the `mcpServers` shape with an explicit type. Claude Code users can
 skip this with the [BootUI plugin](../AI-AGENTS.md#install-the-bootui-claude-code-plugin), which registers the server
@@ -58,7 +59,8 @@ makes outbound calls to OSV.dev.
 `get_graalvm_report`, `get_crac_report`, and `get_vulnerabilities_report`.
 
 **Diagnostics reads** — `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
-`get_sql_traces`, `get_transactions` (Spring only), `get_traces`, `get_log_tail`, `get_http_exchanges`, and
+`get_sql_traces`, `get_transactions` (Spring MVC and WebFlux only), `get_traces`, `get_log_tail`,
+`get_http_exchanges`, and
 `get_rest_client_traces`. `get_live_activity` returns the correlated feed of HTTP requests, SQL statements, exceptions,
 security events, scheduled-task runs, and, on Spring, cache accesses, grouped by request or trace.
 `get_exception_detail` returns a group's stack trace, causes, and occurrences.
@@ -105,8 +107,8 @@ The server inherits BootUI's full safety model:
   traces, paths, queries, and credentials are never included, and BootUI logs the original throwable once on the
   server. Expected protocol, disabled-server, and panel-policy errors keep their actionable messages.
 - A tool that refuses a request because of the request itself — an unknown resource id, an unsupported value, a
-  conflicting state — reports that in-band with `isError: true` and the same reason the REST API returns. Only genuine
-  server faults become `-32603`.
+  conflicting state — reports that in-band with `isError: true` and the same reason the REST API returns, and is not
+  logged as a server failure. Only genuine server faults become `-32603`.
 
 :::
 
@@ -116,8 +118,8 @@ BootUI pairs with [Coffilot](https://github.com/jdubois/coffilot).
 ::: details Differences on Quarkus and WebFlux
 
 The protocol core — method routing, per-panel gating, tool lookup, and the `max-results` cap — lives in the shared
-engine. Each adapter supplies only a thin Jackson envelope codec and its own tool catalog, so requests and responses
-are byte-identical across backends.
+engine. Each adapter supplies only a thin Jackson envelope codec, Jackson 2 on Quarkus, and its own tool catalog, so
+requests and responses are byte-identical across backends.
 
 **Quarkus** runs the same JSON-RPC bridge at the same endpoint with the same runtime toggle, reading the `bootui.mcp.*`
 keys from MicroProfile Config. The advertised tools track the panels that are live: `graalvm_scan`, `crac_scan`, and

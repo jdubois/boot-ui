@@ -44,9 +44,10 @@ The Metrics panel browses the Micrometer meters exposed by Actuator. You can sea
 filter by meter type on the server, inspect descriptions, base units, tags, and available measurements, and render a
 live chart for a selected metric and tag combination.
 
-Meter names are returned in 200-row pages, up to 1 000 per request, and a selected meter's tagged samples in 100-row
-pages with the same cap. The UI reports the total, matching, and displayed counts, and keeps tag-value choices bounded
-to the first 100 sorted values per key with an explicit truncation badge.
+Meter names are returned in 200-row pages, up to 1,000 per request, and a selected meter's tagged samples in 100-row
+pages with the same cap. The UI reports the total, matching, and displayed counts, provides load-more and sample
+Previous and Next controls, and keeps tag-value choices bounded to the first 100 sorted values per key with an explicit
+truncation badge.
 
 ::: details Provenance grouping and honest explanations
 

@@ -141,8 +141,8 @@ On Spring Boot, BootUI contributes an in-memory `HttpExchangeRepository` when th
 has not defined one. If no repository is available, the panel shows an unavailable state rather than implying that no
 traffic has occurred. Quarkus has no Actuator repository, so a small Vert.x route filter samples each completed request
 in the response body-end handler, where status, duration, and size are final, into a capped ring buffer sized by the
-same property. Masking, trace-id extraction, self-exclusion, and paging run through the shared engine service, so the
-wire format is identical.
+same property. That filter is wired in dev and test only, never in production. Masking, trace-id extraction,
+self-exclusion, and paging run through the shared engine service, so the wire format is identical.
 
 ### Copy as cURL
 

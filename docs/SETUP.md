@@ -108,9 +108,9 @@ composed automatically, so `server.servlet.context-path=/host` with `bootui.path
 
 ::: details Path validation rules
 A path must be absolute and may contain only letters, digits, `-`, `_`, `.`, `~`, and `/`. Trailing slashes are
-stripped. BootUI fails startup for `/`, blank values, `.` and `..` segments, query and fragment components, encoded
-separators, consecutive slashes, and routing patterns. A custom `bootui.path` may not live under the reserved
-`/bootui/**` namespace. See the [property reference](PROPERTIES.md#custom-ui-and-api-paths).
+stripped first, so `/dev-console/` is accepted. BootUI then fails startup for `/`, blank values, `.` and `..` segments,
+query and fragment components, encoded separators, consecutive interior slashes, and routing patterns. A custom
+`bootui.path` may not live under the reserved `/bootui/**` namespace. See the [property reference](PROPERTIES.md#custom-ui-and-api-paths).
 :::
 
 ## What to read next

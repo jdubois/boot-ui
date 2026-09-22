@@ -204,7 +204,8 @@ A multi-stage build that detects Maven or Gradle, with or without a wrapper, com
 `./mvnw -Pnative -DskipTests clean native:compile` or `./gradlew nativeCompile`, and packages the resulting executable,
 named after the resolved `artifactId`, into `gcr.io/distroless/base-debian12:nonroot`. That base runs as a non-root
 user and ships glibc but no shell, package manager, curl, perl, or tar. With no wrapper in the project, the build stage
-installs a pinned Maven or Gradle release, exposed as a Docker `ARG`, so the image is self-contained.
+installs a pinned Maven or Gradle release, exposed as a Docker `ARG`, so the image is self-contained. Download it from
+the panel, or write it into the project root.
 
 ::: warning Verify linking and health probes yourself
 The native image requests mostly static linking with `--static-nolibc`, but some applications still need `libstdc++`,
@@ -225,7 +226,8 @@ The scaffold goes to
 `src/main/resources/META-INF/native-image/<groupId>/<artifactId>-additional-hints/reachability-metadata.json`, with
 coordinates resolved from `build-info.properties` or the project `pom.xml`, falling back to
 `bootui-generated/additional-hints`. Spring Boot reserves `<groupId>/<artifactId>/` for AOT-generated output, so the
-suffix keeps the static scaffold from colliding with Spring AOT.
+suffix keeps the static scaffold from colliding with Spring AOT. The `Dockerfile-native` is written to the project
+root.
 
 Writes are fail-closed. The scaffold write is confined under `src/main/resources`, and neither write overwrites a file
 BootUI did not generate.

@@ -788,9 +788,9 @@ thresholds can change. The scanner follows that token with follow-up calls, reta
 bounded by 20 page rounds per chunk so a pathological advisory can't loop the scan forever (degrading to `PARTIAL` if
 the bound is hit rather than silently truncating).
 
-OSV enforces a hard limit of 1 000 queries per `/v1/querybatch` request. The scanner partitions the already
-`max-packages`-bounded package list into batches of at most 1 000 before querying, so setting `max-packages` above
-1 000 does not make OSV reject the whole batch with an HTTP 400.
+OSV enforces a hard limit of 1,000 queries per `/v1/querybatch` request. The scanner partitions the already
+`max-packages`-bounded package list into batches of at most 1,000 before querying, so setting `max-packages` above
+1,000 does not make OSV reject the whole batch with an HTTP 400.
 
 Responses are validated rather than trusted. Every successful response must contain exactly one structurally valid
 result per query, and every reported vulnerability reference must carry a non-blank id. Missing, short, and malformed

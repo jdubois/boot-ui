@@ -73,7 +73,7 @@ The Quarkus launch mode decides activation. There is no Spring-style profile and
 | Launch mode | Behavior |
 | ----------- | -------- |
 | `dev` (`quarkus:dev`) and `test` (`@QuarkusTest`) | The console, its `/bootui/api/**` endpoints, the CDI beans, and the safety filter are wired. |
-| `NORMAL` (a packaged `quarkus-run.jar` or a native image) | Nothing is wired. A build-time guard answers a plain 404 for `/bootui` and every `/bootui/**` path, including the packaged UI shell. |
+| `NORMAL` (a packaged `quarkus-run.jar` or a native image) | The console, its endpoints, and its CDI beans are not wired. One guard filter is registered in every launch mode and decides at runtime: in `NORMAL` it answers a plain 404 for `/bootui` and every `/bootui/**` path, including the packaged UI shell, and in dev and test it passes through. |
 
 This is fail-closed by design: no flag turns BootUI on in a production build.
 
@@ -103,5 +103,6 @@ the reason for each. To try a fully wired application, see
 [Try the sample app](../TRY-SAMPLE-APP.md#quarkus-image).
 
 The [MySQL panel](../features/database.md#mysql) needs an existing default or named JDBC datasource with the
-`io.quarkus:quarkus-jdbc-mysql` extension and `quarkus.datasource.db-kind=mysql`. A reactive MySQL client alone is not
-enough, and BootUI creates no monitoring datasource of its own.
+`io.quarkus:quarkus-jdbc-mysql` extension and a MySQL declaration: `quarkus.datasource.db-kind=mysql` for the default
+datasource, or `quarkus.datasource.<name>.db-kind=mysql` for a named one. A reactive MySQL client alone is not enough,
+and BootUI creates no monitoring datasource of its own.

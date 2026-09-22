@@ -6,12 +6,13 @@ adjustment.
 ## Command-line (non-web) applications
 
 The starter brings Spring MVC and an embedded servlet container. When BootUI is active, it therefore starts a servlet
-web server even if your application declares `spring.main.web-application-type=none`. Your `CommandLineRunner` and
-`ApplicationRunner` beans still run as usual, and the application then keeps running so the console stays reachable.
+web server even if your application declares `spring.main.web-application-type=none`, or calls
+`SpringApplication#setWebApplicationType(NONE)`. Your `CommandLineRunner` and `ApplicationRunner` beans still run as
+usual, and the application then keeps running so the console stays reachable.
 
 Set `bootui.force-web=false` to opt out and keep your declared web-application type. Applications that are already
 servlet web applications, or that are explicitly reactive, are left untouched, and because BootUI activates only in
-development, production is unaffected.
+development by default, production is unaffected.
 
 ::: tip Spring Cloud bootstrap contexts are never forced
 The transient bootstrap context created by `spring-cloud-starter-bootstrap` has no embedded web server, so forcing it
@@ -153,7 +154,7 @@ COPY .bootui/boot-ui.yml /var/bootui/boot-ui.yml
 
 Two things to know. Dismissing from the console rewrites the whole file, so a read-only mount makes the *Dismiss*
 button fail. Either keep the directory writable, since a rebuild still restores the committed baseline, or set the
-advisor panels read-only with `bootui.panels.<id>.read-only=true`, which removes the dismiss and restore controls.
+advisor panels read-only with `bootui.panels.<id>.read-only=true`, which disables the dismiss and restore controls.
 Vulnerability dismissals are also keyed `<vulnerability id>::<group:artifact>` rather than by a bare rule id. See
 [dismissing a vulnerability](../features/advisors.md#dismissing-a-vulnerability).
 

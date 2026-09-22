@@ -477,8 +477,8 @@ Without the extension the panel reports a clear unavailable reason.
 The RabbitMQ panel is a filterable view over the AMQP publish and consume capture that also feeds `MESSAGING` entries
 into Live Activity.
 
-Each row shows the timestamp, direction, exchange, routing key, queue on the consume side, processing duration for
-consumes, and success or failure. With `bootui.rabbitmq.capture-correlation-id` enabled — it defaults to `false` — a
+Each row shows the timestamp, direction (`PUBLISH` or `CONSUME`), exchange, routing key, queue on the consume side,
+processing duration for consumes, and success or failure. With `bootui.rabbitmq.capture-correlation-id` enabled — it defaults to `false` — a
 truncated SHA-256 hash of the correlation ID is shown too.
 
 Message bodies and arbitrary headers are never captured. Only bounded routing metadata, timing, and outcome are

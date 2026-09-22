@@ -28,11 +28,13 @@ Each flavor listens on one fixed port, identical whether you run it from Docker 
 
 ## What the default profile gives you
 
-Every image runs the sample app's `dev` profile, which is Docker-free: an in-memory H2 database, an in-memory cache,
-and Spring AI disabled. No PostgreSQL, Redis, or Ollama is needed.
+Every image is Docker-free and runs on an in-memory H2 database, so no PostgreSQL, Redis, or Ollama is needed.
 
-Most panels work normally, including Configuration, Database, Spring Data, Flyway, and Liquibase. The Chat and AI
-Framework panels report that AI is unavailable, and Dev Services lists no containers.
+On the four Spring servlet images, the sample app's `dev` profile also uses an in-memory cache and disables Spring AI.
+Most panels work normally, including Configuration, Database, Spring Data, Flyway, and Liquibase, while the Chat and AI
+Framework panels report that AI is unavailable and Dev Services lists no containers. The WebFlux image behaves the same
+way. The Quarkus sample differs: it builds on LangChain4j rather than Spring AI, and the Spring-specific panels are
+marked not applicable there.
 
 Database migrations are disabled for a faster boot. To populate the Flyway and Liquibase panels, turn them back on:
 
@@ -43,9 +45,12 @@ docker run --rm -p 8080:8080 \
   jdubois/bootui-sample-app
 ```
 
-The AOT and CRaC images take the same two variables. The WebFlux image takes them on port 8081, and the Quarkus image
-uses `QUARKUS_FLYWAY_MIGRATE_AT_START=true` and `QUARKUS_LIQUIBASE_MIGRATE_AT_START=true` on port 8082. The native
-image freezes this choice at build time.
+The AOT image takes the same two variables. The WebFlux image takes them on port 8081, and the Quarkus image uses
+`QUARKUS_FLYWAY_MIGRATE_AT_START=true` and `QUARKUS_LIQUIBASE_MIGRATE_AT_START=true` on port 8082.
+
+Two images are different. The native image freezes the choice at build time. The CRaC image takes the checkpoint with
+migrations off, so the variables must be set on the run that creates the checkpoint; an existing checkpoint has to be
+regenerated to change them.
 
 ## JVM + AOT image
 
@@ -68,7 +73,8 @@ On the sample app, that is roughly 40–45 % off the Spring-reported startup tim
 
 JDK 25 through 25.0.4 can crash with `SIGILL` in `~AdapterBlob` when an AOT cache built on one CPU runs on another CPU
 with different instruction support. The application starts normally and crashes only when a scan reaches the affected
-code. This is [OpenJDK JDK-8388703](https://bugs.openjdk.org/browse/JDK-8388703), fixed in JDK 25.0.5.
+code. This is [OpenJDK JDK-8388703](https://bugs.openjdk.org/browse/JDK-8388703), whose fix is scheduled for JDK
+25.0.5.
 
 `Dockerfile-aot` already disables CPU-specific method adapter caching during training and at runtime, while keeping
 Spring AOT and the class loading cache enabled. For an image that still crashes, apply the same workaround without
@@ -135,8 +141,10 @@ docker run --rm -p 8081:8081 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/boot
 
 Then open <http://localhost:8081/bootui>.
 
-Every panel except HTTP Sessions behaves as it does on the servlet image, including every advisor scan and every
-action. See [Framework support](FRAMEWORK-SUPPORT.md#spring-webflux).
+Every panel except HTTP Sessions is available, including every advisor scan and every action. A few are reactive
+equivalents rather than the servlet behaviour: the Security advisor runs its WebFlux-native 25-rule catalogue, and the
+raw Spring Security panel shows the reactive `SecurityWebFilterChain` pipeline with explanations marked best effort.
+See [Framework support](FRAMEWORK-SUPPORT.md#spring-webflux).
 
 There is one WebFlux flavor, with no AOT, native, or CRaC variant: the reactive sample exists to exercise the reactive
 adapter, not to demonstrate every JVM startup technique twice.

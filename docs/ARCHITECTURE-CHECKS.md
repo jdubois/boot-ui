@@ -96,7 +96,8 @@ using their module, package, recorded source filename, and enclosing type:
 A bounded module-local source census then checks both conventional and custom handwritten directories for conflicting
 declarations, excluding generated trees, compiled output, the opposite source set, and `.git`, `.gradle`, `.m2`, and
 `node_modules`. Duplicate generated candidates, conflicting handwritten declarations, and uncertain ownership all
-prevent an exemption, as do Maven compiler-input lists that identify sources outside the module.
+prevent an exemption, as do Maven compiler-input lists that identify sources outside the module, which are rejected
+without opening those external files.
 
 ::: details Why source lookup is needed at all
 The standard `jakarta.annotation.Generated`, `javax.annotation.Generated`, and `javax.annotation.processing.Generated`
@@ -108,7 +109,7 @@ BootUI still evaluates bytecode, not source-level coding rules. The source looku
 :::
 
 ::: details Lookup budgets
-A scan is limited to 64 module and source-set groups, 50 000 directory entries, depth 32 beneath each inspected root,
+A scan is limited to 64 module and source-set groups, 50,000 directory entries, depth 32 beneath each inspected root,
 256 KiB per file, and 16 MiB of source and metadata bytes in total. It never follows source-tree symlinks, searches
 arbitrary ancestors or the process working directory, downloads sources, or runs a build. Cached reports and
 violation-detail reads reuse the completed scan without reading sources again.
