@@ -788,17 +788,24 @@ thresholds can change. The scanner follows that token with follow-up calls, reta
 bounded by 20 page rounds per chunk so a pathological advisory can't loop the scan forever (degrading to `PARTIAL` if
 the bound is hit rather than silently truncating).
 
-OSV also enforces a hard limit of 1,000 queries per `/v1/querybatch` request; the scanner partitions the (already
-`max-packages`-bounded) package list into batches of at most 1,000 before querying, so configuring `max-packages` above
-1,000 no longer causes OSV to reject the whole batch with an HTTP 400. Every successful response must contain exactly one
-structurally valid result per query, and every reported vulnerability reference must carry a non-blank id; missing,
-short, or malformed result arrays fail visibly instead of reading as a clean scan. Repeated advisory ids are
-fetched/reported once per dependency, a detail response whose id does not match the request is counted as a failed fetch,
-and a later page or chunk failure preserves previous pages and completed queries as `PARTIAL`. This includes queries
-already completed in the same chunk as a failed page. `packagesScanned` counts only queries exhausted without a token,
-including at the page cap; a token-only empty page is not complete. Failure before any valid page is `ERROR` with local
-inventory. `packagesSkipped` counts only the configured package-cap omission; unfinished/failed work is explained in
-the message. Per-request streaming limits remain 5 MiB for queries and 1 MiB for details/EPSS.
+OSV enforces a hard limit of 1 000 queries per `/v1/querybatch` request. The scanner partitions the already
+`max-packages`-bounded package list into batches of at most 1 000 before querying, so setting `max-packages` above
+1 000 does not make OSV reject the whole batch with an HTTP 400.
+
+Responses are validated rather than trusted. Every successful response must contain exactly one structurally valid
+result per query, and every reported vulnerability reference must carry a non-blank id. Missing, short, and malformed
+result arrays fail visibly instead of reading as a clean scan. A repeated advisory id is fetched and reported once per
+dependency, and a detail response whose id does not match the request counts as a failed fetch.
+
+A later page or chunk failure preserves previous pages and completed queries as `PARTIAL`, including queries already
+completed in the same chunk as the failed page. Failure before any valid page is `ERROR`, with the local inventory
+retained.
+
+The counters are narrow on purpose. `packagesScanned` counts only queries exhausted without a token, including at the
+page cap, so a token-only empty page is not complete. `packagesSkipped` counts only the configured package-cap
+omission, and unfinished or failed work is explained in the message instead.
+
+Per-request streaming limits are 5 MiB for queries and 1 MiB for details and EPSS.
 :::
 
 ### EPSS enrichment

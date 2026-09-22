@@ -68,20 +68,26 @@ Three panels look at the database from three angles, and they complement each ot
 
 ::: details Safety and bounds
 
-The panel runs one read-only transaction per datasource and pins `statement_timeout` to 5 seconds, `lock_timeout` to
-2 seconds, and the read budget to 15 seconds. By default, list sections are capped at 100 sessions, 100 statements,
-500 indexes, 200 tables, 200 autovacuum rows, 10 replicas, and 40 settings per datasource. `truncated` means a row cap was reached; exhausting the
-time budget instead produces an explicit section reason and preserves rows already read. A budget-limited section
-with no retained rows is failed rather than shown as an empty successful read. Every statistics query runs inside its
-own savepoint, because one error would otherwise abort the shared read-only transaction and make every later section
-report "current transaction is aborted" instead of its own content.
-When only the **Statement ranking** reaches its cap, the panel shows one informational note inside that section:
-it shows the top 100 statements by total execution time, with additional statements omitted. An expected top-N
-ranking does not produce page-wide warnings, a duplicate limitations disclosure, or warning badges. Other row caps
-still produce **Limited results**, naming each affected datasource and section with its retained row count.
-These caps limit the statistics returned, not application data. The API, MCP, and CLI retain `PARTIAL` and `truncated=true` and report
-each capped section in `limitations`. Permission failures, timeouts, and other read problems remain explicit,
-including when a statement cap is also reached; in that case the page-wide warnings and limitations remain visible.
+The panel runs one read-only transaction per datasource, pinning `statement_timeout` to 5 seconds, `lock_timeout` to
+2 seconds, and the read budget to 15 seconds. Every statistics query runs inside its own savepoint, because one error
+would otherwise abort the shared transaction and make every later section report "current transaction is aborted"
+instead of its own content.
+
+List sections are capped per datasource at 100 sessions, 100 statements, 500 indexes, 200 tables, 200 autovacuum rows,
+10 replicas, and 40 settings. These caps limit the statistics returned, not application data.
+
+`truncated` means a row cap was reached. Exhausting the time budget instead produces an explicit section reason and
+preserves the rows already read, and a budget-limited section with no retained rows is failed rather than shown as an
+empty successful read.
+
+When only **Statement ranking** reaches its cap, the panel shows one informational note inside that section: it shows
+the top 100 statements by total execution time, with the rest omitted. An expected top-N ranking produces no page-wide
+warning, duplicate limitations disclosure, or warning badge. Other row caps still produce **Limited results**, naming
+each affected datasource and section with its retained row count.
+
+The API, MCP, and CLI retain `PARTIAL` with `truncated=true` and report each capped section in `limitations`.
+Permission failures, timeouts, and other read problems stay explicit, including when a statement cap is also reached,
+in which case the page-wide warnings and limitations remain visible.
 
 Configure the row caps in the host application's `application.properties`. These keys and defaults are the same on
 Spring MVC, Spring WebFlux, and Quarkus:
@@ -136,23 +142,29 @@ and dollar-quoted bodies (`$$ ... $$`, `$tag$ ... $tag$`, which is how `CREATE F
 
 ::: details Availability and permissions
 
-The panel is available on Spring MVC, Spring WebFlux, and Quarkus only when a PostgreSQL datasource is configured. That
-decision is taken from declared configuration alone — the JDBC URL each datasource exposes (including through a wrapping
-driver such as `jdbc:aws-wrapper:postgresql://...`), or the Quarkus `db-kind` — so rendering the sidebar still contacts no
-database. A datasource that declares no readable URL cannot be ruled out, so the panel stays available when the
-PostgreSQL driver is on the classpath, and a non-PostgreSQL datasource reached by the read is skipped with a clear
-diagnostic. Use a read-only database role that is a member of `pg_monitor` when possible. Without it PostgreSQL
-restricts its statistics views in two different and individually invisible ways: `pg_stat_activity` **removes** the rows
-of backends the role does not own, so the session list silently shrinks to BootUI's own connections, while
-`pg_stat_statements` **keeps** every row and replaces the statement text with `<insufficient privilege>`. Neither leaves
-anything in the result set to notice, so BootUI asks the server instead — it probes `pg_read_all_stats` membership
-before reading — and marks both sections partially read when the privilege is missing. The statement ranking is also
-degraded whenever the placeholder actually appears, so a managed or forked PostgreSQL that answers the probe
-differently from the way it restricts the view is still reported honestly. `pg_stat_replication` restricts a third way
-again: every connected replica is still listed, so the replica count is trustworthy, but each one's state, sync state
-and lag come back empty, and that degrades the replication section too. The connection total is taken
-from `pg_stat_database`, which every role reads in full, so it stays correct either way. The statement ranking section
-additionally requires `pg_stat_statements`.
+**Availability.** The panel is available on all three stacks when a PostgreSQL datasource is configured. That decision
+comes from declared configuration alone — the JDBC URL each datasource exposes, including through a wrapping driver
+such as `jdbc:aws-wrapper:postgresql://...`, or the Quarkus `db-kind` — so rendering the sidebar contacts no database.
+
+A datasource that declares no readable URL cannot be ruled out, so the panel stays available whenever the PostgreSQL
+driver is on the classpath. A non-PostgreSQL datasource reached by the read is then skipped with a clear diagnostic.
+
+**Permissions.** Use a read-only role that belongs to `pg_monitor` where you can. Without it, PostgreSQL restricts its
+statistics views in three different ways, none of which leaves anything in the result set to notice:
+
+| View | Restriction | Consequence |
+| ---- | ----------- | ----------- |
+| `pg_stat_activity` | Removes the rows of backends the role does not own | The session list silently shrinks to BootUI's own connections |
+| `pg_stat_statements` | Keeps every row but replaces the text with `<insufficient privilege>` | Statement ranking loses its statements |
+| `pg_stat_replication` | Lists every connected replica, but empties state, sync state, and lag | The replica count stays trustworthy while the rest degrades |
+
+Because none of that is visible in the results, BootUI asks the server instead: it probes `pg_read_all_stats`
+membership before reading and marks the affected sections partially read when the privilege is missing. Statement
+ranking is also degraded whenever the placeholder actually appears, so a managed or forked PostgreSQL that answers the
+probe differently from the way it restricts the view is still reported accurately.
+
+The connection total comes from `pg_stat_database`, which every role reads in full, so it stays correct either way.
+Statement ranking additionally requires `pg_stat_statements`.
 
 On a standby the replica list and primary-relative lag are not read; cascading replicas may still be connected.
 The report sets `replication.replicasAvailable=false` for this case and for a failed replica-list query.

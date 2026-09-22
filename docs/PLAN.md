@@ -4,7 +4,7 @@
 
 BootUI adds a safe, local-only developer console to a running application, shipping on **Spring Boot 4 (servlet and
 WebFlux starters) and Quarkus (an extension)** from one shared, framework-neutral engine that serves the same Vue UI and
-the same `/bootui/api/**` contract on every runtime. The released surface covers 58 panels across runtime introspection,
+the same `/bootui/api/**` contract on every runtime. The released surface covers 60 panels across runtime introspection,
 configuration, database migrations, services, diagnostics, project health, and developer tooling. A **MySQL**
 operational sibling to PostgreSQL is delivered (§3.17); the planned **MongoDB** operational view (§3.5) remains
 a separate workstream.
