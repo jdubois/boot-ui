@@ -1,178 +1,201 @@
 # Architecture checks
 
-`sampleViolations` remains a ten-entry preview, not the full `violationCount`. **View violations** and
-`GET <api>/architecture/rules/{id}/violations?scanId=...&offset=0&limit=100` read bounded, sanitized details from
-the same completed scan without rerunning ArchUnit. Check retained counts and `truncated`, independently of evidence
-coverage. See [snapshot, retention, and MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
-
-The Architecture panel runs a fixed, zero-config [ArchUnit](https://www.archunit.org/) ruleset against the host
-application's own classes. This page lists every rule that ships with BootUI today, what it inspects, when it fires, and
-what to do about it.
+The Architecture panel runs a fixed, zero-config [ArchUnit](https://www.archunit.org/) ruleset against your
+application's own classes. This page lists every rule that ships today, what it inspects, when it fires, and what to do
+about it.
 
 Each rule is a small class registered in
 [`ArchitectureRuleRegistry`](https://github.com/jdubois/boot-ui/blob/main/bootui-engine/src/main/java/io/github/jdubois/bootui/engine/architecture/ArchitectureRuleRegistry.java)
 and implemented in
 [`ArchitectureRules.java`](https://github.com/jdubois/boot-ui/blob/main/bootui-engine/src/main/java/io/github/jdubois/bootui/engine/architecture/ArchitectureRules.java).
-The list intentionally stays compact and reviewable; adding a new rule means adding one focused class plus a registry
-entry. The rules, the scanner, and the base-package-discovery seam all live in the framework-neutral `bootui-engine`
-module, so the exact same ruleset runs unmodified on both the Spring and Quarkus adapters — see
-[`docs/QUARKUS-SUPPORT.md`](QUARKUS-SUPPORT.md) for how base-package discovery differs per adapter.
+Adding a rule means adding one focused class plus a registry entry, which keeps the list reviewable.
+
+The rules, the scanner, and the base-package-discovery seam all live in the framework-neutral `bootui-engine` module,
+so the same ruleset runs unmodified on Spring and Quarkus.
+
+::: tip Reading more than the preview
+`sampleViolations` is a ten-entry preview, not the full `violationCount`. **View violations**, or
+`GET <api>/architecture/rules/{id}/violations?scanId=...&offset=0&limit=100`, reads bounded sanitized details from the
+same completed scan without rerunning ArchUnit. Check the retained counts and `truncated` separately from evidence
+coverage. See [snapshot, retention, and MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
+:::
 
 ## What BootUI does
 
-Import/evaluation gaps qualify usable known-findings scores; they never become passing checks.
-See the shared [score eligibility policy](features/advisors.md#score-eligibility).
+The scanner detects your application's base packages, imports the compiled `.class` files from them with ArchUnit's
+`ClassFileImporter`, and evaluates every registered rule against the imported classes. When several base packages are
+detected, all of them are imported and analyzed together.
 
-The scanner detects the host application's base package(s) — via the Spring adapter's `@SpringBootApplication`
-configuration (`AutoConfigurationPackages`) or, on Quarkus, via a build-time `BasePackageProvider` seam that reduces the
-Jandex application index to a package root antichain (see [`docs/QUARKUS-SUPPORT.md`](QUARKUS-SUPPORT.md)) — imports the
-compiled `.class` files from those packages with ArchUnit's `ClassFileImporter`, and evaluates every registered rule
-against the imported classes. Importing is bounded to the application's own base package(s) — never the entire classpath
-— and runs only on demand when the scan action is invoked, caching the last report in the controller. When several base
-packages are detected, all of them are imported and analyzed together. ArchUnit still resolves the external types those
-classes reference (super-classes, interfaces) from the classpath so hierarchy-aware checks work; BootUI keeps that
-resolution enabled but quietly skips any referenced class whose resource location uses a URL scheme the JVM cannot open —
-such as the Quarkus runtime classloader's `quarkus:` scheme — so a scan never floods the console with per-class resolution
-warnings.
+Discovery differs per adapter. The Spring adapter reads the `@SpringBootApplication` configuration through
+`AutoConfigurationPackages`. Quarkus uses a build-time `BasePackageProvider` seam that reduces the Jandex application
+index to a package root antichain. See [Quarkus design notes](QUARKUS-SUPPORT.md).
 
-When BootUI is installed through `bootui-spring-boot-starter`, ArchUnit is included transitively so the panel works
-without an extra application dependency; the Quarkus adapter bundles ArchUnit itself. Spring's availability check requires:
+Importing is bounded to your own base packages, never the whole classpath, and runs only when you invoke the scan. The
+controller caches the last report.
 
-- ArchUnit is on the classpath, and
-- a base package is resolvable from the running application.
+ArchUnit still resolves the external types those classes reference, such as super-classes and interfaces, so
+hierarchy-aware checks work. BootUI keeps that resolution enabled but skips any referenced class whose resource
+location uses a URL scheme the JVM cannot open, such as the Quarkus runtime classloader's `quarkus:` scheme, so a scan
+never floods the console with per-class resolution warnings.
 
-Quarkus uses its own panel availability and build-time package discovery; panel availability alone does not prove that
-usable package roots or importable classes were found.
+ArchUnit comes in transitively with `bootui-spring-boot-starter`, and the Quarkus adapter bundles it. On Spring, the
+panel is available when ArchUnit is on the classpath and a base package is resolvable. Quarkus uses its own panel
+availability and build-time discovery, so availability there does not prove that usable package roots or importable
+classes were found.
 
-Known package-discovery or import failures produce an `ERROR` scan, not a successful empty result. If a rule fails,
-the scan is `PARTIAL` when other rules could be evaluated, or `ERROR` if none could; valid findings remain available
-alongside per-rule `analysisErrors`. Failure details identify the error type without exposing arbitrary exception
-messages. A successful import under known base packages that finds no classes records explicit complete-empty
-evidence: `usable: false`, `coverageComplete: true`, and no limitations.
-It stays unscored and **Not applicable**, not incomplete or a fabricated 100. No detectable base packages still means
-unknown coverage even if the scan status is `SCANNED`; its explanatory message and zero rules do not establish absence.
-These distinctions apply to Spring MVC, WebFlux, and Quarkus through the shared scanner.
+### How a scan reports itself
 
-The exact same rules, including the `SPRING_STEREOTYPES` category below, run unmodified against Quarkus/CDI
-applications: rules keyed on Spring-only annotations (`@Autowired`, `@Component`, `@Service`, …) simply match zero
-classes and degrade to a no-op pass — never a false positive — while a handful of rules are deliberately dual-framework
-because they also key on the shared `jakarta.*` annotations (`jakarta.transaction.Transactional`,
-`jakarta.annotation.PostConstruct`/`PreDestroy`) that both Spring and CDI containers recognize. See each rule's entry
-below for which category it falls into, and `ArchitectureCdiNeutralityTests` for the automated check that pins this
-property across every `SPRING_STEREOTYPES` rule against a pure-CDI fixture set.
+| Outcome | Status |
+| ------- | ------ |
+| Known package-discovery or import failure | `ERROR`, never a successful empty result |
+| A rule fails, others evaluate | `PARTIAL`, with valid findings and per-rule `analysisErrors` |
+| No rule could be evaluated | `ERROR` |
+| Successful import under known base packages, no classes found | `SCANNED` with `usable: false`, `coverageComplete: true`, and no limitations |
+
+Failure details identify the error type without exposing arbitrary exception messages.
+
+A complete-empty result stays unscored and reads **Not applicable**, rather than incomplete or a fabricated 100. No
+detectable base packages still means unknown coverage even when the status is `SCANNED`: the explanatory message and a
+zero rule count do not establish absence. Import and evaluation gaps qualify usable known-findings scores and never
+become passing checks. See the shared
+[score eligibility policy](features/advisors.md#score-eligibility). These distinctions apply on all three stacks.
+
+### Rules on Quarkus and CDI
+
+The same rules, including the `SPRING_STEREOTYPES` category, run unmodified against Quarkus and CDI applications.
+Rules keyed on Spring-only annotations such as `@Autowired`, `@Component`, and `@Service` match zero classes and
+degrade to a no-op pass rather than a false positive.
+
+A handful of rules are dual-framework by design, because they also key on the shared `jakarta.*` annotations that both
+Spring and CDI containers recognize, such as `jakarta.transaction.Transactional` and
+`jakarta.annotation.PostConstruct`. Each rule entry below says which case it falls into.
+`ArchitectureCdiNeutralityTests` pins this property across every `SPRING_STEREOTYPES` rule against a pure-CDI fixture
+set.
 
 ## Generated application code
 
-The **ARCH-CODE-001 through ARCH-CODE-018** coding-practice rules exclude classes that BootUI can positively identify
-as generated. For example, OpenAPI Generator's `ApiUtil` helpers should not contribute generic-exception findings while
-a handwritten generic throw still does. This is a class-level exemption, not a rule dismissal or an exclusion of every
-class named `ApiUtil` or every `api` package. Package-cycle, module-boundary, and Spring/CDI checks keep the full class
-graph, including generated types; handwritten callers and subclasses remain eligible for coding checks.
+The coding-practice rules **ARCH-CODE-001** through **ARCH-CODE-018** exclude classes BootUI can positively identify as
+generated, so OpenAPI Generator's `ApiUtil` helpers do not contribute generic-exception findings while a handwritten
+generic throw still does.
 
-Identification happens only during the explicit architecture scan. BootUI matches imported classes to their local
-source ownership using their module, package, recorded source filename, and top-level/enclosing type:
+This is a class-level exemption. It is not a rule dismissal, and it does not exclude every class named `ApiUtil` or
+every `api` package. Package-cycle, module-boundary, and Spring or CDI checks keep the full class graph, including
+generated types, and handwritten callers and subclasses stay eligible for coding checks.
 
-- Maven `target/classes` uses that module's `target/generated-sources`; `target/test-classes` uses
+Identification happens only during an explicit scan. BootUI matches imported classes to their local source ownership
+using their module, package, recorded source filename, and enclosing type:
+
+- Maven `target/classes` uses that module's `target/generated-sources`, and `target/test-classes` uses
   `target/generated-test-sources`.
 - Gradle `build/classes/java/main` and `build/classes/kotlin/main` use the module's `build/generated` tree, including
-  generator-specific subdirectories, and OpenAPI Generator's default `build/generate-resources/main` output.
-  Corresponding `test` output uses test-source ownership. Recognized source-layout prefixes distinguish `main`/`test`;
-  a package directory with either name does not change the source set.
+  generator-specific subdirectories and OpenAPI Generator's default `build/generate-resources/main` output. The
+  corresponding `test` output uses test-source ownership. Recognized source-layout prefixes distinguish `main` from
+  `test`, so a package directory with either name does not change the source set.
 - Java and Kotlin generated sources are recognized even when their directories do not mirror their package names.
-  A bounded module-local source census checks both conventional and custom handwritten directories for conflicting
-  declarations. It excludes generated trees, compiled class output, the opposite conventional source set, and
-  `.git`, `.gradle`, `.m2`, and `node_modules` directories. Duplicate generated candidates, conflicting handwritten
-  declarations, or uncertain ownership prevent an exemption. Maven compiler-input lists that identify sources outside
-  the module prevent classification without opening those external sources.
 
+A bounded module-local source census then checks both conventional and custom handwritten directories for conflicting
+declarations, excluding generated trees, compiled output, the opposite source set, and `.git`, `.gradle`, `.m2`, and
+`node_modules`. Duplicate generated candidates, conflicting handwritten declarations, and uncertain ownership all
+prevent an exemption, as do Maven compiler-input lists that identify sources outside the module.
+
+::: details Why source lookup is needed at all
 The standard `jakarta.annotation.Generated`, `javax.annotation.Generated`, and `javax.annotation.processing.Generated`
-annotations have **SOURCE retention**: they normally disappear from compiled bytecode. A same-named class-level marker
-is recognized if it is actually present, but normal generator output needs local source provenance. The Kotlin OpenAPI
-`ApiUtil` template does not carry such a marker at all. BootUI still evaluates bytecode, not source-level coding rules;
-the source lookup only identifies ownership.
+annotations have SOURCE retention, so they normally disappear from compiled bytecode. A same-named class-level marker
+is recognized when it is actually present, but normal generator output needs local source provenance, and the Kotlin
+OpenAPI `ApiUtil` template carries no such marker at all.
 
-Lookup is limited per scan to 64 module/source-set groups, 50,000 directory entries, depth 32 beneath each inspected
-root, 256 KiB per inspected file, and 16 MiB of source/metadata bytes in total. It never follows source-tree
-symlinks, searches arbitrary ancestors or the process working directory, downloads sources, or runs a build. Cached
-reports and violation-detail reads reuse the completed scan without reading sources again.
+BootUI still evaluates bytecode, not source-level coding rules. The source lookup only establishes ownership.
+:::
 
-**Conservative limitations:** packaged jars, unsupported/custom output layouts, missing sources or `SourceFile`
-metadata, and ambiguous matches retain their findings. A SOURCE-retained annotation in a non-generated source layout
-does not by itself exempt a class. Ownership recognition handles multiline declarations, Java Unicode escapes, and
-Kotlin string templates, but is deliberately not a full Java/Kotlin parser. Kotlin file facades (including
-`@file:JvmName` facades) are not treated as explicit class/object declarations and remain eligible for coding checks;
-their function bodies may be handwritten. Source inputs outside the module or excluded dependency/cache trees are
-not supported. Lookup failures,
-symlinked source trees, and exhausted budgets produce a sanitized limitation and a `PARTIAL` scan while retaining
-uncertain classes and known findings. No source contents or local paths are included in the report.
+::: details Lookup budgets
+A scan is limited to 64 module and source-set groups, 50 000 directory entries, depth 32 beneath each inspected root,
+256 KiB per file, and 16 MiB of source and metadata bytes in total. It never follows source-tree symlinks, searches
+arbitrary ancestors or the process working directory, downloads sources, or runs a build. Cached reports and
+violation-detail reads reuse the completed scan without reading sources again.
+:::
 
-The policy is shared by Spring MVC, WebFlux, and Quarkus. `classesAnalyzed` continues to count the full imported
-application graph; coding-rule counts, previews, retained details, and score penalties exclude only established
-generated findings. An empty eligible coding-rule target set does not establish usable evidence by itself.
+The policy is conservative. Packaged jars, unsupported or custom output layouts, missing sources or `SourceFile`
+metadata, and ambiguous matches all retain their findings, and a SOURCE-retained annotation in a non-generated source
+layout does not by itself exempt a class.
+
+Ownership recognition handles multiline declarations, Java Unicode escapes, and Kotlin string templates, but it is not
+a full Java or Kotlin parser. Kotlin file facades, including `@file:JvmName` facades, are not treated as explicit
+declarations and stay eligible for coding checks, because their function bodies may be handwritten. Source inputs
+outside the module, or inside excluded dependency and cache trees, are not supported.
+
+Lookup failures, symlinked source trees, and exhausted budgets produce a sanitized limitation and a `PARTIAL` scan
+while retaining uncertain classes and known findings. No source contents or local paths appear in the report.
+
+This policy is shared by all three stacks. `classesAnalyzed` still counts the full imported application graph, while
+coding-rule counts, previews, retained details, and score penalties exclude only established generated findings. An
+empty eligible coding-rule target set does not establish usable evidence on its own.
 
 ## Kotlin applications
 
-The rules read compiled bytecode, so they run unchanged on Kotlin classes, and the engine recognizes Kotlin constructs
-by bytecode name only — BootUI never adds a `kotlin-stdlib` dependency to your application.
+The rules read compiled bytecode, so they run unchanged on Kotlin classes. The engine recognizes Kotlin constructs by
+bytecode name only, and BootUI never adds a `kotlin-stdlib` dependency to your application.
 
-- **Compiler-generated shapes are filtered where recognized.** Synthetic and bridge members, `$suspendImpl` /
-  `$default` / `$annotations` helpers, `componentN` and `copy` accessors on `data class`es, `Companion` and
-  `DefaultImpls` holders, `WhenMappings` tables, and top-level `FooKt` file facades receive rule-specific filtering.
-  This matters in practice: an `open suspend fun` is compiled into the declared function *plus* a static
-  synthetic `$suspendImpl` that carries a **copy of the original annotations**, which would otherwise produce duplicate
-  and outright false findings.
-- **Scheduled suspend functions do not require a Unit result.** BootUI excludes the compiler-added Continuation
-  parameter from this check. Both Unit and value-returning functions are supported; only real source arguments fail.
-- **Final-by-default is respected in the advice, not the detection.** Kotlin classes and members are final unless marked
-  `open`, but the `kotlin-spring` (all-open) and `no-arg` compiler plugins change the emitted bytecode, so proxyability
-  and entity rules stay accurate. Where a recommendation would otherwise say "remove `final`", it offers the Kotlin
-  equivalent instead.
+**Compiler-generated shapes are filtered where recognized.** Synthetic and bridge members, `$suspendImpl`, `$default`,
+and `$annotations` helpers, `componentN` and `copy` accessors on data classes, `Companion` and `DefaultImpls` holders,
+`WhenMappings` tables, and top-level `FooKt` file facades all receive rule-specific filtering. This matters in
+practice: an `open suspend fun` compiles into the declared function plus a static synthetic `$suspendImpl` carrying a
+copy of the original annotations, which would otherwise produce duplicate and outright false findings.
+
+**Scheduled suspend functions do not require a Unit result.** BootUI excludes the compiler-added `Continuation`
+parameter from that check, so both Unit and value-returning functions are supported and only real source arguments
+fail.
+
+**Final-by-default is respected in the advice, not the detection.** Kotlin classes and members are final unless marked
+`open`, but the `kotlin-spring` and `no-arg` compiler plugins change the emitted bytecode, so proxyability and entity
+rules stay accurate. Where a recommendation would otherwise say "remove `final`", it offers the Kotlin equivalent.
 
 ## What BootUI does not do
 
-- It does not run project-specific layered-architecture rules — BootUI cannot know the host app's intended layering, so
-  it ships general conventions that may not fit every application.
-- It does not modify, compile, or instrument application code; it reads already-compiled bytecode.
-- It is **not a replacement for a project-authored ArchUnit test suite**. Generic rules are necessarily weaker than
-  rules written with knowledge of the application's design. Treat the panel as a starting point and review aid, and
-  consider writing your own ArchUnit tests for project-specific invariants.
+- It does not run project-specific layered-architecture rules. BootUI cannot know your intended layering, so it ships
+  general conventions that may not fit every application.
+- It does not modify, compile, or instrument application code. It reads already-compiled bytecode.
+- It does not replace a project-authored ArchUnit test suite. Generic rules are necessarily weaker than rules written
+  with knowledge of the application's design, so treat the panel as a starting point and write your own ArchUnit tests
+  for project-specific invariants.
 
 ### Static-analysis limits
 
-An error-free scan means the imported classes were evaluated, not that runtime behavior or import completeness was
-proved. ArchUnit can resolve external references to stubs without full annotation or hierarchy information; those
-omissions need not throw. Imports are restricted by package roots, not a class-count or execution-time budget, and
-runtime test output under the same roots is not automatically excluded. Package cycles are evaluated per root and
-top-level slice, not across every possible module boundary.
+An error-free scan means the imported classes were evaluated. It does not prove runtime behavior or import
+completeness. ArchUnit can resolve external references to stubs without full annotation or hierarchy information, and
+those omissions need not throw.
 
-Most Spring rules recognize direct annotations, not Spring's full merged/aliased metadata model; the scheduling check
-also recognizes repeatable and composed presence. Proxy checks do not observe per-bean JDK/CGLIB/AspectJ configuration.
-Same declaring class does not prove a `this` receiver, and filtering Kotlin dispatch helpers can hide authored calls
-inside `$suspendImpl` bodies or mangled internal members. These remain known limitations, not fixes claimed by the
-logger, scheduling, and ThreadFactory improvements. See the
+Imports are restricted by package roots rather than a class-count or execution-time budget, so runtime test output
+under the same roots is not automatically excluded. Package cycles are evaluated per root and top-level slice, not
+across every possible module boundary.
+
+Most Spring rules recognize direct annotations rather than Spring's full merged and aliased metadata model, though the
+scheduling check also recognizes repeatable and composed presence. Proxy checks do not observe per-bean JDK, CGLIB, or
+AspectJ configuration. The same declaring class does not prove a `this` receiver, and filtering Kotlin dispatch helpers
+can hide authored calls inside `$suspendImpl` bodies or mangled internal members.
+
+These remain known limitations rather than problems solved by the logger, scheduling, and `ThreadFactory`
+improvements. For background, see the
 [ArchUnit import model](https://github.com/TNG/ArchUnit/blob/v1.5.0/docs/userguide/006_The_Core_API.adoc),
 [Spring proxy semantics](https://github.com/spring-projects/spring-framework/blob/v7.0.9/framework-docs/modules/ROOT/pages/core/aop/proxying.adoc),
 and [Kotlin 2.2.20 suspend lowering](https://github.com/JetBrains/kotlin/blob/v2.2.20/compiler/ir/backend.jvm/lower/src/org/jetbrains/kotlin/backend/jvm/lower/AddContinuationLowering.kt).
 
 ## Severity scale
 
-Severity reflects the worst plausible impact if the finding is real, not the likelihood:
+Severity reflects the worst plausible impact if the finding is real, not how likely it is:
 
-- **CRITICAL** — supported for the most severe correctness or safety problems. No active check currently emits this
-  severity.
-- **HIGH** — a serious structural problem with clear maintenance impact (e.g. package cycles — see ARCH-PKG-001 — or
-  forcibly terminating the JVM).
-- **MEDIUM** — weakens maintainability or layering and usually warrants a fix (e.g. field injection, layering
-  inversions).
-- **LOW** — defense-in-depth / hygiene gap (e.g. standard-stream use, generic exceptions, `java.util.logging`).
-- **INFO** — informational convention prompt (e.g. legacy library use, deprecated APIs).
+| Severity | Meaning |
+| -------- | ------- |
+| **CRITICAL** | Supported for the most severe correctness or safety problems. No active check emits it. |
+| **HIGH** | A serious structural problem with clear maintenance impact, such as package cycles or forcibly terminating the JVM. |
+| **MEDIUM** | Weakens maintainability or layering and usually warrants a fix, such as field injection or layering inversions. |
+| **LOW** | A defense-in-depth or hygiene gap, such as standard-stream use, generic exceptions, or `java.util.logging`. |
+| **INFO** | An informational convention prompt, such as legacy library use or deprecated APIs. |
 
-The scan evaluates every registered rule, but the Rule results panel only lists rules that found violations. Violations
-are ordered by importance (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`), then by the number of violating instances, and
-include up to a handful of sample detail lines from ArchUnit.
+The scan evaluates every registered rule, but the results panel lists only rules that found violations. They are
+ordered by severity, then by the number of violating instances, and include a few sample detail lines from ArchUnit.
 
-The advisor score applies the shared severity penalty to every concrete violating instance, not just once per rule.
-Dismissed rules remove all of their instances from the score.
+The advisor score applies the shared severity penalty to every concrete violating instance, not once per rule.
+Dismissing a rule removes all of its instances from the score.
 
 ---
 

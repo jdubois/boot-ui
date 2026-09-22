@@ -1,10 +1,5 @@
 # Security checks
 
-Servlet and reactive reports keep ten-entry `sampleViolations` previews and full `violationCount` values.
-**View violations** and `GET <api>/security/rules/{id}/violations?scanId=...&offset=0&limit=100` retrieve
-sanitized retained details without invoking security callbacks or rescanning. Retention truncation is separate from
-security evidence coverage; see [snapshot, retention, and MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
-
 The Security panel runs a fixed, on-demand ruleset against the host application's Spring Security configuration:
 **54 servlet rules** and **25 reactive rules**. It inspects recognized, already-created filter chains and supported
 configuration metadata. It does not execute application authorization managers, custom matchers, decoders, credential
@@ -13,6 +8,13 @@ traffic, or modify security configuration. Credentials, keys and session identif
 
 The checks are heuristic review prompts. They highlight common Spring Security hardening gaps, but the right remediation
 still depends on the application's threat model and deployment topology.
+
+::: tip Reading more than the preview
+Servlet and reactive reports keep ten-entry `sampleViolations` previews and full `violationCount` values.
+**View violations** and `GET <api>/security/rules/{id}/violations?scanId=...&offset=0&limit=100` retrieve
+sanitized retained details without invoking security callbacks or rescanning. Retention truncation is separate from
+security evidence coverage; see [snapshot, retention, and MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
+:::
 
 Actuator exposure checks ignore BootUI's own low-priority local actuator defaults. Those defaults are merged into
 Spring Boot's shared `defaultProperties` source (only for keys the host has not set) so local panels can read Actuator
@@ -84,14 +86,16 @@ interpretation; a review prompt is not a confirmed vulnerability.
 
 ## Severity scale
 
-- **CRITICAL** - a configuration that directly exposes credentials, secrets, or critical security controls and needs immediate attention.
-- **HIGH** - a configuration that commonly leaves the application exposed and usually needs attention before production.
-- **MEDIUM** - a hardening gap that warrants review.
-- **LOW** - lower-impact hygiene findings.
-- **INFO** - informational prompts where the right fix depends heavily on project context.
+| Severity | Meaning |
+| -------- | ------- |
+| **CRITICAL** | Directly exposes credentials, secrets, or critical security controls, and needs immediate attention. |
+| **HIGH** | Commonly leaves the application exposed, and usually needs attention before production. |
+| **MEDIUM** | A hardening gap that warrants review. |
+| **LOW** | Lower-impact hygiene findings. |
+| **INFO** | An informational prompt where the right fix depends heavily on project context. |
 
-The Rule results panel lists only checks that found findings, ordered by severity, finding count, and rule id. Each rule
-includes up to a handful of sample details plus a remediation link.
+The results panel lists only checks that found something, ordered by severity, finding count, and rule id. Each rule
+includes a few sample details plus a remediation link.
 
 The advisor score applies the shared severity penalty to every concrete finding, not just once per violated rule.
 Dismissed rules remove all of their findings from the score.
