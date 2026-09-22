@@ -1,14 +1,7 @@
 # Try the sample app
 
-The quickest way to see BootUI in action is to run the published sample-app container image. No clone, no build, and no
-JDK are required — only a Docker-compatible engine.
-
-Prerequisites: a running Docker engine (Docker Desktop, Docker Engine, Podman, etc.).
-
-Each BootUI sample-app flavor listens on one fixed port, identical whether it's run via Docker or from source with
-Maven: **8080** for the classic Spring Boot images below (plain JVM, AOT, GraalVM native, and CRaC — all the same
-servlet app, just packaged differently), **8081** for [WebFlux](#bootui-on-spring-webflux), and **8082** for
-[Quarkus](#bootui-on-quarkus).
+The fastest way to see BootUI is to run a published sample-app image. No clone, no build, and no JDK are required —
+only a Docker-compatible engine such as Docker Desktop, Docker Engine, or Podman.
 
 ```bash
 docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app
@@ -16,15 +9,32 @@ docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/boot
 
 Then open <http://localhost:8080/bootui> from a browser on the same machine.
 
-The image runs the sample app's `dev` profile, which is **Docker-free** (in-memory H2 database, a simple in-memory
-cache, and disabled Spring AI), so no PostgreSQL, Redis, or Ollama is needed. `BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO` lets
-the browser on your host reach BootUI through Docker's bridge gateway while keeping the Host allow-list and CSRF
-defenses in force — see the [container access](setup/environments.md#running-inside-a-docker-container) notes in the setup guide for details.
+`BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO` lets the browser on your host reach BootUI through Docker's bridge gateway while
+the Host allow-list and cross-site-write defenses stay in force. See
+[running inside a Docker container](setup/environments.md#running-inside-a-docker-container).
 
-In this Docker-free mode most panels work normally (Configuration, Database, Spring Data, Flyway, Liquibase, Cache); the
-Chat and AI Framework panels report that AI is unavailable, and Dev Services lists no containers.
+## Available images
 
-Populate the Flyway and Liquibase panels with the sample migrations (disabled by default for a faster boot):
+Each flavor listens on one fixed port, identical whether you run it from Docker or from source with Maven.
+
+| Image | Port | What it demonstrates |
+| ----- | ---- | -------------------- |
+| `jdubois/bootui-sample-app` | 8080 | Spring Boot servlet on a plain JVM |
+| [`jdubois/bootui-sample-app-aot`](#jvm-aot-image) | 8080 | The same app with Spring AOT and the JDK 25 AOT class loading cache |
+| [`jdubois/bootui-sample-app-native`](#graalvm-native-image) | 8080 | The same app as a GraalVM native image |
+| [`jdubois/bootui-sample-app-crac`](#crac-image) | 8080 | The same app restored from a CRaC checkpoint, on Linux only |
+| [`jdubois/bootui-sample-app-webflux`](#webflux-image) | 8081 | The reactive adapter on Netty |
+| [`jdubois/bootui-sample-app-quarkus`](#quarkus-image) | 8082 | The Quarkus extension, in dev mode |
+
+## What the default profile gives you
+
+Every image runs the sample app's `dev` profile, which is Docker-free: an in-memory H2 database, an in-memory cache,
+and Spring AI disabled. No PostgreSQL, Redis, or Ollama is needed.
+
+Most panels work normally, including Configuration, Database, Spring Data, Flyway, and Liquibase. The Chat and AI
+Framework panels report that AI is unavailable, and Dev Services lists no containers.
+
+Database migrations are disabled for a faster boot. To populate the Flyway and Liquibase panels, turn them back on:
 
 ```bash
 docker run --rm -p 8080:8080 \
@@ -33,41 +43,36 @@ docker run --rm -p 8080:8080 \
   jdubois/bootui-sample-app
 ```
 
-## Other sample-app images
+The AOT and CRaC images take the same two variables. The WebFlux image takes them on port 8081, and the Quarkus image
+uses `QUARKUS_FLYWAY_MIGRATE_AT_START=true` and `QUARKUS_LIQUIBASE_MIGRATE_AT_START=true` on port 8082. The native
+image freezes this choice at build time.
 
-Three more flavors of the same sample app are published for experimentation. Like the JVM image above, all three default
-to the Docker-free `dev` profile (in-memory H2) and accept `BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO` so the host browser can
-reach BootUI while the Host allow-list and CSRF defenses stay in force.
+## JVM + AOT image
 
-### JVM + AOT image (faster startup, no extra infrastructure)
+`jdubois/bootui-sample-app-aot` combines two Ahead-of-Time optimizations on the plain JVM image. It needs no GraalVM
+toolchain and no CRIU privileges:
 
-`jdubois/bootui-sample-app-aot` combines two Ahead-of-Time optimizations on the plain JVM image for a significantly
-faster start — no GraalVM toolchain and no CRIU privileges required:
-
-- **Spring AOT** — the application context wiring is pre-generated at build time, replacing dynamic CGLIB proxies and
+- **Spring AOT** pre-generates the application context wiring at build time, replacing dynamic CGLIB proxies and
   reflection with static factory code.
-- **JDK 25 AOT class loading cache (JEP 483)** — class-loading and linking patterns are recorded in a training run
-  during the Docker build and replayed on every production start, bypassing most of the normal classloading pipeline.
+- **The JDK 25 AOT class loading cache (JEP 483)** records class loading and linking during a training run in the
+  Docker build and replays it on every start.
 
 ```bash
 docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app-aot
 ```
 
-Typical result: **~40–45 % shorter startup** vs the plain JVM image (Spring-reported ~9.7 s → ~5–6 s), at the cost of a
-~70–100 MB larger image (the AOT cache file). The Spring profile can still be overridden at runtime with
-`-e SPRING_PROFILES_ACTIVE=...` — nothing is frozen at build time.
+On the sample app, that is roughly 40–45 % off the Spring-reported startup time (about 9.7 s down to 5–6 s) for a
+70–100 MB larger image. The profile is not frozen: override it at runtime with `-e SPRING_PROFILES_ACTIVE=...`.
 
-#### Troubleshooting a JVM crash during a scan
+::: details The JVM crashes during an advisor scan
 
-JDK 25 through 25.0.4 can crash with `SIGILL` in `~AdapterBlob` when an AOT cache built on one CPU is used on
-another CPU with different instruction support. The app can start normally and only crash when an advisor scan
-exercises the affected code. This is [OpenJDK JDK-8388703](https://bugs.openjdk.org/browse/JDK-8388703), whose
-fix is scheduled for JDK 25.0.5.
+JDK 25 through 25.0.4 can crash with `SIGILL` in `~AdapterBlob` when an AOT cache built on one CPU runs on another CPU
+with different instruction support. The application starts normally and crashes only when a scan reaches the affected
+code. This is [OpenJDK JDK-8388703](https://bugs.openjdk.org/browse/JDK-8388703), fixed in JDK 25.0.5.
 
-`Dockerfile-aot` disables CPU-specific **method adapter caching** during both training and runtime with
-`-XX:+UnlockDiagnosticVMOptions -XX:-AOTAdapterCaching`. Spring AOT and the JDK class loading/linking cache remain
-enabled. For an already-built image that still crashes, apply the same runtime workaround without replacing its
-existing JVM options:
+`Dockerfile-aot` already disables CPU-specific method adapter caching during training and at runtime, while keeping
+Spring AOT and the class loading cache enabled. For an image that still crashes, apply the same workaround without
+replacing its existing JVM options:
 
 ```bash
 docker run --rm -p 127.0.0.1:8080:8080 \
@@ -76,29 +81,35 @@ docker run --rm -p 127.0.0.1:8080:8080 \
   jdubois/bootui-sample-app-aot
 ```
 
-### GraalVM native image
+:::
 
-The Security advisor needs BootUI's private-field reflection hints in the executable, not just in a replacement
-JAR. Rebuild older native images to pick up those hints. The real sample retains usable results from its three
-chains, but still reports partial coverage for unsupported security observations; it does not claim a complete
-security assessment. See [Security checks](SECURITY-CHECKS.md#availability-and-bounds).
+## GraalVM native image
 
-`jdubois/bootui-sample-app-native` is a [GraalVM](https://www.graalvm.org/) native image that starts in well under a
-second:
+`jdubois/bootui-sample-app-native` is a [GraalVM](https://www.graalvm.org/) native image that starts in about 0.3 s:
 
 ```bash
 docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app-native
 ```
 
-To run the native image against the full PostgreSQL + Redis stack instead, use
+A native image freezes auto-configuration during AOT, so both the `dev` profile and the disabled migrations are baked
+in at build time. Rebuild the image to change them.
+
+To run it against the full PostgreSQL and Redis stack instead, use
 [`docker-compose-native.yml`](https://github.com/jdubois/boot-ui/blob/main/docker-compose-native.yml).
 
-### CRaC image
+::: tip Rebuild older native images for the Security advisor
+The advisor needs BootUI's private-field reflection hints compiled into the executable, not only in a replacement JAR.
+The sample keeps usable results from its three chains but still reports partial coverage for unsupported observations,
+rather than claiming a complete security assessment. See
+[Security checks](SECURITY-CHECKS.md#availability-and-bounds).
+:::
 
-`jdubois/bootui-sample-app-crac` is a JVM image using
-[CRaC](https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html) (Coordinated Restore at
-Checkpoint) for near-instant restarts. It only works on a **Linux** host, needs elevated privileges for
-[CRIU](https://criu.org/), and uses a volume to store the checkpoint so it survives container restarts:
+## CRaC image
+
+`jdubois/bootui-sample-app-crac` uses
+[CRaC](https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html) to restore a warmed-up
+JVM in about 0.11 s. It runs on a **Linux** host only, needs elevated privileges for [CRIU](https://criu.org/), and
+keeps its checkpoint in a volume so it survives container restarts:
 
 ```bash
 docker run --rm -p 8080:8080 \
@@ -108,75 +119,47 @@ docker run --rm -p 8080:8080 \
   jdubois/bootui-sample-app-crac
 ```
 
-The first start boots once to write the checkpoint into the `bootui-sample-app-crac` volume; every later start restores
-the warmed-up JVM in tens of milliseconds. Delete the volume (`docker volume rm bootui-sample-app-crac`) to force a fresh
-checkpoint. See the ["Run it with CRaC"](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-sample-app/README.md)
-section of the sample app README for details.
+The first start boots once to write the checkpoint; later starts restore it. Run
+`docker volume rm bootui-sample-app-crac` to force a fresh checkpoint. For details, see
+["Run it with CRaC"](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-sample-app/README.md) in the sample app
+README.
 
-## BootUI on Spring WebFlux
+## WebFlux image
 
-BootUI also ships a reactive (Netty) adapter, and its dedicated WebFlux sample app is published as a separate image. It
-serves the **same** Vue console at `/bootui`, backed by the reactive build of the BootUI engine:
+`jdubois/bootui-sample-app-webflux` serves the same console at `/bootui`, backed by the reactive build of the BootUI
+engine on Netty:
 
 ```bash
 docker run --rm -p 8081:8081 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app-webflux
 ```
 
-Then open <http://localhost:8081/bootui> from a browser on the same machine.
+Then open <http://localhost:8081/bootui>.
 
-Like the plain JVM image it is **Docker-free** (in-memory H2, disabled by default Flyway/Liquibase migrations) and
-honors `BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO`. There is a **single** WebFlux flavor — no AOT, GraalVM native, or CRaC
-variant: the reactive sample app exists to exercise the BootUI reactive adapter's panel surface, not to demo every JVM
-startup technique twice.
+Every panel except HTTP Sessions behaves as it does on the servlet image, including every advisor scan and every
+action. See [Framework support](FRAMEWORK-SUPPORT.md#spring-webflux).
 
-Populate the Flyway and Liquibase panels with the sample migrations (disabled by default for a faster boot):
+There is one WebFlux flavor, with no AOT, native, or CRaC variant: the reactive sample exists to exercise the reactive
+adapter, not to demonstrate every JVM startup technique twice.
 
-```bash
-docker run --rm -p 8081:8081 \
-  -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
-  -e SPRING_FLYWAY_ENABLED=true -e SPRING_LIQUIBASE_ENABLED=true \
-  jdubois/bootui-sample-app-webflux
-```
+## Quarkus image
 
-The large majority of panels work identically to the servlet image. The raw **Spring Security** panel shows the
-sample's reactive `SecurityWebFilterChain` and `WebFilter` pipeline with clearly marked best-effort explanations, and
-the **Security advisor** runs its WebFlux-native 25-rule catalogue. The **REST Client** panel captures calls from Spring
-Boot's auto-configured `WebClient.Builder`, including live SSE updates and pause/resume/clear actions. **HTTP Sessions**
-stays not applicable (WebFlux has no `HttpSession`). See
-[Framework support](FRAMEWORK-SUPPORT.md) for the full current status.
-
-## BootUI on Quarkus
-
-BootUI also ships as a Quarkus extension, and its Quarkus sample app is published as a separate image. It serves the
-**same** Vue console at `/bootui`, backed by the Quarkus build of the BootUI engine:
+`jdubois/bootui-sample-app-quarkus` serves the same console at `/bootui`, backed by the Quarkus build of the engine:
 
 ```bash
 docker run --rm -p 8082:8082 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/bootui-sample-app-quarkus
 ```
 
-Then open <http://localhost:8082/bootui> from a browser on the same machine.
+Then open <http://localhost:8082/bootui>.
 
-Like the Spring image it is **Docker-free** (in-memory H2 — no PostgreSQL Dev Service container) and honors
-`BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO`. There is a **single** Quarkus flavor — no AOT, GraalVM native, or CRaC variants:
-Quarkus builds native images itself, and BootUI's GraalVM/CRaC advisors are Spring-oriented. Because BootUI activates only
-outside Quarkus' production launch mode, the image launches the app in **dev mode**, so it uses a full JDK base and is
-larger than the Spring images.
+BootUI activates only outside Quarkus' production launch mode, so the image starts the application in dev mode. That
+requires a full JDK base image, which makes it larger than the Spring images.
 
-Populate the Flyway and Liquibase panels with the sample migrations (disabled by default for a faster boot):
-
-```bash
-docker run --rm -p 8082:8082 \
-  -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
-  -e QUARKUS_FLYWAY_MIGRATE_AT_START=true -e QUARKUS_LIQUIBASE_MIGRATE_AT_START=true \
-  jdubois/bootui-sample-app-quarkus
-```
-
-Most panels light up on Quarkus; a handful stay Spring- or framework-specific (for example GraalVM, CRaC, Conditions,
-Startup Timeline, HTTP Sessions, Spring Data, Spring Security, Spring DevTools) and are clearly marked *not applicable*.
-See [Features](features/README.md) for the full per-platform availability.
+Most panels are live. A handful target Spring-specific concepts and are marked *not applicable* — see
+[what is not on Quarkus](FRAMEWORK-SUPPORT.md#what-is-not-on-quarkus). There is no AOT, native, or CRaC variant:
+Quarkus builds native images itself, and BootUI's GraalVM and CRaC advisors are Spring-oriented.
 
 ## Want the full experience?
 
-To exercise every panel with PostgreSQL, Redis, and Ollama, run the sample app with the `docker` profile from a checkout
-of the repository — see the [sample app README](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-sample-app/README.md#run-it-with-docker)
-for details.
+To exercise every panel with PostgreSQL, Redis, and Ollama, run the sample app with the `docker` profile from a
+checkout of the repository. See the
+[sample app README](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-sample-app/README.md#run-it-with-docker).

@@ -1,11 +1,11 @@
 # Activation and safety
 
-BootUI ships dormant and stays that way outside local development. This page covers how that default works, how to
-tighten it, and how to keep the starter out of a production build entirely.
+BootUI ships dormant and stays that way outside local development. This page describes that default, how to tighten
+it, and how to keep the starter out of a production build.
 
 ## Safety defaults
 
-BootUI is intended for local development only. By default it:
+BootUI is a local development tool. By default, it does the following:
 
 - Activates in `AUTO` mode only for the `dev` / `local` profiles or DevTools.
 - Rejects non-loopback requests.
@@ -21,23 +21,21 @@ BootUI is intended for local development only. By default it:
 - Disables itself for `prod` / `production` profiles.
 - Stores runtime configuration overrides in `.bootui/application-bootui.properties`, not in your source config files.
 
-Every visible panel can be disabled with `bootui.panels.<panel-id>.enabled=false`. Panels with mutating browser actions
-can also be made read-only with `bootui.panels.<panel-id>.read-only=true`, and `bootui.read-only=true` makes the whole
-BootUI application read-only. See the [property reference](../PROPERTIES.md) for the full panel list.
+You can disable any panel with `bootui.panels.<panel-id>.enabled=false`. Panels with mutating browser actions also
+accept `bootui.panels.<panel-id>.read-only=true`, and `bootui.read-only=true` makes all of BootUI read-only. The
+[property reference](../PROPERTIES.md) lists every panel.
 
 ## Scope BootUI to a dev-only profile
 
-The simple install above leaves the starter jar on the classpath in every build — BootUI just stays disabled outside
-development. If you would rather keep the starter out of your production build entirely, declare it in a dedicated
-`dev` build profile instead. The same profile can switch on the `dev` Spring Boot profile for you, so a single flag
-both adds the starter and activates BootUI.
+The install in [Setup](../SETUP.md) leaves the starter jar on the classpath in every build, where it stays disabled
+outside development. To keep it out of your production build entirely, declare it in a dedicated `dev` build profile.
+The same profile can activate the `dev` Spring Boot profile, so one flag both adds the starter and turns BootUI on.
 
 ::: tabs#build
 
 @tab Maven
 
-Add a `dev` Maven profile that declares the starter and tells the Spring Boot plugin to run with the `dev`
-Spring Boot profile:
+Declare the starter in a `dev` profile and tell the Spring Boot plugin to run with the `dev` Spring Boot profile:
 
 ```xml
 <profiles>
@@ -69,8 +67,7 @@ Spring Boot profile:
 
 @tab Gradle
 
-Add a `dev` Gradle profile that is activated with the `-Pdev` project property. It pulls in the starter and
-sets the `dev` Spring Boot profile on `bootRun`:
+Guard the starter behind the `-Pdev` project property and set the `dev` Spring Boot profile on `bootRun`:
 
 ```groovy
 // Groovy DSL (build.gradle)
@@ -98,8 +95,7 @@ if (project.hasProperty("dev")) {
 
 :::
 
-Then activate the profile when you start the app. This both adds the BootUI starter and turns on the `dev`
-Spring Boot profile:
+Then activate the profile when you start the application:
 
 ::: tabs#build
 
@@ -119,13 +115,16 @@ Spring Boot profile:
 
 ## Runtime overrides
 
-The Configuration panel can create, update, and delete local runtime overrides. Overrides are stored in
-`.bootui/application-bootui.properties` by default, loaded at high precedence on the next startup, and never modify your
-application source configuration. Already-bound `@ConfigurationProperties` beans may keep their previous value until the
-app restarts; BootUI returns that warning with every override mutation.
+The Configuration panel can create, update, and delete local runtime overrides. They are stored in
+`.bootui/application-bootui.properties`, loaded at high precedence on the next startup, and never modify your source
+configuration. Already-bound `@ConfigurationProperties` beans can keep their previous value until the application
+restarts, and BootUI returns that warning with every override mutation.
 
-`bootui.overrides-file` changes where that file lives, and BootUI resolves the advisor dismissed-findings file
-(`boot-ui.yml`) in the same directory. Set it from the environment (`BOOTUI_OVERRIDES_FILE`) rather than from
-`application.properties`, which is loaded too late for the overrides file to be read at startup. Containers that rebuild
-their image from source can point it at a mounted volume so both files survive — see
-[Persisting console state across image rebuilds](environments.md#persisting-console-state-across-image-rebuilds).
+Set `bootui.overrides-file` to move that file. BootUI resolves the advisor dismissed-findings file, `boot-ui.yml`, in
+the same directory.
+
+::: warning Set it from the environment
+`application.properties` is loaded too late for the overrides file to be read at startup. Use `BOOTUI_OVERRIDES_FILE`
+or a `-D` system property instead. In a container, point it at a mounted volume so both files survive an image
+rebuild. See [persisting console state](environments.md#persisting-console-state-across-image-rebuilds).
+:::

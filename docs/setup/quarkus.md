@@ -1,20 +1,16 @@
 # BootUI on Quarkus
 
-BootUI also ships as a **Quarkus extension**. It serves the same Vue console and JSON contract as Spring
-(`/bootui` and `/bootui/api/**` by default), backed by the Quarkus build of the framework-neutral
-BootUI engine.
+BootUI ships as a Quarkus extension. It serves the same console and the same JSON contract as the Spring starters,
+backed by the Quarkus build of the framework-neutral engine.
 
 ## Prerequisites
 
 - Java 17 or later
-- A Quarkus application (built and tested against the version pinned by the root `pom.xml`'s
-  `quarkus.platform.version` property; currently the `3.33.3.2` LTS release)
+- A Quarkus application, built and tested against the platform version pinned by the root `pom.xml`
+  (`quarkus.platform.version`, currently the `3.33.3.2` LTS release)
 - Maven or Gradle (or their local wrappers)
 
 ## Add the extension
-
-Add the BootUI Quarkus extension to your build — nothing else is required. BootUI wires itself up only in Quarkus'
-**dev** and **test** launch modes and stays completely dark in production, so it is safe to leave on the classpath.
 
 ::: tabs#build
 
@@ -42,12 +38,12 @@ implementation("com.julien-dubois.bootui:bootui-quarkus:1.18.0")
 
 :::
 
-You only declare `bootui-quarkus`; the matching `bootui-quarkus-deployment` artifact is resolved automatically by the
-Quarkus extension mechanism.
+Declare only `bootui-quarkus`. The Quarkus extension mechanism resolves the matching `bootui-quarkus-deployment`
+artifact for you.
 
 ## Run your app in development mode
 
-Start Quarkus in dev mode. BootUI activates automatically — there is no profile or flag to set:
+Start Quarkus in dev mode. BootUI activates automatically, with no profile or flag to set:
 
 ::: tabs#build
 
@@ -65,75 +61,47 @@ Start Quarkus in dev mode. BootUI activates automatically — there is no profil
 
 :::
 
-## Open BootUI
+BootUI is then available at <http://localhost:8080/bootui>.
 
-Nice job! BootUI is now configured 🚀
+The `bootui.path` and `bootui.api-path` settings described in [Use a custom path](../SETUP.md#use-a-custom-path) work
+in dev and test mode and compose with `quarkus.http.root-path`.
 
-Visit: <http://localhost:8080/bootui>
+## Activation and safety
 
-The same `bootui.path` / `bootui.api-path` settings shown in
-[Use a custom path](../SETUP.md#use-a-custom-path) work in Quarkus dev/test mode and compose with `quarkus.http.root-path`.
+The Quarkus launch mode decides activation. There is no Spring-style profile and no `bootui.enabled` flag:
 
-## Activation and safety on Quarkus
+| Launch mode | Behavior |
+| ----------- | -------- |
+| `dev` (`quarkus:dev`) and `test` (`@QuarkusTest`) | The console, its `/bootui/api/**` endpoints, the CDI beans, and the safety filter are wired. |
+| `NORMAL` (a packaged `quarkus-run.jar` or a native image) | Nothing is wired. A build-time guard answers a plain 404 for `/bootui` and every `/bootui/**` path, including the packaged UI shell. |
 
-Activation is governed entirely by the **Quarkus launch mode**, not by a Spring-style profile or a `bootui.enabled`
-flag:
+This is fail-closed by design: no flag turns BootUI on in a production build.
 
-- **`dev` (`quarkus:dev`) and `test` (`@QuarkusTest`)** — the console, its `/bootui/api/**` endpoints, the CDI beans,
-  and the safety filter are all wired up.
-- **Production (`NORMAL` launch mode — a packaged `quarkus-run.jar` or a native image)** — BootUI is **not wired at
-  all**. The API, beans, and safety filter are absent, so the console has no data to serve. This is fail-closed by
-  design: there is no flag that turns BootUI on in a production build.
-
-The request-time safety model is **identical to Spring Boot**: BootUI is loopback-only by default and shares the same
-`LocalhostGuard` (loopback-source trust, a `Host` allow-list as a DNS-rebinding defense, and cross-site-write / CSRF
-protection). Non-loopback API callers must additionally authenticate with the BootUI bearer token. The same opt-in keys
-apply, read live from MicroProfile `Config`:
+The request-time safety model matches Spring Boot. The shared `LocalhostGuard` applies loopback-source trust, a `Host`
+allow-list against DNS rebinding, and cross-site-write protection. Non-loopback API callers must also present the
+BootUI bearer token. The same keys apply, read from MicroProfile `Config`:
 
 ```properties
 bootui.allow-non-localhost=false        # default: reject non-loopback callers
 bootui.allowed-hosts=localhost          # extra Host header values to accept
-bootui.trusted-proxies=172.16.0.0/12    # extra source ranges (e.g. a Docker gateway)
+bootui.trusted-proxies=172.16.0.0/12    # extra source ranges (for example, a Docker gateway)
 bootui.trust-container-gateway=AUTO     # auto-trust the container gateway in dev containers
 # bootui.authentication.token=...       # optional stable token; otherwise generated at startup
 ```
 
-The [Running inside a Docker container](environments.md#running-inside-a-docker-container) guidance applies to Quarkus too —
-use the same keys (only the Spring-specific activation note differs; on Quarkus, dev mode is already active).
+The [Docker container guidance](environments.md#running-inside-a-docker-container) applies to Quarkus too, since dev
+mode is already active there. Per-panel `bootui.panels.*` toggles and the `bootui.read-only` master switch behave
+identically on both frameworks.
 
-A few capabilities are **Spring-only today**: runtime configuration overrides (the Configuration panel is read-only
-on Quarkus — there is no write path yet). Per-panel `bootui.panels.*` enable / read-only toggles and the
-`bootui.read-only` master switch are enforced identically on both frameworks. Everything else behaves the same across
-both frameworks.
+Runtime configuration overrides are Spring-only today, so the Configuration panel is read-only on Quarkus.
 
-## Which panels are available on Quarkus
+## Panel availability
 
-Most of BootUI's panels are live on Quarkus. A handful target Spring-specific runtime concepts and are clearly marked
-*not applicable* on Quarkus — for example GraalVM and CRaC readiness, Conditions, Startup Timeline, HTTP Sessions,
-Spring Data, Spring Security, and DevTools. (Quarkus builds native images and generates reachability metadata itself,
-and the others have no Quarkus equivalent.)
+Most panels are live. Nine target Spring-specific runtime concepts and are permanently marked *not applicable*, and
+JMS is not available yet. See [what is not on Quarkus](../FRAMEWORK-SUPPORT.md#what-is-not-on-quarkus) for the list and
+the reason for each. To try a fully wired application, see
+[Try the sample app](../TRY-SAMPLE-APP.md#quarkus-image).
 
-For the authoritative, per-panel availability, see [Features](../features/README.md) and
-[Framework support](../FRAMEWORK-SUPPORT.md). To try a fully wired Quarkus app, see
-[Try the sample app](../TRY-SAMPLE-APP.md#bootui-on-quarkus).
-
-### MySQL prerequisites
-
-The [MySQL operational panel](../features/database.md#mysql) uses an existing default or named JDBC datasource
-with the `io.quarkus:quarkus-jdbc-mysql` extension and a MySQL declaration (`quarkus.datasource.db-kind=mysql`, or the
-corresponding named datasource configuration). A reactive MySQL client alone is not supported.
-Oracle MySQL 8.4 LTS is the tested server line, with live coverage on 8.4.6; MariaDB is a separate unsupported
-follow-up.
-
-Keep credentials in the application's existing secure configuration. BootUI creates no monitoring datasource and
-starts no database or sample workload when the panel opens. Only **Run MySQL read** performs bounded, blocking JDBC
-collection; cached GET/MCP/CLI report reads perform no SQL. The same [startup row caps](../PROPERTIES.md#mysql),
-permissions, masking, and panel read-only policy apply as on Spring. Without the JDBC capability the panel is
-unavailable, and production builds remain completely dark.
-
-For the repository's optional demonstration, the
-[Quarkus sample README](https://github.com/jdubois/boot-ui/tree/main/bootui-quarkus-sample-app#readme) documents the
-`mysql-diagnostics` Maven profile plus `dev,mysql-diagnostics` runtime profiles. Its named `mysql` pool reads
-`BOOTUI_SAMPLE_MYSQL_URL`, `BOOTUI_SAMPLE_MYSQL_USERNAME`, and `BOOTUI_SAMPLE_MYSQL_PASSWORD`;
-Dev Services is explicitly disabled for that pool. Supply your own local
-fixture and credentials rather than expecting the profile or BootUI to create a database.
+The [MySQL panel](../features/database.md#mysql) needs an existing default or named JDBC datasource with the
+`io.quarkus:quarkus-jdbc-mysql` extension and `quarkus.datasource.db-kind=mysql`. A reactive MySQL client alone is not
+enough, and BootUI creates no monitoring datasource of its own.
