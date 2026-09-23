@@ -84,7 +84,7 @@ final class HibernateMissingUniqueIndexRule extends AbstractHibernateCrossRefere
                     || (isPrimaryKey(table, columns)
                             && table.metadata().primaryKeyEnforced() == null
                             && !primaryKeyEnforced(resolution.schema(), table))
-                    || table.indexes().stream().anyMatch(this::uncertainEnforcement)
+                    || table.indexes().stream().anyMatch(index -> uncertainEnforcement(index, columns))
                     || table.indexes().stream()
                             .anyMatch(index -> structurallyCovers(index, columns)
                                     && !enforces(index, columns, resolution.schema(), table))) {
@@ -92,7 +92,8 @@ final class HibernateMissingUniqueIndexRule extends AbstractHibernateCrossRefere
                         context,
                         uniqueConstraint.description()
                                 + ": index metadata does not establish complete uniqueness enforcement; "
-                                + "constraint-backed, nullable-subset, partial, expression or unknown-state keys may require additional evidence.");
+                                + "constraint-backed, nullable-subset, partial, expression, operator-class or unknown-state keys "
+                                + "may require additional evidence.");
                 continue;
             }
             eligible++;
@@ -139,6 +140,11 @@ final class HibernateMissingUniqueIndexRule extends AbstractHibernateCrossRefere
         });
     }
 
+    /**
+     * Collation cannot weaken enforcement: PostgreSQL deterministic collations compare equal only for identical
+     * bytes, and nondeterministic ones only merge more values. A non-default operator class can redefine
+     * equality, so only the type's default one (or a vendor without operator classes) counts as plain.
+     */
     private boolean structurallyCovers(IndexModel index, List<String> columns) {
         return index.unique()
                 && Boolean.TRUE.equals(index.uniquenessKnown())
@@ -151,13 +157,22 @@ final class HibernateMissingUniqueIndexRule extends AbstractHibernateCrossRefere
                 && index.keyParts().stream()
                         .allMatch(part -> part.columnName() != null
                                 && columns.contains(part.columnName())
-                                && part.collation() == null
+                                && !Boolean.FALSE.equals(part.defaultOperatorClass())
                                 && (part.prefixLength() == null || part.prefixLength() > 0));
     }
 
-    private boolean uncertainEnforcement(IndexModel index) {
+    /** Only an index that could cover the declaration, or whose keys are unknown, makes absence uncertain. */
+    private boolean uncertainEnforcement(IndexModel index, List<String> columns) {
+        boolean mayCover = index.keyParts().isEmpty()
+                || index.keyParts().stream()
+                        .allMatch(part -> part.isExpression() || columns.contains(part.columnName()));
+        if (!mayCover) {
+            return false;
+        }
         return !Boolean.TRUE.equals(index.uniquenessKnown())
-                || index.backingConstraint() != null
+                // A nonunique constraint-backed index (Oracle nonunique backing, PostgreSQL exclusion) may still
+                // enforce a guarantee; a unique one is fully judged by the structural checks below.
+                || (index.backingConstraint() != null && !index.unique())
                 || (index.unique()
                         && (index.validity() != IndexModel.Validity.VALID
                                 || index.partial()
@@ -166,7 +181,7 @@ final class HibernateMissingUniqueIndexRule extends AbstractHibernateCrossRefere
                                 || index.partitioned()
                                 || index.keyParts().isEmpty()
                                 || index.keyParts().stream()
-                                        .anyMatch(part -> part.collation() != null
+                                        .anyMatch(part -> Boolean.FALSE.equals(part.defaultOperatorClass())
                                                 || (part.prefixLength() != null && part.prefixLength() <= 0))));
     }
 

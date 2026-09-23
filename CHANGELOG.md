@@ -48,6 +48,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   compared, and other ambiguous mappings on non-character columns are now skipped quietly
   ([#1090](https://github.com/jdubois/boot-ui/issues/1090)).
 
+- **DB-HIB-005 concludes on PostgreSQL.** The PostgreSQL catalog reader passed each index key's `indcollation` OID
+  (`0` for no collation, `100` for the database default) as an explicit collation, so every unique index looked like
+  it had non-plain comparison semantics. As a result, DB-HIB-005 reported every `@Column(unique = true)` and
+  `@Table(uniqueConstraints = ...)` as unknown and the scan was PARTIAL. Collation no longer blocks the check, because
+  it cannot weaken enforcement. A key part with a non-default operator class, which may redefine equality, is now
+  what stays unknown. A genuinely missing unique key is now reported rather than hidden as unknown. Before, the
+  primary key or any unrelated uncertain index on the same table was enough to hide it
+  ([#1087](https://github.com/jdubois/boot-ui/issues/1087)).
+
 - **DB-HIB-007 assesses `@JoinColumn`s that omit `referencedColumnName`.** An ordinary `@ManyToOne`/`@OneToOne`
   single join column is now paired with the Jakarta Persistence default, the target entity's `@Id` column, when that
   column is also the target table's observed single-column primary key. Previously these mappings were reported as

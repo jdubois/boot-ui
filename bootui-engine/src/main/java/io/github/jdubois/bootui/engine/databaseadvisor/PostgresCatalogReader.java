@@ -275,10 +275,13 @@ final class PostgresCatalogReader {
                    array(select i.indoption[k.pos - 1]::text || ':' || i.indcollation[k.pos - 1]::text
                                      || ':' || i.indclass[k.pos - 1]::text
                          from generate_series(1, %s) k(pos) order by k.pos) as key_semantics,
+                   array(select coalesce(oc.opcdefault, false)::text from generate_series(1, %s) k(pos)
+                         left join pg_opclass oc on oc.oid = i.indclass[k.pos - 1]
+                         order by k.pos) as key_default_operator_classes,
                    array(select a.attname::text from generate_series(%s + 1, i.indnatts) k(pos)
                          join pg_attribute a on a.attrelid = i.indrelid and a.attnum = i.indkey[k.pos - 1]
                          order by k.pos) as included_columns
-                """.formatted(keyCount, keyCount, keyCount, keyCount));
+                """.formatted(keyCount, keyCount, keyCount, keyCount, keyCount));
         sql.append(INDEX_DETAILS_FROM_WHERE_SQL).append(ORDER_AND_LIMIT_SQL);
         return sql.toString();
     }
@@ -294,12 +297,24 @@ final class PostgresCatalogReader {
                 nullableBoolean(rs, "is_unique"));
     }
 
+    /**
+     * {@code pg_index.indcollation} is never SQL NULL: {@code 0} (InvalidOid) marks a non-collatable key and
+     * {@code 100} (the pinned {@code default} collation) an ordinary text key. Only an explicit other collation
+     * changes comparison semantics.
+     */
+    static String explicitCollation(String collationOid) {
+        return collationOid == null || collationOid.isEmpty() || "0".equals(collationOid) || "100".equals(collationOid)
+                ? null
+                : collationOid;
+    }
+
     private static PostgresIndexDetail readIndexDetail(ResultSet rs, DialectCapabilities capabilities)
             throws SQLException {
         Integer keyCount = nullableInt(rs, "key_column_count");
         List<String> columns = strings(rs, "key_columns");
         List<String> expressions = strings(rs, "key_expressions");
         List<String> semantics = strings(rs, "key_semantics");
+        List<String> defaultOperatorClasses = strings(rs, "key_default_operator_classes");
         List<String> included = strings(rs, "included_columns");
         List<IndexKeyPart> parts = new ArrayList<>();
         boolean complete = keyCount != null
@@ -325,7 +340,17 @@ final class PostgresCatalogReader {
                 if (ascending == null) {
                     complete = false;
                 }
-                parts.add(new IndexKeyPart(column, expression, ascending, null, flags.length == 3 ? flags[1] : null));
+                // An unreported operator class is not evidence of ordinary equality.
+                boolean defaultOperatorClass = defaultOperatorClasses != null
+                        && defaultOperatorClasses.size() == keyCount
+                        && "true".equals(defaultOperatorClasses.get(position));
+                parts.add(new IndexKeyPart(
+                        column,
+                        expression,
+                        ascending,
+                        null,
+                        flags.length == 3 ? explicitCollation(flags[1]) : null,
+                        defaultOperatorClass));
             }
         }
         Boolean valid = nullableBoolean(rs, "is_valid");

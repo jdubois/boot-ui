@@ -6,13 +6,22 @@ import io.github.jdubois.bootui.core.dto.DatabaseAdvisorReport;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
 import io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorScanner;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
+import io.github.jdubois.bootui.engine.hibernate.HibernateAttributeModel;
+import io.github.jdubois.bootui.engine.hibernate.HibernateEntityModel;
 import io.github.jdubois.bootui.spi.NamedDataSource;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import java.lang.reflect.Field;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Clock;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -82,6 +91,11 @@ class PostgresDatabaseAdvisorLiveTests {
                     + "with (publish = 'delete', publish_via_partition_root = true)");
             statement.execute("create publication all_inserts for all tables with (publish = 'insert')");
 
+            // Real pg_index rows for DB-HIB-005: indcollation is 0 or 100 rather than NULL for ordinary keys.
+            statement.execute("create table games (id uuid primary key, code varchar(50) not null unique, "
+                    + "slug varchar(100), nick varchar(50) collate \"C\" unique, handle varchar(50))");
+            statement.execute("create unique index games_handle_key on games (handle text_pattern_ops)");
+
             statement.execute(
                     "create sequence descending_seq increment by -1 minvalue -1000 maxvalue -1 start with -1");
             statement.execute("select setval('descending_seq', -900)");
@@ -93,6 +107,46 @@ class PostgresDatabaseAdvisorLiveTests {
                         () -> List.of(new NamedDataSource("primary", dataSource)),
                         () -> EntityDiscovery.empty(null),
                         Clock.systemUTC())
+                .scan();
+    }
+
+    @Entity
+    @Table(name = "games")
+    static class Game {
+        @Id
+        @Column(name = "id")
+        UUID id;
+
+        @Column(name = "code", nullable = false, unique = true, length = 50)
+        String code;
+
+        @Column(name = "slug", unique = true, length = 100)
+        String slug;
+
+        @Column(name = "nick", unique = true, length = 50)
+        String nick;
+
+        @Column(name = "handle", unique = true, length = 50)
+        String handle;
+    }
+
+    private static DatabaseAdvisorReport scanWithGameEntity() {
+        List<HibernateAttributeModel> attributes = new java.util.ArrayList<>();
+        for (Field field : Game.class.getDeclaredFields()) {
+            attributes.add(new HibernateAttributeModel(
+                    "Game",
+                    field.getName(),
+                    field.getType(),
+                    field.getGenericType(),
+                    "BASIC",
+                    false,
+                    true,
+                    Arrays.asList(field.getAnnotations())));
+        }
+        EntityDiscovery entities = new EntityDiscovery(
+                List.of(new HibernateEntityModel("Game", Game.class, attributes)), List.of(), List.of());
+        return DatabaseAdvisorScanner.using(
+                        () -> List.of(new NamedDataSource("primary", dataSource)), () -> entities, Clock.systemUTC())
                 .scan();
     }
 
@@ -176,5 +230,21 @@ class PostgresDatabaseAdvisorLiveTests {
         assertThat(report.diagnostics())
                 .anySatisfy(diagnostic -> assertThat(diagnostic.source()).isEqualTo("DB-MYSQL-001"));
         assertThat(report.results()).noneMatch(result -> result.id().startsWith("DB-MYSQL"));
+    }
+
+    @Test
+    void declaredUniquenessConcludesAgainstTheLivePostgresCatalog() {
+        DatabaseAdvisorReport report = scanWithGameEntity();
+
+        assertThat(finding(report, "DB-HIB-005")).hasValueSatisfying(result -> {
+            assertThat(result.status()).isEqualTo("VIOLATION");
+            assertThat(result.sampleViolations()).singleElement().asString().contains("Game#slug", "no enforcing key");
+        });
+        List<String> uniquenessDiagnostics = report.diagnostics().stream()
+                .filter(diagnostic -> "DB-HIB-005".equals(diagnostic.source()))
+                .map(diagnostic -> diagnostic.message())
+                .toList();
+        // Only the non-default operator class stays unproven; the default and "C" collations conclude.
+        assertThat(uniquenessDiagnostics).singleElement().asString().contains("Game#handle");
     }
 }
