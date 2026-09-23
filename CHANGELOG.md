@@ -9,6 +9,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Hibernate Advisor PARTIAL scans are now explainable.** The report gains a `diagnostics` array
+  (`source`, `unit`, `level`, `message`) naming each rule evaluation that failed or lacked required evidence and each
+  discovery gap, with controlled phrases for the missing evidence and up to three sanitized examples such as
+  `OrderRepository#findRecent`. Findings from a partly evaluated rule carry a `coverageNote`, advisor limits by design
+  are reported at `INFO`, and the list is capped at 200 entries without dropping any affected rule. `scan.message` no
+  longer truncates rules with "+N more". The Hibernate and Database Advisor panels share an accessible
+  **Scan diagnostics** card, and the new members are returned unchanged by REST, MCP, and the CLI
+  ([#1086](https://github.com/jdubois/boot-ui/issues/1086)).
+
+- **SPRING-PERF-002 names the pool it reports and ignores Spring's own executors.** Each finding now names the
+  `ThreadPoolTaskExecutor` bean and the class declaring its factory method, or its bean type when that declaration
+  cannot be resolved. Pools declared by Spring's own configuration, such as the STOMP channel executors
+  `@EnableWebSocketMessageBroker` registers, are no longer reported as the application's pooling choice; application
+  overrides of them still are ([#1083](https://github.com/jdubois/boot-ui/issues/1083)).
+
 - **SQL Trace no longer truncates statement durations to whole milliseconds.** Executions are timed and recorded in
   microseconds (`durationMicros` on each entry; `durationMillis` remains as a rounded compatibility field), and every
   aggregate — buffer stats, statement rankings, p50/p95/p99, shares, database time by request route, and the request
@@ -32,6 +47,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   what stays unknown. A genuinely missing unique key is now reported rather than hidden as unknown. Before, the
   primary key or any unrelated uncertain index on the same table was enough to hide it
   ([#1087](https://github.com/jdubois/boot-ui/issues/1087)).
+
+- **DB-HIB-007 assesses `@JoinColumn`s that omit `referencedColumnName`.** An ordinary `@ManyToOne`/`@OneToOne`
+  single join column is now paired with the Jakarta Persistence default, the target entity's `@Id` column, when that
+  column is also the target table's observed single-column primary key. Previously these mappings were reported as
+  unknown, which left the rule with no applicable targets. Composite joins with an omitted referenced column, `@Id`
+  columns that cannot be established without guessing a naming strategy, and constraints that reference a
+  non-primary-key column remain unknown ([#1088](https://github.com/jdubois/boot-ui/issues/1088)).
 
 ## [1.18.0] - 2026-09-21
 

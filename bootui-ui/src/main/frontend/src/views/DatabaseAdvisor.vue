@@ -1,7 +1,8 @@
 <script setup>
-import {computed, ref} from 'vue'
+import {computed} from 'vue'
 import {useAdvisorPanel} from '../utils/useAdvisorPanel.js'
 import {panelProps} from '../utils/panelState.js'
+import AdvisorDiagnostics from './components/AdvisorDiagnostics.vue'
 import AdvisorSummary from './components/AdvisorSummary.vue'
 import AdvisorRuleViolations from './components/AdvisorRuleViolations.vue'
 import PanelHeader from './components/PanelHeader.vue'
@@ -18,8 +19,6 @@ const panel = useAdvisorPanel(props, {
   countNoun: 'finding'
 })
 
-const showDiagnostics = ref(false)
-
 const DATA_SOURCE_STATUS_CLASSES = {
   AVAILABLE: 'text-bg-success',
   PARTIAL: 'text-bg-warning',
@@ -30,12 +29,6 @@ const DATA_SOURCE_STATUS_LABELS = {
   AVAILABLE: 'Read',
   PARTIAL: 'Partly read',
   FAILED: 'Unreadable'
-}
-
-const DIAGNOSTIC_CLASSES = {
-  ERROR: 'text-bg-danger',
-  WARNING: 'text-bg-warning',
-  INFO: 'text-bg-secondary'
 }
 
 // Falls back to the plain name list so a report from an older adapter still renders every datasource.
@@ -71,10 +64,6 @@ function dataSourceStatusClass(status) {
 
 function dataSourceStatusLabel(status) {
   return DATA_SOURCE_STATUS_LABELS[status] || status
-}
-
-function diagnosticClass(level) {
-  return DIAGNOSTIC_CLASSES[level] || 'text-bg-light border text-dark'
 }
 </script>
 
@@ -198,31 +187,7 @@ function diagnosticClass(level) {
         </div>
       </div>
 
-      <div v-if="diagnostics.length > 0" class="card mb-3">
-        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-          <div>
-            <div class="fw-semibold">Scan diagnostics</div>
-            <div class="text-muted small">
-              {{ diagnostics.length }} {{ panel.pluralize(diagnostics.length, 'note') }} — not counted as findings
-            </div>
-          </div>
-          <button
-            class="btn btn-sm btn-outline-secondary"
-            type="button"
-            :aria-expanded="showDiagnostics"
-            @click="showDiagnostics = !showDiagnostics"
-          >
-            {{ showDiagnostics ? 'Hide' : 'Show' }} diagnostics
-          </button>
-        </div>
-        <ul v-if="showDiagnostics" class="list-group list-group-flush">
-          <li v-for="(diagnostic, index) in diagnostics" :key="index" class="list-group-item small">
-            <span :class="diagnosticClass(diagnostic.level)" class="badge me-2">{{ diagnostic.level }}</span>
-            <span class="font-monospace">{{ diagnostic.source }}</span>
-            <span class="ms-2">{{ diagnostic.message }}</span>
-          </li>
-        </ul>
-      </div>
+      <AdvisorDiagnostics :diagnostics="diagnostics" />
 
       <div class="card">
         <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">

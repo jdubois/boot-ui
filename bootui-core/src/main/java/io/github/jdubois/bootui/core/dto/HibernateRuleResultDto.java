@@ -4,6 +4,9 @@ import java.util.List;
 
 /**
  * Outcome of one Hibernate Advisor rule evaluated against mapped application entities.
+ *
+ * @param coverageNote {@code null} when the rule was fully evaluated; otherwise which units were only partly
+ *     evaluated and why, so a violation reported from the evaluated part is not mistaken for full coverage
  */
 public record HibernateRuleResultDto(
         String id,
@@ -16,10 +19,38 @@ public record HibernateRuleResultDto(
         List<String> sampleViolations,
         String recommendation,
         String learnMoreUrl,
-        boolean dismissed) {
+        boolean dismissed,
+        String coverageNote) {
 
     public HibernateRuleResultDto {
         sampleViolations = DtoCollections.immutableCopy(sampleViolations);
+    }
+
+    public HibernateRuleResultDto(
+            String id,
+            String name,
+            String category,
+            String severity,
+            String description,
+            String status,
+            int violationCount,
+            List<String> sampleViolations,
+            String recommendation,
+            String learnMoreUrl,
+            boolean dismissed) {
+        this(
+                id,
+                name,
+                category,
+                severity,
+                description,
+                status,
+                violationCount,
+                sampleViolations,
+                recommendation,
+                learnMoreUrl,
+                dismissed,
+                null);
     }
 
     public HibernateRuleResultDto(
@@ -44,7 +75,8 @@ public record HibernateRuleResultDto(
                 sampleViolations,
                 recommendation,
                 learnMoreUrl,
-                false);
+                false,
+                null);
     }
 
     public HibernateRuleResultDto withDismissed(boolean dismissed) {
@@ -59,6 +91,23 @@ public record HibernateRuleResultDto(
                 sampleViolations,
                 recommendation,
                 learnMoreUrl,
-                dismissed);
+                dismissed,
+                coverageNote);
+    }
+
+    public HibernateRuleResultDto withCoverageNote(String coverageNote) {
+        return new HibernateRuleResultDto(
+                id,
+                name,
+                category,
+                severity,
+                description,
+                status,
+                violationCount,
+                sampleViolations,
+                recommendation,
+                learnMoreUrl,
+                dismissed,
+                coverageNote);
     }
 }

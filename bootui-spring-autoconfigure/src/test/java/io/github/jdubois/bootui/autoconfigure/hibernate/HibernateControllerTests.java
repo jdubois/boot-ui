@@ -12,7 +12,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
+import io.github.jdubois.bootui.core.dto.HibernateDiagnosticDto;
 import io.github.jdubois.bootui.core.dto.HibernateReport;
+import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
 import io.github.jdubois.bootui.core.dto.HibernateScanStatusDto;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
@@ -79,7 +81,54 @@ class HibernateControllerTests {
         mvc.perform(post("/bootui/api/hibernate/scan"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scan.status").value("SCANNED"))
-                .andExpect(jsonPath("$.violationsFound").value(2));
+                .andExpect(jsonPath("$.violationsFound").value(2))
+                .andExpect(jsonPath("$.diagnostics").isArray());
         verify(scanner).scan();
+    }
+
+    @Test
+    void scanSerializesDiagnosticsAndCoverageNotes() throws Exception {
+        HibernateScanner scanner = mock(HibernateScanner.class);
+        DismissedRulesStore dismissedRules = mock(DismissedRulesStore.class);
+        HibernateRuleResultDto finding = new HibernateRuleResultDto(
+                        "HIB-QUERY-006",
+                        "name",
+                        "Queries",
+                        "LOW",
+                        "description",
+                        "VIOLATION",
+                        1,
+                        List.of("Finding"),
+                        "recommendation",
+                        "https://example.com")
+                .withCoverageNote("Incomplete in [default]: 1 repository query method(s) ...");
+        HibernateReport base = report("PARTIAL", 1);
+        HibernateReport scanned = new HibernateReport(
+                base.localOnly(),
+                base.disclaimer(),
+                base.entityPackages(),
+                base.entitiesAnalyzed(),
+                base.rulesEvaluated(),
+                base.violationsFound(),
+                base.severityCounts(),
+                base.scan(),
+                List.of(finding),
+                List.of(new HibernateDiagnosticDto("HIB-QUERY-006", "default", "WARNING", "Partly evaluated.")),
+                base.evidence(),
+                base.violationDetails());
+        when(scanner.scan()).thenReturn(scanned);
+        when(dismissedRules.load()).thenReturn(Set.of());
+        when(scanner.applyDismissals(eq(scanned), any())).thenReturn(scanned);
+
+        standaloneSetup(new HibernateController(scanner, dismissedRules))
+                .build()
+                .perform(post("/bootui/api/hibernate/scan"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.diagnostics[0].source").value("HIB-QUERY-006"))
+                .andExpect(jsonPath("$.diagnostics[0].unit").value("default"))
+                .andExpect(jsonPath("$.diagnostics[0].level").value("WARNING"))
+                .andExpect(jsonPath("$.diagnostics[0].message").value("Partly evaluated."))
+                .andExpect(jsonPath("$.results[0].coverageNote")
+                        .value("Incomplete in [default]: 1 repository query method(s) ..."));
     }
 }

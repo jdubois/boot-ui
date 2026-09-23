@@ -182,6 +182,25 @@ class HibernateRulesTests {
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
 
+    @Test
+    void queryShapeGapsNameTheSpecificObstacle() {
+        java.util.Map<String, HibernateEvidenceGap> expected = new java.util.LinkedHashMap<>();
+        expected.put("select r from MultiCollectionRoot r join r.firstBag b", HibernateEvidenceGap.QUERY_JOIN_PATH);
+        expected.put("select r from UnknownEntity r", HibernateEvidenceGap.QUERY_ENTITY);
+        expected.put(
+                "select r from MultiCollectionRoot r where r.id in (select 1 from MultiCollectionRoot x)",
+                HibernateEvidenceGap.QUERY_SHAPE);
+        expected.forEach((query, gap) -> {
+            HibernateContext context = context(new TestEnvironment(), List.of(), MultiCollectionRoot.class);
+            context.evidence().reset();
+
+            assertThat(HibernateQueryShape.root(context, queryMethod("find", query, List.of()), false))
+                    .as(query)
+                    .isNull();
+            assertThat(context.evidence().gaps()).as(query).containsOnlyKeys(gap);
+        });
+    }
+
     // --- HIB-QUERY-007 ------------------------------------------------------
 
     @Test

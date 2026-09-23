@@ -669,6 +669,52 @@ class DatabaseAdvisorHibernateRulesTests {
         assertThat(result.sampleViolations().get(0)).contains("customer_id");
     }
 
+    @Test
+    void hibernateMissingForeignKeyConstraintRuleAssessesAnOmittedReferencedColumnAgainstThePrimaryKey() {
+        MappedEntityFacts entity = annotationFacts(DefaultedOrderItem.class);
+        assertThat(entity.foreignKeys().get(0).referencedColumns()).containsExactly((String) null);
+        assertThat(entity.foreignKeys().get(0).targetIdentifierColumn()).isEqualTo("id");
+        TableModel orders =
+                table("orders", List.of(column("id", "uuid", Types.OTHER)), List.of("id"), List.of(), List.of());
+        TableModel constrained = table(
+                "order_items",
+                List.of(column("id", "uuid", Types.OTHER), column("order_id", "uuid", Types.OTHER)),
+                List.of("id"),
+                List.of(foreignKey("fk_order_items_order_id", List.of("order_id"), "orders", List.of("id"))
+                        .withEnforcement(true, true, "SIMPLE")),
+                List.of());
+        DatabaseAdvisorRuleResultDto passing = new HibernateMissingForeignKeyConstraintRule()
+                .evaluate(hibernateContext(schema("ds", Dialect.GENERIC, List.of(constrained, orders)), entity));
+        assertThat(passing.status()).isEqualTo(PASS);
+
+        TableModel unconstrained = constrained.withForeignKeys(List.of());
+        DatabaseAdvisorRuleResultDto violation = new HibernateMissingForeignKeyConstraintRule()
+                .evaluate(hibernateContext(schema("ds", Dialect.GENERIC, List.of(unconstrained, orders)), entity));
+        assertThat(violation.status()).isEqualTo(VIOLATION);
+        assertThat(violation.sampleViolations().get(0)).contains("DefaultedOrderItem#order");
+    }
+
+    @jakarta.persistence.Entity
+    @jakarta.persistence.Table(name = "orders")
+    static class DefaultedOrder {
+        @jakarta.persistence.Id
+        java.util.UUID id;
+    }
+
+    @jakarta.persistence.Entity
+    @jakarta.persistence.Table(name = "order_items")
+    static class DefaultedOrderItem {
+        @jakarta.persistence.Id
+        java.util.UUID id;
+
+        @jakarta.persistence.ManyToOne(fetch = jakarta.persistence.FetchType.LAZY, optional = false)
+        @jakarta.persistence.JoinColumn(
+                name = "order_id",
+                nullable = false,
+                foreignKey = @jakarta.persistence.ForeignKey(name = "fk_order_items_order_id"))
+        DefaultedOrder order;
+    }
+
     // --- @SecondaryTable support ---
 
     @Test
