@@ -148,9 +148,20 @@ public final class ZipDirectory {
         try {
             inflater.setInput(data);
             byte[] content = new byte[(int) entry.size()];
-            int length = inflater.inflate(content);
-            if (length != content.length || !inflater.finished()) {
+            int length = 0;
+            while (length < content.length) {
+                int inflated = inflater.inflate(content, length, content.length - length);
+                if (inflated == 0 && (inflater.finished() || inflater.needsInput() || inflater.needsDictionary())) {
+                    break;
+                }
+                length += inflated;
+            }
+            // A full buffer may still precede the final block marker; the stream must then end with no more output.
+            if (length != content.length || !inflater.finished() && inflater.inflate(new byte[1]) != 0) {
                 throw new IOException("Entry size mismatch");
+            }
+            if (!inflater.finished()) {
+                throw new IOException("Truncated deflated entry");
             }
             return content;
         } catch (DataFormatException ex) {

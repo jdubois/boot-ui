@@ -928,11 +928,13 @@ without extracting it — before reporting it:
   application code. An archive the index places in the `application` layer may also use the parent of a base package
   when that parent has at least two segments, so sibling modules of a launcher in `com.acme.gateway` (for example
   `com.acme.orders`) are recognized; layer placement alone is never enough, because a custom layering can put any
-  library there. Other modules whose classes live outside the base packages are not recognized. The
+  library there. Plain `extract` without `--layers` writes no index, so there only the base packages themselves
+  apply. A bare file name carried by two different archives (the census counts it once) is never first-party. Other
+  modules whose classes live outside the base packages are not recognized. The
   panel lists them in a collapsed note, and `archivesFound = archivesIdentified + archivesUnidentified + archivesFirstParty`.
 - **`spring-boot-jarmode-tools`.** Spring Boot's build plugins add it at packaging time, so it is not a declared
   dependency and is absent from the SBOM. When its file name, `Implementation-Title: Spring Boot Jarmode Tools`, and
-  `Implementation-Version` agree and the archive carries `org/springframework/boot/jarmode/tools/` classes, it is
+  `Implementation-Version` agree and every class the archive carries is under `org/springframework/boot/jarmode/tools/`, it is
   identified as `org.springframework.boot:spring-boot-jarmode-tools:<version>`
   (source "Spring Boot manifest") and scanned like any other dependency. It is the only archive identified from a
   manifest.

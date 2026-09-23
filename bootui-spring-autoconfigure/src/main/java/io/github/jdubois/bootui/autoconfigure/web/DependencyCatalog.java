@@ -272,6 +272,9 @@ final class DependencyCatalog implements DependencyProvider {
             List<String> packages,
             Map<String, DependencyDto> dependencies,
             OuterArchives outers) {
+        if (archive.shadowed()) {
+            return Attribution.UNIDENTIFIED;
+        }
         boolean bootCandidate = archive.name().startsWith(JARMODE_TOOLS_ARTIFACT_ID + "-");
         boolean firstPartyCandidate = !packages.isEmpty() && !Boolean.FALSE.equals(archive.applicationLayer());
         if (!bootCandidate && !firstPartyCandidate) {
@@ -328,14 +331,28 @@ final class DependencyCatalog implements DependencyProvider {
         return null;
     }
 
-    /** Whether the archive actually carries the jarmode tools, so a manifest alone cannot claim the identity. */
+    /**
+     * Whether the archive carries the jarmode tools and nothing else executable, so neither a manifest alone nor
+     * a real tools class bundled with other code can claim the identity.
+     */
     private static boolean containsJarmodeToolsClasses(Iterable<String> entryNames) {
+        boolean tools = false;
         for (String name : entryNames) {
-            if (name != null && name.startsWith(JARMODE_TOOLS_PACKAGE) && name.endsWith(".class")) {
-                return true;
+            if (name == null) {
+                continue;
+            }
+            String lower = name.toLowerCase(Locale.ROOT);
+            if (lower.endsWith(".jar") || lower.endsWith(".war") || lower.endsWith(".zip")) {
+                return false;
+            }
+            if (name.endsWith(".class")) {
+                if (!name.startsWith(JARMODE_TOOLS_PACKAGE)) {
+                    return false;
+                }
+                tools = true;
             }
         }
-        return false;
+        return tools;
     }
 
     private static Attribution classify(
@@ -427,9 +444,35 @@ final class DependencyCatalog implements DependencyProvider {
     /**
      * One archive of the census: its bare file name, the file it is read from, for a library nested in a
      * repackaged archive its entry name inside that file, and whether a Spring Boot layers index places it in the
-     * {@code application} layer ({@code null} when no index describes it).
+     * {@code application} layer ({@code null} when no index describes it). {@code shadowed} marks a bare name
+     * that another, different archive also carries: the census counts the name once, so inspecting only one copy
+     * could vouch for code in the other, and such an archive is never first-party nor identified from its
+     * manifest.
      */
-    private record CensusArchive(String name, Path file, String nestedEntry, Boolean applicationLayer) {}
+    private record CensusArchive(
+            String name, Path file, String nestedEntry, Boolean applicationLayer, boolean shadowed) {
+
+        CensusArchive(String name, Path file, String nestedEntry, Boolean applicationLayer) {
+            this(name, file, nestedEntry, applicationLayer, false);
+        }
+
+        boolean samePlace(CensusArchive other) {
+            return file.equals(other.file) && java.util.Objects.equals(nestedEntry, other.nestedEntry);
+        }
+
+        CensusArchive asShadowed() {
+            return new CensusArchive(name, file, nestedEntry, applicationLayer, true);
+        }
+    }
+
+    private static void addToCensus(Map<String, CensusArchive> archives, CensusArchive archive) {
+        CensusArchive existing = archives.get(archive.name());
+        if (existing == null) {
+            archives.put(archive.name(), archive);
+        } else if (!existing.samePlace(archive) && !existing.shadowed()) {
+            archives.put(archive.name(), existing.asShadowed());
+        }
+    }
 
     /**
      * The distinct JAR archives the application actually runs with, or an empty list when they cannot be
@@ -450,14 +493,14 @@ final class DependencyCatalog implements DependencyProvider {
                 // This is also why the entry is inspected before its extension is considered: an executable
                 // WAR is a classpath entry that is not itself a JAR.
                 for (CensusArchive archive : nested) {
-                    archives.putIfAbsent(archive.name(), archive);
+                    addToCensus(archives, archive);
                 }
                 continue;
             }
             String archive = ArchiveNames.jarFileName(entry.toString());
             if (archive != null) {
-                archives.putIfAbsent(
-                        archive,
+                addToCensus(
+                        archives,
                         new CensusArchive(
                                 archive, entry, null, explodedApplicationLayer(entry, archive, explodedIndexes)));
             }
@@ -526,7 +569,7 @@ final class DependencyCatalog implements DependencyProvider {
         if (!file.isFile()) {
             return null;
         }
-        try (JarFile jarFile = new JarFile(file)) {
+        try (JarFile jarFile = new JarFile(file, false)) {
             List<String> prefixes = nestedLibraryPrefixes(jarFile);
             LayersIndex layers = null;
             List<CensusArchive> nested = new ArrayList<>();
@@ -606,11 +649,16 @@ final class DependencyCatalog implements DependencyProvider {
         if (bootInf == null
                 || lib.getFileName() == null
                 || bootInf.getFileName() == null
-                || !"lib".equals(lib.getFileName().toString())
-                || !"BOOT-INF".equals(bootInf.getFileName().toString())) {
+                || !"lib".equalsIgnoreCase(lib.getFileName().toString())) {
             return null;
         }
-        String entryName = "BOOT-INF/lib/" + archive;
+        // Compared without case: a case-insensitive file system resolves a differently cased path to the same
+        // extracted layout, and the index is always consulted under its canonical entry name.
+        String infDirectory = bootInf.getFileName().toString().toUpperCase(Locale.ROOT);
+        if (!"BOOT-INF".equals(infDirectory) && !"WEB-INF".equals(infDirectory)) {
+            return null;
+        }
+        String entryName = infDirectory + "/lib/" + archive;
         Optional<LayersIndex> adjacent = cache.computeIfAbsent(bootInf, DependencyCatalog::explodedLayersIndex);
         if (adjacent.isPresent()) {
             return adjacent.get().isApplication(entryName);
@@ -621,7 +669,7 @@ final class DependencyCatalog implements DependencyProvider {
             return null;
         }
         Optional<LayersIndex> sibling = cache.computeIfAbsent(
-                root.resolve(LayersIndex.APPLICATION_LAYER).resolve("BOOT-INF"),
+                root.resolve(LayersIndex.APPLICATION_LAYER).resolve(bootInf.getFileName()),
                 DependencyCatalog::explodedLayersIndex);
         if (sibling.isEmpty()) {
             return null;

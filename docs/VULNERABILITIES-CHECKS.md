@@ -212,10 +212,13 @@ each base package's parent when that parent has at least two segments (sibling m
 packages, is reported as first-party (`archivesFirstParty`, at most 200 `firstPartyArchives` names plus truncation)
 and does not count against `COMPLETE`; it is the application itself and is not scanned. `spring-boot-jarmode-tools`,
 which Spring Boot adds at packaging time, is identified from its manifest only when the file name,
-`Implementation-Title: Spring Boot Jarmode Tools`, and `Implementation-Version` agree and the archive carries
-`org/springframework/boot/jarmode/tools/` classes, and is then scanned. Unreadable,
-resource-only, compressed-nested, and oversized (more than 20,000 entries) archives, archives outside the layers-index
-`application` layer, and every archive when no usable base package is detected, stay unidentified. Without a layers
+`Implementation-Title: Spring Boot Jarmode Tools`, and `Implementation-Version` agree and every class it carries is under
+`org/springframework/boot/jarmode/tools/` (with no bundled archive), and is then scanned. For first-party
+recognition, unreadable, resource-only, compressed-nested, and oversized (more than 20,000 entries) archives, archives
+outside the layers-index `application` layer, a bare name that two different archives carry (the census counts it
+once), and every archive when no usable base package is detected, stay unidentified. Extracted `WEB-INF/lib/` archives
+honor an adjacent `WEB-INF/layers.idx` the same way. Plain `extract` without `--layers` writes no index, so only the
+unwidened base packages apply there. Without a layers
 index, a library relocated into the application's own package and stripped of its Maven descriptors cannot be told
 apart from application code.
 

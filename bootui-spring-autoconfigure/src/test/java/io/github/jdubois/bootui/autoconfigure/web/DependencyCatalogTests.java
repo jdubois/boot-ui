@@ -733,6 +733,43 @@ class DependencyCatalogTests {
     }
 
     @Test
+    void aBareNameCarriedByTwoDifferentArchivesIsNeverFirstParty() throws Exception {
+        // The census counts one users.jar; vouching for the first copy must not hide the second one's code.
+        Path first = writeJar(tempDir.resolve("a/users.jar"), null, List.of("com/boosting/user/User.class"));
+        Path second = writeJar(tempDir.resolve("b/users.jar"), null, List.of("org/vendor/Library.class"));
+
+        DependencyCoverageDto coverage = withClassPathInventory(
+                        new DependencyCatalog(emptyResolver(), () -> List.of("com.boosting")),
+                        first.toString(),
+                        second.toString())
+                .coverage();
+
+        assertThat(coverage).isEqualTo(DependencyCoverageDto.of(1, 1, List.of("users.jar")));
+    }
+
+    @Test
+    void anExplodedWarHonorsItsLayersIndex() throws Exception {
+        Path webInf = Files.createDirectories(tempDir.resolve("war/WEB-INF"));
+        Files.writeString(webInf.resolve("layers.idx"), """
+                - "dependencies":
+                  - "WEB-INF/lib/boosting-sdk.jar"
+                - "application":
+                  - "WEB-INF/lib/users.jar"
+                """);
+        Path users = writeJar(webInf.resolve("lib/users.jar"), null, List.of("com/boosting/user/User.class"));
+        Path sdk = writeJar(webInf.resolve("lib/boosting-sdk.jar"), null, List.of("com/boosting/sdk/Client.class"));
+
+        DependencyCoverageDto coverage = withClassPathInventory(
+                        new DependencyCatalog(emptyResolver(), () -> List.of("com.boosting")),
+                        users.toString(),
+                        sdk.toString())
+                .coverage();
+
+        assertThat(coverage)
+                .isEqualTo(DependencyCoverageDto.of(2, 1, List.of("boosting-sdk.jar"), 1, List.of("users.jar")));
+    }
+
+    @Test
     void anUnreadableLayersIndexPlacesNoArchiveInTheApplicationLayer() throws Exception {
         Path fatJar = repackagedJarWithContents(
                 Map.of("users.jar", jarBytes(null, List.of("com/boosting/user/User.class"))),
@@ -752,12 +789,17 @@ class DependencyCatalogTests {
                 tempDir.resolve("spring-boot-jarmode-tools-4.1.1.jar"),
                 jarmodeManifest("4.1.1"),
                 List.of("org/example/Payload.class"));
+        Path mixed = writeJar(
+                tempDir.resolve("mixed/spring-boot-jarmode-tools-4.1.2.jar"),
+                jarmodeManifest("4.1.2"),
+                List.of("org/springframework/boot/jarmode/tools/Tools.class", "org/example/Payload.class"));
 
-        DependencyInventory inventory =
-                withClassPathInventory(new DependencyCatalog(emptyResolver(), () -> List.of()), forged.toString());
+        DependencyInventory inventory = withClassPathInventory(
+                new DependencyCatalog(emptyResolver(), () -> List.of()), forged.toString(), mixed.toString());
 
         assertThat(inventory.coverage())
-                .isEqualTo(DependencyCoverageDto.of(1, 1, List.of("spring-boot-jarmode-tools-4.1.1.jar")));
+                .isEqualTo(DependencyCoverageDto.of(
+                        2, 2, List.of("spring-boot-jarmode-tools-4.1.1.jar", "spring-boot-jarmode-tools-4.1.2.jar")));
         assertThat(inventory.dependencies()).isEmpty();
     }
 

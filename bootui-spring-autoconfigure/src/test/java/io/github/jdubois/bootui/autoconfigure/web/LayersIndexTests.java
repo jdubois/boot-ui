@@ -50,6 +50,10 @@ class LayersIndexTests {
         assertThat(read("\n\n")).isSameAs(LayersIndex.UNREADABLE);
         assertThat(LayersIndex.read(new ByteArrayInputStream(new byte[LayersIndex.MAX_BYTES + 1])))
                 .isSameAs(LayersIndex.UNREADABLE);
+        assertThat(read("- \"application\":\n  - \"BOOT-INF/\rlib/users.jar\"\n"))
+                .isSameAs(LayersIndex.UNREADABLE);
+        byte[] invalidUtf8 = {'-', ' ', '"', 'a', (byte) 0xC3, '"', ':', '\n'};
+        assertThat(LayersIndex.read(new ByteArrayInputStream(invalidUtf8))).isSameAs(LayersIndex.UNREADABLE);
         assertThat(LayersIndex.UNREADABLE.isApplication("BOOT-INF/lib/users.jar"))
                 .isFalse();
     }

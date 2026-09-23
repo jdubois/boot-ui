@@ -575,6 +575,25 @@ describe('Vulnerabilities', () => {
     expect(wrapper.findAll('table tbody tr').map((row) => row.text())).not.toContain('cart.jar')
   })
 
+  it('says first-party JAR names were omitted when the report carries none of them', async () => {
+    const {wrapper} = await mountWithReports([
+      report([], 0, 'SCANNED', {
+        coverage: coverage({
+          status: 'COMPLETE',
+          archivesFound: 17,
+          archivesIdentified: 0,
+          archivesUnidentified: 0,
+          archivesFirstParty: 17,
+          firstPartyArchives: [],
+          firstPartyArchivesTruncated: true
+        })
+      })
+    ])
+
+    expect(wrapper.text()).toContain('Their names were omitted from this response.')
+    expect(wrapper.findAll('button').some((button) => button.text().includes('Show first-party JARs'))).toBe(false)
+  })
+
   it('says the unidentified JAR list is bounded when the report truncated it', async () => {
     const {wrapper} = await mountWithReports([
       report([], 0, 'SCANNED', {

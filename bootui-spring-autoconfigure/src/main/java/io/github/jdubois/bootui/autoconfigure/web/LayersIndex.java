@@ -2,6 +2,9 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -52,11 +55,26 @@ final class LayersIndex {
         if (bytes.length > MAX_BYTES) {
             return UNREADABLE;
         }
+        String text;
+        try {
+            text = StandardCharsets.UTF_8
+                    .newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes))
+                    .toString();
+        } catch (CharacterCodingException ex) {
+            return UNREADABLE;
+        }
         List<Path> paths = new ArrayList<>();
         boolean application = false;
         String layer = null;
-        for (String raw : new String(bytes, StandardCharsets.UTF_8).split("\n")) {
-            String line = raw.replace("\r", "");
+        for (String raw : text.split("\n", -1)) {
+            // Only a CRLF terminator is tolerated; a carriage return anywhere else is malformed, not repaired.
+            String line = raw.endsWith("\r") ? raw.substring(0, raw.length() - 1) : raw;
+            if (line.indexOf('\r') >= 0) {
+                return UNREADABLE;
+            }
             if (line.isBlank()) {
                 continue;
             }

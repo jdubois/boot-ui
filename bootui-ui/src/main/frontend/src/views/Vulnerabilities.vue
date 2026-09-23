@@ -403,7 +403,10 @@ onMounted(loadDependencies)
         <ul v-if="showFirstPartyArchives" class="mt-2 mb-0 unidentified-archives">
           <li v-for="archive in firstPartyArchives" :key="archive">{{ archive }}</li>
         </ul>
-        <div v-if="showFirstPartyArchives && coverage.firstPartyArchivesTruncated" class="text-muted mt-1">
+        <div v-if="coverage.firstPartyArchivesTruncated && !firstPartyArchives.length" class="text-muted mt-1">
+          Their names were omitted from this response.
+        </div>
+        <div v-else-if="showFirstPartyArchives && coverage.firstPartyArchivesTruncated" class="text-muted mt-1">
           Only the first {{ firstPartyArchives.length }} names are listed.
         </div>
       </div>
