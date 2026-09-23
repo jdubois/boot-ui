@@ -141,4 +141,21 @@ public final class ApplicationFixtures {
             return tag;
         }
     }
+
+    public static class AppPool extends ThreadPoolTaskExecutor {}
+
+    /** Covariant application override of a framework @Bean method that does not repeat @Bean. */
+    public static class CovariantBrokerConfiguration extends WebSocketMessageBrokerConfigurationSupport {
+        @Override
+        protected void registerStompEndpoints(StompEndpointRegistry registry) {}
+
+        @Override
+        public AppPool clientOutboundChannelExecutor() {
+            return new AppPool();
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @org.springframework.context.annotation.ComponentScan("app.advisoraudit.scanned")
+    public static class ScanConfiguration {}
 }

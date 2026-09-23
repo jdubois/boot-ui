@@ -16,18 +16,23 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory;
 import org.springframework.beans.factory.support.AbstractBeanDefinition;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.beans.factory.support.RootBeanDefinition;
+import org.springframework.context.annotation.Bean;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.env.Environment;
+import org.springframework.core.type.MethodMetadata;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -46,6 +51,7 @@ final class SpringInventory {
     static final int MAX_BEANS = 4096;
     static final int MAX_MEMBERS = 512;
     static final int MAX_TOTAL_MEMBERS = 20_000;
+    private static final int MAX_OWNER_DEPTH = 32;
     private static final String ASYNC_PROCESSOR =
             "org.springframework.scheduling.config.internalAsyncAnnotationProcessor";
     private static final String SCHEDULED_PROCESSOR =
@@ -236,40 +242,68 @@ final class SpringInventory {
         } catch (RuntimeException | LinkageError ex) {
             partial();
         }
-        boolean framework = declaring != null && declaring.startsWith("org.springframework.");
-        return new PooledExecutorRef(entry.name(), declaring, framework);
+        boolean framework = declaring != null
+                && declaring.startsWith("org.springframework.")
+                && !declaring.startsWith("org.springframework.samples.");
+        return new PooledExecutorRef(entry.name(), declaring, entry.type().getName(), framework);
     }
 
     private String declaringClass(Entry entry) {
         if (!factory.containsBeanDefinition(entry.name())) return null;
+        BeanDefinition raw = factory.getBeanDefinition(entry.name());
         BeanDefinition definition = factory.getMergedBeanDefinition(entry.name());
         if (definition instanceof RootBeanDefinition root && root.getResolvedFactoryMethod() != null)
             return root.getResolvedFactoryMethod().getDeclaringClass().getName();
         String method = definition.getFactoryMethodName();
         if (method == null) return null; // registered bean class: its declaring configuration is unknown
+        // Configuration-class parsing records the @Bean method's declaring class, including for ASM-read classes.
+        MethodMetadata metadata = raw instanceof AnnotatedBeanDefinition annotated
+                ? annotated.getFactoryMethodMetadata()
+                : definition instanceof AnnotatedBeanDefinition annotated ? annotated.getFactoryMethodMetadata() : null;
+        String beanMethodClass = metadata == null ? null : metadata.getDeclaringClassName();
         Class<?> owner = null;
         if (definition.getFactoryBeanName() != null) owner = factory.getType(definition.getFactoryBeanName(), false);
         else if (definition instanceof AbstractBeanDefinition abd && abd.hasBeanClass()) owner = abd.getBeanClass();
         else if (definition.getBeanClassName() != null)
             owner = ClassUtils.resolveClassName(definition.getBeanClassName(), factory.getBeanClassLoader());
-        if (owner == null) return null;
+        if (owner == null) return beanMethodClass;
         boolean instance = definition.getFactoryBeanName() != null;
-        // Most-derived declaration per parameter signature; several compatible signatures are ambiguous.
-        Map<List<Class<?>>, Class<?>> declarations = new java.util.LinkedHashMap<>();
+        // Most-derived declaration per parameter signature, so an application override wins over the
+        // framework @Bean method it overrides even when only the superclass carries @Bean.
+        Map<List<Class<?>>, Method> mostDerived = new LinkedHashMap<>();
+        Set<List<Class<?>>> beanMethodSignatures = new HashSet<>();
+        int depth = 0;
         for (Class<?> type = ClassUtils.getUserClass(owner); type != null; type = type.getSuperclass()) {
             Method[] methods = type.getDeclaredMethods();
-            if (!budget(methods.length)) return null;
-            for (Method candidate : methods)
-                if (candidate.getName().equals(method)
-                        && !candidate.isBridge()
-                        && !candidate.isSynthetic()
-                        && Modifier.isStatic(candidate.getModifiers()) != instance
-                        && candidate.getReturnType().isAssignableFrom(entry.type()))
-                    declarations.putIfAbsent(List.of(candidate.getParameterTypes()), type);
+            // Own small allowance: this runs per pool and must not depend on the shared inventory budget.
+            if (++depth > MAX_OWNER_DEPTH || methods.length > MAX_MEMBERS) {
+                partial();
+                return null;
+            }
+            for (Method candidate : methods) {
+                if (!candidate.getName().equals(method)
+                        || candidate.isBridge()
+                        || candidate.isSynthetic()
+                        || Modifier.isStatic(candidate.getModifiers()) == instance) continue;
+                List<Class<?>> signature = List.of(candidate.getParameterTypes());
+                mostDerived.putIfAbsent(signature, candidate);
+                if (type.getName().equals(beanMethodClass) && candidate.isAnnotationPresent(Bean.class))
+                    beanMethodSignatures.add(signature);
+            }
         }
-        return declarations.size() == 1
-                ? declarations.values().iterator().next().getName()
-                : null;
+        List<Method> candidates = mostDerived.entrySet().stream()
+                .filter(e -> beanMethodClass == null
+                        ? compatible(e.getValue().getReturnType(), entry.type())
+                        : beanMethodSignatures.contains(e.getKey()))
+                .map(Map.Entry::getValue)
+                .toList();
+        if (candidates.size() == 1) return candidates.get(0).getDeclaringClass().getName();
+        return candidates.isEmpty() ? beanMethodClass : null;
+    }
+
+    /** Target metadata may be narrower (covariant override) or wider (declared Executor) than the method. */
+    private static boolean compatible(Class<?> returnType, Class<?> beanType) {
+        return returnType.isAssignableFrom(beanType) || beanType.isAssignableFrom(returnType);
     }
 
     private CacheManagerRef cacheManager(Entry entry) {

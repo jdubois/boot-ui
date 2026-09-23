@@ -561,7 +561,8 @@ final class VirtualThreadsOverriddenByPoolRule extends AbstractSpringRule {
                                 pool -> SpringRuleSupport.detail(
                                         "ThreadPoolTaskExecutor bean '" + pool.name() + "' "
                                                 + (pool.declaringClass() == null
-                                                        ? "(declaring configuration not resolved)"
+                                                        ? "of type " + pool.beanClass()
+                                                                + " (declaring configuration not resolved)"
                                                         : "declared by " + pool.declaringClass())
                                                 + " coexists with virtual-thread configuration. Its routing and thread factory are not inferred; review intentional pooling."))
                         .toList());

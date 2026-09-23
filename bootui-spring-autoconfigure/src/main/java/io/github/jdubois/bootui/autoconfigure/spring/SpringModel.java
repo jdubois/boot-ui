@@ -38,10 +38,10 @@ final class SpringModel {
     record CacheManagerRef(String name, String className) {}
 
     /**
-     * A {@code ThreadPoolTaskExecutor} bean, the class declaring its definition (factory method owner or
-     * bean class, may be null) and whether that declaration belongs to Spring itself rather than the application.
+     * A {@code ThreadPoolTaskExecutor} bean, the class declaring its factory method (null when unresolved or
+     * registered directly), its bean type and whether that declaration belongs to Spring rather than the application.
      */
-    record PooledExecutorRef(String name, String declaringClass, boolean frameworkOwned) {}
+    record PooledExecutorRef(String name, String declaringClass, String beanClass, boolean frameworkOwned) {}
 
     /** Counts the beans in {@code refs} that are marked primary. */
     static long primaryCount(List<BeanRef> refs) {

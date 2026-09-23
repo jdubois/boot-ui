@@ -42,6 +42,7 @@ class SpringRulesTests {
 
     static final Map<Fact, Object> ENDPOINT_EVIDENCE =
             Map.of(ENDPOINTS, Set.of("health", "env", "configprops", "beans", "heapdump", "shutdown"));
+    static final String TPTE = "org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor";
     static final List<BeanRef> TWO = List.of(new BeanRef("first", false), new BeanRef("second", false));
 
     @Test
@@ -316,7 +317,7 @@ class SpringRulesTests {
                         .evaluate(SpringContext.builder(env("spring.threads.virtual.enabled", "true"))
                                 .virtualThreadsSupported(true)
                                 .pooledTaskExecutors(
-                                        List.of(new PooledExecutorRef("pool", "com.example.Config", false)))
+                                        List.of(new PooledExecutorRef("pool", "com.example.Config", TPTE, false)))
                                 .build())
                         .severity())
                 .isEqualTo("INFO");
@@ -329,13 +330,15 @@ class SpringRulesTests {
                 new PooledExecutorRef(
                         "clientInboundChannelExecutor",
                         "org.springframework.messaging.simp.config.AbstractMessageBrokerConfiguration",
+                        TPTE,
                         true),
                 new PooledExecutorRef(
                         "brokerChannelExecutor",
                         "org.springframework.messaging.simp.config.AbstractMessageBrokerConfiguration",
+                        TPTE,
                         true));
-        var app = new PooledExecutorRef("reportPool", "com.example.ReportConfig", false);
-        var unresolved = new PooledExecutorRef("registered", null, false);
+        var app = new PooledExecutorRef("reportPool", "com.example.ReportConfig", TPTE, false);
+        var unresolved = new PooledExecutorRef("registered", null, "com.example.CustomPool", false);
         MockEnvironment enabled = env("spring.threads.virtual.enabled", "true");
         assertThat(rule.evaluate(SpringContext.builder(enabled)
                                 .virtualThreadsSupported(true)
@@ -355,11 +358,11 @@ class SpringRulesTests {
                 .hasSize(2)
                 .anySatisfy(detail -> assertThat(detail)
                         .startsWith("ThreadPoolTaskExecutor bean 'reportPool' declared by com.example.ReportConfig"))
-                .anySatisfy(
-                        detail -> assertThat(detail).contains("'registered' (declaring configuration not resolved)"))
+                .anySatisfy(detail -> assertThat(detail)
+                        .contains("'registered' of type com.example.CustomPool (declaring configuration not resolved)"))
                 .noneSatisfy(detail -> assertThat(detail).contains("ChannelExecutor"));
         var many = java.util.stream.IntStream.range(0, 12)
-                .mapToObj(i -> new PooledExecutorRef("pool" + i, "com.example.Config", false))
+                .mapToObj(i -> new PooledExecutorRef("pool" + i, "com.example.Config", TPTE, false))
                 .toList();
         var counted = rule.evaluate(SpringContext.builder(enabled)
                 .virtualThreadsSupported(true)
