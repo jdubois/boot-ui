@@ -10,7 +10,8 @@ import java.util.Set;
  * Mutable accumulator for one normalized statement, shared by the global ranking and by the per-route
  * breakdown so both agree exactly on what an execution contributes.
  *
- * <p>Durations are retained per group so percentiles are computed from the real distribution rather than
+ * <p>Durations are accumulated in microseconds, the resolution they are captured at, so a window of
+ * sub-millisecond executions still totals the database time it really spent. They are retained per group so percentiles are computed from the real distribution rather than
  * estimated from a mean. That is affordable because the source buffer is already bounded: across every
  * group the accumulated durations total exactly the number of retained executions.</p>
  */
@@ -27,13 +28,13 @@ final class SqlStatementAggregate {
     private final String fingerprint;
     private final String sql;
     private final String category;
-    private final List<Long> durations = new ArrayList<>();
+    private final List<Long> durationsMicros = new ArrayList<>();
     private final Set<String> callSites = new LinkedHashSet<>();
     private final List<Long> entryIds = new ArrayList<>();
-    private List<Long> sortedDurations;
+    private List<Long> sortedDurationsMicros;
     private long executions;
-    private long totalDurationMillis;
-    private long maxDurationMillis;
+    private long totalDurationMicros;
+    private long maxDurationMicros;
     private long errorCount;
 
     SqlStatementAggregate(String fingerprint, String sql, String category) {
@@ -43,12 +44,12 @@ final class SqlStatementAggregate {
     }
 
     void add(SqlTraceEntryDto entry) {
-        long duration = Math.max(0, entry.durationMillis());
+        long duration = Math.max(0, entry.durationMicros());
         executions++;
-        totalDurationMillis += duration;
-        maxDurationMillis = Math.max(maxDurationMillis, duration);
-        durations.add(duration);
-        sortedDurations = null;
+        totalDurationMicros += duration;
+        maxDurationMicros = Math.max(maxDurationMicros, duration);
+        durationsMicros.add(duration);
+        sortedDurationsMicros = null;
         if (entryIds.size() < MAX_LINKED_ENTRIES) {
             entryIds.add(entry.id());
         }
@@ -76,20 +77,20 @@ final class SqlStatementAggregate {
         return executions;
     }
 
-    long totalDurationMillis() {
-        return totalDurationMillis;
+    long totalDurationMicros() {
+        return totalDurationMicros;
     }
 
-    long maxDurationMillis() {
-        return maxDurationMillis;
+    long maxDurationMicros() {
+        return maxDurationMicros;
     }
 
     long errorCount() {
         return errorCount;
     }
 
-    double avgDurationMillis() {
-        return executions == 0 ? 0 : (double) totalDurationMillis / executions;
+    double avgDurationMicros() {
+        return executions == 0 ? 0 : (double) totalDurationMicros / executions;
     }
 
     List<String> callSites() {
@@ -110,15 +111,15 @@ final class SqlStatementAggregate {
      * the panel can honestly label these "over the retained window" rather than as sampled estimates. The
      * sorted view is memoized because every ranked row asks for three percentiles from the same group.
      */
-    long percentile(int percentile) {
-        if (durations.isEmpty()) {
+    long percentileMicros(int percentile) {
+        if (durationsMicros.isEmpty()) {
             return 0;
         }
-        List<Long> sorted = sortedDurations;
+        List<Long> sorted = sortedDurationsMicros;
         if (sorted == null) {
-            sorted = new ArrayList<>(durations);
+            sorted = new ArrayList<>(durationsMicros);
             sorted.sort(null);
-            sortedDurations = sorted;
+            sortedDurationsMicros = sorted;
         }
         int rank = (int) Math.ceil(percentile / 100.0 * sorted.size());
         int index = Math.min(sorted.size() - 1, Math.max(0, rank - 1));

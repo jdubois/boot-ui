@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {formatBytes, formatClockTime, formatNumber, formatRelative} from './format.js'
+import {formatBytes, formatClockTime, formatMillis, formatNumber, formatRelative} from './format.js'
 
 describe('formatNumber', () => {
   it('returns an em dash for null or undefined', () => {
@@ -10,6 +10,27 @@ describe('formatNumber', () => {
   it('formats numbers using locale grouping', () => {
     expect(formatNumber(1234567)).toBe((1234567).toLocaleString())
     expect(formatNumber(0)).toBe('0')
+  })
+})
+
+describe('formatMillis', () => {
+  it('returns an em dash for null, undefined, empty, or non-numeric values', () => {
+    expect(formatMillis(null)).toBe('—')
+    expect(formatMillis(undefined)).toBe('—')
+    expect(formatMillis('')).toBe('—')
+    expect(formatMillis('not-a-number')).toBe('—')
+  })
+
+  it('keeps sub-millisecond durations visible instead of rounding them to zero', () => {
+    expect(formatMillis(0.31)).toBe('0.310')
+    expect(formatMillis(0.0004)).toBe('<0.001')
+    expect(formatMillis(0)).toBe('0')
+  })
+
+  it('drops decimals as durations grow', () => {
+    expect(formatMillis(1.234)).toBe('1.23')
+    expect(formatMillis(42.67)).toBe('42.7')
+    expect(formatMillis(1234.5)).toBe((1235).toLocaleString())
   })
 })
 

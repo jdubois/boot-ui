@@ -6,7 +6,7 @@ import PanelSkeleton from './components/PanelSkeleton.vue'
 import UnavailableState from './components/UnavailableState.vue'
 import FlashBanner from './components/FlashBanner.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
-import {formatBytes, formatClockTime, formatNumber} from '../utils/format.js'
+import {formatBytes, formatClockTime, formatMillis, formatNumber} from '../utils/format.js'
 import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {safeLocalStorage} from '../utils/safeStorage.js'
@@ -315,7 +315,7 @@ const paused = computed(() => !autoRefresh.value)
 const timingSummary = computed(() => {
   const timing = profile.value?.timing
   if (!timing) return ''
-  let text = `${timing.sqlCount} SQL statement(s), ${timing.sqlMs} ms in SQL`
+  let text = `${timing.sqlCount} SQL statement(s), ${formatMillis(timing.sqlMs)} ms in SQL`
   if (timing.sqlPercent != null) {
     text += ` (${timing.sqlPercent}% of request)`
   }

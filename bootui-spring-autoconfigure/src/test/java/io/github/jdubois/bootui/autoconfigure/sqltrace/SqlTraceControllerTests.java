@@ -112,7 +112,7 @@ class SqlTraceControllerTests {
                 Category.SELECT,
                 "select ?",
                 List.of("'x'"),
-                150,
+                150_000,
                 true,
                 null,
                 null,
@@ -128,6 +128,8 @@ class SqlTraceControllerTests {
         assertThat(report.dataSources()).containsExactly("dataSource");
         assertThat(report.entries()).hasSize(1);
         assertThat(report.entries().get(0).slow()).isTrue();
+        assertThat(report.entries().get(0).durationMicros()).isEqualTo(150_000);
+        assertThat(report.entries().get(0).durationMillis()).isEqualTo(150);
         assertThat(report.entries().get(0).category()).isEqualTo("SELECT");
         assertThat(report.entries().get(0).parameters()).containsExactly("'x'");
         assertThat(report.topStatements()).hasSize(1);

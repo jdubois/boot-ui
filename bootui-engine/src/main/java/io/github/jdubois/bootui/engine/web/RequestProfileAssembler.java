@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
+import io.github.jdubois.bootui.engine.sqltrace.SqlDurations;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import io.github.jdubois.bootui.engine.support.BlankStrings;
 import java.time.Instant;
@@ -123,7 +124,12 @@ public final class RequestProfileAssembler {
             notes.add("Trace matched by id " + traceId + ".");
         }
 
-        long sqlMs = sql.stream().mapToLong(SqlTraceEntryDto::durationMillis).sum();
+        // Summed in microseconds, the resolution SQL Trace records: on a local database almost every
+        // statement runs in well under a millisecond, so summing rounded milliseconds would report a
+        // request that spent real time in the database as spending none.
+        long sqlMicros =
+                sql.stream().mapToLong(SqlTraceEntryDto::durationMicros).sum();
+        double sqlMs = SqlDurations.millis(sqlMicros);
         Double sqlPercent = (request.durationMs() != null && request.durationMs() > 0)
                 ? Math.round(10000.0 * sqlMs / request.durationMs()) / 100.0
                 : null;

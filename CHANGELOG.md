@@ -5,6 +5,19 @@ All notable changes to BootUI are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **SQL Trace no longer truncates statement durations to whole milliseconds.** Executions are timed and recorded in
+  microseconds (`durationMicros` on each entry; `durationMillis` remains as a rounded compatibility field), and every
+  aggregate — buffer stats, statement rankings, p50/p95/p99, shares, database time by request route, and the request
+  profile's SQL time — is summed from them and reported in fractional milliseconds. Against a local database, where an
+  ordinary primary-key read finishes in a few hundred microseconds, nearly every execution previously recorded `0 ms`,
+  so rankings had no non-zero total to rank by and route attribution reported no database time. The
+  `bootui.sql-trace.slow-query-threshold-millis` property keeps its millisecond semantics
+  ([#1093](https://github.com/jdubois/boot-ui/issues/1093)).
+
 ## [1.18.0] - 2026-09-21
 
 Feature release adding PostgreSQL and MySQL operational diagnostics across Spring MVC, Spring WebFlux, and Quarkus,
