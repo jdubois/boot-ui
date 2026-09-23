@@ -238,6 +238,30 @@ class HibernateRulesTests {
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
 
+    @Test
+    void multipleCollectionJoinFetchRuleReportsTheSameSeverityWhetherOrNotItFires() {
+        HibernateRepositoryModel passing = new HibernateRepositoryModel(
+                "com.example.Repo",
+                MultiCollectionRoot.class,
+                List.of(queryMethod(
+                        "findAll", "select r from MultiCollectionRoot r join fetch r.firstBag", List.of())));
+        HibernateRepositoryModel violating = new HibernateRepositoryModel(
+                "com.example.Repo",
+                MultiCollectionRoot.class,
+                List.of(queryMethod(
+                        "findAll",
+                        "select r from MultiCollectionRoot r join fetch r.firstBag join fetch r.secondBag",
+                        List.of())));
+
+        HibernateRuleResultDto passResult = new MultipleCollectionJoinFetchRule()
+                .evaluate(context(new TestEnvironment(), List.of(passing), MultiCollectionRoot.class));
+        HibernateRuleResultDto violationResult = new MultipleCollectionJoinFetchRule()
+                .evaluate(context(new TestEnvironment(), List.of(violating), MultiCollectionRoot.class));
+
+        assertThat(passResult.severity()).isEqualTo(HibernateRuleSupport.MEDIUM);
+        assertThat(violationResult.severity()).isEqualTo(passResult.severity());
+    }
+
     // --- HIB-QUERY-008 ------------------------------------------------------
 
     @Test
