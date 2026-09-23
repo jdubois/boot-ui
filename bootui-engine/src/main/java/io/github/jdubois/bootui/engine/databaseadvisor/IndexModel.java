@@ -359,12 +359,18 @@ record IndexModel(
     /**
      * True when this index and {@code other} share an access method and key-column set, the only shape in which
      * an index whose comparison semantics are not modelled could hide an exact duplicate of another index on the
-     * same table. Key columns are compared as an unordered multiset because {@link #exactDuplicateOf} is
-     * order-sensitive, so this deliberately over-reports rather than hiding a pair.
+     * same table. An unknown access method matches any method, since it could turn out to be the other's. Key
+     * columns are compared as an unordered multiset because {@link #exactDuplicateOf} is order-sensitive, so this
+     * deliberately over-reports rather than hiding a pair.
      */
     boolean sharesComparisonShapeWith(IndexModel other) {
-        return Objects.equals(normalizedMethod(), other.normalizedMethod())
-                && sortedKeyColumns().equals(other.sortedKeyColumns());
+        return comparableMethodWith(other) && sortedKeyColumns().equals(other.sortedKeyColumns());
+    }
+
+    private boolean comparableMethodWith(IndexModel other) {
+        String left = normalizedMethod();
+        String right = other.normalizedMethod();
+        return left == null || right == null || left.equals(right);
     }
 
     boolean exactDuplicateOf(IndexModel other) {

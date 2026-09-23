@@ -206,6 +206,38 @@ class DatabaseAdvisorSchemaRulesTests {
     }
 
     @Test
+    void anUnknownAccessMethodStillCountsAsAPossibleDuplicateOfAKnownOne() {
+        TableModel table = indexed(
+                index("known", List.of("a"), false, List.of(), null), IndexModel.of("unread", List.of("a"), false));
+        DatabaseAdvisorContext context = context(schema("ds", Dialect.GENERIC, List.of(table)));
+        new DuplicateIndexRule().evaluate(context);
+        assertThat(context.evaluationDiagnostics())
+                .singleElement()
+                .satisfies(diagnostic -> assertThat(diagnostic.message()).contains("index unread"));
+    }
+
+    @Test
+    void reorderedKeysOfUnmodelledIndexesAreReportedRatherThanAssumedDistinct() {
+        TableModel table = indexed(
+                nonBtree("forward", List.of("a", "b"), "hash"), nonBtree("reversed", List.of("b", "a"), "hash"));
+        DatabaseAdvisorContext context = context(schema("ds", Dialect.POSTGRESQL, List.of(table)));
+        new DuplicateIndexRule().evaluate(context);
+        assertThat(context.evaluationDiagnostics()).hasSize(2);
+    }
+
+    @Test
+    void unreadIndexMetadataRemainsUnknownForTheWholeTable() {
+        TableModel table = incomplete(
+                indexed(nonBtree("serialized_event_hash", List.of("serialized_event"), "hash")), true, false);
+        DatabaseAdvisorContext context = context(schema("ds", Dialect.POSTGRESQL, List.of(table)));
+        assertThat(new DuplicateIndexRule().evaluate(context).status()).isEqualTo("SKIPPED");
+        assertThat(context.evaluationDiagnostics())
+                .singleElement()
+                .satisfies(diagnostic ->
+                        assertThat(diagnostic.message()).contains("t has incomplete or unsupported index"));
+    }
+
+    @Test
     void intentionalIndexComparisonExclusionsDoNotProduceUnknownWarnings() {
         TableModel table = indexed(
                 index("owned", List.of("a"), true, List.of(), "constraint"),
