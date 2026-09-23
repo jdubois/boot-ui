@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
 import java.sql.DatabaseMetaData;
 import java.sql.Types;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -224,6 +225,50 @@ class DatabaseAdvisorSchemaRulesTests {
                                         index("extra", List.of("a"), true, List.of("payload"), null))))
                         .status())
                 .isEqualTo("PASS");
+    }
+
+    @Test
+    void structurallyExcludedExtraUniqueIndexesAreNotReportedAsUnknown() {
+        TableModel table = backedTable(
+                "orders",
+                partialUnique("uq_orders_custom_offer_live", "custom_offer_id IS NOT NULL"),
+                complete("uq_promo_codes_code_lower", List.of(IndexKeyPart.expression("lower(code)")), true),
+                new IndexModel(
+                        "uq_prefix",
+                        List.of(new IndexKeyPart("a", null, true, 10, null)),
+                        true,
+                        "btree",
+                        null,
+                        IndexModel.Visibility.VISIBLE,
+                        IndexModel.Validity.VALID,
+                        false,
+                        false,
+                        false,
+                        false,
+                        List.of(),
+                        true,
+                        true,
+                        null));
+        DatabaseAdvisorContext context = context(schema("ds", Dialect.POSTGRESQL, List.of(table)));
+        assertThat(new RedundantPrimaryKeyUniqueIndexRule().evaluate(context).status())
+                .isEqualTo("SKIPPED");
+        assertThat(context.evaluationDiagnostics()).isEmpty();
+    }
+
+    @Test
+    void unknownExtraUniqueIndexDiagnosticsNameEveryOccurrence() {
+        DatabaseAdvisorContext context = context(schema(
+                "ds",
+                Dialect.POSTGRESQL,
+                List.of(
+                        backedTable("orders", IndexModel.of("uq_orders_reference", List.of("a"), true)),
+                        backedTable("promo_codes", IndexModel.of("uq_promo_codes_code", List.of("a"), true)))));
+        new RedundantPrimaryKeyUniqueIndexRule().evaluate(context);
+        assertThat(context.evaluationDiagnostics())
+                .extracting(SchemaDiagnostic::message)
+                .containsExactlyInAnyOrder(
+                        "ds: public.orders unique index uq_orders_reference has unknown comparison semantics.",
+                        "ds: public.promo_codes unique index uq_promo_codes_code has unknown comparison semantics.");
     }
 
     @Test
@@ -567,6 +612,32 @@ class DatabaseAdvisorSchemaRulesTests {
                 true,
                 true,
                 backing);
+    }
+
+    private static TableModel backedTable(String name, IndexModel... extra) {
+        List<IndexModel> indexes = new ArrayList<>();
+        indexes.add(index("pk_" + name, List.of("a"), true, List.of(), "pk_" + name));
+        indexes.addAll(List.of(extra));
+        return table(name, List.of(column("a", "int4", Types.INTEGER)), List.of("a"), List.of(), indexes);
+    }
+
+    private static IndexModel partialUnique(String name, String filterCondition) {
+        return new IndexModel(
+                name,
+                List.of(IndexKeyPart.column("a", true)),
+                true,
+                "btree",
+                filterCondition,
+                IndexModel.Visibility.VISIBLE,
+                IndexModel.Validity.VALID,
+                false,
+                false,
+                false,
+                false,
+                List.of(),
+                true,
+                true,
+                null);
     }
 
     private static IndexModel complete(String name, List<IndexKeyPart> parts, boolean unique) {
