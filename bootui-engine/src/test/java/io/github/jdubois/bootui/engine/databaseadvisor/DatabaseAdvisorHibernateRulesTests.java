@@ -412,6 +412,50 @@ class DatabaseAdvisorHibernateRulesTests {
                 .contains("effective JDBC representation is unknown");
     }
 
+    @Test
+    void stringEnumLengthsAreNotComparedWithNativeEnumOrSetLabelWidths() {
+        MappedEntityFacts mapped = entity(
+                "com.example.Order",
+                "orders",
+                List.of(),
+                List.of(new MappedColumnFacts(
+                        "com.example.Order#status", "status", false, "OrderStatus", 20, false, false, false, null)),
+                List.of());
+        for (String nativeType : List.of("enum", "ENUM", "set")) {
+            for (int jdbcType : List.of(Types.CHAR, Types.VARCHAR)) {
+                TableModel orders = table(
+                        "orders", List.of(column("status", nativeType, jdbcType, 7)), List.of(), List.of(), List.of());
+                DatabaseAdvisorContext context =
+                        hibernateContext(schema("ds", Dialect.GENERIC, List.of(orders)), mapped);
+                assertThat(new HibernateColumnLengthMismatchRule()
+                                .evaluate(context)
+                                .status())
+                        .isEqualTo(SKIPPED);
+                assertThat(context.evaluationDiagnostics()).isEmpty();
+            }
+        }
+    }
+
+    @Test
+    void ambiguousMappingsOnMissingColumnsLeaveCompleteInventoriesToTheMissingColumnRule() {
+        MappedEntityFacts mapped = entity(
+                "com.example.Order",
+                "orders",
+                List.of(),
+                List.of(new MappedColumnFacts(
+                        "com.example.Order#status", "status", false, "OrderStatus", 20, false, true, false, null)),
+                List.of());
+        TableModel complete = table(
+                "orders", List.of(column("other", "varchar", Types.VARCHAR, 20)), List.of(), List.of(), List.of());
+        DatabaseAdvisorContext completeContext =
+                hibernateContext(schema("ds", Dialect.GENERIC, List.of(complete)), mapped);
+        assertThat(new HibernateColumnLengthMismatchRule()
+                        .evaluate(completeContext)
+                        .status())
+                .isEqualTo(SKIPPED);
+        assertThat(completeContext.evaluationDiagnostics()).isEmpty();
+    }
+
     // --- DB-HIB-005: unique constraint coverage ---
 
     @Test

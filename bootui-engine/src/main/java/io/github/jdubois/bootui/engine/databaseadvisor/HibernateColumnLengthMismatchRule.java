@@ -103,9 +103,18 @@ final class HibernateColumnLengthMismatchRule extends AbstractHibernateCrossRefe
         if (typeName.contains("text") || typeName.contains("clob") || typeName.contains("max")) {
             return false;
         }
+        // MySQL/MariaDB report native ENUM/SET as character types sized to the longest label, which Hibernate
+        // uses for @Enumerated(STRING) by default; the label list, not a length, bounds those values.
+        if (nativeLabelType(typeName, "enum") || nativeLabelType(typeName, "set")) {
+            return false;
+        }
         return column.jdbcType() == Types.CHAR
                 || column.jdbcType() == Types.VARCHAR
                 || column.jdbcType() == Types.NCHAR
                 || column.jdbcType() == Types.NVARCHAR;
+    }
+
+    private static boolean nativeLabelType(String typeName, String keyword) {
+        return typeName.equals(keyword) || typeName.startsWith(keyword + "(");
     }
 }
