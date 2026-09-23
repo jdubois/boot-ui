@@ -309,29 +309,45 @@ class DatabaseAdvisorSchemaRulesTests {
         assertThat(new ForeignKeyTypeMismatchRule().evaluate(context).status()).isEqualTo("PASS");
         assertThat(context.evaluationDiagnostics()).isEmpty();
         assertThat(ColumnTypeCompatibility.comparable(
-                        column("a", "uniqueidentifier", Types.CHAR, 36),
-                        column("b", "uniqueidentifier", Types.CHAR, 36)))
+                        column("a", "uuid", Types.OTHER), column("b", "uniqueidentifier", Types.OTHER)))
                 .isTrue();
     }
 
     @Test
-    void onlyIdenticalDeclarationsMakeUnmodeledFamiliesComparable() {
+    void onlyIdenticalFullyReportedDeclarationsMakeUnmodeledFamiliesComparable() {
         assertThat(ColumnTypeCompatibility.comparable(
-                        column("a", "timestamp", Types.TIMESTAMP, 29), column("b", "TIMESTAMP", Types.TIMESTAMP, 29)))
+                        declared("timestamp", Types.TIMESTAMP, 29, 6), declared("TIMESTAMP", Types.TIMESTAMP, 29, 6)))
                 .isTrue();
         assertThat(ColumnTypeCompatibility.comparable(
-                        column("a", "date", Types.DATE, 13), column("b", "timestamp", Types.TIMESTAMP, 29)))
+                        declared("date", Types.DATE, 13, 0), declared("timestamp", Types.TIMESTAMP, 29, 6)))
                 .isFalse();
         assertThat(ColumnTypeCompatibility.comparable(
-                        column("a", "timestamp", Types.TIMESTAMP, 23), column("b", "timestamp", Types.TIMESTAMP, 29)))
+                        declared("timestamp", Types.TIMESTAMP, 26, 3), declared("timestamp", Types.TIMESTAMP, 29, 6)))
                 .isFalse();
         assertThat(ColumnTypeCompatibility.comparable(
-                        column("a", "citext", Types.OTHER, Integer.MAX_VALUE),
-                        column("b", "citext", Types.OTHER, Integer.MAX_VALUE)))
+                        declared("citext", Types.OTHER, Integer.MAX_VALUE, 0),
+                        declared("citext", Types.OTHER, Integer.MAX_VALUE, 0)))
                 .isTrue();
         assertThat(ColumnTypeCompatibility.comparable(
-                        column("a", "citext", Types.OTHER, Integer.MAX_VALUE),
-                        column("b", "hstore", Types.OTHER, Integer.MAX_VALUE)))
+                        declared("citext", Types.OTHER, Integer.MAX_VALUE, 0),
+                        declared("hstore", Types.OTHER, Integer.MAX_VALUE, 0)))
+                .isFalse();
+    }
+
+    @Test
+    void unreportedSizeOrScaleIsNeverTreatedAsAnIdenticalDeclaration() {
+        assertThat(ColumnTypeCompatibility.comparable(
+                        declared("varchar", Types.VARCHAR, null, 0), declared("varchar", Types.VARCHAR, null, 0)))
+                .isFalse();
+        assertThat(ColumnTypeCompatibility.comparable(
+                        declared("bit", Types.BIT, null, 0), declared("bit", Types.BIT, null, 0)))
+                .isFalse();
+        assertThat(ColumnTypeCompatibility.comparable(
+                        declared("timestamp", Types.TIMESTAMP, 29, null),
+                        declared("timestamp", Types.TIMESTAMP, 29, null)))
+                .isFalse();
+        assertThat(ColumnTypeCompatibility.comparable(
+                        declared("citext", Types.OTHER, 0, 0), declared("citext", Types.OTHER, 0, 0)))
                 .isFalse();
     }
 
@@ -550,6 +566,10 @@ class DatabaseAdvisorSchemaRulesTests {
         SchemaSnapshot snapshot = schema("ds", Dialect.POSTGRESQL, List.of(), findings);
         assertThat(snapshot.truncated()).isTrue();
         assertThat(snapshot.complete()).isFalse();
+    }
+
+    private static ColumnModel declared(String typeName, int jdbcType, Integer size, Integer decimalDigits) {
+        return new ColumnModel("c", typeName, jdbcType, ColumnModel.Nullability.NULLABLE, size, decimalDigits, false);
     }
 
     private static ColumnModel decimal(int precision, Integer scale) {

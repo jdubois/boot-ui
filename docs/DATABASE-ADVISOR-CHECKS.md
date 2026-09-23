@@ -115,8 +115,9 @@ unevaluated. A readable datasource can still produce a `PARTIAL` report when an 
 **MEDIUM.** Compares each child column with the column actually named by the FK, including alternate
 referenced keys. Reports a known representational-domain discrepancy, not merely unequal type names.
 Decimal containment considers both integral and fractional capacity; unknown scale is not zero.
-Fixed-width UUID pairs and identical declarations (type name, JDBC type, size and decimal digits) count as
-fully compared; other date/time, boolean or vendor-type pairs remain an unknown comparison rather than a guess.
+Fixed-width UUID pairs count as fully compared, as do identical declarations whose type name, JDBC type, size
+and decimal digits are all reported and equal. A size or scale the driver does not report is unknown, not equal,
+so other date/time, boolean or vendor-type pairs remain an unknown comparison rather than a guess.
 Review intended value domains and vendor compatibility before aligning definitions. JDBC type-family
 classification alone cannot establish coercion behavior or query-plan quality.
 

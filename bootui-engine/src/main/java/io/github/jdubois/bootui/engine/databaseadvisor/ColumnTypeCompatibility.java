@@ -3,7 +3,6 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 import java.sql.Types;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * Compares a foreign-key column against the column it actually references, beyond a coarse type family: an
@@ -61,16 +60,20 @@ final class ColumnTypeCompatibility {
     }
 
     /**
-     * Two identical declarations cannot narrow one another, so the comparison is complete even
-     * for a family {@link #mismatch} has no width rules for.
+     * Two identical declarations cannot narrow one another, so the comparison is complete even for a family
+     * {@link #mismatch} has no width rules for. A size or scale the driver did not report is unknown, not equal,
+     * so it never counts as identical.
      */
     private static boolean identicalDeclarations(ColumnModel child, ColumnModel parent) {
         return child.typeName() != null
                 && parent.typeName() != null
                 && child.typeName().trim().equalsIgnoreCase(parent.typeName().trim())
                 && child.jdbcType() == parent.jdbcType()
-                && Objects.equals(child.size(), parent.size())
-                && Objects.equals(child.decimalDigits(), parent.decimalDigits());
+                && child.size() != null
+                && child.size() > 0
+                && child.decimalDigits() != null
+                && child.size().equals(parent.size())
+                && child.decimalDigits().equals(parent.decimalDigits());
     }
 
     /**
