@@ -14,9 +14,13 @@ engine, the same console, and the same JSON contract, so what you learn on one c
 This page describes the stacks. **BootUI describes your application**, which is what you actually need, because most
 panels also depend on what you have on the classpath — no Kafka, no Kafka panel.
 
-Open the console and every panel that cannot run tells you so directly: it stays in the sidebar with a tooltip, and
-opening it shows a banner with the specific reason. The same information is on `/bootui/api/panels`, so agents and
+Open the console and almost every panel that cannot run tells you so directly: it stays in the sidebar with a tooltip,
+and opening it shows a banner with the specific reason. The same information is on `/bootui/api/panels`, so agents and
 scripts read it too.
+
+The PostgreSQL and MySQL panels behave differently, because they are vendor-specific. Without that vendor's JDBC driver
+on the runtime classpath they do not appear at all, so a manifest can legitimately carry 58 panels rather than the 60
+in the catalog.
 
 That is always current for your app and your dependencies. Prefer it over any list in the documentation.
 

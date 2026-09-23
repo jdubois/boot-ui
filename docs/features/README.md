@@ -28,6 +28,11 @@ existing handling.
 **Unavailable panels are visible, not hidden.** When a panel's backing infrastructure is missing, the sidebar moves it
 into a collapsed *Disabled / unavailable* group, and opening it shows the reason at the top of the page.
 
+The vendor-specific database panels are the exception. PostgreSQL and MySQL appear only when that vendor's JDBC driver
+is on the runtime classpath. With the driver present but no matching datasource configured they are listed as
+unavailable, as above; with no driver at all they are absent from the sidebar and from `/bootui/api/panels`, and their
+API path returns 404.
+
 **Every panel can be turned off.** Use `bootui.panels.<panel-id>.enabled=false`. Panels with browser-triggered actions
 also support `bootui.panels.<panel-id>.read-only=true`, and `bootui.read-only=true` makes all of BootUI read-only. See
 the [property reference](../PROPERTIES.md) for the complete list.
