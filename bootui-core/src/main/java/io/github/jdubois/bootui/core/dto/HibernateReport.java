@@ -4,8 +4,9 @@ import java.util.List;
 
 /**
  * Top-level report for the local Hibernate Advisor panel. The results list contains violating
- * checks only, ordered by severity and impact. {@link #diagnostics()} lists every rule evaluation that failed or
- * lacked required evidence, and every discovery gap, so a {@code PARTIAL} scan is explainable member by member.
+ * checks only, ordered by severity and impact. {@link #diagnostics()} lists rule evaluations that failed or lacked
+ * required evidence and discovery gaps, so a {@code PARTIAL} scan is explainable member by member. It holds at most
+ * 200 entries; when capped, every affected rule keeps an entry and a final {@code diagnostics} entry counts the rest.
  */
 public record HibernateReport(
         boolean localOnly,

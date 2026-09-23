@@ -89,7 +89,7 @@ final class HibernateQueryShape {
             if (!path.startsWith(alias + ".")
                     || path.chars().filter(value -> value == '.').count() != 1
                     || joins.group(2) != null) {
-                context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
+                context.missingEvidence(HibernateEvidenceGap.QUERY_JOIN_PATH, method);
                 return null;
             }
         }
@@ -101,14 +101,14 @@ final class HibernateQueryShape {
                 entityName = entity.javaType().getSimpleName();
             if (name.equals(entityName) || name.equals(entity.javaType().getName())) {
                 if (found != null) {
-                    context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
+                    context.missingEvidence(HibernateEvidenceGap.QUERY_ENTITY, method);
                     return null;
                 }
                 found = entity;
             }
         }
         if (found == null) {
-            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
+            context.missingEvidence(HibernateEvidenceGap.QUERY_ENTITY, method);
             return null;
         }
         if (entityReturn && context.observed() && evidence.returnElementType() == null) {
@@ -227,7 +227,7 @@ final class HibernateQueryShape {
         }
 
         if (entity == null) {
-            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
+            context.missingEvidence(HibernateEvidenceGap.QUERY_ENTITY, method);
             return null;
         }
         return new UpdateTarget(entity, alias, query, versioned);

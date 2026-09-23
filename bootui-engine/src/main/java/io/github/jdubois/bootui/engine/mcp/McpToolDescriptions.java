@@ -448,9 +448,11 @@ public final class McpToolDescriptions {
                 + "guarantee completeness when truncated. Verify each finding before changing code."
                 + (advisor.equals("hibernate")
                         ? " When scan.status is PARTIAL, read diagnostics (source rule id or discovery, unit, level,"
-                                + " message) for each rule and unit that failed or lacked evidence, and a result's"
+                                + " message) for rules and units that failed or lacked evidence, and a result's"
                                 + " coverageNote for units whose findings come from a partial evaluation; INFO"
-                                + " diagnostics are advisor limits by design."
+                                + " diagnostics are advisor limits by design. Diagnostics are capped at 200: when"
+                                + " capped, a final entry with source diagnostics states how many were omitted, so a"
+                                + " missing unit entry does not prove complete coverage."
                         : "");
     }
 }

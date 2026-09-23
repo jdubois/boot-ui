@@ -218,10 +218,11 @@ without an explicitly authorized new scan. Detail completeness is not the same a
 Truncation can also reflect upstream observations that count affected targets without supplying every identity.
 Preserve that diagnostic instead of inventing details or assuming a larger retention budget will recover them.
 Paging does not expand existing observation bounds, such as Memory rules that inspect only their top-five inputs.
-A `PARTIAL` Hibernate report names each incomplete rule and unit in `diagnostics` (`source`, `unit`, `level`,
+A `PARTIAL` Hibernate report names incomplete rules and units in `diagnostics` (`source`, `unit`, `level`,
 `message`); a finding whose units were only partly evaluated carries a `coverageNote`. `INFO` diagnostics are
-advisor limits by design, not missing application configuration. Report these gaps rather than treating the rule
-as clean.
+advisor limits by design, not missing application configuration. The list is capped at 200 entries; a final entry
+with source `diagnostics` states how many were omitted, so a missing unit entry does not prove full coverage. Report
+these gaps rather than treating the rule as clean.
 
 Detail reads never rerun checks or query a database and remain permitted in read-only mode. Only the latest
 completed snapshot is kept; dismissal preserves its ID and details. On stale/no-snapshot client error 409,

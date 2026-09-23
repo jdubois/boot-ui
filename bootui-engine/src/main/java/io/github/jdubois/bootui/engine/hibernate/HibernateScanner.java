@@ -160,9 +160,12 @@ public final class HibernateScanner {
                 .flatMap(unit -> unit.entities().stream())
                 .toList();
         if (entities.isEmpty()) {
+            List<HibernateDiagnosticDto> discovery = discoveryDiagnostics(observation);
+            List<HibernateDiagnosticDto> retained = bounded(discovery);
             String message = observation.diagnostics().isEmpty()
                     ? "No EntityManagerFactory beans or mapped entities were found to inspect."
-                    : "Required Hibernate observations are unavailable.";
+                    : "Required Hibernate observations are unavailable."
+                            + diagnosticsSummary(discovery.size(), retained);
             return report(
                     observation.diagnostics().isEmpty() ? "DISABLED" : "PARTIAL",
                     message,
@@ -171,7 +174,7 @@ public final class HibernateScanner {
                     0,
                     0,
                     List.of(),
-                    bounded(discoveryDiagnostics(observation)),
+                    retained,
                     AdvisorEvidenceDto.unknown());
         }
 
@@ -219,7 +222,8 @@ public final class HibernateScanner {
             for (int i = 0; i < contexts.size(); i++) {
                 String label = units.isEmpty() ? "application" : units.get(i).label();
                 HibernateContext context = contexts.get(i).withViolationCollector(collector, label);
-                String identity = rule.definition().id() + " [" + label + "]";
+                String identity = rule.definition().id() + " ["
+                        + (units.isEmpty() ? "application" : units.get(i).unitKey()) + "]";
                 context.evidence().reset();
                 attempts++;
                 HibernateRuleResultDto result;
@@ -281,18 +285,12 @@ public final class HibernateScanner {
         diagnostics.addAll(0, discovery);
         int totalDiagnostics = diagnostics.size();
         List<HibernateDiagnosticDto> retained = bounded(diagnostics);
-        int shown = retained.size() < totalDiagnostics ? retained.size() - 1 : totalDiagnostics;
         boolean incomplete = !discovery.isEmpty() || !failed.isEmpty() || !unknown.isEmpty();
         String message = "Hibernate Advisor inspected " + entities.size() + " entity mappings across "
                 + observation.units().size() + " persistence units. Attempted " + rules.size()
                 + " distinct rules (" + attempts + " unit/application evaluations); failed " + failed.size()
                 + ", required evidence unavailable " + unknown.size() + ", otherwise skipped " + skipped + ".";
-        if (totalDiagnostics > 0 && shown == totalDiagnostics)
-            message += " See diagnostics for " + totalDiagnostics + " " + (totalDiagnostics == 1 ? "entry" : "entries")
-                    + " naming each affected rule and unit.";
-        else if (totalDiagnostics > 0)
-            message += " Diagnostics show " + shown + " of " + totalDiagnostics
-                    + " entries; every affected rule and discovery reason keeps at least one, failures first.";
+        message += diagnosticsSummary(totalDiagnostics, retained);
         return report(
                 incomplete ? "PARTIAL" : "SCANNED",
                 message,
@@ -356,6 +354,15 @@ public final class HibernateScanner {
         return List.copyOf(result);
     }
 
+    private static String diagnosticsSummary(int total, List<HibernateDiagnosticDto> retained) {
+        if (total == 0) return "";
+        if (retained.size() >= total)
+            return " See diagnostics for " + total + " " + (total == 1 ? "entry" : "entries")
+                    + " naming each affected rule and unit.";
+        return " Diagnostics show " + (retained.size() - 1) + " of " + total
+                + " entries; every affected rule and discovery reason keeps at least one, failures first.";
+    }
+
     private static boolean advisorLimitOnly(HibernateEvaluationEvidence evidence) {
         return !evidence.gaps().isEmpty()
                 && evidence.gaps().keySet().stream().allMatch(HibernateEvidenceGap::advisorLimit);
@@ -373,7 +380,7 @@ public final class HibernateScanner {
                                     entry.getValue() + " " + entry.getKey().phrase();
                             if (examples.isEmpty()) return text;
                             return text + " (e.g. " + String.join(", ", examples)
-                                    + (entry.getValue() > examples.size() ? ", ..." : "") + ")";
+                                    + (evidence.hasMoreSubjects(entry.getKey()) ? ", ..." : "") + ")";
                         })
                         .toList());
     }

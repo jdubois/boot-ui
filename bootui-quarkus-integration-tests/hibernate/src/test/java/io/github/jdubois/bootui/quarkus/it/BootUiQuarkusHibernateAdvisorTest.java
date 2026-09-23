@@ -99,7 +99,7 @@ class BootUiQuarkusHibernateAdvisorTest {
         for (JsonNode diagnostic : scanned.path("diagnostics")) {
             assertThat(diagnostic.path("source").asText()).isNotBlank();
             assertThat(diagnostic.path("unit").asText()).isNotBlank();
-            assertThat(diagnostic.path("level").asText()).isIn("ERROR", "WARNING");
+            assertThat(diagnostic.path("level").asText()).isIn("ERROR", "WARNING", "INFO");
             assertThat(diagnostic.path("message").asText()).isNotBlank();
         }
         assertThat(scanned.path("entitiesAnalyzed").asInt())

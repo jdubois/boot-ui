@@ -319,7 +319,7 @@ class HibernateAdvisorObservationTests {
         assertThat(report.diagnostics().get(0).message())
                 .startsWith("No conclusion reached. Required evidence unavailable: 1 repository query method(s)"
                         + " whose query provenance is unverified")
-                .contains("; 2 repository query method(s) whose JPQL is outside the readable shape");
+                .contains("; 2 repository query method(s) whose JPQL statement is outside the readable shape");
     }
 
     @Test
@@ -479,6 +479,37 @@ class HibernateAdvisorObservationTests {
 
         assertThat(evidence.gaps()).containsEntry(HibernateEvidenceGap.QUERY_SHAPE, 3);
         assertThat(evidence.subjects(HibernateEvidenceGap.QUERY_SHAPE)).containsExactly("Repo#find");
+        assertThat(evidence.hasMoreSubjects(HibernateEvidenceGap.QUERY_SHAPE)).isFalse();
+    }
+
+    @Test
+    void unitsSharingADisplayLabelAreCountedSeparately() {
+        HibernateRule rule = testRule("HIB-TEST-DUP", context -> {
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE);
+            return HibernateRuleSupport.pass(definition("HIB-TEST-DUP", "LOW"));
+        });
+        List<HibernatePersistenceUnitObservation> units = List.of(
+                new HibernatePersistenceUnitObservation(
+                        "first",
+                        "unit-2",
+                        List.of(HibernateEntityModel.fromClass(Order.class)),
+                        List.of(),
+                        "7.2.19.Final",
+                        settings(25),
+                        false),
+                new HibernatePersistenceUnitObservation(
+                        "second",
+                        "unit-2",
+                        List.of(HibernateEntityModel.fromClass(Order.class)),
+                        List.of(),
+                        "7.2.19.Final",
+                        settings(25),
+                        false));
+
+        HibernateReport report = scanner(units, List.of(), List.of(rule)).scan();
+
+        assertThat(report.scan().message()).contains("required evidence unavailable 2");
+        assertThat(report.diagnostics()).hasSize(2);
     }
 
     @Test
@@ -502,9 +533,9 @@ class HibernateAdvisorObservationTests {
         HibernateRuleResultDto result = result(report, "HIB-TEST-MIXED");
         assertThat(result.violationCount()).isEqualTo(2);
         assertThat(result.coverageNote())
-                .isEqualTo("Incomplete in [partial]: 1 repository query method(s) whose JPQL is outside"
-                        + " the readable shape (subquery, set operation, multiple roots, non-simple join path, or"
-                        + " unresolved entity).");
+                .isEqualTo("Incomplete in [partial]: 1 repository query method(s) whose JPQL statement is outside"
+                        + " the readable shape (subquery, set operation, multiple roots, or an unrecognized statement"
+                        + " head).");
         assertThat(report.diagnostics()).singleElement().satisfies(diagnostic -> {
             assertThat(diagnostic.source()).isEqualTo("HIB-TEST-MIXED");
             assertThat(diagnostic.unit()).isEqualTo("partial");

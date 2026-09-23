@@ -467,9 +467,11 @@ final class HibernateEvaluationEvidence {
                     .add(identity)) return;
         }
         gaps.merge(kind, 1, Integer::sum);
-        if (subject != null && !subject.isBlank())
-            subjects.computeIfAbsent(kind, key -> new java.util.LinkedHashSet<>())
-                    .add(HibernateRuleSupport.detail(subject));
+        if (subject != null && !subject.isBlank()) {
+            java.util.Set<String> examples = subjects.computeIfAbsent(kind, key -> new java.util.LinkedHashSet<>());
+            // One extra example is kept only to know whether more distinct subjects exist than are shown.
+            if (examples.size() <= MAX_SUBJECTS_PER_GAP) examples.add(HibernateRuleSupport.detail(subject));
+        }
     }
 
     /** Up to {@link #MAX_SUBJECTS_PER_GAP} sanitized example subjects per gap kind. */
@@ -478,6 +480,12 @@ final class HibernateEvaluationEvidence {
         return known == null
                 ? java.util.List.of()
                 : known.stream().limit(MAX_SUBJECTS_PER_GAP).toList();
+    }
+
+    /** True when more distinct example subjects were recorded for the gap than {@link #subjects} returns. */
+    boolean hasMoreSubjects(HibernateEvidenceGap gap) {
+        java.util.Set<String> known = subjects.get(gap);
+        return known != null && known.size() > MAX_SUBJECTS_PER_GAP;
     }
 
     /** Occurrences of each missing-evidence kind recorded during the current evaluation, in declaration order. */

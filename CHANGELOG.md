@@ -9,6 +9,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Hibernate Advisor PARTIAL scans are now explainable.** The report gains a `diagnostics` array
+  (`source`, `unit`, `level`, `message`) naming each rule evaluation that failed or lacked required evidence and each
+  discovery gap, with controlled phrases for the missing evidence and up to three sanitized examples such as
+  `OrderRepository#findRecent`. Findings from a partly evaluated rule carry a `coverageNote`, advisor limits by design
+  are reported at `INFO`, and the list is capped at 200 entries without dropping any affected rule. `scan.message` no
+  longer truncates rules with "+N more". The Hibernate and Database Advisor panels share an accessible
+  **Scan diagnostics** card, and the new members are returned unchanged by REST, MCP, and the CLI
+  ([#1086](https://github.com/jdubois/boot-ui/issues/1086)).
+
 - **SQL Trace no longer truncates statement durations to whole milliseconds.** Executions are timed and recorded in
   microseconds (`durationMicros` on each entry; `durationMillis` remains as a rounded compatibility field), and every
   aggregate — buffer stats, statement rankings, p50/p95/p99, shares, database time by request route, and the request

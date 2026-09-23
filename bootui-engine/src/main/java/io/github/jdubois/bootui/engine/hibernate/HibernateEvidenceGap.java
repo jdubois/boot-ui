@@ -7,12 +7,16 @@ package io.github.jdubois.bootui.engine.hibernate;
 enum HibernateEvidenceGap {
     QUERY_PROVENANCE("repository query method(s) whose query provenance is unverified (named query, query rewriter,"
             + " or unverified method)"),
-    QUERY_SHAPE("repository query method(s) whose JPQL is outside the readable shape (subquery, set operation,"
-            + " multiple roots, non-simple join path, or unresolved entity)"),
+    QUERY_SHAPE("repository query method(s) whose JPQL statement is outside the readable shape (subquery, set"
+            + " operation, multiple roots, or an unrecognized statement head)"),
+    QUERY_JOIN_PATH("repository query method(s) with a join the advisor does not follow (aliased, nested, or not"
+            + " from the root alias)"),
+    QUERY_ENTITY("repository query method(s) whose JPQL root is not exactly one mapped entity (unknown or ambiguous"
+            + " entity name)"),
     QUERY_RETURN_TYPE("repository query method(s) whose return element type is unavailable"),
     DERIVED_QUERY("derived repository query method(s) that could not be verified"),
-    QUERY_HINT("repository query method(s) whose collection-fetch pagination is not proven safe for this Hibernate"
-            + " version (org.hibernate.limitInMemory hint absent or not enabled)"),
+    QUERY_HINT("repository query method(s) paging a collection fetch whose effective pagination is not verified for"
+            + " this Hibernate version (query-specific pagination hints are not fully evaluated)"),
     ENTITY_GRAPH("repository query method(s) with an entity graph whose fetch plan is not reconstructed"),
     REPOSITORY_NEWNESS("entity(ies) whose repository uses a non-standard entity newness strategy"),
     FACTORY_SETTING("effective persistence-unit setting(s) unavailable"),
