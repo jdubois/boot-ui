@@ -356,6 +356,17 @@ record IndexModel(
                 && keyParts.stream().allMatch(part -> part.ascending() != null);
     }
 
+    /**
+     * True when this index and {@code other} share an access method and key-column set, the only shape in which
+     * an index whose comparison semantics are not modelled could hide an exact duplicate of another index on the
+     * same table. Key columns are compared as an unordered multiset because {@link #exactDuplicateOf} is
+     * order-sensitive, so this deliberately over-reports rather than hiding a pair.
+     */
+    boolean sharesComparisonShapeWith(IndexModel other) {
+        return Objects.equals(normalizedMethod(), other.normalizedMethod())
+                && sortedKeyColumns().equals(other.sortedKeyColumns());
+    }
+
     boolean exactDuplicateOf(IndexModel other) {
         return sameSemanticsAs(other) && keyParts.equals(other.keyParts());
     }
@@ -388,6 +399,13 @@ record IndexModel(
                 && Objects.equals(left.prefixLength(), right.prefixLength())
                 && Objects.equals(left.ascending(), right.ascending())
                 && Objects.equals(left.collation(), right.collation());
+    }
+
+    private List<String> sortedKeyColumns() {
+        return keyParts.stream()
+                .map(part -> part.isExpression() ? "" : part.columnName())
+                .sorted()
+                .toList();
     }
 
     private String normalizedMethod() {

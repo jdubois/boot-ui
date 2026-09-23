@@ -170,6 +170,42 @@ class DatabaseAdvisorSchemaRulesTests {
     }
 
     @Test
+    void aLoneNonBtreeIndexIsExcludedWithoutMakingItsTableUnknown() {
+        TableModel table = indexed(
+                index("by_completion_date", List.of("completion_date"), false, List.of(), null),
+                index("by_listener", List.of("listener_id"), false, List.of(), null),
+                nonBtree("serialized_event_hash", List.of("serialized_event"), "hash"));
+        DatabaseAdvisorContext context = context(schema("ds", Dialect.POSTGRESQL, List.of(table)));
+        assertThat(new DuplicateIndexRule().evaluate(context).status()).isEqualTo("PASS");
+        assertThat(context.evaluationDiagnostics()).isEmpty();
+    }
+
+    @Test
+    void differentAccessMethodsOnTheSameColumnCannotFormADuplicatePair() {
+        TableModel table = indexed(
+                index("by_event", List.of("serialized_event"), false, List.of(), null),
+                nonBtree("serialized_event_hash", List.of("serialized_event"), "hash"));
+        DatabaseAdvisorContext context = context(schema("ds", Dialect.POSTGRESQL, List.of(table)));
+        assertThat(new DuplicateIndexRule().evaluate(context).status()).isEqualTo("SKIPPED");
+        assertThat(context.evaluationDiagnostics()).isEmpty();
+    }
+
+    @Test
+    void unmodelledIndexesSharingMethodAndColumnsAreNamedRatherThanTheirTable() {
+        TableModel table = indexed(
+                nonBtree("first_hash", List.of("serialized_event"), "hash"),
+                nonBtree("second_hash", List.of("serialized_event"), "hash"));
+        DatabaseAdvisorContext context = context(schema("ds", Dialect.POSTGRESQL, List.of(table)));
+        new DuplicateIndexRule().evaluate(context);
+        assertThat(context.evaluationDiagnostics())
+                .hasSize(2)
+                .allSatisfy(diagnostic -> assertThat(diagnostic.message())
+                        .contains("has incomplete or unsupported index comparison semantics."))
+                .anySatisfy(diagnostic -> assertThat(diagnostic.message()).contains("index first_hash"))
+                .anySatisfy(diagnostic -> assertThat(diagnostic.message()).contains("index second_hash"));
+    }
+
+    @Test
     void intentionalIndexComparisonExclusionsDoNotProduceUnknownWarnings() {
         TableModel table = indexed(
                 index("owned", List.of("a"), true, List.of(), "constraint"),
@@ -567,6 +603,27 @@ class DatabaseAdvisorSchemaRulesTests {
                 true,
                 true,
                 backing);
+    }
+
+    private static IndexModel nonBtree(String name, List<String> columns, String method) {
+        return new IndexModel(
+                name,
+                columns.stream()
+                        .map(column -> IndexKeyPart.column(column, true))
+                        .toList(),
+                false,
+                method,
+                null,
+                IndexModel.Visibility.VISIBLE,
+                IndexModel.Validity.VALID,
+                false,
+                false,
+                false,
+                false,
+                List.of(),
+                true,
+                true,
+                null);
     }
 
     private static IndexModel complete(String name, List<IndexKeyPart> parts, boolean unique) {
