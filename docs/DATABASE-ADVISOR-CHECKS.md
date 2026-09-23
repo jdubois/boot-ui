@@ -110,8 +110,8 @@ Review dependencies, hints and measured usage; BootUI does not assert that dropp
 Generic JDBC and vendor catalogs lacking the complete comparison evidence can therefore leave this check
 unevaluated. An index whose comparison semantics are not modelled — a PostgreSQL `hash` or GIN index, for
 instance — is reported as unknown only when it could pair with another index on the same table: same key columns,
-and an access method that is equal or not reported. The unknown names that index rather than its table. A readable
-datasource can still produce a `PARTIAL` report when an applicable comparison is unknown.
+and an access method that is equal, B-tree-like on both sides, or not reported. The unknown names that index rather
+than its table. A readable datasource can still produce a `PARTIAL` report when an applicable comparison is unknown.
 
 ### DB-SCHEMA-004 - Foreign key column type mismatch with the referenced column
 

@@ -58,9 +58,9 @@ final class DuplicateIndexRule extends AbstractDatabaseAdvisorRule {
 
     /**
      * Raises an unknown only for an index whose comparison semantics are not modelled and which could still pair
-     * with another candidate on the same table — same key columns, and an access method that is equal or not
-     * reported. A lone hash or GIN index on a plain column cannot pair with anything, so it is excluded from
-     * comparison without making the whole table unknown.
+     * with another candidate on the same table — same key columns, and an access method that is equal, B-tree-like
+     * on both sides, or not reported. A lone hash or GIN index on a plain column cannot pair with anything, so it is
+     * excluded from comparison without making the whole table unknown.
      */
     private void reportUnmodelledDuplicateRisks(
             DatabaseAdvisorContext context, SchemaSnapshot schema, TableModel table, List<IndexModel> possible) {

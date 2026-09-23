@@ -217,6 +217,24 @@ class DatabaseAdvisorSchemaRulesTests {
     }
 
     @Test
+    void aGenericJdbcClusteredTypeStillCountsAsAPossibleDuplicateOfAnEnrichedBtree() {
+        IndexModel unenriched = new IndexModel(
+                "unenriched",
+                List.of(IndexKeyPart.column("a", true)),
+                false,
+                "clustered",
+                null,
+                IndexModel.Visibility.UNKNOWN,
+                IndexModel.Validity.UNKNOWN);
+        TableModel table = indexed(index("enriched", List.of("a"), false, List.of(), null), unenriched);
+        DatabaseAdvisorContext context = context(schema("ds", Dialect.POSTGRESQL, List.of(table)));
+        new DuplicateIndexRule().evaluate(context);
+        assertThat(context.evaluationDiagnostics())
+                .singleElement()
+                .satisfies(diagnostic -> assertThat(diagnostic.message()).contains("index unenriched"));
+    }
+
+    @Test
     void reorderedKeysOfUnmodelledIndexesAreReportedRatherThanAssumedDistinct() {
         TableModel table = indexed(
                 nonBtree("forward", List.of("a", "b"), "hash"), nonBtree("reversed", List.of("b", "a"), "hash"));

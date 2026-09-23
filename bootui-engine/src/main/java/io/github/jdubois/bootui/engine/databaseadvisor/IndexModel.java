@@ -344,7 +344,7 @@ record IndexModel(
         return comparisonComplete
                 && Boolean.TRUE.equals(uniquenessKnown)
                 && method != null
-                && List.of("btree", "b-tree", "normal", "clustered").contains(normalizedMethod())
+                && btreeLike(normalizedMethod())
                 && visibility != Visibility.UNKNOWN
                 && validity == Validity.VALID
                 && !partial()
@@ -359,9 +359,11 @@ record IndexModel(
     /**
      * True when this index and {@code other} share an access method and key-column set, the only shape in which
      * an index whose comparison semantics are not modelled could hide an exact duplicate of another index on the
-     * same table. An unknown access method matches any method, since it could turn out to be the other's. Key
-     * columns are compared as an unordered multiset because {@link #exactDuplicateOf} is order-sensitive, so this
-     * deliberately over-reports rather than hiding a pair.
+     * same table. An unknown access method matches any method, since it could turn out to be the other's, and all
+     * B-tree-like names match each other: an index left with its generic JDBC type (for example
+     * {@code clustered}) when vendor enrichment did not cover it may really be the {@code btree} its neighbour
+     * reports. Key columns are compared as an unordered multiset because {@link #exactDuplicateOf} is
+     * order-sensitive, so this deliberately over-reports rather than hiding a pair.
      */
     boolean sharesComparisonShapeWith(IndexModel other) {
         return comparableMethodWith(other) && sortedKeyColumns().equals(other.sortedKeyColumns());
@@ -370,7 +372,11 @@ record IndexModel(
     private boolean comparableMethodWith(IndexModel other) {
         String left = normalizedMethod();
         String right = other.normalizedMethod();
-        return left == null || right == null || left.equals(right);
+        return left == null || right == null || left.equals(right) || (btreeLike(left) && btreeLike(right));
+    }
+
+    private static boolean btreeLike(String normalizedMethod) {
+        return List.of("btree", "b-tree", "normal", "clustered").contains(normalizedMethod);
     }
 
     boolean exactDuplicateOf(IndexModel other) {
