@@ -148,6 +148,22 @@ class RequestProfileAssemblerTests {
     }
 
     @Test
+    void sumsSubMillisecondStatementsFromMicrosecondsNotRoundedMillis() {
+        // Three 400 µs statements each round to 0 ms; the profile must still report their 1.2 ms total.
+        HttpExchangeDto request = request("req-1", "/orders", "trace-a", null, 1_000L, 10L);
+        List<SqlTraceEntryDto> sql = List.of(
+                sqlMicros(1, "select * from item where id = ?", "trace-a", 400L, 1_001L),
+                sqlMicros(2, "select * from item where id = ?", "trace-a", 400L, 1_002L),
+                sqlMicros(3, "select * from item where id = ?", "trace-a", 400L, 1_003L));
+
+        RequestProfileDto profile =
+                assembler.profile("req-1", request, List.of(request), sql, List.of(), List.of(), null);
+
+        assertThat(profile.timing().sqlCount()).isEqualTo(3);
+        assertThat(profile.timing().sqlMs()).isEqualTo(1.2);
+    }
+
+    @Test
     void resolvesTraceOnlyWhenItsIdMatchesTheRequest() {
         HttpExchangeDto request = request("req-1", "/orders", "trace-a", null, 1_000L, 50L);
         TraceDetailDto matchingTrace = new TraceDetailDto("trace-a", List.of());
@@ -190,13 +206,24 @@ class RequestProfileAssemblerTests {
 
     private static SqlTraceEntryDto sql(
             long id, String sql, String traceId, long durationMillis, long timestamp, String callSite) {
+        return sqlMicros(id, sql, traceId, durationMillis * 1_000L, timestamp, callSite);
+    }
+
+    private static SqlTraceEntryDto sqlMicros(
+            long id, String sql, String traceId, long durationMicros, long timestamp) {
+        return sqlMicros(id, sql, traceId, durationMicros, timestamp, null);
+    }
+
+    private static SqlTraceEntryDto sqlMicros(
+            long id, String sql, String traceId, long durationMicros, long timestamp, String callSite) {
         return new SqlTraceEntryDto(
                 id,
                 timestamp,
                 sql,
                 "PREPARED",
                 "SELECT",
-                durationMillis,
+                durationMicros,
+                Math.round(durationMicros / 1_000.0),
                 true,
                 null,
                 null,

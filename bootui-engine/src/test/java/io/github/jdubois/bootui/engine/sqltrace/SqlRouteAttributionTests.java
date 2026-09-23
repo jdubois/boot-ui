@@ -31,7 +31,7 @@ class SqlRouteAttributionTests {
                 List.of(request),
                 SERVLET,
                 RouteTemplateResolver.empty(),
-                20);
+                retainedMicros(20));
 
         assertThat(attribution.routes()).hasSize(1);
         SqlRouteRankingDto route = attribution.routes().get(0);
@@ -52,7 +52,7 @@ class SqlRouteAttributionTests {
                 List.of(request),
                 SERVLET,
                 RouteTemplateResolver.empty(),
-                10);
+                retainedMicros(10));
 
         assertThat(attribution.routes()).hasSize(1);
         assertThat(attribution.routes().get(0).traceCorrelated()).isEqualTo(1);
@@ -67,7 +67,7 @@ class SqlRouteAttributionTests {
                         request("r2", "GET", "/b", "/b", "shared", 100, 200)),
                 SERVLET,
                 RouteTemplateResolver.empty(),
-                5);
+                retainedMicros(5));
 
         assertThat(attribution.routes()).isEmpty();
         assertThat(attribution.ambiguous().executions()).isEqualTo(1);
@@ -87,7 +87,7 @@ class SqlRouteAttributionTests {
                         requestOnThread("r2", "GET", "/api/users", "/api/users", 100, 200, "exec-2")),
                 SERVLET,
                 RouteTemplateResolver.empty(),
-                30);
+                retainedMicros(30));
 
         assertThat(attribution.routes()).hasSize(1);
         assertThat(attribution.routes().get(0).route()).isEqualTo("/api/orders");
@@ -103,7 +103,7 @@ class SqlRouteAttributionTests {
                         request("r2", "GET", "/api/users", "/api/users", null, 100, 200)),
                 REACTIVE,
                 RouteTemplateResolver.empty(),
-                10);
+                retainedMicros(10));
 
         assertThat(attribution.supportedCorrelations()).doesNotContain("SERVING_THREAD");
         assertThat(attribution.routes()).isEmpty();
@@ -117,7 +117,7 @@ class SqlRouteAttributionTests {
                 List.of(request("r1", "GET", "/api/orders", "/api/orders", null, 100, 200)),
                 REACTIVE,
                 RouteTemplateResolver.empty(),
-                15);
+                retainedMicros(15));
 
         assertThat(attribution.routes()).hasSize(1);
         assertThat(attribution.routes().get(0).timeWindowCorrelated()).isEqualTo(1);
@@ -132,7 +132,7 @@ class SqlRouteAttributionTests {
                         request("r2", "GET", "/api/orders", "/api/orders", null, 120, 210)),
                 REACTIVE,
                 RouteTemplateResolver.empty(),
-                15);
+                retainedMicros(15));
 
         assertThat(attribution.routes()).isEmpty();
         assertThat(attribution.ambiguous().executions()).isEqualTo(1);
@@ -150,7 +150,7 @@ class SqlRouteAttributionTests {
                 List.of(request("r1", "GET", "/api/orders", "/api/orders", null, 100, 200)),
                 SERVLET,
                 RouteTemplateResolver.empty(),
-                40);
+                retainedMicros(40));
 
         assertThat(attribution.routes()).isEmpty();
         assertThat(attribution.unattributed().executions()).isEqualTo(1);
@@ -165,7 +165,7 @@ class SqlRouteAttributionTests {
                 List.of(request("r1", "GET", "/api/orders/4711", null, "t1", 100, 200)),
                 REACTIVE,
                 RouteTemplateResolver.empty(),
-                10);
+                retainedMicros(10));
 
         SqlRouteRankingDto route = attribution.routes().get(0);
         assertThat(route.route()).isEqualTo("/api/orders/{value}");
@@ -183,7 +183,7 @@ class SqlRouteAttributionTests {
                         request("r2", "GET", "/api/orders/4712?token=other", null, "t2", 300, 400)),
                 REACTIVE,
                 RouteTemplateResolver.empty(),
-                20);
+                retainedMicros(20));
 
         assertThat(attribution.routes()).hasSize(1);
         assertThat(attribution.routes().get(0).route()).isEqualTo("/api/orders/{value}");
@@ -205,7 +205,7 @@ class SqlRouteAttributionTests {
                         request("r2", "POST", "/api/orders", "/api/orders", "t2", 300, 400)),
                 REACTIVE,
                 RouteTemplateResolver.empty(),
-                20);
+                retainedMicros(20));
 
         assertThat(attribution.routes())
                 .extracting(SqlRouteRankingDto::method)
@@ -233,7 +233,7 @@ class SqlRouteAttributionTests {
                 List.of(request("r1", "GET", "/api/orders/1", "/api/orders/{id}", "t1", 100, 200)),
                 SERVLET,
                 RouteTemplateResolver.empty(),
-                65);
+                retainedMicros(65));
 
         SqlRouteRankingDto route = attribution.routes().get(0);
         assertThat(route.executions()).isEqualTo(31);
@@ -259,8 +259,8 @@ class SqlRouteAttributionTests {
             }
         }
 
-        SqlRouteAttributionDto attribution =
-                SqlRouteAttribution.attribute(entries, requests, SERVLET, RouteTemplateResolver.empty(), 100_000);
+        SqlRouteAttributionDto attribution = SqlRouteAttribution.attribute(
+                entries, requests, SERVLET, RouteTemplateResolver.empty(), retainedMicros(100_000));
 
         assertThat(attribution.routes()).hasSize(SqlRouteAttribution.MAX_ROUTES);
         assertThat(attribution.routesTruncated()).isTrue();
@@ -280,7 +280,7 @@ class SqlRouteAttributionTests {
                 List.of(request("r1", "GET", "/api/orders", "/api/orders", "t1", 100, 200)),
                 SERVLET,
                 RouteTemplateResolver.empty(),
-                20);
+                retainedMicros(20));
 
         assertThat(attribution.routes().get(0).errorCount()).isEqualTo(1);
     }
@@ -299,7 +299,7 @@ class SqlRouteAttributionTests {
                         request("r2", "GET", "/b", "/b", null, 100, 200)),
                 REACTIVE,
                 RouteTemplateResolver.empty(),
-                30);
+                retainedMicros(30));
 
         long inRoutes = attribution.routes().stream()
                 .mapToLong(SqlRouteRankingDto::executions)
@@ -313,7 +313,11 @@ class SqlRouteAttributionTests {
     @Test
     void explainsThatNoRequestsWereAvailableRatherThanShowingAnEmptyRanking() {
         SqlRouteAttributionDto attribution = SqlRouteAttribution.attribute(
-                List.of(entry("select 1").build()), List.of(), REACTIVE, RouteTemplateResolver.empty(), 10);
+                List.of(entry("select 1").build()),
+                List.of(),
+                REACTIVE,
+                RouteTemplateResolver.empty(),
+                retainedMicros(10));
 
         assertThat(attribution.available()).isTrue();
         assertThat(attribution.requestsConsidered()).isZero();
@@ -328,7 +332,7 @@ class SqlRouteAttributionTests {
                 List.of(request("r1", "GET", "/a", "/a", null, 100, 200)),
                 REACTIVE,
                 RouteTemplateResolver.empty(),
-                10);
+                retainedMicros(10));
 
         assertThat(attribution.notes()).anySatisfy(note -> assertThat(note).contains("trace id"));
     }
@@ -346,7 +350,7 @@ class SqlRouteAttributionTests {
                         "r1", "GET", "/api/orders", "/api/orders", "other-trace", 100, 200, "http-1")),
                 SERVLET,
                 RouteTemplateResolver.empty(),
-                5);
+                retainedMicros(5));
 
         assertThat(attribution.routes()).isEmpty();
         assertThat(attribution.attributedExecutions()).isZero();
@@ -361,7 +365,7 @@ class SqlRouteAttributionTests {
                 List.of(request("r1", "GET", "/api/orders", "/api/orders", null, 900, 1_100)),
                 REACTIVE,
                 RouteTemplateResolver.empty(),
-                3_000);
+                retainedMicros(3_000));
 
         assertThat(attribution.routes()).isEmpty();
         assertThat(attribution.unattributed().executions()).isEqualTo(1);
@@ -375,10 +379,28 @@ class SqlRouteAttributionTests {
                 List.of(request("r1", "GET", "/api/orders", "/api/orders", null, 900, 1_100)),
                 REACTIVE,
                 RouteTemplateResolver.empty(),
-                30);
+                retainedMicros(30));
 
         assertThat(attribution.routes()).hasSize(1);
         assertThat(attribution.routes().get(0).timeWindowCorrelated()).isEqualTo(1);
+    }
+
+    @Test
+    void reconstructsAStartInstantFromTheExactDurationRatherThanARoundedOne() {
+        // The statement completes exactly on the earliest instant the window admits, so rounding its
+        // 400 µs duration down to zero would place its start inside a request it provably preceded.
+        SqlRouteAttributionDto attribution = SqlRouteAttribution.attribute(
+                List.of(entry("select edge")
+                        .at(1_000 - SqlRouteAttribution.WINDOW_SLACK_MS)
+                        .lastingMicros(400)
+                        .build()),
+                List.of(request("r1", "GET", "/api/orders", "/api/orders", null, 1_000, 1_100)),
+                REACTIVE,
+                RouteTemplateResolver.empty(),
+                retainedMicros(1));
+
+        assertThat(attribution.routes()).isEmpty();
+        assertThat(attribution.unattributed().executions()).isEqualTo(1);
     }
 
     @Test
@@ -410,5 +432,13 @@ class SqlRouteAttributionTests {
     private static SqlRequestEvidence requestOnThread(
             String id, String method, String path, String template, long start, long end, String thread) {
         return new SqlRequestEvidence(id, method, path, template, null, start, end, thread);
+    }
+
+    /**
+     * The retained-window denominator in microseconds, the unit attribution shares are computed in, written
+     * from the milliseconds the fixtures express so each test still reads in the unit it sets up.
+     */
+    private static long retainedMicros(long millis) {
+        return millis * 1_000L;
     }
 }

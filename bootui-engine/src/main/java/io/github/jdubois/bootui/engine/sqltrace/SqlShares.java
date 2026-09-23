@@ -9,7 +9,8 @@ final class SqlShares {
     private SqlShares() {}
 
     /**
-     * {@code part} as a percentage of {@code total}, rounded to two decimals. Returns {@code 0} when the
+     * {@code part} as a percentage of {@code total} — both in microseconds, the unit every SQL Trace
+     * aggregate accumulates in — rounded to two decimals. Returns {@code 0} when the
      * window holds no measurable database time, which is the honest answer: with a zero denominator no
      * share exists, and reporting anything else would invent one.
      */

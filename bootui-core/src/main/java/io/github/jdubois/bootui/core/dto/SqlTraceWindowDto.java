@@ -14,7 +14,8 @@ package io.github.jdubois.bootui.core.dto;
  * @param totalCaptured executions seen since startup, which may far exceed {@code retainedStatements}
  * @param oldestTimestamp epoch millis of the oldest retained execution, or {@code null} when none is retained
  * @param newestTimestamp epoch millis of the newest retained execution, or {@code null} when none is retained
- * @param totalDurationMillis summed duration of every retained execution; the denominator for every share
+ * @param totalDurationMillis summed duration of every retained execution, in fractional milliseconds summed
+ *     from microsecond-resolution executions; the denominator for every share
  */
 public record SqlTraceWindowDto(
         int retainedStatements,
@@ -23,7 +24,7 @@ public record SqlTraceWindowDto(
         long totalCaptured,
         Long oldestTimestamp,
         Long newestTimestamp,
-        long totalDurationMillis) {
+        double totalDurationMillis) {
 
     public static SqlTraceWindowDto empty() {
         return new SqlTraceWindowDto(0, 0, 0, 0, null, null, 0);
