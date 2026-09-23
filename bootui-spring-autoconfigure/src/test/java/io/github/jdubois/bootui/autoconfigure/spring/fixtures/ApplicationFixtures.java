@@ -158,4 +158,24 @@ public final class ApplicationFixtures {
     @Configuration(proxyBeanMethods = false)
     @org.springframework.context.annotation.ComponentScan("app.advisoraudit.scanned")
     public static class ScanConfiguration {}
+
+    @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.RUNTIME)
+    @java.lang.annotation.Target(java.lang.annotation.ElementType.METHOD)
+    @Bean
+    public @interface ComposedBean {}
+
+    public static class ComposedBeanBase {
+        @ComposedBean
+        public Executor pool() {
+            return new ThreadPoolTaskExecutor();
+        }
+    }
+
+    /** Overrides a meta-annotated @Bean method without repeating the annotation. */
+    public static class ComposedBeanOverride extends ComposedBeanBase {
+        @Override
+        public ThreadPoolTaskExecutor pool() {
+            return new ThreadPoolTaskExecutor();
+        }
+    }
 }

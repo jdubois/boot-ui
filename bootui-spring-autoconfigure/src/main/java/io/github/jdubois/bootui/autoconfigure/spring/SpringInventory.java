@@ -273,21 +273,26 @@ final class SpringInventory {
         Map<List<Class<?>>, Method> mostDerived = new LinkedHashMap<>();
         Set<List<Class<?>>> beanMethodSignatures = new HashSet<>();
         int depth = 0;
-        for (Class<?> type = ClassUtils.getUserClass(owner); type != null; type = type.getSuperclass()) {
+        Class<?> userOwner = ClassUtils.getUserClass(owner);
+        for (Class<?> type = userOwner; type != null; type = type.getSuperclass()) {
             Method[] methods = type.getDeclaredMethods();
             // Own small allowance: this runs per pool and must not depend on the shared inventory budget.
             if (++depth > MAX_OWNER_DEPTH || methods.length > MAX_MEMBERS) {
                 partial();
-                return null;
+                return beanMethodClass;
             }
+            boolean factoryClass = type == userOwner || type.getName().equals(beanMethodClass);
             for (Method candidate : methods) {
                 if (!candidate.getName().equals(method)
                         || candidate.isBridge()
                         || candidate.isSynthetic()
-                        || Modifier.isStatic(candidate.getModifiers()) == instance) continue;
+                        || Modifier.isStatic(candidate.getModifiers()) == instance
+                        // A private method elsewhere in the hierarchy cannot override the factory method.
+                        || (Modifier.isPrivate(candidate.getModifiers()) && !factoryClass)) continue;
                 List<Class<?>> signature = List.of(candidate.getParameterTypes());
                 mostDerived.putIfAbsent(signature, candidate);
-                if (type.getName().equals(beanMethodClass) && candidate.isAnnotationPresent(Bean.class))
+                if (type.getName().equals(beanMethodClass)
+                        && AnnotatedElementUtils.hasAnnotation(candidate, Bean.class))
                     beanMethodSignatures.add(signature);
             }
         }
@@ -297,8 +302,13 @@ final class SpringInventory {
                         : beanMethodSignatures.contains(e.getKey()))
                 .map(Map.Entry::getValue)
                 .toList();
-        if (candidates.size() == 1) return candidates.get(0).getDeclaringClass().getName();
-        return candidates.isEmpty() ? beanMethodClass : null;
+        Set<String> declaring = candidates.stream()
+                .map(candidate -> candidate.getDeclaringClass().getName())
+                .collect(java.util.stream.Collectors.toSet());
+        // Overloads declared by one class still identify it; differing classes are ambiguous.
+        if (declaring.size() == 1) return declaring.iterator().next();
+        // Metadata alone is trusted only when no same-named method could override the recorded one.
+        return mostDerived.isEmpty() ? beanMethodClass : null;
     }
 
     /** Target metadata may be narrower (covariant override) or wider (declared Executor) than the method. */

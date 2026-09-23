@@ -406,6 +406,32 @@ class SpringInventoryTests {
         }
     }
 
+    @Test
+    void overrideOfComposedBeanMethodIsAttributedToTheOverridingClass() throws Exception {
+        var metadata = new org.springframework.core.type.classreading.SimpleMetadataReaderFactory()
+                        .getMetadataReader(ApplicationFixtures.ComposedBeanBase.class.getName())
+                        .getAnnotationMetadata()
+                        .getAnnotatedMethods(org.springframework.context.annotation.Bean.class.getName())
+                        .stream()
+                        .filter(method -> method.getMethodName().equals("pool"))
+                        .findFirst()
+                        .orElseThrow();
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        factory.registerBeanDefinition("owner", new RootBeanDefinition(ApplicationFixtures.ComposedBeanOverride.class));
+        var pool = new ConfigurationBeanMethodDefinition(metadata);
+        pool.setFactoryBeanName("owner");
+        pool.setFactoryMethodName("pool");
+        pool.setTargetType(ThreadPoolTaskExecutor.class);
+        pool.setLazyInit(true);
+        factory.registerBeanDefinition("pool", pool);
+        assertThat(SpringInventory.discover(factory, new MockEnvironment(), false)
+                        .pooledTaskExecutors())
+                .singleElement()
+                .extracting(PooledExecutorRef::declaringClass)
+                .isEqualTo(ApplicationFixtures.ComposedBeanOverride.class.getName());
+        assertThat(factory.getSingletonNames()).isEmpty();
+    }
+
     /** Mirrors Framework's package-private ConfigurationClassBeanDefinition before its method is resolved. */
     static final class ConfigurationBeanMethodDefinition extends RootBeanDefinition
             implements org.springframework.beans.factory.annotation.AnnotatedBeanDefinition {
@@ -438,39 +464,34 @@ class SpringInventoryTests {
 
     @Test
     void scannedConfigurationsStaticBeansAndComponentsAreAttributedWithoutDiscoveryCreatingBeans() {
-        new WebApplicationContextRunner()
-                .withBean(org.springframework.boot.LazyInitializationBeanFactoryPostProcessor.class)
-                // STOMP endpoints are registered by the handler mapping; the pools under test stay lazy.
-                .withBean(
-                        "eagerStompMapping",
-                        org.springframework.boot.LazyInitializationExcludeFilter.class,
-                        () -> org.springframework.boot.LazyInitializationExcludeFilter.forBeanTypes(
-                                org.springframework.web.servlet.HandlerMapping.class))
-                .withUserConfiguration(ApplicationFixtures.ScanConfiguration.class)
-                .run(context -> {
-                    var before = java.util.Set.of(context.getBeanFactory().getSingletonNames());
-                    var pools = SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false)
-                            .pooledTaskExecutors();
-                    assertThat(context.getBeanFactory().getSingletonNames())
-                            .containsExactlyInAnyOrderElementsOf(before);
-                    var byName = pools.stream()
-                            .collect(java.util.stream.Collectors.toMap(PooledExecutorRef::name, pool -> pool));
-                    String scanned = "app.advisoraudit.scanned.";
-                    assertThat(byName.get("clientInboundChannelExecutor").declaringClass())
-                            .isEqualTo(scanned + "ScannedBrokerConfiguration");
-                    assertThat(byName.get("clientInboundChannelExecutor").frameworkOwned())
-                            .isFalse();
-                    assertThat(byName.get("brokerChannelExecutor").frameworkOwned())
-                            .isTrue();
-                    assertThat(byName.get("staticPool").declaringClass())
-                            .isEqualTo(scanned + "ScannedPoolConfiguration");
-                    assertThat(byName.get("staticPool").frameworkOwned()).isFalse();
-                    assertThat(byName.get("scannedPool")).satisfies(pool -> {
-                        assertThat(pool.declaringClass()).isNull();
-                        assertThat(pool.beanClass()).isEqualTo(scanned + "ScannedPool");
-                        assertThat(pool.frameworkOwned()).isFalse();
-                    });
-                });
+        // Parse configuration without refreshing, so every pool is an unresolved, ASM-read definition.
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        factory.registerBeanDefinition("scan", new RootBeanDefinition(ApplicationFixtures.ScanConfiguration.class));
+        new org.springframework.context.annotation.ConfigurationClassPostProcessor()
+                .postProcessBeanDefinitionRegistry(factory);
+        for (String name : new String[] {"clientInboundChannelExecutor", "staticPool"})
+            assertThat(((RootBeanDefinition) factory.getMergedBeanDefinition(name)).getResolvedFactoryMethod())
+                    .isNull();
+        var before = java.util.Set.of(factory.getSingletonNames());
+        var pools =
+                SpringInventory.discover(factory, new MockEnvironment(), false).pooledTaskExecutors();
+        assertThat(factory.getSingletonNames()).containsExactlyInAnyOrderElementsOf(before);
+        // Unresolved inherited STOMP executors are typed by their declared Executor return and are not pools here.
+        assertThat(pools)
+                .extracting(PooledExecutorRef::name)
+                .containsExactlyInAnyOrder("clientInboundChannelExecutor", "staticPool", "scannedPool");
+        var byName = pools.stream().collect(java.util.stream.Collectors.toMap(PooledExecutorRef::name, pool -> pool));
+        String scanned = "app.advisoraudit.scanned.";
+        assertThat(byName.get("clientInboundChannelExecutor").declaringClass())
+                .isEqualTo(scanned + "ScannedBrokerConfiguration");
+        assertThat(byName.get("clientInboundChannelExecutor").frameworkOwned()).isFalse();
+        assertThat(byName.get("staticPool").declaringClass()).isEqualTo(scanned + "ScannedPoolConfiguration");
+        assertThat(byName.get("staticPool").frameworkOwned()).isFalse();
+        assertThat(byName.get("scannedPool")).satisfies(pool -> {
+            assertThat(pool.declaringClass()).isNull();
+            assertThat(pool.beanClass()).isEqualTo(scanned + "ScannedPool");
+            assertThat(pool.frameworkOwned()).isFalse();
+        });
     }
 
     @Test
