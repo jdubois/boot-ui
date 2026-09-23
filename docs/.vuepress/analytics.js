@@ -17,10 +17,17 @@ const DENIED = 'denied'
 
 let scriptLoaded = false
 let lastTrackedPath = null
+// The answer given during this page session, which outranks storage: it is the reader's latest
+// word, and it is all there is when a private browsing mode refuses the write.
+let sessionConsent = null
 
 export function readConsent() {
   if (typeof window === 'undefined') {
     return null
+  }
+
+  if (sessionConsent) {
+    return sessionConsent
   }
 
   try {
@@ -35,6 +42,10 @@ export function readConsent() {
 
 export function setConsent(consent) {
   const normalized = consent === GRANTED ? GRANTED : DENIED
+
+  // Recorded before the write is attempted, so a store that rejects or silently keeps a stale
+  // value cannot outvote the choice just made.
+  sessionConsent = normalized
 
   try {
     window.localStorage.setItem(CONSENT_STORAGE_KEY, normalized)

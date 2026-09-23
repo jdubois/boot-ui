@@ -9,10 +9,22 @@ import test from 'node:test'
 
 let nextCase = 0
 
-async function withStubbedBrowser() {
+async function withStubbedBrowser({storage = 'available'} = {}) {
   const store = new Map()
   const listeners = new Map()
   const injectedScripts = []
+
+  const unavailable = () => {
+    throw new DOMException('The operation is insecure.', 'SecurityError')
+  }
+
+  const localStorage =
+    storage === 'available'
+      ? {
+          getItem: (key) => (store.has(key) ? store.get(key) : null),
+          setItem: (key, value) => store.set(key, String(value))
+        }
+      : {getItem: unavailable, setItem: unavailable}
 
   globalThis.CustomEvent = class CustomEvent {
     constructor(type, init = {}) {
@@ -34,10 +46,7 @@ async function withStubbedBrowser() {
 
   globalThis.window = {
     location: {hostname: 'bootui.dev', href: 'https://bootui.dev/guide/', pathname: '/guide/'},
-    localStorage: {
-      getItem: (key) => (store.has(key) ? store.get(key) : null),
-      setItem: (key, value) => store.set(key, String(value))
-    },
+    localStorage,
     addEventListener(type, handler) {
       listeners.set(type, [...(listeners.get(type) ?? []), handler])
     },
@@ -115,4 +124,37 @@ test('re-picking the answer already in force does not report the page again', as
   analytics.setConsent('granted')
 
   assert.deepEqual(pageViews(), [])
+})
+
+test('a browser that refuses storage still gets the banner, not assumed consent', async () => {
+  const {analytics, injectedScripts, disabled} = await withStubbedBrowser({storage: 'unavailable'})
+
+  assert.equal(analytics.readConsent(), null)
+
+  analytics.applyConsent(analytics.readConsent())
+
+  assert.equal(injectedScripts.length, 0)
+  assert.equal(disabled(), true)
+})
+
+test('the choice is honoured for the session when it cannot be persisted', async () => {
+  const {analytics, disabled, pageViews} = await withStubbedBrowser({storage: 'unavailable'})
+
+  analytics.setConsent('granted')
+  assert.equal(analytics.readConsent(), 'granted')
+  assert.equal(disabled(), false)
+
+  analytics.trackPageView('/guide/panels/')
+  assert.deepEqual(pageViews(), ['/guide/panels/'], 'navigation is measured despite the failed write')
+
+  analytics.setConsent('denied')
+  assert.equal(analytics.readConsent(), 'denied')
+  assert.equal(disabled(), true)
+
+  analytics.trackPageView('/guide/setup/')
+  assert.deepEqual(pageViews(), ['/guide/panels/'], 'withdrawal is honoured too')
+
+  analytics.setConsent('granted')
+  assert.equal(disabled(), false)
+  assert.deepEqual(pageViews(), ['/guide/panels/', '/guide/'], 'the page re-consent was given on')
 })
