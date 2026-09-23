@@ -3689,7 +3689,7 @@ final class MultipleCollectionJoinFetchRule extends AbstractHibernateRule {
                 "HIB-QUERY-007",
                 "Queries should not JOIN FETCH more than one collection",
                 HibernateCategory.QUERY,
-                "HIGH",
+                "MEDIUM",
                 "Reviews eligible JPQL queries fetching multiple direct-root collections. Parallel fetching can"
                         + " multiply rows; Java List declarations do not prove effective bag classification or a"
                         + " guaranteed exception.",
@@ -3751,8 +3751,8 @@ final class MultipleCollectionJoinFetchRule extends AbstractHibernateRule {
         if (!bagDetails.isEmpty()) {
             List<String> all = new ArrayList<>(bagDetails);
             all.addAll(collectionDetails);
-            return violation(context, HibernateRuleSupport.MEDIUM, all);
+            return violation(context, all);
         }
-        return violation(context, HibernateRuleSupport.MEDIUM, collectionDetails);
+        return violation(context, collectionDetails);
     }
 }

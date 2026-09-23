@@ -450,6 +450,14 @@ maximum time, slow-query and failure counts, per-category counters, and eviction
 highlights expensive statements, and local-only **Pause**, **Resume**, and **Clear** actions stop recording or empty
 the buffer without unwrapping the data source.
 
+Statements are timed in nanoseconds and recorded in microseconds, as `durationMicros` on each execution, with
+`durationMillis` kept as a rounded compatibility field. Every aggregate — totals, averages, percentiles, shares, and
+route attribution — is summed from those microseconds and reported in fractional milliseconds.
+
+That resolution matters on a developer's own machine, where an ordinary primary-key read finishes in a few hundred
+microseconds. Whole-millisecond durations would report almost every statement as `0 ms` and leave the rankings with
+nothing to rank.
+
 Repeated `SELECT`s that look like an N+1 access pattern are flagged once they reach
 `bootui.sql-trace.n-plus-one-threshold`. A flagged group lists the distinct call sites — class, method, and line —
 most recently seen first and bounded to a handful, so you can go straight to the repository or service method causing
@@ -459,7 +467,7 @@ the repetition.
 
 BootUI transparently wraps each `DataSource` bean and intercepts statement execution on the resulting
 `Connection`/`Statement`/`PreparedStatement`/`CallableStatement` objects, recording the SQL text, statement type, SQL
-category (`SELECT`/`INSERT`/`UPDATE`/`DELETE`/`DDL`/`OTHER`), wall-clock duration, affected-row counts, batch size,
+category (`SELECT`/`INSERT`/`UPDATE`/`DELETE`/`DDL`/`OTHER`), wall-clock duration in microseconds, affected-row counts, batch size,
 originating connection, executing thread, the call site that triggered it (when call-site capture is enabled), and any
 failure. A Spring `DataSource` wrapper is never replaced, because its concrete type is part of your application's
 contract: instead, when it owns the only reference to a pool — as `spring.datasource.connection-fetch=lazy` does with
@@ -478,9 +486,10 @@ below, so a slow ranking row is one click from the executions behind it.
 **Statement rankings** aggregate executions by normalized statement: literals and existing bind markers collapse to
 `?`, and `IN (…)` lists fold, so equivalent parameterized executions group together without ever exposing a bound
 value. You can rank by cumulative duration, slowest single execution, execution count, average duration, error count,
-p95, or p99, and each row also shows p50, p95, and p99 durations and the group's share of retained database time. A
-statement scoring zero on the selected criterion is not ranked for it, so "top by errors" never lists statements that
-never failed.
+p95, or p99, and each row also shows p50, p95, and p99 durations and the group's share of retained database time. Those
+figures are fractional milliseconds summed from the microsecond-resolution executions, so a window of sub-millisecond
+statements still ranks. A statement scoring zero on the selected criterion is not ranked for it, so "top by errors"
+never lists statements that never failed.
 
 This is a different grouping from **Most frequent statements**, the fallback shown when statement rankings are
 unavailable, which keeps literal values so you can see the exact statements that repeated.

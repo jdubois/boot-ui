@@ -17,7 +17,7 @@
 #
 # For a faster startup the sample database migrations are disabled by default, also at build time
 # (process-aot sets -Dspring.flyway.enabled=false -Dspring.liquibase.enabled=false in
-# bootui-spring-sample-app/pom.xml). Unlike the JVM and CRaC images this cannot be toggled with a runtime
+# bootui-spring-sample-app/pom.xml). Unlike the plain JVM and CRaC images this cannot be toggled with a runtime
 # env var, because AOT freezes auto-configuration; to populate the BootUI Flyway/Liquibase panels,
 # rebuild the image with those two flags removed from the process-aot <jvmArguments>.
 #

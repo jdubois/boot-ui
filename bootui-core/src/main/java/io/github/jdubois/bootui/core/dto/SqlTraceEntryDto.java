@@ -15,7 +15,12 @@ import java.util.List;
  * @param statementType {@code STATEMENT}, {@code PREPARED}, or {@code CALLABLE}
  * @param category coarse SQL category: {@code SELECT}, {@code INSERT}, {@code UPDATE},
  *     {@code DELETE}, {@code DDL}, or {@code OTHER}
- * @param durationMillis wall-clock execution time in milliseconds
+ * @param durationMicros wall-clock execution time in microseconds, the exact recorded value every
+ *     aggregate is summed from; a statement that runs in 310 µs on a local database is {@code 310} here
+ *     rather than collapsing to a whole millisecond
+ * @param durationMillis wall-clock execution time in milliseconds, derived from {@link #durationMicros()}
+ *     by rounding; kept for compatibility, so sub-millisecond executions read {@code 0} or {@code 1} here
+ *     and callers that need real resolution read {@link #durationMicros()}
  * @param success whether the execution returned without throwing
  * @param errorMessage the failure message when {@code success} is {@code false}
  * @param affectedRows update count, when known
@@ -37,6 +42,7 @@ public record SqlTraceEntryDto(
         String sql,
         String statementType,
         String category,
+        long durationMicros,
         long durationMillis,
         boolean success,
         String errorMessage,

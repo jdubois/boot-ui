@@ -6,7 +6,8 @@
   "scripts": {
     "docs:dev": "vuepress dev docs --host 127.0.0.1 --port 8090",
     "docs:build": "vuepress build docs",
-    "docs:preview": "VUEPRESS_BASE=/ npm run docs:build && serve docs/.vuepress/dist --listen 8090"
+    "docs:preview": "VUEPRESS_BASE=/ npm run docs:build && serve docs/.vuepress/dist --listen 8090",
+    "test:analytics": "node --test docs/.vuepress/analytics.test.mjs"
   },
   "devDependencies": {
     "@vuepress/bundler-vite": "2.0.0-rc.31",

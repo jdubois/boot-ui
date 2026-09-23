@@ -71,13 +71,13 @@ public final class SqlTraceInsightsService {
                 SqlStatementRanking.rank(entries, SqlTraceGrouping.DEFAULT_N_PLUS_ONE_THRESHOLD);
         SqlRouteAttributionDto attribution = attributionUnavailableReason != null
                 ? SqlRouteAttributionDto.unavailable(attributionUnavailableReason)
-                : SqlRouteAttribution.attribute(entries, requests, supported, templates, ranked.totalDurationMillis());
+                : SqlRouteAttribution.attribute(entries, requests, supported, templates, ranked.totalDurationMicros());
 
         return new SqlTraceInsightsReport(
                 true,
                 null,
                 recorder.isRecording(),
-                window(entries, ranked.totalDurationMillis()),
+                window(entries, ranked.totalDurationMicros()),
                 ranked.statements(),
                 SqlStatementRanking.TOP_PER_CRITERION,
                 ranked.truncated(),
@@ -86,7 +86,7 @@ public final class SqlTraceInsightsService {
                 notes(entries, ranked));
     }
 
-    private SqlTraceWindowDto window(List<SqlTraceEntryDto> entries, long totalDurationMillis) {
+    private SqlTraceWindowDto window(List<SqlTraceEntryDto> entries, long totalDurationMicros) {
         Long oldest = entries.isEmpty() ? null : entries.get(0).timestamp();
         Long newest = entries.isEmpty() ? null : entries.get(entries.size() - 1).timestamp();
         for (SqlTraceEntryDto entry : entries) {
@@ -100,7 +100,7 @@ public final class SqlTraceInsightsService {
                 recorder.totalCaptured(),
                 oldest,
                 newest,
-                totalDurationMillis);
+                SqlDurations.millis(totalDurationMicros));
     }
 
     private List<String> notes(List<SqlTraceEntryDto> entries, SqlStatementRanking.Ranked ranked) {

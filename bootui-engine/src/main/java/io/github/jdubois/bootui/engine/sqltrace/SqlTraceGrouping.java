@@ -52,8 +52,8 @@ public final class SqlTraceGrouping {
             String key = normalizeSql(entry.sql());
             Aggregate aggregate = byStatement.computeIfAbsent(key, k -> new Aggregate(k, entry.category()));
             aggregate.executions++;
-            aggregate.totalDuration += entry.durationMillis();
-            aggregate.maxDuration = Math.max(aggregate.maxDuration, entry.durationMillis());
+            aggregate.totalDurationMicros += entry.durationMicros();
+            aggregate.maxDurationMicros = Math.max(aggregate.maxDurationMicros, entry.durationMicros());
             aggregate.addCallSite(entry.callSite());
         }
         List<SqlTraceGroupDto> groups = new ArrayList<>();
@@ -64,8 +64,8 @@ public final class SqlTraceGrouping {
                     aggregate.sql,
                     aggregate.category,
                     aggregate.executions,
-                    aggregate.totalDuration,
-                    aggregate.maxDuration,
+                    SqlDurations.millis(aggregate.totalDurationMicros),
+                    SqlDurations.millis(aggregate.maxDurationMicros),
                     nPlusOne,
                     aggregate.callSites()));
         }
@@ -96,8 +96,8 @@ public final class SqlTraceGrouping {
         private final String sql;
         private final String category;
         private long executions;
-        private long totalDuration;
-        private long maxDuration;
+        private long totalDurationMicros;
+        private long maxDurationMicros;
         private final Set<String> callSites = new LinkedHashSet<>();
 
         private Aggregate(String sql, String category) {

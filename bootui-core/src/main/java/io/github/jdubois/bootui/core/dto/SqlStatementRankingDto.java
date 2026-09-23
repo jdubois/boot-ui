@@ -21,13 +21,16 @@ import java.util.List;
  * @param sql the normalized, literal-free statement text
  * @param category coarse SQL category (SELECT, INSERT, UPDATE, DELETE, DDL, OTHER)
  * @param executions retained executions in this group
- * @param totalDurationMillis summed duration of those executions
- * @param maxDurationMillis slowest single execution in the group
- * @param avgDurationMillis mean duration across the group
+ * @param totalDurationMillis summed duration of those executions, in fractional milliseconds summed from
+ *     microsecond-resolution executions
+ * @param maxDurationMillis slowest single execution in the group, in fractional milliseconds
+ * @param avgDurationMillis mean duration across the group, in fractional milliseconds
  * @param errorCount executions in the group that failed
- * @param p50DurationMillis median duration across the group's retained executions
- * @param p95DurationMillis 95th percentile duration across the group's retained executions
- * @param p99DurationMillis 99th percentile duration across the group's retained executions
+ * @param p50DurationMillis median duration across the group's retained executions, in fractional milliseconds
+ * @param p95DurationMillis 95th percentile duration across the group's retained executions, in fractional
+ *     milliseconds
+ * @param p99DurationMillis 99th percentile duration across the group's retained executions, in fractional
+ *     milliseconds
  * @param shareOfRetainedTimePercent this group's share of the window's total database time, 0-100
  * @param topFor the ranking criteria this row is in the top group for, never empty
  * @param potentialNPlusOne whether the repetition count suggests an N+1 access pattern
@@ -42,13 +45,13 @@ public record SqlStatementRankingDto(
         String sql,
         String category,
         long executions,
-        long totalDurationMillis,
-        long maxDurationMillis,
+        double totalDurationMillis,
+        double maxDurationMillis,
         double avgDurationMillis,
         long errorCount,
-        long p50DurationMillis,
-        long p95DurationMillis,
-        long p99DurationMillis,
+        double p50DurationMillis,
+        double p95DurationMillis,
+        double p99DurationMillis,
         double shareOfRetainedTimePercent,
         List<String> topFor,
         boolean potentialNPlusOne,

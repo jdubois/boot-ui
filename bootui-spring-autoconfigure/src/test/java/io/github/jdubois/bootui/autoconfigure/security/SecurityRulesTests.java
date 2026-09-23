@@ -658,6 +658,24 @@ class SecurityRulesTests {
     }
 
     @Test
+    void broadCorsOriginPatternDeclaredSeverityIsReachableLowBase() {
+        BroadCorsOriginPatternRule rule = new BroadCorsOriginPatternRule();
+        CorsConfigModel scoped = new CorsConfigModel(
+                "/**", List.of(), List.of("https://*.example.com"), List.of("GET"), List.of(), Boolean.TRUE);
+        CorsConfigModel broad =
+                new CorsConfigModel("/**", List.of(), List.of("https://*"), List.of("GET"), List.of(), Boolean.FALSE);
+
+        SecurityRuleResultDto pass = rule.evaluate(cors(scoped));
+        SecurityRuleResultDto violation = rule.evaluate(cors(broad));
+
+        assertThat(rule.definition().severity()).isEqualTo("LOW");
+        assertThat(pass.status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(pass.severity()).isEqualTo(rule.definition().severity());
+        assertThat(violation.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(violation.severity()).isEqualTo(rule.definition().severity());
+    }
+
+    @Test
     void broadCorsOriginPatternIgnoresScopedSubdomainWildcard() {
         CorsConfigModel cors = new CorsConfigModel(
                 "/**", List.of(), List.of("https://*.example.com"), List.of("GET"), List.of(), Boolean.TRUE);

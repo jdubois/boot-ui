@@ -7056,6 +7056,7 @@ function sqlTraceEntry(
     sql,
     statementType: 'PREPARED',
     category,
+    durationMicros: durationMillis * 1000,
     durationMillis,
     success,
     errorMessage,

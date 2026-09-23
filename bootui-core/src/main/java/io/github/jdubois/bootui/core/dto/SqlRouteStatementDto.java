@@ -12,8 +12,8 @@ package io.github.jdubois.bootui.core.dto;
  * @param sql the normalized, literal-free statement text
  * @param category coarse SQL category
  * @param executions executions of this statement attributed to the route
- * @param totalDurationMillis summed duration of those executions
- * @param maxDurationMillis slowest attributed execution
+ * @param totalDurationMillis summed duration of those executions, in fractional milliseconds
+ * @param maxDurationMillis slowest attributed execution, in fractional milliseconds
  * @param errorCount attributed executions that failed
  */
 public record SqlRouteStatementDto(
@@ -21,6 +21,6 @@ public record SqlRouteStatementDto(
         String sql,
         String category,
         long executions,
-        long totalDurationMillis,
-        long maxDurationMillis,
+        double totalDurationMillis,
+        double maxDurationMillis,
         long errorCount) {}

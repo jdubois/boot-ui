@@ -39,10 +39,11 @@ class SampleMigrationConfiguration {
             ResourceLoader resourceLoader) {
         return args -> {
             // The sample migrations are disabled by default in the Docker images for a faster
-            // startup (and can be toggled with SPRING_FLYWAY_ENABLED / SPRING_LIQUIBASE_ENABLED),
-            // so this demo wiring must tolerate either tool being absent rather than fail to start.
-            // Gating on bean presence (rather than reading the property at runtime) keeps the
-            // behaviour consistent for the native image, where the toggle is baked in at build time.
+            // startup. In the plain JVM and CRaC images that is done with SPRING_FLYWAY_ENABLED /
+            // SPRING_LIQUIBASE_ENABLED, while the AOT and native images bake the decision in at
+            // build time, so this demo wiring must tolerate either tool being absent rather than
+            // fail to start. Gating on bean presence (rather than reading the property at runtime)
+            // keeps the behaviour consistent for the images whose conditions are frozen by AOT.
             Flyway flyway = flywayProvider.getIfAvailable();
             if (flyway != null) {
                 Flyway.configure()

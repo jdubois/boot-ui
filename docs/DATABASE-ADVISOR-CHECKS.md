@@ -112,13 +112,19 @@ key order/direction, expressions, predicates, access method, collation/operator 
 ownership can make superficially similar indexes different. Unknown definitions do not prove equality.
 Review dependencies, hints and measured usage; BootUI does not assert that dropping an index is safe.
 Generic JDBC and vendor catalogs lacking the complete comparison evidence can therefore leave this check
-unevaluated. A readable datasource can still produce a `PARTIAL` report when an applicable comparison is unknown.
+unevaluated. An index whose comparison semantics are not modelled — a PostgreSQL `hash` or GIN index, for
+instance — is reported as unknown only when it could pair with another index on the same table: same key columns,
+and an access method that is equal, B-tree-like on both sides, or not reported. The unknown names that index rather
+than its table. A readable datasource can still produce a `PARTIAL` report when an applicable comparison is unknown.
 
 ### DB-SCHEMA-004 - Foreign key column type mismatch with the referenced column
 
 **MEDIUM.** Compares each child column with the column actually named by the FK, including alternate
 referenced keys. Reports a known representational-domain discrepancy, not merely unequal type names.
 Decimal containment considers both integral and fractional capacity; unknown scale is not zero.
+Fixed-width UUID pairs count as fully compared, as do identical declarations whose type name, JDBC type, size
+and decimal digits are all reported and equal. A size or scale the driver does not report is unknown, not equal,
+so other date/time, boolean or vendor-type pairs remain an unknown comparison rather than a guess.
 Review intended value domains and vendor compatibility before aligning definitions. JDBC type-family
 classification alone cannot establish coercion behavior or query-plan quality.
 
@@ -127,7 +133,12 @@ classification alone cannot establish coercion behavior or query-plan quality.
 **LOW.** Reviews an additional exact unique-index definition only when the actual PK backing identity and
 relevant index semantics are established. The first unique index with matching columns is not assumed to
 be the backing index. Different included columns, access semantics or ownership prevent an equivalence
-conclusion. Oracle may use a **nonunique** index to enforce a PK/unique constraint.
+conclusion. A unique index that is partial, expression- or prefix-keyed, partitioned, of a special type, reported
+invalid, or of a reported access method outside the ordinary set compared here (such as hash, GIN, bitmap or an
+Oracle reverse-key index) is excluded from the comparison rather than reported as unknown: it can never be an
+exact duplicate of a proven backing index. A unique index whose semantics really are unreadable is reported once
+per index, naming the datasource, table and index. Oracle may use a **nonunique** index to enforce a PK/unique
+constraint.
 Review full definitions and dependencies, never drop a guessed constraint backing index.
 
 ### DB-SCHEMA-006 - Duplicate foreign key constraints
@@ -327,6 +338,11 @@ Review declarations and actual column constraints, not a guessed Java-to-SQL rep
 
 **MEDIUM.** Compares positive **nondefault** declared lengths with a positively bounded physical string
 column. LOB, conversion, native-definition and unresolved placement ambiguity are excluded.
+An explicit `@Enumerated(EnumType.STRING)` enum without an `@EnumeratedValue` field stores the constant's
+`name()`, so it is compared like a string. Implicit or `ORDINAL` enums, and other ambiguous mappings, are silently
+skipped on non-character columns and reported as unknown evidence only when the physical column is bounded
+character storage. Native MySQL/MariaDB `ENUM` and `SET` columns, which drivers report as character types sized
+to the longest label, are not compared.
 An arbitrary large length is not synonymous with an unbounded SQL type.
 `@Column(length=...)` describes schema generation, not runtime input validation; review declaration versus
 database definition rather than assuming the mapping accepts or validates every string of that length.

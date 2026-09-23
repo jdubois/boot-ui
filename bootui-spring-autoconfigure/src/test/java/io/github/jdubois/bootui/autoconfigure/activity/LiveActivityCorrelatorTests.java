@@ -87,6 +87,26 @@ class LiveActivityCorrelatorTests {
     }
 
     @Test
+    void sumsSubMillisecondStatementsIntoRealDatabaseTimeInsteadOfZero() {
+        SqlTraceController sql = sqlController(
+                subMillisSqlEntry(1, START + 5, "SELECT * FROM t", 400),
+                subMillisSqlEntry(2, START + 20, "SELECT * FROM t", 400),
+                subMillisSqlEntry(3, START + 40, "SELECT * FROM t", 400));
+        LiveActivityCorrelator correlator = correlator(
+                requestsController(exchange("r1", BASE, "GET", "/a", 200, 100L)),
+                sql,
+                null,
+                null,
+                new BootUiProperties());
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.timing().sqlCount()).isEqualTo(3);
+        assertThat(profile.timing().sqlMs()).isEqualTo(1.2);
+        assertThat(profile.timing().sqlPercent()).isEqualTo(1.2);
+    }
+
+    @Test
     void correlatesSqlByTimeWindowAndFlagsApproximate() {
         SqlTraceController sql = sqlController(
                 sqlEntry(1, START + 5, "SELECT * FROM t", "SELECT", 3),
@@ -621,6 +641,7 @@ class LiveActivityCorrelatorTests {
                 sql,
                 category,
                 category,
+                durationMillis * 1_000L,
                 durationMillis,
                 true,
                 null,
@@ -653,6 +674,7 @@ class LiveActivityCorrelatorTests {
                 sql,
                 category,
                 category,
+                durationMillis * 1_000L,
                 durationMillis,
                 true,
                 null,
@@ -664,5 +686,27 @@ class LiveActivityCorrelatorTests {
                 List.of(),
                 traceId,
                 callSite);
+    }
+
+    /** A sub-millisecond execution, the normal case against a local database. */
+    private static SqlTraceEntryDto subMillisSqlEntry(long id, long timestamp, String sql, long durationMicros) {
+        return new SqlTraceEntryDto(
+                id,
+                timestamp,
+                sql,
+                "SELECT",
+                "SELECT",
+                durationMicros,
+                Math.round(durationMicros / 1_000.0),
+                true,
+                null,
+                null,
+                0,
+                "conn-1",
+                "http-thread",
+                false,
+                List.of(),
+                null,
+                null);
     }
 }

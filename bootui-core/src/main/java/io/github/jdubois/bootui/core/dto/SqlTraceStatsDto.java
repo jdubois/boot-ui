@@ -4,9 +4,11 @@ package io.github.jdubois.bootui.core.dto;
  * Aggregate counters over the SQL statements currently retained in the trace buffer.
  *
  * @param totalQueries number of captured executions in the buffer
- * @param totalDurationMillis sum of execution times across the buffer
- * @param maxDurationMillis slowest single execution time
- * @param avgDurationMillis mean execution time
+ * @param totalDurationMillis sum of execution times across the buffer, in fractional milliseconds summed
+ *     from the microsecond-resolution executions so a buffer of sub-millisecond statements still reports
+ *     the database time it really spent
+ * @param maxDurationMillis slowest single execution time, in fractional milliseconds
+ * @param avgDurationMillis mean execution time, in fractional milliseconds
  * @param slowQueries executions over the slow-query threshold
  * @param failedQueries executions that threw
  * @param batchExecutions executions that ran as a JDBC batch
@@ -19,8 +21,8 @@ package io.github.jdubois.bootui.core.dto;
  */
 public record SqlTraceStatsDto(
         long totalQueries,
-        long totalDurationMillis,
-        long maxDurationMillis,
+        double totalDurationMillis,
+        double maxDurationMillis,
         double avgDurationMillis,
         long slowQueries,
         long failedQueries,

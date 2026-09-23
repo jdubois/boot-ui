@@ -2034,6 +2034,10 @@ Features:
 - State the retained window (retained statements, buffer size, evictions, total captured, oldest and newest retained
   timestamps, total retained duration) in the contract so rankings are read as bounded diagnostic evidence rather than
   lifetime metrics.
+- Record each execution's duration in microseconds and sum every ranking, percentile, share and attribution figure from
+  that, reporting them in fractional milliseconds. A local database answers most statements in well under a millisecond,
+  so a whole-millisecond recording unit would make the rankings report zero for almost every statement. The slow-query
+  threshold stays configured in milliseconds and its meaning is unchanged.
 - Serve the whole report from a single safe `GET /bootui/api/sql-trace/insights`, computed on request. Nothing is
   computed on page load beyond the panel's normal fetch, and no state is mutated.
 

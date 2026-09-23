@@ -44,13 +44,13 @@ public final class SqlStatementRanking {
      * outlier the tail already describes better.
      */
     public enum Criterion {
-        TOTAL_DURATION(SqlStatementAggregate::totalDurationMillis),
-        MAX_DURATION(SqlStatementAggregate::maxDurationMillis),
+        TOTAL_DURATION(SqlStatementAggregate::totalDurationMicros),
+        MAX_DURATION(SqlStatementAggregate::maxDurationMicros),
         EXECUTIONS(SqlStatementAggregate::executions),
-        AVG_DURATION(SqlStatementAggregate::avgDurationMillis),
+        AVG_DURATION(SqlStatementAggregate::avgDurationMicros),
         ERROR_COUNT(SqlStatementAggregate::errorCount),
-        P95_DURATION(aggregate -> aggregate.percentile(95)),
-        P99_DURATION(aggregate -> aggregate.percentile(99));
+        P95_DURATION(aggregate -> aggregate.percentileMicros(95)),
+        P99_DURATION(aggregate -> aggregate.percentileMicros(99));
 
         private final ToDoubleFunction<SqlStatementAggregate> metric;
 
@@ -70,10 +70,10 @@ public final class SqlStatementRanking {
      * @param statements the union of each criterion's top groups, ordered by cumulative duration
      * @param truncated whether distinct statements exist beyond {@code statements}
      * @param distinct distinct normalized statements observed in the window
-     * @param totalDurationMillis total retained database time, the denominator of every share
+     * @param totalDurationMicros total retained database time in microseconds, the denominator of every share
      */
     public record Ranked(
-            List<SqlStatementRankingDto> statements, boolean truncated, int distinct, long totalDurationMillis) {
+            List<SqlStatementRankingDto> statements, boolean truncated, int distinct, long totalDurationMicros) {
 
         public Ranked {
             statements = statements == null ? List.of() : List.copyOf(statements);
@@ -113,8 +113,8 @@ public final class SqlStatementRanking {
         if (byFingerprint.isEmpty()) {
             return Ranked.empty();
         }
-        long totalDuration = byFingerprint.values().stream()
-                .mapToLong(SqlStatementAggregate::totalDurationMillis)
+        long totalDurationMicros = byFingerprint.values().stream()
+                .mapToLong(SqlStatementAggregate::totalDurationMicros)
                 .sum();
 
         List<SqlStatementAggregate> all = new ArrayList<>(byFingerprint.values());
@@ -125,14 +125,14 @@ public final class SqlStatementRanking {
 
         List<SqlStatementRankingDto> ranked = all.stream()
                 .filter(aggregate -> selected.containsKey(aggregate.fingerprint()))
-                .sorted(byMetric(SqlStatementAggregate::totalDurationMillis))
+                .sorted(byMetric(SqlStatementAggregate::totalDurationMicros))
                 .map(aggregate -> toDto(
                         aggregate,
                         List.copyOf(selected.get(aggregate.fingerprint())),
-                        totalDuration,
+                        totalDurationMicros,
                         nPlusOneThreshold))
                 .toList();
-        return new Ranked(ranked, byFingerprint.size() > ranked.size(), byFingerprint.size(), totalDuration);
+        return new Ranked(ranked, byFingerprint.size() > ranked.size(), byFingerprint.size(), totalDurationMicros);
     }
 
     private static void selectTop(
@@ -151,28 +151,24 @@ public final class SqlStatementRanking {
     }
 
     private static SqlStatementRankingDto toDto(
-            SqlStatementAggregate aggregate, List<String> topFor, long totalDurationMillis, int nPlusOneThreshold) {
+            SqlStatementAggregate aggregate, List<String> topFor, long totalDurationMicros, int nPlusOneThreshold) {
         return new SqlStatementRankingDto(
                 aggregate.fingerprint(),
                 aggregate.sql(),
                 aggregate.category(),
                 aggregate.executions(),
-                aggregate.totalDurationMillis(),
-                aggregate.maxDurationMillis(),
-                round(aggregate.avgDurationMillis()),
+                SqlDurations.millis(aggregate.totalDurationMicros()),
+                SqlDurations.millis(aggregate.maxDurationMicros()),
+                SqlDurations.millis(aggregate.avgDurationMicros()),
                 aggregate.errorCount(),
-                aggregate.percentile(50),
-                aggregate.percentile(95),
-                aggregate.percentile(99),
-                SqlShares.percent(aggregate.totalDurationMillis(), totalDurationMillis),
+                SqlDurations.millis(aggregate.percentileMicros(50)),
+                SqlDurations.millis(aggregate.percentileMicros(95)),
+                SqlDurations.millis(aggregate.percentileMicros(99)),
+                SqlShares.percent(aggregate.totalDurationMicros(), totalDurationMicros),
                 topFor,
                 "SELECT".equalsIgnoreCase(aggregate.category()) && aggregate.executions() >= nPlusOneThreshold,
                 aggregate.callSites(),
                 aggregate.entryIds(),
                 aggregate.entryIdsTruncated());
-    }
-
-    private static double round(double value) {
-        return Math.round(value * 100.0) / 100.0;
     }
 }

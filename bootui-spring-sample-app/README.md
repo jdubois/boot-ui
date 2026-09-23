@@ -262,8 +262,8 @@ request. Two orthogonal AOT optimizations can cut that in half without requiring
    the pre-verified, pre-linked cache instead of parsing and linking bytecodes from scratch, saving a
    further 20–30 % off class-loading time.
 
-The combined saving is **35–55 %** on Spring-reported startup for this sample app. Unlike CRaC the
-profile can be overridden at runtime; unlike GraalVM no conditions are frozen at build time.
+The combined saving is **35–55 %** on Spring-reported startup for this sample app. It needs neither CRIU
+privileges nor a GraalVM toolchain, but like GraalVM it resolves bean conditions at build time.
 
 Ready-to-use Docker assets live at the repository root:
 
@@ -322,9 +322,12 @@ Key takeaways:
 BootUI is a development console that stays disabled outside dev profiles. The `aot` Maven profile
 enables BootUI for the `process-aot` step (`-Dbootui.enabled=ON`) so the generated factories include
 BootUI's bean wiring. At runtime, `-Dspring.aot.enabled=true` (already set in `JAVA_TOOL_OPTIONS`)
-activates the pre-generated code. Unlike the `native` profile, the Spring profile is **not** frozen;
-you can override `SPRING_PROFILES_ACTIVE` at runtime to switch to a different profile (BootUI will
-only be active if the new profile is in its `bootui.enabled-profiles` list).
+activates the pre-generated code. `SPRING_PROFILES_ACTIVE` still selects which property files are loaded
+at runtime, but it cannot change which beans exist: like the `native` profile, `process-aot` resolves the
+profile and property conditions at build time, so BootUI stays wired in as it was generated here. The same
+freeze applies to the sample Flyway/Liquibase migrations — `process-aot` runs with them disabled, so
+`SPRING_FLYWAY_ENABLED=true` and `SPRING_LIQUIBASE_ENABLED=true` cannot switch them on in the AOT image;
+rebuild with those two flags removed from the `aot` profile's `process-aot` configuration instead.
 
 ## Run it as a GraalVM native image
 
