@@ -43,8 +43,8 @@ function levelClass(level) {
         {{ expanded ? 'Hide' : 'Show' }} diagnostics
       </button>
     </div>
-    <ul v-if="expanded" :id="listId" class="list-group list-group-flush">
-      <li v-for="(diagnostic, index) in diagnostics" :key="index" class="list-group-item small">
+    <ul v-show="expanded" :id="listId" class="list-group list-group-flush">
+      <li v-for="(diagnostic, index) in expanded ? diagnostics : []" :key="index" class="list-group-item small">
         <span :class="levelClass(diagnostic.level)" class="badge me-2">{{ diagnostic.level }}</span>
         <span class="font-monospace">{{ diagnostic.source }}</span>
         <span v-if="diagnostic.unit" class="font-monospace text-muted ms-1">[{{ diagnostic.unit }}]</span>

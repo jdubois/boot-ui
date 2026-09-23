@@ -125,7 +125,19 @@ record HibernateContext(
 
     /** Records a gap together with a bounded example subject such as {@code Repository#method} or an entity name. */
     void missingEvidence(HibernateEvidenceGap gap, String subject) {
-        evidence.markRequiredUnknown(gap, subject);
+        evidence.markRequiredUnknown(gap, subject, subject);
+    }
+
+    /** Records a repository-method gap, counting overloads separately while showing {@code Repository#method}. */
+    void missingEvidence(HibernateEvidenceGap gap, HibernateRepositoryMethodModel method) {
+        evidence.markRequiredUnknown(
+                gap,
+                method.description(),
+                method.description() + "("
+                        + method.parameterTypes().stream()
+                                .map(Class::getName)
+                                .collect(java.util.stream.Collectors.joining(","))
+                        + ")");
     }
 
     <T> List<T> targets(List<T> values) {
@@ -403,6 +415,8 @@ final class HibernateEvaluationEvidence {
             new java.util.EnumMap<>(HibernateEvidenceGap.class);
     private final java.util.EnumMap<HibernateEvidenceGap, java.util.Set<String>> subjects =
             new java.util.EnumMap<>(HibernateEvidenceGap.class);
+    private final java.util.Map<HibernateEvidenceGap, java.util.Set<String>> identities =
+            new java.util.EnumMap<>(HibernateEvidenceGap.class);
     private boolean requiredUnknown;
     private boolean applicable;
     private boolean usable;
@@ -437,18 +451,25 @@ final class HibernateEvaluationEvidence {
     }
 
     void markRequiredUnknown(HibernateEvidenceGap gap) {
-        markRequiredUnknown(gap, null);
+        markRequiredUnknown(gap, null, null);
     }
 
-    void markRequiredUnknown(HibernateEvidenceGap gap, String subject) {
+    /**
+     * Records a gap; {@code identity} deduplicates the count (distinct identities count once, anonymous gaps per
+     * occurrence) and {@code subject} is the sanitized example shown to the user.
+     */
+    void markRequiredUnknown(HibernateEvidenceGap gap, String subject, String identity) {
         requiredUnknown = true;
         HibernateEvidenceGap kind = gap == null ? HibernateEvidenceGap.OTHER : gap;
-        java.util.Set<String> known = subjects.computeIfAbsent(kind, key -> new java.util.LinkedHashSet<>());
-        String safe = subject == null || subject.isBlank() ? null : HibernateRuleSupport.detail(subject);
-        // Count distinct subjects once; anonymous gaps are counted per occurrence.
-        if (safe != null && known.contains(safe)) return;
+        if (identity != null && !identity.isBlank()) {
+            if (!identities
+                    .computeIfAbsent(kind, key -> new java.util.HashSet<>())
+                    .add(identity)) return;
+        }
         gaps.merge(kind, 1, Integer::sum);
-        if (safe != null) known.add(safe);
+        if (subject != null && !subject.isBlank())
+            subjects.computeIfAbsent(kind, key -> new java.util.LinkedHashSet<>())
+                    .add(HibernateRuleSupport.detail(subject));
     }
 
     /** Up to {@link #MAX_SUBJECTS_PER_GAP} sanitized example subjects per gap kind. */
@@ -476,6 +497,7 @@ final class HibernateEvaluationEvidence {
         requiredUnknown = false;
         gaps.clear();
         subjects.clear();
+        identities.clear();
         applicable = false;
         usable = false;
         evaluated = false;

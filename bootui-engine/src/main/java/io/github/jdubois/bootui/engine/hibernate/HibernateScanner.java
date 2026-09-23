@@ -171,7 +171,7 @@ public final class HibernateScanner {
                     0,
                     0,
                     List.of(),
-                    List.copyOf(discoveryDiagnostics(observation)),
+                    bounded(discoveryDiagnostics(observation)),
                     AdvisorEvidenceDto.unknown());
         }
 
@@ -262,7 +262,9 @@ public final class HibernateScanner {
                             advisorLimitOnly(evidence) ? INFO : WARNING,
                             prefix + " Required evidence unavailable: " + gaps + "."));
                 }
-                if (HibernateRuleSupport.SKIPPED.equals(result.status())) skipped++;
+                if (HibernateRuleSupport.SKIPPED.equals(result.status())
+                        && !failed.contains(identity)
+                        && !unknown.contains(identity)) skipped++;
                 usable |= context.evidence().usable();
                 if (isViolation(result)) mergeViolation(violations, result, label);
             }
@@ -279,18 +281,18 @@ public final class HibernateScanner {
         diagnostics.addAll(0, discovery);
         int totalDiagnostics = diagnostics.size();
         List<HibernateDiagnosticDto> retained = bounded(diagnostics);
-        int shown = Math.min(totalDiagnostics, MAX_DIAGNOSTICS);
+        int shown = retained.size() < totalDiagnostics ? retained.size() - 1 : totalDiagnostics;
         boolean incomplete = !discovery.isEmpty() || !failed.isEmpty() || !unknown.isEmpty();
         String message = "Hibernate Advisor inspected " + entities.size() + " entity mappings across "
                 + observation.units().size() + " persistence units. Attempted " + rules.size()
                 + " distinct rules (" + attempts + " unit/application evaluations); failed " + failed.size()
-                + ", skipped " + skipped + ", required evidence unavailable " + unknown.size() + ".";
+                + ", required evidence unavailable " + unknown.size() + ", otherwise skipped " + skipped + ".";
         if (totalDiagnostics > 0 && shown == totalDiagnostics)
             message += " See diagnostics for " + totalDiagnostics + " " + (totalDiagnostics == 1 ? "entry" : "entries")
                     + " naming each affected rule and unit.";
         else if (totalDiagnostics > 0)
             message += " Diagnostics show " + shown + " of " + totalDiagnostics
-                    + " entries; every failure and every affected rule is kept.";
+                    + " entries; every affected rule and discovery reason keeps at least one, failures first.";
         return report(
                 incomplete ? "PARTIAL" : "SCANNED",
                 message,
@@ -310,30 +312,36 @@ public final class HibernateScanner {
     }
 
     /**
-     * Keeps at most {@link #MAX_DIAGNOSTICS} entries without dropping a whole rule: every source keeps its first entry
-     * (an {@code ERROR} when it has one), then all remaining {@code ERROR}s, then the rest round-robin by source.
-     * Retained entries keep their original order, followed by one entry stating how many were omitted.
+     * Returns at most {@link #MAX_DIAGNOSTICS} entries. When capped, the last slot is a summary of how many were omitted
+     * and the others are chosen so that every rule (and every distinct discovery reason) keeps its first entry, an
+     * {@code ERROR} when it has one; remaining slots go to further {@code ERROR}s, then round-robin across rules.
+     * Retained entries keep their original order.
      */
     static List<HibernateDiagnosticDto> bounded(List<HibernateDiagnosticDto> diagnostics) {
         if (diagnostics.size() <= MAX_DIAGNOSTICS) return List.copyOf(diagnostics);
-        Map<String, List<Integer>> bySource = new LinkedHashMap<>();
-        for (int i = 0; i < diagnostics.size(); i++)
-            bySource.computeIfAbsent(diagnostics.get(i).source(), key -> new ArrayList<>())
-                    .add(i);
+        int capacity = MAX_DIAGNOSTICS - 1;
+        Map<String, List<Integer>> buckets = new LinkedHashMap<>();
+        for (int i = 0; i < diagnostics.size(); i++) {
+            HibernateDiagnosticDto diagnostic = diagnostics.get(i);
+            String key = DISCOVERY_SOURCE.equals(diagnostic.source())
+                    ? DISCOVERY_SOURCE + ":" + diagnostic.message()
+                    : diagnostic.source();
+            buckets.computeIfAbsent(key, ignored -> new ArrayList<>()).add(i);
+        }
         Set<Integer> kept = new java.util.TreeSet<>();
-        for (List<Integer> indexes : bySource.values()) {
-            if (kept.size() == MAX_DIAGNOSTICS) break;
+        for (List<Integer> indexes : buckets.values()) {
+            if (kept.size() == capacity) break;
             kept.add(indexes.stream()
                     .filter(index -> ERROR.equals(diagnostics.get(index).level()))
                     .findFirst()
                     .orElse(indexes.get(0)));
         }
-        for (int i = 0; i < diagnostics.size() && kept.size() < MAX_DIAGNOSTICS; i++)
+        for (int i = 0; i < diagnostics.size() && kept.size() < capacity; i++)
             if (ERROR.equals(diagnostics.get(i).level())) kept.add(i);
-        int rounds = bySource.values().stream().mapToInt(List::size).max().orElse(0);
-        for (int round = 0; round < rounds && kept.size() < MAX_DIAGNOSTICS; round++) {
-            for (List<Integer> indexes : bySource.values()) {
-                if (kept.size() == MAX_DIAGNOSTICS) break;
+        int rounds = buckets.values().stream().mapToInt(List::size).max().orElse(0);
+        for (int round = 0; round < rounds && kept.size() < capacity; round++) {
+            for (List<Integer> indexes : buckets.values()) {
+                if (kept.size() == capacity) break;
                 if (round < indexes.size()) kept.add(indexes.get(round));
             }
         }
@@ -343,8 +351,8 @@ public final class HibernateScanner {
                 OMITTED_SOURCE,
                 "application",
                 WARNING,
-                (diagnostics.size() - kept.size()) + " further diagnostics omitted; every failure and every affected"
-                        + " rule keeps at least one entry, and scan.message keeps the full counts."));
+                (diagnostics.size() - kept.size()) + " further diagnostics omitted; every affected rule and discovery"
+                        + " reason keeps at least one entry, failures first, and scan.message keeps the full counts."));
         return List.copyOf(result);
     }
 

@@ -11,10 +11,10 @@ enum HibernateEvidenceGap {
             + " multiple roots, non-simple join path, or unresolved entity)"),
     QUERY_RETURN_TYPE("repository query method(s) whose return element type is unavailable"),
     DERIVED_QUERY("derived repository query method(s) that could not be verified"),
-    QUERY_HINT("repository query method(s) whose collection-fetch pagination is not proven safe (no"
-            + " org.hibernate.limitInMemory hint observed for this Hibernate version)"),
+    QUERY_HINT("repository query method(s) whose collection-fetch pagination is not proven safe for this Hibernate"
+            + " version (org.hibernate.limitInMemory hint absent or not enabled)"),
     ENTITY_GRAPH("repository query method(s) with an entity graph whose fetch plan is not reconstructed"),
-    REPOSITORY_NEWNESS("repository(ies) with a non-standard entity newness strategy"),
+    REPOSITORY_NEWNESS("entity(ies) whose repository uses a non-standard entity newness strategy"),
     FACTORY_SETTING("effective persistence-unit setting(s) unavailable"),
     APPLICATION_SETTING(
             "application-level setting(s) unavailable (logging, open-in-view, or datasource" + " initialization)"),

@@ -403,12 +403,12 @@ class HibernateAdvisorObservationTests {
         }
         HibernateReport report = scanner(units, List.of(), rules).scan();
 
-        assertThat(report.scan().message()).contains("Diagnostics show 200 of 300 entries");
-        assertThat(report.diagnostics()).hasSize(HibernateScanner.MAX_DIAGNOSTICS + 1);
-        HibernateDiagnosticDto omitted = report.diagnostics().get(HibernateScanner.MAX_DIAGNOSTICS);
+        assertThat(report.scan().message()).contains("Diagnostics show 199 of 300 entries");
+        assertThat(report.diagnostics()).hasSize(HibernateScanner.MAX_DIAGNOSTICS);
+        HibernateDiagnosticDto omitted = report.diagnostics().get(HibernateScanner.MAX_DIAGNOSTICS - 1);
         assertThat(omitted.source()).isEqualTo(HibernateScanner.OMITTED_SOURCE);
-        assertThat(omitted.message()).startsWith("100 further diagnostics omitted;");
-        assertThat(report.diagnostics().subList(0, HibernateScanner.MAX_DIAGNOSTICS))
+        assertThat(omitted.message()).startsWith("101 further diagnostics omitted;");
+        assertThat(report.diagnostics().subList(0, HibernateScanner.MAX_DIAGNOSTICS - 1))
                 .extracting(HibernateDiagnosticDto::source)
                 .containsAll(java.util.stream.IntStream.range(0, 10)
                         .mapToObj(i -> "HIB-TEST-" + i)
@@ -442,7 +442,43 @@ class HibernateAdvisorObservationTests {
                     assertThat(diagnostic.unit()).isEqualTo("unit-249");
                 });
         assertThat(report.diagnostics().get(report.diagnostics().size() - 1).message())
-                .startsWith("51 further diagnostics omitted;");
+                .startsWith("52 further diagnostics omitted;");
+    }
+
+    @Test
+    void boundedKeepsEveryRuleAndDiscoveryReasonWhenFailuresAloneExceedTheCap() {
+        List<HibernateDiagnosticDto> diagnostics = new ArrayList<>();
+        diagnostics.add(new HibernateDiagnosticDto("discovery", "a", "WARNING", "Factory unavailable."));
+        diagnostics.add(new HibernateDiagnosticDto("discovery", "b", "WARNING", "Factory unavailable."));
+        diagnostics.add(new HibernateDiagnosticDto("discovery", "c", "WARNING", "Metamodel unavailable."));
+        for (int i = 0; i < 300; i++)
+            diagnostics.add(
+                    new HibernateDiagnosticDto("HIB-TEST-FAIL", "unit-" + i, "ERROR", "Rule evaluation failed."));
+        diagnostics.add(new HibernateDiagnosticDto("HIB-TEST-LAST", "unit-0", "WARNING", "No conclusion reached."));
+
+        List<HibernateDiagnosticDto> bounded = HibernateScanner.bounded(diagnostics);
+
+        assertThat(bounded).hasSize(HibernateScanner.MAX_DIAGNOSTICS);
+        assertThat(bounded)
+                .extracting(HibernateDiagnosticDto::message)
+                .contains("Factory unavailable.", "Metamodel unavailable.", "No conclusion reached.");
+        assertThat(bounded).filteredOn(d -> "ERROR".equals(d.level())).hasSize(HibernateScanner.MAX_DIAGNOSTICS - 4);
+        assertThat(bounded.get(bounded.size() - 1).message()).startsWith("105 further diagnostics omitted;");
+        assertThat(HibernateScanner.bounded(diagnostics.subList(0, HibernateScanner.MAX_DIAGNOSTICS)))
+                .hasSize(HibernateScanner.MAX_DIAGNOSTICS)
+                .noneMatch(d -> HibernateScanner.OMITTED_SOURCE.equals(d.source()));
+    }
+
+    @Test
+    void gapCountsDistinctIdentitiesWhileShowingSanitizedExamples() {
+        HibernateEvaluationEvidence evidence = new HibernateEvaluationEvidence();
+        evidence.markRequiredUnknown(HibernateEvidenceGap.QUERY_SHAPE, "Repo#find", "Repo#find(int)");
+        evidence.markRequiredUnknown(HibernateEvidenceGap.QUERY_SHAPE, "Repo#find", "Repo#find(long)");
+        evidence.markRequiredUnknown(HibernateEvidenceGap.QUERY_SHAPE, "Repo#find", "Repo#find(long)");
+        evidence.markRequiredUnknown(HibernateEvidenceGap.QUERY_SHAPE);
+
+        assertThat(evidence.gaps()).containsEntry(HibernateEvidenceGap.QUERY_SHAPE, 3);
+        assertThat(evidence.subjects(HibernateEvidenceGap.QUERY_SHAPE)).containsExactly("Repo#find");
     }
 
     @Test

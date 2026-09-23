@@ -208,12 +208,12 @@ final class HibernateRuleModelSupport {
                     String attributeName = directAttribute(rootAlias, path);
                     if (attributeName != null && collectionNames.contains(attributeName)) {
                         if (context.hibernateVersion().major() == null) {
-                            context.missingEvidence(HibernateEvidenceGap.HIBERNATE_VERSION, method.description());
+                            context.missingEvidence(HibernateEvidenceGap.HIBERNATE_VERSION, method);
                             continue;
                         }
                         if (context.hasHibernateCollectionFetchPaginationFix()
                                 && !Boolean.TRUE.equals(method.evidence().limitInMemory())) {
-                            context.missingEvidence(HibernateEvidenceGap.QUERY_HINT, method.description());
+                            context.missingEvidence(HibernateEvidenceGap.QUERY_HINT, method);
                             continue;
                         }
                         details.add(method.description() + " pages a collection JOIN FETCH path " + path + ".");
@@ -2311,7 +2311,7 @@ final class DerivedDeleteByQueryRule extends AbstractHibernateRule {
                 if (method.isDerivedDeleteMethod() && !method.hasQuery()) {
                     context.evidence().markApplicable(true);
                     if (context.observed() && !method.evidence().derivedQueryVerified()) {
-                        context.missingEvidence(HibernateEvidenceGap.DERIVED_QUERY, method.description());
+                        context.missingEvidence(HibernateEvidenceGap.DERIVED_QUERY, method);
                         continue;
                     }
                     details.add(method.description()
@@ -3249,7 +3249,7 @@ final class EagerToOneFetchJoinRule extends AbstractHibernateRule {
                 HibernateEntityModel domainEntity = HibernateQueryShape.entityRoot(context, method);
                 if (domainEntity == null) continue;
                 if (method.evidence().entityGraph()) {
-                    context.missingEvidence(HibernateEvidenceGap.ENTITY_GRAPH, method.description());
+                    context.missingEvidence(HibernateEvidenceGap.ENTITY_GRAPH, method);
                     continue;
                 }
                 List<HibernateAttributeModel> eagerToOne = eagerToOneAssociations(domainEntity);

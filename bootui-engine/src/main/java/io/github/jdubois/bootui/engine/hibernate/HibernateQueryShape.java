@@ -59,19 +59,19 @@ final class HibernateQueryShape {
         HibernateQueryEvidence evidence = method.evidence();
         if (context.observed()
                 && (!evidence.verifiedQueryMethod() || evidence.namedQuery() || evidence.queryRewriter())) {
-            context.missingEvidence(HibernateEvidenceGap.QUERY_PROVENANCE, method.description());
+            context.missingEvidence(HibernateEvidenceGap.QUERY_PROVENANCE, method);
             return null;
         }
         String query = lexical(method.query());
         if (query == null
                 || !query.trim().toLowerCase(Locale.ROOT).matches("(?s)^(select\\b|from\\b).*")
                 || query.indexOf(',') >= 0) {
-            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method.description());
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
             return null;
         }
         Matcher roots = ROOT.matcher(query);
         if (!roots.find()) {
-            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method.description());
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
             return null;
         }
         String name = roots.group(1);
@@ -80,7 +80,7 @@ final class HibernateQueryShape {
                 || Pattern.compile("(?i)\\b(select|union|intersect|except)\\b")
                         .matcher(query.substring(query.toLowerCase(Locale.ROOT).indexOf("from") + 4))
                         .find()) {
-            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method.description());
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
             return null;
         }
         Matcher joins = JOIN.matcher(query);
@@ -89,7 +89,7 @@ final class HibernateQueryShape {
             if (!path.startsWith(alias + ".")
                     || path.chars().filter(value -> value == '.').count() != 1
                     || joins.group(2) != null) {
-                context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method.description());
+                context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
                 return null;
             }
         }
@@ -101,18 +101,18 @@ final class HibernateQueryShape {
                 entityName = entity.javaType().getSimpleName();
             if (name.equals(entityName) || name.equals(entity.javaType().getName())) {
                 if (found != null) {
-                    context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method.description());
+                    context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
                     return null;
                 }
                 found = entity;
             }
         }
         if (found == null) {
-            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method.description());
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
             return null;
         }
         if (entityReturn && context.observed() && evidence.returnElementType() == null) {
-            context.missingEvidence(HibernateEvidenceGap.QUERY_RETURN_TYPE, method.description());
+            context.missingEvidence(HibernateEvidenceGap.QUERY_RETURN_TYPE, method);
             return null;
         }
         if (entityReturn && context.observed() && !found.javaType().equals(evidence.returnElementType())) return null;
@@ -148,7 +148,7 @@ final class HibernateQueryShape {
         HibernateQueryEvidence evidence = method.evidence();
         if (context.observed()
                 && (!evidence.verifiedQueryMethod() || evidence.namedQuery() || evidence.queryRewriter())) {
-            context.missingEvidence(HibernateEvidenceGap.QUERY_PROVENANCE, method.description());
+            context.missingEvidence(HibernateEvidenceGap.QUERY_PROVENANCE, method);
             return null;
         }
         String query = lexical(method.query());
@@ -159,22 +159,22 @@ final class HibernateQueryShape {
         if (Pattern.compile("(?i)\\b(select|union|intersect|except)\\b")
                 .matcher(query)
                 .find()) {
-            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method.description());
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
             return null;
         }
         Matcher headMatcher = UPDATE_HEAD.matcher(query);
         if (!headMatcher.find()) {
-            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method.description());
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
             return null;
         }
         String head = headMatcher.group(1).trim();
         if (head.indexOf(',') >= 0) {
-            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method.description());
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
             return null;
         }
         String[] tokens = head.split("\\s+");
         if (tokens.length == 0) {
-            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method.description());
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
             return null;
         }
 
@@ -193,7 +193,7 @@ final class HibernateQueryShape {
                     } else if (tokens.length == 4 && tokens[2].equalsIgnoreCase("as")) {
                         alias = tokens[3];
                     } else if (tokens.length > 2) {
-                        context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method.description());
+                        context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
                         return null;
                     }
                 }
@@ -207,7 +207,7 @@ final class HibernateQueryShape {
                     } else if (tokens.length == 3 && tokens[1].equalsIgnoreCase("as")) {
                         alias = tokens[2];
                     } else if (tokens.length > 1) {
-                        context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method.description());
+                        context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
                         return null;
                     }
                 }
@@ -220,14 +220,14 @@ final class HibernateQueryShape {
                 } else if (tokens.length == 3 && tokens[1].equalsIgnoreCase("as")) {
                     alias = tokens[2];
                 } else if (tokens.length > 1) {
-                    context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method.description());
+                    context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
                     return null;
                 }
             }
         }
 
         if (entity == null) {
-            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method.description());
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, method);
             return null;
         }
         return new UpdateTarget(entity, alias, query, versioned);

@@ -49,10 +49,12 @@ rule reached no conclusion, was partly evaluated with no findings, or reported f
 and names the missing evidence kinds with occurrence counts and up to three sanitized examples such as
 `OrderRepository#findRecent` or an entity name (for example query provenance, a JPQL shape outside the readable subset,
 or an unavailable unit setting). Messages use controlled phrases only and never carry query text, property values or
-exception messages. A failed evaluation is counted as failed, not also as unavailable evidence. The array holds at
-most 200 entries: when more are produced, every rule and every `ERROR` keeps at least one entry, the rest are chosen
-round-robin by rule, and a final entry with source `diagnostics` states how many were omitted, while `scan.message`
-states "Diagnostics show M of N entries" and keeps the full counts. A rule that reports findings but could not
+exception messages. A failed evaluation is counted as failed, not also as unavailable evidence, and the skipped count
+excludes both. The array holds at most 200 entries: when more are produced, the last entry has source `diagnostics`
+and states how many were omitted, every rule and every distinct discovery reason keeps at least one entry (an `ERROR`
+when it has one), remaining slots go to further `ERROR`s and then round-robin by rule, and `scan.message` states
+"Diagnostics show M of N entries" while keeping the full counts. HIB-CONFIG-008 and HIB-CONFIG-011 gaps are reported
+at `INFO` level because they are advisor limits, but they still make the scan `PARTIAL` (see below). A rule that reports findings but could not
 evaluate every unit or query carries a `coverageNote` on its `results` entry (for example
 `Incomplete in [default]: …`) naming up to ten affected units and why, including units where the rule failed. Intentional platform inapplicability is distinct from a failed applicable check.
 `rulesEvaluated` counts distinct active rule attempts, not successful verification of every mapping.

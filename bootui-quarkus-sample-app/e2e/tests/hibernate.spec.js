@@ -26,7 +26,7 @@ test.describe('Hibernate advisor (Quarkus)', () => {
     expect(report.scan.message).toBeTruthy()
     expect(Array.isArray(report.diagnostics)).toBe(true)
     expect(report.diagnostics.length).toBeGreaterThan(0)
-    expect(report.scan.message).not.toContain('more')
+    expect(report.scan.message).not.toMatch(/Incomplete: |\+\d+ more/)
     for (const diagnostic of report.diagnostics) {
       expect(['ERROR', 'WARNING', 'INFO']).toContain(diagnostic.level)
       expect(diagnostic.source).toBeTruthy()
@@ -51,7 +51,8 @@ test.describe('Hibernate advisor (Quarkus)', () => {
     await diagnosticsToggle.click()
     const hideDiagnostics = page.getByRole('button', {name: 'Hide diagnostics'})
     await expect(hideDiagnostics).toHaveAttribute('aria-expanded', 'true')
-    await expect(page.locator('#' + (await hideDiagnostics.getAttribute('aria-controls'))).locator('li')).toHaveCount(
+    const diagnosticsListId = await hideDiagnostics.getAttribute('aria-controls')
+    await expect(page.locator(`[id=${JSON.stringify(diagnosticsListId)}]`).locator('li')).toHaveCount(
       report.diagnostics.length
     )
     await hideDiagnostics.click()

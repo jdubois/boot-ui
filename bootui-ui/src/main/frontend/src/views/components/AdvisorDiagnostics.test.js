@@ -24,13 +24,15 @@ describe('AdvisorDiagnostics', () => {
     expect(wrapper.text()).toContain('3 notes — not counted as findings')
     const toggle = wrapper.get('button')
     expect(toggle.attributes('aria-expanded')).toBe('false')
-    expect(wrapper.find('ul').exists()).toBe(false)
+    const list = wrapper.get('ul')
+    expect(toggle.attributes('aria-controls')).toBe(list.attributes('id'))
+    expect(list.attributes('style')).toContain('display: none')
+    expect(wrapper.findAll('li')).toHaveLength(0)
 
     await toggle.trigger('click')
 
-    const list = wrapper.get('ul')
     expect(toggle.attributes('aria-expanded')).toBe('true')
-    expect(toggle.attributes('aria-controls')).toBe(list.attributes('id'))
+    expect(list.attributes('style') || '').not.toContain('display: none')
     const items = wrapper.findAll('li')
     expect(items).toHaveLength(3)
     expect(items[0].get('.badge').classes()).toContain('text-bg-danger')
