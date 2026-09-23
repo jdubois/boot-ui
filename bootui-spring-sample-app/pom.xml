@@ -338,16 +338,16 @@
                                         is activated at runtime with SPRING_AOT_ENABLED=true (already set
                                         in JAVA_TOOL_OPTIONS in Dockerfile-aot).
 
-                                        Flyway and Liquibase are disabled so the process-aot fork exits
-                                        quickly without touching the schema, and so the AOT image boots
-                                        without running the sample migrations. That decision is frozen
-                                        the same way: AOT evaluates @ConditionalOnProperty at build time,
-                                        so the Flyway/Liquibase auto-configurations are not generated and
-                                        SPRING_FLYWAY_ENABLED / SPRING_LIQUIBASE_ENABLED cannot switch
-                                        them back on at runtime. Remove the two flags below to build an
-                                        image whose Flyway/Liquibase panels have data (the migrations
-                                        then always run, because the frozen conditions no longer honor
-                                        the runtime variables in that direction either).
+                                        Flyway and Liquibase are disabled so the generated code leaves out
+                                        the sample migration wiring, which keeps it out of the Docker
+                                        training run and out of every container start. That decision is
+                                        frozen the same way: AOT evaluates the property conditions at
+                                        build time, so the Flyway/Liquibase auto-configurations are not
+                                        generated and SPRING_FLYWAY_ENABLED / SPRING_LIQUIBASE_ENABLED
+                                        cannot switch them back on at runtime. Remove the two flags below
+                                        to build an image whose Flyway/Liquibase panels have data (the
+                                        migrations then always run, because the frozen conditions no
+                                        longer honor the runtime variables in that direction either).
                                     -->
                                     <profiles>
                                         <profile>dev</profile>
