@@ -96,15 +96,16 @@ The Kubernetes calculator uses `-XX:MaxRAMPercentage`, `-XX:MinRAMPercentage`, a
 `JAVA_TOOL_OPTIONS` rather than fixed heap sizes. It sets equal memory request and limit values by default but labels
 Pod QoS `Depends on CPU`, because Guaranteed QoS also requires matching non-zero CPU resources on every container. You
 can instead attempt a lower, snapshot-based Burstable request. A health-probes toggle initializes from the current
-framework capability and adds framework-default startup, readiness, and liveness paths on the named container port
-`http`; verify those paths and that port name against your deployment configuration.
+framework capability and adds framework-default probe paths on the named container port `http`. On Spring the startup
+probe reuses the liveness endpoint, `/actuator/health/liveness`, while Quarkus has a dedicated `/q/health/started`.
+Verify those paths and that port name against your deployment configuration.
 
 The full model — the behavior inventory, evidence ledger, cross-platform details, and limitations — is recorded in
 [`JVM-TUNING-CHECKS.md`](https://github.com/jdubois/boot-ui/blob/main/docs/JVM-TUNING-CHECKS.md).
 
 ::: warning Not available in GraalVM native images
-Heap, GC, and flag tuning does not apply to a native executable, so the panel is hidden when the application is
-detected to be running as one.
+Heap, GC, and flag tuning does not apply to a native executable. When BootUI detects one, the panel moves to the
+sidebar's *Disabled / unavailable* group and explains why, as every unavailable panel does.
 :::
 
 ## Heap Dump
@@ -216,9 +217,9 @@ rather than assuming the scaffold is complete.
 
 :::
 
-This panel is hidden when the application already runs as a native image, since the advisor exists to help you *prepare*
-for compilation. It is also not applicable on Quarkus, which compiles native images itself and generates its own
-reachability metadata during build-time augmentation.
+This panel reports itself unavailable when the application already runs as a native image, since the advisor exists to
+help you *prepare* for compilation. It is also not applicable on Quarkus, which compiles native images itself and
+generates its own reachability metadata during build-time augmentation.
 
 ## CRaC
 
@@ -270,6 +271,6 @@ a clear failure, and `inventory.img` identifies only a candidate restore, not a 
 replaces a real checkpoint and restore test on the exact deployment environment.
 :::
 
-This panel is hidden in GraalVM native images, since CRaC is a JVM-only feature. It is also not applicable on Quarkus,
-whose advisor targets the Spring Boot startup model, while Quarkus achieves fast startup through build-time
-augmentation and native images.
+This panel reports itself unavailable in GraalVM native images, since CRaC is a JVM-only feature. It is also not
+applicable on Quarkus, whose advisor targets the Spring Boot startup model, while Quarkus achieves fast startup through
+build-time augmentation and native images.

@@ -702,7 +702,7 @@ Named and dynamic queries outside the observed metadata remain outside coverage.
 
 ### HIB-QUERY-007 - Queries should not JOIN FETCH more than one collection
 
-- **Severity**: MEDIUM
+- **Severity**: MEDIUM (the rule definition declares HIGH; every emitted violation is MEDIUM)
 - **Inspects**: Spring Data repository `@Query` methods, resolvable JPQL `JOIN FETCH` paths, and collection/bag metadata
   on the repository domain entity.
 - **Fires when**: a non-native JPQL query `JOIN FETCH`es two or more collection associations from the same root entity.

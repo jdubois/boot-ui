@@ -89,8 +89,9 @@ connection and authentication state, reading **Connected** when connected, plus 
 secret-scanning, and code-scanning signals. Only
 available numeric counts are shown as open alerts, because an unavailable count is not a zero.
 
-Its security-alert score subtracts 10 points per reported alert from 100, clamped to 0–100. That is an alert-count
-heuristic, not an assignment of HIGH severity. Eligibility requires an available, connected, authenticated report with
+Its security-alert score subtracts 10 points per reported alert from 100, counting at most 10 alerts per signal, then
+clamps the result to 0–100. Three saturated signals therefore reach 0, and further alerts on one signal do not lower it
+again. That is an alert-count heuristic, not an assignment of HIGH severity. Eligibility requires an available, connected, authenticated report with
 exactly one `AVAILABLE` signal carrying a nonnegative safe integer count for each of `Dependabot alerts`,
 `Code scanning alerts`, and `Secret scanning alerts`, matched exactly. Confirmed zeros score 100. Missing, empty,
 malformed, duplicate, and unavailable signals leave GitHub **Not scored**, even when another signal reports known alerts, and an unscored GitHub is excluded
@@ -123,11 +124,11 @@ disabled status — comes from the framework-neutral `GET /bootui/api/overview` 
 The diagnostics home base: one reverse-chronological stream of everything the application just did, plus a per-request
 profiler for drilling into any single request.
 
-It adds almost no new instrumentation. Six of its nine signals reuse the same buffers and controllers behind the HTTP
+It adds almost no new instrumentation. Six of its ten signals reuse the same buffers and controllers behind the HTTP
 Exchanges, SQL Trace, REST Client, Exceptions, Security Logs, and Email panels, so every value is already masked,
 self-filtered, and bounded exactly as it is there.
 
-### The nine signals
+### The ten signals
 
 | Signal      | Type          | Captured from                                                          | Adapters                     |
 | ----------- | ------------- | ---------------------------------------------------------------------- | ---------------------------- |
@@ -140,6 +141,7 @@ self-filtered, and bounded exactly as it is there.
 | Messaging   | `MESSAGING`   | Kafka and RabbitMQ everywhere, JMS on Spring only                      | All                          |
 | REST client | `REST_CLIENT` | REST Client                                                            | Spring MVC, WebFlux, Quarkus |
 | Cache       | `CACHE`       | A dedicated recorder that stores only a hashed key                     | Spring MVC, WebFlux          |
+| Fault tolerance | `FAULT_TOLERANCE` | Resilience4j, Spring Retry, and SmallRye Fault Tolerance     | All                          |
 
 Scheduled-task capture records each `@Scheduled` method _execution_ — start, success, failure, duration — without extra
 proxying on either adapter. Cache rows summarize the operation and cache name (`MISS orders`), with `WARN` severity for
@@ -385,9 +387,9 @@ but never leave nodes or edges permanently red.
 
 The spatial model is hybrid and deterministic: inbound lane left, application hub centre, and an airy right-facing fan
 for up to six dependencies before denser maps switch to a two-column rack. The fan uses a 288-pixel radius and 72-pixel
-vertical pitch, keeping typical maps around 800–844 logical pixels wide. The rack uses a 72-pixel application gap,
-32-pixel column gap, and 72-pixel row pitch, bounded at 1,040 by 1,046 pixels at the 28-dependency cap inside the
-scrollable stage. Fan connectors and collision-free rack routes are reused exactly by each pulse and slow trail through
+vertical pitch, keeping a typical map around 852 logical pixels wide once the inbound lane is included. The rack uses a
+72-pixel application gap, 32-pixel column gap, and 26-pixel row gap, bounded at 1,228 by 1,046 pixels at the
+28-dependency cap inside the scrollable stage. Fan connectors and collision-free rack routes are reused exactly by each pulse and slow trail through
 CSS Motion Path, so dynamically inserted evidence starts on its own mount-relative delay instead of the SVG document
 timeline.
 
@@ -409,8 +411,11 @@ Summarizes the current project's GitHub state, read from the local `origin` remo
 standard one-minute interval while the tab is visible; the initial refresh and each interval are bounded and blocked by
 the panel's read-only settings.
 
-**No network call happens on render.** `GET /bootui/api/github` never contacts GitHub — only the explicit
-`POST /bootui/api/github/refresh` action does, gated by `bootui.github.api-enabled` and the host allow-list.
+`GET /bootui/api/github` never contacts GitHub; it returns the cached report. Only `POST /bootui/api/github/refresh`
+reaches the API, gated by `bootui.github.api-enabled` and the host allow-list.
+
+Opening the panel does issue that refresh, as does each auto-refresh tick, unless the panel is read-only. In read-only
+mode the panel falls back to the cached `GET` and never contacts GitHub.
 
 The panel shows repository metadata and an eight-card summary grid, each card opening a detail drawer:
 

@@ -100,7 +100,8 @@ also feeds Live Activity's REST entries.
 | Quarkus        | `RestClientListener` SPI attaching a filter on every proxy          | When `quarkus-rest-client` is present       |
 
 The panel refreshes over Server-Sent Events rather than fixed-interval polling. Recent calls also surface in Live
-Activity, nested under the request that made them, with a deep link back here.
+Activity, nested under the request that made them, with a deep link back here. That nesting uses trace id and then the
+serving thread on Spring MVC; WebFlux and Quarkus correlate by trace id only.
 
 ::: details Per-adapter wiring detail
 On Spring, the customizer that wires a given client type fails open, skipping itself entirely when that client's Spring

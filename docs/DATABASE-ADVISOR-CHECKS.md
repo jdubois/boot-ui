@@ -309,9 +309,10 @@ auto-applied converters, XML overrides or provider-specific effective JDBC mappi
 metadata. This is not proof that the effective Hibernate table is missing. Review naming strategy,
 relation type, privileges, migration and persistence-unit/datasource assignment before changing anything.
 
-### DB-HIB-003 - Mapped column type/nullability mismatch
+### DB-HIB-003 - Declared column nullability differs from observed metadata
 
-**MEDIUM.** Retains supported nondefault `nullable=false` comparison with known physical nullability.
+**MEDIUM.** Compares a declared `@Column(nullable=false)` against known physical nullability. Java type families are
+not JDBC mapping evidence, so this rule does not compare column types despite its historical heading.
 Relations reported by JDBC as `VIEW` or `MATERIALIZED VIEW`, including secondary views, are excluded:
 a view's reported nullable column does not establish a missing physical NOT NULL constraint.
 Views remain available for relation-name and column-name checks. When only view columns would be

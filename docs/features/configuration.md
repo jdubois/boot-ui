@@ -114,7 +114,7 @@ in bounded pages, and filtering runs on the server.
 The Mappings panel lists the HTTP routes of the running application with their request methods, path patterns,
 handlers, and produces and consumes metadata, so you can see the web surface without reading controllers. Large lists
 load through a stable paged DTO, and the filter searches every discovered route on the server. BootUI's own `/bootui`
-routes are filtered out.
+routes are filtered out while `bootui.monitoring.exclude-self` is on, which is the default.
 
 The route table comes from Actuator's mappings data on Spring Boot and from the JAX-RS resource table on Quarkus.
 

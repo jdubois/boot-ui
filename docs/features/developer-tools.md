@@ -124,8 +124,10 @@ engine. Each adapter supplies only a thin Jackson envelope codec, Jackson 2 on Q
 requests and responses are byte-identical across backends.
 
 **Quarkus** runs the same JSON-RPC bridge at the same endpoint with the same runtime toggle, reading the `bootui.mcp.*`
-keys from MicroProfile Config. The advertised tools track the panels that are live: `graalvm_scan`, `crac_scan`, and
-`get_conditions` are not offered, `get_overview` is, and `spring_scan` runs the Quarkus-native idiom advisor.
+keys from MicroProfile Config. Its catalog declares 73 tools against Spring MVC's 89, because the tools behind
+Spring-only panels are withheld: the GraalVM and CRaC scans and reports, Conditions, Startup Timeline, HTTP Sessions,
+Spring Data, Spring Security, JMS, DevTools, and every transaction tool. `get_overview` is offered, and `spring_scan`
+runs the Quarkus-native idiom advisor.
 
 **Spring Boot WebFlux** uses a reactive tool catalog that binds the WebFlux Live Activity, Exceptions, Security Logs,
 SQL Trace, and Log Tail controllers and reuses the shared controllers elsewhere, including `security_scan` through the

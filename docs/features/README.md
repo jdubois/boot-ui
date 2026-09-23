@@ -42,7 +42,7 @@ The dialog flags irreversible operations, defaults focus to Cancel, dismisses on
 :::
 
 **BootUI hides itself by default.** Beans, Conditions, Mappings, Loggers, Metrics, Startup Timeline, Scheduled Tasks,
-Cache, Spring Security, Security Logs, and Traces exclude BootUI's own runtime data, so they stay focused on your
+Cache, Spring Security, HTTP Exchanges, and Traces exclude BootUI's own runtime data, so they stay focused on your
 application. Set `bootui.monitoring.exclude-self=false` to include BootUI internals while debugging the console.
 
 ## Availability per stack

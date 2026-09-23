@@ -9,8 +9,9 @@ BootUI is a local development tool. By default, it does the following:
 
 - Activates in `AUTO` mode only for the `dev` / `local` profiles or DevTools.
 - Rejects non-loopback requests.
-- Requires bearer-token authentication for non-loopback API requests whenever remote access is explicitly enabled;
-  localhost remains authentication-free.
+- Requires bearer-token authentication for API requests from untrusted sources whenever remote access is explicitly
+  enabled. Loopback callers, and any source you have explicitly trusted through `bootui.trusted-proxies` or
+  `bootui.trust-container-gateway`, are treated as trusted and stay authentication-free.
 - Applies one cross-framework security-header policy to the configured BootUI surface, with no-store caching for APIs,
   streams, and downloads and immutable caching only for successfully served content-hashed assets.
 - Permits the configured UI/API paths through Spring Security when Spring Security is present, with a startup warning, so the local

@@ -30,11 +30,14 @@ Each flavor listens on one fixed port, identical whether you run it from Docker 
 
 Every image is Docker-free and runs on an in-memory H2 database, so no PostgreSQL, Redis, or Ollama is needed.
 
-On the four Spring servlet images, the sample app's `dev` profile also uses an in-memory cache and disables Spring AI.
-Most panels work normally, including Configuration, Database, Spring Data, Flyway, and Liquibase, while the Chat and AI
-Framework panels report that AI is unavailable and Dev Services lists no containers. The WebFlux image behaves the same
-way. The Quarkus sample differs: it builds on LangChain4j rather than Spring AI, and the Spring-specific panels are
-marked not applicable there.
+On the four Spring servlet images, the sample app's `dev` profile also uses an in-memory cache and excludes the Spring
+AI auto-configuration. Most panels work normally, including Configuration, Database, Spring Data, Flyway, and
+Liquibase. The sample's own Chat page reports that no model is reachable, and Dev Services lists no containers. The AI
+Framework panel itself stays available, because it is gated on Spring AI being on the classpath rather than on a
+configured model; it simply shows no captured conversations.
+
+The Quarkus sample differs: it builds on LangChain4j rather than Spring AI, and the Spring-specific panels are marked
+not applicable there.
 
 Database migrations are disabled for a faster boot. To populate the Flyway and Liquibase panels, turn them back on:
 
@@ -45,12 +48,16 @@ docker run --rm -p 8080:8080 \
   jdubois/bootui-sample-app
 ```
 
-The AOT image takes the same two variables. The WebFlux image takes them on port 8081, and the Quarkus image uses
+The WebFlux image takes the same two variables on port 8081, and the Quarkus image uses
 `QUARKUS_FLYWAY_MIGRATE_AT_START=true` and `QUARKUS_LIQUIBASE_MIGRATE_AT_START=true` on port 8082.
 
-Two images are different. The native image freezes the choice at build time. The CRaC image takes the checkpoint with
-migrations off, so the variables must be set on the run that creates the checkpoint; an existing checkpoint has to be
-regenerated to change them.
+Three images cannot be changed this way:
+
+- The **AOT** and **native** images run Spring AOT with the migrations disabled, which freezes that decision into the
+  generated context. Setting the variables at runtime leaves the Flyway and Liquibase panels reporting
+  `No Flyway beans are available`. Rebuild with the flags removed from the `process-aot` configuration instead.
+- The **CRaC** image takes its checkpoint with migrations off, so the variables must be set on the run that *creates*
+  the checkpoint. An existing checkpoint has to be regenerated.
 
 ## JVM + AOT image
 
@@ -100,8 +107,9 @@ docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/boot
 A native image freezes auto-configuration during AOT, so both the `dev` profile and the disabled migrations are baked
 in at build time. Rebuild the image to change them.
 
-To run it against the full PostgreSQL and Redis stack instead, use
-[`docker-compose-native.yml`](https://github.com/jdubois/boot-ui/blob/main/docker-compose-native.yml).
+[`docker-compose-native.yml`](https://github.com/jdubois/boot-ui/blob/main/docker-compose-native.yml) runs it against
+PostgreSQL. It also starts Redis and points the application at it, but the native image is built with the `dev`
+profile, which excludes the Redis auto-configuration, so those beans are not restored by runtime configuration alone.
 
 ::: tip Rebuild older native images for the Security advisor
 The advisor needs BootUI's private-field reflection hints compiled into the executable, not only in a replacement JAR.
@@ -144,10 +152,14 @@ docker run --rm -p 8081:8081 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/boot
 
 Then open <http://localhost:8081/bootui>.
 
-Every panel except HTTP Sessions is available, including every advisor scan and every action. A few are reactive
-equivalents rather than the servlet behaviour: the Security advisor runs its WebFlux-native 25-rule catalogue, and the
-raw Spring Security panel shows the reactive `SecurityWebFilterChain` pipeline with explanations marked best effort.
-See [Framework support](FRAMEWORK-SUPPORT.md#spring-webflux).
+The reactive adapter supports every panel except HTTP Sessions, including every advisor scan and every action. A few
+are reactive equivalents rather than the servlet behaviour: the Security advisor runs its WebFlux-native 25-rule
+catalogue, and the raw Spring Security panel shows the reactive `SecurityWebFilterChain` pipeline with explanations
+marked best effort. See [Framework support](FRAMEWORK-SUPPORT.md#spring-webflux).
+
+What a *panel* shows still depends on the application's own dependencies, and this sample is deliberately minimal. It
+has no JPA or Spring AI, so the Hibernate and AI panels report themselves unavailable here even though the adapter
+supports them.
 
 There is one WebFlux flavor, with no AOT, native, or CRaC variant: the reactive sample exists to exercise the reactive
 adapter, not to demonstrate every JVM startup technique twice.

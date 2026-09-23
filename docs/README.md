@@ -58,8 +58,9 @@ the jar, so your build needs no Node.js and no npm.
 The same console runs on Spring Boot 4 (servlet or WebFlux) and on Quarkus. A shared, framework-neutral engine serves
 an identical REST contract on all three.
 
-BootUI is a development tool and stays one by default. It activates only in development, accepts only loopback callers,
-masks secret-like values, and disables itself in production profiles.
+BootUI is a development tool and stays one by default. It activates only in development, rejects non-loopback callers,
+masks secret-like values, and disables itself in production profiles. Every state-changing action is user-triggered,
+and the destructive ones ask for confirmation first.
 
 Panels that depend on optional Spring, Actuator, or development infrastructure stay visible when that infrastructure is
 missing. They explain what is unavailable instead of disappearing.

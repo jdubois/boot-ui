@@ -82,10 +82,14 @@ loopback-source trust, a `Host` allow-list against DNS rebinding, and cross-site
 `WebFilter` rather than a servlet `Filter`. The same keys apply:
 
 ```properties
-bootui.allow-non-localhost=false        # default: reject non-loopback callers
-bootui.allowed-hosts=localhost          # extra Host header values to accept
-bootui.trusted-proxies=172.16.0.0/12    # extra source ranges (for example, a Docker gateway)
-bootui.trust-container-gateway=AUTO     # auto-trust the container gateway in dev containers
+# Default: reject non-loopback callers.
+bootui.allow-non-localhost=false
+# Extra Host header values to accept.
+bootui.allowed-hosts=localhost
+# Extra source ranges, for example a Docker gateway.
+bootui.trusted-proxies=172.16.0.0/12
+# Auto-trust the container gateway in dev containers.
+bootui.trust-container-gateway=AUTO
 ```
 
 The [Docker container guidance](environments.md#running-inside-a-docker-container) applies unchanged, as do the

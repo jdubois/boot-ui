@@ -707,8 +707,7 @@ with the applied and pending migrations: version, description, type, script, sta
 execution time, and checksum. Multiple and named datasources appear independently.
 
 `migrate` and `clean` are confirmation-gated actions, available for trusted local sessions and blocked by
-`bootui.read-only=true` or `bootui.panels.flyway.read-only=true`. `clean` additionally requires Flyway's own
-`clean-disabled=false`.
+`bootui.read-only=true` or `bootui.panels.flyway.read-only=true`. `clean` additionally requires `spring.flyway.clean-disabled=false`.
 
 The panel shows a clear empty state when Flyway is absent or no `Flyway` beans exist.
 

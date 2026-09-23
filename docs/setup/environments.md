@@ -127,10 +127,11 @@ volumes:
 BootUI creates the directory if it does not exist. Both files now survive `docker compose up --build`.
 
 ::: warning Set it from the environment, not from `application.properties`
-An `EnvironmentPostProcessor` reads the overrides file before your configuration files are loaded. A
-`bootui.overrides-file` declared in `application.properties` would relocate the dismissed-findings file but not the
-overrides the console writes. Use the environment variable or a `-D` system property, as shown above, so both files
-agree on one directory.
+An `EnvironmentPostProcessor` reads the overrides file before your configuration files are loaded, while the console's
+writes resolve the path later, from the bound properties. A `bootui.overrides-file` declared in
+`application.properties` therefore moves where overrides are *written* but not where they are *read at startup*, so
+the values you saved are silently not applied. Use the environment variable or a `-D` system property, as shown above,
+so both ends agree on one directory.
 :::
 
 A value you want to hold across every environment belongs in configuration rather than in a file the console rewrites.

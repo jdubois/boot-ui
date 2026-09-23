@@ -78,15 +78,21 @@ The Quarkus launch mode decides activation. There is no Spring-style profile and
 This is fail-closed by design: no flag turns BootUI on in a production build.
 
 The request-time safety model matches Spring Boot. The shared `LocalhostGuard` applies loopback-source trust, a `Host`
-allow-list against DNS rebinding, and cross-site-write protection. Non-loopback API callers must also present the
-BootUI bearer token. The same keys apply, read from MicroProfile `Config`:
+allow-list against DNS rebinding, and cross-site-write protection. API callers from untrusted sources must also
+present the BootUI bearer token; loopback callers and sources you have explicitly trusted through
+`bootui.trusted-proxies` or `bootui.trust-container-gateway` are exempt. The same keys apply, read from MicroProfile `Config`:
 
 ```properties
-bootui.allow-non-localhost=false        # default: reject non-loopback callers
-bootui.allowed-hosts=localhost          # extra Host header values to accept
-bootui.trusted-proxies=172.16.0.0/12    # extra source ranges (for example, a Docker gateway)
-bootui.trust-container-gateway=AUTO     # auto-trust the container gateway in dev containers
-# bootui.authentication.token=...       # optional stable token; otherwise generated at startup
+# Default: reject non-loopback callers.
+bootui.allow-non-localhost=false
+# Extra Host header values to accept.
+bootui.allowed-hosts=localhost
+# Extra source ranges, for example a Docker gateway.
+bootui.trusted-proxies=172.16.0.0/12
+# Auto-trust the container gateway in dev containers.
+bootui.trust-container-gateway=AUTO
+# Optional stable token; otherwise generated at startup.
+# bootui.authentication.token=...
 ```
 
 The [Docker container guidance](environments.md#running-inside-a-docker-container) applies to Quarkus too, since dev
