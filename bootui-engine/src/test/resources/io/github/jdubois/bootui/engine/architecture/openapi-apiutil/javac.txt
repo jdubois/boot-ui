@@ -1,0 +1,31 @@
+TRY L0 L1 L2 java/io/IOException
+L0:
+OP25 0
+LDC type Ljakarta/servlet/http/HttpServletResponse;
+OP185 org/springframework/web/context/request/NativeWebRequest.getNativeResponse(Ljava/lang/Class;)Ljava/lang/Object; itf
+OP192 jakarta/servlet/http/HttpServletResponse
+OP58 3
+OP25 3
+OP198 L1
+OP25 3
+LDC String UTF-8
+OP185 jakarta/servlet/http/HttpServletResponse.setCharacterEncoding(Ljava/lang/String;)V itf
+OP25 3
+LDC String Content-Type
+OP25 1
+OP185 jakarta/servlet/http/HttpServletResponse.addHeader(Ljava/lang/String;Ljava/lang/String;)V itf
+OP25 3
+OP185 jakarta/servlet/http/HttpServletResponse.getWriter()Ljava/io/PrintWriter; itf
+OP25 2
+OP182 java/io/PrintWriter.print(Ljava/lang/String;)V
+L1:
+OP167 L3
+L2:
+OP58 3
+OP187 java/lang/RuntimeException
+OP89
+OP25 3
+OP183 java/lang/RuntimeException.<init>(Ljava/lang/Throwable;)V
+OP191
+L3:
+OP177

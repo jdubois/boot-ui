@@ -99,6 +99,23 @@ declarations, excluding generated trees, compiled output, the opposite source se
 prevent an exemption, as do Maven compiler-input lists that identify sources outside the module, which are rejected
 without opening those external files.
 
+Classes read from inside an archive, such as an executable jar, an extracted `BOOT-INF/lib` image layout, or a Quarkus
+`lib` directory, can never have local source ownership. For those classes only, BootUI recognizes one bytecode
+fingerprint: the OpenAPI Generator Spring servlet `ApiUtil` template, as a Java class (`JavaSpring`) or a Kotlin
+`object` (`kotlin-spring`), with either `jakarta.servlet` or `javax.servlet`. The class must be a top-level `ApiUtil`
+compiled from `ApiUtil.java` or `ApiUtil.kt`, with no members beyond the template's. The complete instruction stream of
+`setExampleResponse(NativeWebRequest, String, String)` must equal the verified output of a known compiler: javac
+(`--release` 8 through 26), or kotlinc 1.3, 1.5, 1.6 through 1.9, or 2.0 through 2.4. Constants, call descriptors,
+argument wiring, branches, and the exception table are all compared, so a changed header, an extra or conditional throw,
+an added call, or a broader handler keeps the class eligible, as does output from any other compiler.
+
+Unresolved local classes, including unsupported output layouts and classes without `SourceFile` metadata, never use
+the fingerprint, so a template-shaped class compiled from `src/main/java` is still reported. An exact handwritten copy
+of the template inside a jar cannot be told apart from generated output and is excluded too. The scan message says how
+many classes were excluded this way. The class file is read only during the explicit scan, is limited to 64 KiB, and
+types are compared by name, so Spring and the servlet API are never loaded. An unreadable class file keeps its
+findings.
+
 ::: details Why source lookup is needed at all
 The standard `jakarta.annotation.Generated`, `javax.annotation.Generated`, and `javax.annotation.processing.Generated`
 annotations have SOURCE retention, so they normally disappear from compiled bytecode. A same-named class-level marker
@@ -115,9 +132,10 @@ arbitrary ancestors or the process working directory, downloads sources, or runs
 violation-detail reads reuse the completed scan without reading sources again.
 :::
 
-The policy is conservative. Packaged jars, unsupported or custom output layouts, missing sources or `SourceFile`
-metadata, and ambiguous matches all retain their findings, and a SOURCE-retained annotation in a non-generated source
-layout does not by itself exempt a class.
+The policy is conservative. Apart from the packaged `ApiUtil` template fingerprint, classes in packaged jars,
+unsupported or custom output layouts, classes with missing sources or `SourceFile` metadata, and ambiguous matches all
+retain their findings, and a SOURCE-retained annotation in a non-generated source layout does not by itself exempt a
+class.
 
 Ownership recognition handles multiline declarations, Java Unicode escapes, and Kotlin string templates, but it is not
 a full Java or Kotlin parser. Kotlin file facades, including `@file:JvmName` facades, are not treated as explicit

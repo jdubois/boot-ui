@@ -9,6 +9,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **ARCH-CODE-002 no longer reports OpenAPI Generator's `ApiUtil` in packaged applications.** When an application runs
+  from a jar or an extracted image layout with no local source tree, classes read from the archive whose bytecode
+  exactly matches the OpenAPI Generator Spring servlet `ApiUtil` template are excluded from the coding-practice rules.
+  This covers the Java class compiled by javac and the Kotlin `object` compiled by kotlinc 1.3, 1.5, 1.6 through 1.9, or
+  2.0 through 2.4, with `jakarta` or `javax` servlet. The complete `setExampleResponse` instruction stream is compared,
+  and the scan message reports how many classes were excluded. Any deviation from the template, output from any other
+  compiler, and any class outside an archive is still evaluated
+  ([#1085](https://github.com/jdubois/boot-ui/issues/1085)).
+
 - **Hibernate Advisor PARTIAL scans are now explainable.** The report gains a `diagnostics` array
   (`source`, `unit`, `level`, `message`) naming each rule evaluation that failed or lacked required evidence and each
   discovery gap, with controlled phrases for the missing evidence and up to three sanitized examples such as
