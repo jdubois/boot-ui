@@ -1,62 +1,36 @@
 # Non-standard runtimes
 
-BootUI assumes a locally reachable web application. Command-line apps and containers each need one small adjustment.
+BootUI assumes a locally reachable web application. Command-line applications and containers each need one small
+adjustment.
 
 ## Command-line (non-web) applications
 
-BootUI also works in non-web applications, such as command-line apps. The starter brings Spring MVC and an embedded
-servlet container, so when BootUI is active it automatically starts a servlet web server even if your application is
-configured as non-web (`spring.main.web-application-type=none` or `SpringApplication#setWebApplicationType(NONE)`). Your
-`CommandLineRunner` / `ApplicationRunner` beans still run as usual; the application simply keeps running so the console
-stays reachable.
+The starter brings Spring MVC and an embedded servlet container. When BootUI is active, it therefore starts a servlet
+web server even if your application declares `spring.main.web-application-type=none`, or calls
+`SpringApplication#setWebApplicationType(NONE)`. Your `CommandLineRunner` and `ApplicationRunner` beans still run as
+usual, and the application then keeps running so the console stays reachable.
 
-Because BootUI only activates in development contexts by default, this never affects production. Applications that are
-already servlet web apps, or that are explicitly configured as reactive, are left untouched. To opt out and keep your
-application's web-application type exactly as declared, set `bootui.force-web=false`.
+Set `bootui.force-web=false` to opt out and keep your declared web-application type. Applications that are already
+servlet web applications, or that are explicitly reactive, are left untouched, and because BootUI activates only in
+development by default, production is unaffected.
 
-BootUI never forces the web type on Spring Cloud's transient **bootstrap** application context (the early, non-web
-context created by `spring-cloud-starter-bootstrap` for Spring Cloud Config). That context has no embedded web server,
-so forcing it would crash startup with `MissingWebServerFactoryBeanException`; BootUI detects it and leaves it alone,
-then forces the servlet web type on your main application as usual.
+::: tip Spring Cloud bootstrap contexts are never forced
+The transient bootstrap context created by `spring-cloud-starter-bootstrap` has no embedded web server, so forcing it
+would fail startup with `MissingWebServerFactoryBeanException`. BootUI detects that context, leaves it alone, and
+forces the servlet web type on your main application as usual.
+:::
 
 ## Running inside a Docker container
 
-BootUI works when your application runs inside a container, but its loopback-only safety filter needs a small opt-in
-first. When you publish a port (for example `docker run -p 8080:8080 …`) and browse to `http://localhost:8080/bootui`,
-the request reaches the application from the **Docker gateway** (a non-loopback address), so BootUI rejects it by
-default — it fails closed for non-loopback callers. The gateway address depends on the Docker flavor:
+When you publish a port and browse to `http://localhost:8080/bootui`, the request reaches the application from the
+Docker gateway, which is not a loopback address. BootUI fails closed and rejects it. Two settings fix that:
 
-- **Linux Docker Engine** uses the default bridge gateway, typically `172.17.0.1` (inside `172.16.0.0/12`).
-- **Docker Desktop** (macOS and Windows) routes published-port traffic through its gateway VM, so the request arrives
-  from `192.168.65.1` (inside `192.168.65.0/24`). This is the address you will see in a `LocalhostOnlyFilter` rejection
-  log line such as `BootUI rejected non-loopback request from 192.168.65.1 to /bootui/api/health`.
-
-Check your own setup with `docker network inspect bridge` (look at `IPAM.Config.Gateway`) or the source address in the
-BootUI rejection log line, and trust that range.
-
-Two things have to be in place:
-
-1. **Activate BootUI inside the container.** A repackaged jar strips DevTools, and activation checks the _active_
-   profiles (not `spring.profiles.default`), so set one explicitly — `SPRING_PROFILES_ACTIVE=dev` or `BOOTUI_ENABLED=ON`.
-   Without this you get a `404` on `/bootui`, not a rejection.
-2. **Trust the container gateway.** Set `bootui.trust-container-gateway=AUTO`. While running inside a container BootUI
-   auto-detects the gateway address(es) that published-port traffic arrives from and trusts just those `/32` (or `/128`)
-   hosts as loopback-equivalent — no need to know the gateway IP or subnet, on any Docker flavor.
-
-   ::: details How detection works, and what stays enforced
-
-   Detection covers both runtimes: on **Linux Docker Engine** it reads the bridge default gateway from
-   `/proc/net/route` (the SNAT source, e.g. `172.17.0.1`); on **Docker Desktop** (macOS/Windows) the SNAT source
-   (`192.168.65.1`) is _not_ the route-table gateway, so BootUI resolves the `gateway.docker.internal` DNS name that
-   Docker Desktop injects into every container. This relaxes only the source-address check; the `Host` allow-list
-   (DNS-rebinding defense) and cross-site write (CSRF) protection stay in force, and sibling containers are **not**
-   trusted (their traffic carries their own IP, not the gateway). The lookup is resolved once and cached, and fails
-   closed: on Linux Docker Engine and bare metal `gateway.docker.internal` does not resolve, which simply means "no
-   extra gateway" (the route-table detection still applies). On Docker Desktop the Docker-Desktop branch therefore
-   relies on Docker's embedded DNS resolving `gateway.docker.internal`; if that name is unavailable (for example you
-   have disabled it), set `bootui.trusted-proxies=192.168.65.0/24` instead.
-
-   :::
+1. **Activate BootUI inside the container.** A repackaged jar strips DevTools, and activation reads the *active*
+   profiles rather than `spring.profiles.default`. Set `SPRING_PROFILES_ACTIVE=dev` or `BOOTUI_ENABLED=ON`. Without
+   this you get a 404 on `/bootui`, not a rejection.
+2. **Trust the container gateway.** Set `bootui.trust-container-gateway=AUTO`. BootUI then detects the gateway
+   addresses that published-port traffic arrives from and trusts only those `/32` or `/128` hosts as
+   loopback-equivalent, on any Docker flavor.
 
 ```bash
 docker run -p 8080:8080 \
@@ -65,21 +39,37 @@ docker run -p 8080:8080 \
   your-image
 ```
 
-Then open <http://localhost:8080/bootui> from the host. Use `ON` instead of `AUTO` to trust a detected gateway even when
-the container heuristics are inconclusive.
+Then open <http://localhost:8080/bootui> from the host. Use `ON` instead of `AUTO` to trust a detected gateway even
+when the container heuristics are inconclusive.
 
-> **Security caveat — published-port bind address.** `-p 8080:8080` binds `0.0.0.0:8080` on the host, so a remote LAN
-> client hitting `hostLanIP:8080` is **also** SNAT'd to the same gateway. Trusting the gateway `/32` therefore trusts
-> "anything that can reach the published port", which in this bind mode includes the LAN — not strictly loopback. This is
-> acceptable for a dev tool (BootUI is dev/local-gated and the Host + CSRF defenses remain in force) and is why the
-> feature is **off by default**. For strict loopback equivalence, bind the port to localhost only:
-> `docker run -p 127.0.0.1:8080:8080 …`.
+::: details How detection works, and what stays enforced
+
+On Linux Docker Engine, BootUI reads the bridge default gateway from `/proc/net/route`, typically `172.17.0.1`. On
+Docker Desktop the SNAT source is `192.168.65.1`, which is not the route-table gateway, so BootUI resolves the
+`gateway.docker.internal` name that Docker Desktop injects into every container. The lookup is resolved once and
+cached.
+
+Detection relaxes only the source-address check. The `Host` allow-list and cross-site-write protection stay in force,
+and sibling containers are not trusted, because their traffic carries their own address rather than the gateway's.
+
+It also fails closed. On Linux Docker Engine and on bare metal, `gateway.docker.internal` does not resolve, which
+means no extra gateway. If that name is unavailable on Docker Desktop, set `bootui.trusted-proxies=192.168.65.0/24`
+instead.
+
+:::
+
+::: warning The published-port bind address matters
+`-p 8080:8080` binds `0.0.0.0:8080` on the host, so a LAN client reaching `hostLanIP:8080` is SNAT'd to the same
+gateway. Trusting the gateway `/32` therefore trusts anything that can reach the published port, which in this bind
+mode includes the LAN. That is why the feature is off by default. For strict loopback equivalence, bind the port to
+localhost: `docker run -p 127.0.0.1:8080:8080 …`.
+:::
 
 ### Custom proxies, bridges, or LAN setups
 
-If you front the app with a reverse proxy, use a custom Docker network, or otherwise reach BootUI from a source other
-than the auto-detected gateway, use `bootui.trusted-proxies` instead. It trusts additional source IP ranges (CIDR
-notation) while keeping the same Host and CSRF defenses — pick the range that matches your Docker flavor:
+If you front the application with a reverse proxy, use a custom Docker network, or otherwise reach BootUI from a
+source other than the detected gateway, use `bootui.trusted-proxies`. It trusts additional source ranges in CIDR
+notation while keeping the same Host and cross-site-write defenses. Pick the range that matches your Docker flavor:
 
 ```properties
 # Linux Docker Engine: the default bridge gateway 172.17.x lives inside 172.16.0.0/12
@@ -101,9 +91,10 @@ docker run -p 8080:8080 \
 
 On Docker Desktop, use `-e BOOTUI_TRUSTED_PROXIES=192.168.65.0/24` instead.
 
-Scope `bootui.trusted-proxies` as narrowly as you can: for a user-defined Docker network, prefer that network's specific
-subnet over the broad `172.16.0.0/12`, and keep it limited to trusted local/dev networks. Reserve
-`bootui.allow-non-localhost=true` as a blunt last resort.
+Scope `bootui.trusted-proxies` as narrowly as you can. For a user-defined Docker network, prefer that network's own
+subnet over the broad `172.16.0.0/12`, and keep it limited to trusted local networks. Check your own setup with
+`docker network inspect bridge`, under `IPAM.Config.Gateway`, or read the source address from the BootUI rejection log
+line. Reserve `bootui.allow-non-localhost=true` as a last resort.
 
 ### Persisting console state across image rebuilds
 
@@ -111,13 +102,13 @@ BootUI keeps two developer-local files under `.bootui/` in the application's wor
 
 | File                            | Holds                                                                                    |
 | ------------------------------- | ---------------------------------------------------------------------------------------- |
-| `application-bootui.properties` | Runtime overrides created from the Configuration panel, including the MCP Server toggle. |
+| `application-bootui.properties` | Runtime overrides created from the Configuration panel. |
 | `boot-ui.yml`                   | Advisor findings you dismissed, under a `dismissedRules:` node.                          |
 
-Inside a container that directory belongs to the image, so an image rebuilt from source starts from a clean slate:
-toggles are back to their configured value and dismissed findings reappear. `bootui.overrides-file` fixes both at once
-— BootUI resolves `boot-ui.yml` in the **same directory** as the configured overrides file, on Spring MVC, Spring
-WebFlux, and Quarkus alike. Point it at a mounted path:
+Inside a container that directory belongs to the image, so a rebuild starts from a clean slate: toggles return to
+their configured value and dismissed findings reappear. `bootui.overrides-file` fixes both at once, because BootUI
+resolves `boot-ui.yml` in the same directory as the configured overrides file on all three stacks. Point it at a
+mounted path:
 
 ```yaml
 services:
@@ -136,16 +127,18 @@ volumes:
 BootUI creates the directory if it does not exist. Both files now survive `docker compose up --build`.
 
 ::: warning Set it from the environment, not from `application.properties`
-The overrides file is read by an `EnvironmentPostProcessor` that runs before your configuration files are loaded, so a
-`bootui.overrides-file` declared in `application.properties` would relocate the dismissed-findings file but not the
-overrides the console writes. Use the environment variable (or a `-D` system property) as shown above, so both files
-agree on one directory.
+An `EnvironmentPostProcessor` reads the overrides file before your configuration files are loaded, while the console's
+writes resolve the path later, from the bound properties. A `bootui.overrides-file` declared in
+`application.properties` therefore moves where overrides are *written* but not where they are *read at startup*, so
+the values you saved are silently not applied. Use the environment variable or a `-D` system property, as shown above,
+so both ends agree on one directory.
 :::
 
-Persisting state is not the only option, and for some settings it is not the best one. A value you want to hold across
-every environment belongs in configuration rather than in a file the console rewrites: `BOOTUI_MCP_ENABLED=ON` states
-the intent explicitly and cannot be toggled away by accident. The volume is the right tool for what a developer
-_discovers_ while using the console — dismissals above all.
+A value you want to hold across every environment belongs in configuration rather than in a file the console rewrites.
+`BOOTUI_MCP_ENABLED=ON` states that intent explicitly and is reapplied at every start, so the MCP Server panel's
+toggle — which is in-memory only and is never written to either file — cannot quietly become the new default.
+
+The volume is the right tool for what a developer discovers while using the console, dismissals above all.
 
 ::: details Committing a baseline of accepted findings
 Because `boot-ui.yml` is a small, stable file, a team can commit it next to the application configuration and copy it
@@ -162,11 +155,11 @@ dismissedRules:
 COPY .bootui/boot-ui.yml /var/bootui/boot-ui.yml
 ```
 
-Two things to know. Dismissing from the console rewrites the whole file, so if you mount the baseline **read-only** the
-_Dismiss_ button fails; either keep the directory writable (a rebuild still restores the committed baseline) or set the
-advisor panels read-only with `bootui.panels.<id>.read-only=true`, which disables the dismiss and restore controls in
-the UI. And vulnerability dismissals are keyed `<vulnerability id>::<group:artifact>` rather than by a bare rule id —
-see [Dismissing a vulnerability](../features/advisors.md#dismissing-a-vulnerability).
+Two things to know. Dismissing from the console rewrites the whole file, so a read-only mount makes the *Dismiss*
+button fail. Either keep the directory writable, since a rebuild still restores the committed baseline, or set the
+advisor panels read-only with `bootui.panels.<id>.read-only=true`, which disables the dismiss and restore controls.
+Vulnerability dismissals are also keyed `<vulnerability id>::<group:artifact>` rather than by a bare rule id. See
+[dismissing a vulnerability](../features/advisors.md#dismissing-a-vulnerability).
 
 Any other top-level section in the file is preserved when BootUI rewrites it.
 :::

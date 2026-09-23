@@ -1,80 +1,84 @@
 # Hibernate checks
 
-The ten-entry `sampleViolations` preview does not cap `violationCount`. **View violations** and
-`GET <api>/hibernate/rules/{id}/violations?scanId=...&offset=0&limit=100` retrieve the retained sequence, including
-persistence-unit labels, without re-reading entities or executing SQL. Retention is bounded across rules and units;
+The Hibernate panel runs a fixed, on-demand ruleset against your application's mapped JPA entities. It reads the JPA
+`EntityManagerFactory` metamodel, selected persistence-unit observations, and verified Spring Data JPA repository
+metadata where available. It never intercepts runtime queries, invokes repositories, executes SQL, or modifies
+mappings.
+
+The checks are heuristic review prompts. They highlight common Hibernate and JPA performance and maintainability
+risks, but the right remediation still depends on your query patterns and data model.
+
+::: tip Reading more than the preview
+The ten-entry `sampleViolations` preview does not cap `violationCount`. **View violations**, or
+`GET <api>/hibernate/rules/{id}/violations?scanId=...&offset=0&limit=100`, retrieves the retained sequence, including
+persistence-unit labels, without re-reading entities or executing SQL. Retention is bounded across rules and units, so
 check `truncated` separately from evidence coverage. See
 [snapshot, retention, and MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
-
-The Hibernate panel runs a fixed, on-demand ruleset against the host application's mapped JPA entities. It reads
-the JPA `EntityManagerFactory` metamodel, selected persistence-unit observations, and verified Spring Data JPA repository metadata when
-available; it does not intercept runtime queries, invoke repositories, execute SQL, or modify mappings.
-
-The checks are heuristic review prompts. They highlight common Hibernate/JPA performance and maintainability risks, but
-the right remediation still depends on the application's query patterns and data model.
+:::
 
 ## Availability and bounds
 
-The panel is available only when Hibernate ORM and an `EntityManagerFactory` bean are present. If either is missing, or if
-the metamodel cannot be read, BootUI returns a stable empty report with an explanatory status.
+The panel is available when Hibernate ORM and an `EntityManagerFactory` bean are present. If either is missing, or the
+metamodel cannot be read, BootUI returns a stable empty report with an explanatory status.
 
-The scan is bounded to mapped entities reported by the application's own JPA metamodel. This also covers entities added
-through `@EntityScan` or custom persistence-unit configuration without scanning the entire classpath.
+The scan covers the mapped entities your JPA metamodel reports, which includes entities added through `@EntityScan` or
+custom persistence-unit configuration, without scanning the whole classpath.
 
-The active catalog contains **71 rules**. Five retired identifiers remain documented below so old links and persisted
-dismissals retain their meaning; retired identifiers are never reused.
+The active catalog contains 71 rules. Five retired identifiers stay documented below so old links and persisted
+dismissals keep their meaning. Retired identifiers are never reused.
 
 ### Evidence and incomplete scans
 
-Missing persistence-unit evidence qualifies usable known-findings scores, without discarding findings from other
-units. See the shared [score eligibility policy](features/advisors.md#score-eligibility).
-
 Factory settings belong to their persistence unit, not to whichever factory was discovered first. The advisor reads an
 allowlisted snapshot of effective Hibernate factory options where available and attributes findings to that unit.
-Factory defaults do not establish per-session overrides, query-cache opt-in, entity-cache eligibility, or workload.
-Missing or unreadable evidence is not an observed `false`, zero, or framework default.
 
-Repository checks require JPA provenance and unambiguous unit/domain attribution. Native queries, composed query
-annotations, projections and entity graphs affect applicability. Unsupported or ambiguous query shapes are not guessed;
-Panache query methods remain outside the repository analysis.
+Factory defaults do not establish per-session overrides, query-cache opt-in, entity-cache eligibility, or workload, and
+missing or unreadable evidence is not an observed `false`, zero, or framework default. Missing persistence-unit
+evidence qualifies usable known-findings scores without discarding findings from other units. See the shared
+[score eligibility policy](features/advisors.md#score-eligibility).
 
-Rule failures and unavailable required evidence produce an incomplete `PARTIAL` scan while retaining valid findings.
-The report's `results` list still contains findings only; the scan message explains coverage and failures using bounded
-identifiers and controlled reasons. Intentional platform inapplicability is distinct from a failed applicable check.
+Repository checks need JPA provenance and unambiguous unit and domain attribution. Native queries, composed query
+annotations, projections, and entity graphs all affect applicability. Unsupported and ambiguous query shapes are not
+guessed, and Panache query methods stay outside the repository analysis.
+
+Rule failures and unavailable required evidence produce a `PARTIAL` scan while retaining valid findings. The report's
+`results` list still contains findings only, and the scan message explains coverage and failures through bounded
+identifiers and controlled reasons. Platform inapplicability is distinct from a failed applicable check, and
 `rulesEvaluated` counts distinct active rule attempts, not successful verification of every mapping.
 
-In this implementation, pool auto-commit guarantees (HIB-CONFIG-008) and effective cache access strategy
-(HIB-CONFIG-011) are not fully observable. When applicable, these and unsupported query-plan evidence can make ordinary
-scans `PARTIAL` even if entity discovery succeeds. This is deliberate coverage disclosure, not a claim that the
-application is broken.
+Two things are not fully observable today: pool auto-commit guarantees (HIB-CONFIG-008) and effective cache access
+strategy (HIB-CONFIG-011). Where they apply, they and unsupported query-plan evidence can make an ordinary scan
+`PARTIAL` even when entity discovery succeeded. That is coverage disclosure, not a claim that the application is
+broken.
 
 The declaration-based mapping checks are not a complete runtime mapping interpreter. XML overrides, auto-apply
-converters, custom generators, physical naming, runtime query changes and some collection classifications cannot be
-reconstructed from annotations alone. The individual limitations below matter when interpreting both findings and an
+converters, custom generators, physical naming, runtime query changes, and some collection classifications cannot be
+reconstructed from annotations alone. The per-rule limitations below matter when you interpret both a finding and an
 absence of findings.
 
 ### Version baseline
 
-The audited dependency baselines are Spring Boot **4.1.1 / Hibernate 7.4.5.Final** and Quarkus
-**3.33.3.1 / Hibernate 7.2.19.Final**, both using Jakarta Persistence **3.2.0**. Host applications may override these
-versions; version-dependent conclusions use runtime evidence. Primary references and version caveats are listed at the
-end of this catalog.
+The audited baselines are Spring Boot 4.1.1 with Hibernate 7.4.5.Final, and Quarkus 3.33.3.1 with Hibernate
+7.2.19.Final, both on Jakarta Persistence 3.2.0. Your application may override these versions, and version-dependent
+conclusions use runtime evidence. Primary references and version caveats are listed at the end of this catalog.
 
 ## Severity scale
 
-- **CRITICAL** - a configuration choice that can immediately damage production data. Currently emitted by
-  HIB-CONFIG-002 for destructive schema actions under a production-like profile. Quarkus/Jakarta `create` is
-  create-only, unlike Hibernate `hbm2ddl.auto=create`.
-- **HIGH** - a mapping choice that commonly causes large performance surprises.
-- **MEDIUM** - a mapping or configuration issue that usually warrants review before production use.
-- **LOW** - reserved for lower-impact hygiene findings.
-- **INFO** - informational prompts where the fix depends heavily on project context.
+| Severity | Meaning |
+| -------- | ------- |
+| **CRITICAL** | A configuration choice that can immediately damage production data. Currently emitted only by HIB-CONFIG-002, for destructive schema actions under a production-like profile. |
+| **HIGH** | A mapping choice that commonly causes large performance surprises. |
+| **MEDIUM** | A mapping or configuration issue that usually warrants review before production use. |
+| **LOW** | Lower-impact hygiene findings. |
+| **INFO** | An informational prompt where the fix depends heavily on project context. |
 
-The Rule results panel lists only checks that found findings, ordered by severity, finding count, and rule id. Each rule
-includes up to a handful of sample mapped members plus a remediation link.
+Quarkus and Jakarta `create` is create-only, unlike Hibernate `hbm2ddl.auto=create`.
 
-The advisor score applies the shared severity penalty to every concrete finding, not just once per violated rule.
-Dismissed rules remove all of their findings from the score.
+The results panel lists only checks that found something, ordered by severity, finding count, and rule id. Each rule
+includes a few sample mapped members plus a remediation link.
+
+The advisor score applies the shared severity penalty to every concrete finding, not once per violated rule.
+Dismissing a rule removes all of its findings from the score.
 
 ---
 

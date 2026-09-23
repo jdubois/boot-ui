@@ -6,7 +6,7 @@ actions:
   - text: Explore features
     link: /features
     type: primary
-  - text: Super easy setup
+  - text: Set up BootUI
     link: /setup
     type: secondary
 features:
@@ -52,21 +52,15 @@ footer: Apache-2.0 Licensed | BootUI
 
 ## How BootUI works
 
-BootUI is served by the host application at `/bootui/`, uses internal `/bootui/api/**` endpoints, and packages the Vue UI
-so consuming applications do not need Node.js or npm. The same console runs on **Spring Boot 4** (servlet or WebFlux)
-and **Quarkus**, backed by a shared, framework-neutral engine that serves an identical REST contract on any of the
-three.
+Your application serves the console at `/bootui/` and its JSON API at `/bootui/api/**`. The Vue UI is packaged inside
+the jar, so your build needs no Node.js and no npm.
 
-It stays local by default: development-profile activation, loopback-only access, secret masking, read-only controls, and
-production-profile disablement. Some panels depend on optional Spring, Actuator, or development infrastructure. When data
-is unavailable, BootUI returns stable empty responses or shows an actionable empty state.
+The same console runs on Spring Boot 4 (servlet or WebFlux) and on Quarkus. A shared, framework-neutral engine serves
+an identical REST contract on all three.
 
-## What BootUI includes
+BootUI is a development tool and stays one by default. It activates only in development, rejects non-loopback callers,
+masks secret-like values, and disables itself in production profiles. Every state-changing action is user-triggered,
+and the destructive ones ask for confirmation first.
 
-- Runtime views for health, metrics, memory, threads, heap dumps, startup timing, and JVM tuning.
-- Configuration tools for masked properties, profile diffs, runtime overrides, loggers, beans, conditions, and mappings.
-- Data and service panels for database pools, PostgreSQL vital signs, Spring Data, Hibernate, Flyway, Liquibase, caches,
-  scheduled tasks, and dev services.
-- Diagnostics and security panels for traces, logs, HTTP exchanges, local probes, architecture checks, GraalVM readiness,
-  dependency vulnerabilities, Spring Security, and security advisors.
-- Developer tooling dashboards for Spring DevTools, GitHub, Copilot, and Claude Code local activity.
+Panels that depend on optional Spring, Actuator, or development infrastructure stay visible when that infrastructure is
+missing. They explain what is unavailable instead of disappearing.

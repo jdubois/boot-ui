@@ -9,22 +9,22 @@ Each check is a small class registered in
 [`GraalVmCheckRegistry`](https://github.com/jdubois/boot-ui/blob/main/bootui-engine/src/main/java/io/github/jdubois/bootui/engine/graalvm/GraalVmCheckRegistry.java)
 and implemented in
 [`GraalVmChecks.java`](https://github.com/jdubois/boot-ui/blob/main/bootui-engine/src/main/java/io/github/jdubois/bootui/engine/graalvm/GraalVmChecks.java).
-The list intentionally stays compact and reviewable; adding a new check means adding one focused class plus a registry
-entry. The rule engine (checks, categories, the dependency scanner, and the reachability-metadata scaffold generator) is
-framework-neutral and lives in `bootui-engine`; today it is surfaced only through thin Spring adapter wiring in
-`bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/graalvm/` (the controller, the
-Dockerfile generator, and the source-tree writer).
+Adding a check means adding one focused class plus a registry entry, which keeps the list reviewable.
 
-The advisor is explicitly **not applicable on Quarkus**. Quarkus performs native-image configuration during its own
-build-time augmentation, so BootUI keeps the panel unavailable with a platform-specific explanation instead of exposing
-this Spring-oriented scan or its generated files.
+The rule engine — checks, categories, the dependency scanner, and the scaffold generator — is framework-neutral and
+lives in `bootui-engine`. Only the controller, the Dockerfile generator, and the source-tree writer are Spring adapter
+wiring.
+
+This advisor is not applicable on Quarkus, which configures native images during its own build-time augmentation. The
+panel stays unavailable there with a platform-specific explanation rather than exposing a Spring-oriented scan or its
+generated files.
 
 ## Earlier 2026 readiness audit
 
 The catalogue was audited check by check against current GraalVM Native Image documentation and source, Spring
-Framework 7 / Spring Boot 4.1 AOT documentation, the GraalVM tracing agent and reachability-metadata repository, and the
-build-time approaches used by Spring AOT, Quarkus, and Micronaut. The audit deliberately changed a check only when the
-application bytecode or classpath gives BootUI a reliable signal.
+Framework 7 and Spring Boot 4.1 AOT documentation, the GraalVM tracing agent and reachability-metadata repository, and
+the build-time approaches used by Spring AOT, Quarkus, and Micronaut. A check changed only where the application
+bytecode or classpath gives BootUI a reliable signal.
 
 | Audited ID | Decision | Result |
 | --- | --- | --- |
@@ -69,10 +69,12 @@ Primary references:
 - [Spring Framework AOT](https://docs.spring.io/spring-framework/reference/core/aot.html) and Spring Boot's
   [static-hints location](https://docs.spring.io/spring-boot/reference/packaging/native-image/advanced-topics.html#packaging.native-image.advanced.custom-hints.static).
 
-The removed initialization checks remain useful review topics when a build explicitly uses
-`--initialize-at-build-time`, but they are documentation concerns rather than reliable bytecode findings. BootUI also
-cannot recover string argument values or data flow, proxy interface arrays, Unsafe target classes, JNI calls made inside
-native code, FFM memory layouts, native-image build flags, or the exact profiles/properties used during Spring AOT.
+The removed initialization checks remain useful review topics for a build that explicitly uses
+`--initialize-at-build-time`, but they are documentation concerns rather than reliable bytecode findings.
+
+BootUI cannot recover string argument values or data flow, proxy interface arrays, Unsafe target classes, JNI calls
+made inside native code, FFM memory layouts, native-image build flags, or the exact profiles and properties used during
+Spring AOT.
 
 ## Follow-up precision audit
 
@@ -152,75 +154,91 @@ Version-pinned evidence for the corrections:
 
 ## What BootUI does
 
-The scanner detects the host application's base package(s) from the `@SpringBootApplication` configuration via
-`AutoConfigurationPackages`, imports the compiled `.class` files from those packages with [ArchUnit](https://www.archunit.org/)'s
-`ClassFileImporter`, and evaluates every registered check against the imported classes. Importing is bounded to the
-application's own base package(s) — never the entire classpath — and runs only on demand when the scan action is
-invoked, caching the last report in the controller.
+The scanner detects your base packages from the `@SpringBootApplication` configuration through
+`AutoConfigurationPackages`, imports the compiled `.class` files from them with
+[ArchUnit](https://www.archunit.org/)'s `ClassFileImporter`, and evaluates every registered check against the imported
+classes. Importing is bounded to your own base packages, never the whole classpath, and runs only when you invoke the
+scan. The controller caches the last report.
 
-In addition to the checks, the scan does two things:
+ArchUnit comes in transitively with `bootui-spring-boot-starter`. The panel is available when ArchUnit is on the
+classpath and a base package is resolvable. When no classes can be imported, it degrades to a stable empty report with
+a reason rather than failing.
 
-- **Surveys classpath dependencies** (when the _Include dependencies_ toggle is on; it is on by default) to report which
-  third-party JARs already ship bundled reachability metadata under `META-INF/native-image/`. BootUI recognizes the
-  unified `reachability-metadata.json` filename and canonical legacy files (`reflect-config.json`,
-  `resource-config.json`, `proxy-config.json`, `serialization-config.json`, `jni-config.json`, and
-  `predefined-classes-config.json`); arbitrary JSON does not count. A JAR that only has `native-image.properties` is
-  reported as bundling native-image build arguments, not reachability metadata. The survey opens only classpath JARs,
-  stops before opening nested libraries beyond its remaining 500-JAR budget,
-  and adds a warning when that cap is hit; libraries without bundled metadata may need your own configuration, repository
-  metadata, or the tracing agent. A single classpath entry can expand into several reported dependencies: when the
-  application runs as a Spring Boot fat/uber jar, `java.class.path` only ever contains the outer launcher jar (Spring
-  Boot's `LaunchedURLClassLoader` resolves `BOOT-INF/lib/*.jar` through custom `nested:` URLs that never populate that
-  system property), so the survey expands the launcher jar into one inspected dependency per nested `BOOT-INF/lib/`
-  library instead of misreporting it as a single dependency named after the application's own launcher jar. When a
-  shaded/uber jar (built with, for example, the Maven Shade or Gradle Shadow plugin) bundles more than one
-  `META-INF/maven/<groupId>/<artifactId>/pom.properties` — one for itself and one for each dependency it relocated into
-  itself — the survey prefers the descriptor whose `artifactId`/`version` matches the jar's own file name, recovering the
-  shaded jar's own coordinates in the common case rather than misreporting it under one of the dependencies it relocated.
-  Repository coverage uses an exact metadata/tested-version match first, then the first valid Java regular expression in
-  the repository row's `default-for` field.
-- **Builds a GraalVM `reachability-metadata.json` scaffold** from the application's own classes — unified reflection and
-  serialization registrations, standard configuration/logging resource globs, and explicit proxy/Unsafe/FFM
-  completion guidance when those calls are detected — which you can download from the panel.
-- **Installs the scaffold into the source tree** when the application is detectably running from an exploded build (for
-  example `mvn spring-boot:run` or an IDE) rather than a packaged jar. The **Write into project** action
-  writes the scaffold to
-  `src/main/resources/META-INF/native-image/<groupId>/<artifactId>-additional-hints/reachability-metadata.json`
-  (coordinates resolved from `build-info.properties` or the project `pom.xml`, falling back to
-  `bootui-generated/additional-hints`). Spring Boot reserves `<groupId>/<artifactId>/` for AOT-generated output, so the
-  suffix prevents BootUI's static scaffold from colliding with Spring AOT. The write is confined under
-  `src/main/resources` and refuses to overwrite a `reachability-metadata.json` that BootUI did not generate.
-- **Generates a tailored `Dockerfile-native`** for the host application — a multi-stage build that detects the project's
-  build system (Maven or Gradle, with or without the wrapper) and compiles a GraalVM native image with the matching
-  command (`./mvnw`/`mvn -Pnative -DskipTests clean native:compile`, or `./gradlew`/`gradle nativeCompile`), then packages the
-  resulting executable (named after the resolved `artifactId`) into a minimal, distroless runtime image
-  (`gcr.io/distroless/base-debian12:nonroot`). That base runs as a non-root user and ships glibc but no shell, package
-  manager, curl, perl or tar. The native image requests *mostly static* linking with `--static-nolibc`, but some
-  applications still need `libstdc++`, `libgcc`, or dynamically loaded native libraries. Inspect the executable's
-  dependencies and exercise it in the exact runtime image; use a compatible runtime with the needed libraries.
-  Because distroless has no shell or curl
-  there is no Docker `HEALTHCHECK` - probe `/actuator/health` (or the web root) from your orchestrator instead. When
-  the project carries no wrapper, the build stage installs a known, pinned
-  Maven/Gradle release (declared as a constant in the generator and exposed as a Docker `ARG`) so the image is
-  self-contained. You can download it, or — under the same exploded-build constraint as the scaffold install — write it
-  to the project root. That write is fail-closed and refuses to overwrite a `Dockerfile-native` that BootUI did not
-  generate.
-- **Writes both artifacts in one step.** The scaffold and the `Dockerfile-native` are offered in a three-drawer
-  accordion whose default, top **All files** drawer generates and writes both files into the source tree in a single
-  action — under the same exploded-build constraint and the same fail-closed guards — and reports each file's outcome
-  individually.
+Beyond the checks, a scan produces four things.
 
-When BootUI is installed through `bootui-spring-boot-starter`, ArchUnit is included transitively so the panel works
-without an extra application dependency. The panel is available only when ArchUnit is on the classpath and a base
-package is resolvable from the running application. If no classes can be imported, the panel degrades to a stable, empty
-report with an explanatory reason rather than failing.
+### Dependency survey
 
-Separately from the panel scan, BootUI registers Spring AOT runtime hints for its own native-image needs from
-[`BootUiRuntimeHints`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/BootUiRuntimeHints.java).
-Those built-in hints cover BootUI's runtime-scanned classpath resources, BootUI DTO records used by Jackson, and the
-well-known reflective calls used by the Heap Dump, Security, and Pentesting panels. They are contributed by
-`BootUiAutoConfiguration`, so applications using the starter should not need to copy BootUI-specific hints into their own
-native-image configuration.
+With **Include dependencies** on, which is the default, the scan reports which third-party JARs already ship bundled
+reachability metadata under `META-INF/native-image/`.
+
+BootUI recognizes the unified `reachability-metadata.json` name and the canonical legacy files — `reflect-config.json`,
+`resource-config.json`, `proxy-config.json`, `serialization-config.json`, `jni-config.json`, and
+`predefined-classes-config.json`. Arbitrary JSON does not count. A JAR carrying only `native-image.properties` is
+reported as bundling build arguments, not reachability metadata.
+
+The survey opens classpath JARs only, stops before opening nested libraries beyond its remaining 500-JAR budget, and
+warns when that cap is hit. A library without bundled metadata may need your own configuration, repository metadata, or
+the tracing agent. Repository coverage uses an exact metadata or tested-version match first, then the first valid Java
+regular expression in the repository row's `default-for` field.
+
+::: details Why one classpath entry can expand into several dependencies
+When the application runs as a Spring Boot fat jar, `java.class.path` contains only the outer launcher jar, because
+`LaunchedURLClassLoader` resolves `BOOT-INF/lib/*.jar` through `nested:` URLs that never populate that system
+property. The survey therefore expands the launcher into one inspected dependency per nested library, rather than
+reporting a single dependency named after your launcher jar.
+
+A shaded jar bundles more than one `META-INF/maven/<groupId>/<artifactId>/pom.properties`: one for itself and one for
+each relocated dependency. The survey prefers the descriptor whose `artifactId` and `version` match the jar's own file
+name, which recovers the shaded jar's own coordinates in the common case.
+:::
+
+### A `reachability-metadata.json` scaffold
+
+Built from your own classes: unified reflection and serialization registrations, standard configuration and logging
+resource globs, and explicit proxy, Unsafe, and FFM completion guidance where those calls are detected. Download it
+from the panel.
+
+### A tailored `Dockerfile-native`
+
+A multi-stage build that detects Maven or Gradle, with or without a wrapper, compiles with the matching command such as
+`./mvnw -Pnative -DskipTests clean native:compile` or `./gradlew nativeCompile`, and packages the resulting executable,
+named after the resolved `artifactId`, into `gcr.io/distroless/base-debian12:nonroot`. That base runs as a non-root
+user and ships glibc but no shell, package manager, curl, perl, or tar. With no wrapper in the project, the build stage
+installs a pinned Maven or Gradle release, exposed as a Docker `ARG`, so the image is self-contained. Download it from
+the panel, or write it into the project root.
+
+::: warning Verify linking and health probes yourself
+The native image requests mostly static linking with `--static-nolibc`, but some applications still need `libstdc++`,
+`libgcc`, or dynamically loaded native libraries. Inspect the executable's dependencies and exercise it in the exact
+runtime image, or use a runtime that carries the libraries it needs.
+
+Distroless has no shell or curl, so there is no Docker `HEALTHCHECK`. Probe `/actuator/health`, or the web root, from
+your orchestrator instead.
+:::
+
+### Writes into the project
+
+When BootUI detects an exploded build, such as `mvn spring-boot:run` or an IDE, rather than a packaged jar, it can
+write both artifacts into the source tree. The accordion's top **All files** drawer does both in one action and reports
+each file's outcome.
+
+The scaffold goes to
+`src/main/resources/META-INF/native-image/<groupId>/<artifactId>-additional-hints/reachability-metadata.json`, with
+coordinates resolved from `build-info.properties` or the project `pom.xml`, falling back to
+`bootui-generated/additional-hints`. Spring Boot reserves `<groupId>/<artifactId>/` for AOT-generated output, so the
+suffix keeps the static scaffold from colliding with Spring AOT. The `Dockerfile-native` is written to the project
+root.
+
+Writes are fail-closed. The scaffold write is confined under `src/main/resources`, and neither write overwrites a file
+BootUI did not generate.
+
+### BootUI's own hints
+
+Separately from the scan, BootUI registers Spring AOT runtime hints for its own needs in
+[`BootUiRuntimeHints`](https://github.com/jdubois/boot-ui/blob/main/bootui-spring-autoconfigure/src/main/java/io/github/jdubois/bootui/autoconfigure/BootUiRuntimeHints.java),
+covering its runtime-scanned classpath resources, its Jackson DTO records, and the reflective calls the Heap Dump,
+Security, and Pentesting panels use. `BootUiAutoConfiguration` contributes them, so applications using the starter do
+not need to copy BootUI-specific hints into their own configuration.
 
 ## What BootUI does not do
 
@@ -237,10 +255,11 @@ native-image configuration.
 
 ## Detecting missing metadata at development time
 
-BootUI's checks are static, build-independent heuristics; they cannot see reflection driven by runtime-only data (for
-example, a class name read from a config file), so a clean scan is not a guarantee that a native image will run
-correctly. GraalVM's own recommended complement to static analysis is to make missing metadata fail loudly during
-development instead of surfacing as a silent runtime bug:
+These checks are static, build-independent heuristics. They cannot see reflection driven by runtime-only data, such
+as a class name read from a config file, so a clean scan does not guarantee that a native image runs correctly.
+
+GraalVM's own recommended complement is to make missing metadata fail loudly during development rather than surface as
+a silent runtime bug:
 
 - Pass **`--exact-reachability-metadata`** (introduced in GraalVM 23 for debugging and still opt-in in GraalVM 25), or,
   to scope exact handling to specific packages,
@@ -253,14 +272,14 @@ development instead of surfacing as a silent runtime bug:
   tests — to make the application print the error with a full stack trace and exit immediately the first time a
   missing registration is hit, including ones a broad `catch (Throwable t)` would otherwise silently swallow.
 
-See the ["Reachability Metadata" reference](https://www.graalvm.org/latest/reference-manual/native-image/metadata/) for
-the authoritative, up-to-date flag documentation. BootUI does not implement this as an automated check: unlike every
-other check on this page, which fires only when a specific risky bytecode/reflection construct is present, these flags
-are a blanket recommendation for essentially every native-image build regardless of what the code does — there is no
-bytecode condition to scan for, so an automated check would either fire unconditionally (defeating the panel's
-"only show what needs review" design) or require parsing the project's build file (`pom.xml` / `build.gradle`) to
-detect existing native-image arguments, a data source no other check depends on. It is listed here as a recommended
-practice to pair with the panel's static checks, not as another unconditional check.
+The [Reachability Metadata reference](https://www.graalvm.org/latest/reference-manual/native-image/metadata/) carries
+the authoritative flag documentation.
+
+This is a recommended practice to pair with the panel's checks, not a check itself. Every other check on this page
+fires only when a specific risky construct is present in bytecode, whereas these flags suit essentially every
+native-image build regardless of the code. There is no bytecode condition to scan for, so an automated check would
+either fire unconditionally or have to parse `pom.xml` or `build.gradle` for existing native-image arguments, a data
+source no other check uses.
 
 ## The generated `reachability-metadata.json`
 
@@ -275,19 +294,23 @@ and `Serializable` types plus JPA entities and mapped superclasses, including ab
 globs cover
 `application*.properties` / `application*.yml` / `application*.yaml`, `logback-spring.xml`, and `log4j2-spring.xml`.
 
-**Review first-use conditions.** A class literal does not satisfy `typeReached`. Reflective name lookup or serialization
-descriptor lookup can need metadata before the target class is initialized, so a self-guarded entry may be inactive
-when first needed. Use an owning feature reached before that access, or a narrowly justified unconditional entry.
-Do not remove every guard blindly: these broad, passive candidates can include unused or optional types. Existing
-framework hints or build-time initialization can mask this ordering problem; an isolated native first-use test is
-needed before relying on a changed guard policy.
+::: warning Review first-use conditions
+A class literal does not satisfy `typeReached`. Reflective name lookup and serialization descriptor lookup can need
+metadata before the target class is initialized, so a self-guarded entry may be inactive when it is first needed. Use
+an owning feature reached before that access, or a narrowly justified unconditional entry.
 
-Static bytecode analysis cannot reliably recover runtime-computed proxy interface arrays, the `Class` argument passed to
-`Unsafe.allocateInstance`, or FFM `FunctionDescriptor` layouts. When those checks fire, the generated file therefore
-adds explicit review instructions rather than inventing unsafe registrations. FFM findings also scaffold the schema-valid
-`foreign` object with empty `downcalls`, `upcalls`, and `directUpcalls` arrays for the developer or tracing agent to
-complete. Dynamic proxies use a structured reflection type such as
-`{"type":{"proxy":["com.example.Interface"]}}`; FFM entries require the real memory-layout descriptors.
+Do not remove every guard blindly: these broad, passive candidates can include unused or optional types. Existing
+framework hints and build-time initialization can mask the ordering problem, so run an isolated native first-use test
+before relying on a changed guard policy.
+:::
+
+Static bytecode analysis cannot reliably recover runtime-computed proxy interface arrays, the `Class` argument passed
+to `Unsafe.allocateInstance`, or FFM `FunctionDescriptor` layouts. When those checks fire, the generated file adds
+explicit review instructions rather than inventing unsafe registrations.
+
+Dynamic proxies use a structured reflection type such as `{"type":{"proxy":["com.example.Interface"]}}`. FFM findings
+scaffold the schema-valid `foreign` object with empty `downcalls`, `upcalls`, and `directUpcalls` arrays, which you or
+the tracing agent complete with the real memory-layout descriptors.
 
 Review the generated file with the tracing agent, then place it under
 `src/main/resources/META-INF/native-image/<groupId>/<artifactId>-additional-hints/` in your application. Spring Boot
@@ -299,23 +322,18 @@ only when no coordinates can be resolved.
 
 ## Severity scale
 
-Severity reflects the worst plausible impact if the finding is real, not the likelihood:
+Severity reflects the worst plausible impact if the finding is real, not how likely it is:
 
-- **CRITICAL** — a construct with the most severe native-image impact if the finding is real. No active GraalVM check
-  currently emits this severity.
-- **HIGH** — a construct that needs substantial native-image integration or Spring AOT cannot safely capture at run time
-  (runtime class generation or Java compilation, script-engine discovery without a native integration, runtime classpath scanning,
-  runtime instance suppliers, bean-referencing expression conditions, secondary context creation, dynamic/model MBeans).
-- **MEDIUM** — a construct GraalVM cannot resolve at build time that will usually fail at run time without metadata
-  (reflection, dynamic class loading, deep reflection, unsafe allocation, dynamic proxies, active JDK serialization, SpEL,
-  method handles, frozen AOT conditions, runtime security-provider registration, runtime singleton registration).
-- **LOW** — a construct that often needs extra configuration (runtime resource loading, resource bundles, reflective
-  annotation access, native access, native methods, JMX, foreign functions).
-- **INFO** — an informational prompt that only matters if the type is actually used that way (serialization).
+| Severity | Meaning | Examples |
+| -------- | ------- | -------- |
+| **CRITICAL** | The most severe native-image impact. No active check emits it. | — |
+| **HIGH** | Needs substantial native-image integration, or Spring AOT cannot safely capture it at run time. | Runtime class generation or Java compilation, script-engine discovery without a native integration, runtime classpath scanning, runtime instance suppliers, bean-referencing expression conditions, secondary context creation, dynamic and model MBeans |
+| **MEDIUM** | GraalVM cannot resolve it at build time, so it usually fails at run time without metadata. | Reflection, dynamic class loading, deep reflection, unsafe allocation, dynamic proxies, active JDK serialization, SpEL, method handles, frozen AOT conditions, runtime security-provider registration, runtime singleton registration |
+| **LOW** | Often needs extra configuration. | Runtime resource loading, resource bundles, reflective annotation access, native access, native methods, JMX, foreign functions |
+| **INFO** | Matters only if the type is actually used that way. | Serialization |
 
-The scan evaluates every registered check, but the panel only lists checks that found something to review. Findings are
-ordered by importance (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`), then by the number of occurrences, and include up to
-a handful of sample detail lines.
+The scan evaluates every registered check, but the panel lists only checks that found something to review. Findings are
+ordered by severity, then by the number of occurrences, and include a few sample detail lines.
 
 ---
 
