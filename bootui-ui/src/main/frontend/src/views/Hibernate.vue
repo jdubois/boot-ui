@@ -1,6 +1,8 @@
 <script setup>
+import {computed} from 'vue'
 import {useAdvisorPanel} from '../utils/useAdvisorPanel.js'
 import {panelProps} from '../utils/panelState.js'
+import AdvisorDiagnostics from './components/AdvisorDiagnostics.vue'
 import AdvisorSummary from './components/AdvisorSummary.vue'
 import AdvisorRuleViolations from './components/AdvisorRuleViolations.vue'
 import PanelHeader from './components/PanelHeader.vue'
@@ -16,6 +18,7 @@ const panel = useAdvisorPanel(props, {
   emptyNoFindings: 'No Hibernate Advisor findings',
   countNoun: 'finding'
 })
+const diagnostics = computed(() => panel.report?.diagnostics || [])
 </script>
 
 <template>
@@ -122,6 +125,8 @@ const panel = useAdvisorPanel(props, {
         </div>
       </div>
 
+      <AdvisorDiagnostics :diagnostics="diagnostics" />
+
       <div class="card">
         <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
           <div>
@@ -167,6 +172,11 @@ const panel = useAdvisorPanel(props, {
             <div class="small mb-2">
               <strong>What happened:</strong>
               {{ panel.violationCountLabel(result.violationCount) }} for this rule.
+            </div>
+            <div v-if="result.coverageNote" class="small mb-2">
+              <i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>
+              <strong>Coverage:</strong>
+              {{ result.coverageNote }}
             </div>
             <AdvisorRuleViolations
               api-path="api/hibernate"

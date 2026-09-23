@@ -578,7 +578,13 @@ not a verdict: it never intercepts queries, invokes repositories, executes SQL, 
 
 The catalog has 71 active rules; five declaration-only or structurally duplicated checks are retired without reusing
 their identifiers. Unavailable required observations and rule failures yield `PARTIAL` while retaining valid findings.
-The scan message distinguishes attempted-rule coverage from successful evaluation; an empty findings list is not proof
+The scan message distinguishes attempted-rule coverage from successful evaluation, and the report's `diagnostics` array
+(shown as **Scan diagnostics** in the panel, returned unchanged by REST, MCP and `bootui hibernate report --json`, and
+summarized as a table in the CLI's human-readable output) names every failed or
+incompletely evaluated rule, its persistence unit, the kind of evidence that was missing and bounded example subjects.
+`INFO` diagnostics mark advisor limits by design rather than missing application evidence, and the list is capped at
+200 entries without dropping any rule; failures are kept first. A finding whose rule was only partly evaluated carries a
+`coverageNote`. An empty findings list is not proof
 that every mapping or query was verified. XML overrides, auto-apply converters, custom generators and runtime query
 plans are not fully reconstructed.
 

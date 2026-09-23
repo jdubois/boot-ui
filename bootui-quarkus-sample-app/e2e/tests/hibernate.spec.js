@@ -24,6 +24,14 @@ test.describe('Hibernate advisor (Quarkus)', () => {
     expect(report.rulesEvaluated).toBe(71)
     expect(report.scan.status).toBe('PARTIAL')
     expect(report.scan.message).toBeTruthy()
+    expect(Array.isArray(report.diagnostics)).toBe(true)
+    expect(report.diagnostics.length).toBeGreaterThan(0)
+    expect(report.scan.message).not.toMatch(/Incomplete: |\+\d+ more/)
+    for (const diagnostic of report.diagnostics) {
+      expect(['ERROR', 'WARNING', 'INFO']).toContain(diagnostic.level)
+      expect(diagnostic.source).toBeTruthy()
+      expect(diagnostic.message).toBeTruthy()
+    }
     expect(report.entitiesAnalyzed).toBeGreaterThan(0)
     expect(new Set(report.results.map((result) => result.id)).size).toBe(report.results.length)
     for (const id of ['HIB-FETCH-004', 'HIB-MAP-012', 'HIB-MAP-019', 'HIB-ENTITY-003', 'HIB-ENTITY-004']) {
@@ -36,6 +44,18 @@ test.describe('Hibernate advisor (Quarkus)', () => {
     await expect(page.locator('.advisor-summary__value')).toHaveText(String(expectedAdvisorScore(report)))
     await expect(page.getByRole('img', {name: /Known-findings score: .*Scan notes available/})).toHaveCount(1)
     await expect(page.locator('main')).toContainText('Entities analysed')
+
+    const diagnosticsToggle = page.getByRole('button', {name: 'Show diagnostics'})
+    await expect(page.getByText('Scan diagnostics')).toBeVisible()
+    await expect(diagnosticsToggle).toHaveAttribute('aria-expanded', 'false')
+    await diagnosticsToggle.click()
+    const hideDiagnostics = page.getByRole('button', {name: 'Hide diagnostics'})
+    await expect(hideDiagnostics).toHaveAttribute('aria-expanded', 'true')
+    const diagnosticsListId = await hideDiagnostics.getAttribute('aria-controls')
+    await expect(page.locator(`[id=${JSON.stringify(diagnosticsListId)}]`).locator('li')).toHaveCount(
+      report.diagnostics.length
+    )
+    await hideDiagnostics.click()
 
     // Effective batching makes the stronger IDENTITY finding apply, without duplicate generic advice.
     await expect(page.locator('.list-group-item', {hasText: 'HIB-ID-001'})).toHaveCount(0)

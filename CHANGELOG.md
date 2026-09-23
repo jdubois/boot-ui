@@ -18,6 +18,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   compiler, and any class outside an archive is still evaluated
   ([#1085](https://github.com/jdubois/boot-ui/issues/1085)).
 
+- **Hibernate Advisor PARTIAL scans are now explainable.** The report gains a `diagnostics` array
+  (`source`, `unit`, `level`, `message`) naming each rule evaluation that failed or lacked required evidence and each
+  discovery gap, with controlled phrases for the missing evidence and up to three sanitized examples such as
+  `OrderRepository#findRecent`. Findings from a partly evaluated rule carry a `coverageNote`, advisor limits by design
+  are reported at `INFO`, and the list is capped at 200 entries without dropping any affected rule. `scan.message` no
+  longer truncates rules with "+N more". The Hibernate and Database Advisor panels share an accessible
+  **Scan diagnostics** card, and the new members are returned unchanged by REST, MCP, and the CLI
+  ([#1086](https://github.com/jdubois/boot-ui/issues/1086)).
+
 - **SPRING-PERF-002 names the pool it reports and ignores Spring's own executors.** Each finding now names the
   `ThreadPoolTaskExecutor` bean and the class declaring its factory method, or its bean type when that declaration
   cannot be resolved. Pools declared by Spring's own configuration, such as the STOMP channel executors
@@ -38,6 +47,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   representation, which made the Database Advisor scan PARTIAL. Native MySQL/MariaDB `ENUM`/`SET` columns are not
   compared, and other ambiguous mappings on non-character columns are now skipped quietly
   ([#1090](https://github.com/jdubois/boot-ui/issues/1090)).
+
+- **DB-HIB-007 assesses `@JoinColumn`s that omit `referencedColumnName`.** An ordinary `@ManyToOne`/`@OneToOne`
+  single join column is now paired with the Jakarta Persistence default, the target entity's `@Id` column, when that
+  column is also the target table's observed single-column primary key. Previously these mappings were reported as
+  unknown, which left the rule with no applicable targets. Composite joins with an omitted referenced column, `@Id`
+  columns that cannot be established without guessing a naming strategy, and constraints that reference a
+  non-primary-key column remain unknown ([#1088](https://github.com/jdubois/boot-ui/issues/1088)).
 
 ## [1.18.0] - 2026-09-21
 

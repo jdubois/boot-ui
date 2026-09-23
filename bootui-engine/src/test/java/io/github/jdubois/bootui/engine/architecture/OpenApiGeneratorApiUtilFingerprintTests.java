@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.architecture;
 import static io.github.jdubois.bootui.engine.architecture.ArchitectureGeneratedCodeFixtures.compile;
 import static io.github.jdubois.bootui.engine.architecture.ArchitectureGeneratedCodeFixtures.write;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
@@ -180,6 +181,9 @@ class OpenApiGeneratorApiUtilFingerprintTests {
     @ParameterizedTest
     @ValueSource(strings = {"8", "11", "17", "21"})
     void javacOutputForEveryReleaseEqualsThePinnedVariant(String release) throws IOException {
+        assumeTrue(
+                Integer.parseInt(release) <= Runtime.version().feature(),
+                "javac cannot target a release newer than the running JDK");
         Path source = write(root.resolve("src/sample/api/ApiUtil.java"), template("sample.api", "javax"));
         Path stub = write(root.resolve("src/javax/servlet/http/HttpServletResponse.java"), JAVAX_STUB);
         Path out = Files.createDirectories(root.resolve("out"));

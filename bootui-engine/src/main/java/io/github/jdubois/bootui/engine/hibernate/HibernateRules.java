@@ -208,12 +208,12 @@ final class HibernateRuleModelSupport {
                     String attributeName = directAttribute(rootAlias, path);
                     if (attributeName != null && collectionNames.contains(attributeName)) {
                         if (context.hibernateVersion().major() == null) {
-                            context.missingEvidence();
+                            context.missingEvidence(HibernateEvidenceGap.HIBERNATE_VERSION, method);
                             continue;
                         }
                         if (context.hasHibernateCollectionFetchPaginationFix()
                                 && !Boolean.TRUE.equals(method.evidence().limitInMemory())) {
-                            context.missingEvidence();
+                            context.missingEvidence(HibernateEvidenceGap.QUERY_HINT, method);
                             continue;
                         }
                         details.add(method.description() + " pages a collection JOIN FETCH path " + path + ".");
@@ -906,7 +906,7 @@ final class OpenInViewRule extends AbstractHibernateRule {
         }
         Boolean value = context.booleanProperty("spring.jpa.open-in-view");
         if (value == null) {
-            context.missingEvidence();
+            context.missingEvidence(HibernateEvidenceGap.APPLICATION_SETTING);
             return skipped("Open Session in View activation is unknown.");
         }
         if (Boolean.FALSE.equals(value)) {
@@ -1103,7 +1103,7 @@ final class OrderedBatchingRule extends AbstractHibernateRule {
         if (context.observed()) {
             Boolean inserts = context.factorySettings().orderInserts();
             Boolean updates = context.factorySettings().orderUpdates();
-            if (inserts == null || updates == null) context.missingEvidence();
+            if (inserts == null || updates == null) context.missingEvidence(HibernateEvidenceGap.FACTORY_SETTING);
             if (Boolean.FALSE.equals(inserts)) details.add("The factory insert-ordering default is disabled.");
             if (Boolean.FALSE.equals(updates)) details.add("The factory update-ordering default is disabled.");
             return violation(context, details);
@@ -1192,7 +1192,7 @@ final class ProviderDisablesAutocommitRule extends AbstractHibernateRule {
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         if (context.observed()) {
-            context.missingEvidence();
+            context.missingEvidence(HibernateEvidenceGap.POOL_GUARANTEES_BY_DESIGN);
             return skipped("Selected pool auto-commit and resource-local guarantees were not observed; no connection is"
                     + " acquired.");
         }
@@ -1302,9 +1302,10 @@ final class QueryCacheRegionFactoryRule extends AbstractHibernateRule {
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         if (context.observed()) {
-            if (!context.required(context.factorySettings().queryCache())) return pass();
+            if (!context.required(context.factorySettings().queryCache(), HibernateEvidenceGap.FACTORY_SETTING))
+                return pass();
             if (context.factorySettings().regionFactory() == HibernateFactorySettings.RegionFactory.UNKNOWN) {
-                context.missingEvidence();
+                context.missingEvidence(HibernateEvidenceGap.CACHE_STRATEGY);
                 return skipped("Effective query-cache region support is unknown.");
             }
             return context.factorySettings().regionFactory() == HibernateFactorySettings.RegionFactory.NONE
@@ -1352,9 +1353,9 @@ final class CacheableWithoutCacheStrategyRule extends AbstractHibernateRule {
         if (context.entities().stream()
                 .noneMatch(entity -> entity.isJpaCacheable() && !entity.hasHibernateCacheAnnotation())) return pass();
         if (context.observed()) {
-            if (!context.required(context.factorySettings().secondLevelCache()))
+            if (!context.required(context.factorySettings().secondLevelCache(), HibernateEvidenceGap.FACTORY_SETTING))
                 return skipped("Unit cache is disabled.");
-            context.missingEvidence();
+            context.missingEvidence(HibernateEvidenceGap.CACHE_STRATEGY_BY_DESIGN);
             return skipped(
                     "Provider-selected access strategy and entity eligibility are not observed; explicit @Cache is not"
                             + " required.");
@@ -1368,7 +1369,7 @@ final class CacheableWithoutCacheStrategyRule extends AbstractHibernateRule {
             return skipped("Second-level caching is not configured.");
         }
         if (hasDefaultCacheStrategy(context)) return pass();
-        context.missingEvidence();
+        context.missingEvidence(HibernateEvidenceGap.CACHE_STRATEGY);
         return skipped("Provider-selected cache strategy is unknown.");
     }
 
@@ -1415,7 +1416,7 @@ final class RiskyDdlAutoRule extends AbstractHibernateRule {
                 ? context.factorySettings().schemaAction()
                 : HibernateFactorySettings.SchemaAction.hibernate(ddlAuto);
         if (action == HibernateFactorySettings.SchemaAction.UNKNOWN) {
-            context.missingEvidence();
+            context.missingEvidence(HibernateEvidenceGap.FACTORY_SETTING);
             return skipped("Effective database schema action is unknown.");
         }
         if (action == HibernateFactorySettings.SchemaAction.NONE) return pass();
@@ -2310,7 +2311,7 @@ final class DerivedDeleteByQueryRule extends AbstractHibernateRule {
                 if (method.isDerivedDeleteMethod() && !method.hasQuery()) {
                     context.evidence().markApplicable(true);
                     if (context.observed() && !method.evidence().derivedQueryVerified()) {
-                        context.missingEvidence();
+                        context.missingEvidence(HibernateEvidenceGap.DERIVED_QUERY, method);
                         continue;
                     }
                     details.add(method.description()
@@ -2415,8 +2416,11 @@ final class SqlLoggingInProductionRule extends AbstractHibernateRule {
             return pass();
         }
         if (context.observed()
-                ? context.required(context.applicationFacts().sqlLoggerEnabled())
-                        || context.required(context.applicationFacts().bindLoggerEnabled())
+                ? context.required(
+                                context.applicationFacts().sqlLoggerEnabled(), HibernateEvidenceGap.APPLICATION_SETTING)
+                        || context.required(
+                                context.applicationFacts().bindLoggerEnabled(),
+                                HibernateEvidenceGap.APPLICATION_SETTING)
                 : context.isSqlLoggingEnabled()) {
             return violation(context, List.of("SQL logging is enabled while a production profile is active."));
         }
@@ -2480,7 +2484,7 @@ final class HibernateBuiltinPoolRule extends AbstractHibernateRule {
         if (!context.observed()
                 || context.factorySettings().connectionProvider()
                         == HibernateFactorySettings.ConnectionProvider.UNKNOWN) {
-            context.missingEvidence();
+            context.missingEvidence(HibernateEvidenceGap.CONNECTION_PROVIDER);
             return skipped("Selected connection provider is unknown; pool_size does not establish activation.");
         }
         if (context.factorySettings().connectionProvider() == HibernateFactorySettings.ConnectionProvider.BUILT_IN)
@@ -2544,7 +2548,9 @@ final class CacheAssociationCoverageRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        if (context.observed() && !context.required(context.factorySettings().secondLevelCache()))
+        if (context.observed()
+                && !context.required(
+                        context.factorySettings().secondLevelCache(), HibernateEvidenceGap.FACTORY_SETTING))
             return skipped("Unit second-level cache is disabled.");
         if (context.entities().isEmpty()) {
             return pass();
@@ -2596,7 +2602,9 @@ final class ReadOnlyCacheOnWritableEntityRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        if (context.observed() && !context.required(context.factorySettings().secondLevelCache()))
+        if (context.observed()
+                && !context.required(
+                        context.factorySettings().secondLevelCache(), HibernateEvidenceGap.FACTORY_SETTING))
             return skipped("Unit second-level cache is disabled.");
         List<String> details = new ArrayList<>();
         context.evidence().markApplicable(false);
@@ -2633,7 +2641,9 @@ final class ImmutableEntityCacheStrategyRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        if (context.observed() && !context.required(context.factorySettings().secondLevelCache()))
+        if (context.observed()
+                && !context.required(
+                        context.factorySettings().secondLevelCache(), HibernateEvidenceGap.FACTORY_SETTING))
             return skipped("Unit second-level cache is disabled.");
         List<String> details = new ArrayList<>();
         context.evidence().markApplicable(false);
@@ -2674,7 +2684,7 @@ final class FailOnPaginationOverCollectionFetchRule extends AbstractHibernateRul
             return skipped("SQL-side pagination and runtime hints are not proven by the Hibernate version.");
         }
         if (context.hibernateVersion().major() == null) {
-            context.missingEvidence();
+            context.missingEvidence(HibernateEvidenceGap.HIBERNATE_VERSION);
             return skipped("Owning unit Hibernate version is unknown.");
         }
         if (context.isPropertyTrue(
@@ -2821,7 +2831,7 @@ final class OracleJdbcFetchSizeRule extends AbstractHibernateRule {
 
     private boolean isOracle(HibernateContext context) {
         if (context.observed())
-            return context.required(context.factorySettings().oracle());
+            return context.required(context.factorySettings().oracle(), HibernateEvidenceGap.FACTORY_SETTING);
         String databaseKind = context.firstProperty("quarkus.datasource.db-kind", "spring.jpa.database");
         if ("oracle".equalsIgnoreCase(databaseKind)) {
             return true;
@@ -2920,7 +2930,7 @@ final class MissingForeignKeyIndexRule extends AbstractHibernateRule {
             try {
                 leadingIndexColumns = leadingIndexColumns(entity.javaType());
             } catch (RuntimeException ex) {
-                context.missingEvidence();
+                context.missingEvidence(HibernateEvidenceGap.ENTITY_METADATA, entity.name());
                 unresolved.add(entity.name() + " (@Table index metadata could not be resolved)");
                 continue;
             }
@@ -3115,7 +3125,7 @@ final class PrimitiveIdentifierOrVersionRule extends AbstractHibernateRule {
                     && !applicable
                     && context.repositories().stream()
                             .anyMatch(repository -> entity.javaType().equals(repository.domainType())))
-                context.missingEvidence();
+                context.missingEvidence(HibernateEvidenceGap.REPOSITORY_NEWNESS, entity.name());
             if (!applicable) continue;
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), HibernateAttributeModel::hasVersion)) {
@@ -3169,7 +3179,7 @@ final class AssignedIdPersistableRule extends AbstractHibernateRule {
                             .anyMatch(repository -> entity.javaType() != null
                                     && entity.javaType().equals(repository.domainType())
                                     && !repository.standardJpaNewness())) {
-                context.missingEvidence();
+                context.missingEvidence(HibernateEvidenceGap.REPOSITORY_NEWNESS, entity.name());
                 continue;
             }
             if (entity.javaType() == null || !repositoryDomainTypes.contains(entity.javaType())) {
@@ -3184,7 +3194,7 @@ final class AssignedIdPersistableRule extends AbstractHibernateRule {
                 continue;
             }
             if (entity.attributes().stream().anyMatch(HibernateRuleModelSupport::hasCustomIdentifierGenerator)) {
-                context.missingEvidence();
+                context.missingEvidence(HibernateEvidenceGap.CUSTOM_GENERATOR, entity.name());
                 continue;
             }
 
@@ -3192,7 +3202,7 @@ final class AssignedIdPersistableRule extends AbstractHibernateRule {
                     .anyMatch(attribute ->
                             attribute.hasId() || attribute.annotation("jakarta.persistence.EmbeddedId") != null);
             if (!assigned) {
-                context.missingEvidence();
+                context.missingEvidence(HibernateEvidenceGap.ENTITY_METADATA, entity.name());
                 continue;
             }
             if (!HibernateRuleModelSupport.implementsPersistable(entity.javaType())) {
@@ -3239,7 +3249,7 @@ final class EagerToOneFetchJoinRule extends AbstractHibernateRule {
                 HibernateEntityModel domainEntity = HibernateQueryShape.entityRoot(context, method);
                 if (domainEntity == null) continue;
                 if (method.evidence().entityGraph()) {
-                    context.missingEvidence();
+                    context.missingEvidence(HibernateEvidenceGap.ENTITY_GRAPH, method);
                     continue;
                 }
                 List<HibernateAttributeModel> eagerToOne = eagerToOneAssociations(domainEntity);

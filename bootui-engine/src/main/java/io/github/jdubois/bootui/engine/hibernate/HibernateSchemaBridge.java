@@ -326,7 +326,8 @@ public final class HibernateSchemaBridge {
                 constraintExpected,
                 target.name(),
                 target.schema(),
-                target.catalog()));
+                target.catalog(),
+                target.identifierColumn()));
     }
 
     private static boolean isOwningToOne(HibernateAttributeModel attribute) {
@@ -368,11 +369,71 @@ public final class HibernateSchemaBridge {
         if (name == null) {
             return TargetTable.UNRESOLVED;
         }
-        return new TargetTable(name, annotationString(table, "schema"), annotationString(table, "catalog"));
+        return new TargetTable(
+                name, annotationString(table, "schema"), annotationString(table, "catalog"), identifierColumn(rawType));
     }
 
-    private record TargetTable(String name, String schema, String catalog) {
-        static final TargetTable UNRESOLVED = new TargetTable(null, null, null);
+    /**
+     * The target entity's single {@code @Id} column, which an omitted {@code referencedColumnName} defaults to:
+     * its explicit {@code @Column(name=...)}, or the attribute name itself when that is already a plain lowercase
+     * identifier every standard physical naming strategy leaves unchanged (such as {@code id}). Composite,
+     * embedded, derived and otherwise transformed identifiers stay {@code null} rather than guessed.
+     */
+    private static String identifierColumn(Class<?> entityType) {
+        try {
+            if (hasTypeAnnotation(entityType, "jakarta.persistence.IdClass")) {
+                return null;
+            }
+            List<HibernateAttributeModel> identifiers = new ArrayList<>();
+            for (HibernateAttributeModel attribute :
+                    HibernateEntityModel.fromClass(entityType).attributes()) {
+                if (attribute.annotations().stream()
+                        .anyMatch(annotation ->
+                                annotation.annotationType().getName().equals("jakarta.persistence.EmbeddedId"))) {
+                    return null;
+                }
+                if (attribute.hasId()) {
+                    identifiers.add(attribute);
+                }
+            }
+            if (identifiers.size() != 1) {
+                return null;
+            }
+            HibernateAttributeModel identifier = identifiers.get(0);
+            if (identifier.hasMapsId()
+                    || identifier.isToOneAssociation()
+                    || unsupportedPlacement(identifier)
+                    || identifier.annotations().stream().anyMatch(HibernateSchemaBridge::changesColumnRepresentation)) {
+                return null;
+            }
+            Annotation column = identifier.columnAnnotation();
+            if (column != null && blankToNull(identifier.annotationStringValue(column, "table")) != null) {
+                return null;
+            }
+            String explicit = column == null ? null : blankToNull(identifier.annotationStringValue(column, "name"));
+            if (explicit != null) {
+                return explicit;
+            }
+            String implicit = identifier.propertyName();
+            return implicit.matches("[a-z][a-z0-9_]*") ? implicit : null;
+        } catch (RuntimeException | LinkageError ex) {
+            return null;
+        }
+    }
+
+    private static boolean hasTypeAnnotation(Class<?> type, String annotationName) {
+        for (Class<?> current = type; current != null && current != Object.class; current = current.getSuperclass()) {
+            for (Annotation annotation : current.getDeclaredAnnotations()) {
+                if (annotation.annotationType().getName().equals(annotationName)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private record TargetTable(String name, String schema, String catalog, String identifierColumn) {
+        static final TargetTable UNRESOLVED = new TargetTable(null, null, null, null);
     }
 
     /** One {@code @JoinColumn}'s resolved facts, before they are split across {@link MappedForeignKeyFacts}. */
@@ -715,6 +776,9 @@ public final class HibernateSchemaBridge {
      *     {@code null} when the target relies on the default naming strategy (not guessed)
      * @param targetSchema the target entity's explicit {@code @Table(schema=...)}, or {@code null}
      * @param targetCatalog the target entity's explicit {@code @Table(catalog=...)}, or {@code null}
+     * @param targetIdentifierColumn the target entity's single {@code @Id} column name, the JPA default for an
+     *     omitted {@code referencedColumnName}: an explicit {@code @Column(name=...)}, or a plain lowercase
+     *     attribute name that standard naming strategies leave unchanged; {@code null} when not established
      */
     public record MappedForeignKeyFacts(
             String attributeDescription,
@@ -724,13 +788,36 @@ public final class HibernateSchemaBridge {
             boolean constraintExpected,
             String targetTableName,
             String targetSchema,
-            String targetCatalog) {
+            String targetCatalog,
+            String targetIdentifierColumn) {
 
         public MappedForeignKeyFacts {
             columns = List.copyOf(columns);
             // referencedColumns legitimately contains null entries (an unspecified referencedColumnName), so
             // it cannot use List.copyOf, which rejects null elements outright.
             referencedColumns = Collections.unmodifiableList(new ArrayList<>(referencedColumns));
+        }
+
+        /** Constructor for callers with no target identifier information. */
+        public MappedForeignKeyFacts(
+                String attributeDescription,
+                List<String> columns,
+                List<String> referencedColumns,
+                String tableName,
+                boolean constraintExpected,
+                String targetTableName,
+                String targetSchema,
+                String targetCatalog) {
+            this(
+                    attributeDescription,
+                    columns,
+                    referencedColumns,
+                    tableName,
+                    constraintExpected,
+                    targetTableName,
+                    targetSchema,
+                    targetCatalog,
+                    null);
         }
 
         /**
