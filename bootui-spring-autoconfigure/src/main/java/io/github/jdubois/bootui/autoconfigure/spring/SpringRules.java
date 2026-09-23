@@ -557,7 +557,6 @@ final class VirtualThreadsOverriddenByPoolRule extends AbstractSpringRule {
                 c,
                 c.pooledTaskExecutors().stream()
                         .filter(pool -> !pool.frameworkOwned())
-                        .limit(10)
                         .map(
                                 pool -> SpringRuleSupport.detail(
                                         "ThreadPoolTaskExecutor bean '" + pool.name() + "' "

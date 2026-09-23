@@ -236,7 +236,6 @@ final class SpringInventory {
         } catch (RuntimeException | LinkageError ex) {
             partial();
         }
-        if (declaring == null && entry.method() != null) declaring = entry.factory();
         boolean framework = declaring != null && declaring.startsWith("org.springframework.");
         return new PooledExecutorRef(entry.name(), declaring, framework);
     }
@@ -254,13 +253,23 @@ final class SpringInventory {
         else if (definition.getBeanClassName() != null)
             owner = ClassUtils.resolveClassName(definition.getBeanClassName(), factory.getBeanClassLoader());
         if (owner == null) return null;
+        boolean instance = definition.getFactoryBeanName() != null;
+        // Most-derived declaration per parameter signature; several compatible signatures are ambiguous.
+        Map<List<Class<?>>, Class<?>> declarations = new java.util.LinkedHashMap<>();
         for (Class<?> type = ClassUtils.getUserClass(owner); type != null; type = type.getSuperclass()) {
             Method[] methods = type.getDeclaredMethods();
             if (!budget(methods.length)) return null;
             for (Method candidate : methods)
-                if (candidate.getName().equals(method) && !candidate.isBridge()) return type.getName();
+                if (candidate.getName().equals(method)
+                        && !candidate.isBridge()
+                        && !candidate.isSynthetic()
+                        && Modifier.isStatic(candidate.getModifiers()) != instance
+                        && candidate.getReturnType().isAssignableFrom(entry.type()))
+                    declarations.putIfAbsent(List.of(candidate.getParameterTypes()), type);
         }
-        return null;
+        return declarations.size() == 1
+                ? declarations.values().iterator().next().getName()
+                : null;
     }
 
     private CacheManagerRef cacheManager(Entry entry) {

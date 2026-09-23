@@ -121,4 +121,24 @@ public final class ApplicationFixtures {
             return new ThreadPoolTaskExecutor();
         }
     }
+
+    /** Same-named overload that is not the inherited framework factory method. */
+    public static class OverloadingBrokerConfiguration extends WebSocketMessageBrokerConfigurationSupport {
+        @Override
+        protected void registerStompEndpoints(StompEndpointRegistry registry) {}
+
+        public Executor clientOutboundChannelExecutor(String tag) {
+            return new ThreadPoolTaskExecutor();
+        }
+    }
+
+    /** Same-named overload whose return type cannot produce the pool. */
+    public static class UnrelatedOverloadBrokerConfiguration extends WebSocketMessageBrokerConfigurationSupport {
+        @Override
+        protected void registerStompEndpoints(StompEndpointRegistry registry) {}
+
+        public String clientOutboundChannelExecutor(String tag) {
+            return tag;
+        }
+    }
 }

@@ -358,6 +358,15 @@ class SpringRulesTests {
                 .anySatisfy(
                         detail -> assertThat(detail).contains("'registered' (declaring configuration not resolved)"))
                 .noneSatisfy(detail -> assertThat(detail).contains("ChannelExecutor"));
+        var many = java.util.stream.IntStream.range(0, 12)
+                .mapToObj(i -> new PooledExecutorRef("pool" + i, "com.example.Config", false))
+                .toList();
+        var counted = rule.evaluate(SpringContext.builder(enabled)
+                .virtualThreadsSupported(true)
+                .pooledTaskExecutors(many)
+                .build());
+        assertThat(counted.violationCount()).isEqualTo(12);
+        assertThat(counted.sampleViolations()).hasSize(10);
         assertThat(rule.evaluate(SpringContext.builder(env("spring.threads.virtual.enabled", "false"))
                                 .virtualThreadsSupported(true)
                                 .pooledTaskExecutors(List.of(app))

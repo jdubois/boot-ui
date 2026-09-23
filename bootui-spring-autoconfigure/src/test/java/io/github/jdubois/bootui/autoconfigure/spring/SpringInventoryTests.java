@@ -333,6 +333,38 @@ class SpringInventoryTests {
     }
 
     @Test
+    void sameNamedApplicationOverloadDoesNotClaimInheritedFrameworkFactoryMethod() {
+        // Incompatible overload is ignored; a compatible one leaves the declaration unresolved and still reported.
+        for (var owner : java.util.List.of(
+                ApplicationFixtures.UnrelatedOverloadBrokerConfiguration.class,
+                ApplicationFixtures.OverloadingBrokerConfiguration.class)) {
+            DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+            factory.registerBeanDefinition("broker", new RootBeanDefinition(owner));
+            RootBeanDefinition pool = new RootBeanDefinition();
+            pool.setFactoryBeanName("broker");
+            pool.setFactoryMethodName("clientOutboundChannelExecutor");
+            pool.setTargetType(ThreadPoolTaskExecutor.class);
+            pool.setLazyInit(true);
+            factory.registerBeanDefinition("clientOutboundChannelExecutor", pool);
+            var pools = SpringInventory.discover(
+                            factory,
+                            new MockEnvironment().withProperty("spring.threads.virtual.enabled", "true"),
+                            false)
+                    .pooledTaskExecutors();
+            assertThat(factory.getSingletonNames()).isEmpty();
+            boolean unrelated = owner == ApplicationFixtures.UnrelatedOverloadBrokerConfiguration.class;
+            assertThat(pools).singleElement().satisfies(ref -> {
+                assertThat(ref.declaringClass())
+                        .isEqualTo(
+                                unrelated
+                                        ? "org.springframework.messaging.simp.config.AbstractMessageBrokerConfiguration"
+                                        : null);
+                assertThat(ref.frameworkOwned()).isEqualTo(unrelated);
+            });
+        }
+    }
+
+    @Test
     void customBoundedExecutorWithoutEnvironmentSettingsIsNotFlagged() {
         tasks.withBean("custom", ThreadPoolTaskExecutor.class, () -> {
                     ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
