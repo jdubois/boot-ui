@@ -54,8 +54,8 @@ final class RedundantPrimaryKeyUniqueIndexRule extends AbstractDatabaseAdvisorRu
                     if (!index.comparable()) {
                         unknown(
                                 context,
-                                schema.dataSourceName() + ": " + table.qualifiedName() + " unique index "
-                                        + index.name() + " has unknown comparison semantics.");
+                                schema.dataSourceName() + ": " + table.qualifiedName() + " unique index " + index.name()
+                                        + " has unknown comparison semantics.");
                         continue;
                     }
                     eligible++;

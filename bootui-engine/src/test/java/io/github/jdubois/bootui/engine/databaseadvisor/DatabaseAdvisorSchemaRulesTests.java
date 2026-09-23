@@ -255,7 +255,9 @@ class DatabaseAdvisorSchemaRulesTests {
         for (IndexModel index : excluded) {
             DatabaseAdvisorContext context =
                     context(schema("ds", Dialect.POSTGRESQL, List.of(backedTable("orders", index))));
-            assertThat(new RedundantPrimaryKeyUniqueIndexRule().evaluate(context).status())
+            assertThat(new RedundantPrimaryKeyUniqueIndexRule()
+                            .evaluate(context)
+                            .status())
                     .as(index.name())
                     .isEqualTo("SKIPPED");
             assertThat(context.evaluationDiagnostics()).as(index.name()).isEmpty();
