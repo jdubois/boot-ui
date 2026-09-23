@@ -52,11 +52,19 @@
 # The secret is mounted only during Maven and is not stored in image layers.
 # Without it, npm keeps its default registry configuration.
 #
-# Enable the sample database migrations (to populate the BootUI Flyway/Liquibase panels):
+# Sample database migrations (to populate the BootUI Flyway/Liquibase panels):
+# For a faster startup the sample Flyway/Liquibase demo migrations are disabled at *build time*
+# (process-aot sets -Dspring.flyway.enabled=false -Dspring.liquibase.enabled=false in
+# bootui-spring-sample-app/pom.xml). Like the native image, and unlike the plain JVM and CRaC
+# images, this cannot be toggled with a runtime env var: Spring AOT evaluates the
+# @ConditionalOnProperty conditions during the build, so the Flyway and Liquibase
+# auto-configurations are never generated and SPRING_FLYWAY_ENABLED=true has nothing to switch
+# on. To populate those panels, rebuild the image with the two flags removed from the `aot`
+# profile's process-aot <jvmArguments>:
+#   docker build -f Dockerfile-aot -t bootui-sample-app-aot-migrations .
 #   docker run --rm -p 8080:8080 \
 #     -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO \
-#     -e SPRING_FLYWAY_ENABLED=true -e SPRING_LIQUIBASE_ENABLED=true \
-#     bootui-sample-app-aot
+#     bootui-sample-app-aot-migrations
 
 # ---------------------------------------------------------------------------
 # Build stage: compile the reactor with Spring AOT processing, explode the
@@ -211,9 +219,14 @@ USER nonroot
 # Run with the "dev" profile active. Same reasoning as Dockerfile.
 ENV SPRING_PROFILES_ACTIVE=dev
 
-# Disable the sample Flyway/Liquibase migrations by default for a faster
-# startup. Re-enable at runtime with -e SPRING_FLYWAY_ENABLED=true and
-# -e SPRING_LIQUIBASE_ENABLED=true to populate the BootUI Flyway/Liquibase panels.
+# The sample Flyway/Liquibase migrations are already disabled for a faster startup at build
+# time, by the process-aot <jvmArguments> in bootui-spring-sample-app/pom.xml: Spring AOT freezes
+# @ConditionalOnProperty results into the generated context, so those auto-configurations are not
+# in this image at all and no runtime env var can bring them back. These two variables therefore
+# only mirror that frozen decision for the non-AOT fallback path (a run that overrides
+# JAVA_TOOL_OPTIONS and drops -Dspring.aot.enabled=true); they cannot re-enable the migrations.
+# To populate the BootUI Flyway/Liquibase panels, rebuild the image with the two
+# -Dspring.*.enabled=false flags removed from the `aot` profile's process-aot configuration.
 ENV SPRING_FLYWAY_ENABLED=false
 ENV SPRING_LIQUIBASE_ENABLED=false
 

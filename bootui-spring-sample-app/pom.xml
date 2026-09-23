@@ -339,8 +339,15 @@
                                         Dockerfile-aot).
 
                                         Flyway and Liquibase are disabled so the process-aot fork exits
-                                        quickly without touching the schema. Remove those flags if you
-                                        want the generated code to include migration hints.
+                                        quickly without touching the schema, and so the AOT image boots
+                                        without running the sample migrations. Unlike a Spring profile,
+                                        this decision IS frozen: AOT evaluates @ConditionalOnProperty at
+                                        build time, so the Flyway/Liquibase auto-configurations are not
+                                        generated and SPRING_FLYWAY_ENABLED / SPRING_LIQUIBASE_ENABLED
+                                        cannot switch them back on at runtime. Remove the two flags below
+                                        to build an image whose Flyway/Liquibase panels have data (the
+                                        migrations then always run, because the frozen conditions no
+                                        longer honor the runtime variables either way).
                                     -->
                                     <profiles>
                                         <profile>dev</profile>

@@ -55,7 +55,14 @@ docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/boot
 
 Typical result: **~40–45 % shorter startup** vs the plain JVM image (Spring-reported ~9.7 s → ~5–6 s), at the cost of a
 ~70–100 MB larger image (the AOT cache file). The Spring profile can still be overridden at runtime with
-`-e SPRING_PROFILES_ACTIVE=...` — nothing is frozen at build time.
+`-e SPRING_PROFILES_ACTIVE=...`.
+
+Unlike the plain JVM image, the sample Flyway and Liquibase migrations **cannot** be switched on with
+`-e SPRING_FLYWAY_ENABLED=true -e SPRING_LIQUIBASE_ENABLED=true`. Spring AOT evaluates auto-configuration conditions at
+build time, and this image is built with the migrations disabled, so those auto-configurations are not in the image and
+both panels report that no Flyway/Liquibase beans are available. To see them, rebuild the image with the two
+`-Dspring.*.enabled=false` flags removed from the `aot` profile's `process-aot` configuration in
+`bootui-spring-sample-app/pom.xml`.
 
 #### Troubleshooting a JVM crash during a scan
 
