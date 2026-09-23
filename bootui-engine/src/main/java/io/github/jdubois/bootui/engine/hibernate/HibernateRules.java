@@ -208,12 +208,12 @@ final class HibernateRuleModelSupport {
                     String attributeName = directAttribute(rootAlias, path);
                     if (attributeName != null && collectionNames.contains(attributeName)) {
                         if (context.hibernateVersion().major() == null) {
-                            context.missingEvidence(HibernateEvidenceGap.HIBERNATE_VERSION);
+                            context.missingEvidence(HibernateEvidenceGap.HIBERNATE_VERSION, method.description());
                             continue;
                         }
                         if (context.hasHibernateCollectionFetchPaginationFix()
                                 && !Boolean.TRUE.equals(method.evidence().limitInMemory())) {
-                            context.missingEvidence(HibernateEvidenceGap.QUERY_HINT);
+                            context.missingEvidence(HibernateEvidenceGap.QUERY_HINT, method.description());
                             continue;
                         }
                         details.add(method.description() + " pages a collection JOIN FETCH path " + path + ".");
@@ -1192,7 +1192,7 @@ final class ProviderDisablesAutocommitRule extends AbstractHibernateRule {
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         if (context.observed()) {
-            context.missingEvidence(HibernateEvidenceGap.CONNECTION_PROVIDER);
+            context.missingEvidence(HibernateEvidenceGap.POOL_GUARANTEES_BY_DESIGN);
             return skipped("Selected pool auto-commit and resource-local guarantees were not observed; no connection is"
                     + " acquired.");
         }
@@ -1355,7 +1355,7 @@ final class CacheableWithoutCacheStrategyRule extends AbstractHibernateRule {
         if (context.observed()) {
             if (!context.required(context.factorySettings().secondLevelCache(), HibernateEvidenceGap.FACTORY_SETTING))
                 return skipped("Unit cache is disabled.");
-            context.missingEvidence(HibernateEvidenceGap.CACHE_STRATEGY);
+            context.missingEvidence(HibernateEvidenceGap.CACHE_STRATEGY_BY_DESIGN);
             return skipped(
                     "Provider-selected access strategy and entity eligibility are not observed; explicit @Cache is not"
                             + " required.");
@@ -2311,7 +2311,7 @@ final class DerivedDeleteByQueryRule extends AbstractHibernateRule {
                 if (method.isDerivedDeleteMethod() && !method.hasQuery()) {
                     context.evidence().markApplicable(true);
                     if (context.observed() && !method.evidence().derivedQueryVerified()) {
-                        context.missingEvidence(HibernateEvidenceGap.DERIVED_QUERY);
+                        context.missingEvidence(HibernateEvidenceGap.DERIVED_QUERY, method.description());
                         continue;
                     }
                     details.add(method.description()
@@ -2930,7 +2930,7 @@ final class MissingForeignKeyIndexRule extends AbstractHibernateRule {
             try {
                 leadingIndexColumns = leadingIndexColumns(entity.javaType());
             } catch (RuntimeException ex) {
-                context.missingEvidence(HibernateEvidenceGap.ENTITY_METADATA);
+                context.missingEvidence(HibernateEvidenceGap.ENTITY_METADATA, entity.name());
                 unresolved.add(entity.name() + " (@Table index metadata could not be resolved)");
                 continue;
             }
@@ -3125,7 +3125,7 @@ final class PrimitiveIdentifierOrVersionRule extends AbstractHibernateRule {
                     && !applicable
                     && context.repositories().stream()
                             .anyMatch(repository -> entity.javaType().equals(repository.domainType())))
-                context.missingEvidence(HibernateEvidenceGap.REPOSITORY_NEWNESS);
+                context.missingEvidence(HibernateEvidenceGap.REPOSITORY_NEWNESS, entity.name());
             if (!applicable) continue;
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), HibernateAttributeModel::hasVersion)) {
@@ -3179,7 +3179,7 @@ final class AssignedIdPersistableRule extends AbstractHibernateRule {
                             .anyMatch(repository -> entity.javaType() != null
                                     && entity.javaType().equals(repository.domainType())
                                     && !repository.standardJpaNewness())) {
-                context.missingEvidence(HibernateEvidenceGap.REPOSITORY_NEWNESS);
+                context.missingEvidence(HibernateEvidenceGap.REPOSITORY_NEWNESS, entity.name());
                 continue;
             }
             if (entity.javaType() == null || !repositoryDomainTypes.contains(entity.javaType())) {
@@ -3194,7 +3194,7 @@ final class AssignedIdPersistableRule extends AbstractHibernateRule {
                 continue;
             }
             if (entity.attributes().stream().anyMatch(HibernateRuleModelSupport::hasCustomIdentifierGenerator)) {
-                context.missingEvidence(HibernateEvidenceGap.ENTITY_METADATA);
+                context.missingEvidence(HibernateEvidenceGap.CUSTOM_GENERATOR, entity.name());
                 continue;
             }
 
@@ -3202,7 +3202,7 @@ final class AssignedIdPersistableRule extends AbstractHibernateRule {
                     .anyMatch(attribute ->
                             attribute.hasId() || attribute.annotation("jakarta.persistence.EmbeddedId") != null);
             if (!assigned) {
-                context.missingEvidence(HibernateEvidenceGap.ENTITY_METADATA);
+                context.missingEvidence(HibernateEvidenceGap.ENTITY_METADATA, entity.name());
                 continue;
             }
             if (!HibernateRuleModelSupport.implementsPersistable(entity.javaType())) {
@@ -3249,7 +3249,7 @@ final class EagerToOneFetchJoinRule extends AbstractHibernateRule {
                 HibernateEntityModel domainEntity = HibernateQueryShape.entityRoot(context, method);
                 if (domainEntity == null) continue;
                 if (method.evidence().entityGraph()) {
-                    context.missingEvidence(HibernateEvidenceGap.ENTITY_GRAPH);
+                    context.missingEvidence(HibernateEvidenceGap.ENTITY_GRAPH, method.description());
                     continue;
                 }
                 List<HibernateAttributeModel> eagerToOne = eagerToOneAssociations(domainEntity);

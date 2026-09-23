@@ -445,6 +445,12 @@ public final class McpToolDescriptions {
         return " sampleViolations are bounded previews (up to " + sampleLimit + "), not the full violationCount. "
                 + "Use violationDetails.scanId with get_" + advisor + "_rule_violations to page cached retained "
                 + "details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not "
-                + "guarantee completeness when truncated. Verify each finding before changing code.";
+                + "guarantee completeness when truncated. Verify each finding before changing code."
+                + (advisor.equals("hibernate")
+                        ? " When scan.status is PARTIAL, read diagnostics (source rule id or discovery, unit, level,"
+                                + " message) for each rule and unit that failed or lacked evidence, and a result's"
+                                + " coverageNote for units whose findings come from a partial evaluation; INFO"
+                                + " diagnostics are advisor limits by design."
+                        : "");
     }
 }

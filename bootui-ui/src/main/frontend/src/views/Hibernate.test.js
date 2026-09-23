@@ -89,7 +89,7 @@ describe('Hibernate', () => {
 
   it('lists scan diagnostics on demand and shows a partial rule coverage note', async () => {
     const partial = ruleResult('HIB-QUERY-006', 'Partly evaluated query rule', 'MEDIUM', 'VIOLATION', 8)
-    partial.coverageNote = 'Partially evaluated in [default]: 3 repository query method(s) outside the readable shape.'
+    partial.coverageNote = 'Incomplete in [default]: 3 repository query method(s) outside the readable shape.'
     const report = advisorReport([partial])
     report.scan.status = 'PARTIAL'
     report.diagnostics = [

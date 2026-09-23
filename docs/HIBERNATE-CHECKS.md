@@ -42,13 +42,19 @@ Rule failures and unavailable required evidence produce an incomplete `PARTIAL` 
 The report's `results` list still contains findings only; the scan message summarizes coverage counts, and the report's
 `diagnostics` array lists every affected evaluation as `{source, unit, level, message}`: `source` is the rule id (or
 `discovery` for an unavailable factory, metamodel, repository metadata or unit attribution), `unit` is the
-persistence-unit label (`application` for application-wide rules), `level` is `ERROR` for a failed rule and `WARNING`
-for unavailable evidence, and `message` names the missing evidence kinds with occurrence counts (for example query
-provenance, a JPQL shape outside the readable subset, or an unavailable unit setting). Messages use controlled phrases
-only and never carry query text, property values or exception messages. The array keeps the first 200 entries and then
-adds one `diagnostics` entry that states how many were omitted; `scan.message` keeps the full counts. A rule that reports findings but could not
-evaluate every unit or query carries a `coverageNote` on its `results` entry saying which units were partly evaluated
-and why. Intentional platform inapplicability is distinct from a failed applicable check.
+persistence-unit label (`application` for application-wide rules), and `level` is `ERROR` for a failed rule,
+`WARNING` for unavailable evidence, or `INFO` when the only missing evidence is something this advisor does not observe
+by design (such as pool auto-commit guarantees or a provider-selected cache strategy). The `message` says whether the
+rule reached no conclusion, was partly evaluated with no findings, or reported findings from the evaluated part only,
+and names the missing evidence kinds with occurrence counts and up to three sanitized examples such as
+`OrderRepository#findRecent` or an entity name (for example query provenance, a JPQL shape outside the readable subset,
+or an unavailable unit setting). Messages use controlled phrases only and never carry query text, property values or
+exception messages. A failed evaluation is counted as failed, not also as unavailable evidence. The array holds at
+most 200 entries: when more are produced, every rule and every `ERROR` keeps at least one entry, the rest are chosen
+round-robin by rule, and a final entry with source `diagnostics` states how many were omitted, while `scan.message`
+states "Diagnostics show M of N entries" and keeps the full counts. A rule that reports findings but could not
+evaluate every unit or query carries a `coverageNote` on its `results` entry (for example
+`Incomplete in [default]: …`) naming up to ten affected units and why, including units where the rule failed. Intentional platform inapplicability is distinct from a failed applicable check.
 `rulesEvaluated` counts distinct active rule attempts, not successful verification of every mapping.
 
 In this implementation, pool auto-commit guarantees (HIB-CONFIG-008) and effective cache access strategy

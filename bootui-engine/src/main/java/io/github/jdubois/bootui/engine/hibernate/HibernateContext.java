@@ -123,6 +123,11 @@ record HibernateContext(
         evidence.markRequiredUnknown(gap);
     }
 
+    /** Records a gap together with a bounded example subject such as {@code Repository#method} or an entity name. */
+    void missingEvidence(HibernateEvidenceGap gap, String subject) {
+        evidence.markRequiredUnknown(gap, subject);
+    }
+
     <T> List<T> targets(List<T> values) {
         return targets(values, value -> true);
     }
@@ -393,7 +398,10 @@ record HibernateContext(
  * whichever caller last wrote a field.</p>
  */
 final class HibernateEvaluationEvidence {
+    static final int MAX_SUBJECTS_PER_GAP = 3;
     private final java.util.EnumMap<HibernateEvidenceGap, Integer> gaps =
+            new java.util.EnumMap<>(HibernateEvidenceGap.class);
+    private final java.util.EnumMap<HibernateEvidenceGap, java.util.Set<String>> subjects =
             new java.util.EnumMap<>(HibernateEvidenceGap.class);
     private boolean requiredUnknown;
     private boolean applicable;
@@ -429,8 +437,26 @@ final class HibernateEvaluationEvidence {
     }
 
     void markRequiredUnknown(HibernateEvidenceGap gap) {
+        markRequiredUnknown(gap, null);
+    }
+
+    void markRequiredUnknown(HibernateEvidenceGap gap, String subject) {
         requiredUnknown = true;
-        gaps.merge(gap == null ? HibernateEvidenceGap.OTHER : gap, 1, Integer::sum);
+        HibernateEvidenceGap kind = gap == null ? HibernateEvidenceGap.OTHER : gap;
+        java.util.Set<String> known = subjects.computeIfAbsent(kind, key -> new java.util.LinkedHashSet<>());
+        String safe = subject == null || subject.isBlank() ? null : HibernateRuleSupport.detail(subject);
+        // Count distinct subjects once; anonymous gaps are counted per occurrence.
+        if (safe != null && known.contains(safe)) return;
+        gaps.merge(kind, 1, Integer::sum);
+        if (safe != null) known.add(safe);
+    }
+
+    /** Up to {@link #MAX_SUBJECTS_PER_GAP} sanitized example subjects per gap kind. */
+    java.util.List<String> subjects(HibernateEvidenceGap gap) {
+        java.util.Set<String> known = subjects.get(gap);
+        return known == null
+                ? java.util.List.of()
+                : known.stream().limit(MAX_SUBJECTS_PER_GAP).toList();
     }
 
     /** Occurrences of each missing-evidence kind recorded during the current evaluation, in declaration order. */
@@ -449,6 +475,7 @@ final class HibernateEvaluationEvidence {
     void reset() {
         requiredUnknown = false;
         gaps.clear();
+        subjects.clear();
         applicable = false;
         usable = false;
         evaluated = false;

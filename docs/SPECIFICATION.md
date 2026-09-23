@@ -1714,7 +1714,10 @@ Features:
 - Show scanned entity packages, rule counts, mapped-entity counts, sample evidence, and remediation guidance.
 - Expose a `diagnostics` array (`source`, `unit`, `level`, `message`) with one entry per failed rule evaluation, per
   rule/unit evaluation whose required evidence was unavailable, and per discovery gap, plus a nullable per-result
-  `coverageNote` for findings from partly evaluated rules. Diagnostics are never counted as findings.
+  `coverageNote` for findings from partly evaluated rules. Levels are `ERROR` (failed), `WARNING` (evidence
+  unavailable) and `INFO` (advisor limit by design). At most 200 entries are returned; when capped, every rule and
+  every `ERROR` keeps an entry and a final `source: "diagnostics"` entry states the omitted count. Diagnostics are
+  never counted as findings.
 - Cache the latest report until the next explicit scan.
 
 Availability:
