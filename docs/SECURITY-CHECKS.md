@@ -375,7 +375,7 @@ Raw origins and origin patterns are not copied into findings.
 
 ### SEC-CORS-006 - CORS should not allow broad origin patterns
 
-- **Severity**: MEDIUM (HIGH when any broad pattern has allowCredentials=true)
+- **Severity**: LOW (HIGH when any broad pattern has allowCredentials=true)
 - **Detects**: Supported attached origin patterns have broad host scope beyond wildcard cases covered by SEC-CORS-001/002. A scheme wildcard alone does not broaden the trusted host set. The check does not guess public-suffix ownership or penalize every scoped subdomain wildcard. Credentialed broad-host cases raise severity to HIGH; unsupported policies remain unknown.
 - **Recommendation**: Replace broad patterns with the exact origins (or tightly-scoped subdomain wildcards such as https://*.example.com) the application trusts; broad patterns combined with credentials let untrusted sites make authenticated cross-site calls.
 - **Learn more**: <https://docs.spring.io/spring-framework/reference/web/webmvc-cors.html>
