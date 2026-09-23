@@ -421,7 +421,7 @@ class DatabaseAdvisorHibernateRulesTests {
                 List.of(new MappedColumnFacts(
                         "com.example.Order#status", "status", false, "OrderStatus", 20, false, false, false, null)),
                 List.of());
-        for (String nativeType : List.of("enum", "ENUM", "set")) {
+        for (String nativeType : List.of("enum", "ENUM", "set", "ENUM('NEW','SHIPPED')", "Set('A','B')")) {
             for (int jdbcType : List.of(Types.CHAR, Types.VARCHAR)) {
                 TableModel orders = table(
                         "orders", List.of(column("status", nativeType, jdbcType, 7)), List.of(), List.of(), List.of());
