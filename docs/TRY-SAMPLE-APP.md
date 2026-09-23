@@ -74,7 +74,11 @@ docker run --rm -p 8080:8080 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/boot
 ```
 
 On the sample app, that is roughly 40–45 % off the Spring-reported startup time (about 9.7 s down to 5–6 s) for a
-70–100 MB larger image. The profile is not frozen: override it at runtime with `-e SPRING_PROFILES_ACTIVE=...`.
+70–100 MB larger image.
+
+`-e SPRING_PROFILES_ACTIVE=...` still changes which property files are loaded, but it cannot change which beans exist.
+Spring AOT evaluated the profile and property conditions when the image was built, so bean selection is fixed whatever
+you pass at runtime.
 
 ::: details The JVM crashes during an advisor scan
 
