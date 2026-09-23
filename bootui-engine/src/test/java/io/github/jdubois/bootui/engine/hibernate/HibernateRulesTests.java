@@ -258,6 +258,8 @@ class HibernateRulesTests {
         HibernateRuleResultDto violationResult = new MultipleCollectionJoinFetchRule()
                 .evaluate(context(new TestEnvironment(), List.of(violating), MultiCollectionRoot.class));
 
+        assertThat(passResult.status()).isEqualTo(HibernateRuleSupport.PASS);
+        assertThat(violationResult.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
         assertThat(passResult.severity()).isEqualTo(HibernateRuleSupport.MEDIUM);
         assertThat(violationResult.severity()).isEqualTo(passResult.severity());
     }
