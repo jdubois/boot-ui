@@ -54,7 +54,10 @@ async function withStubbedBrowser() {
     analytics,
     injectedScripts,
     disabled: () => globalThis.window[`ga-disable-${analytics.GA_MEASUREMENT_ID}`],
-    pageViews: () => (globalThis.window.dataLayer ?? []).filter((entry) => entry[0] === 'event').length
+    pageViews: () =>
+      Array.from(globalThis.window.dataLayer ?? [])
+        .filter((entry) => entry[0] === 'event' && entry[1] === 'page_view')
+        .map((entry) => entry[2].page_path)
   }
 }
 
@@ -96,9 +99,20 @@ test('page views resume after re-consent', async () => {
   analytics.setConsent('granted')
   analytics.setConsent('denied')
   analytics.trackPageView('/guide/panels/')
-  assert.equal(pageViews(), 0, 'a withdrawn reader is not tracked')
+  assert.deepEqual(pageViews(), [], 'a withdrawn reader is not tracked')
 
   analytics.setConsent('granted')
   analytics.trackPageView('/guide/panels/')
-  assert.equal(pageViews(), 2, 'the page consent was given on, then the next navigation')
+  assert.deepEqual(pageViews(), ['/guide/', '/guide/panels/'], 'the page consent was given on, then the navigation')
+})
+
+test('re-picking the answer already in force does not report the page again', async () => {
+  const {analytics, pageViews} = await withStubbedBrowser()
+
+  // `gtag('config', ...)` reports the current page itself on a first accept, so an accept that
+  // changes nothing must stay silent rather than counting the page a second time.
+  analytics.setConsent('granted')
+  analytics.setConsent('granted')
+
+  assert.deepEqual(pageViews(), [])
 })

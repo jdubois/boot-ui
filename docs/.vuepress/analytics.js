@@ -84,13 +84,19 @@ function loadGoogleAnalytics() {
   // withdraws and then consents again keeps the already-injected tag, so gating this on the
   // script being absent would leave the flag a withdrawal set in place and mute the rest of the
   // page session.
+  const wasDisabled = window[`ga-disable-${GA_MEASUREMENT_ID}`] !== false
   window[`ga-disable-${GA_MEASUREMENT_ID}`] = false
 
   if (scriptLoaded) {
-    // The `config` call below reports the current page on a first accept. Nothing replays it when
-    // the tag is already loaded, so count the page the reader consented on explicitly.
-    lastTrackedPath = null
-    trackPageView(window.location.pathname)
+    if (wasDisabled) {
+      // The `config` call below reports the current page on a first accept. Nothing replays it
+      // when the tag is already loaded, so count the page the reader consented on explicitly.
+      // Only a real withdrawal-to-consent transition qualifies: re-picking the answer already in
+      // force must not report the page twice.
+      lastTrackedPath = null
+      trackPageView(window.location.pathname)
+    }
+
     return
   }
 
