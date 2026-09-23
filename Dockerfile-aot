@@ -26,8 +26,12 @@
 #
 # The two optimizations are orthogonal and additive. Combined, a typical Spring
 # Boot 4 app sees a 35–55 % shorter Spring-reported startup time compared with
-# the plain JVM image, with no change to the runtime API surface, no frozen
-# profile (unlike GraalVM), and no CRIU privileges (unlike CRaC).
+# the plain JVM image, with no change to the runtime API surface, no GraalVM
+# toolchain, and no CRIU privileges (unlike CRaC). Like a native image, though,
+# Spring AOT evaluates bean conditions at build time: SPRING_PROFILES_ACTIVE
+# still selects which property files are loaded at runtime, but it cannot change
+# which beans exist, because the profile and property conditions were already
+# resolved when process-aot ran (see the Flyway/Liquibase note below).
 #
 # Trade-off — image size:
 #   The JDK AOT cache file (app.aot) adds roughly 70–100 MB to the image;
