@@ -356,10 +356,12 @@ Oracle `UNIQUE(a)` with nullable `a` can allow repeated `(NULL, 1)` rows that `U
 Such Oracle subset coverage needs known NOT NULL keys or equivalent evidence; it cannot be assumed.
 INCLUDE payload is not a unique key. Oracle may use nonunique backing indexes for unique constraints, so a
 nonunique constraint-backed index (including a PostgreSQL exclusion constraint) keeps the result unknown; a
-unique constraint-backed index such as a primary key is judged on its own structure. PostgreSQL key parts with
-no collation or the database `default` collation compare plainly; an explicit other collation needs review.
-Partial, invalid and unknown definitions require precise evidence. Review full constraint semantics
-before adding a new guarantee.
+unique constraint-backed index such as a primary key is judged on its own structure. Collation cannot weaken
+enforcement (deterministic collations compare bytes, nondeterministic ones only merge more values), but a
+PostgreSQL key part with a non-default operator class may redefine equality and needs review.
+Partial, invalid, operator-class and unknown definitions require precise evidence, but only when the index could
+cover the declared columns; an uncertain index on other columns does not hide a missing key. Review full
+constraint semantics before adding a new guarantee.
 
 ### DB-HIB-006 - Mapped column not found in the physical table
 

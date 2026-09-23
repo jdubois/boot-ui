@@ -27,9 +27,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **DB-HIB-005 concludes on PostgreSQL.** The PostgreSQL catalog reader passed each index key's `indcollation` OID
   (`0` for no collation, `100` for the database default) as an explicit collation, so every unique index looked like
   it had non-plain comparison semantics. As a result, DB-HIB-005 reported every `@Column(unique = true)` and
-  `@Table(uniqueConstraints = ...)` as unknown and the scan was PARTIAL. The absent and default collations now count
-  as plain. A unique constraint-backed index such as the primary key no longer makes a genuinely missing unique key
-  come back unknown instead of being reported ([#1087](https://github.com/jdubois/boot-ui/issues/1087)).
+  `@Table(uniqueConstraints = ...)` as unknown and the scan was PARTIAL. Collation no longer blocks the check, because
+  it cannot weaken enforcement. A key part with a non-default operator class, which may redefine equality, is now
+  what stays unknown. A genuinely missing unique key is now reported rather than hidden as unknown. Before, the
+  primary key or any unrelated uncertain index on the same table was enough to hide it
+  ([#1087](https://github.com/jdubois/boot-ui/issues/1087)).
 
 ## [1.18.0] - 2026-09-21
 

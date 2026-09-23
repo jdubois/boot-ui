@@ -1552,6 +1552,34 @@ class DatabaseAdvisorHibernateRulesTests {
     }
 
     @Test
+    void anUncertainIndexOnOtherColumnsDoesNotMaskAMissingUniqueKey() {
+        MappedEntityFacts mapped = entity(
+                "User",
+                "users",
+                List.of(),
+                List.of(),
+                List.of(new MappedUniqueConstraintFacts("User#email", List.of("email"))));
+        IndexModel partialOnOtherColumn = new IndexModel(
+                "uq_tenant_active",
+                List.of(IndexKeyPart.column("tenant", true)),
+                true,
+                "btree",
+                "active",
+                IndexModel.Visibility.VISIBLE,
+                IndexModel.Validity.VALID);
+        TableModel users = table(
+                "users",
+                List.of(column("email", "varchar", Types.VARCHAR), column("tenant", "int4", Types.INTEGER)),
+                List.of(),
+                List.of(),
+                List.of(partialOnOtherColumn, IndexModel.of("unknown_tenant", List.of("tenant"), true)));
+        DatabaseAdvisorContext context = hibernateContext(schema("ds", Dialect.POSTGRESQL, List.of(users)), mapped);
+        assertThat(new HibernateMissingUniqueIndexRule().evaluate(context).status())
+                .isEqualTo(VIOLATION);
+        assertThat(context.evaluationDiagnostics()).isEmpty();
+    }
+
+    @Test
     void oracleNonuniqueBackingIndexDoesNotProveMissingUniqueness() {
         MappedEntityFacts mapped = entity(
                 "User",
