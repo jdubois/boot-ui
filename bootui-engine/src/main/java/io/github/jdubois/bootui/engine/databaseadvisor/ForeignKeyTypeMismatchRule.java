@@ -49,7 +49,7 @@ final class ForeignKeyTypeMismatchRule extends AbstractDatabaseAdvisorRule {
                             foreignKey.referencedSchema(),
                             foreignKey.referencedTable());
                     if (!foreignKey.consistent() || parent == null) {
-                        unknown(context, table.qualifiedName() + ": referenced column domain cannot be resolved.");
+                        unknown(context, table.qualifiedName() + ": referenced column cannot be resolved.");
                         continue;
                     }
                     boolean comparable = true;
@@ -61,7 +61,7 @@ final class ForeignKeyTypeMismatchRule extends AbstractDatabaseAdvisorRule {
                     if (!comparable) {
                         unknown(
                                 context,
-                                table.qualifiedName() + ": at least one referenced domain comparison is unknown.");
+                                table.qualifiedName() + ": at least one referenced column type comparison is unknown.");
                     } else {
                         eligible++;
                     }
