@@ -82,13 +82,6 @@ final class DuplicateIndexRule extends AbstractDatabaseAdvisorRule {
     }
 
     private static boolean comparisonCandidate(IndexModel index) {
-        return !index.automatic()
-                && index.backingConstraint() == null
-                && !index.partial()
-                && !index.partitioned()
-                && !index.specialized()
-                && !index.hasExpressionKeyPart()
-                && !index.hasPrefixKeyPart()
-                && !index.invalid();
+        return !index.automatic() && index.backingConstraint() == null && index.ordinaryComparisonCandidate();
     }
 }
