@@ -6,9 +6,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiActuatorDefaultsEnvironmentPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.BeanRef;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.CacheManagerRef;
+import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.PooledExecutorRef;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringObservations.AsyncSelection;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringObservations.Fact;
 import io.github.jdubois.bootui.core.dto.SpringRuleResultDto;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -40,6 +42,7 @@ class SpringRulesTests {
 
     static final Map<Fact, Object> ENDPOINT_EVIDENCE =
             Map.of(ENDPOINTS, Set.of("health", "env", "configprops", "beans", "heapdump", "shutdown"));
+    static final String TPTE = "org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor";
     static final List<BeanRef> TWO = List.of(new BeanRef("first", false), new BeanRef("second", false));
 
     @Test
@@ -313,10 +316,66 @@ class SpringRulesTests {
         assertThat(new VirtualThreadsOverriddenByPoolRule()
                         .evaluate(SpringContext.builder(env("spring.threads.virtual.enabled", "true"))
                                 .virtualThreadsSupported(true)
-                                .pooledTaskExecutorPresent(true)
+                                .pooledTaskExecutors(
+                                        List.of(new PooledExecutorRef("pool", "com.example.Config", TPTE, false)))
                                 .build())
                         .severity())
                 .isEqualTo("INFO");
+    }
+
+    @Test
+    void pooledExecutorFindingNamesApplicationPoolsAndExcludesFrameworkOwnedOnes() {
+        var rule = new VirtualThreadsOverriddenByPoolRule();
+        var stomp = List.of(
+                new PooledExecutorRef(
+                        "clientInboundChannelExecutor",
+                        "org.springframework.messaging.simp.config.AbstractMessageBrokerConfiguration",
+                        TPTE,
+                        true),
+                new PooledExecutorRef(
+                        "brokerChannelExecutor",
+                        "org.springframework.messaging.simp.config.AbstractMessageBrokerConfiguration",
+                        TPTE,
+                        true));
+        var app = new PooledExecutorRef("reportPool", "com.example.ReportConfig", TPTE, false);
+        var unresolved = new PooledExecutorRef("registered", null, "com.example.CustomPool", false);
+        MockEnvironment enabled = env("spring.threads.virtual.enabled", "true");
+        assertThat(rule.evaluate(SpringContext.builder(enabled)
+                                .virtualThreadsSupported(true)
+                                .pooledTaskExecutors(stomp)
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        var mixed = new ArrayList<>(stomp);
+        mixed.add(app);
+        mixed.add(unresolved);
+        var result = rule.evaluate(SpringContext.builder(enabled)
+                .virtualThreadsSupported(true)
+                .pooledTaskExecutors(mixed)
+                .build());
+        assertThat(result.status()).isEqualTo("VIOLATION");
+        assertThat(result.sampleViolations())
+                .hasSize(2)
+                .anySatisfy(detail -> assertThat(detail)
+                        .startsWith("ThreadPoolTaskExecutor bean 'reportPool' declared by com.example.ReportConfig"))
+                .anySatisfy(detail -> assertThat(detail)
+                        .contains("'registered' of type com.example.CustomPool (declaring configuration not resolved)"))
+                .noneSatisfy(detail -> assertThat(detail).contains("ChannelExecutor"));
+        var many = java.util.stream.IntStream.range(0, 12)
+                .mapToObj(i -> new PooledExecutorRef("pool" + i, "com.example.Config", TPTE, false))
+                .toList();
+        var counted = rule.evaluate(SpringContext.builder(enabled)
+                .virtualThreadsSupported(true)
+                .pooledTaskExecutors(many)
+                .build());
+        assertThat(counted.violationCount()).isEqualTo(12);
+        assertThat(counted.sampleViolations()).hasSize(10);
+        assertThat(rule.evaluate(SpringContext.builder(env("spring.threads.virtual.enabled", "false"))
+                                .virtualThreadsSupported(true)
+                                .pooledTaskExecutors(List.of(app))
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
     }
 
     @Test
