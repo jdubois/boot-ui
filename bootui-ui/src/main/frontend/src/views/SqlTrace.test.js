@@ -45,6 +45,7 @@ function traceReport(overrides = {}) {
         sql: 'select * from todo where id = ?',
         statementType: 'PREPARED',
         category: 'SELECT',
+        durationMicros: 25_400,
         durationMillis: 25,
         success: true,
         errorMessage: null,
@@ -62,7 +63,8 @@ function traceReport(overrides = {}) {
         sql: 'insert into todo(title) values (?)',
         statementType: 'PREPARED',
         category: 'INSERT',
-        durationMillis: 5,
+        durationMicros: 310,
+        durationMillis: 0,
         success: true,
         errorMessage: null,
         affectedRows: 1,
@@ -294,6 +296,17 @@ describe('SqlTrace', () => {
     expect(text).toContain('captured since startup')
     expect(text).toContain('captured in clear text')
     expect(text).toContain('com.example.TodoRepository.findById(TodoRepository.java:42)')
+  })
+
+  it('shows a sub-millisecond execution at its real cost instead of as zero', async () => {
+    stubFetch()
+
+    wrapper = mount(SqlTrace, {props: {panel: {id: 'sql-trace'}}})
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('0.310 ms')
+    expect(text).toContain('25.4 ms')
   })
 
   it('reveals parameters, thread, and call site when a row is expanded', async () => {

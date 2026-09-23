@@ -4,11 +4,13 @@ import static io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorFix
 import static io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorFixtures.context;
 import static io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorFixtures.schema;
 import static io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorFixtures.table;
+import static io.github.jdubois.bootui.engine.databaseadvisor.IndexModel.Validity.VALID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
 import java.sql.DatabaseMetaData;
 import java.sql.Types;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -170,6 +172,92 @@ class DatabaseAdvisorSchemaRulesTests {
     }
 
     @Test
+    void aLoneNonBtreeIndexIsExcludedWithoutMakingItsTableUnknown() {
+        TableModel table = indexed(
+                index("by_completion_date", List.of("completion_date"), false, List.of(), null),
+                index("by_listener", List.of("listener_id"), false, List.of(), null),
+                nonBtree("serialized_event_hash", List.of("serialized_event"), "hash"));
+        DatabaseAdvisorContext context = context(schema("ds", Dialect.POSTGRESQL, List.of(table)));
+        assertThat(new DuplicateIndexRule().evaluate(context).status()).isEqualTo("PASS");
+        assertThat(context.evaluationDiagnostics()).isEmpty();
+    }
+
+    @Test
+    void differentAccessMethodsOnTheSameColumnCannotFormADuplicatePair() {
+        TableModel table = indexed(
+                index("by_event", List.of("serialized_event"), false, List.of(), null),
+                nonBtree("serialized_event_hash", List.of("serialized_event"), "hash"));
+        DatabaseAdvisorContext context = context(schema("ds", Dialect.POSTGRESQL, List.of(table)));
+        assertThat(new DuplicateIndexRule().evaluate(context).status()).isEqualTo("SKIPPED");
+        assertThat(context.evaluationDiagnostics()).isEmpty();
+    }
+
+    @Test
+    void unmodelledIndexesSharingMethodAndColumnsAreNamedRatherThanTheirTable() {
+        TableModel table = indexed(
+                nonBtree("first_hash", List.of("serialized_event"), "hash"),
+                nonBtree("second_hash", List.of("serialized_event"), "hash"));
+        DatabaseAdvisorContext context = context(schema("ds", Dialect.POSTGRESQL, List.of(table)));
+        new DuplicateIndexRule().evaluate(context);
+        assertThat(context.evaluationDiagnostics())
+                .hasSize(2)
+                .allSatisfy(diagnostic -> assertThat(diagnostic.message())
+                        .contains("has incomplete or unsupported index comparison semantics."))
+                .anySatisfy(diagnostic -> assertThat(diagnostic.message()).contains("index first_hash"))
+                .anySatisfy(diagnostic -> assertThat(diagnostic.message()).contains("index second_hash"));
+    }
+
+    @Test
+    void anUnknownAccessMethodStillCountsAsAPossibleDuplicateOfAKnownOne() {
+        TableModel table = indexed(
+                index("known", List.of("a"), false, List.of(), null), IndexModel.of("unread", List.of("a"), false));
+        DatabaseAdvisorContext context = context(schema("ds", Dialect.GENERIC, List.of(table)));
+        new DuplicateIndexRule().evaluate(context);
+        assertThat(context.evaluationDiagnostics())
+                .singleElement()
+                .satisfies(diagnostic -> assertThat(diagnostic.message()).contains("index unread"));
+    }
+
+    @Test
+    void aGenericJdbcClusteredTypeStillCountsAsAPossibleDuplicateOfAnEnrichedBtree() {
+        IndexModel unenriched = new IndexModel(
+                "unenriched",
+                List.of(IndexKeyPart.column("a", true)),
+                false,
+                "clustered",
+                null,
+                IndexModel.Visibility.UNKNOWN,
+                IndexModel.Validity.UNKNOWN);
+        TableModel table = indexed(index("enriched", List.of("a"), false, List.of(), null), unenriched);
+        DatabaseAdvisorContext context = context(schema("ds", Dialect.POSTGRESQL, List.of(table)));
+        new DuplicateIndexRule().evaluate(context);
+        assertThat(context.evaluationDiagnostics())
+                .singleElement()
+                .satisfies(diagnostic -> assertThat(diagnostic.message()).contains("index unenriched"));
+    }
+
+    @Test
+    void reorderedKeysOfUnmodelledIndexesAreReportedRatherThanAssumedDistinct() {
+        TableModel table = indexed(
+                nonBtree("forward", List.of("a", "b"), "hash"), nonBtree("reversed", List.of("b", "a"), "hash"));
+        DatabaseAdvisorContext context = context(schema("ds", Dialect.POSTGRESQL, List.of(table)));
+        new DuplicateIndexRule().evaluate(context);
+        assertThat(context.evaluationDiagnostics()).hasSize(2);
+    }
+
+    @Test
+    void unreadIndexMetadataRemainsUnknownForTheWholeTable() {
+        TableModel table = incomplete(
+                indexed(nonBtree("serialized_event_hash", List.of("serialized_event"), "hash")), true, false);
+        DatabaseAdvisorContext context = context(schema("ds", Dialect.POSTGRESQL, List.of(table)));
+        assertThat(new DuplicateIndexRule().evaluate(context).status()).isEqualTo("SKIPPED");
+        assertThat(context.evaluationDiagnostics())
+                .singleElement()
+                .satisfies(diagnostic ->
+                        assertThat(diagnostic.message()).contains("t has incomplete or unsupported index"));
+    }
+
+    @Test
     void intentionalIndexComparisonExclusionsDoNotProduceUnknownWarnings() {
         TableModel table = indexed(
                 index("owned", List.of("a"), true, List.of(), "constraint"),
@@ -224,6 +312,81 @@ class DatabaseAdvisorSchemaRulesTests {
                                         index("extra", List.of("a"), true, List.of("payload"), null))))
                         .status())
                 .isEqualTo("PASS");
+    }
+
+    @Test
+    void structurallyExcludedExtraUniqueIndexesAreNotReportedAsUnknown() {
+        List<IndexModel> excluded = List.of(
+                extraUnique("uq_partial", keyParts("a"), "btree", "a IS NOT NULL", VALID, false, false),
+                extraUnique(
+                        "uq_expression",
+                        List.of(IndexKeyPart.expression("lower(a)")),
+                        "btree",
+                        null,
+                        VALID,
+                        false,
+                        false),
+                extraUnique(
+                        "uq_prefix",
+                        List.of(new IndexKeyPart("a", null, true, 10, null)),
+                        "btree",
+                        null,
+                        VALID,
+                        false,
+                        false),
+                extraUnique("uq_partitioned", keyParts("a"), "btree", null, VALID, true, false),
+                extraUnique("uq_specialized", keyParts("a"), "btree", null, VALID, false, true),
+                extraUnique("uq_invalid", keyParts("a"), "btree", null, IndexModel.Validity.INVALID, false, false),
+                extraUnique("uq_hashed", keyParts("a"), "hashed", null, VALID, false, false));
+        for (IndexModel index : excluded) {
+            DatabaseAdvisorContext context =
+                    context(schema("ds", Dialect.POSTGRESQL, List.of(backedTable("orders", index))));
+            assertThat(new RedundantPrimaryKeyUniqueIndexRule()
+                            .evaluate(context)
+                            .status())
+                    .as(index.name())
+                    .isEqualTo("SKIPPED");
+            assertThat(context.evaluationDiagnostics()).as(index.name()).isEmpty();
+        }
+    }
+
+    @Test
+    void unknownExtraUniqueIndexDiagnosticsNameEveryOccurrence() {
+        DatabaseAdvisorContext context = context(schema(
+                "ds",
+                Dialect.POSTGRESQL,
+                List.of(
+                        backedTable("orders", IndexModel.of("uq_orders_reference", List.of("a"), true)),
+                        backedTable(
+                                "promo_codes",
+                                extraUnique(
+                                        "uq_promo_codes_code",
+                                        keyParts("a"),
+                                        "btree",
+                                        null,
+                                        IndexModel.Validity.UNKNOWN,
+                                        false,
+                                        false)),
+                        backedTable(
+                                "carts",
+                                extraUnique("uq_carts_token", keyParts("a"), "  ", null, VALID, false, false)))));
+        new RedundantPrimaryKeyUniqueIndexRule().evaluate(context);
+        assertThat(context.evaluationDiagnostics())
+                .extracting(SchemaDiagnostic::message)
+                .containsExactlyInAnyOrder(
+                        "ds: public.orders unique index uq_orders_reference has unknown comparison semantics.",
+                        "ds: public.promo_codes unique index uq_promo_codes_code has unknown comparison semantics.",
+                        "ds: public.carts unique index uq_carts_token has unknown comparison semantics.");
+    }
+
+    @Test
+    void incompleteIndexInventoryDiagnosticsNameTheirDataSource() {
+        TableModel table = incomplete(backedTable("orders"), true, false);
+        DatabaseAdvisorContext context = context(schema("ds", Dialect.POSTGRESQL, List.of(table)));
+        new RedundantPrimaryKeyUniqueIndexRule().evaluate(context);
+        assertThat(context.evaluationDiagnostics())
+                .extracting(SchemaDiagnostic::message)
+                .containsExactly("ds: public.orders primary-key or index inventory is incomplete.");
     }
 
     @Test
@@ -289,6 +452,66 @@ class DatabaseAdvisorSchemaRulesTests {
                         .evaluate(context(schema("ds", Dialect.POSTGRESQL, List.of(parent, narrowed))))
                         .status())
                 .isEqualTo("VIOLATION");
+    }
+
+    @Test
+    void uuidForeignKeyIsFullyComparedWithoutAnUnknown() {
+        TableModel parent = table(
+                "parent",
+                List.of(column("id", "uuid", Types.OTHER, Integer.MAX_VALUE)),
+                List.of("id"),
+                List.of(),
+                List.of());
+        TableModel child = table(
+                "child",
+                List.of(column("a", "uuid", Types.OTHER, Integer.MAX_VALUE)),
+                List.of(),
+                List.of(fk("fk", List.of("a"), List.of("id"), 0)),
+                List.of());
+        DatabaseAdvisorContext context = context(schema("ds", Dialect.POSTGRESQL, List.of(parent, child)));
+        assertThat(new ForeignKeyTypeMismatchRule().evaluate(context).status()).isEqualTo("PASS");
+        assertThat(context.evaluationDiagnostics()).isEmpty();
+        assertThat(ColumnTypeCompatibility.comparable(
+                        column("a", "uuid", Types.OTHER), column("b", "uniqueidentifier", Types.OTHER)))
+                .isTrue();
+    }
+
+    @Test
+    void onlyIdenticalFullyReportedDeclarationsMakeUnmodeledFamiliesComparable() {
+        assertThat(ColumnTypeCompatibility.comparable(
+                        declared("timestamp", Types.TIMESTAMP, 29, 6), declared("TIMESTAMP", Types.TIMESTAMP, 29, 6)))
+                .isTrue();
+        assertThat(ColumnTypeCompatibility.comparable(
+                        declared("date", Types.DATE, 13, 0), declared("timestamp", Types.TIMESTAMP, 29, 6)))
+                .isFalse();
+        assertThat(ColumnTypeCompatibility.comparable(
+                        declared("timestamp", Types.TIMESTAMP, 26, 3), declared("timestamp", Types.TIMESTAMP, 29, 6)))
+                .isFalse();
+        assertThat(ColumnTypeCompatibility.comparable(
+                        declared("citext", Types.OTHER, Integer.MAX_VALUE, 0),
+                        declared("citext", Types.OTHER, Integer.MAX_VALUE, 0)))
+                .isTrue();
+        assertThat(ColumnTypeCompatibility.comparable(
+                        declared("citext", Types.OTHER, Integer.MAX_VALUE, 0),
+                        declared("hstore", Types.OTHER, Integer.MAX_VALUE, 0)))
+                .isFalse();
+    }
+
+    @Test
+    void unreportedSizeOrScaleIsNeverTreatedAsAnIdenticalDeclaration() {
+        assertThat(ColumnTypeCompatibility.comparable(
+                        declared("varchar", Types.VARCHAR, null, 0), declared("varchar", Types.VARCHAR, null, 0)))
+                .isFalse();
+        assertThat(ColumnTypeCompatibility.comparable(
+                        declared("bit", Types.BIT, null, 0), declared("bit", Types.BIT, null, 0)))
+                .isFalse();
+        assertThat(ColumnTypeCompatibility.comparable(
+                        declared("timestamp", Types.TIMESTAMP, 29, null),
+                        declared("timestamp", Types.TIMESTAMP, 29, null)))
+                .isFalse();
+        assertThat(ColumnTypeCompatibility.comparable(
+                        declared("citext", Types.OTHER, 0, 0), declared("citext", Types.OTHER, 0, 0)))
+                .isFalse();
     }
 
     @Test
@@ -508,6 +731,10 @@ class DatabaseAdvisorSchemaRulesTests {
         assertThat(snapshot.complete()).isFalse();
     }
 
+    private static ColumnModel declared(String typeName, int jdbcType, Integer size, Integer decimalDigits) {
+        return new ColumnModel("c", typeName, jdbcType, ColumnModel.Nullability.NULLABLE, size, decimalDigits, false);
+    }
+
     private static ColumnModel decimal(int precision, Integer scale) {
         return new ColumnModel(
                 "n", "numeric", Types.NUMERIC, ColumnModel.Nullability.NULLABLE, precision, scale, false);
@@ -567,6 +794,66 @@ class DatabaseAdvisorSchemaRulesTests {
                 true,
                 true,
                 backing);
+    }
+
+    private static IndexModel nonBtree(String name, List<String> columns, String method) {
+        return new IndexModel(
+                name,
+                columns.stream()
+                        .map(column -> IndexKeyPart.column(column, true))
+                        .toList(),
+                false,
+                method,
+                null,
+                IndexModel.Visibility.VISIBLE,
+                IndexModel.Validity.VALID,
+                false,
+                false,
+                false,
+                false,
+                List.of(),
+                true,
+                true,
+                null);
+    }
+
+    private static TableModel backedTable(String name, IndexModel... extra) {
+        List<IndexModel> indexes = new ArrayList<>();
+        indexes.add(index("pk_" + name, List.of("a"), true, List.of(), "pk_" + name));
+        indexes.addAll(List.of(extra));
+        return table(name, List.of(column("a", "int4", Types.INTEGER)), List.of("a"), List.of(), indexes);
+    }
+
+    private static List<IndexKeyPart> keyParts(String... columns) {
+        return List.of(columns).stream()
+                .map(column -> IndexKeyPart.column(column, true))
+                .toList();
+    }
+
+    private static IndexModel extraUnique(
+            String name,
+            List<IndexKeyPart> parts,
+            String method,
+            String filterCondition,
+            IndexModel.Validity validity,
+            boolean partitioned,
+            boolean specialized) {
+        return new IndexModel(
+                name,
+                parts,
+                true,
+                method,
+                filterCondition,
+                IndexModel.Visibility.VISIBLE,
+                validity,
+                false,
+                false,
+                partitioned,
+                specialized,
+                List.of(),
+                true,
+                true,
+                null);
     }
 
     private static IndexModel complete(String name, List<IndexKeyPart> parts, boolean unique) {

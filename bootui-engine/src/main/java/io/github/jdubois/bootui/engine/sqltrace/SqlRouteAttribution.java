@@ -73,15 +73,15 @@ public final class SqlRouteAttribution {
      * @param supported the correlation tiers this runtime can honestly offer
      * @param templates the application's declared route templates, used to label a request whose capture
      *     point could not supply one; {@link RouteTemplateResolver#empty()} when none are known
-     * @param totalRetainedDurationMillis total retained database time, so every share uses the same
-     *     denominator as the statement ranking rather than a locally recomputed one
+     * @param totalRetainedDurationMicros total retained database time in microseconds, so every share uses
+     *     the same denominator as the statement ranking rather than a locally recomputed one
      */
     public static SqlRouteAttributionDto attribute(
             List<SqlTraceEntryDto> entries,
             List<SqlRequestEvidence> requests,
             Set<Correlation> supported,
             RouteTemplateResolver templates,
-            long totalRetainedDurationMillis) {
+            long totalRetainedDurationMicros) {
         List<SqlTraceEntryDto> executions = entries == null ? List.of() : entries;
         List<SqlRequestEvidence> candidates = requests == null ? List.of() : requests;
         Set<Correlation> tiers = supported == null || supported.isEmpty() ? Set.of(Correlation.TRACE_ID) : supported;
@@ -113,13 +113,13 @@ public final class SqlRouteAttribution {
         }
 
         List<RouteAccumulator> ordered = routes.values().stream()
-                .sorted(Comparator.comparingLong(RouteAccumulator::totalDurationMillis)
+                .sorted(Comparator.comparingLong(RouteAccumulator::totalDurationMicros)
                         .reversed()
                         .thenComparing(accumulator -> accumulator.key().id()))
                 .toList();
         List<SqlRouteRankingDto> ranked = ordered.stream()
                 .limit(MAX_ROUTES)
-                .map(accumulator -> accumulator.toDto(totalRetainedDurationMillis))
+                .map(accumulator -> accumulator.toDto(totalRetainedDurationMicros))
                 .toList();
 
         return new SqlRouteAttributionDto(
@@ -132,13 +132,13 @@ public final class SqlRouteAttribution {
                 ordered.size(),
                 attributed,
                 unattributed.toDto(
-                        totalRetainedDurationMillis,
+                        totalRetainedDurationMicros,
                         "No captured request could have issued these statements: none was in flight for the "
                                 + "whole execution, or the request whose trace id the statement carries is no "
                                 + "longer retained. Background jobs, scheduled work, startup and schema "
                                 + "migrations belong here."),
                 ambiguous.toDto(
-                        totalRetainedDurationMillis,
+                        totalRetainedDurationMicros,
                         "More than one captured request was an equally plausible source, so BootUI refused "
                                 + "to pick one. Concurrent identical requests and a reused inbound trace id "
                                 + "both produce this."),
@@ -227,7 +227,7 @@ public final class SqlRouteAttribution {
      */
     private static boolean withinWindow(SqlTraceEntryDto entry, SqlRequestEvidence request) {
         long completed = entry.timestamp();
-        long started = completed - Math.max(0, entry.durationMillis());
+        long started = completed - SqlDurations.ceilMillis(entry.durationMicros());
         return started >= request.startMillis() - WINDOW_SLACK_MS && completed <= request.endMillis() + WINDOW_SLACK_MS;
     }
 
@@ -294,8 +294,8 @@ public final class SqlRouteAttribution {
         private final Set<String> requestIds = new LinkedHashSet<>();
         private final List<Long> entryIds = new ArrayList<>();
         private long executions;
-        private long totalDurationMillis;
-        private long maxDurationMillis;
+        private long totalDurationMicros;
+        private long maxDurationMicros;
         private long errorCount;
         private long traceCorrelated;
         private long threadCorrelated;
@@ -306,10 +306,10 @@ public final class SqlRouteAttribution {
         }
 
         private void add(SqlTraceEntryDto entry, Match match) {
-            long duration = Math.max(0, entry.durationMillis());
+            long duration = Math.max(0, entry.durationMicros());
             executions++;
-            totalDurationMillis += duration;
-            maxDurationMillis = Math.max(maxDurationMillis, duration);
+            totalDurationMicros += duration;
+            maxDurationMicros = Math.max(maxDurationMicros, duration);
             if (!entry.success()) {
                 errorCount++;
             }
@@ -336,13 +336,13 @@ public final class SqlRouteAttribution {
             return key;
         }
 
-        private long totalDurationMillis() {
-            return totalDurationMillis;
+        private long totalDurationMicros() {
+            return totalDurationMicros;
         }
 
-        private SqlRouteRankingDto toDto(long totalRetainedDurationMillis) {
+        private SqlRouteRankingDto toDto(long totalRetainedDurationMicros) {
             List<SqlStatementAggregate> ordered = statements.values().stream()
-                    .sorted(Comparator.comparingLong(SqlStatementAggregate::totalDurationMillis)
+                    .sorted(Comparator.comparingLong(SqlStatementAggregate::totalDurationMicros)
                             .reversed()
                             .thenComparing(SqlStatementAggregate::fingerprint))
                     .toList();
@@ -353,8 +353,8 @@ public final class SqlRouteAttribution {
                             aggregate.sql(),
                             aggregate.category(),
                             aggregate.executions(),
-                            aggregate.totalDurationMillis(),
-                            aggregate.maxDurationMillis(),
+                            SqlDurations.millis(aggregate.totalDurationMicros()),
+                            SqlDurations.millis(aggregate.maxDurationMicros()),
                             aggregate.errorCount()))
                     .toList();
             return new SqlRouteRankingDto(
@@ -364,12 +364,12 @@ public final class SqlRouteAttribution {
                     key.source(),
                     requestIds.size(),
                     executions,
-                    totalDurationMillis,
-                    maxDurationMillis,
-                    executions == 0 ? 0 : Math.round(100.0 * totalDurationMillis / executions) / 100.0,
+                    SqlDurations.millis(totalDurationMicros),
+                    SqlDurations.millis(maxDurationMicros),
+                    executions == 0 ? 0 : SqlDurations.millis((double) totalDurationMicros / executions),
                     errorCount,
                     statements.size(),
-                    SqlShares.percent(totalDurationMillis, totalRetainedDurationMillis),
+                    SqlShares.percent(totalDurationMicros, totalRetainedDurationMicros),
                     traceCorrelated,
                     threadCorrelated,
                     timeWindowCorrelated,
@@ -383,23 +383,23 @@ public final class SqlRouteAttribution {
     private static final class BucketAccumulator {
 
         private long executions;
-        private long totalDurationMillis;
+        private long totalDurationMicros;
         private long errorCount;
 
         private void add(SqlTraceEntryDto entry) {
             executions++;
-            totalDurationMillis += Math.max(0, entry.durationMillis());
+            totalDurationMicros += Math.max(0, entry.durationMicros());
             if (!entry.success()) {
                 errorCount++;
             }
         }
 
-        private SqlAttributionBucketDto toDto(long totalRetainedDurationMillis, String reason) {
+        private SqlAttributionBucketDto toDto(long totalRetainedDurationMicros, String reason) {
             return new SqlAttributionBucketDto(
                     executions,
-                    totalDurationMillis,
+                    SqlDurations.millis(totalDurationMicros),
                     errorCount,
-                    SqlShares.percent(totalDurationMillis, totalRetainedDurationMillis),
+                    SqlShares.percent(totalDurationMicros, totalRetainedDurationMicros),
                     reason);
         }
     }

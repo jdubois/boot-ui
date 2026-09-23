@@ -21,9 +21,9 @@ import java.util.List;
  * @param routeSource {@code ROUTE_TEMPLATE} or {@code MASKED_PATH}
  * @param requests distinct captured requests that contributed executions to this route
  * @param executions statement executions attributed to this route
- * @param totalDurationMillis summed duration of those executions
- * @param maxDurationMillis slowest attributed execution
- * @param avgDurationMillis mean duration across the attributed executions
+ * @param totalDurationMillis summed duration of those executions, in fractional milliseconds
+ * @param maxDurationMillis slowest attributed execution, in fractional milliseconds
+ * @param avgDurationMillis mean duration across the attributed executions, in fractional milliseconds
  * @param errorCount attributed executions that failed
  * @param distinctStatements distinct normalized statements attributed to this route
  * @param shareOfRetainedTimePercent this route's share of the window's total database time, 0-100
@@ -43,8 +43,8 @@ public record SqlRouteRankingDto(
         String routeSource,
         long requests,
         long executions,
-        long totalDurationMillis,
-        long maxDurationMillis,
+        double totalDurationMillis,
+        double maxDurationMillis,
         double avgDurationMillis,
         long errorCount,
         int distinctStatements,

@@ -51,6 +51,9 @@ record IndexModel(
         String backingConstraint,
         List<String> comparisonSemantics) {
 
+    /** The access methods this advisor is willing to compare as ordinary index definitions. */
+    private static final List<String> ORDINARY_METHODS = List.of("btree", "b-tree", "normal", "clustered");
+
     enum Visibility {
         VISIBLE,
         INVISIBLE,
@@ -343,8 +346,8 @@ record IndexModel(
     boolean comparable() {
         return comparisonComplete
                 && Boolean.TRUE.equals(uniquenessKnown)
-                && method != null
-                && List.of("btree", "b-tree", "normal", "clustered").contains(normalizedMethod())
+                && methodReported()
+                && !methodKnownUnsupported()
                 && visibility != Visibility.UNKNOWN
                 && validity == Validity.VALID
                 && !partial()
@@ -354,6 +357,57 @@ record IndexModel(
                 && !hasPrefixKeyPart()
                 && !keyParts.isEmpty()
                 && keyParts.stream().allMatch(part -> part.ascending() != null);
+    }
+
+    /**
+     * True when this index and {@code other} share an access method and key-column set, the only shape in which
+     * an index whose comparison semantics are not modelled could hide an exact duplicate of another index on the
+     * same table. An unknown access method matches any method, since it could turn out to be the other's, and all
+     * B-tree-like names match each other: an index left with its generic JDBC type (for example
+     * {@code clustered}) when vendor enrichment did not cover it may really be the {@code btree} its neighbour
+     * reports. Key columns are compared as an unordered multiset because {@link #exactDuplicateOf} is
+     * order-sensitive, so this deliberately over-reports rather than hiding a pair.
+     */
+    boolean sharesComparisonShapeWith(IndexModel other) {
+        return comparableMethodWith(other) && sortedKeyColumns().equals(other.sortedKeyColumns());
+    }
+
+    private boolean comparableMethodWith(IndexModel other) {
+        if (!methodReported() || !other.methodReported()) {
+            return true;
+        }
+        String left = normalizedMethod();
+        String right = other.normalizedMethod();
+        return left.equals(right) || (ORDINARY_METHODS.contains(left) && ORDINARY_METHODS.contains(right));
+    }
+
+    /**
+     * True when nothing structural puts the index outside ordinary-index comparison. A partial, partitioned,
+     * special-type, expression-keyed, prefix-keyed or invalid index is never {@link #comparable()}, and
+     * {@link #sameSemanticsAs} requires both sides to be comparable, so such an index can never be proven
+     * equivalent to another. That is an intentional exclusion rather than a gap in what the catalog could
+     * report, so a rule should skip it silently rather than call its semantics unknown.
+     */
+    boolean ordinaryComparisonCandidate() {
+        return !partial()
+                && !partitioned
+                && !specialized
+                && !hasExpressionKeyPart()
+                && !hasPrefixKeyPart()
+                && !invalid();
+    }
+
+    /**
+     * True when the catalog did report an access method and it is not one this advisor compares as an
+     * ordinary index — a known fact that rules out equivalence, as opposed to an unreported method.
+     */
+    boolean methodKnownUnsupported() {
+        return methodReported() && !ORDINARY_METHODS.contains(normalizedMethod());
+    }
+
+    /** True when the catalog answered with an access method at all, rather than null or blank. */
+    private boolean methodReported() {
+        return method != null && !method.isBlank();
     }
 
     boolean exactDuplicateOf(IndexModel other) {
@@ -388,6 +442,13 @@ record IndexModel(
                 && Objects.equals(left.prefixLength(), right.prefixLength())
                 && Objects.equals(left.ascending(), right.ascending())
                 && Objects.equals(left.collation(), right.collation());
+    }
+
+    private List<String> sortedKeyColumns() {
+        return keyParts.stream()
+                .map(part -> part.isExpression() ? "" : part.columnName())
+                .sorted()
+                .toList();
     }
 
     private String normalizedMethod() {

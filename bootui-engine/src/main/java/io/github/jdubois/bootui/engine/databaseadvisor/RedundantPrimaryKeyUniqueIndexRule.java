@@ -28,7 +28,10 @@ final class RedundantPrimaryKeyUniqueIndexRule extends AbstractDatabaseAdvisorRu
                     continue;
                 }
                 if (!table.metadata().indexesRead() || !table.metadata().primaryKeyRead()) {
-                    unknown(context, table.qualifiedName() + ": primary-key or index inventory is incomplete.");
+                    unknown(
+                            context,
+                            schema.dataSourceName() + ": " + table.qualifiedName()
+                                    + " primary-key or index inventory is incomplete.");
                 }
                 if (table.partitionParent() || table.indexes().size() < 2) {
                     continue;
@@ -45,8 +48,14 @@ final class RedundantPrimaryKeyUniqueIndexRule extends AbstractDatabaseAdvisorRu
                     if (index == backing || !index.unique() || index.backingConstraint() != null || index.automatic()) {
                         continue;
                     }
+                    if (!index.ordinaryComparisonCandidate() || index.methodKnownUnsupported()) {
+                        continue;
+                    }
                     if (!index.comparable()) {
-                        unknown(context, "An extra unique index has unknown comparison semantics.");
+                        unknown(
+                                context,
+                                schema.dataSourceName() + ": " + table.qualifiedName() + " unique index " + index.name()
+                                        + " has unknown comparison semantics.");
                         continue;
                     }
                     eligible++;

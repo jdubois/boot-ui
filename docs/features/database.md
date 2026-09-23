@@ -435,7 +435,12 @@ execution row expands to reveal the full statement, bound parameters, statement 
 call site, and error.
 
 Executions are retained in a bounded in-memory ring buffer (most recent first) with aggregate stats: total/average/max
-time, slow-query and failure counts, per-category counters, and evictions. A configurable slow-query threshold highlights
+time, slow-query and failure counts, per-category counters, and evictions. Statements are timed and recorded in
+**microseconds** (`durationMicros` on each execution, with `durationMillis` kept as a rounded compatibility field), and
+every aggregate — totals, averages, percentiles, shares and route attribution — is summed from them and reported in
+fractional milliseconds. That matters on a developer's own machine, where an ordinary primary-key read finishes in a few
+hundred microseconds: whole-millisecond durations would report almost every statement as `0 ms` and leave the rankings
+with nothing to rank. A configurable slow-query threshold highlights
 expensive statements, and local-only **Pause/Resume** and **Clear** actions stop recording or empty the buffer without
 unwrapping the data source. Repeated `SELECT`s that look like an **N+1 access pattern** are flagged (repeat count set by
 `bootui.sql-trace.n-plus-one-threshold`); a flagged group lists the distinct call site(s) — class, method, line —
@@ -446,7 +451,7 @@ the repetition.
 
 BootUI transparently wraps each `DataSource` bean and intercepts statement execution on the resulting
 `Connection`/`Statement`/`PreparedStatement`/`CallableStatement` objects, recording the SQL text, statement type, SQL
-category (`SELECT`/`INSERT`/`UPDATE`/`DELETE`/`DDL`/`OTHER`), wall-clock duration, affected-row counts, batch size,
+category (`SELECT`/`INSERT`/`UPDATE`/`DELETE`/`DDL`/`OTHER`), wall-clock duration in microseconds, affected-row counts, batch size,
 originating connection, executing thread, the call site that triggered it (when call-site capture is enabled), and any
 failure. A Spring `DataSource` wrapper is never replaced, because its concrete type is part of your application's
 contract: instead, when it owns the only reference to a pool — as `spring.datasource.connection-fetch=lazy` does with
@@ -465,7 +470,8 @@ list below, so a slow ranking row is one click away from the individual executio
 **Statement rankings** aggregate executions by a normalized statement — literals and existing bind markers are collapsed
 to `?` and `IN (…)` lists folded, so equivalent parameterized executions group together without ever exposing a bound
 value. They rank by cumulative duration, slowest single execution, execution count, average duration, error count, p95,
-or p99, alongside p50/p95/p99 durations and each group's share of retained database time. A statement that scores zero on
+or p99, alongside p50/p95/p99 durations and each group's share of retained database time — all in fractional
+milliseconds summed from the microsecond-resolution executions, so a window of sub-millisecond statements still ranks. A statement that scores zero on
 the selected criterion is not ranked for it, so "top by errors" never lists statements that never failed. This is a
 *different* grouping from the **Most frequent statements** table (a fallback shown when statement rankings are
 unavailable), which keeps literal values so you can see the exact statements that repeated.

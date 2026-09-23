@@ -35,7 +35,7 @@ import org.hibernate.resource.jdbc.spi.StatementInspector;
  * unchanged) if no recorder is present — Hibernate always implies an Agroal datasource, so in practice it is
  * resolvable. Honest fidelity caveat: the {@code StatementInspector} SPI exposes only the SQL text at prepare
  * time with no execution-end hook, so per-statement duration, affected-row counts and bound parameters are
- * not available for ORM SQL (duration is recorded as {@code 0}); statement text, type, category, execution
+ * not available for ORM SQL (duration is recorded as {@code 0} microseconds); statement text, type, category, execution
  * count and N+1 detection are full-fidelity. Bound parameters are never captured here, so the panel cannot
  * leak ORM parameter values regardless of {@code bootui.sql-trace.capture-parameters}. The unqualified
  * {@link PersistenceUnitExtension} binds only the <em>default</em> persistence unit, so SQL issued by a named
@@ -83,6 +83,7 @@ public class BootUiHibernateStatementInspector implements StatementInspector {
                     SqlTracingProxies.categoryOf(sql),
                     sql,
                     List.of(),
+                    // Microseconds: the SPI has no execution-end hook, so no duration can be measured here.
                     0L,
                     true,
                     null,

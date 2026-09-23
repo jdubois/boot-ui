@@ -331,16 +331,23 @@
                                     <!--
                                         Run process-aot under the "dev" profile so the JVM container
                                         uses H2 in-memory storage (no Docker services needed) and BootUI
-                                        is enabled. Unlike the native image, the profile is NOT frozen
-                                        into the generated code; the Spring profile can still be changed
-                                        at container runtime via the SPRING_PROFILES_ACTIVE environment
-                                        variable. The AOT-generated code is activated at runtime with
-                                        SPRING_AOT_ENABLED=true (already set in JAVA_TOOL_OPTIONS in
-                                        Dockerfile-aot).
+                                        is enabled. SPRING_PROFILES_ACTIVE still selects which property
+                                        files are loaded at container runtime, but it cannot change which
+                                        beans exist: like a native image, AOT resolves profile and
+                                        property conditions here, at build time. The AOT-generated code
+                                        is activated at runtime with SPRING_AOT_ENABLED=true (already set
+                                        in JAVA_TOOL_OPTIONS in Dockerfile-aot).
 
-                                        Flyway and Liquibase are disabled so the process-aot fork exits
-                                        quickly without touching the schema. Remove those flags if you
-                                        want the generated code to include migration hints.
+                                        Flyway and Liquibase are disabled so the generated code leaves out
+                                        the sample migration wiring, which keeps it out of the Docker
+                                        training run and out of every container start. That decision is
+                                        frozen the same way: AOT evaluates the property conditions at
+                                        build time, so the Flyway/Liquibase auto-configurations are not
+                                        generated and SPRING_FLYWAY_ENABLED / SPRING_LIQUIBASE_ENABLED
+                                        cannot switch them back on at runtime. Remove the two flags below
+                                        to build an image whose Flyway/Liquibase panels have data (the
+                                        migrations then always run, because the frozen conditions no
+                                        longer honor the runtime variables in that direction either).
                                     -->
                                     <profiles>
                                         <profile>dev</profile>

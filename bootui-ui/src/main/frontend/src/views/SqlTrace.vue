@@ -2,7 +2,7 @@
 import {apiFetch, getJson} from '../api.js'
 import {computed, nextTick, onMounted, ref} from 'vue'
 import {useRoute} from 'vue-router'
-import {formatClockTime, formatNumber} from '../utils/format.js'
+import {formatClockTime, formatMillis, formatNumber} from '../utils/format.js'
 import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useConfirm} from '../utils/useConfirm.js'
@@ -126,8 +126,8 @@ const rankedStatements = computed(() => {
 
 const hasRankedStatements = computed(() => Boolean(insights.value?.statements?.length))
 
-// True when every retained statement scores zero on the selected criterion, e.g. an in-memory database
-// where each execution rounds down to 0 ms.
+// True when every retained statement scores zero on the selected criterion, e.g. no errors for the error
+// ranking, or durations the capture path could not time (Quarkus Hibernate ORM records 0 µs).
 const rankingMetricUnmeasured = computed(
   () => hasRankedStatements.value && !insights.value.statements.some((row) => Number(row[rankingMetric.value]) > 0)
 )
@@ -143,7 +143,7 @@ const windowSummary = computed(() => {
   if (w.oldestTimestamp && w.newestTimestamp) {
     parts.push(`${formatClockTime(w.oldestTimestamp)}–${formatClockTime(w.newestTimestamp)}`)
   }
-  parts.push(`${formatNumber(w.totalDurationMillis)} ms of database time`)
+  parts.push(`${formatMillis(w.totalDurationMillis)} ms of database time`)
   if (w.evicted) parts.push(`${formatNumber(w.evicted)} older executions already evicted`)
   return parts.join(' · ')
 })
@@ -377,7 +377,7 @@ function clearTrace() {
               <div class="card h-100">
                 <div class="card-body py-2">
                   <div class="text-muted small">Avg time</div>
-                  <div class="fs-5 fw-semibold">{{ stats.avgDurationMillis.toFixed(1) }} ms</div>
+                  <div class="fs-5 fw-semibold">{{ formatMillis(stats.avgDurationMillis) }} ms</div>
                 </div>
               </div>
             </div>
@@ -385,7 +385,7 @@ function clearTrace() {
               <div class="card h-100">
                 <div class="card-body py-2">
                   <div class="text-muted small">Slowest</div>
-                  <div class="fs-5 fw-semibold">{{ formatNumber(stats.maxDurationMillis) }} ms</div>
+                  <div class="fs-5 fw-semibold">{{ formatMillis(stats.maxDurationMillis) }} ms</div>
                 </div>
               </div>
             </div>
@@ -504,11 +504,11 @@ function clearTrace() {
                     </div>
                   </td>
                   <td class="text-end">{{ formatNumber(group.executions) }}</td>
-                  <td class="text-end">{{ formatNumber(group.totalDurationMillis) }}</td>
-                  <td class="text-end">{{ formatNumber(group.maxDurationMillis) }}</td>
-                  <td class="text-end">{{ group.avgDurationMillis.toFixed(1) }}</td>
-                  <td class="text-end">{{ formatNumber(group.p95DurationMillis) }}</td>
-                  <td class="text-end">{{ formatNumber(group.p99DurationMillis) }}</td>
+                  <td class="text-end">{{ formatMillis(group.totalDurationMillis) }}</td>
+                  <td class="text-end">{{ formatMillis(group.maxDurationMillis) }}</td>
+                  <td class="text-end">{{ formatMillis(group.avgDurationMillis) }}</td>
+                  <td class="text-end">{{ formatMillis(group.p95DurationMillis) }}</td>
+                  <td class="text-end">{{ formatMillis(group.p99DurationMillis) }}</td>
                   <td class="text-end" :class="{'text-danger fw-semibold': group.errorCount > 0}">
                     {{ formatNumber(group.errorCount) }}
                   </td>
@@ -575,7 +575,7 @@ function clearTrace() {
                     <div class="text-muted small">Unattributed</div>
                     <div class="fs-5 fw-semibold">{{ formatNumber(attribution.unattributed.executions) }}</div>
                     <div class="text-muted small">
-                      {{ formatNumber(attribution.unattributed.totalDurationMillis) }} ms ·
+                      {{ formatMillis(attribution.unattributed.totalDurationMillis) }} ms ·
                       {{ attribution.unattributed.shareOfRetainedTimePercent.toFixed(1) }}%
                     </div>
                   </div>
@@ -587,7 +587,7 @@ function clearTrace() {
                     <div class="text-muted small">Ambiguous</div>
                     <div class="fs-5 fw-semibold">{{ formatNumber(attribution.ambiguous.executions) }}</div>
                     <div class="text-muted small">
-                      {{ formatNumber(attribution.ambiguous.totalDurationMillis) }} ms ·
+                      {{ formatMillis(attribution.ambiguous.totalDurationMillis) }} ms ·
                       {{ attribution.ambiguous.shareOfRetainedTimePercent.toFixed(1) }}%
                     </div>
                   </div>
@@ -668,9 +668,9 @@ function clearTrace() {
                         {{ formatNumber(routeGroup.executions) }}
                         <span class="text-muted">/ {{ formatNumber(routeGroup.distinctStatements) }}</span>
                       </td>
-                      <td class="text-end">{{ formatNumber(routeGroup.totalDurationMillis) }} ms</td>
-                      <td class="text-end">{{ formatNumber(routeGroup.maxDurationMillis) }} ms</td>
-                      <td class="text-end">{{ routeGroup.avgDurationMillis.toFixed(1) }} ms</td>
+                      <td class="text-end">{{ formatMillis(routeGroup.totalDurationMillis) }} ms</td>
+                      <td class="text-end">{{ formatMillis(routeGroup.maxDurationMillis) }} ms</td>
+                      <td class="text-end">{{ formatMillis(routeGroup.avgDurationMillis) }} ms</td>
                       <td class="text-end" :class="{'text-danger fw-semibold': routeGroup.errorCount > 0}">
                         {{ formatNumber(routeGroup.errorCount) }}
                       </td>
@@ -709,8 +709,8 @@ function clearTrace() {
                                 <code class="sql-text">{{ statement.sql }}</code>
                               </td>
                               <td class="text-end">{{ formatNumber(statement.executions) }}</td>
-                              <td class="text-end">{{ formatNumber(statement.totalDurationMillis) }} ms</td>
-                              <td class="text-end">{{ formatNumber(statement.maxDurationMillis) }} ms</td>
+                              <td class="text-end">{{ formatMillis(statement.totalDurationMillis) }} ms</td>
+                              <td class="text-end">{{ formatMillis(statement.maxDurationMillis) }} ms</td>
                               <td class="text-end">{{ formatNumber(statement.errorCount) }}</td>
                             </tr>
                           </tbody>
@@ -766,8 +766,8 @@ function clearTrace() {
                     </div>
                   </td>
                   <td class="text-end">{{ formatNumber(group.executions) }}</td>
-                  <td class="text-end">{{ formatNumber(group.totalDurationMillis) }} ms</td>
-                  <td class="text-end">{{ formatNumber(group.maxDurationMillis) }} ms</td>
+                  <td class="text-end">{{ formatMillis(group.totalDurationMillis) }} ms</td>
+                  <td class="text-end">{{ formatMillis(group.maxDurationMillis) }} ms</td>
                 </tr>
               </tbody>
             </table>
@@ -865,7 +865,7 @@ function clearTrace() {
                       >
                     </td>
                     <td class="text-end text-nowrap" :class="{'text-warning fw-semibold': entry.slow}">
-                      {{ formatNumber(entry.durationMillis) }} ms
+                      {{ formatMillis(entry.durationMicros / 1000) }} ms
                     </td>
                     <td>
                       <code class="sql-text">{{ entry.sql }}</code>

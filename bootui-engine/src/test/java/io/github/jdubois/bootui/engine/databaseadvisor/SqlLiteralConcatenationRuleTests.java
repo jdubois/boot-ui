@@ -28,6 +28,7 @@ class SqlLiteralConcatenationRuleTests {
                 sql,
                 statementType,
                 "SELECT",
+                5_000L,
                 5L,
                 true,
                 null,

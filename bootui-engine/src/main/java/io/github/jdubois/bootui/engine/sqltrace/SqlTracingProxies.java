@@ -405,7 +405,7 @@ public final class SqlTracingProxies {
                         category,
                         sql,
                         preparedSql != null ? orderedParameters() : List.of(),
-                        millis(start),
+                        micros(start),
                         success,
                         error,
                         affected,
@@ -436,7 +436,7 @@ public final class SqlTracingProxies {
                         category,
                         sql,
                         preparedSql != null ? batchParameterPreview() : List.of(),
-                        millis(start),
+                        micros(start),
                         success,
                         error,
                         affected,
@@ -519,8 +519,13 @@ public final class SqlTracingProxies {
             return recorder.truncateParameter(String.valueOf(value));
         }
 
-        private long millis(long startNanos) {
-            return (System.nanoTime() - startNanos) / 1_000_000L;
+        /**
+         * Elapsed time in microseconds. Deliberately not milliseconds: an ordinary primary-key {@code SELECT}
+         * against a local database finishes in a few hundred microseconds, so truncating here would record
+         * almost every execution as {@code 0} and leave every downstream aggregate with nothing to rank.
+         */
+        private long micros(long startNanos) {
+            return (System.nanoTime() - startNanos) / 1_000L;
         }
     }
 
