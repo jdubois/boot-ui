@@ -1,14 +1,14 @@
 # Troubleshooting
 
-| Symptom                      | Check                                                                                                                                   |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| BootUI path returns 404      | Use the `dev` or `local` profile, add DevTools, or set `bootui.enabled=ON`; then open the configured `bootui.path` (default `/bootui`). In `application.yml`, `bootui.enabled: ON` is valid — YAML parses it as a boolean, which BootUI accepts as `ON`. |
-| BootUI is disabled in `prod` | This is intentional; only `bootui.enabled=ON` can force activation with a disabled profile.                                             |
-| Command-line app now stays up | Expected: BootUI starts a servlet server so the console is reachable. Set `bootui.force-web=false` to keep the app non-web.              |
-| Browser is rejected          | BootUI accepts loopback callers and fails closed for everything else. Inside a container, set `bootui.trust-container-gateway=AUTO` to auto-detect and trust the default gateway `/32` (the SNAT source of published-port traffic) — no subnet needed on any Docker flavor, and the Host + CSRF protections stay on. For a custom proxy/bridge or LAN access, add that source range to `bootui.trusted-proxies` instead — `172.16.0.0/12` on Linux Docker Engine, `192.168.65.0/24` on Docker Desktop (macOS/Windows) — plus the hostname you browse with to `bootui.allowed-hosts`. Use `bootui.allow-non-localhost=true` only as a blunt last resort on a trusted local network. |
-| Spring Security blocks UI    | BootUI auto-registers a permit-all chain for the configured UI/API paths when Spring Security is active; check for a custom higher-priority chain. |
-| `localhost redirected you too many times` | BootUI serves the console at both `/bootui` and `/bootui/` with no redirect, so a host trailing-slash–stripping filter or proxy (e.g. Spring's `UrlHandlerFilter.trailingSlashHandler("/**").wrapRequest()`, a standard Boot 4 idiom) can't loop on it. If you still hit this on an older BootUI, upgrade or open `/bootui/` (with the trailing slash) directly. |
-| A panel is empty             | Enable the relevant Actuator endpoint or optional Spring module; BootUI degrades to stable empty DTOs when data is unavailable.         |
-| Startup Timeline is empty    | Leave `bootui.startup.enabled=true` and `bootui.startup.capacity` greater than zero, or provide your own `BufferingApplicationStartup`. |
-| Secrets are hidden           | Default exposure is `MASKED`; use `METADATA_ONLY` to hide all values or `FULL` only in trusted local sessions.                          |
-| Static resources disabled    | `spring.web.resources.add-mappings=false` is bypassed by BootUI: it registers its own handler at the configured `bootui.path` for dashboard assets and logs a WARN line; the host's other static resources stay disabled. |
+| Symptom | Check |
+| ------- | ----- |
+| `/bootui` returns 404 | Activate the `dev` or `local` profile, add DevTools, or set `bootui.enabled=ON`, then open the configured `bootui.path`. In `application.yml`, `bootui.enabled: ON` is valid: YAML parses it as a boolean, which BootUI accepts. |
+| BootUI is disabled in `prod` | This is intentional. Only `bootui.enabled=ON` forces activation with a disabled profile. |
+| The browser is rejected | BootUI accepts loopback callers and fails closed for everything else. In a container, set `bootui.trust-container-gateway=AUTO`. For a custom proxy, bridge, or LAN access, add the source range to `bootui.trusted-proxies` and the hostname you browse with to `bootui.allowed-hosts`. See [running inside a Docker container](environments.md#running-inside-a-docker-container). |
+| Spring Security blocks the UI | BootUI registers a permit-all chain for the configured UI and API paths when Spring Security is active. Look for a custom chain with a higher precedence. |
+| `localhost redirected you too many times` | BootUI serves the console at both `/bootui` and `/bootui/` with no redirect, so a trailing-slash-stripping filter or proxy cannot loop on it. On an older BootUI, upgrade or open `/bootui/` directly. |
+| A command-line app now stays up | Expected: BootUI starts a servlet server so the console stays reachable. Set `bootui.force-web=false` to keep the application non-web. |
+| A panel is empty | Enable the relevant Actuator endpoint or optional Spring module. BootUI degrades to stable empty responses when data is unavailable. |
+| Startup Timeline is empty | Keep `bootui.startup.enabled=true` and `bootui.startup.capacity` above zero, or provide your own `BufferingApplicationStartup`. |
+| Secrets are hidden | Default exposure is `MASKED`. Use `METADATA_ONLY` to hide all values, or `FULL` only in a trusted local session. |
+| Static resources are disabled | BootUI bypasses `spring.web.resources.add-mappings=false` for its own assets at the configured `bootui.path` and logs a WARN line. Your application's other static resources stay disabled. |

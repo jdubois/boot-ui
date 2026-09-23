@@ -1,7 +1,7 @@
 # Features
 
-BootUI groups its panels exactly the way the application menu does. Pick a group to read its panels in detail, or use
-the search box to jump straight to a panel by name.
+These groups match the console's own menu. Pick one to read its panels in detail, or use the search box to jump
+straight to a panel by name.
 
 | Group | Panels | What it answers |
 | ----- | ------ | --------------- |
@@ -17,23 +17,29 @@ the search box to jump straight to a panel by name.
 
 ## Rules that apply to every panel
 
-**An old tab can recover after a UI rebuild.** If opening a panel fails because its JavaScript or stylesheet is no
-longer available, BootUI keeps the current panel and shows **Reload BootUI**. Once the application is running, use that
-action to fetch the current UI and open the intended panel, including its route query and hash. Custom console mounts
-are preserved. Reloading discards unsaved input in the tab, so BootUI never does it automatically. If loading still
-fails, the alert remains available; there is no automatic retry, reload loop, or background connection probe.
-Ordinary panel/API errors keep their existing error handling.
+**An old tab can recover after a UI rebuild.** When a panel's JavaScript or stylesheet is no longer available, BootUI
+keeps the current panel and offers **Reload BootUI**, which fetches the current UI and opens the intended panel,
+including its route query and hash. Custom console mounts are preserved.
+
+Reloading discards unsaved input, so BootUI never does it for you. If loading still fails, the alert stays available.
+There is no automatic retry, reload loop, or background connection probe, and ordinary panel and API errors keep their
+existing handling.
 
 **Unavailable panels are visible, not hidden.** When a panel's backing infrastructure is missing, the sidebar moves it
 into a collapsed *Disabled / unavailable* group, and opening it shows the reason at the top of the page.
+
+The vendor-specific database panels are the exception. PostgreSQL and MySQL appear only when that vendor's JDBC driver
+is on the runtime classpath. With the driver present but no matching datasource configured they are listed as
+unavailable, as above; with no driver at all they are absent from the sidebar and from `/bootui/api/panels`, and their
+API path returns 404.
 
 **Every panel can be turned off.** Use `bootui.panels.<panel-id>.enabled=false`. Panels with browser-triggered actions
 also support `bootui.panels.<panel-id>.read-only=true`, and `bootui.read-only=true` makes all of BootUI read-only. See
 the [property reference](../PROPERTIES.md) for the complete list.
 
-**Changing server state always asks first.** Restarting a dev service, capturing or deleting a heap dump, writing
-GraalVM or CRaC artifacts, running a migration, clearing a cache or trace buffer, or destroying an HTTP session opens a
-confirmation dialog naming the affected resource. Read-only scans and reversible toggles never prompt.
+**Changing server state always asks first.** Restarting a dev service, capturing or deleting a heap dump, writing a
+GraalVM or CRaC artifact, running a migration, clearing a cache or trace buffer, and destroying an HTTP session each
+open a confirmation dialog naming the affected resource. Read-only scans and reversible toggles never prompt.
 
 ::: details How the confirmation dialog behaves
 The dialog flags irreversible operations, defaults focus to Cancel, dismisses on Escape or a backdrop click, and honors
@@ -41,10 +47,11 @@ The dialog flags irreversible operations, defaults focus to Cancel, dismisses on
 :::
 
 **BootUI hides itself by default.** Beans, Conditions, Mappings, Loggers, Metrics, Startup Timeline, Scheduled Tasks,
-Cache, Spring Security, Security Logs, and Traces exclude BootUI's own runtime data so they stay focused on the host
-application. Set `bootui.monitoring.exclude-self=false` to include BootUI internals while debugging the console itself.
+Cache, Spring Security, HTTP Exchanges, and Traces exclude BootUI's own runtime data, so they stay focused on your
+application. Set `bootui.monitoring.exclude-self=false` to include BootUI internals while debugging the console.
 
 ## Availability per stack
 
-Spring Boot servlet is the reference stack. For the authoritative per-panel availability on the other two, see
-[Framework support](../FRAMEWORK-SUPPORT.md).
+Spring MVC is the reference stack. For per-panel availability on the other two, see
+[Framework support](../FRAMEWORK-SUPPORT.md). The running console is always the better answer: every panel that cannot
+run says so in the sidebar and explains why when you open it.
