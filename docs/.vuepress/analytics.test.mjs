@@ -33,6 +33,18 @@ async function withStubbedBrowser({storage = 'available'} = {}) {
     }
   }
 
+  const createScript = () => {
+    const scriptListeners = new Map()
+    return {
+      addEventListener(type, handler) {
+        scriptListeners.set(type, [...(scriptListeners.get(type) ?? []), handler])
+      },
+      dispatch(type) {
+        ;(scriptListeners.get(type) ?? []).forEach((handler) => handler())
+      }
+    }
+  }
+
   globalThis.document = {
     title: 'BootUI',
     cookie: '',
@@ -41,7 +53,7 @@ async function withStubbedBrowser({storage = 'available'} = {}) {
         injectedScripts.push(script)
       }
     },
-    createElement: () => ({})
+    createElement: createScript
   }
 
   globalThis.window = {
@@ -62,6 +74,23 @@ async function withStubbedBrowser({storage = 'available'} = {}) {
   return {
     analytics,
     injectedScripts,
+    // gtag.js only runs some time after the tag is injected. Until then commands sit in the queue,
+    // and they are delivered on load only if the opt-out flag is clear at that moment.
+    finishScriptLoad() {
+      const dropped = globalThis.window[`ga-disable-${analytics.GA_MEASUREMENT_ID}`] !== false
+      if (dropped) {
+        globalThis.window.dataLayer.length = 0
+      }
+
+      injectedScripts.forEach((script) => script.dispatch('load'))
+    },
+    // What another tab writing to the shared key looks like from here.
+    writeInAnotherTab(value) {
+      ;(listeners.get('storage') ?? []).forEach((handler) =>
+        handler({key: 'bootui-analytics-consent', newValue: value})
+      )
+    },
+    configOptions: () => Array.from(globalThis.window.dataLayer ?? []).find((entry) => entry[0] === 'config')?.[2],
     disabled: () => globalThis.window[`ga-disable-${analytics.GA_MEASUREMENT_ID}`],
     pageViews: () =>
       Array.from(globalThis.window.dataLayer ?? [])
@@ -103,27 +132,72 @@ test('accepting, withdrawing and accepting again re-enables analytics in the sam
 })
 
 test('page views resume after re-consent', async () => {
-  const {analytics, pageViews} = await withStubbedBrowser()
+  const {analytics, pageViews, finishScriptLoad} = await withStubbedBrowser()
 
   analytics.setConsent('granted')
+  finishScriptLoad()
+  assert.deepEqual(pageViews(), ['/guide/'], 'the page consent was given on')
+
   analytics.setConsent('denied')
   analytics.trackPageView('/guide/panels/')
-  assert.deepEqual(pageViews(), [], 'a withdrawn reader is not tracked')
+  assert.deepEqual(pageViews(), ['/guide/'], 'a withdrawn reader is not tracked')
 
   analytics.setConsent('granted')
   analytics.trackPageView('/guide/panels/')
-  assert.deepEqual(pageViews(), ['/guide/', '/guide/panels/'], 'the page consent was given on, then the navigation')
+  assert.deepEqual(
+    pageViews(),
+    ['/guide/', '/guide/', '/guide/panels/'],
+    'the page re-consent was given on, then the navigation'
+  )
+})
+
+test('the automatic page view is declined so every hit goes through trackPageView', async () => {
+  const {analytics, configOptions} = await withStubbedBrowser()
+
+  analytics.setConsent('granted')
+
+  assert.deepEqual(configOptions(), {send_page_view: false})
 })
 
 test('re-picking the answer already in force does not report the page again', async () => {
-  const {analytics, pageViews} = await withStubbedBrowser()
+  const {analytics, pageViews, finishScriptLoad} = await withStubbedBrowser()
 
-  // `gtag('config', ...)` reports the current page itself on a first accept, so an accept that
-  // changes nothing must stay silent rather than counting the page a second time.
   analytics.setConsent('granted')
+  finishScriptLoad()
   analytics.setConsent('granted')
 
-  assert.deepEqual(pageViews(), [])
+  assert.deepEqual(pageViews(), ['/guide/'])
+})
+
+test('toggling consent before gtag.js loads reports the page once', async () => {
+  const {analytics, pageViews, finishScriptLoad} = await withStubbedBrowser()
+
+  // Commands queued before the script arrives are delivered on load, so a page queued during the
+  // first consent period would otherwise be sent alongside the one queued on re-consent.
+  analytics.setConsent('granted')
+  analytics.setConsent('denied')
+  analytics.setConsent('granted')
+  finishScriptLoad()
+
+  assert.deepEqual(pageViews(), ['/guide/'])
+})
+
+test('a withdrawal made in another tab is honoured here', async () => {
+  const {analytics, disabled, pageViews, writeInAnotherTab} = await withStubbedBrowser()
+  const seen = []
+
+  analytics.watchOtherTabs()
+  analytics.onConsentChange((consent) => seen.push(consent))
+  analytics.setConsent('granted')
+
+  writeInAnotherTab('denied')
+
+  assert.equal(disabled(), true)
+  assert.equal(analytics.readConsent(), 'denied')
+  assert.deepEqual(seen, ['granted', 'denied'], 'the components are told, so their state follows')
+
+  analytics.trackPageView('/guide/panels/')
+  assert.deepEqual(pageViews(), ['/guide/'], 'nothing more is reported')
 })
 
 test('a browser that refuses storage still gets the banner, not assumed consent', async () => {
@@ -138,23 +212,24 @@ test('a browser that refuses storage still gets the banner, not assumed consent'
 })
 
 test('the choice is honoured for the session when it cannot be persisted', async () => {
-  const {analytics, disabled, pageViews} = await withStubbedBrowser({storage: 'unavailable'})
+  const {analytics, disabled, pageViews, finishScriptLoad} = await withStubbedBrowser({storage: 'unavailable'})
 
   analytics.setConsent('granted')
   assert.equal(analytics.readConsent(), 'granted')
   assert.equal(disabled(), false)
+  finishScriptLoad()
 
   analytics.trackPageView('/guide/panels/')
-  assert.deepEqual(pageViews(), ['/guide/panels/'], 'navigation is measured despite the failed write')
+  assert.deepEqual(pageViews(), ['/guide/', '/guide/panels/'], 'navigation is measured despite the failed write')
 
   analytics.setConsent('denied')
   assert.equal(analytics.readConsent(), 'denied')
   assert.equal(disabled(), true)
 
   analytics.trackPageView('/guide/setup/')
-  assert.deepEqual(pageViews(), ['/guide/panels/'], 'withdrawal is honoured too')
+  assert.deepEqual(pageViews(), ['/guide/', '/guide/panels/'], 'withdrawal is honoured too')
 
   analytics.setConsent('granted')
   assert.equal(disabled(), false)
-  assert.deepEqual(pageViews(), ['/guide/panels/', '/guide/'], 'the page re-consent was given on')
+  assert.deepEqual(pageViews(), ['/guide/', '/guide/panels/', '/guide/'], 'the page re-consent was given on')
 })
