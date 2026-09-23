@@ -368,9 +368,11 @@ Do not infer inevitable runtime SQL failure or prescribe applying a migration so
 
 **MEDIUM.** Reviews a complete explicit association declaration against actual qualified child-to-parent
 pairs. Respects `NO_CONSTRAINT`, supported join placement and explicit target information. A single join column
-that omits `referencedColumnName` is paired with the target table's observed single-column primary key, the JPA
-default; composite joins with an omitted referenced column, or targets without a single observed primary-key column,
-remain unknown.
+that omits `referencedColumnName` is paired with the JPA default, the target entity's `@Id` column, once that column
+is corroborated as the target table's observed single-column primary key. The `@Id` column is taken from an explicit
+`@Column(name)`, or from a plain lowercase attribute name such as `id`. Composite joins with an omitted referenced
+column, an unestablished or non-primary-key identifier, and constraints that pair the join column with a
+non-primary-key target column remain unknown.
 JPA cascade does **not** imply database ON DELETE CASCADE; FK-generation annotations are not a proof of
 the live database's intended cascade policy. Review whether a database constraint is intended before adding one.
 See [Jakarta Persistence 3.2](https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2.html).

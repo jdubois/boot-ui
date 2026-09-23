@@ -17,7 +17,7 @@ final class HibernateMissingForeignKeyConstraintRule extends AbstractHibernateCr
                         + "against the foreign keys DatabaseMetaData.getImportedKeys() reports for the same table, "
                         + "verifying complete child-to-parent column pairing and the resolved referenced "
                         + "base table. An omitted referencedColumnName on a single join column is paired with the "
-                        + "target's observed single-column primary key, the JPA default. "
+                        + "target entity's @Id column when it is the target's observed single-column primary key. "
                         + "Views and materialized views are not checked as constraint sources or targets. "
                         + "Observed definitions with unknown enforcement remain unknown; historical row validation is not inferred. "
                         + "Associations declaring @ForeignKey(ConstraintMode.NO_CONSTRAINT) are skipped.",

@@ -65,7 +65,8 @@ final class ForeignKeyMatching {
                     null, "Physical foreign-key coverage is not established for views or unknown relation kinds.");
         }
         // Jakarta Persistence 3.2 §11.1.21: an omitted referencedColumnName on a single join column defaults to
-        // the referenced table's primary-key column, which is taken here from the observed physical primary key.
+        // the referenced entity's identifier column, which must also be the target's single observed physical
+        // primary-key column before a physical constraint can be attributed to it.
         ColumnModel defaultParent = null;
         if (defaultedParent) {
             if (!target.metadata().primaryKeyRead()
@@ -75,6 +76,16 @@ final class ForeignKeyMatching {
                         null,
                         "The declaration relies on the default referenced column, but the target's primary key "
                                 + "is not a single observed column.");
+            }
+            String identifier = mapped.targetIdentifierColumn();
+            ColumnModel mappedIdentifier = blank(identifier) || !sourceSchema.declarationCaseKnown(identifier)
+                    ? null
+                    : sourceSchema.declaredColumn(target, identifier);
+            if (mappedIdentifier == null || !mappedIdentifier.name().equals(defaultParent.name())) {
+                return unknown(
+                        null,
+                        "The declaration relies on the default referenced column, but the target entity's "
+                                + "identifier column is not established as its observed primary-key column.");
             }
         }
         List<String> childColumns = new ArrayList<>();
@@ -124,8 +135,8 @@ final class ForeignKeyMatching {
                         && Objects.equals(physical.referencedColumns().get(position), parentColumns.get(i));
             }
             if (!pairsMatch) {
-                // The default is inferred from the physical primary key, not from the mapped @Id, so a
-                // constraint pairing the child with another parent column does not prove absence.
+                // The pairing is corroborated against the mapped @Id, yet a constraint pairing the child with
+                // another parent column still does not prove the defaulted relationship is absent.
                 defaultedParentMismatch |= defaultedParent;
                 continue;
             }
