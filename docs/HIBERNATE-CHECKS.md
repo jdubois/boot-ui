@@ -45,7 +45,8 @@ The report's `results` list still contains findings only; the scan message summa
 persistence-unit label (`application` for application-wide rules), `level` is `ERROR` for a failed rule and `WARNING`
 for unavailable evidence, and `message` names the missing evidence kinds with occurrence counts (for example query
 provenance, a JPQL shape outside the readable subset, or an unavailable unit setting). Messages use controlled phrases
-only and never carry query text, property values or exception messages. A rule that reports findings but could not
+only and never carry query text, property values or exception messages. The array keeps the first 200 entries and then
+adds one `diagnostics` entry that states how many were omitted; `scan.message` keeps the full counts. A rule that reports findings but could not
 evaluate every unit or query carries a `coverageNote` on its `results` entry saying which units were partly evaluated
 and why. Intentional platform inapplicability is distinct from a failed applicable check.
 `rulesEvaluated` counts distinct active rule attempts, not successful verification of every mapping.

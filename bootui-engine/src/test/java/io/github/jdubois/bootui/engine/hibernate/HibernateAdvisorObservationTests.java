@@ -323,6 +323,49 @@ class HibernateAdvisorObservationTests {
     }
 
     @Test
+    void failedEvaluationKeepsTheEvidenceGapsItRecordedBeforeFailing() {
+        HibernateRule failing = testRule("HIB-TEST-FAIL", context -> {
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE);
+            throw new IllegalStateException("secret");
+        });
+        HibernateReport report = scanner(List.of(unit("default", settings(25), List.of())), List.of(), List.of(failing))
+                .scan();
+
+        assertThat(report.scan().message()).contains("failed 1", "required evidence unavailable 1");
+        assertThat(report.diagnostics()).singleElement().satisfies(diagnostic -> {
+            assertThat(diagnostic.level()).isEqualTo("ERROR");
+            assertThat(diagnostic.message())
+                    .startsWith("Rule evaluation failed;")
+                    .contains("Required evidence also unavailable: 1 repository query method(s) whose JPQL")
+                    .doesNotContain("secret");
+        });
+    }
+
+    @Test
+    void diagnosticsAndCoverageNotesStayBoundedAcrossManyUnits() {
+        List<HibernatePersistenceUnitObservation> units = new ArrayList<>();
+        for (int i = 0; i < 30; i++) units.add(unit("unit-" + i, settings(25), List.of()));
+        List<HibernateRule> rules = new ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            String id = "HIB-TEST-" + i;
+            rules.add(testRule(id, context -> {
+                context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE);
+                return HibernateRuleSupport.violation(definition(id, "LOW"), List.of("Finding"));
+            }));
+        }
+        HibernateReport report = scanner(units, List.of(), rules).scan();
+
+        assertThat(report.scan().message()).contains("See diagnostics for 300 entries");
+        assertThat(report.diagnostics()).hasSize(HibernateScanner.MAX_DIAGNOSTICS + 1);
+        assertThat(report.diagnostics().get(HibernateScanner.MAX_DIAGNOSTICS).message())
+                .isEqualTo("100 further diagnostics omitted after the first 200; scan.message keeps the full counts.");
+        assertThat(result(report, "HIB-TEST-0").coverageNote())
+                .contains("[unit-9]")
+                .doesNotContain("[unit-10]")
+                .endsWith("; and 20 more units (see diagnostics).");
+    }
+
+    @Test
     void violatingRuleKeepsAPerUnitCoverageNoteAcrossUnits() {
         HibernateRule mixed = testRule("HIB-TEST-MIXED", context -> {
             if ("partial".equals(context.unitLabel())) context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE);

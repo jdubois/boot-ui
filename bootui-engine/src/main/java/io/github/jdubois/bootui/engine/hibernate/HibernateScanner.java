@@ -44,6 +44,8 @@ public final class HibernateScanner {
     private static final String DISCOVERY_SOURCE = "discovery";
     private static final String ERROR = "ERROR";
     private static final String WARNING = "WARNING";
+    static final int MAX_DIAGNOSTICS = 200;
+    static final int MAX_COVERAGE_NOTE_UNITS = 10;
     private static final Comparator<HibernateRuleResultDto> IMPORTANCE_ORDER = Comparator.comparingInt(
                     (HibernateRuleResultDto result) -> SeverityOrder.rank(result.severity()))
             .thenComparing(Comparator.comparingInt(HibernateRuleResultDto::violationCount)
@@ -232,7 +234,15 @@ public final class HibernateScanner {
                 if (errored) {
                     failed.add(identity);
                     diagnostics.add(new HibernateDiagnosticDto(
-                            ruleId, label, ERROR, "Rule evaluation failed; no conclusion was reached for this unit."));
+                            ruleId,
+                            label,
+                            ERROR,
+                            "Rule evaluation failed; no conclusion was reached for this unit."
+                                    + (context.evidence().requiredUnknown()
+                                            ? " Required evidence also unavailable: "
+                                                    + describeGaps(
+                                                            context.evidence().gaps()) + "."
+                                            : "")));
                 } else if (unknown.contains(identity)) {
                     String gaps = describeGaps(context.evidence().gaps());
                     partialCoverage
@@ -260,17 +270,23 @@ public final class HibernateScanner {
         }
         partialCoverage.forEach((ruleId, notes) -> violations.computeIfPresent(
                 ruleId,
-                (key, result) -> result.withCoverageNote("Partially evaluated in " + String.join("; ", notes) + ".")));
+                (key, result) -> result.withCoverageNote("Partially evaluated in "
+                        + String.join("; ", notes.subList(0, Math.min(notes.size(), MAX_COVERAGE_NOTE_UNITS)))
+                        + (notes.size() > MAX_COVERAGE_NOTE_UNITS
+                                ? "; and " + (notes.size() - MAX_COVERAGE_NOTE_UNITS) + " more units (see diagnostics)"
+                                : "")
+                        + ".")));
         List<HibernateDiagnosticDto> discovery = discoveryDiagnostics(observation);
         diagnostics.addAll(0, discovery);
+        int totalDiagnostics = diagnostics.size();
         boolean incomplete = !discovery.isEmpty() || !failed.isEmpty() || !unknown.isEmpty();
         String message = "Hibernate Advisor inspected " + entities.size() + " entity mappings across "
                 + observation.units().size() + " persistence units. Attempted " + rules.size()
                 + " distinct rules (" + attempts + " unit/application evaluations); failed " + failed.size()
                 + ", skipped " + skipped + ", required evidence unavailable " + unknown.size() + ".";
-        if (!diagnostics.isEmpty())
-            message += " See diagnostics for " + diagnostics.size() + " "
-                    + (diagnostics.size() == 1 ? "entry" : "entries") + " naming each affected rule and unit.";
+        if (totalDiagnostics > 0)
+            message += " See diagnostics for " + totalDiagnostics + " " + (totalDiagnostics == 1 ? "entry" : "entries")
+                    + " naming each affected rule and unit.";
         return report(
                 incomplete ? "PARTIAL" : "SCANNED",
                 message,
@@ -279,7 +295,7 @@ public final class HibernateScanner {
                 entities.size(),
                 rules.size(),
                 List.copyOf(violations.values()),
-                List.copyOf(diagnostics),
+                bounded(diagnostics),
                 new AdvisorEvidenceDto(
                         usable,
                         !incomplete,
@@ -287,6 +303,18 @@ public final class HibernateScanner {
                                 ? List.of("Hibernate discovery, rule evaluation, or required unit observations were"
                                         + " incomplete; see the report diagnostics for each affected rule and unit.")
                                 : List.of()));
+    }
+
+    private static List<HibernateDiagnosticDto> bounded(List<HibernateDiagnosticDto> diagnostics) {
+        if (diagnostics.size() <= MAX_DIAGNOSTICS) return List.copyOf(diagnostics);
+        List<HibernateDiagnosticDto> kept = new ArrayList<>(diagnostics.subList(0, MAX_DIAGNOSTICS));
+        kept.add(new HibernateDiagnosticDto(
+                "diagnostics",
+                "application",
+                WARNING,
+                (diagnostics.size() - MAX_DIAGNOSTICS) + " further diagnostics omitted after the first "
+                        + MAX_DIAGNOSTICS + "; scan.message keeps the full counts."));
+        return List.copyOf(kept);
     }
 
     private static String describeGaps(Map<HibernateEvidenceGap, Integer> gaps) {
