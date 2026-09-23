@@ -80,12 +80,21 @@ export function trackPageView(path) {
 }
 
 function loadGoogleAnalytics() {
+  // Lifting the opt-out flag belongs to every accept, not only the first one. A reader who
+  // withdraws and then consents again keeps the already-injected tag, so gating this on the
+  // script being absent would leave the flag a withdrawal set in place and mute the rest of the
+  // page session.
+  window[`ga-disable-${GA_MEASUREMENT_ID}`] = false
+
   if (scriptLoaded) {
+    // The `config` call below reports the current page on a first accept. Nothing replays it when
+    // the tag is already loaded, so count the page the reader consented on explicitly.
+    lastTrackedPath = null
+    trackPageView(window.location.pathname)
     return
   }
 
   scriptLoaded = true
-  window[`ga-disable-${GA_MEASUREMENT_ID}`] = false
   window.dataLayer = window.dataLayer || []
   window.gtag = function gtag() {
     // gtag.js reads `arguments` verbatim, so this cannot be a rest-parameter forward.

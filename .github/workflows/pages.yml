@@ -51,6 +51,9 @@ jobs:
             exit 1
           fi
 
+      - name: Check analytics consent handling
+        run: npm run test:analytics
+
       - name: Build VuePress site
         run: npm run docs:build
         env:
