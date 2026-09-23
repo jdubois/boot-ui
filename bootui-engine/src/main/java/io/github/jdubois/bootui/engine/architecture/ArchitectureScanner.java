@@ -227,6 +227,11 @@ public final class ArchitectureScanner {
             if (errors == 0) status = "PARTIAL";
             message += " Generated-code provenance is incomplete; uncertain classes remain included.";
         }
+        int templateClasses = generatedCode.templateClasses().size();
+        if (templateClasses > 0) {
+            message += " " + templateClasses + " class(es) without local source provenance matched the OpenAPI"
+                    + " Generator ApiUtil template and were excluded from coding checks.";
+        }
 
         List<String> limitations = java.util.stream.Stream.concat(
                         unreported.stream(),

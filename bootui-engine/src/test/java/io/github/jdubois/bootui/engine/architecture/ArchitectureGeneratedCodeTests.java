@@ -14,6 +14,7 @@ import java.time.Clock;
 import java.util.List;
 import java.util.Map;
 import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -234,9 +235,12 @@ class ArchitectureGeneratedCodeTests {
             Files.copy(root.resolve("custom-output/sample/ApiUtil.class"), out);
             out.closeEntry();
         }
-        assertThat(ArchitectureGeneratedCode.resolve(new ClassFileImporter().importPath(jar))
-                        .generatedClasses())
-                .isEmpty();
+        try (var jarFile = new JarFile(jar.toFile())) {
+            var packaged = new ClassFileImporter().importJar(jarFile);
+            assertThat(packaged).hasSize(1);
+            assertThat(ArchitectureGeneratedCode.resolve(packaged).generatedClasses())
+                    .isEmpty();
+        }
     }
 
     @Test

@@ -9,6 +9,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **ARCH-CODE-002 no longer reports OpenAPI Generator's `ApiUtil` in packaged applications.** When an application
+  runs from a jar or an extracted image layout with no local source tree, classes that exactly match the OpenAPI
+  Generator Spring servlet `ApiUtil` template (Java class or Kotlin `object`, `jakarta` or `javax` servlet) are
+  excluded from the coding-practice rules, and the scan message reports how many were excluded. Any deviation from the
+  template, and any class with local source ownership, is still evaluated
+  ([#1085](https://github.com/jdubois/boot-ui/issues/1085)).
+
 - **SQL Trace no longer truncates statement durations to whole milliseconds.** Executions are timed and recorded in
   microseconds (`durationMicros` on each entry; `durationMillis` remains as a rounded compatibility field), and every
   aggregate — buffer stats, statement rankings, p50/p95/p99, shares, database time by request route, and the request

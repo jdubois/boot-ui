@@ -99,6 +99,16 @@ declarations, excluding generated trees, compiled output, the opposite source se
 prevent an exemption, as do Maven compiler-input lists that identify sources outside the module, which are rejected
 without opening those external files.
 
+When a class has no local source ownership at all, for example because the application runs from a jar, from an
+extracted `BOOT-INF/lib` image layout, or from an unsupported output layout, BootUI falls back to a single bytecode
+fingerprint: the OpenAPI Generator Spring servlet `ApiUtil` template, as a Java class (`JavaSpring`) or a Kotlin
+`object` (`kotlin-spring`), with either `jakarta.servlet` or `javax.servlet`. Every part of the shape must match: a
+top-level `ApiUtil` with no other members, one `setExampleResponse(NativeWebRequest, String, String)` method, one
+`IOException` handler wrapped in `RuntimeException`, and only the template's servlet-response calls. Any extra
+method, field, handler, generic throw, or call keeps the class eligible. A class with local source ownership never
+uses the fingerprint, so a handwritten look-alike in `src/main/java` is still reported. The scan message says how many
+classes were excluded this way. Types are compared by name, so Spring and the servlet API are never loaded.
+
 ::: details Why source lookup is needed at all
 The standard `jakarta.annotation.Generated`, `javax.annotation.Generated`, and `javax.annotation.processing.Generated`
 annotations have SOURCE retention, so they normally disappear from compiled bytecode. A same-named class-level marker
@@ -115,8 +125,9 @@ arbitrary ancestors or the process working directory, downloads sources, or runs
 violation-detail reads reuse the completed scan without reading sources again.
 :::
 
-The policy is conservative. Packaged jars, unsupported or custom output layouts, missing sources or `SourceFile`
-metadata, and ambiguous matches all retain their findings, and a SOURCE-retained annotation in a non-generated source
+The policy is conservative. Apart from the `ApiUtil` template fingerprint, classes in packaged jars, unsupported or
+custom output layouts, classes with missing sources or `SourceFile` metadata, and ambiguous matches all retain their
+findings, and a SOURCE-retained annotation in a non-generated source
 layout does not by itself exempt a class.
 
 Ownership recognition handles multiline declarations, Java Unicode escapes, and Kotlin string templates, but it is not
