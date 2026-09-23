@@ -51,6 +51,9 @@ record IndexModel(
         String backingConstraint,
         List<String> comparisonSemantics) {
 
+    /** The access methods this advisor is willing to compare as ordinary index definitions. */
+    private static final List<String> ORDINARY_METHODS = List.of("btree", "b-tree", "normal", "clustered");
+
     enum Visibility {
         VISIBLE,
         INVISIBLE,
@@ -344,7 +347,7 @@ record IndexModel(
         return comparisonComplete
                 && Boolean.TRUE.equals(uniquenessKnown)
                 && method != null
-                && List.of("btree", "b-tree", "normal", "clustered").contains(normalizedMethod())
+                && !methodKnownUnsupported()
                 && visibility != Visibility.UNKNOWN
                 && validity == Validity.VALID
                 && !partial()
@@ -354,6 +357,30 @@ record IndexModel(
                 && !hasPrefixKeyPart()
                 && !keyParts.isEmpty()
                 && keyParts.stream().allMatch(part -> part.ascending() != null);
+    }
+
+    /**
+     * True when nothing structural puts the index outside ordinary-index comparison. A partial, partitioned,
+     * special-type, expression-keyed, prefix-keyed or invalid index is never {@link #comparable()}, and
+     * {@link #sameSemanticsAs} requires both sides to be comparable, so such an index can never be proven
+     * equivalent to another. That is an intentional exclusion rather than a gap in what the catalog could
+     * report, so a rule should skip it silently rather than call its semantics unknown.
+     */
+    boolean ordinaryComparisonCandidate() {
+        return !partial()
+                && !partitioned
+                && !specialized
+                && !hasExpressionKeyPart()
+                && !hasPrefixKeyPart()
+                && !invalid();
+    }
+
+    /**
+     * True when the catalog did report an access method and it is not one this advisor compares as an
+     * ordinary index — a known fact that rules out equivalence, as opposed to an unreported method.
+     */
+    boolean methodKnownUnsupported() {
+        return method != null && !ORDINARY_METHODS.contains(normalizedMethod());
     }
 
     boolean exactDuplicateOf(IndexModel other) {

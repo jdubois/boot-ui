@@ -123,10 +123,11 @@ classification alone cannot establish coercion behavior or query-plan quality.
 **LOW.** Reviews an additional exact unique-index definition only when the actual PK backing identity and
 relevant index semantics are established. The first unique index with matching columns is not assumed to
 be the backing index. Different included columns, access semantics or ownership prevent an equivalence
-conclusion. Partial, expression, prefix and special-type unique indexes are excluded from the comparison
-rather than reported as unknown: they can never be an exact duplicate of a proven backing index. A unique
-index whose semantics really are unreadable is reported once per index, naming the datasource, table and
-index. Oracle may use a **nonunique** index to enforce a PK/unique constraint.
+conclusion. A unique index that is partial, expression- or prefix-keyed, partitioned, of a special type, of a
+known non-B-tree access method, or reported invalid is excluded from the comparison rather than reported as
+unknown: it can never be an exact duplicate of a proven backing index. A unique index whose semantics really
+are unreadable is reported once per index, naming the datasource, table and index. Oracle may use a
+**nonunique** index to enforce a PK/unique constraint.
 Review full definitions and dependencies, never drop a guessed constraint backing index.
 
 ### DB-SCHEMA-006 - Duplicate foreign key constraints

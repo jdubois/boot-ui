@@ -48,7 +48,7 @@ final class RedundantPrimaryKeyUniqueIndexRule extends AbstractDatabaseAdvisorRu
                     if (index == backing || !index.unique() || index.backingConstraint() != null || index.automatic()) {
                         continue;
                     }
-                    if (!ordinaryComparisonCandidate(index)) {
+                    if (!index.ordinaryComparisonCandidate() || index.methodKnownUnsupported()) {
                         continue;
                     }
                     if (!index.comparable()) {
@@ -68,21 +68,5 @@ final class RedundantPrimaryKeyUniqueIndexRule extends AbstractDatabaseAdvisorRu
             }
         }
         return assessed(context, eligible, details);
-    }
-
-    /**
-     * True when the index can be compared as an ordinary B-tree definition at all. A partial, expression,
-     * prefix, special-type, partitioned or invalid index is never {@link IndexModel#comparable()}, and
-     * {@link IndexModel#exactDuplicateOf} requires both sides to be comparable, so such an index can never
-     * duplicate a comparable primary-key backing index. That is an intentional exclusion rather than a gap
-     * in what the catalog could tell us, so it is skipped silently instead of reported as unknown.
-     */
-    private static boolean ordinaryComparisonCandidate(IndexModel index) {
-        return !index.partial()
-                && !index.partitioned()
-                && !index.specialized()
-                && !index.hasExpressionKeyPart()
-                && !index.hasPrefixKeyPart()
-                && !index.invalid();
     }
 }
