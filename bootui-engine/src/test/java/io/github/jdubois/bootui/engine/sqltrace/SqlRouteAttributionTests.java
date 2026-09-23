@@ -386,6 +386,24 @@ class SqlRouteAttributionTests {
     }
 
     @Test
+    void reconstructsAStartInstantFromTheExactDurationRatherThanARoundedOne() {
+        // The statement completes exactly on the earliest instant the window admits, so rounding its
+        // 400 µs duration down to zero would place its start inside a request it provably preceded.
+        SqlRouteAttributionDto attribution = SqlRouteAttribution.attribute(
+                List.of(entry("select edge")
+                        .at(1_000 - SqlRouteAttribution.WINDOW_SLACK_MS)
+                        .lastingMicros(400)
+                        .build()),
+                List.of(request("r1", "GET", "/api/orders", "/api/orders", null, 1_000, 1_100)),
+                REACTIVE,
+                RouteTemplateResolver.empty(),
+                retainedMicros(1));
+
+        assertThat(attribution.routes()).isEmpty();
+        assertThat(attribution.unattributed().executions()).isEqualTo(1);
+    }
+
+    @Test
     void labelsARequestWithADeclaredRouteTemplateWhenTheCapturePointHasNone() {
         RouteTemplateResolver templates = RouteTemplateResolver.of(List.of(
                 new io.github.jdubois.bootui.core.dto.MappingDto(

@@ -227,7 +227,7 @@ public final class SqlRouteAttribution {
      */
     private static boolean withinWindow(SqlTraceEntryDto entry, SqlRequestEvidence request) {
         long completed = entry.timestamp();
-        long started = completed - Math.max(0, entry.durationMillis());
+        long started = completed - SqlDurations.ceilMillis(entry.durationMicros());
         return started >= request.startMillis() - WINDOW_SLACK_MS && completed <= request.endMillis() + WINDOW_SLACK_MS;
     }
 

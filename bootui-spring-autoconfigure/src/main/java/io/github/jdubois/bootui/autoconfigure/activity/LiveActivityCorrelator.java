@@ -24,6 +24,7 @@ import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.sqltrace.SqlDurations;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -140,7 +141,11 @@ public class LiveActivityCorrelator {
             notes.add("Trace matched by id " + request.traceId() + ".");
         }
 
-        long sqlMs = sql.stream().mapToLong(SqlTraceEntryDto::durationMillis).sum();
+        // Summed in microseconds, the resolution SQL Trace records, and converted once: summing the rounded
+        // per-statement milliseconds would report a request that spent real database time as spending none.
+        long sqlMicros =
+                sql.stream().mapToLong(SqlTraceEntryDto::durationMicros).sum();
+        double sqlMs = SqlDurations.millis(sqlMicros);
         Double sqlPercent = (request.durationMs() != null && request.durationMs() > 0)
                 ? Math.round(10000.0 * sqlMs / request.durationMs()) / 100.0
                 : null;
