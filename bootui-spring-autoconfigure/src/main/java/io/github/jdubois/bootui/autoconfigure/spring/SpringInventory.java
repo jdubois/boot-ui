@@ -5,6 +5,7 @@ import static io.github.jdubois.bootui.autoconfigure.spring.SpringObservations.F
 import io.github.jdubois.bootui.autoconfigure.cache.CacheActivityAware;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.BeanRef;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.CacheManagerRef;
+import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.PooledExecutorRef;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringObservations.AsyncSelection;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringObservations.Fact;
 import io.github.jdubois.bootui.engine.support.KotlinReflection;
@@ -24,6 +25,7 @@ import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory;
 import org.springframework.beans.factory.support.AbstractBeanDefinition;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.annotation.Async;
@@ -180,8 +182,9 @@ final class SpringInventory {
                         isBoot(entry("applicationTaskExecutor"), "org.springframework.boot.autoconfigure.task."))
                 .executors(refs("java.util.concurrent.Executor"))
                 .dataSources(refs("javax.sql.DataSource"))
-                .pooledTaskExecutorPresent(!typed("org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor")
-                        .isEmpty())
+                .pooledTaskExecutors(typed("org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor").stream()
+                        .map(this::pooledExecutor)
+                        .toList())
                 .asyncEnabled(async)
                 .devToolsPresent(present("org.springframework.boot.devtools.restart.Restarter") != null)
                 .customAsyncConfigurerPresent(customAsyncConfigurer())
@@ -218,6 +221,46 @@ final class SpringInventory {
             facts.put(OVERRIDING, listable.isAllowBeanDefinitionOverriding());
         if (factory instanceof AbstractAutowireCapableBeanFactory capable)
             facts.put(CIRCULAR, capable.isAllowCircularReferences());
+    }
+
+    /**
+     * Attributes a pool to the class that declares its definition. A {@code @Bean} method inherited from a
+     * Spring configuration class (for example {@code AbstractMessageBrokerConfiguration}'s STOMP channel
+     * executors, even through an application subclass) is framework-owned; an application override is not.
+     * Unresolvable declarations are attributed to the application so they are still reported.
+     */
+    private PooledExecutorRef pooledExecutor(Entry entry) {
+        String declaring = null;
+        try {
+            declaring = declaringClass(entry);
+        } catch (RuntimeException | LinkageError ex) {
+            partial();
+        }
+        if (declaring == null && entry.method() != null) declaring = entry.factory();
+        boolean framework = declaring != null && declaring.startsWith("org.springframework.");
+        return new PooledExecutorRef(entry.name(), declaring, framework);
+    }
+
+    private String declaringClass(Entry entry) {
+        if (!factory.containsBeanDefinition(entry.name())) return null;
+        BeanDefinition definition = factory.getMergedBeanDefinition(entry.name());
+        if (definition instanceof RootBeanDefinition root && root.getResolvedFactoryMethod() != null)
+            return root.getResolvedFactoryMethod().getDeclaringClass().getName();
+        String method = definition.getFactoryMethodName();
+        if (method == null) return null; // registered bean class: its declaring configuration is unknown
+        Class<?> owner = null;
+        if (definition.getFactoryBeanName() != null) owner = factory.getType(definition.getFactoryBeanName(), false);
+        else if (definition instanceof AbstractBeanDefinition abd && abd.hasBeanClass()) owner = abd.getBeanClass();
+        else if (definition.getBeanClassName() != null)
+            owner = ClassUtils.resolveClassName(definition.getBeanClassName(), factory.getBeanClassLoader());
+        if (owner == null) return null;
+        for (Class<?> type = ClassUtils.getUserClass(owner); type != null; type = type.getSuperclass()) {
+            Method[] methods = type.getDeclaredMethods();
+            if (!budget(methods.length)) return null;
+            for (Method candidate : methods)
+                if (candidate.getName().equals(method) && !candidate.isBridge()) return type.getName();
+        }
+        return null;
     }
 
     private CacheManagerRef cacheManager(Entry entry) {

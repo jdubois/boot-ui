@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import app.advisoraudit.ApplicationFixtures;
 import com.zaxxer.hikari.HikariDataSource;
+import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.PooledExecutorRef;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringObservations.AsyncSelection;
 import java.time.Clock;
 import java.util.Map;
@@ -20,6 +21,7 @@ import org.springframework.boot.http.codec.CodecCustomizer;
 import org.springframework.boot.http.codec.autoconfigure.CodecsAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.context.runner.ReactiveWebApplicationContextRunner;
+import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.scheduling.annotation.AsyncConfigurer;
@@ -274,6 +276,60 @@ class SpringInventoryTests {
                                 .isEqualTo(capacity == Integer.MAX_VALUE ? "VIOLATION" : "PASS");
                     });
         }
+    }
+
+    @Test
+    void stompChannelExecutorsAreFrameworkOwnedAndApplicationPoolsAreNamed() {
+        var web = new WebApplicationContextRunner()
+                .withPropertyValues("spring.threads.virtual.enabled=true")
+                .withUserConfiguration(ApplicationFixtures.StompConfiguration.class);
+        web.run(context -> {
+            SpringContext snapshot =
+                    SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+            assertThat(snapshot.pooledTaskExecutors())
+                    .extracting(PooledExecutorRef::name)
+                    .contains("clientInboundChannelExecutor", "clientOutboundChannelExecutor", "brokerChannelExecutor");
+            assertThat(snapshot.pooledTaskExecutors()).allSatisfy(pool -> {
+                assertThat(pool.frameworkOwned()).isTrue();
+                assertThat(pool.declaringClass())
+                        .isEqualTo("org.springframework.messaging.simp.config.AbstractMessageBrokerConfiguration");
+            });
+            assertThat(new VirtualThreadsOverriddenByPoolRule()
+                            .evaluate(snapshot)
+                            .status())
+                    .isEqualTo("PASS");
+        });
+        web.withUserConfiguration(ApplicationFixtures.ReportPoolConfiguration.class)
+                .run(context -> {
+                    var result = new VirtualThreadsOverriddenByPoolRule()
+                            .evaluate(SpringInventory.discover(
+                                    context.getBeanFactory(), context.getEnvironment(), false));
+                    assertThat(result.status()).isEqualTo("VIOLATION");
+                    assertThat(result.sampleViolations())
+                            .singleElement()
+                            .asString()
+                            .startsWith("ThreadPoolTaskExecutor bean 'reportPool' declared by "
+                                    + ApplicationFixtures.ReportPoolConfiguration.class.getName());
+                });
+        new WebApplicationContextRunner()
+                .withPropertyValues("spring.threads.virtual.enabled=true")
+                .withUserConfiguration(ApplicationFixtures.OverridingBrokerConfiguration.class)
+                .run(context -> {
+                    var pools = SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false)
+                            .pooledTaskExecutors();
+                    assertThat(pools)
+                            .filteredOn(pool -> !pool.frameworkOwned())
+                            .singleElement()
+                            .satisfies(pool -> {
+                                assertThat(pool.name()).isEqualTo("clientInboundChannelExecutor");
+                                assertThat(pool.declaringClass())
+                                        .isEqualTo(ApplicationFixtures.OverridingBrokerConfiguration.class.getName());
+                            });
+                    assertThat(pools)
+                            .filteredOn(PooledExecutorRef::frameworkOwned)
+                            .extracting(PooledExecutorRef::name)
+                            .contains("clientOutboundChannelExecutor", "brokerChannelExecutor");
+                });
     }
 
     @Test
