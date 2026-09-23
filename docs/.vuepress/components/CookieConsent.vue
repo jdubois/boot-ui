@@ -1,6 +1,6 @@
 <script setup>
 import {onMounted, onUnmounted, ref} from 'vue'
-import {applyConsent, onConsentChange, readConsent, setConsent} from '../analytics.js'
+import {applyConsent, onConsentChange, readConsent, setConsent, watchOtherTabs} from '../analytics.js'
 
 const visible = ref(false)
 
@@ -17,6 +17,10 @@ onUnmounted(
     visible.value = consent === null
   })
 )
+
+// The banner is the one component always on the page, so it owns the listener that keeps this tab
+// in step with a choice made in another one.
+onUnmounted(watchOtherTabs())
 
 function accept() {
   setConsent('granted')

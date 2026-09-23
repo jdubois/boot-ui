@@ -31,14 +31,16 @@ documentation pages are actually read.
   time, as easily as you gave it, using the controls below.
 
 Your answer to the banner is remembered in your browser's `localStorage` under `bootui-analytics-consent`. That entry
-is strictly necessary to honour your choice, is never sent anywhere, and is not used to identify you.
+is strictly necessary to honour your choice, is never sent anywhere, and is not used to identify you. If your browser
+refuses that storage, your answer is kept in memory for the current visit only and you are asked again next time.
 
 ## Change your choice
 
 <CookieSettings />
 
 Refusing here also deletes any Google Analytics cookies already present in this browser and stops further measurement
-immediately. You can additionally remove the site's data through your browser settings, or install Google's
+immediately. Accepting again resumes measurement straight away, without reloading the page. You can additionally
+remove the site's data through your browser settings, or install Google's
 [opt-out browser add-on](https://tools.google.com/dlpage/gaoptout).
 
 ## Hosting
