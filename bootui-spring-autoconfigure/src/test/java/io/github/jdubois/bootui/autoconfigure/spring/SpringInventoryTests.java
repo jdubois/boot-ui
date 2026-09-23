@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import app.advisoraudit.ApplicationFixtures;
 import com.zaxxer.hikari.HikariDataSource;
+import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.PooledExecutorRef;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringObservations.AsyncSelection;
 import java.time.Clock;
 import java.util.Map;
@@ -20,6 +21,7 @@ import org.springframework.boot.http.codec.CodecCustomizer;
 import org.springframework.boot.http.codec.autoconfigure.CodecsAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.context.runner.ReactiveWebApplicationContextRunner;
+import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.scheduling.annotation.AsyncConfigurer;
@@ -274,6 +276,222 @@ class SpringInventoryTests {
                                 .isEqualTo(capacity == Integer.MAX_VALUE ? "VIOLATION" : "PASS");
                     });
         }
+    }
+
+    @Test
+    void stompChannelExecutorsAreFrameworkOwnedAndApplicationPoolsAreNamed() {
+        var web = new WebApplicationContextRunner()
+                .withPropertyValues("spring.threads.virtual.enabled=true")
+                .withUserConfiguration(ApplicationFixtures.StompConfiguration.class);
+        web.run(context -> {
+            SpringContext snapshot =
+                    SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+            assertThat(snapshot.pooledTaskExecutors())
+                    .extracting(PooledExecutorRef::name)
+                    .contains("clientInboundChannelExecutor", "clientOutboundChannelExecutor", "brokerChannelExecutor");
+            assertThat(snapshot.pooledTaskExecutors()).allSatisfy(pool -> {
+                assertThat(pool.frameworkOwned()).isTrue();
+                assertThat(pool.declaringClass())
+                        .isEqualTo("org.springframework.messaging.simp.config.AbstractMessageBrokerConfiguration");
+            });
+            assertThat(new VirtualThreadsOverriddenByPoolRule()
+                            .evaluate(snapshot)
+                            .status())
+                    .isEqualTo("PASS");
+        });
+        web.withUserConfiguration(ApplicationFixtures.ReportPoolConfiguration.class)
+                .run(context -> {
+                    var result = new VirtualThreadsOverriddenByPoolRule()
+                            .evaluate(SpringInventory.discover(
+                                    context.getBeanFactory(), context.getEnvironment(), false));
+                    // Discovery only reports virtual-thread support on Java 21+, and CI also runs Java 17.
+                    if (Runtime.version().feature() < 21) {
+                        assertThat(result.status()).isEqualTo("PASS");
+                        return;
+                    }
+                    assertThat(result.status()).isEqualTo("VIOLATION");
+                    assertThat(result.sampleViolations())
+                            .singleElement()
+                            .asString()
+                            .startsWith("ThreadPoolTaskExecutor bean 'reportPool' declared by "
+                                    + ApplicationFixtures.ReportPoolConfiguration.class.getName());
+                });
+        new WebApplicationContextRunner()
+                .withPropertyValues("spring.threads.virtual.enabled=true")
+                .withUserConfiguration(ApplicationFixtures.OverridingBrokerConfiguration.class)
+                .run(context -> {
+                    var pools = SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false)
+                            .pooledTaskExecutors();
+                    assertThat(pools)
+                            .filteredOn(pool -> !pool.frameworkOwned())
+                            .singleElement()
+                            .satisfies(pool -> {
+                                assertThat(pool.name()).isEqualTo("clientInboundChannelExecutor");
+                                assertThat(pool.declaringClass())
+                                        .isEqualTo(ApplicationFixtures.OverridingBrokerConfiguration.class.getName());
+                            });
+                    assertThat(pools)
+                            .filteredOn(PooledExecutorRef::frameworkOwned)
+                            .extracting(PooledExecutorRef::name)
+                            .contains("clientOutboundChannelExecutor", "brokerChannelExecutor");
+                });
+    }
+
+    @Test
+    void sameNamedApplicationOverloadDoesNotClaimInheritedFrameworkFactoryMethod() {
+        // Incompatible overload is ignored; a compatible one leaves the declaration unresolved and still reported.
+        for (var owner : java.util.List.of(
+                ApplicationFixtures.UnrelatedOverloadBrokerConfiguration.class,
+                ApplicationFixtures.OverloadingBrokerConfiguration.class)) {
+            DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+            factory.registerBeanDefinition("broker", new RootBeanDefinition(owner));
+            RootBeanDefinition pool = new RootBeanDefinition();
+            pool.setFactoryBeanName("broker");
+            pool.setFactoryMethodName("clientOutboundChannelExecutor");
+            pool.setTargetType(ThreadPoolTaskExecutor.class);
+            pool.setLazyInit(true);
+            factory.registerBeanDefinition("clientOutboundChannelExecutor", pool);
+            var pools = SpringInventory.discover(
+                            factory,
+                            new MockEnvironment().withProperty("spring.threads.virtual.enabled", "true"),
+                            false)
+                    .pooledTaskExecutors();
+            assertThat(factory.getSingletonNames()).isEmpty();
+            boolean unrelated = owner == ApplicationFixtures.UnrelatedOverloadBrokerConfiguration.class;
+            assertThat(pools).singleElement().satisfies(ref -> {
+                assertThat(ref.declaringClass())
+                        .isEqualTo(
+                                unrelated
+                                        ? "org.springframework.messaging.simp.config.AbstractMessageBrokerConfiguration"
+                                        : null);
+                assertThat(ref.frameworkOwned()).isEqualTo(unrelated);
+            });
+        }
+    }
+
+    @Test
+    void beanMethodMetadataResolvesOverloadsAndCovariantOverridesWinOverFrameworkMethods() throws Exception {
+        var metadata = new org.springframework.core.type.classreading.SimpleMetadataReaderFactory()
+                        .getMetadataReader(
+                                "org.springframework.messaging.simp.config.AbstractMessageBrokerConfiguration")
+                        .getAnnotationMetadata()
+                        .getAnnotatedMethods(org.springframework.context.annotation.Bean.class.getName())
+                        .stream()
+                        .filter(method -> method.getMethodName().equals("clientOutboundChannelExecutor"))
+                        .findFirst()
+                        .orElseThrow();
+        for (var owner : java.util.List.of(
+                ApplicationFixtures.OverloadingBrokerConfiguration.class,
+                ApplicationFixtures.CovariantBrokerConfiguration.class)) {
+            DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+            factory.registerBeanDefinition("broker", new RootBeanDefinition(owner));
+            var pool = new ConfigurationBeanMethodDefinition(metadata);
+            pool.setFactoryBeanName("broker");
+            pool.setFactoryMethodName("clientOutboundChannelExecutor");
+            pool.setTargetType(ThreadPoolTaskExecutor.class);
+            pool.setLazyInit(true);
+            factory.registerBeanDefinition("clientOutboundChannelExecutor", pool);
+            var pools = SpringInventory.discover(factory, new MockEnvironment(), false)
+                    .pooledTaskExecutors();
+            assertThat(factory.getSingletonNames()).isEmpty();
+            boolean covariant = owner == ApplicationFixtures.CovariantBrokerConfiguration.class;
+            assertThat(pools).singleElement().satisfies(ref -> {
+                assertThat(ref.declaringClass())
+                        .isEqualTo(
+                                covariant
+                                        ? owner.getName()
+                                        : "org.springframework.messaging.simp.config.AbstractMessageBrokerConfiguration");
+                assertThat(ref.frameworkOwned()).isEqualTo(!covariant);
+            });
+        }
+    }
+
+    @Test
+    void overrideOfComposedBeanMethodIsAttributedToTheOverridingClass() throws Exception {
+        var metadata = new org.springframework.core.type.classreading.SimpleMetadataReaderFactory()
+                        .getMetadataReader(ApplicationFixtures.ComposedBeanBase.class.getName())
+                        .getAnnotationMetadata()
+                        .getAnnotatedMethods(org.springframework.context.annotation.Bean.class.getName())
+                        .stream()
+                        .filter(method -> method.getMethodName().equals("pool"))
+                        .findFirst()
+                        .orElseThrow();
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        factory.registerBeanDefinition("owner", new RootBeanDefinition(ApplicationFixtures.ComposedBeanOverride.class));
+        var pool = new ConfigurationBeanMethodDefinition(metadata);
+        pool.setFactoryBeanName("owner");
+        pool.setFactoryMethodName("pool");
+        pool.setTargetType(ThreadPoolTaskExecutor.class);
+        pool.setLazyInit(true);
+        factory.registerBeanDefinition("pool", pool);
+        assertThat(SpringInventory.discover(factory, new MockEnvironment(), false)
+                        .pooledTaskExecutors())
+                .singleElement()
+                .extracting(PooledExecutorRef::declaringClass)
+                .isEqualTo(ApplicationFixtures.ComposedBeanOverride.class.getName());
+        assertThat(factory.getSingletonNames()).isEmpty();
+    }
+
+    /** Mirrors Framework's package-private ConfigurationClassBeanDefinition before its method is resolved. */
+    static final class ConfigurationBeanMethodDefinition extends RootBeanDefinition
+            implements org.springframework.beans.factory.annotation.AnnotatedBeanDefinition {
+        private final org.springframework.core.type.MethodMetadata method;
+
+        ConfigurationBeanMethodDefinition(org.springframework.core.type.MethodMetadata method) {
+            this.method = method;
+        }
+
+        private ConfigurationBeanMethodDefinition(ConfigurationBeanMethodDefinition original) {
+            super(original);
+            this.method = original.method;
+        }
+
+        @Override
+        public org.springframework.core.type.AnnotationMetadata getMetadata() {
+            return org.springframework.core.type.AnnotationMetadata.introspect(Object.class);
+        }
+
+        @Override
+        public org.springframework.core.type.MethodMetadata getFactoryMethodMetadata() {
+            return method;
+        }
+
+        @Override
+        public ConfigurationBeanMethodDefinition cloneBeanDefinition() {
+            return new ConfigurationBeanMethodDefinition(this);
+        }
+    }
+
+    @Test
+    void scannedConfigurationsStaticBeansAndComponentsAreAttributedWithoutDiscoveryCreatingBeans() {
+        // Parse configuration without refreshing, so every pool is an unresolved, ASM-read definition.
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        factory.registerBeanDefinition("scan", new RootBeanDefinition(ApplicationFixtures.ScanConfiguration.class));
+        new org.springframework.context.annotation.ConfigurationClassPostProcessor()
+                .postProcessBeanDefinitionRegistry(factory);
+        for (String name : new String[] {"clientInboundChannelExecutor", "staticPool"})
+            assertThat(((RootBeanDefinition) factory.getMergedBeanDefinition(name)).getResolvedFactoryMethod())
+                    .isNull();
+        var before = java.util.Set.of(factory.getSingletonNames());
+        var pools =
+                SpringInventory.discover(factory, new MockEnvironment(), false).pooledTaskExecutors();
+        assertThat(factory.getSingletonNames()).containsExactlyInAnyOrderElementsOf(before);
+        // Unresolved inherited STOMP executors are typed by their declared Executor return and are not pools here.
+        assertThat(pools)
+                .extracting(PooledExecutorRef::name)
+                .containsExactlyInAnyOrder("clientInboundChannelExecutor", "staticPool", "scannedPool");
+        var byName = pools.stream().collect(java.util.stream.Collectors.toMap(PooledExecutorRef::name, pool -> pool));
+        String scanned = "app.advisoraudit.scanned.";
+        assertThat(byName.get("clientInboundChannelExecutor").declaringClass())
+                .isEqualTo(scanned + "ScannedBrokerConfiguration");
+        assertThat(byName.get("clientInboundChannelExecutor").frameworkOwned()).isFalse();
+        assertThat(byName.get("staticPool").declaringClass()).isEqualTo(scanned + "ScannedPoolConfiguration");
+        assertThat(byName.get("staticPool").frameworkOwned()).isFalse();
+        assertThat(byName.get("scannedPool")).satisfies(pool -> {
+            assertThat(pool.declaringClass()).isNull();
+            assertThat(pool.beanClass()).isEqualTo(scanned + "ScannedPool");
+            assertThat(pool.frameworkOwned()).isFalse();
+        });
     }
 
     @Test

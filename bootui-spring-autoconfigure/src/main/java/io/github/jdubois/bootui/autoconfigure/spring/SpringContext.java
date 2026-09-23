@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.spring;
 
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.BeanRef;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.CacheManagerRef;
+import io.github.jdubois.bootui.autoconfigure.spring.SpringModel.PooledExecutorRef;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import java.time.Duration;
 import java.util.List;
@@ -22,7 +23,7 @@ record SpringContext(
         boolean bootApplicationTaskExecutorPresent,
         List<BeanRef> executors,
         List<BeanRef> dataSources,
-        boolean pooledTaskExecutorPresent,
+        List<PooledExecutorRef> pooledTaskExecutors,
         boolean asyncEnabled,
         boolean devToolsPresent,
         boolean customAsyncConfigurerPresent,
@@ -53,7 +54,7 @@ record SpringContext(
             boolean bootApplicationTaskExecutorPresent,
             List<BeanRef> executors,
             List<BeanRef> dataSources,
-            boolean pooledTaskExecutorPresent,
+            List<PooledExecutorRef> pooledTaskExecutors,
             boolean asyncEnabled,
             boolean devToolsPresent,
             boolean customAsyncConfigurerPresent,
@@ -82,7 +83,7 @@ record SpringContext(
                 bootApplicationTaskExecutorPresent,
                 executors,
                 dataSources,
-                pooledTaskExecutorPresent,
+                pooledTaskExecutors,
                 asyncEnabled,
                 devToolsPresent,
                 customAsyncConfigurerPresent,
@@ -115,7 +116,7 @@ record SpringContext(
                 bootApplicationTaskExecutorPresent,
                 executors,
                 dataSources,
-                pooledTaskExecutorPresent,
+                pooledTaskExecutors,
                 asyncEnabled,
                 devToolsPresent,
                 customAsyncConfigurerPresent,
@@ -143,6 +144,7 @@ record SpringContext(
         taskExecutors = List.copyOf(taskExecutors);
         executors = List.copyOf(executors);
         dataSources = List.copyOf(dataSources);
+        pooledTaskExecutors = List.copyOf(pooledTaskExecutors);
         transactionManagers = List.copyOf(transactionManagers);
         restTemplates = List.copyOf(restTemplates);
         cacheManagers = List.copyOf(cacheManagers);
@@ -289,7 +291,7 @@ record SpringContext(
         private boolean bootApplicationTaskExecutorPresent;
         private List<BeanRef> executors = List.of();
         private List<BeanRef> dataSources = List.of();
-        private boolean pooledTaskExecutorPresent;
+        private List<PooledExecutorRef> pooledTaskExecutors = List.of();
         private boolean asyncEnabled;
         private boolean devToolsPresent;
         private boolean customAsyncConfigurerPresent;
@@ -354,8 +356,8 @@ record SpringContext(
             return this;
         }
 
-        Builder pooledTaskExecutorPresent(boolean value) {
-            this.pooledTaskExecutorPresent = value;
+        Builder pooledTaskExecutors(List<PooledExecutorRef> value) {
+            this.pooledTaskExecutors = value;
             return this;
         }
 
@@ -464,7 +466,7 @@ record SpringContext(
                     bootApplicationTaskExecutorPresent,
                     executors,
                     dataSources,
-                    pooledTaskExecutorPresent,
+                    pooledTaskExecutors,
                     asyncEnabled,
                     devToolsPresent,
                     customAsyncConfigurerPresent,
