@@ -350,6 +350,19 @@ class HibernateSchemaBridgeTests {
     }
 
     @Test
+    void theTargetIdentifierColumnIsReportedOnlyWhenItIsEstablished() {
+        MappedEntityFacts facts = factsFor(IdentifierTargets.class);
+
+        assertThat(foreignKey(facts, "#implicit").targetIdentifierColumn()).isEqualTo("id");
+        assertThat(foreignKey(facts, "#explicit").targetIdentifierColumn()).isEqualTo("customer_key");
+        assertThat(foreignKey(facts, "#camelCase").targetIdentifierColumn()).isNull();
+        assertThat(foreignKey(facts, "#embedded").targetIdentifierColumn()).isNull();
+        assertThat(foreignKey(facts, "#derived").targetIdentifierColumn()).isNull();
+        assertThat(foreignKey(factsFor(Order.class), "#invoice").targetIdentifierColumn())
+                .isNull();
+    }
+
+    @Test
     void anExplicitNoConstraintMappingIsNotExpectedToHaveAPhysicalForeignKey() {
         assertThat(foreignKey(factsFor(Order.class), "#warehouse").constraintExpected())
                 .isFalse();
@@ -469,6 +482,70 @@ class HibernateSchemaBridgeTests {
         @OneToMany
         @JoinColumn(name = "order_id")
         Set<Customer> lines;
+    }
+
+    @Entity
+    @Table(name = "identifier_targets")
+    static class IdentifierTargets {
+        @Id
+        Long id;
+
+        @ManyToOne
+        @JoinColumn(name = "implicit_id")
+        Customer implicit;
+
+        @ManyToOne
+        @JoinColumn(name = "explicit_id")
+        ExplicitIdentifier explicit;
+
+        @ManyToOne
+        @JoinColumn(name = "camel_id")
+        CamelCaseIdentifier camelCase;
+
+        @ManyToOne
+        @JoinColumn(name = "embedded_id")
+        EmbeddedIdentifier embedded;
+
+        @ManyToOne
+        @JoinColumn(name = "derived_id")
+        DerivedIdentifier derived;
+    }
+
+    @Entity
+    @Table(name = "explicit_identifier")
+    static class ExplicitIdentifier {
+        @Id
+        @Column(name = "customer_key")
+        Long id;
+    }
+
+    @Entity
+    @Table(name = "camel_case_identifier")
+    static class CamelCaseIdentifier {
+        @Id
+        Long customerId;
+    }
+
+    @jakarta.persistence.Embeddable
+    static class IdentifierKey {
+        Long tenant;
+        Long number;
+    }
+
+    @Entity
+    @Table(name = "embedded_identifier")
+    static class EmbeddedIdentifier {
+        @jakarta.persistence.EmbeddedId
+        IdentifierKey key;
+    }
+
+    @Entity
+    @Table(name = "derived_identifier")
+    static class DerivedIdentifier {
+        @Id
+        @OneToOne
+        @JoinColumn(name = "customer_id")
+        Customer customer;
     }
 
     @Entity

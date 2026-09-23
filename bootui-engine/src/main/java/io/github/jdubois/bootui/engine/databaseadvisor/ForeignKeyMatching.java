@@ -35,9 +35,16 @@ final class ForeignKeyMatching {
         if (!mapped.targetTableResolved()
                 || mapped.columns().isEmpty()
                 || mapped.referencedColumns().size() != mapped.columns().size()
-                || mapped.columns().stream().anyMatch(ForeignKeyMatching::blank)
-                || mapped.referencedColumns().stream().anyMatch(ForeignKeyMatching::blank)) {
+                || mapped.columns().stream().anyMatch(ForeignKeyMatching::blank)) {
             return unknown(null, "The declaration does not establish complete child-to-parent column pairing.");
+        }
+        boolean defaultedParent = mapped.referencedColumns().stream().anyMatch(ForeignKeyMatching::blank);
+        if (defaultedParent
+                && (mapped.columns().size() != 1
+                        || !mapped.referencedColumns().stream().allMatch(ForeignKeyMatching::blank))) {
+            return unknown(
+                    null,
+                    "The composite declaration leaves a referenced column unspecified; pairing is not established.");
         }
         MappedTableResolution targetResolution = MappedTableResolution.resolveDeclared(
                 context, mapped.targetCatalog(), mapped.targetSchema(), mapped.targetTableName());
@@ -57,16 +64,40 @@ final class ForeignKeyMatching {
             return unknown(
                     null, "Physical foreign-key coverage is not established for views or unknown relation kinds.");
         }
+        // Jakarta Persistence 3.2 §11.1.21: an omitted referencedColumnName on a single join column defaults to
+        // the referenced entity's identifier column, which must also be the target's single observed physical
+        // primary-key column before a physical constraint can be attributed to it.
+        ColumnModel defaultParent = null;
+        if (defaultedParent) {
+            if (!target.metadata().primaryKeyRead()
+                    || target.primaryKeyColumns().size() != 1
+                    || (defaultParent = target.column(target.primaryKeyColumns().get(0))) == null) {
+                return unknown(
+                        null,
+                        "The declaration relies on the default referenced column, but the target's primary key "
+                                + "is not a single observed column.");
+            }
+            String identifier = mapped.targetIdentifierColumn();
+            ColumnModel mappedIdentifier = blank(identifier) || !sourceSchema.declarationCaseKnown(identifier)
+                    ? null
+                    : sourceSchema.declaredColumn(target, identifier);
+            if (mappedIdentifier == null || !mappedIdentifier.name().equals(defaultParent.name())) {
+                return unknown(
+                        null,
+                        "The declaration relies on the default referenced column, but the target entity's "
+                                + "identifier column is not established as its observed primary-key column.");
+            }
+        }
         List<String> childColumns = new ArrayList<>();
         List<String> parentColumns = new ArrayList<>();
         for (int i = 0; i < mapped.columns().size(); i++) {
             String child = mapped.columns().get(i);
-            String parent = mapped.referencedColumns().get(i);
+            String parent = defaultedParent ? null : mapped.referencedColumns().get(i);
             if (!sourceSchema.declarationCaseKnown(child, parent)) {
                 return unknown(null, "Identifier folding for a declared join column is unknown.");
             }
             ColumnModel actualChild = sourceSchema.declaredColumn(source, child);
-            ColumnModel actualParent = sourceSchema.declaredColumn(target, parent);
+            ColumnModel actualParent = defaultedParent ? defaultParent : sourceSchema.declaredColumn(target, parent);
             if (actualChild == null || actualParent == null) {
                 return unknown(null, "A declared join column was not uniquely observed on its resolved relation.");
             }
@@ -78,6 +109,7 @@ final class ForeignKeyMatching {
             return unknown(null, "The declared join repeats a child or parent column; pairing is not established.");
         }
         boolean incompleteCandidate = false;
+        boolean defaultedParentMismatch = false;
         ForeignKeyModel observed = null;
         for (ForeignKeyModel physical : source.foreignKeys()) {
             if (!sameColumnSet(physical.columns(), childColumns)) {
@@ -103,6 +135,9 @@ final class ForeignKeyMatching {
                         && Objects.equals(physical.referencedColumns().get(position), parentColumns.get(i));
             }
             if (!pairsMatch) {
+                // The pairing is corroborated against the mapped @Id, yet a constraint pairing the child with
+                // another parent column still does not prove the defaulted relationship is absent.
+                defaultedParentMismatch |= defaultedParent;
                 continue;
             }
             if (Boolean.TRUE.equals(physical.enforced())) {
@@ -116,6 +151,12 @@ final class ForeignKeyMatching {
                     Boolean.FALSE.equals(observed.enforced())
                             ? "A matching physical foreign-key definition is reported disabled/not enforced."
                             : "A matching physical foreign-key definition is observed, but enforcement is unknown.");
+        }
+        if (defaultedParentMismatch) {
+            return unknown(
+                    null,
+                    "A foreign key on the join column references a non-primary-key target column, "
+                            + "but the declaration relies on the default referenced column.");
         }
         if (!source.metadata().foreignKeysRead() || incompleteCandidate) {
             return unknown(

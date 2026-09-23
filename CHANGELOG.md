@@ -39,6 +39,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   compared, and other ambiguous mappings on non-character columns are now skipped quietly
   ([#1090](https://github.com/jdubois/boot-ui/issues/1090)).
 
+- **DB-HIB-007 assesses `@JoinColumn`s that omit `referencedColumnName`.** An ordinary `@ManyToOne`/`@OneToOne`
+  single join column is now paired with the Jakarta Persistence default, the target entity's `@Id` column, when that
+  column is also the target table's observed single-column primary key. Previously these mappings were reported as
+  unknown, which left the rule with no applicable targets. Composite joins with an omitted referenced column, `@Id`
+  columns that cannot be established without guessing a naming strategy, and constraints that reference a
+  non-primary-key column remain unknown ([#1088](https://github.com/jdubois/boot-ui/issues/1088)).
+
 ## [1.18.0] - 2026-09-21
 
 Feature release adding PostgreSQL and MySQL operational diagnostics across Spring MVC, Spring WebFlux, and Quarkus,
