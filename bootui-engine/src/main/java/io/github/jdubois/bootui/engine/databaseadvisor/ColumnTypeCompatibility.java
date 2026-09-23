@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 import java.sql.Types;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Compares a foreign-key column against the column it actually references, beyond a coarse type family: an
@@ -29,11 +30,20 @@ final class ColumnTypeCompatibility {
 
     private ColumnTypeCompatibility() {}
 
+    /**
+     * Whether {@link #mismatch} can give a complete answer for this pair. Identical declarations and fixed-width
+     * UUID pairs are always complete; other date/time, boolean and vendor pairs stay unknown because precision,
+     * {@code date} vs {@code timestamp}, or {@code BIT(n)} width may still differ in ways not modeled here.
+     */
     static boolean comparable(ColumnModel child, ColumnModel parent) {
         if (child == null || parent == null || JdbcTypeFamily.of(child) != JdbcTypeFamily.of(parent)) {
             return false;
         }
+        if (identicalDeclarations(child, parent)) {
+            return true;
+        }
         return switch (JdbcTypeFamily.of(child)) {
+            case UUID -> true;
             case NUMERIC ->
                 (integerRank(child) != null && integerRank(parent) != null)
                         || (isDecimal(child)
@@ -48,6 +58,19 @@ final class ColumnTypeCompatibility {
                 child.size() != null && parent.size() != null && child.size() > 0 && parent.size() > 0;
             default -> false;
         };
+    }
+
+    /**
+     * Two identical declarations cannot narrow one another, so the comparison is complete even
+     * for a family {@link #mismatch} has no width rules for.
+     */
+    private static boolean identicalDeclarations(ColumnModel child, ColumnModel parent) {
+        return child.typeName() != null
+                && parent.typeName() != null
+                && child.typeName().trim().equalsIgnoreCase(parent.typeName().trim())
+                && child.jdbcType() == parent.jdbcType()
+                && Objects.equals(child.size(), parent.size())
+                && Objects.equals(child.decimalDigits(), parent.decimalDigits());
     }
 
     /**

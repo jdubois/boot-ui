@@ -292,6 +292,50 @@ class DatabaseAdvisorSchemaRulesTests {
     }
 
     @Test
+    void uuidForeignKeyIsFullyComparedWithoutAnUnknown() {
+        TableModel parent = table(
+                "parent",
+                List.of(column("id", "uuid", Types.OTHER, Integer.MAX_VALUE)),
+                List.of("id"),
+                List.of(),
+                List.of());
+        TableModel child = table(
+                "child",
+                List.of(column("a", "uuid", Types.OTHER, Integer.MAX_VALUE)),
+                List.of(),
+                List.of(fk("fk", List.of("a"), List.of("id"), 0)),
+                List.of());
+        DatabaseAdvisorContext context = context(schema("ds", Dialect.POSTGRESQL, List.of(parent, child)));
+        assertThat(new ForeignKeyTypeMismatchRule().evaluate(context).status()).isEqualTo("PASS");
+        assertThat(context.evaluationDiagnostics()).isEmpty();
+        assertThat(ColumnTypeCompatibility.comparable(
+                        column("a", "uniqueidentifier", Types.CHAR, 36),
+                        column("b", "uniqueidentifier", Types.CHAR, 36)))
+                .isTrue();
+    }
+
+    @Test
+    void onlyIdenticalDeclarationsMakeUnmodeledFamiliesComparable() {
+        assertThat(ColumnTypeCompatibility.comparable(
+                        column("a", "timestamp", Types.TIMESTAMP, 29), column("b", "TIMESTAMP", Types.TIMESTAMP, 29)))
+                .isTrue();
+        assertThat(ColumnTypeCompatibility.comparable(
+                        column("a", "date", Types.DATE, 13), column("b", "timestamp", Types.TIMESTAMP, 29)))
+                .isFalse();
+        assertThat(ColumnTypeCompatibility.comparable(
+                        column("a", "timestamp", Types.TIMESTAMP, 23), column("b", "timestamp", Types.TIMESTAMP, 29)))
+                .isFalse();
+        assertThat(ColumnTypeCompatibility.comparable(
+                        column("a", "citext", Types.OTHER, Integer.MAX_VALUE),
+                        column("b", "citext", Types.OTHER, Integer.MAX_VALUE)))
+                .isTrue();
+        assertThat(ColumnTypeCompatibility.comparable(
+                        column("a", "citext", Types.OTHER, Integer.MAX_VALUE),
+                        column("b", "hstore", Types.OTHER, Integer.MAX_VALUE)))
+                .isFalse();
+    }
+
+    @Test
     void decimalContainmentConsidersBothIntegerAndFractionalCapacity() {
         assertThat(ColumnTypeCompatibility.mismatch(decimal(12, 4), decimal(10, 2)))
                 .isNull();
