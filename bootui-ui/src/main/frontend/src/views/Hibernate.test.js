@@ -87,6 +87,43 @@ describe('Hibernate', () => {
     }
   )
 
+  it('lists scan diagnostics on demand and shows a partial rule coverage note', async () => {
+    const partial = ruleResult('HIB-QUERY-006', 'Partly evaluated query rule', 'MEDIUM', 'VIOLATION', 8)
+    partial.coverageNote = 'Partially evaluated in [default]: 3 repository query method(s) outside the readable shape.'
+    const report = advisorReport([partial])
+    report.scan.status = 'PARTIAL'
+    report.diagnostics = [
+      {
+        source: 'HIB-QUERY-006',
+        unit: 'default',
+        level: 'WARNING',
+        message: 'Partly evaluated; findings come from the evaluated part only.'
+      },
+      {source: 'HIB-FETCH-003', unit: 'default', level: 'ERROR', message: 'Rule evaluation failed.'}
+    ]
+    const wrapper = await mountWithReport(report)
+
+    expect(wrapper.text()).toContain('Scan diagnostics')
+    expect(wrapper.text()).toContain('2 notes — not counted as findings')
+    expect(wrapper.text()).toContain('Coverage: ' + partial.coverageNote)
+    const toggle = wrapper.findAll('button').find((button) => button.text() === 'Show diagnostics')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.text()).not.toContain('Rule evaluation failed.')
+
+    await toggle.trigger('click')
+
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.text()).toContain('HIB-FETCH-003')
+    expect(wrapper.text()).toContain('[default]')
+    expect(wrapper.text()).toContain('Rule evaluation failed.')
+  })
+
+  it('hides the diagnostics card when a scan has no diagnostics', async () => {
+    const wrapper = await mountWithReport({...advisorReport([]), diagnostics: []})
+
+    expect(wrapper.text()).not.toContain('Scan diagnostics')
+  })
+
   it('shows the Vlad Mihalcea best-practices note under the title', async () => {
     const wrapper = await mountWithReport(advisorReport([]))
     const link = wrapper.get('a[href="https://vladmihalcea.com"]')

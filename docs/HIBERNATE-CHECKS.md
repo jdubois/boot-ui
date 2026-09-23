@@ -39,8 +39,15 @@ annotations, projections and entity graphs affect applicability. Unsupported or 
 Panache query methods remain outside the repository analysis.
 
 Rule failures and unavailable required evidence produce an incomplete `PARTIAL` scan while retaining valid findings.
-The report's `results` list still contains findings only; the scan message explains coverage and failures using bounded
-identifiers and controlled reasons. Intentional platform inapplicability is distinct from a failed applicable check.
+The report's `results` list still contains findings only; the scan message summarizes coverage counts, and the report's
+`diagnostics` array lists every affected evaluation as `{source, unit, level, message}`: `source` is the rule id (or
+`discovery` for an unavailable factory, metamodel, repository metadata or unit attribution), `unit` is the
+persistence-unit label (`application` for application-wide rules), `level` is `ERROR` for a failed rule and `WARNING`
+for unavailable evidence, and `message` names the missing evidence kinds with occurrence counts (for example query
+provenance, a JPQL shape outside the readable subset, or an unavailable unit setting). Messages use controlled phrases
+only and never carry query text, property values or exception messages. A rule that reports findings but could not
+evaluate every unit or query carries a `coverageNote` on its `results` entry saying which units were partly evaluated
+and why. Intentional platform inapplicability is distinct from a failed applicable check.
 `rulesEvaluated` counts distinct active rule attempts, not successful verification of every mapping.
 
 In this implementation, pool auto-commit guarantees (HIB-CONFIG-008) and effective cache access strategy

@@ -79,7 +79,8 @@ class HibernateControllerTests {
         mvc.perform(post("/bootui/api/hibernate/scan"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scan.status").value("SCANNED"))
-                .andExpect(jsonPath("$.violationsFound").value(2));
+                .andExpect(jsonPath("$.violationsFound").value(2))
+                .andExpect(jsonPath("$.diagnostics").isArray());
         verify(scanner).scan();
     }
 }

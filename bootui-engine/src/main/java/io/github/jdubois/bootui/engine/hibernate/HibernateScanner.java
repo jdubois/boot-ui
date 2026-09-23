@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.hibernate;
 
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
+import io.github.jdubois.bootui.core.dto.HibernateDiagnosticDto;
 import io.github.jdubois.bootui.core.dto.HibernateReport;
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
 import io.github.jdubois.bootui.core.dto.HibernateScanStatusDto;
@@ -40,6 +41,9 @@ public final class HibernateScanner {
             "Heuristic Hibernate/JPA mapping rules run against the host application's mapped entities only. "
                     + "These checks are review prompts, not verdicts, and should be validated against the "
                     + "application's data access patterns.";
+    private static final String DISCOVERY_SOURCE = "discovery";
+    private static final String ERROR = "ERROR";
+    private static final String WARNING = "WARNING";
     private static final Comparator<HibernateRuleResultDto> IMPORTANCE_ORDER = Comparator.comparingInt(
                     (HibernateRuleResultDto result) -> SeverityOrder.rank(result.severity()))
             .thenComparing(Comparator.comparingInt(HibernateRuleResultDto::violationCount)
@@ -162,12 +166,16 @@ public final class HibernateScanner {
                     List.of(),
                     0,
                     0,
-                    List.of());
+                    List.of(),
+                    List.copyOf(discoveryDiagnostics(observation)),
+                    AdvisorEvidenceDto.unknown());
         }
 
         Map<String, HibernateRuleResultDto> violations = new LinkedHashMap<>();
         Set<String> failed = new LinkedHashSet<>();
         Set<String> unknown = new LinkedHashSet<>();
+        List<HibernateDiagnosticDto> diagnostics = new ArrayList<>();
+        Map<String, List<String>> partialCoverage = new LinkedHashMap<>();
         int skipped = 0;
         int attempts = 0;
         boolean usable = false;
@@ -216,29 +224,53 @@ public final class HibernateScanner {
                 } catch (RuntimeException | LinkageError ex) {
                     result = HibernateRuleSupport.error(rule.definition(), "Rule evaluation failed.");
                 }
-                if (HibernateRuleSupport.ERROR.equals(result.status())) failed.add(identity);
-                if (context.evidence().requiredUnknown()
-                        || !context.evidence().evaluated() && !HibernateRuleSupport.ERROR.equals(result.status())) {
+                String ruleId = rule.definition().id();
+                boolean errored = HibernateRuleSupport.ERROR.equals(result.status());
+                if (context.evidence().requiredUnknown() || !context.evidence().evaluated() && !errored) {
                     unknown.add(identity);
+                }
+                if (errored) {
+                    failed.add(identity);
+                    diagnostics.add(new HibernateDiagnosticDto(
+                            ruleId, label, ERROR, "Rule evaluation failed; no conclusion was reached for this unit."));
+                } else if (unknown.contains(identity)) {
+                    String gaps = describeGaps(context.evidence().gaps());
+                    partialCoverage
+                            .computeIfAbsent(ruleId, key -> new ArrayList<>())
+                            .add("[" + label + "]: " + gaps);
+                    if (isViolation(result)) {
+                        diagnostics.add(new HibernateDiagnosticDto(
+                                ruleId,
+                                label,
+                                WARNING,
+                                "Partly evaluated; findings come from the evaluated part only. Required evidence"
+                                        + " unavailable: " + gaps + "."));
+                    } else {
+                        diagnostics.add(new HibernateDiagnosticDto(
+                                ruleId,
+                                label,
+                                WARNING,
+                                "No conclusion reached; required evidence unavailable: " + gaps + "."));
+                    }
                 }
                 if (HibernateRuleSupport.SKIPPED.equals(result.status())) skipped++;
                 usable |= context.evidence().usable();
                 if (isViolation(result)) mergeViolation(violations, result, label);
             }
         }
-        boolean incomplete = !observation.diagnostics().isEmpty() || !failed.isEmpty() || !unknown.isEmpty();
+        partialCoverage.forEach((ruleId, notes) -> violations.computeIfPresent(
+                ruleId,
+                (key, result) -> result.withCoverageNote("Partially evaluated in " + String.join("; ", notes) + ".")));
+        List<HibernateDiagnosticDto> discovery = discoveryDiagnostics(observation);
+        diagnostics.addAll(0, discovery);
+        boolean incomplete = !discovery.isEmpty() || !failed.isEmpty() || !unknown.isEmpty();
         String message = "Hibernate Advisor inspected " + entities.size() + " entity mappings across "
                 + observation.units().size() + " persistence units. Attempted " + rules.size()
                 + " distinct rules (" + attempts + " unit/application evaluations); failed " + failed.size()
                 + ", skipped " + skipped + ", required evidence unavailable " + unknown.size() + ".";
-        if (!failed.isEmpty()) message += " Failed: " + bounded(failed) + ".";
-        if (!unknown.isEmpty()) message += " Incomplete: " + bounded(unknown) + ".";
-        if (!observation.diagnostics().isEmpty())
-            message += " Discovery: "
-                    + bounded(observation.diagnostics().stream()
-                            .map(diagnostic -> "[" + diagnostic.unitLabel() + "] " + diagnostic.reason())
-                            .toList())
-                    + ".";
+        if (!diagnostics.isEmpty())
+            message += " See diagnostics for " + diagnostics.size() + " "
+                    + (diagnostics.size() == 1 ? "entry" : "entries") + " naming each affected rule and unit.";
         return report(
                 incomplete ? "PARTIAL" : "SCANNED",
                 message,
@@ -247,18 +279,47 @@ public final class HibernateScanner {
                 entities.size(),
                 rules.size(),
                 List.copyOf(violations.values()),
+                List.copyOf(diagnostics),
                 new AdvisorEvidenceDto(
                         usable,
                         !incomplete,
                         incomplete
                                 ? List.of("Hibernate discovery, rule evaluation, or required unit observations were"
-                                        + " incomplete; see scan diagnostics.")
+                                        + " incomplete; see the report diagnostics for each affected rule and unit.")
                                 : List.of()));
     }
 
-    private static String bounded(java.util.Collection<String> values) {
-        return String.join("; ", values.stream().limit(8).toList())
-                + (values.size() > 8 ? "; +" + (values.size() - 8) + " more" : "");
+    private static String describeGaps(Map<HibernateEvidenceGap, Integer> gaps) {
+        if (gaps.isEmpty()) return HibernateEvidenceGap.OTHER.phrase();
+        return String.join(
+                "; ",
+                gaps.entrySet().stream()
+                        .map(entry -> entry.getValue() + " " + entry.getKey().phrase())
+                        .toList());
+    }
+
+    private static List<HibernateDiagnosticDto> discoveryDiagnostics(HibernateAdvisorObservation observation) {
+        Set<HibernateDiagnosticDto> diagnostics = new LinkedHashSet<>();
+        for (HibernateObservationDiagnostic diagnostic : observation.diagnostics()) {
+            diagnostics.add(new HibernateDiagnosticDto(
+                    DISCOVERY_SOURCE, diagnostic.unitLabel(), WARNING, discoveryMessage(diagnostic.reason())));
+        }
+        return new ArrayList<>(diagnostics);
+    }
+
+    private static String discoveryMessage(HibernateObservationDiagnostic.Reason reason) {
+        if (reason == null) return "Required Hibernate observation unavailable.";
+        return switch (reason) {
+            case FACTORY_UNAVAILABLE -> "EntityManagerFactory unavailable; its mappings were not inspected.";
+            case METAMODEL_UNAVAILABLE -> "JPA metamodel unavailable; entity mappings were not inspected.";
+            case FACTORY_SETTING_UNAVAILABLE ->
+                "Effective persistence-unit settings could not be read; rules that need them are incomplete.";
+            case REPOSITORY_METADATA_UNAVAILABLE ->
+                "Spring Data repository metadata unavailable; repository query rules could not inspect repositories.";
+            case AMBIGUOUS_REPOSITORY_UNIT ->
+                "A repository could not be attributed to a single persistence unit and was not inspected.";
+            case SOURCE_UNAVAILABLE -> "Hibernate observation source unavailable.";
+        };
     }
 
     private static void mergeViolation(
@@ -338,6 +399,7 @@ public final class HibernateScanner {
                 entitiesAnalyzed,
                 rulesEvaluated,
                 results,
+                List.of(),
                 AdvisorEvidenceDto.unknown());
     }
 
@@ -349,6 +411,7 @@ public final class HibernateScanner {
             int entitiesAnalyzed,
             int rulesEvaluated,
             List<HibernateRuleResultDto> results,
+            List<HibernateDiagnosticDto> diagnostics,
             AdvisorEvidenceDto evidence) {
         List<HibernateRuleResultDto> violations = violationResults(results);
         int violationsFound = violations.size();
@@ -364,7 +427,9 @@ public final class HibernateScanner {
                 severityCounts(violations),
                 scan,
                 violations,
-                evidence);
+                diagnostics,
+                evidence,
+                null);
     }
 
     public HibernateReport applyDismissals(HibernateReport report, Set<String> dismissedIds) {
@@ -396,6 +461,7 @@ public final class HibernateScanner {
                 severityCounts(active),
                 updatedScan,
                 marked,
+                report.diagnostics(),
                 report.evidence(),
                 report.violationDetails());
     }

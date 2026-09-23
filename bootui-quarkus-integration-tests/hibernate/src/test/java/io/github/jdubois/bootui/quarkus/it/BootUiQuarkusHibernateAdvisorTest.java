@@ -94,6 +94,14 @@ class BootUiQuarkusHibernateAdvisorTest {
                 .as("missing required evidence must not be presented as a complete clean evaluation")
                 .isEqualTo("PARTIAL");
         assertThat(scanned.path("scan").path("message").asText()).contains("required evidence unavailable");
+        assertThat(scanned.path("diagnostics").isArray()).isTrue();
+        assertThat(scanned.path("diagnostics")).isNotEmpty();
+        for (JsonNode diagnostic : scanned.path("diagnostics")) {
+            assertThat(diagnostic.path("source").asText()).isNotBlank();
+            assertThat(diagnostic.path("unit").asText()).isNotBlank();
+            assertThat(diagnostic.path("level").asText()).isIn("ERROR", "WARNING");
+            assertThat(diagnostic.path("message").asText()).isNotBlank();
+        }
         assertThat(scanned.path("entitiesAnalyzed").asInt())
                 .as("Category, Product and Tag are all read from the metamodel")
                 .isGreaterThanOrEqualTo(3);

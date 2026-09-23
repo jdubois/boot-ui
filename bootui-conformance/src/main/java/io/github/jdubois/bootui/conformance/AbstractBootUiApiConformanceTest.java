@@ -934,6 +934,11 @@ public abstract class AbstractBootUiApiConformanceTest {
             Response response = probe().get(api("/" + panel));
             assertThat(response.status()).as(panel).isEqualTo(200);
             assertAdvisorEvidence(response.json());
+            if ("hibernate".equals(panel)) {
+                assertThat(response.json().path("diagnostics").isArray())
+                        .as("hibernate diagnostics")
+                        .isTrue();
+            }
             if ("vulnerabilities".equals(panel)) {
                 for (JsonNode dependency : response.json().path("dependencies")) {
                     JsonNode assessment = dependency.path("assessment");

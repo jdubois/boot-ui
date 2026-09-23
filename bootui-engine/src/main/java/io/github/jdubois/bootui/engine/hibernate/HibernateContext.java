@@ -103,16 +103,24 @@ record HibernateContext(
     }
 
     <T> T required(T value) {
+        return required(value, HibernateEvidenceGap.OTHER);
+    }
+
+    <T> T required(T value, HibernateEvidenceGap gap) {
         evidence.markApplicableIf(!entities.isEmpty());
         if (value == null) {
-            evidence.markRequiredUnknown();
+            evidence.markRequiredUnknown(gap);
             throw new HibernateRequiredObservationException();
         }
         return value;
     }
 
     void missingEvidence() {
-        evidence.markRequiredUnknown();
+        missingEvidence(HibernateEvidenceGap.OTHER);
+    }
+
+    void missingEvidence(HibernateEvidenceGap gap) {
+        evidence.markRequiredUnknown(gap);
     }
 
     <T> List<T> targets(List<T> values) {
@@ -131,25 +139,32 @@ record HibernateContext(
         String nativeKey =
                 key.startsWith("spring.jpa.properties.") ? key.substring("spring.jpa.properties.".length()) : key;
         if ("spring.jpa.show-sql".equals(nativeKey)) nativeKey = "hibernate.show_sql";
-        if (nativeKey.startsWith("hibernate.")) return required(factorySettings.property(nativeKey));
+        if (nativeKey.startsWith("hibernate."))
+            return required(factorySettings.property(nativeKey), HibernateEvidenceGap.FACTORY_SETTING);
         return switch (key) {
             case "spring.jpa.open-in-view" ->
                 switch (applicationFacts.openInView()) {
                     case ENABLED -> "true";
                     case DISABLED, NOT_APPLICABLE -> "false";
-                    case UNKNOWN -> required(null);
+                    case UNKNOWN -> required(null, HibernateEvidenceGap.APPLICATION_SETTING);
                 };
             case HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY ->
                 Boolean.toString(applicationFacts.openInView() != HibernateApplicationFacts.OpenInView.NOT_APPLICABLE);
             case HibernateScanner.BYTECODE_ENHANCEMENT_VERIFIED_PROPERTY ->
                 Boolean.toString(Boolean.TRUE.equals(enhancementVerified));
             case "spring.jpa.defer-datasource-initialization" ->
-                required(applicationFacts.deferredDatasourceInitialization()).toString();
-            case "logging.level.org.hibernate.SQL" -> required(applicationFacts.sqlLoggerEnabled()) ? "debug" : "off";
+                required(applicationFacts.deferredDatasourceInitialization(), HibernateEvidenceGap.APPLICATION_SETTING)
+                        .toString();
+            case "logging.level.org.hibernate.SQL" ->
+                required(applicationFacts.sqlLoggerEnabled(), HibernateEvidenceGap.APPLICATION_SETTING)
+                        ? "debug"
+                        : "off";
             case "logging.level.org.hibernate.orm.jdbc.bind",
                     "logging.level.org.hibernate.type.descriptor.sql.BasicBinder" ->
-                required(applicationFacts.bindLoggerEnabled()) ? "trace" : "off";
-            default -> required(null);
+                required(applicationFacts.bindLoggerEnabled(), HibernateEvidenceGap.APPLICATION_SETTING)
+                        ? "trace"
+                        : "off";
+            default -> required(null, HibernateEvidenceGap.APPLICATION_SETTING);
         };
     }
 
@@ -285,7 +300,7 @@ record HibernateContext(
         if (observed()) {
             if (Boolean.TRUE.equals(enhancementVerified) || entity.isBytecodeEnhanced()) return true;
             if (Boolean.FALSE.equals(enhancementVerified)) return false;
-            if (entity.javaType() == null) return required(null);
+            if (entity.javaType() == null) return required(null, HibernateEvidenceGap.ENTITY_METADATA);
             try {
                 Class.forName(
                         "org.hibernate.engine.spi.PersistentAttributeInterceptable",
@@ -293,7 +308,7 @@ record HibernateContext(
                         entity.javaType().getClassLoader());
                 return false;
             } catch (ClassNotFoundException | LinkageError ex) {
-                return required(null);
+                return required(null, HibernateEvidenceGap.ENTITY_METADATA);
             }
         }
         return isPropertyTrue(HibernateScanner.BYTECODE_ENHANCEMENT_VERIFIED_PROPERTY) || entity.isBytecodeEnhanced();
@@ -339,7 +354,7 @@ record HibernateContext(
     boolean isStatementLoggingEnabled() {
         if (observed()) {
             if (Boolean.TRUE.equals(applicationFacts.sqlLoggerEnabled())) return true;
-            return required(factorySettings.showSql());
+            return required(factorySettings.showSql(), HibernateEvidenceGap.FACTORY_SETTING);
         }
         return isPropertyTrue("spring.jpa.show-sql", "hibernate.show_sql")
                 || "debug".equalsIgnoreCase(firstProperty("logging.level.org.hibernate.SQL"))
@@ -378,6 +393,8 @@ record HibernateContext(
  * whichever caller last wrote a field.</p>
  */
 final class HibernateEvaluationEvidence {
+    private final java.util.EnumMap<HibernateEvidenceGap, Integer> gaps =
+            new java.util.EnumMap<>(HibernateEvidenceGap.class);
     private boolean requiredUnknown;
     private boolean applicable;
     private boolean usable;
@@ -408,7 +425,17 @@ final class HibernateEvaluationEvidence {
     }
 
     void markRequiredUnknown() {
+        markRequiredUnknown(HibernateEvidenceGap.OTHER);
+    }
+
+    void markRequiredUnknown(HibernateEvidenceGap gap) {
         requiredUnknown = true;
+        gaps.merge(gap == null ? HibernateEvidenceGap.OTHER : gap, 1, Integer::sum);
+    }
+
+    /** Occurrences of each missing-evidence kind recorded during the current evaluation, in declaration order. */
+    java.util.Map<HibernateEvidenceGap, Integer> gaps() {
+        return java.util.Collections.unmodifiableMap(new java.util.EnumMap<>(gaps));
     }
 
     void complete(io.github.jdubois.bootui.core.dto.HibernateRuleResultDto result) {
@@ -421,6 +448,7 @@ final class HibernateEvaluationEvidence {
 
     void reset() {
         requiredUnknown = false;
+        gaps.clear();
         applicable = false;
         usable = false;
         evaluated = false;
