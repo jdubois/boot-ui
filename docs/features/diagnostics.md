@@ -18,7 +18,7 @@ OpenTelemetry `SpanProcessor` registered only when the application depends on `q
 embedded receiver. The empty state points at whichever model applies.
 
 Trace data resets on application restart and through the panel's clear action. When `bootui.telemetry.enabled=false`,
-the sidebar dims the panel and the view shows a disabled state rather than implying that tracing is merely empty.
+the sidebar dims the panel and the view shows a disabled state, so an empty list never reads as "no traces yet".
 
 ::: details Sampling defaults and log-level pins
 
@@ -58,8 +58,8 @@ The Exceptions panel captures exceptions thrown by the running application and g
 with an occurrence count.
 
 Grouping uses a stable fingerprint derived from the exception type and the top stack frames, so a recurring error
-collapses into one row showing its type, latest message, first and last seen times, originating location, and total
-count. Opening a group shows the representative stack trace with application frames highlighted, the full cause chain
+collapses into a single row. That row shows the type, the latest message, first and last seen times, the originating
+location, and a total count. Opening a group shows the representative stack trace with application frames highlighted, the full cause chain
 with `… N more` common-frame folding, and the most recent occurrences with their thread, source, and request context.
 
 The list updates over Server-Sent Events: the browser subscribes to `/bootui/api/exceptions/stream` and re-fetches
@@ -138,8 +138,8 @@ the bounded recorder. The buffer retains 200 exchanges by default; change it wit
 `bootui.http-exchanges.max-exchanges`, which takes effect on the next restart.
 
 On Spring Boot, BootUI contributes an in-memory `HttpExchangeRepository` when the panel is enabled and the application
-has not defined one. If no repository is available, the panel shows an unavailable state rather than implying that no
-traffic has occurred. Quarkus has no Actuator repository, so a small Vert.x route filter samples each completed request
+has not defined one. If no repository is available, the panel says so, so an empty list never reads as "no traffic
+yet". Quarkus has no Actuator repository, so a small Vert.x route filter samples each completed request
 in the response body-end handler, where status, duration, and size are final, into a capped ring buffer sized by the
 same property. That filter is wired in dev and test only, never in production. Masking, trace-id extraction,
 self-exclusion, and paging run through the shared engine service, so the wire format is identical.

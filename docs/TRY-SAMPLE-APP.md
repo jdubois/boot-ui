@@ -161,8 +161,8 @@ are reactive equivalents rather than the servlet behaviour: the Security advisor
 catalogue, and the raw Spring Security panel shows the reactive `SecurityWebFilterChain` pipeline with explanations
 marked best effort. See [Framework support](FRAMEWORK-SUPPORT.md#spring-webflux).
 
-What a *panel* shows still depends on the application's own dependencies, and this sample is deliberately minimal. It
-has no JPA or Spring AI, so the Hibernate and AI panels report themselves unavailable here even though the adapter
+What a *panel* shows still depends on the application's own dependencies, and this sample is a minimal one. It has no
+JPA and no Spring AI, so the Hibernate and AI panels report themselves unavailable here even though the adapter
 supports them.
 
 There is one WebFlux flavor, with no AOT, native, or CRaC variant: the reactive sample exists to exercise the reactive

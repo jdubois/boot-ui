@@ -209,10 +209,12 @@ itself, so those controls are unavailable there.
 ![BootUI Copilot panel](../images/bootui-copilot.webp)
 
 The Copilot panel shows sanitized signals from local [GitHub Copilot CLI](https://github.com/github/copilot-cli)
-sessions. It reads the session directories and `events.jsonl` files under `~/.copilot/session-state/`, configurable
-with `bootui.copilot.session-state-dir`, and aggregates recent activity: active sessions, total sanitized events, token
-usage when the local logs include it, failures, 24-hour and 7-day activity, event category mix, top tools, model usage,
-and recent sessions.
+sessions.
+
+It reads the session directories and `events.jsonl` files under `~/.copilot/session-state/`, which
+`bootui.copilot.session-state-dir` relocates. From those it aggregates active sessions, total sanitized events,
+failures, 24-hour and 7-day activity, event category mix, top tools, model usage, and recent sessions. Token usage
+appears when the local logs include it.
 
 Each event row shows an allowlisted summary only. Raw prompts, tool arguments, command output, and diffs are excluded.
 The per-event **Reveal raw** action is an explicit local-only escape hatch that returns the source JSON; disable it with

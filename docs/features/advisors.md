@@ -136,7 +136,7 @@ The backend's `evidence` object is the sole eligibility authority, and it expose
 | Field | Meaning |
 | --- | --- |
 | `usable` | At least one applicable check completed, or a genuine known-severity finding was observed, before filtering or dismissal. Genuine INFO and NONE findings can establish usability; informational missing-evidence notices and UNKNOWN-only vulnerability data cannot. |
-| `coverageComplete` | Applicable evidence is complete. Intentionally inapplicable checks are neutral; missing required observations and failures leave coverage incomplete. |
+| `coverageComplete` | Applicable evidence is complete. Checks that do not apply are neutral; missing required observations and failures leave coverage incomplete. |
 | `limitations` | An immutable, bounded, sanitized list of explanations for incomplete coverage. |
 
 The browser never reconstructs applicability from rule IDs, finding lists, or dependency details. MySQL and Oracle
