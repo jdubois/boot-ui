@@ -711,6 +711,28 @@ class DependencyCatalogTests {
     }
 
     @Test
+    void anApplicationLayerModuleMayLiveBesideTheLauncherPackage() throws Exception {
+        // The launcher is in com.boosting.gateway; its sibling modules are in com.boosting.*. Only the archive the
+        // index places in the application layer is widened to the parent package.
+        Path bootInf = Files.createDirectories(tempDir.resolve("merged/BOOT-INF"));
+        Files.writeString(bootInf.resolve("layers.idx"), LAYERS_INDEX);
+        Path users = writeJar(bootInf.resolve("lib/users.jar"), null, List.of("com/boosting/user/User.class"));
+        Path sdk = writeJar(bootInf.resolve("lib/boosting-sdk.jar"), null, List.of("com/boosting/sdk/Client.class"));
+        Path loose = writeJar(tempDir.resolve("loose.jar"), null, List.of("com/boosting/loose/Loose.class"));
+
+        DependencyCoverageDto coverage = withClassPathInventory(
+                        new DependencyCatalog(emptyResolver(), () -> List.of("com.boosting.gateway")),
+                        users.toString(),
+                        sdk.toString(),
+                        loose.toString())
+                .coverage();
+
+        assertThat(coverage)
+                .isEqualTo(DependencyCoverageDto.of(
+                        3, 2, List.of("boosting-sdk.jar", "loose.jar"), 1, List.of("users.jar")));
+    }
+
+    @Test
     void anUnreadableLayersIndexPlacesNoArchiveInTheApplicationLayer() throws Exception {
         Path fatJar = repackagedJarWithContents(
                 Map.of("users.jar", jarBytes(null, List.of("com/boosting/user/User.class"))),

@@ -277,13 +277,16 @@ final class DependencyCatalog implements DependencyProvider {
         if (!bootCandidate && !firstPartyCandidate) {
             return Attribution.UNIDENTIFIED;
         }
+        List<String> accepted = Boolean.TRUE.equals(archive.applicationLayer())
+                ? FirstPartyArchives.applicationLayerPackages(packages)
+                : packages;
         try {
             if (archive.nestedEntry() == null) {
                 try (JarFile jar = new JarFile(archive.file().toFile(), false)) {
                     Manifest manifest = bootCandidate ? jar.getManifest() : null;
                     Iterable<String> names =
                             () -> jar.stream().map(JarEntry::getName).iterator();
-                    return classify(archive.name(), manifest, firstPartyCandidate, names, packages, dependencies);
+                    return classify(archive.name(), manifest, firstPartyCandidate, names, accepted, dependencies);
                 }
             }
             JarFile outer = outers.open(archive.file());
@@ -304,7 +307,7 @@ final class DependencyCatalog implements DependencyProvider {
             List<ZipDirectory.Entry> entries = ZipDirectory.read(source, nested.getSize());
             Manifest manifest = bootCandidate ? manifest(source, entries) : null;
             List<String> names = entries.stream().map(ZipDirectory.Entry::name).toList();
-            return classify(archive.name(), manifest, firstPartyCandidate, names, packages, dependencies);
+            return classify(archive.name(), manifest, firstPartyCandidate, names, accepted, dependencies);
         } catch (IOException | RuntimeException ex) {
             LOGGER.log(
                     System.Logger.Level.DEBUG,

@@ -94,6 +94,15 @@ class FirstPartyArchivesTests {
     }
 
     @Test
+    void theApplicationLayerWidensEachBasePackageToItsMultiSegmentParentOnly() {
+        assertThat(FirstPartyArchives.applicationLayerPackages(List.of("com.boosting.gateway", "com.boosting")))
+                .containsExactly("com.boosting.gateway", "com.boosting");
+        assertThat(FirstPartyArchives.applicationLayerPackages(List.of("com.boosting")))
+                .containsExactly("com.boosting");
+        assertThat(FirstPartyArchives.applicationLayerPackages(List.of())).isEmpty();
+    }
+
+    @Test
     void anArchiveBundlingAnotherArchiveIsNeverFirstParty() {
         assertThat(FirstPartyArchives.isFirstParty(
                         List.of("com/boosting/orders/Order.class", "lib/vendor-sdk.JAR"), BASE))

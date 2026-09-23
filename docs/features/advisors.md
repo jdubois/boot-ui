@@ -925,7 +925,10 @@ without extracting it — before reporting it:
   listing it, as Spring Boot resolves it, and an index that is present but unreadable or malformed admits no archive. A nested `BOOT-INF/lib/` entry is inspected only when stored uncompressed, as Boot
   writes it, and only its central directory and manifest are read. Residual limit: without a layers index, a library
   relocated into the application's own package and stripped of its Maven descriptors is indistinguishable from
-  application code. Modules whose classes live outside the `@SpringBootApplication` package are not recognized. The
+  application code. An archive the index places in the `application` layer may also use the parent of a base package
+  when that parent has at least two segments, so sibling modules of a launcher in `com.acme.gateway` (for example
+  `com.acme.orders`) are recognized; layer placement alone is never enough, because a custom layering can put any
+  library there. Other modules whose classes live outside the base packages are not recognized. The
   panel lists them in a collapsed note, and `archivesFound = archivesIdentified + archivesUnidentified + archivesFirstParty`.
 - **`spring-boot-jarmode-tools`.** Spring Boot's build plugins add it at packaging time, so it is not a declared
   dependency and is absent from the SBOM. When its file name, `Implementation-Title: Spring Boot Jarmode Tools`, and

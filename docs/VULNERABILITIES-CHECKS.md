@@ -207,7 +207,8 @@ its other entries; the end record must end the archive exactly and the directory
 count. An archive carrying `META-INF/maven/` descriptors or bundling another archive is never first-party,
 single-segment base packages are ignored, and when the Spring Boot `layers.idx` (fat JAR, merged extraction, or the
 sibling `application/` of an in-place layered extraction) defines an `application` layer, only archives Boot's
-first-match rule assigns to that layer qualify; a present but unreadable index admits none. An archive with at least one class, every class in the `@SpringBootApplication` base
+first-match rule assigns to that layer qualify; a present but unreadable index admits none. An archive the index positively places in `application` may also use
+each base package's parent when that parent has at least two segments (sibling modules of a launcher subpackage). An archive with at least one class, every class in the `@SpringBootApplication` base
 packages, is reported as first-party (`archivesFirstParty`, at most 200 `firstPartyArchives` names plus truncation)
 and does not count against `COMPLETE`; it is the application itself and is not scanned. `spring-boot-jarmode-tools`,
 which Spring Boot adds at packaging time, is identified from its manifest only when the file name,

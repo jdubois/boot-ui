@@ -63,6 +63,33 @@ public final class FirstPartyArchives {
     }
 
     /**
+     * The packages an archive that a Spring Boot layers index places in its {@code application} layer may use:
+     * the base packages plus each one's parent, when that parent still has at least two segments.
+     *
+     * <p>Spring Boot's default layering puts only the build's own project modules in {@code application}, and
+     * the launcher module of a multi-module build often sits in a subpackage ({@code com.acme.gateway}) beside
+     * its siblings ({@code com.acme.orders}). The layer placement alone is not trusted, since a custom layering
+     * can assign any library there, so the classes must still share the application's namespace; the parent is
+     * the smallest widening that covers sibling modules.</p>
+     *
+     * @param basePackages the application's base packages, as returned by {@link #basePackages(Collection)}
+     */
+    public static List<String> applicationLayerPackages(List<String> basePackages) {
+        if (basePackages == null) {
+            return List.of();
+        }
+        List<String> packages = new ArrayList<>(basePackages);
+        for (String basePackage : basePackages) {
+            int dot = basePackage.lastIndexOf('.');
+            String parent = dot > 0 ? basePackage.substring(0, dot) : "";
+            if (parent.indexOf('.') > 0 && !packages.contains(parent)) {
+                packages.add(parent);
+            }
+        }
+        return List.copyOf(packages);
+    }
+
+    /**
      * Whether the archive whose entry names are {@code entryNames} is the application's own code.
      *
      * <p>{@code entryNames} is iterated lazily and iteration stops at the first class outside the base packages,
