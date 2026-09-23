@@ -278,13 +278,17 @@ class DatabaseAdvisorSchemaRulesTests {
                                         null,
                                         IndexModel.Validity.UNKNOWN,
                                         false,
-                                        false)))));
+                                        false)),
+                        backedTable(
+                                "carts",
+                                extraUnique("uq_carts_token", keyParts("a"), "  ", null, VALID, false, false)))));
         new RedundantPrimaryKeyUniqueIndexRule().evaluate(context);
         assertThat(context.evaluationDiagnostics())
                 .extracting(SchemaDiagnostic::message)
                 .containsExactlyInAnyOrder(
                         "ds: public.orders unique index uq_orders_reference has unknown comparison semantics.",
-                        "ds: public.promo_codes unique index uq_promo_codes_code has unknown comparison semantics.");
+                        "ds: public.promo_codes unique index uq_promo_codes_code has unknown comparison semantics.",
+                        "ds: public.carts unique index uq_carts_token has unknown comparison semantics.");
     }
 
     @Test

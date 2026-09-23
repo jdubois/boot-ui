@@ -346,7 +346,7 @@ record IndexModel(
     boolean comparable() {
         return comparisonComplete
                 && Boolean.TRUE.equals(uniquenessKnown)
-                && method != null
+                && methodReported()
                 && !methodKnownUnsupported()
                 && visibility != Visibility.UNKNOWN
                 && validity == Validity.VALID
@@ -380,7 +380,12 @@ record IndexModel(
      * ordinary index — a known fact that rules out equivalence, as opposed to an unreported method.
      */
     boolean methodKnownUnsupported() {
-        return method != null && !ORDINARY_METHODS.contains(normalizedMethod());
+        return methodReported() && !ORDINARY_METHODS.contains(normalizedMethod());
+    }
+
+    /** True when the catalog answered with an access method at all, rather than null or blank. */
+    private boolean methodReported() {
+        return method != null && !method.isBlank();
     }
 
     boolean exactDuplicateOf(IndexModel other) {
