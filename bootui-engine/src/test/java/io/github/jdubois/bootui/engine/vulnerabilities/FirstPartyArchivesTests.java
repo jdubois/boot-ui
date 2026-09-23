@@ -85,6 +85,25 @@ class FirstPartyArchivesTests {
     }
 
     @Test
+    void singleSegmentBasePackagesAreTooBroadToProveAnything() {
+        assertThat(FirstPartyArchives.basePackages(List.of("com", "app", "com.boosting")))
+                .containsExactly("com.boosting");
+        assertThat(FirstPartyArchives.isFirstParty(
+                        List.of("com/vendor/Library.class"), FirstPartyArchives.basePackages(List.of("com"))))
+                .isFalse();
+    }
+
+    @Test
+    void anArchiveCarryingMavenDescriptorsIsNeverFirstParty() {
+        assertThat(FirstPartyArchives.isFirstParty(
+                        List.of(
+                                "com/boosting/internal/guava/Lists.class",
+                                "META-INF/maven/com.google.guava/guava/pom.properties"),
+                        BASE))
+                .isFalse();
+    }
+
+    @Test
     void stopsReadingAtTheFirstForeignClass() {
         List<String> read = new ArrayList<>();
         Iterable<String> entries = () -> new Iterator<>() {

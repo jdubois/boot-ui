@@ -15,8 +15,14 @@ import java.util.List;
  * <p>The rule is deliberately strict so that it can never hide a genuinely unidentified third-party archive: an
  * archive is first-party only when it contains at least one class and <em>every</em> class it contains lives in
  * one of the application's base packages (the same packages the Architecture advisor analyzes). A shaded or
- * third-party JAR fails at its first foreign class, and a resource-only JAR, a class in the default package, or
- * a class under {@code META-INF/} (other than a multi-release variant) is never first-party.</p>
+ * third-party JAR fails at its first foreign class, and a resource-only JAR, a class in the default package, a
+ * class under {@code META-INF/} (other than a multi-release variant), or an archive carrying any Maven descriptor
+ * ({@code META-INF/maven/}, which shaded libraries usually keep) is never first-party. A single-segment base
+ * package such as {@code com} is too broad to separate an application from its dependencies and is ignored.</p>
+ *
+ * <p>Package containment remains a heuristic: a library the application relocated into its own namespace without
+ * keeping its descriptor is indistinguishable from application code. Callers with stronger packaging evidence,
+ * such as a Spring Boot layers index, should apply it as well.</p>
  */
 public final class FirstPartyArchives {
 
@@ -29,11 +35,14 @@ public final class FirstPartyArchives {
 
     private static final String MODULE_INFO = "module-info.class";
 
+    private static final String MAVEN_DESCRIPTORS = "META-INF/maven/";
+
     private FirstPartyArchives() {}
 
     /**
-     * The usable base packages: trimmed, with blank entries removed. An empty result means first-party
-     * recognition is impossible and every archive keeps its census classification.
+     * The usable base packages: trimmed, with blank and single-segment (for example {@code com}) entries removed.
+     * An empty result means first-party recognition is impossible and every archive keeps its census
+     * classification.
      */
     public static List<String> basePackages(Collection<String> basePackages) {
         if (basePackages == null) {
@@ -45,7 +54,7 @@ public final class FirstPartyArchives {
             while (value.endsWith(".")) {
                 value = value.substring(0, value.length() - 1);
             }
-            if (!value.isEmpty() && !packages.contains(value)) {
+            if (value.indexOf('.') > 0 && !packages.contains(value)) {
                 packages.add(value);
             }
         }
@@ -72,7 +81,13 @@ public final class FirstPartyArchives {
             if (++inspected > MAX_ENTRIES) {
                 return false;
             }
-            if (entryName == null || !entryName.endsWith(CLASS_SUFFIX)) {
+            if (entryName == null) {
+                continue;
+            }
+            if (entryName.startsWith(MAVEN_DESCRIPTORS)) {
+                return false;
+            }
+            if (!entryName.endsWith(CLASS_SUFFIX)) {
                 continue;
             }
             String name = withoutVersionPrefix(entryName);

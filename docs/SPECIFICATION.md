@@ -870,8 +870,10 @@ Features:
   Archive counts remain separate from SBOM component totals and completed OSV queries. An SBOM alone never changes
   an unobservable archive census to `COMPLETE`. Report unidentified names as `INCOMPLETE` with exact
   reported counts and at most 200 names plus truncation, and unavailable census as `UNAVAILABLE`. Before reporting an
-  archive unidentified, read only its manifest and entry names: an archive whose every class (at least one) lives in the
-  application's base packages is the application's own module and is reported as first-party
+  archive unidentified, read only its manifest and entry names (for a stored nested archive, only its central directory and a bounded
+  manifest): an archive whose every class (at least one) lives in the application's multi-segment base packages, with
+  no `META-INF/maven/` descriptor and, when a Spring Boot `layers.idx` defines an `application` layer, placed in that
+  layer, is the application's own module and is reported as first-party
   (`archivesFirstParty`, at most 200 `firstPartyArchives` plus truncation), not as a gap; `spring-boot-jarmode-tools`
   is identified from a matching manifest title and version. `archivesFound` always equals identified plus
   unidentified plus first-party. `COMPLETE` describes

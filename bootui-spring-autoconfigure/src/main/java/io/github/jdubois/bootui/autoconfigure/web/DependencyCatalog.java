@@ -9,10 +9,11 @@ import io.github.jdubois.bootui.engine.vulnerabilities.DependencyInventory;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyProvider;
 import io.github.jdubois.bootui.engine.vulnerabilities.FirstPartyArchives;
 import io.github.jdubois.bootui.engine.vulnerabilities.PackageUrls;
+import io.github.jdubois.bootui.engine.vulnerabilities.ZipDirectory;
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.UncheckedIOException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -23,9 +24,9 @@ import java.util.function.Supplier;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
-import java.util.jar.JarInputStream;
 import java.util.jar.Manifest;
 import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
@@ -73,8 +74,9 @@ import tools.jackson.databind.ObjectMapper;
  *
  * <p>Two kinds of archive are never in an SBOM yet are not a coverage gap, so an archive left unidentified
  * is inspected (manifest and entry names only) before being reported: the application's own module JARs of a
- * multi-module build, whose every class lives in the application's base packages, are counted as
- * first-party ({@link FirstPartyArchives}); and {@code spring-boot-jarmode-tools}, which Spring Boot adds at
+ * multi-module build, whose every class lives in the application's base packages and which a Spring Boot
+ * layers index (when present) places in its {@code application} layer, are counted as first-party
+ * ({@link FirstPartyArchives}); and {@code spring-boot-jarmode-tools}, which Spring Boot adds at
  * packaging time, is identified from its manifest.</p>
  *
  * <p>Every source fails soft: an unreadable descriptor, a malformed SBOM, or an unreadable archive is logged
@@ -94,6 +96,14 @@ final class DependencyCatalog implements DependencyProvider {
     private static final String SPRING_BOOT_LIB_ATTRIBUTE = "Spring-Boot-Lib";
 
     private static final List<String> DEFAULT_NESTED_LIBRARY_PREFIXES = List.of("BOOT-INF/lib/", "WEB-INF/lib/");
+
+    /** Manifest attribute Spring Boot's repackaging writes, naming the layers index. */
+    private static final String SPRING_BOOT_LAYERS_INDEX = "Spring-Boot-Layers-Index";
+
+    private static final List<String> DEFAULT_LAYERS_INDEXES = List.of("BOOT-INF/layers.idx", "WEB-INF/layers.idx");
+
+    /** Upper bound on a nested archive's manifest, the only nested content ever inflated. */
+    private static final int MAX_MANIFEST_BYTES = 64 * 1024;
 
     /** Upper bound on the archive names carried in the report; the reported counts stay exact regardless. */
     static final int MAX_UNIDENTIFIED_ARCHIVES = 200;
@@ -196,16 +206,18 @@ final class DependencyCatalog implements DependencyProvider {
         List<String> packages = applicationBasePackages();
         List<String> unidentified = new ArrayList<>();
         List<String> firstParty = new ArrayList<>();
-        for (CensusArchive archive : archives) {
-            if (identifiedArchives.contains(archive.name()) || isIdentified(archive.name(), resolved)) {
-                continue;
-            }
-            switch (inspect(archive, packages, dependencies)) {
-                case IDENTIFIED -> {
-                    // Added to the inventory by inspect.
+        try (OuterArchives outers = new OuterArchives()) {
+            for (CensusArchive archive : archives) {
+                if (identifiedArchives.contains(archive.name()) || isIdentified(archive.name(), resolved)) {
+                    continue;
                 }
-                case FIRST_PARTY -> firstParty.add(archive.name());
-                case UNIDENTIFIED -> unidentified.add(archive.name());
+                switch (inspect(archive, packages, dependencies, outers)) {
+                    case IDENTIFIED -> {
+                        // Added to the inventory by inspect.
+                    }
+                    case FIRST_PARTY -> firstParty.add(archive.name());
+                    case UNIDENTIFIED -> unidentified.add(archive.name());
+                }
             }
         }
         unidentified.sort(String.CASE_INSENSITIVE_ORDER);
@@ -247,27 +259,50 @@ final class DependencyCatalog implements DependencyProvider {
 
     /**
      * Classifies an archive the coordinate sources could not attribute, reading only its manifest and entry
-     * names. On-disk archives are read through their central directory; a nested {@code BOOT-INF/lib/} archive
-     * is streamed without being extracted, and the stream stops at the first class outside the base packages,
-     * so an unidentified third-party archive costs little more than its first class entry. Any failure leaves
-     * the archive unidentified.
+     * names. An on-disk archive is read through its central directory. A nested {@code BOOT-INF/lib/} archive
+     * must be stored uncompressed, as Spring Boot writes it: only its central directory is read by offset
+     * ({@link ZipDirectory}), nothing is inflated except a bounded manifest, and the outer archive is opened once
+     * per census. An archive a layers index assigns outside the {@code application} layer is never first-party.
+     * Any failure leaves the archive unidentified.
      */
-    private Attribution inspect(CensusArchive archive, List<String> packages, Map<String, DependencyDto> dependencies) {
+    private Attribution inspect(
+            CensusArchive archive,
+            List<String> packages,
+            Map<String, DependencyDto> dependencies,
+            OuterArchives outers) {
         boolean bootCandidate = archive.name().startsWith(JARMODE_TOOLS_ARTIFACT_ID + "-");
-        if (!bootCandidate && packages.isEmpty()) {
+        boolean firstPartyCandidate = !packages.isEmpty() && !Boolean.FALSE.equals(archive.applicationLayer());
+        if (!bootCandidate && !firstPartyCandidate) {
             return Attribution.UNIDENTIFIED;
         }
-        try (JarFile outer = new JarFile(archive.file().toFile())) {
+        try {
             if (archive.nestedEntry() == null) {
-                return classify(archive.name(), outer.getManifest(), entryNames(outer), packages, dependencies);
+                try (JarFile jar = new JarFile(archive.file().toFile(), false)) {
+                    Manifest manifest = bootCandidate ? jar.getManifest() : null;
+                    Iterable<String> names =
+                            () -> jar.stream().map(JarEntry::getName).iterator();
+                    return classify(archive.name(), manifest, firstPartyCandidate, names, packages, dependencies);
+                }
             }
+            JarFile outer = outers.open(archive.file());
             JarEntry nested = outer.getJarEntry(archive.nestedEntry());
-            if (nested == null) {
+            if (nested == null || nested.getMethod() != ZipEntry.STORED || nested.getSize() < 0) {
                 return Attribution.UNIDENTIFIED;
             }
-            try (JarInputStream input = new JarInputStream(outer.getInputStream(nested), false)) {
-                return classify(archive.name(), input.getManifest(), entryNames(input), packages, dependencies);
-            }
+            ZipDirectory.Source source = offset -> {
+                InputStream input = outer.getInputStream(nested);
+                try {
+                    input.skipNBytes(offset);
+                    return input;
+                } catch (IOException | RuntimeException ex) {
+                    input.close();
+                    throw ex;
+                }
+            };
+            List<ZipDirectory.Entry> entries = ZipDirectory.read(source, nested.getSize());
+            Manifest manifest = bootCandidate ? manifest(source, entries) : null;
+            List<String> names = entries.stream().map(ZipDirectory.Entry::name).toList();
+            return classify(archive.name(), manifest, firstPartyCandidate, names, packages, dependencies);
         } catch (IOException | RuntimeException ex) {
             LOGGER.log(
                     System.Logger.Level.DEBUG,
@@ -278,9 +313,20 @@ final class DependencyCatalog implements DependencyProvider {
         }
     }
 
+    private static Manifest manifest(ZipDirectory.Source source, List<ZipDirectory.Entry> entries) throws IOException {
+        for (ZipDirectory.Entry entry : entries) {
+            if (JarFile.MANIFEST_NAME.equalsIgnoreCase(entry.name())) {
+                return new Manifest(
+                        new ByteArrayInputStream(ZipDirectory.readEntry(source, entry, MAX_MANIFEST_BYTES)));
+            }
+        }
+        return null;
+    }
+
     private static Attribution classify(
             String archive,
             Manifest manifest,
+            boolean firstPartyCandidate,
             Iterable<String> entryNames,
             List<String> packages,
             Map<String, DependencyDto> dependencies) {
@@ -289,9 +335,46 @@ final class DependencyCatalog implements DependencyProvider {
             dependencies.putIfAbsent(key(bootArtifact), bootArtifact);
             return Attribution.IDENTIFIED;
         }
-        return FirstPartyArchives.isFirstParty(entryNames, packages)
+        return firstPartyCandidate && FirstPartyArchives.isFirstParty(entryNames, packages)
                 ? Attribution.FIRST_PARTY
                 : Attribution.UNIDENTIFIED;
+    }
+
+    /** The repackaged archives opened during one census pass, each opened once and closed together. */
+    private static final class OuterArchives implements AutoCloseable {
+
+        private final Map<Path, JarFile> opened = new HashMap<>();
+
+        private final Set<Path> failed = new HashSet<>();
+
+        JarFile open(Path file) throws IOException {
+            JarFile jar = opened.get(file);
+            if (jar != null) {
+                return jar;
+            }
+            if (failed.contains(file)) {
+                throw new IOException("Unreadable archive " + file.getFileName());
+            }
+            try {
+                jar = new JarFile(file.toFile(), false);
+            } catch (IOException | RuntimeException ex) {
+                failed.add(file);
+                throw ex;
+            }
+            opened.put(file, jar);
+            return jar;
+        }
+
+        @Override
+        public void close() {
+            for (JarFile jar : opened.values()) {
+                try {
+                    jar.close();
+                } catch (IOException ex) {
+                    // Nothing was written; a failed close does not affect the census result.
+                }
+            }
+        }
     }
 
     /**
@@ -326,44 +409,12 @@ final class DependencyCatalog implements DependencyProvider {
                 DependencyAssessmentDto.unknown());
     }
 
-    private static Iterable<String> entryNames(JarFile jarFile) {
-        return () -> jarFile.stream().map(JarEntry::getName).iterator();
-    }
-
-    private static Iterable<String> entryNames(JarInputStream input) {
-        return () -> new Iterator<>() {
-            private JarEntry next = advance();
-
-            private JarEntry advance() {
-                try {
-                    return input.getNextJarEntry();
-                } catch (IOException ex) {
-                    throw new UncheckedIOException(ex);
-                }
-            }
-
-            @Override
-            public boolean hasNext() {
-                return next != null;
-            }
-
-            @Override
-            public String next() {
-                if (next == null) {
-                    throw new NoSuchElementException();
-                }
-                String name = next.getName();
-                next = advance();
-                return name;
-            }
-        };
-    }
-
     /**
-     * One archive of the census: its bare file name, the file it is read from, and, for a library nested in a
-     * repackaged archive, its entry name inside that file.
+     * One archive of the census: its bare file name, the file it is read from, for a library nested in a
+     * repackaged archive its entry name inside that file, and whether a Spring Boot layers index places it in the
+     * {@code application} layer ({@code null} when no index describes it).
      */
-    private record CensusArchive(String name, Path file, String nestedEntry) {}
+    private record CensusArchive(String name, Path file, String nestedEntry, Boolean applicationLayer) {}
 
     /**
      * The distinct JAR archives the application actually runs with, or an empty list when they cannot be
@@ -372,6 +423,7 @@ final class DependencyCatalog implements DependencyProvider {
      */
     private List<CensusArchive> archiveCensus() {
         Map<String, CensusArchive> archives = new LinkedHashMap<>();
+        Map<Path, Optional<LayersIndex>> explodedIndexes = new HashMap<>();
         for (Path entry : archiveEntries()) {
             if (Files.isDirectory(entry)) {
                 continue;
@@ -389,7 +441,10 @@ final class DependencyCatalog implements DependencyProvider {
             }
             String archive = ArchiveNames.jarFileName(entry.toString());
             if (archive != null) {
-                archives.putIfAbsent(archive, new CensusArchive(archive, entry, null));
+                archives.putIfAbsent(
+                        archive,
+                        new CensusArchive(
+                                archive, entry, null, explodedApplicationLayer(entry, archive, explodedIndexes)));
             }
         }
         return List.copyOf(archives.values());
@@ -458,7 +513,9 @@ final class DependencyCatalog implements DependencyProvider {
         }
         try (JarFile jarFile = new JarFile(file)) {
             List<String> prefixes = nestedLibraryPrefixes(jarFile);
+            LayersIndex layers = null;
             List<CensusArchive> nested = new ArrayList<>();
+            boolean layersRead = false;
             Enumeration<JarEntry> entries = jarFile.entries();
             while (entries.hasMoreElements()) {
                 JarEntry jarEntry = entries.nextElement();
@@ -470,7 +527,12 @@ final class DependencyCatalog implements DependencyProvider {
                     if (name.startsWith(prefix) && name.indexOf('/', prefix.length()) < 0) {
                         String archive = ArchiveNames.jarFileName(name);
                         if (archive != null) {
-                            nested.add(new CensusArchive(archive, entry, name));
+                            if (!layersRead) {
+                                layers = repackagedLayersIndex(jarFile);
+                                layersRead = true;
+                            }
+                            nested.add(new CensusArchive(
+                                    archive, entry, name, layers == null ? null : layers.isApplication(name)));
                         }
                         break;
                     }
@@ -484,6 +546,60 @@ final class DependencyCatalog implements DependencyProvider {
                     entry,
                     ex.getMessage());
             return null;
+        }
+    }
+
+    /** The layers index of a repackaged archive, or {@code null} when it has none or it cannot be read. */
+    private static LayersIndex repackagedLayersIndex(JarFile jarFile) {
+        try {
+            Manifest manifest = jarFile.getManifest();
+            String declared = manifest == null
+                    ? null
+                    : BlankStrings.blankToNullTrimmed(
+                            manifest.getMainAttributes().getValue(SPRING_BOOT_LAYERS_INDEX));
+            for (String location : declared != null ? List.of(declared) : DEFAULT_LAYERS_INDEXES) {
+                JarEntry index = jarFile.getJarEntry(location);
+                if (index != null) {
+                    try (InputStream input = jarFile.getInputStream(index)) {
+                        return LayersIndex.read(input);
+                    }
+                }
+            }
+        } catch (IOException | RuntimeException ex) {
+            LOGGER.log(System.Logger.Level.DEBUG, "Could not read the layers index: {0}", ex.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * Whether an extracted {@code BOOT-INF/lib/} archive is in the application layer of the adjacent
+     * {@code BOOT-INF/layers.idx}, or {@code null} when the archive is not in that layout or no index is present.
+     */
+    private static Boolean explodedApplicationLayer(Path jar, String archive, Map<Path, Optional<LayersIndex>> cache) {
+        Path lib = jar.getParent();
+        Path bootInf = lib == null ? null : lib.getParent();
+        if (bootInf == null
+                || lib.getFileName() == null
+                || bootInf.getFileName() == null
+                || !"lib".equals(lib.getFileName().toString())
+                || !"BOOT-INF".equals(bootInf.getFileName().toString())) {
+            return null;
+        }
+        Optional<LayersIndex> index = cache.computeIfAbsent(bootInf, DependencyCatalog::explodedLayersIndex);
+        return index.map(layers -> layers.isApplication("BOOT-INF/lib/" + archive))
+                .orElse(null);
+    }
+
+    private static Optional<LayersIndex> explodedLayersIndex(Path bootInf) {
+        Path index = bootInf.resolve("layers.idx");
+        if (!Files.isRegularFile(index)) {
+            return Optional.empty();
+        }
+        try (InputStream input = Files.newInputStream(index)) {
+            return Optional.ofNullable(LayersIndex.read(input));
+        } catch (IOException | RuntimeException ex) {
+            LOGGER.log(System.Logger.Level.DEBUG, "Could not read the layers index {0}: {1}", index, ex.getMessage());
+            return Optional.empty();
         }
     }
 

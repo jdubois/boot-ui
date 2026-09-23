@@ -896,10 +896,16 @@ without extracting it — before reporting it:
   its dependencies. An archive with at least one class, whose *every* class lives in the application's base packages
   (the `@SpringBootApplication` packages the Architecture advisor analyzes), is counted in `coverage.archivesFirstParty`
   and named in `coverage.firstPartyArchives` (at most 200, with `firstPartyArchivesTruncated`) instead of as
-  unidentified. It is not scanned: it is the application, not a dependency. A single class outside the base packages,
-  a resource-only JAR, or no detected base package keeps an archive unidentified, so a shaded third-party JAR is never
-  hidden. Modules whose classes live outside the `@SpringBootApplication` package are not recognized. The panel lists
-  them in a collapsed note, and `archivesFound = archivesIdentified + archivesUnidentified + archivesFirstParty`.
+  unidentified. It is not scanned: it is the application, not a dependency. The check fails closed. An archive stays
+  unidentified when it has a single class outside the base packages, is resource-only, carries `META-INF/maven/`
+  descriptors (as published third-party JARs do), or when no base package, or only a single-segment one such as `com`,
+  is detected. When the Spring Boot `layers.idx` (in the fat JAR, or next to an extracted `BOOT-INF/lib/`) defines an
+  `application` layer, only archives in that layer can be first-party; Boot places project modules there and
+  third-party JARs in `dependencies`. A nested `BOOT-INF/lib/` entry is inspected only when stored uncompressed, as Boot
+  writes it, and only its central directory and manifest are read. Residual limit: without a layers index, a library
+  relocated into the application's own package and stripped of its Maven descriptors is indistinguishable from
+  application code. Modules whose classes live outside the `@SpringBootApplication` package are not recognized. The
+  panel lists them in a collapsed note, and `archivesFound = archivesIdentified + archivesUnidentified + archivesFirstParty`.
 - **`spring-boot-jarmode-tools`.** Spring Boot's build plugins add it at packaging time, so it is not a declared
   dependency and is absent from the SBOM. When its file name, `Implementation-Title: Spring Boot Jarmode Tools`, and
   `Implementation-Version` agree, it is identified as `org.springframework.boot:spring-boot-jarmode-tools:<version>`

@@ -639,6 +639,70 @@ class DependencyCatalogTests {
         assertThat(coverage.firstPartyArchivesTruncated()).isTrue();
     }
 
+    private static final String LAYERS_INDEX = """
+            - "dependencies":
+              - "BOOT-INF/lib/"
+            - "spring-boot-loader":
+              - "org/"
+            - "snapshot-dependencies":
+            - "application":
+              - "BOOT-INF/classes/"
+              - "BOOT-INF/classpath.idx"
+              - "BOOT-INF/layers.idx"
+              - "BOOT-INF/lib/users.jar"
+              - "META-INF/"
+            """;
+
+    @Test
+    void aLayersIndexKeepsDependencyLayerArchivesUnidentifiedEvenInTheApplicationNamespace() throws Exception {
+        byte[] sdk = jarBytes(null, List.of("com/boosting/sdk/Client.class"));
+        Path fatJar = repackagedJarWithContents(
+                Map.of("users.jar", jarBytes(null, List.of("com/boosting/user/User.class")), "boosting-sdk.jar", sdk),
+                LAYERS_INDEX,
+                true);
+
+        DependencyCoverageDto coverage = withClassPathInventory(
+                        new DependencyCatalog(emptyResolver(), () -> List.of("com.boosting")), fatJar.toString())
+                .coverage();
+
+        assertThat(coverage)
+                .isEqualTo(DependencyCoverageDto.of(2, 1, List.of("boosting-sdk.jar"), 1, List.of("users.jar")));
+    }
+
+    @Test
+    void anExtractedLayersIndexKeepsDependencyLayerArchivesUnidentified() throws Exception {
+        Path bootInf = Files.createDirectories(tempDir.resolve("extracted/BOOT-INF"));
+        Files.writeString(bootInf.resolve("layers.idx"), LAYERS_INDEX);
+        Path users = writeJar(bootInf.resolve("lib/users.jar"), null, List.of("com/boosting/user/User.class"));
+        Path sdk = writeJar(bootInf.resolve("lib/boosting-sdk.jar"), null, List.of("com/boosting/sdk/Client.class"));
+
+        DependencyCoverageDto coverage = withClassPathInventory(
+                        new DependencyCatalog(emptyResolver(), () -> List.of("com.boosting")),
+                        users.toString(),
+                        sdk.toString())
+                .coverage();
+
+        assertThat(coverage)
+                .isEqualTo(DependencyCoverageDto.of(2, 1, List.of("boosting-sdk.jar"), 1, List.of("users.jar")));
+    }
+
+    @Test
+    void compressedNestedArchivesAndTooBroadBasePackagesAreNotInspectedForFirstParty() throws Exception {
+        Path deflated = repackagedJarWithContents(
+                Map.of("users.jar", jarBytes(null, List.of("com/boosting/user/User.class"))), null, false);
+        assertThat(withClassPathInventory(
+                                new DependencyCatalog(emptyResolver(), () -> List.of("com.boosting")),
+                                deflated.toString())
+                        .coverage())
+                .isEqualTo(DependencyCoverageDto.of(1, 1, List.of("users.jar")));
+
+        Path vendor = writeJar(tempDir.resolve("vendor.jar"), null, List.of("com/vendor/Library.class"));
+        assertThat(withClassPathInventory(
+                                new DependencyCatalog(emptyResolver(), () -> List.of("com")), vendor.toString())
+                        .coverage())
+                .isEqualTo(DependencyCoverageDto.of(1, 1, List.of("vendor.jar")));
+    }
+
     // -----------------------------------------------------------------------------------------------
     // Fixtures
     // -----------------------------------------------------------------------------------------------
@@ -713,15 +777,31 @@ class DependencyCatalogTests {
 
     /** A repackaged JAR whose {@code BOOT-INF/lib/} entries are real, stored archives, as Boot writes them. */
     private Path repackagedJarWithContents(Map<String, byte[]> nestedArchives) throws IOException {
+        return repackagedJarWithContents(nestedArchives, null, true);
+    }
+
+    private Path repackagedJarWithContents(Map<String, byte[]> nestedArchives, String layersIndex, boolean stored)
+            throws IOException {
         Manifest manifest = manifest(Map.of("Spring-Boot-Lib", "BOOT-INF/lib/"));
         Path jar = tempDir.resolve("repackaged-app.jar");
         try (OutputStream out = Files.newOutputStream(jar);
                 JarOutputStream jarOut = new JarOutputStream(out, manifest)) {
             jarOut.putNextEntry(new ZipEntry("BOOT-INF/classes/com/boosting/App.class"));
             jarOut.closeEntry();
+            if (layersIndex != null) {
+                jarOut.putNextEntry(new ZipEntry("BOOT-INF/layers.idx"));
+                jarOut.write(layersIndex.getBytes(StandardCharsets.UTF_8));
+                jarOut.closeEntry();
+            }
             for (Map.Entry<String, byte[]> nested : nestedArchives.entrySet()) {
                 byte[] content = nested.getValue();
                 ZipEntry entry = new ZipEntry("BOOT-INF/lib/" + nested.getKey());
+                if (!stored) {
+                    jarOut.putNextEntry(entry);
+                    jarOut.write(content);
+                    jarOut.closeEntry();
+                    continue;
+                }
                 entry.setMethod(ZipEntry.STORED);
                 entry.setSize(content.length);
                 entry.setCompressedSize(content.length);
