@@ -133,11 +133,14 @@ test.describe('Vulnerabilities view', () => {
       ...inventoryReport,
       coverage: {
         status: 'INCOMPLETE',
-        archivesFound: 325,
+        archivesFound: 327,
         archivesIdentified: 186,
         archivesUnidentified: 139,
         unidentifiedArchives: ['spring-core-7.0.9.jar', 'tomcat-embed-core-11.0.24.jar'],
-        unidentifiedArchivesTruncated: true
+        unidentifiedArchivesTruncated: true,
+        archivesFirstParty: 2,
+        firstPartyArchives: ['cart.jar', 'order.jar'],
+        firstPartyArchivesTruncated: false
       }
     }
     await page.route(
@@ -148,7 +151,7 @@ test.describe('Vulnerabilities view', () => {
     )
 
     await openView('vulnerabilities', /^Vulnerabilities/)
-    await expect(page.getByText('139 of 325 JARs could not be identified and were not scanned')).toBeVisible()
+    await expect(page.getByText('139 of 327 JARs could not be identified and were not scanned')).toBeVisible()
     const coverageMetric = page.locator('.advisor-summary__metric', {hasText: 'Unidentified JARs'})
     await expect(coverageMetric.locator('dd')).toHaveText('139')
     // The archive names stay out of the scannable dependency table until explicitly requested.
@@ -157,6 +160,12 @@ test.describe('Vulnerabilities view', () => {
     await page.getByRole('button', {name: 'Show unidentified JARs'}).click()
     await expect(page.getByText('spring-core-7.0.9.jar')).toBeVisible()
     await expect(page.getByText('Only the first 2 names are listed.')).toBeVisible()
+
+    // The application's own module JARs are listed for transparency, never as part of the gap.
+    await expect(page.getByText('2 application module JARs contain only this application')).toBeVisible()
+    await expect(page.getByText('cart.jar')).toHaveCount(0)
+    await page.getByRole('button', {name: 'Show first-party JARs'}).click()
+    await expect(page.getByText('cart.jar')).toBeVisible()
   })
 })
 
@@ -167,7 +176,10 @@ function coverage() {
     archivesIdentified: 4,
     archivesUnidentified: 0,
     unidentifiedArchives: [],
-    unidentifiedArchivesTruncated: false
+    unidentifiedArchivesTruncated: false,
+    archivesFirstParty: 0,
+    firstPartyArchives: [],
+    firstPartyArchivesTruncated: false
   }
 }
 

@@ -115,7 +115,9 @@ function vulnerabilityReport(dismissed, coverageStatus = 'COMPLETE') {
           archivesFound: 1,
           archivesIdentified: 1,
           archivesUnidentified: 0,
-          unidentifiedArchives: []
+          unidentifiedArchives: [],
+          archivesFirstParty: 0,
+          firstPartyArchives: []
         }
       : null,
     severityCounts: [

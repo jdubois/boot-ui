@@ -200,6 +200,28 @@ depend on each JAR having a manifest or Maven descriptor, search arbitrary direc
 Archive identification counts remain distinct from SBOM package totals and OSV query completion; an SBOM with no
 enumerable archives still has `UNAVAILABLE` coverage.
 
+An archive still unidentified after coordinate attribution is inspected once more, reading only its manifest and
+entry names and stopping at the first class outside the application's base packages. A nested `BOOT-INF/lib/` entry is
+inspected only when stored uncompressed; only its central directory and a manifest of at most 64 KiB are read, never
+its other entries; the end record must end the archive exactly and the directory must parse to its declared size and
+count. An archive carrying `META-INF/maven/` descriptors or bundling another archive is never first-party,
+single-segment base packages are ignored, and when the Spring Boot `layers.idx` (fat JAR, merged extraction, or the
+sibling `application/` of an in-place layered extraction) defines an `application` layer, only archives Boot's
+first-match rule assigns to that layer qualify; a present but unreadable index admits none. An archive the index positively places in `application` may also use
+each base package's parent when that parent has at least two segments (sibling modules of a launcher subpackage). An archive with at least one class, every class in the `@SpringBootApplication` base
+packages, is reported as first-party (`archivesFirstParty`, at most 200 `firstPartyArchives` names plus truncation)
+and does not count against `COMPLETE`; it is the application itself and is not scanned. `spring-boot-jarmode-tools`,
+which Spring Boot adds at packaging time, is identified from its manifest only when the file name,
+`Implementation-Title: Spring Boot Jarmode Tools`, and `Implementation-Version` agree and every class it carries is under
+`org/springframework/boot/jarmode/tools/` (with no bundled archive), and is then scanned. For first-party
+recognition, unreadable, resource-only, compressed-nested, and oversized (more than 20,000 entries) archives, archives
+outside the layers-index `application` layer, a bare name that two different archives carry (the census counts it
+once), and every archive when no usable base package is detected, stay unidentified. Extracted `WEB-INF/lib/` archives
+honor an adjacent `WEB-INF/layers.idx` the same way. Plain `extract` without `--layers` writes no index, so only the
+unwidened base packages apply there. Without a layers
+index, a library relocated into the application's own package and stripped of its Maven descriptors cannot be told
+apart from application code.
+
 Neither provider supplies a verified runtime graph. Spring's filename census de-duplicates bare filenames and uses
 case-insensitive matching without group identity, so ambiguous classifiers/same-basename archives can overstate
 identified coverage. PURL form decoding can turn literal `+` into a space; malformed escapes and namespace rewriting
@@ -236,13 +258,15 @@ Mixed dispositions intentionally preserve an existing behavior while acknowledgi
 | INV-06 | KEEP / DEFER | Retain readable Maven descriptors when siblings fail; malformed-properties/runtime exceptions and richer diagnostics deferred. |
 | INV-07 | KEEP | Adjacent POM must match artifact/version; parent group/version allowed; external entities, DTDs, and schema access blocked. |
 | INV-08 | KEEP | Infer group only below literal `repository`; filename must match artifact/version with optional classifier. |
-| INV-09 | KEEP | Census conventional/manifest-selected nested libraries or classpath JARs without extracting nested contents. |
+| INV-09 | KEEP | Census conventional/manifest-selected nested libraries or classpath JARs without extracting nested contents; only still-unidentified archives have their manifest and entry names read. |
 | INV-10 | DEFER | Bare-filename de-duplication, case-insensitive attribution, descriptor-owner attribution, and classifier ambiguity can overclaim coverage. |
 | INV-11 | KEEP / DEFER | Preserve unavailable census and unreadable names; repackaged/container/outer-filename fallback precision deferred. |
 | INV-12 | KEEP | Exact reported coverage counts, at most 200 unidentified names, explicit truncation. |
 | INV-13 | KEEP | Quarkus non-production build-time model emits de-duplicated JAR coordinates and excludes malformed entries. |
 | INV-14 | DEFER | Missing/blank or partially decoded Quarkus model can still report default COMPLETE. |
 | INV-15 | KEEP | Explicit non-capabilities: dependency paths, reachability, shaded-content discovery, and hash lookup. |
+| INV-16 | KEEP | Archives whose every class lives in the application's (multi-segment) base packages are first-party, counted and named (at most 200) separately, and never a coverage gap; one foreign class, a `META-INF/maven/` descriptor, a bundled archive, or placement outside (or an unreadable) `layers.idx` `application` layer keeps an archive unidentified. |
+| INV-17 | KEEP | `spring-boot-jarmode-tools` is the only archive identified from its manifest, and only when file name, title, and version agree and it carries the jarmode tools classes. |
 
 ### Query and detail transport
 

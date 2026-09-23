@@ -17,9 +17,17 @@ import java.util.List;
  *     synthetic classpath, for example a native image) and coverage is therefore unknown rather than claimed
  * @param archivesFound the number of JAR archives enumerated from the running application
  * @param archivesIdentified how many of them resolved to a Maven coordinate and are in the inventory
- * @param archivesUnidentified how many of them did not, and are therefore not scannable
+ * @param archivesUnidentified how many of them neither resolved to a coordinate nor were recognized as
+ *     first-party, and are therefore an unscanned gap
  * @param unidentifiedArchives the unresolved archive file names, bounded for transport
  * @param unidentifiedArchivesTruncated whether {@code unidentifiedArchives} omits some names because the
+ *     transport bound was hit
+ * @param archivesFirstParty how many of them were recognized as the application's own code (for example the
+ *     module JARs of a multi-module build, whose every class sits under the application's base packages).
+ *     They carry no third-party coordinates, are not scannable, and do not count against coverage; always
+ *     {@code archivesFound = archivesIdentified + archivesUnidentified + archivesFirstParty}
+ * @param firstPartyArchives the first-party archive file names, bounded for transport
+ * @param firstPartyArchivesTruncated whether {@code firstPartyArchives} omits some names because the
  *     transport bound was hit
  */
 public record DependencyCoverageDto(
@@ -28,19 +36,23 @@ public record DependencyCoverageDto(
         int archivesIdentified,
         int archivesUnidentified,
         List<String> unidentifiedArchives,
-        boolean unidentifiedArchivesTruncated) {
+        boolean unidentifiedArchivesTruncated,
+        int archivesFirstParty,
+        List<String> firstPartyArchives,
+        boolean firstPartyArchivesTruncated) {
 
     /** Coverage could not be determined; the caller could not enumerate the application's archives. */
     public static final String UNAVAILABLE = "UNAVAILABLE";
 
-    /** Every enumerated archive resolved to a Maven coordinate. */
+    /** Every enumerated archive resolved to a Maven coordinate or was recognized as first-party. */
     public static final String COMPLETE = "COMPLETE";
 
-    /** At least one enumerated archive could not be resolved to a Maven coordinate. */
+    /** At least one enumerated archive was neither resolved to a Maven coordinate nor recognized as first-party. */
     public static final String INCOMPLETE = "INCOMPLETE";
 
     public DependencyCoverageDto {
         unidentifiedArchives = DtoCollections.immutableCopy(unidentifiedArchives);
+        firstPartyArchives = DtoCollections.immutableCopy(firstPartyArchives);
     }
 
     /**
@@ -48,7 +60,7 @@ public record DependencyCoverageDto(
      * deny full coverage.
      */
     public static DependencyCoverageDto unavailable() {
-        return new DependencyCoverageDto(UNAVAILABLE, 0, 0, 0, List.of(), false);
+        return new DependencyCoverageDto(UNAVAILABLE, 0, 0, 0, List.of(), false, 0, List.of(), false);
     }
 
     /**
@@ -59,32 +71,56 @@ public record DependencyCoverageDto(
      */
     public static DependencyCoverageDto complete(int identified) {
         int count = Math.max(0, identified);
-        return new DependencyCoverageDto(COMPLETE, count, count, 0, List.of(), false);
+        return new DependencyCoverageDto(COMPLETE, count, count, 0, List.of(), false, 0, List.of(), false);
     }
 
     /**
-     * Coverage derived from a completed archive census. The status is {@link #COMPLETE} only when no archive
-     * was left unidentified.
-     *
-     * <p>{@code unidentifiedArchives} may be shorter than {@code archivesUnidentified} because the name list
-     * is bounded for transport; the counts are always the true totals, so a truncated list never
-     * under-reports the size of the gap.</p>
+     * Coverage derived from a completed archive census with no first-party archives. The status is
+     * {@link #COMPLETE} only when no archive was left unidentified.
      *
      * @param archivesFound the number of archives enumerated
      * @param archivesUnidentified how many of them did not resolve to a Maven coordinate
      * @param unidentifiedArchives the unresolved archive file names, already bounded
+     * @see #of(int, int, List, int, List)
      */
     public static DependencyCoverageDto of(
             int archivesFound, int archivesUnidentified, List<String> unidentifiedArchives) {
+        return of(archivesFound, archivesUnidentified, unidentifiedArchives, 0, List.of());
+    }
+
+    /**
+     * Coverage derived from a completed archive census. The status is {@link #COMPLETE} only when no archive
+     * was left unidentified; first-party archives are the application itself and never count against it.
+     *
+     * <p>The name lists may be shorter than their counts because they are bounded for transport; the counts
+     * are always the true totals, so a truncated list never under-reports the size of the gap.</p>
+     *
+     * @param archivesFound the number of archives enumerated
+     * @param archivesUnidentified how many of them neither resolved to a Maven coordinate nor were first-party
+     * @param unidentifiedArchives the unresolved archive file names, already bounded
+     * @param archivesFirstParty how many of them were recognized as the application's own code
+     * @param firstPartyArchives the first-party archive file names, already bounded
+     */
+    public static DependencyCoverageDto of(
+            int archivesFound,
+            int archivesUnidentified,
+            List<String> unidentifiedArchives,
+            int archivesFirstParty,
+            List<String> firstPartyArchives) {
         int found = Math.max(0, archivesFound);
         int unidentified = Math.min(found, Math.max(0, archivesUnidentified));
+        int firstParty = Math.min(found - unidentified, Math.max(0, archivesFirstParty));
         int listed = unidentifiedArchives == null ? 0 : unidentifiedArchives.size();
+        int firstPartyListed = firstPartyArchives == null ? 0 : firstPartyArchives.size();
         return new DependencyCoverageDto(
                 unidentified == 0 ? COMPLETE : INCOMPLETE,
                 found,
-                found - unidentified,
+                found - unidentified - firstParty,
                 unidentified,
                 unidentifiedArchives,
-                listed < unidentified);
+                listed < unidentified,
+                firstParty,
+                firstPartyArchives,
+                firstPartyListed < firstParty);
     }
 }

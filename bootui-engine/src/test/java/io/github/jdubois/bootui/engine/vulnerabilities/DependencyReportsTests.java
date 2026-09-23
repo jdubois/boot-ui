@@ -669,7 +669,8 @@ class DependencyReportsTests {
 
     @Test
     void applyDismissalsPreservesCoverageAndSkippedPackages() {
-        DependencyCoverageDto coverage = DependencyCoverageDto.of(3, 1, List.of("mystery-1.0.0.jar"));
+        DependencyCoverageDto coverage =
+                DependencyCoverageDto.of(4, 1, List.of("mystery-1.0.0.jar"), 1, List.of("orders.jar"));
         DependenciesReport report = DependencyReports.report(
                 true,
                 "SCANNED",
@@ -687,6 +688,39 @@ class DependencyReportsTests {
         assertThat(updated.coverage()).isEqualTo(coverage);
         assertThat(updated.coverage().status()).isEqualTo("INCOMPLETE");
         assertThat(updated.coverage().archivesIdentified()).isEqualTo(2);
+        assertThat(updated.coverage().archivesFirstParty()).isEqualTo(1);
+        assertThat(updated.coverage().firstPartyArchives()).containsExactly("orders.jar");
+    }
+
+    @Test
+    void firstPartyArchivesDoNotCountAgainstCoverage() {
+        DependencyCoverageDto coverage =
+                DependencyCoverageDto.of(333, 0, List.of(), 17, List.of("cart.jar", "order.jar"));
+
+        assertThat(coverage.status()).isEqualTo(DependencyCoverageDto.COMPLETE);
+        assertThat(coverage.archivesIdentified()).isEqualTo(316);
+        assertThat(coverage.archivesUnidentified()).isZero();
+        assertThat(coverage.archivesFirstParty()).isEqualTo(17);
+        assertThat(coverage.firstPartyArchivesTruncated()).isTrue();
+
+        DependenciesReport report = DependencyReports.report(
+                true, "SCANNED", "done", 1L, 1, 0, List.of(dependency("org.example", "a", "1")), coverage);
+        assertThat(report.evidence().limitations())
+                .doesNotContain("Dependency inventory coverage is incomplete or unavailable.");
+    }
+
+    @Test
+    void firstPartyCountIsClampedToTheArchivesNotAlreadyUnidentified() {
+        DependencyCoverageDto coverage = DependencyCoverageDto.of(3, 2, List.of("a.jar", "b.jar"), 5, List.of());
+
+        assertThat(coverage.status()).isEqualTo(DependencyCoverageDto.INCOMPLETE);
+        assertThat(coverage.archivesFirstParty()).isEqualTo(1);
+        assertThat(coverage.archivesIdentified()).isZero();
+        assertThat(DependencyCoverageDto.of(1, 0, List.of()).archivesFirstParty())
+                .isZero();
+        assertThat(DependencyCoverageDto.complete(4).firstPartyArchives()).isEmpty();
+        assertThat(DependencyCoverageDto.unavailable().firstPartyArchivesTruncated())
+                .isFalse();
     }
 
     @Test

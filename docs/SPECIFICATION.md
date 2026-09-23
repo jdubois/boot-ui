@@ -869,7 +869,14 @@ Features:
   merged and launched through `JarLauncher`; the dependency JARs need not appear in `java.class.path`.
   Archive counts remain separate from SBOM component totals and completed OSV queries. An SBOM alone never changes
   an unobservable archive census to `COMPLETE`. Report unidentified names as `INCOMPLETE` with exact
-  reported counts and at most 200 names plus truncation, and unavailable census as `UNAVAILABLE`. `COMPLETE` describes
+  reported counts and at most 200 names plus truncation, and unavailable census as `UNAVAILABLE`. Before reporting an
+  archive unidentified, read only its manifest and entry names (for a stored nested archive, only its central directory and a bounded
+  manifest): an archive whose every class (at least one) lives in the application's multi-segment base packages, with
+  no `META-INF/maven/` descriptor and, when a Spring Boot `layers.idx` defines an `application` layer, placed in that
+  layer (which also admits each base package's multi-segment parent), is the application's own module and is reported as first-party
+  (`archivesFirstParty`, at most 200 `firstPartyArchives` plus truncation), not as a gap; `spring-boot-jarmode-tools`
+  is identified from a matching manifest title and version. `archivesFound` always equals identified plus
+  unidentified plus first-party. `COMPLETE` describes
   the provider's reported identification, not independently verified runtime completeness: filename attribution and
   Quarkus missing/malformed model overclaims remain deferred below.
 - Report packages dropped by the `bootui.vulnerabilities.max-packages` bound as `scan.packagesSkipped` rather than
@@ -908,7 +915,8 @@ and the whole JSON is parsed first. Quarkus missing/blank model keys and skipped
 `COMPLETE`. Neither this change nor a consumer trusting that flag independently verifies a complete runtime inventory.
 
 The dependency inventory is coordinate-based (one resolved JAR = one artifact coordinate), and no JAR
-manifest header carries a `groupId` — `Implementation-Title` is a display name as often as an artifact id, and
+manifest header carries a `groupId` (the curated `spring-boot-jarmode-tools` exception above relies on its fixed, known
+group) — `Implementation-Title` is a display name as often as an artifact id, and
 `Implementation-Vendor-Id` is not a group id. An application built without a CycloneDX SBOM therefore cannot resolve
 coordinates for the many artifacts published with no Maven descriptor (Spring Framework, Spring Boot, Spring Security,
 `tomcat-embed-*`, `hibernate-core`, `kotlin-stdlib`, the PostgreSQL driver, and the `opentelemetry-*` and

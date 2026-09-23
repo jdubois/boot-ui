@@ -126,20 +126,17 @@ class VulnerabilitiesControllerTests {
                         dependency("com.example", "resolved", "1.0"),
                         dependency("com.example", "sbom-only", "1.0"),
                         dependency("com.example", "another-sbom-component", "1.0")),
-                DependencyCoverageDto.of(2, 1, List.of("mystery-1.0.jar")));
-        Map<String, Object> coverage = Map.of(
-                "status",
-                "INCOMPLETE",
-                "archivesFound",
-                2,
-                "archivesIdentified",
-                1,
-                "archivesUnidentified",
-                1,
-                "unidentifiedArchives",
-                List.of("mystery-1.0.jar"),
-                "unidentifiedArchivesTruncated",
-                false);
+                DependencyCoverageDto.of(3, 1, List.of("mystery-1.0.jar"), 1, List.of("orders.jar")));
+        Map<String, Object> coverage = Map.ofEntries(
+                Map.entry("status", "INCOMPLETE"),
+                Map.entry("archivesFound", 3),
+                Map.entry("archivesIdentified", 1),
+                Map.entry("archivesUnidentified", 1),
+                Map.entry("unidentifiedArchives", List.of("mystery-1.0.jar")),
+                Map.entry("unidentifiedArchivesTruncated", false),
+                Map.entry("archivesFirstParty", 1),
+                Map.entry("firstPartyArchives", List.of("orders.jar")),
+                Map.entry("firstPartyArchivesTruncated", false));
         DependencyProvider provider = mock(DependencyProvider.class);
         when(provider.inventory()).thenReturn(inventory);
         VulnerabilityScanner scanner = mock(VulnerabilityScanner.class);

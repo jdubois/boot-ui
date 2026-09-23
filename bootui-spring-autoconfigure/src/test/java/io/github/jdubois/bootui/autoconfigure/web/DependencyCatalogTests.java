@@ -490,6 +490,337 @@ class DependencyCatalogTests {
     }
 
     // -----------------------------------------------------------------------------------------------
+    // First-party module archives and Spring Boot packaging artifacts
+    // -----------------------------------------------------------------------------------------------
+
+    @Test
+    void reportsExplodedModuleJarsAsFirstPartyAndIdentifiesJarmodeToolsFromItsManifest() throws Exception {
+        Path lib = Files.createDirectories(tempDir.resolve("app/BOOT-INF/lib"));
+        Path classes = Files.createDirectories(tempDir.resolve("app/BOOT-INF/classes/META-INF/sbom"));
+        Files.writeString(
+                classes.resolve("application.cdx.json"),
+                "{\"components\":[{\"purl\":\"pkg:maven/com.example/resolved@1.0\"}]}");
+        List<URL> urls = new ArrayList<>();
+        urls.add(classes.getParent().getParent().toUri().toURL());
+        urls.add(writeJar(lib.resolve("resolved-1.0.jar"), null, List.of("com/example/Resolved.class"))
+                .toUri()
+                .toURL());
+        for (String module : List.of("cart", "order")) {
+            urls.add(writeJar(
+                            lib.resolve(module + ".jar"),
+                            manifest(Map.of()),
+                            List.of("com/boosting/" + module + "/", "com/boosting/" + module + "/Service.class"))
+                    .toUri()
+                    .toURL());
+        }
+        urls.add(writeJar(
+                        lib.resolve("spring-boot-jarmode-tools-4.1.1.jar"),
+                        jarmodeManifest("4.1.1"),
+                        List.of("org/springframework/boot/jarmode/tools/ToolsJarMode.class"))
+                .toUri()
+                .toURL());
+        try (URLClassLoader loader = new URLClassLoader(urls.toArray(new URL[0]), null)) {
+            DependencyInventory inventory = withClassPathInventory(
+                    new DependencyCatalog(
+                            new PathMatchingResourcePatternResolver(loader), () -> List.of("com.boosting")),
+                    ".");
+
+            assertThat(inventory.dependencies())
+                    .extracting(DependencyDto::packageName, DependencyDto::version, DependencyDto::source)
+                    .containsExactly(
+                            tuple("com.example:resolved", "1.0", "CycloneDX SBOM"),
+                            tuple(
+                                    "org.springframework.boot:spring-boot-jarmode-tools",
+                                    "4.1.1",
+                                    "Spring Boot manifest"));
+            assertThat(inventory.coverage())
+                    .isEqualTo(DependencyCoverageDto.of(4, 0, List.of(), 2, List.of("cart.jar", "order.jar")));
+            assertThat(inventory.coverage().archivesIdentified()).isEqualTo(2);
+        }
+    }
+
+    @Test
+    void recognizesFirstPartyAndJarmodeArchivesNestedInARepackagedJar() throws Exception {
+        Path fatJar = repackagedJarWithContents(Map.of(
+                "users.jar",
+                jarBytes(manifest(Map.of()), List.of("com/boosting/user/User.class")),
+                "spring-boot-jarmode-tools-4.1.1.jar",
+                jarBytes(jarmodeManifest("4.1.1"), List.of("org/springframework/boot/jarmode/tools/Tools.class")),
+                "shaded-1.0.jar",
+                jarBytes(null, List.of("com/boosting/Shaded.class", "org/relocated/Library.class"))));
+
+        DependencyInventory inventory = withClassPathInventory(
+                new DependencyCatalog(emptyResolver(), () -> List.of("com.boosting")), fatJar.toString());
+
+        assertThat(inventory.dependencies())
+                .extracting(DependencyDto::packageName)
+                .containsExactly("org.springframework.boot:spring-boot-jarmode-tools");
+        assertThat(inventory.coverage())
+                .isEqualTo(DependencyCoverageDto.of(3, 1, List.of("shaded-1.0.jar"), 1, List.of("users.jar")));
+    }
+
+    @Test
+    void keepsArchivesUnidentifiedWhenTheyAreNotProvablyFirstPartyOrBootArtifacts() throws Exception {
+        Path lib = Files.createDirectories(tempDir.resolve("strict/BOOT-INF/lib"));
+        Path shaded = writeJar(
+                lib.resolve("module-with-shaded.jar"),
+                null,
+                List.of("com/boosting/Module.class", "com/google/common/Lists.class"));
+        Path resources = writeJar(lib.resolve("assets.jar"), null, List.of("static/app.js"));
+        Path sibling = writeJar(lib.resolve("sibling.jar"), null, List.of("com/boostingextra/Other.class"));
+        Path wrongVersion = writeJar(
+                lib.resolve("spring-boot-jarmode-tools-4.1.1.jar"),
+                jarmodeManifest("4.1.0"),
+                List.of("org/springframework/boot/jarmode/tools/Tools.class"));
+        Path wrongTitle = writeJar(
+                lib.resolve("spring-boot-jarmode-tools-4.2.0.jar"),
+                manifest(Map.of("Implementation-Title", "Something Else", "Implementation-Version", "4.2.0")),
+                List.of("org/example/Tools.class"));
+        Path corrupt = Files.writeString(lib.resolve("broken.jar"), "not a zip file");
+        String classPath = String.join(
+                File.pathSeparator,
+                shaded.toString(),
+                resources.toString(),
+                sibling.toString(),
+                wrongVersion.toString(),
+                wrongTitle.toString(),
+                corrupt.toString());
+
+        DependencyInventory inventory = withClassPathInventory(
+                new DependencyCatalog(emptyResolver(), () -> List.of("com.boosting")), classPath);
+
+        assertThat(inventory.dependencies()).isEmpty();
+        assertThat(inventory.coverage())
+                .isEqualTo(DependencyCoverageDto.of(
+                        6,
+                        6,
+                        List.of(
+                                "assets.jar",
+                                "broken.jar",
+                                "module-with-shaded.jar",
+                                "sibling.jar",
+                                "spring-boot-jarmode-tools-4.1.1.jar",
+                                "spring-boot-jarmode-tools-4.2.0.jar")));
+    }
+
+    @Test
+    void withoutBasePackagesModuleJarsStayUnidentified() throws Exception {
+        Path module = writeJar(tempDir.resolve("cart.jar"), manifest(Map.of()), List.of("com/boosting/Cart.class"));
+
+        assertThat(withClassPathInventory(new DependencyCatalog(emptyResolver(), List::of), module.toString())
+                        .coverage())
+                .isEqualTo(DependencyCoverageDto.of(1, 1, List.of("cart.jar")));
+        assertThat(withClassPathInventory(
+                                new DependencyCatalog(emptyResolver(), () -> {
+                                    throw new IllegalStateException("no context");
+                                }),
+                                module.toString())
+                        .coverage())
+                .isEqualTo(DependencyCoverageDto.of(1, 1, List.of("cart.jar")));
+    }
+
+    @Test
+    void boundsTheReportedFirstPartyNamesWhileKeepingTheCountExact() throws Exception {
+        int total = DependencyCatalog.MAX_UNIDENTIFIED_ARCHIVES + 3;
+        Map<String, byte[]> nested = new java.util.LinkedHashMap<>();
+        byte[] module = jarBytes(null, List.of("com/boosting/Module.class"));
+        for (int i = 0; i < total; i++) {
+            nested.put("module-%04d.jar".formatted(i), module);
+        }
+        Path fatJar = repackagedJarWithContents(nested);
+
+        DependencyCoverageDto coverage = withClassPathInventory(
+                        new DependencyCatalog(emptyResolver(), () -> List.of("com.boosting")), fatJar.toString())
+                .coverage();
+
+        assertThat(coverage.status()).isEqualTo(DependencyCoverageDto.COMPLETE);
+        assertThat(coverage.archivesFirstParty()).isEqualTo(total);
+        assertThat(coverage.firstPartyArchives()).hasSize(DependencyCatalog.MAX_UNIDENTIFIED_ARCHIVES);
+        assertThat(coverage.firstPartyArchivesTruncated()).isTrue();
+    }
+
+    /** As Spring Boot writes it: every library listed individually, the project module in {@code application}. */
+    private static final String LAYERS_INDEX = """
+            - "dependencies":
+              - "BOOT-INF/lib/boosting-sdk.jar"
+            - "spring-boot-loader":
+              - "org/"
+            - "snapshot-dependencies":
+            - "application":
+              - "BOOT-INF/classes/"
+              - "BOOT-INF/classpath.idx"
+              - "BOOT-INF/layers.idx"
+              - "BOOT-INF/lib/users.jar"
+              - "META-INF/"
+            """;
+
+    @Test
+    void aLayersIndexKeepsDependencyLayerArchivesUnidentifiedEvenInTheApplicationNamespace() throws Exception {
+        byte[] sdk = jarBytes(null, List.of("com/boosting/sdk/Client.class"));
+        Path fatJar = repackagedJarWithContents(
+                Map.of("users.jar", jarBytes(null, List.of("com/boosting/user/User.class")), "boosting-sdk.jar", sdk),
+                LAYERS_INDEX,
+                true);
+
+        DependencyCoverageDto coverage = withClassPathInventory(
+                        new DependencyCatalog(emptyResolver(), () -> List.of("com.boosting")), fatJar.toString())
+                .coverage();
+
+        assertThat(coverage)
+                .isEqualTo(DependencyCoverageDto.of(2, 1, List.of("boosting-sdk.jar"), 1, List.of("users.jar")));
+    }
+
+    @Test
+    void anExtractedLayersIndexKeepsDependencyLayerArchivesUnidentified() throws Exception {
+        Path bootInf = Files.createDirectories(tempDir.resolve("extracted/BOOT-INF"));
+        Files.writeString(bootInf.resolve("layers.idx"), LAYERS_INDEX);
+        Path users = writeJar(bootInf.resolve("lib/users.jar"), null, List.of("com/boosting/user/User.class"));
+        Path sdk = writeJar(bootInf.resolve("lib/boosting-sdk.jar"), null, List.of("com/boosting/sdk/Client.class"));
+
+        DependencyCoverageDto coverage = withClassPathInventory(
+                        new DependencyCatalog(emptyResolver(), () -> List.of("com.boosting")),
+                        users.toString(),
+                        sdk.toString())
+                .coverage();
+
+        assertThat(coverage)
+                .isEqualTo(DependencyCoverageDto.of(2, 1, List.of("boosting-sdk.jar"), 1, List.of("users.jar")));
+    }
+
+    @Test
+    void anInPlaceLayeredExtractionResolvesDependencyLayerArchivesThroughTheApplicationLayerIndex() throws Exception {
+        // jarmode=tools extract --layers --launcher writes each layer to its own <layer>/BOOT-INF/ tree, and only
+        // the application layer carries the index.
+        Path root = tempDir.resolve("in-place");
+        Path application = Files.createDirectories(root.resolve("application/BOOT-INF"));
+        Files.writeString(application.resolve("layers.idx"), LAYERS_INDEX);
+        Path users = writeJar(application.resolve("lib/users.jar"), null, List.of("com/boosting/user/User.class"));
+        Path sdk = writeJar(
+                root.resolve("dependencies/BOOT-INF/lib/boosting-sdk.jar"),
+                null,
+                List.of("com/boosting/sdk/Client.class"));
+
+        DependencyCoverageDto coverage = withClassPathInventory(
+                        new DependencyCatalog(emptyResolver(), () -> List.of("com.boosting")),
+                        users.toString(),
+                        sdk.toString())
+                .coverage();
+
+        assertThat(coverage)
+                .isEqualTo(DependencyCoverageDto.of(2, 1, List.of("boosting-sdk.jar"), 1, List.of("users.jar")));
+    }
+
+    @Test
+    void anApplicationLayerModuleMayLiveBesideTheLauncherPackage() throws Exception {
+        // The launcher is in com.boosting.gateway; its sibling modules are in com.boosting.*. Only the archive the
+        // index places in the application layer is widened to the parent package.
+        Path bootInf = Files.createDirectories(tempDir.resolve("merged/BOOT-INF"));
+        Files.writeString(bootInf.resolve("layers.idx"), LAYERS_INDEX);
+        Path users = writeJar(bootInf.resolve("lib/users.jar"), null, List.of("com/boosting/user/User.class"));
+        Path sdk = writeJar(bootInf.resolve("lib/boosting-sdk.jar"), null, List.of("com/boosting/sdk/Client.class"));
+        Path loose = writeJar(tempDir.resolve("loose.jar"), null, List.of("com/boosting/loose/Loose.class"));
+
+        DependencyCoverageDto coverage = withClassPathInventory(
+                        new DependencyCatalog(emptyResolver(), () -> List.of("com.boosting.gateway")),
+                        users.toString(),
+                        sdk.toString(),
+                        loose.toString())
+                .coverage();
+
+        assertThat(coverage)
+                .isEqualTo(DependencyCoverageDto.of(
+                        3, 2, List.of("boosting-sdk.jar", "loose.jar"), 1, List.of("users.jar")));
+    }
+
+    @Test
+    void aBareNameCarriedByTwoDifferentArchivesIsNeverFirstParty() throws Exception {
+        // The census counts one users.jar; vouching for the first copy must not hide the second one's code.
+        Path first = writeJar(tempDir.resolve("a/users.jar"), null, List.of("com/boosting/user/User.class"));
+        Path second = writeJar(tempDir.resolve("b/users.jar"), null, List.of("org/vendor/Library.class"));
+
+        DependencyCoverageDto coverage = withClassPathInventory(
+                        new DependencyCatalog(emptyResolver(), () -> List.of("com.boosting")),
+                        first.toString(),
+                        second.toString())
+                .coverage();
+
+        assertThat(coverage).isEqualTo(DependencyCoverageDto.of(1, 1, List.of("users.jar")));
+    }
+
+    @Test
+    void anExplodedWarHonorsItsLayersIndex() throws Exception {
+        Path webInf = Files.createDirectories(tempDir.resolve("war/WEB-INF"));
+        Files.writeString(webInf.resolve("layers.idx"), """
+                - "dependencies":
+                  - "WEB-INF/lib/boosting-sdk.jar"
+                - "application":
+                  - "WEB-INF/lib/users.jar"
+                """);
+        Path users = writeJar(webInf.resolve("lib/users.jar"), null, List.of("com/boosting/user/User.class"));
+        Path sdk = writeJar(webInf.resolve("lib/boosting-sdk.jar"), null, List.of("com/boosting/sdk/Client.class"));
+
+        DependencyCoverageDto coverage = withClassPathInventory(
+                        new DependencyCatalog(emptyResolver(), () -> List.of("com.boosting")),
+                        users.toString(),
+                        sdk.toString())
+                .coverage();
+
+        assertThat(coverage)
+                .isEqualTo(DependencyCoverageDto.of(2, 1, List.of("boosting-sdk.jar"), 1, List.of("users.jar")));
+    }
+
+    @Test
+    void anUnreadableLayersIndexPlacesNoArchiveInTheApplicationLayer() throws Exception {
+        Path fatJar = repackagedJarWithContents(
+                Map.of("users.jar", jarBytes(null, List.of("com/boosting/user/User.class"))),
+                "this is not a layers index\n",
+                true);
+
+        assertThat(withClassPathInventory(
+                                new DependencyCatalog(emptyResolver(), () -> List.of("com.boosting")),
+                                fatJar.toString())
+                        .coverage())
+                .isEqualTo(DependencyCoverageDto.of(1, 1, List.of("users.jar")));
+    }
+
+    @Test
+    void aJarmodeToolsManifestWithoutTheToolsClassesIsNotIdentified() throws Exception {
+        Path forged = writeJar(
+                tempDir.resolve("spring-boot-jarmode-tools-4.1.1.jar"),
+                jarmodeManifest("4.1.1"),
+                List.of("org/example/Payload.class"));
+        Path mixed = writeJar(
+                tempDir.resolve("mixed/spring-boot-jarmode-tools-4.1.2.jar"),
+                jarmodeManifest("4.1.2"),
+                List.of("org/springframework/boot/jarmode/tools/Tools.class", "org/example/Payload.class"));
+
+        DependencyInventory inventory = withClassPathInventory(
+                new DependencyCatalog(emptyResolver(), () -> List.of()), forged.toString(), mixed.toString());
+
+        assertThat(inventory.coverage())
+                .isEqualTo(DependencyCoverageDto.of(
+                        2, 2, List.of("spring-boot-jarmode-tools-4.1.1.jar", "spring-boot-jarmode-tools-4.1.2.jar")));
+        assertThat(inventory.dependencies()).isEmpty();
+    }
+
+    @Test
+    void compressedNestedArchivesAndTooBroadBasePackagesAreNotInspectedForFirstParty() throws Exception {
+        Path deflated = repackagedJarWithContents(
+                Map.of("users.jar", jarBytes(null, List.of("com/boosting/user/User.class"))), null, false);
+        assertThat(withClassPathInventory(
+                                new DependencyCatalog(emptyResolver(), () -> List.of("com.boosting")),
+                                deflated.toString())
+                        .coverage())
+                .isEqualTo(DependencyCoverageDto.of(1, 1, List.of("users.jar")));
+
+        Path vendor = writeJar(tempDir.resolve("vendor.jar"), null, List.of("com/vendor/Library.class"));
+        assertThat(withClassPathInventory(
+                                new DependencyCatalog(emptyResolver(), () -> List.of("com")), vendor.toString())
+                        .coverage())
+                .isEqualTo(DependencyCoverageDto.of(1, 1, List.of("vendor.jar")));
+    }
+
+    // -----------------------------------------------------------------------------------------------
     // Fixtures
     // -----------------------------------------------------------------------------------------------
 
@@ -520,6 +851,82 @@ class DependencyCatalogTests {
             jarOut.closeEntry();
             for (String nested : nestedArchives) {
                 jarOut.putNextEntry(new ZipEntry(libraryPrefix + nested));
+                jarOut.closeEntry();
+            }
+        }
+        return jar;
+    }
+
+    private static Manifest manifest(Map<String, String> attributes) {
+        Manifest manifest = new Manifest();
+        manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+        attributes.forEach(manifest.getMainAttributes()::putValue);
+        return manifest;
+    }
+
+    private static Manifest jarmodeManifest(String version) {
+        return manifest(Map.of(
+                "Implementation-Title",
+                "Spring Boot Jarmode Tools",
+                "Implementation-Version",
+                version,
+                "Automatic-Module-Name",
+                "spring.boot.jarmode.tools"));
+    }
+
+    private static byte[] jarBytes(Manifest manifest, List<String> entries) throws IOException {
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        try (JarOutputStream jarOut =
+                manifest == null ? new JarOutputStream(bytes) : new JarOutputStream(bytes, manifest)) {
+            for (String entry : entries) {
+                jarOut.putNextEntry(new ZipEntry(entry));
+                jarOut.closeEntry();
+            }
+        }
+        return bytes.toByteArray();
+    }
+
+    private static Path writeJar(Path jar, Manifest manifest, List<String> entries) throws IOException {
+        Files.createDirectories(jar.getParent());
+        Files.write(jar, jarBytes(manifest, entries));
+        return jar;
+    }
+
+    /** A repackaged JAR whose {@code BOOT-INF/lib/} entries are real, stored archives, as Boot writes them. */
+    private Path repackagedJarWithContents(Map<String, byte[]> nestedArchives) throws IOException {
+        return repackagedJarWithContents(nestedArchives, null, true);
+    }
+
+    private Path repackagedJarWithContents(Map<String, byte[]> nestedArchives, String layersIndex, boolean stored)
+            throws IOException {
+        Manifest manifest = manifest(Map.of("Spring-Boot-Lib", "BOOT-INF/lib/"));
+        Path jar = tempDir.resolve("repackaged-app.jar");
+        try (OutputStream out = Files.newOutputStream(jar);
+                JarOutputStream jarOut = new JarOutputStream(out, manifest)) {
+            jarOut.putNextEntry(new ZipEntry("BOOT-INF/classes/com/boosting/App.class"));
+            jarOut.closeEntry();
+            if (layersIndex != null) {
+                jarOut.putNextEntry(new ZipEntry("BOOT-INF/layers.idx"));
+                jarOut.write(layersIndex.getBytes(StandardCharsets.UTF_8));
+                jarOut.closeEntry();
+            }
+            for (Map.Entry<String, byte[]> nested : nestedArchives.entrySet()) {
+                byte[] content = nested.getValue();
+                ZipEntry entry = new ZipEntry("BOOT-INF/lib/" + nested.getKey());
+                if (!stored) {
+                    jarOut.putNextEntry(entry);
+                    jarOut.write(content);
+                    jarOut.closeEntry();
+                    continue;
+                }
+                entry.setMethod(ZipEntry.STORED);
+                entry.setSize(content.length);
+                entry.setCompressedSize(content.length);
+                java.util.zip.CRC32 crc = new java.util.zip.CRC32();
+                crc.update(content);
+                entry.setCrc(crc.getValue());
+                jarOut.putNextEntry(entry);
+                jarOut.write(content);
                 jarOut.closeEntry();
             }
         }

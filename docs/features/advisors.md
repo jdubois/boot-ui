@@ -904,14 +904,49 @@ subject to the discovery limitations below:
 
 | `coverage.status` | Meaning |
 | --- | --- |
-| `COMPLETE` | The provider reports all enumerated archives identified; this is not independent verification of the runtime inventory. |
-| `INCOMPLETE` | Some archives did not; they are counted and named, and the panel warns that they were not scanned. |
+| `COMPLETE` | The provider reports every enumerated archive identified or first-party; this is not independent verification of the runtime inventory. |
+| `INCOMPLETE` | Some archives were neither; they are counted and named, and the panel warns that they were not scanned. |
 | `UNAVAILABLE` | Neither the classpath nor the application classloader exposes enumerable archives (for example under a native image), so coverage is unknown rather than claimed. |
 
 When coverage is incomplete the panel shows an "Unidentified JARs" metric and a warning naming the gap
 ("139 of 325 JARs could not be identified and were not scanned"), with a collapsible list of the archive names and a
 pointer to adding the CycloneDX plugin to the build. Unidentified archives deliberately stay out of the scannable
 dependency table — they have no coordinates to show. The census does not extract nested JAR contents.
+
+Two kinds of archive are never in an SBOM yet are not a coverage gap, so Spring MVC and WebFlux look inside an archive
+that is still unidentified — reading only its manifest and entry names, streaming a nested `BOOT-INF/lib/` entry
+without extracting it — before reporting it:
+
+- **First-party module JARs.** A multi-module build packages each sibling module (`cart.jar`, `order.jar`, …) next to
+  its dependencies. An archive with at least one class, whose *every* class lives in the application's base packages
+  (the `@SpringBootApplication` packages the Architecture advisor analyzes), is counted in `coverage.archivesFirstParty`
+  and named in `coverage.firstPartyArchives` (at most 200, with `firstPartyArchivesTruncated`) instead of as
+  unidentified. It is not scanned: it is the application, not a dependency. The check fails closed. An archive stays
+  unidentified when it has a single class outside the base packages, is resource-only, carries `META-INF/maven/`
+  descriptors (as published third-party JARs do), bundles another `.jar`, `.war`, or `.zip`, or when no base package, or only a single-segment one such as `com`,
+  is detected. When the Spring Boot `layers.idx` defines an `application` layer, only archives in that layer can be
+  first-party; Boot places project modules there and third-party JARs in `dependencies`. The index is found in the fat
+  JAR, next to `BOOT-INF/lib/` when the extracted layers are merged into one tree (as a layered image build does), or
+  in the sibling `application/BOOT-INF/` of an in-place `extract --layers` tree. An entry belongs to the first layer
+  listing it, as Spring Boot resolves it, and an index that is present but unreadable or malformed admits no archive. A nested `BOOT-INF/lib/` entry is inspected only when stored uncompressed, as Boot
+  writes it, and only its central directory and manifest are read. Residual limit: without a layers index, a library
+  relocated into the application's own package and stripped of its Maven descriptors is indistinguishable from
+  application code. An archive the index places in the `application` layer may also use the parent of a base package
+  when that parent has at least two segments, so sibling modules of a launcher in `com.acme.gateway` (for example
+  `com.acme.orders`) are recognized; layer placement alone is never enough, because a custom layering can put any
+  library there. Plain `extract` without `--layers` writes no index, so there only the base packages themselves
+  apply. A bare file name carried by two different archives (the census counts it once) is never first-party. Other
+  modules whose classes live outside the base packages are not recognized. The
+  panel lists them in a collapsed note, and `archivesFound = archivesIdentified + archivesUnidentified + archivesFirstParty`.
+- **`spring-boot-jarmode-tools`.** Spring Boot's build plugins add it at packaging time, so it is not a declared
+  dependency and is absent from the SBOM. When its file name, `Implementation-Title: Spring Boot Jarmode Tools`, and
+  `Implementation-Version` agree and every class the archive carries is under `org/springframework/boot/jarmode/tools/`, it is
+  identified as `org.springframework.boot:spring-boot-jarmode-tools:<version>`
+  (source "Spring Boot manifest") and scanned like any other dependency. It is the only archive identified from a
+  manifest.
+
+With both, a multi-module application extracted with `jarmode=tools extract --layers --launcher` and built with an SBOM
+reports `COMPLETE` coverage.
 
 The scan status reports the same kind of gap for the `bootui.vulnerabilities.max-packages` bound: packages beyond it are
 counted in `scan.packagesSkipped` and surfaced as a warning, instead of letting `packagesScanned` present a truncated
@@ -940,7 +975,8 @@ of them:
   identity; case/classifier ambiguity can overstate identification. PURL literal-plus decoding and namespace rewriting,
   SBOM runtime-scope attribution, and a traversal cap on resolved coordinates rather than inspected nodes need separate
   fixes. Quarkus missing/invalid model coverage can also overclaim completeness, as described above.
-- **Without an SBOM, some JARs cannot be identified.** No JAR manifest header carries a `groupId`
+- **Without an SBOM, some JARs cannot be identified.** No JAR manifest header carries a `groupId` (the
+  `spring-boot-jarmode-tools` exception above works only because its group is fixed and known)
   (`Implementation-Title` is a display name as often as an artifact id, and `Implementation-Vendor-Id` is not a group
   id), so an application built without a CycloneDX SBOM cannot resolve coordinates for artifacts published with no Maven
   descriptor — Spring Framework, Spring Boot, Spring Security, `tomcat-embed-*`, `hibernate-core`, `kotlin-stdlib`, the

@@ -9,7 +9,11 @@ import io.github.jdubois.bootui.engine.vulnerabilities.DependencyInventory;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyProvider;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyReports;
 import io.github.jdubois.bootui.engine.vulnerabilities.VulnerabilityScanner;
+import io.github.jdubois.bootui.spi.BasePackageProvider;
+import java.util.List;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -40,10 +44,16 @@ public class VulnerabilitiesController {
     private volatile DependenciesReport lastScanReport;
 
     @Autowired
-    public VulnerabilitiesController(BootUiProperties properties, DismissedRulesStore dismissedRules) {
+    public VulnerabilitiesController(
+            BootUiProperties properties,
+            DismissedRulesStore dismissedRules,
+            ObjectProvider<BasePackageProvider> basePackageProvider) {
         this(
                 properties,
-                new DependencyCatalog(),
+                new DependencyCatalog(new PathMatchingResourcePatternResolver(), () -> {
+                    BasePackageProvider provider = basePackageProvider.getIfAvailable();
+                    return provider == null ? List.of() : provider.basePackages();
+                }),
                 new OsvVulnerabilityScanner(properties.getVulnerabilities()),
                 dismissedRules);
     }
