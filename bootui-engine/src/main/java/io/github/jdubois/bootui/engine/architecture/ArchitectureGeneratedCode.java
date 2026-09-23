@@ -129,22 +129,25 @@ final class ArchitectureGeneratedCode {
             }
             if (!hasSourceClassDeclaration(owner)) continue;
             Optional<Source> source = type.getSource();
-            Optional<Module> module = source.isEmpty()
-                            || source.get()
-                                    .getFileName()
-                                    .filter(ArchitectureGeneratedCode::sourceFile)
-                                    .isEmpty()
-                    ? Optional.empty()
-                    : module(type, source.get());
-            if (module.isEmpty()) {
-                // Only classes without local source ownership (packaged jars, unknown layouts) use the
-                // template fingerprint; a local module keeps source-based ownership, including conflicts.
+            if (source.isPresent()
+                    && OpenApiGeneratorApiUtilFingerprint.packaged(source.get().getUri())) {
+                // Archive classes can never have local source ownership. Unresolved local classes, including
+                // unsupported output layouts and missing SourceFile metadata, stay eligible instead.
                 if (OpenApiGeneratorApiUtilFingerprint.matches(type)) {
                     generated.add(type.getName());
                     templates.add(type.getName());
                 }
                 continue;
             }
+            if (source.isEmpty()
+                    || source.get()
+                            .getFileName()
+                            .filter(ArchitectureGeneratedCode::sourceFile)
+                            .isEmpty()) {
+                continue;
+            }
+            Optional<Module> module = module(type, source.get());
+            if (module.isEmpty()) continue;
             if (!modules.containsKey(module.get()) && modules.size() >= limits.modules()) {
                 limitations.add("Generated-source module limit reached; uncertain classes remain included.");
                 continue;
