@@ -7,18 +7,23 @@ import io.github.jdubois.bootui.engine.support.BlankStrings;
 import io.github.jdubois.bootui.engine.vulnerabilities.ArchiveNames;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyInventory;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyProvider;
+import io.github.jdubois.bootui.engine.vulnerabilities.FirstPartyArchives;
 import io.github.jdubois.bootui.engine.vulnerabilities.PackageUrls;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.function.Supplier;
+import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
+import java.util.jar.JarInputStream;
 import java.util.jar.Manifest;
 import java.util.regex.Pattern;
 import javax.xml.XMLConstants;
@@ -66,6 +71,12 @@ import tools.jackson.databind.ObjectMapper;
  * the census itself cannot run &mdash; no enumerable classpath or classloader archives, as under a native image
  * &mdash; coverage is reported {@link DependencyCoverageDto#UNAVAILABLE} rather than assumed complete.</p>
  *
+ * <p>Two kinds of archive are never in an SBOM yet are not a coverage gap, so an archive left unidentified
+ * is inspected (manifest and entry names only) before being reported: the application's own module JARs of a
+ * multi-module build, whose every class lives in the application's base packages, are counted as
+ * first-party ({@link FirstPartyArchives}); and {@code spring-boot-jarmode-tools}, which Spring Boot adds at
+ * packaging time, is identified from its manifest.</p>
+ *
  * <p>Every source fails soft: an unreadable descriptor, a malformed SBOM, or an unreadable archive is logged
  * and skipped without discarding the entries that did resolve.</p>
  */
@@ -92,7 +103,18 @@ final class DependencyCatalog implements DependencyProvider {
 
     private static final System.Logger LOGGER = System.getLogger(DependencyCatalog.class.getName());
 
+    /** The only Spring Boot packaging-time artifact identified from its manifest; see {@link #bootArtifact}. */
+    static final String JARMODE_TOOLS_ARTIFACT_ID = "spring-boot-jarmode-tools";
+
+    private static final String JARMODE_TOOLS_TITLE = "Spring Boot Jarmode Tools";
+
+    private static final String SPRING_BOOT_GROUP_ID = "org.springframework.boot";
+
+    private static final String BOOT_MANIFEST_SOURCE = "Spring Boot manifest";
+
     private final ResourcePatternResolver resolver;
+
+    private final Supplier<List<String>> basePackages;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -101,7 +123,16 @@ final class DependencyCatalog implements DependencyProvider {
     }
 
     DependencyCatalog(ResourcePatternResolver resolver) {
+        this(resolver, List::of);
+    }
+
+    /**
+     * @param basePackages the application's base packages, read live on every inventory; archives whose every
+     *     class lives in them are reported as first-party rather than unidentified
+     */
+    DependencyCatalog(ResourcePatternResolver resolver, Supplier<List<String>> basePackages) {
         this.resolver = resolver;
+        this.basePackages = basePackages == null ? List::of : basePackages;
     }
 
     @Override
@@ -131,10 +162,11 @@ final class DependencyCatalog implements DependencyProvider {
             dependencies.putIfAbsent(key(dependency), dependency);
         }
 
+        DependencyCoverageDto coverage = coverage(dependencies, identifiedArchives);
         List<DependencyDto> resolved = dependencies.values().stream()
                 .sorted(Comparator.comparing(DependencyDto::packageName).thenComparing(DependencyDto::version))
                 .toList();
-        return new DependencyInventory(resolved, coverage(resolved, identifiedArchives));
+        return new DependencyInventory(resolved, coverage);
     }
 
     private static String key(DependencyDto dependency) {
@@ -149,23 +181,41 @@ final class DependencyCatalog implements DependencyProvider {
      * Compares the resolved coordinates against the application's real archive census. An archive counts as
      * identified when a Maven descriptor was read from inside it, or when its file name is the one Maven
      * would publish for a resolved coordinate.
+     *
+     * <p>Only an archive still unidentified after that is opened, and only to read its manifest and entry
+     * names: a Spring Boot packaging-time artifact is identified from its manifest (and added to
+     * {@code dependencies}, so it is scanned too), and an archive whose every class lives in the application's
+     * base packages is reported as first-party. Anything else stays unidentified.</p>
      */
-    private DependencyCoverageDto coverage(List<DependencyDto> resolved, Set<String> identifiedArchives) {
-        List<String> archives = archiveCensus();
+    private DependencyCoverageDto coverage(Map<String, DependencyDto> dependencies, Set<String> identifiedArchives) {
+        List<CensusArchive> archives = archiveCensus();
         if (archives.isEmpty()) {
             return DependencyCoverageDto.unavailable();
         }
+        List<DependencyDto> resolved = List.copyOf(dependencies.values());
+        List<String> packages = applicationBasePackages();
         List<String> unidentified = new ArrayList<>();
-        for (String archive : archives) {
-            if (!identifiedArchives.contains(archive) && !isIdentified(archive, resolved)) {
-                unidentified.add(archive);
+        List<String> firstParty = new ArrayList<>();
+        for (CensusArchive archive : archives) {
+            if (identifiedArchives.contains(archive.name()) || isIdentified(archive.name(), resolved)) {
+                continue;
+            }
+            switch (inspect(archive, packages, dependencies)) {
+                case IDENTIFIED -> {
+                    // Added to the inventory by inspect.
+                }
+                case FIRST_PARTY -> firstParty.add(archive.name());
+                case UNIDENTIFIED -> unidentified.add(archive.name());
             }
         }
         unidentified.sort(String.CASE_INSENSITIVE_ORDER);
+        firstParty.sort(String.CASE_INSENSITIVE_ORDER);
         return DependencyCoverageDto.of(
                 archives.size(),
                 unidentified.size(),
-                unidentified.stream().limit(MAX_UNIDENTIFIED_ARCHIVES).toList());
+                unidentified.stream().limit(MAX_UNIDENTIFIED_ARCHIVES).toList(),
+                firstParty.size(),
+                firstParty.stream().limit(MAX_UNIDENTIFIED_ARCHIVES).toList());
     }
 
     private static boolean isIdentified(String archive, List<DependencyDto> resolved) {
@@ -177,32 +227,172 @@ final class DependencyCatalog implements DependencyProvider {
         return false;
     }
 
+    private List<String> applicationBasePackages() {
+        try {
+            return FirstPartyArchives.basePackages(basePackages.get());
+        } catch (RuntimeException ex) {
+            LOGGER.log(
+                    System.Logger.Level.DEBUG,
+                    "Could not determine the application base packages for first-party archives: {0}",
+                    ex.getMessage());
+            return List.of();
+        }
+    }
+
+    private enum Attribution {
+        IDENTIFIED,
+        FIRST_PARTY,
+        UNIDENTIFIED
+    }
+
+    /**
+     * Classifies an archive the coordinate sources could not attribute, reading only its manifest and entry
+     * names. On-disk archives are read through their central directory; a nested {@code BOOT-INF/lib/} archive
+     * is streamed without being extracted, and the stream stops at the first class outside the base packages,
+     * so an unidentified third-party archive costs little more than its first class entry. Any failure leaves
+     * the archive unidentified.
+     */
+    private Attribution inspect(CensusArchive archive, List<String> packages, Map<String, DependencyDto> dependencies) {
+        boolean bootCandidate = archive.name().startsWith(JARMODE_TOOLS_ARTIFACT_ID + "-");
+        if (!bootCandidate && packages.isEmpty()) {
+            return Attribution.UNIDENTIFIED;
+        }
+        try (JarFile outer = new JarFile(archive.file().toFile())) {
+            if (archive.nestedEntry() == null) {
+                return classify(archive.name(), outer.getManifest(), entryNames(outer), packages, dependencies);
+            }
+            JarEntry nested = outer.getJarEntry(archive.nestedEntry());
+            if (nested == null) {
+                return Attribution.UNIDENTIFIED;
+            }
+            try (JarInputStream input = new JarInputStream(outer.getInputStream(nested), false)) {
+                return classify(archive.name(), input.getManifest(), entryNames(input), packages, dependencies);
+            }
+        } catch (IOException | RuntimeException ex) {
+            LOGGER.log(
+                    System.Logger.Level.DEBUG,
+                    "Could not inspect unidentified archive {0}: {1}",
+                    archive.name(),
+                    ex.getMessage());
+            return Attribution.UNIDENTIFIED;
+        }
+    }
+
+    private static Attribution classify(
+            String archive,
+            Manifest manifest,
+            Iterable<String> entryNames,
+            List<String> packages,
+            Map<String, DependencyDto> dependencies) {
+        DependencyDto bootArtifact = bootArtifact(archive, manifest);
+        if (bootArtifact != null) {
+            dependencies.putIfAbsent(key(bootArtifact), bootArtifact);
+            return Attribution.IDENTIFIED;
+        }
+        return FirstPartyArchives.isFirstParty(entryNames, packages)
+                ? Attribution.FIRST_PARTY
+                : Attribution.UNIDENTIFIED;
+    }
+
+    /**
+     * Identifies {@code spring-boot-jarmode-tools}, which Spring Boot's build plugins add to a packaged
+     * application at packaging time: it is not a declared dependency, so it is never in the SBOM, and it
+     * publishes no Maven descriptor. It is deliberately the only archive identified from a manifest, because
+     * its group is fixed and its manifest names it exactly; the file name, {@code Implementation-Title}, and
+     * {@code Implementation-Version} must all agree.
+     */
+    static DependencyDto bootArtifact(String archive, Manifest manifest) {
+        if (manifest == null) {
+            return null;
+        }
+        String title = BlankStrings.blankToNullTrimmed(
+                manifest.getMainAttributes().getValue(Attributes.Name.IMPLEMENTATION_TITLE));
+        String version = BlankStrings.blankToNullTrimmed(
+                manifest.getMainAttributes().getValue(Attributes.Name.IMPLEMENTATION_VERSION));
+        if (!JARMODE_TOOLS_TITLE.equals(title)
+                || version == null
+                || !archive.equals(JARMODE_TOOLS_ARTIFACT_ID + "-" + version + ".jar")) {
+            return null;
+        }
+        return new DependencyDto(
+                SPRING_BOOT_GROUP_ID,
+                JARMODE_TOOLS_ARTIFACT_ID,
+                version,
+                SPRING_BOOT_GROUP_ID + ":" + JARMODE_TOOLS_ARTIFACT_ID,
+                BOOT_MANIFEST_SOURCE,
+                0,
+                "NONE",
+                List.of(),
+                DependencyAssessmentDto.unknown());
+    }
+
+    private static Iterable<String> entryNames(JarFile jarFile) {
+        return () -> jarFile.stream().map(JarEntry::getName).iterator();
+    }
+
+    private static Iterable<String> entryNames(JarInputStream input) {
+        return () -> new Iterator<>() {
+            private JarEntry next = advance();
+
+            private JarEntry advance() {
+                try {
+                    return input.getNextJarEntry();
+                } catch (IOException ex) {
+                    throw new UncheckedIOException(ex);
+                }
+            }
+
+            @Override
+            public boolean hasNext() {
+                return next != null;
+            }
+
+            @Override
+            public String next() {
+                if (next == null) {
+                    throw new NoSuchElementException();
+                }
+                String name = next.getName();
+                next = advance();
+                return name;
+            }
+        };
+    }
+
+    /**
+     * One archive of the census: its bare file name, the file it is read from, and, for a library nested in a
+     * repackaged archive, its entry name inside that file.
+     */
+    private record CensusArchive(String name, Path file, String nestedEntry) {}
+
     /**
      * The distinct JAR archives the application actually runs with, or an empty list when they cannot be
      * enumerated from either {@code java.class.path} or the application's classloader,
      * which is reported as unknown coverage rather than as a clean bill of health.
      */
-    private List<String> archiveCensus() {
-        Set<String> archives = new LinkedHashSet<>();
+    private List<CensusArchive> archiveCensus() {
+        Map<String, CensusArchive> archives = new LinkedHashMap<>();
         for (Path entry : archiveEntries()) {
             if (Files.isDirectory(entry)) {
                 continue;
             }
-            List<String> nested = nestedLibraries(entry.toString());
+            List<CensusArchive> nested = nestedLibraries(entry);
             if (nested != null) {
                 // A repackaged archive is the application's own, not a third-party dependency: its nested
                 // libraries are the real dependency set, and the outer archive is deliberately not counted.
                 // This is also why the entry is inspected before its extension is considered: an executable
                 // WAR is a classpath entry that is not itself a JAR.
-                archives.addAll(nested);
+                for (CensusArchive archive : nested) {
+                    archives.putIfAbsent(archive.name(), archive);
+                }
                 continue;
             }
             String archive = ArchiveNames.jarFileName(entry.toString());
             if (archive != null) {
-                archives.add(archive);
+                archives.putIfAbsent(archive, new CensusArchive(archive, entry, null));
             }
         }
-        return List.copyOf(archives);
+        return List.copyOf(archives.values());
     }
 
     private Set<Path> archiveEntries() {
@@ -261,14 +451,14 @@ final class DependencyCatalog implements DependencyProvider {
      * and nesting is not recursed into, matching how Spring Boot repackaging actually lays an archive
      * out.</p>
      */
-    private List<String> nestedLibraries(String entry) {
-        File file = new File(entry);
+    private List<CensusArchive> nestedLibraries(Path entry) {
+        File file = entry.toFile();
         if (!file.isFile()) {
             return null;
         }
         try (JarFile jarFile = new JarFile(file)) {
             List<String> prefixes = nestedLibraryPrefixes(jarFile);
-            List<String> nested = new ArrayList<>();
+            List<CensusArchive> nested = new ArrayList<>();
             Enumeration<JarEntry> entries = jarFile.entries();
             while (entries.hasMoreElements()) {
                 JarEntry jarEntry = entries.nextElement();
@@ -280,7 +470,7 @@ final class DependencyCatalog implements DependencyProvider {
                     if (name.startsWith(prefix) && name.indexOf('/', prefix.length()) < 0) {
                         String archive = ArchiveNames.jarFileName(name);
                         if (archive != null) {
-                            nested.add(archive);
+                            nested.add(new CensusArchive(archive, entry, name));
                         }
                         break;
                     }

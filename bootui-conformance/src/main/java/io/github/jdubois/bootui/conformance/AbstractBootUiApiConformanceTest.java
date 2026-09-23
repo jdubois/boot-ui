@@ -1047,6 +1047,20 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(coverage.path("unidentifiedArchivesTruncated").isBoolean())
                 .as("$.coverage.unidentifiedArchivesTruncated must be a boolean")
                 .isTrue();
+        assertThat(coverage.path("archivesFirstParty").isInt())
+                .as("$.coverage.archivesFirstParty must be an integer")
+                .isTrue();
+        assertThat(coverage.path("firstPartyArchives").isArray())
+                .as("$.coverage.firstPartyArchives must be an array")
+                .isTrue();
+        assertThat(coverage.path("firstPartyArchivesTruncated").isBoolean())
+                .as("$.coverage.firstPartyArchivesTruncated must be a boolean")
+                .isTrue();
+        assertThat(coverage.path("archivesIdentified").asInt()
+                        + coverage.path("archivesUnidentified").asInt()
+                        + coverage.path("archivesFirstParty").asInt())
+                .as("$.coverage archive counts must add up to archivesFound")
+                .isEqualTo(coverage.path("archivesFound").asInt());
     }
 
     @Test

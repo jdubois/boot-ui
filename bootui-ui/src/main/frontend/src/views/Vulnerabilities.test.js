@@ -43,6 +43,9 @@ function coverage(overrides = {}) {
     archivesUnidentified: 0,
     unidentifiedArchives: [],
     unidentifiedArchivesTruncated: false,
+    archivesFirstParty: 0,
+    firstPartyArchives: [],
+    firstPartyArchivesTruncated: false,
     ...overrides
   }
 }
@@ -539,6 +542,37 @@ describe('Vulnerabilities', () => {
     expect(wrapper.text()).toContain('spring-core-7.0.9.jar')
     expect(wrapper.text()).toContain('tomcat-embed-core-11.0.24.jar')
     expect(wrapper.findAll('table tbody tr').map((row) => row.text())).not.toContain('spring-core-7.0.9.jar')
+  })
+
+  it('lists first-party module JARs without reporting them as a coverage gap', async () => {
+    const clean = dependency('org.example:clean', '1.0.0', [], 'NONE')
+    const {wrapper} = await mountWithReports([
+      report([clean], 0, 'SCANNED', {
+        coverage: coverage({
+          status: 'COMPLETE',
+          archivesFound: 333,
+          archivesIdentified: 316,
+          archivesUnidentified: 0,
+          archivesFirstParty: 17,
+          firstPartyArchives: ['cart.jar', 'order.jar'],
+          firstPartyArchivesTruncated: true
+        })
+      })
+    ])
+
+    expect(wrapper.text()).toContain('17 application module JARs contain only this application')
+    expect(wrapper.text()).toContain('17 application module JARs recognized as first-party.')
+    expect(wrapper.text()).not.toContain('could not be identified and were not scanned')
+    expect(wrapper.text()).not.toContain('cart.jar')
+
+    const toggle = wrapper.findAll('button').find((button) => button.text().includes('Show first-party JARs'))
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    await toggle.trigger('click')
+
+    expect(wrapper.text()).toContain('cart.jar')
+    expect(wrapper.text()).toContain('order.jar')
+    expect(wrapper.text()).toContain('Only the first 2 names are listed.')
+    expect(wrapper.findAll('table tbody tr').map((row) => row.text())).not.toContain('cart.jar')
   })
 
   it('says the unidentified JAR list is bounded when the report truncated it', async () => {

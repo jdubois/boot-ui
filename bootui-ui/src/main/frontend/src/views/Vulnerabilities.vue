@@ -144,6 +144,18 @@ const unidentifiedArchiveCount = computed(() => (coverageIncomplete.value ? cove
 
 const unidentifiedArchives = computed(() => coverage.value?.unidentifiedArchives ?? [])
 
+// First-party archives are the application's own module JARs: they carry no third-party coordinates
+// to scan, so they are listed for transparency but never reported as a coverage gap.
+const firstPartyArchiveCount = computed(() => coverage.value?.archivesFirstParty ?? 0)
+
+const firstPartyArchives = computed(() => coverage.value?.firstPartyArchives ?? [])
+
+const firstPartyArchiveLabel = computed(() =>
+  firstPartyArchiveCount.value === 1
+    ? '1 application module JAR'
+    : `${firstPartyArchiveCount.value} application module JARs`
+)
+
 const packagesSkipped = computed(() => data.value?.scan?.packagesSkipped ?? 0)
 
 const coverageMetric = computed(() => {
@@ -158,7 +170,9 @@ const coverageMetric = computed(() => {
   return {
     label: 'Unidentified JARs',
     value: coverage.value.archivesUnidentified,
-    hint: `${coverage.value.archivesIdentified} of ${coverage.value.archivesFound} JARs resolved to Maven coordinates.`
+    hint:
+      `${coverage.value.archivesIdentified} of ${coverage.value.archivesFound} JARs resolved to Maven coordinates.` +
+      (firstPartyArchiveCount.value > 0 ? ` ${firstPartyArchiveLabel.value} recognized as first-party.` : '')
   }
 })
 
@@ -173,6 +187,8 @@ const summaryMetrics = computed(() => {
 })
 
 const showUnidentifiedArchives = ref(false)
+
+const showFirstPartyArchives = ref(false)
 
 function severityClass(severity) {
   return severityClasses[severity] || 'text-bg-light'
@@ -368,6 +384,27 @@ onMounted(loadDependencies)
         </ul>
         <div v-if="showUnidentifiedArchives && coverage.unidentifiedArchivesTruncated" class="small text-muted mt-1">
           Only the first {{ unidentifiedArchives.length }} names are listed.
+        </div>
+      </div>
+
+      <div v-if="firstPartyArchiveCount > 0" class="alert alert-secondary small py-2" role="note">
+        <i class="bi bi-box-seam me-1"></i>
+        {{ firstPartyArchiveLabel }} contain only this application's own classes, so they were recognized as first-party
+        code and are not counted as unscanned dependencies.
+        <button
+          v-if="firstPartyArchives.length"
+          class="btn btn-sm btn-link p-0 ms-1 align-baseline"
+          type="button"
+          :aria-expanded="showFirstPartyArchives"
+          @click="showFirstPartyArchives = !showFirstPartyArchives"
+        >
+          {{ showFirstPartyArchives ? 'Hide' : 'Show' }} first-party JARs
+        </button>
+        <ul v-if="showFirstPartyArchives" class="mt-2 mb-0 unidentified-archives">
+          <li v-for="archive in firstPartyArchives" :key="archive">{{ archive }}</li>
+        </ul>
+        <div v-if="showFirstPartyArchives && coverage.firstPartyArchivesTruncated" class="text-muted mt-1">
+          Only the first {{ firstPartyArchives.length }} names are listed.
         </div>
       </div>
 

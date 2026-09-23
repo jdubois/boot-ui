@@ -879,14 +879,35 @@ subject to the discovery limitations below:
 
 | `coverage.status` | Meaning |
 | --- | --- |
-| `COMPLETE` | The provider reports all enumerated archives identified; this is not independent verification of the runtime inventory. |
-| `INCOMPLETE` | Some archives did not; they are counted and named, and the panel warns that they were not scanned. |
+| `COMPLETE` | The provider reports every enumerated archive identified or first-party; this is not independent verification of the runtime inventory. |
+| `INCOMPLETE` | Some archives were neither; they are counted and named, and the panel warns that they were not scanned. |
 | `UNAVAILABLE` | Neither the classpath nor the application classloader exposes enumerable archives (for example under a native image), so coverage is unknown rather than claimed. |
 
 When coverage is incomplete the panel shows an "Unidentified JARs" metric and a warning naming the gap
 ("139 of 325 JARs could not be identified and were not scanned"), with a collapsible list of the archive names and a
 pointer to adding the CycloneDX plugin to the build. Unidentified archives deliberately stay out of the scannable
 dependency table — they have no coordinates to show. The census does not extract nested JAR contents.
+
+Two kinds of archive are never in an SBOM yet are not a coverage gap, so Spring MVC and WebFlux look inside an archive
+that is still unidentified — reading only its manifest and entry names, streaming a nested `BOOT-INF/lib/` entry
+without extracting it — before reporting it:
+
+- **First-party module JARs.** A multi-module build packages each sibling module (`cart.jar`, `order.jar`, …) next to
+  its dependencies. An archive with at least one class, whose *every* class lives in the application's base packages
+  (the `@SpringBootApplication` packages the Architecture advisor analyzes), is counted in `coverage.archivesFirstParty`
+  and named in `coverage.firstPartyArchives` (at most 200, with `firstPartyArchivesTruncated`) instead of as
+  unidentified. It is not scanned: it is the application, not a dependency. A single class outside the base packages,
+  a resource-only JAR, or no detected base package keeps an archive unidentified, so a shaded third-party JAR is never
+  hidden. Modules whose classes live outside the `@SpringBootApplication` package are not recognized. The panel lists
+  them in a collapsed note, and `archivesFound = archivesIdentified + archivesUnidentified + archivesFirstParty`.
+- **`spring-boot-jarmode-tools`.** Spring Boot's build plugins add it at packaging time, so it is not a declared
+  dependency and is absent from the SBOM. When its file name, `Implementation-Title: Spring Boot Jarmode Tools`, and
+  `Implementation-Version` agree, it is identified as `org.springframework.boot:spring-boot-jarmode-tools:<version>`
+  (source "Spring Boot manifest") and scanned like any other dependency. It is the only archive identified from a
+  manifest.
+
+With both, a multi-module application extracted with `jarmode=tools extract --layers --launcher` and built with an SBOM
+reports `COMPLETE` coverage.
 
 The scan status reports the same kind of gap for the `bootui.vulnerabilities.max-packages` bound: packages beyond it are
 counted in `scan.packagesSkipped` and surfaced as a warning, instead of letting `packagesScanned` present a truncated
@@ -915,7 +936,8 @@ of them:
   identity; case/classifier ambiguity can overstate identification. PURL literal-plus decoding and namespace rewriting,
   SBOM runtime-scope attribution, and a traversal cap on resolved coordinates rather than inspected nodes need separate
   fixes. Quarkus missing/invalid model coverage can also overclaim completeness, as described above.
-- **Without an SBOM, some JARs cannot be identified.** No JAR manifest header carries a `groupId`
+- **Without an SBOM, some JARs cannot be identified.** No JAR manifest header carries a `groupId` (the
+  `spring-boot-jarmode-tools` exception above works only because its group is fixed and known)
   (`Implementation-Title` is a display name as often as an artifact id, and `Implementation-Vendor-Id` is not a group
   id), so an application built without a CycloneDX SBOM cannot resolve coordinates for artifacts published with no Maven
   descriptor — Spring Framework, Spring Boot, Spring Security, `tomcat-embed-*`, `hibernate-core`, `kotlin-stdlib`, the
