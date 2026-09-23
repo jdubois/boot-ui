@@ -200,7 +200,7 @@ findings from the score.
 ### SPRING-PERF-002 - Review pooled executor routing
 
 - **Severity**: INFO
-- **Detects**: Virtual threads are configured and a `ThreadPoolTaskExecutor` is defined. Co-presence does not cancel virtual-thread execution elsewhere, establish routing, or prove the pool's custom thread factory uses platform threads.
+- **Detects**: Virtual threads are configured and the application declares a `ThreadPoolTaskExecutor`. When resolvable, each finding names the bean and the class declaring its factory method; otherwise, including for directly registered or scanned pool components, it names the bean type, states that the declaring configuration was not resolved, and still reports the pool. Pools whose factory method is declared by Spring's own configuration classes (`org.springframework.*`, excluding `org.springframework.samples.*` applications), such as the STOMP channel executors (`clientInboundChannelExecutor`, `clientOutboundChannelExecutor`, `brokerChannelExecutor`) that `@EnableWebSocketMessageBroker` registers, are framework-owned and excluded; an application override of such a method, with or without `@Bean`, is reported. Co-presence does not cancel virtual-thread execution elsewhere, establish routing, or prove the pool's custom thread factory uses platform threads.
 - **Recommendation**: Review which tasks use the pool and why. CPU isolation and bounded concurrency can be intentional; do not remove a useful constraint merely to eliminate this prompt.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 

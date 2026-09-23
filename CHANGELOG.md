@@ -18,6 +18,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   compiler, and any class outside an archive is still evaluated
   ([#1085](https://github.com/jdubois/boot-ui/issues/1085)).
 
+- **SPRING-PERF-002 names the pool it reports and ignores Spring's own executors.** Each finding now names the
+  `ThreadPoolTaskExecutor` bean and the class declaring its factory method, or its bean type when that declaration
+  cannot be resolved. Pools declared by Spring's own configuration, such as the STOMP channel executors
+  `@EnableWebSocketMessageBroker` registers, are no longer reported as the application's pooling choice; application
+  overrides of them still are ([#1083](https://github.com/jdubois/boot-ui/issues/1083)).
+
 - **SQL Trace no longer truncates statement durations to whole milliseconds.** Executions are timed and recorded in
   microseconds (`durationMicros` on each entry; `durationMillis` remains as a rounded compatibility field), and every
   aggregate — buffer stats, statement rankings, p50/p95/p99, shares, database time by request route, and the request
