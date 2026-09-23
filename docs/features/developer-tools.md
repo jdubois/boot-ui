@@ -91,7 +91,9 @@ reports coverage, and proposes a versioned action plan before stopping for appro
 
 The server inherits BootUI's full safety model:
 
-- It is live only while BootUI is active, so it is never reachable in production.
+- It is live only while BootUI itself is active. On Quarkus that means it is absent from a production build, with no
+  flag that turns it on. On Spring the `prod` and `production` profiles disable BootUI, and only an explicit
+  `bootui.enabled=ON` overrides that.
 - The endpoint sits behind `LocalhostOnlyFilter`, with its loopback source check, `Host` allow-list, and cross-site
   write protection. It is exempt from BootUI's SPA CSRF token, which only browsers can present, so non-browser clients
   connect on loopback with no credentials while the cross-site defenses still block browser-driven writes. When

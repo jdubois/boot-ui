@@ -102,7 +102,7 @@ BootUI keeps two developer-local files under `.bootui/` in the application's wor
 
 | File                            | Holds                                                                                    |
 | ------------------------------- | ---------------------------------------------------------------------------------------- |
-| `application-bootui.properties` | Runtime overrides created from the Configuration panel, including the MCP Server toggle. |
+| `application-bootui.properties` | Runtime overrides created from the Configuration panel. |
 | `boot-ui.yml`                   | Advisor findings you dismissed, under a `dismissedRules:` node.                          |
 
 Inside a container that directory belongs to the image, so a rebuild starts from a clean slate: toggles return to
@@ -133,9 +133,11 @@ overrides the console writes. Use the environment variable or a `-D` system prop
 agree on one directory.
 :::
 
-A value you want to hold across every environment belongs in configuration rather than in a file the console rewrites:
-`BOOTUI_MCP_ENABLED=ON` states the intent explicitly and cannot be toggled away by accident. The volume is the right
-tool for what a developer discovers while using the console, dismissals above all.
+A value you want to hold across every environment belongs in configuration rather than in a file the console rewrites.
+`BOOTUI_MCP_ENABLED=ON` states that intent explicitly and is reapplied at every start, so the MCP Server panel's
+toggle — which is in-memory only and is never written to either file — cannot quietly become the new default.
+
+The volume is the right tool for what a developer discovers while using the console, dismissals above all.
 
 ::: details Committing a baseline of accepted findings
 Because `boot-ui.yml` is a small, stable file, a team can commit it next to the application configuration and copy it

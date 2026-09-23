@@ -113,9 +113,12 @@ rather than claiming a complete security assessment. See
 ## CRaC image
 
 `jdubois/bootui-sample-app-crac` uses
-[CRaC](https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html) to restore a warmed-up
-JVM in about 0.11 s. It runs on a **Linux** host only, needs elevated privileges for [CRIU](https://criu.org/), and
-keeps its checkpoint in a volume so it survives container restarts:
+[CRaC](https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html) to restore a
+pre-initialized application context in about 0.11 s. The checkpoint is taken at `onRefresh`, after non-lazy singleton
+initialization but before lifecycle start, so it is not a fully warmed-up application.
+
+It runs on a **Linux** host only, needs elevated privileges for [CRIU](https://criu.org/), and keeps its checkpoint in
+a volume so it survives container restarts:
 
 ```bash
 docker run --rm -p 8080:8080 \

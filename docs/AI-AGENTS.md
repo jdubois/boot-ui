@@ -386,7 +386,9 @@ for the panel-side behavior.
 
 The MCP server inherits BootUI's full safety posture, so handing it to an agent stays safe by construction:
 
-- It is only ever live while BootUI is active, so it is **never reachable in production**.
+- It is only ever live while BootUI itself is active. On Quarkus that means it is **absent from a production build**,
+  with no flag that turns it on. On Spring the `prod` and `production` profiles disable BootUI, and only an explicit
+  `bootui.enabled=ON` overrides that.
 - Read tools require the backing panel to be enabled; all action tools are additionally refused when the panel is
   read-only or `bootui.read-only=true`, returning a clear tool error instead of running.
 - Values pass through the same secret masking and `bootui.expose-values` mode as the REST API, and paginated reads are

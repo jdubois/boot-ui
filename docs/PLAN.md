@@ -505,7 +505,9 @@ advisory policy live in the framework-neutral engine (`SqlStatementNormalizer`, 
 `RoutePathMasker`, `SqlRouteAttribution`, `SqlTraceInsightsService`); the adapters only supply inbound-request evidence
 they already captured. Correlation is trace-id first, then serving thread on Spring MVC only, then time window, and each
 tier requires a unique candidate — Spring WebFlux and Quarkus advertise `TRACE_ID` + `TIME_WINDOW` only, and Quarkus
-groups by masked path because RESTEasy Reactive exposes no per-request route template. Executions that cannot be placed
+matches the captured path against the application's declared `@Path` routes, because RESTEasy Reactive registers one
+catch-all Vert.x route and so exposes no per-request template; only an unmatched path falls back to a masked path, and
+`routeSource` reports which was used. Executions that cannot be placed
 stay in explicit unattributed/ambiguous buckets. See `docs/SPECIFICATION.md` §5.17.6,
 `docs/DATABASE-ADVISOR-CHECKS.md` (`DB-RUNTIME-001`), and the SQL Trace section of `docs/features/database.md`.
 
