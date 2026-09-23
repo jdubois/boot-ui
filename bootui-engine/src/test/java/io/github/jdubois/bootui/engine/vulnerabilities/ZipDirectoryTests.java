@@ -71,6 +71,25 @@ class ZipDirectoryTests {
                 .isInstanceOf(IOException.class);
     }
 
+    @Test
+    void ignoresAnEndRecordForgedInsideTheArchiveComment() throws Exception {
+        // A fake end record claiming one entry at offset 0, followed by bytes, so its own comment does not end the
+        // archive: readers that take the last signature would list a forged directory instead of the real one.
+        String forged = "PK\u0005\u0006\u0000\u0000\u0000\u0000\u0001\u0000\u0001\u0000"
+                + "\u002e\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000trailer";
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (JarOutputStream jar = new JarOutputStream(bytes)) {
+            jar.putNextEntry(new ZipEntry("org/vendor/Library.class"));
+            jar.closeEntry();
+            jar.setComment(forged);
+        }
+        byte[] archive = bytes.toByteArray();
+
+        assertThat(ZipDirectory.read(source(archive), archive.length))
+                .extracting(ZipDirectory.Entry::name)
+                .containsExactly("org/vendor/Library.class");
+    }
+
     private static ZipDirectory.Source source(byte[] archive) {
         return offset -> new ByteArrayInputStream(archive, (int) offset, archive.length - (int) offset);
     }

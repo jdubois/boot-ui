@@ -1,12 +1,10 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * A parsed Spring Boot {@code BOOT-INF/layers.idx}, the index a layered repackaged archive carries and that
@@ -14,73 +12,81 @@ import java.util.Map;
  *
  * <p>Spring Boot's default layering puts local (project) module libraries in the {@code application} layer and
  * every other library in {@code dependencies} or {@code snapshot-dependencies}. That is packaging evidence
- * independent of package names, so a library assigned elsewhere is never treated as first-party. The index lists
- * each layer's files and directories ({@code /}-terminated); an entry belongs to its exact file, else to its
- * longest listed directory.</p>
+ * independent of package names, so a library the index assigns elsewhere is never treated as first-party. An
+ * entry belongs to the first layer, in index order, listing it exactly or listing a {@code /}-terminated
+ * directory containing it, exactly as Spring Boot's own {@code IndexedLayers} resolves it.</p>
+ *
+ * <p>The parse is as strict as Spring Boot's: an oversized, empty, or malformed index is {@link #UNREADABLE},
+ * which places no archive in the application layer, so damaged evidence never falls back to the weaker package
+ * heuristic.</p>
  */
 final class LayersIndex {
 
     static final String APPLICATION_LAYER = "application";
 
-    /** Upper bound on the index bytes read; a larger index is ignored rather than parsed. */
+    /** Upper bound on the index bytes read; a larger index is treated as unreadable. */
     static final int MAX_BYTES = 1024 * 1024;
 
-    private final Map<String, String> layerByPath;
+    /** An index that is present but cannot be read: no archive is placed in the application layer. */
+    static final LayersIndex UNREADABLE = new LayersIndex(List.of(), true);
 
-    private LayersIndex(Map<String, String> layerByPath) {
-        this.layerByPath = layerByPath;
+    private record Path(String layer, String path) {}
+
+    private final List<Path> paths;
+
+    private final boolean application;
+
+    private LayersIndex(List<Path> paths, boolean application) {
+        this.paths = paths;
+        this.application = application;
+    }
+
+    /** Parses an index, or returns {@link #UNREADABLE} when it cannot be read, is oversized, or is malformed. */
+    static LayersIndex read(InputStream input) {
+        byte[] bytes;
+        try {
+            bytes = input.readNBytes(MAX_BYTES + 1);
+        } catch (IOException ex) {
+            return UNREADABLE;
+        }
+        if (bytes.length > MAX_BYTES) {
+            return UNREADABLE;
+        }
+        List<Path> paths = new ArrayList<>();
+        boolean application = false;
+        String layer = null;
+        for (String raw : new String(bytes, StandardCharsets.UTF_8).split("\n")) {
+            String line = raw.replace("\r", "");
+            if (line.isBlank()) {
+                continue;
+            }
+            if (line.startsWith("- \"") && line.endsWith("\":") && line.length() > 5) {
+                layer = line.substring(3, line.length() - 2);
+                application |= APPLICATION_LAYER.equals(layer);
+            } else if (layer != null && line.startsWith("  - \"") && line.endsWith("\"") && line.length() > 6) {
+                paths.add(new Path(layer, line.substring(5, line.length() - 1)));
+            } else {
+                return UNREADABLE;
+            }
+        }
+        return layer == null ? UNREADABLE : new LayersIndex(List.copyOf(paths), application);
     }
 
     /**
-     * Parses an index, or returns {@code null} when it is oversized or lists no {@code application} layer (a fully
-     * custom layering says nothing about which libraries are the application's own).
+     * Whether {@code entryName} (for example {@code BOOT-INF/lib/orders.jar}) is in the application layer:
+     * {@code null} when the index defines no {@code application} layer (a fully custom layering says nothing
+     * about which libraries are the application's own), and {@code false} when no layer lists the entry.
      */
-    static LayersIndex read(InputStream input) throws IOException {
-        byte[] bytes = input.readNBytes(MAX_BYTES + 1);
-        if (bytes.length > MAX_BYTES) {
+    Boolean isApplication(String entryName) {
+        if (!application) {
             return null;
         }
-        Map<String, String> layerByPath = new LinkedHashMap<>();
-        boolean application = false;
-        String layer = null;
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(new java.io.ByteArrayInputStream(bytes), StandardCharsets.UTF_8))) {
-            for (String line = reader.readLine(); line != null; line = reader.readLine()) {
-                String value = quoted(line);
-                if (value == null) {
-                    continue;
-                }
-                if (line.startsWith("- ") && line.stripTrailing().endsWith(":")) {
-                    layer = value;
-                    application |= APPLICATION_LAYER.equals(layer);
-                } else if (layer != null && line.startsWith("  - ")) {
-                    layerByPath.putIfAbsent(value, layer);
-                }
+        for (Path candidate : paths) {
+            if (candidate.path().equals(entryName)
+                    || (candidate.path().endsWith("/") && entryName.startsWith(candidate.path()))) {
+                return APPLICATION_LAYER.equals(candidate.layer());
             }
         }
-        return application ? new LayersIndex(Map.copyOf(layerByPath)) : null;
-    }
-
-    /** Whether {@code entryName} (for example {@code BOOT-INF/lib/orders.jar}) is in the application layer. */
-    boolean isApplication(String entryName) {
-        String layer = layerByPath.get(entryName);
-        if (layer == null) {
-            String longest = null;
-            for (String path : layerByPath.keySet()) {
-                if (path.endsWith("/")
-                        && entryName.startsWith(path)
-                        && (longest == null || path.length() > longest.length())) {
-                    longest = path;
-                }
-            }
-            layer = longest == null ? null : layerByPath.get(longest);
-        }
-        return APPLICATION_LAYER.equals(layer);
-    }
-
-    private static String quoted(String line) {
-        int start = line.indexOf('"');
-        int end = line.lastIndexOf('"');
-        return start < 0 || end <= start ? null : line.substring(start + 1, end);
+        return false;
     }
 }

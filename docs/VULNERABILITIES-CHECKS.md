@@ -194,13 +194,16 @@ enumerable archives still has `UNAVAILABLE` coverage.
 An archive still unidentified after coordinate attribution is inspected once more, reading only its manifest and
 entry names and stopping at the first class outside the application's base packages. A nested `BOOT-INF/lib/` entry is
 inspected only when stored uncompressed; only its central directory and a manifest of at most 64 KiB are read, never
-its other entries. An archive carrying `META-INF/maven/` descriptors is never first-party, single-segment base
-packages are ignored, and when the Spring Boot `layers.idx` defines an `application` layer only archives in that layer
-qualify. An archive with at least one class, every class in the `@SpringBootApplication` base
+its other entries; the end record must end the archive exactly and the directory must parse to its declared size and
+count. An archive carrying `META-INF/maven/` descriptors or bundling another archive is never first-party,
+single-segment base packages are ignored, and when the Spring Boot `layers.idx` (fat JAR, merged extraction, or the
+sibling `application/` of an in-place layered extraction) defines an `application` layer, only archives Boot's
+first-match rule assigns to that layer qualify; a present but unreadable index admits none. An archive with at least one class, every class in the `@SpringBootApplication` base
 packages, is reported as first-party (`archivesFirstParty`, at most 200 `firstPartyArchives` names plus truncation)
 and does not count against `COMPLETE`; it is the application itself and is not scanned. `spring-boot-jarmode-tools`,
 which Spring Boot adds at packaging time, is identified from its manifest only when the file name,
-`Implementation-Title: Spring Boot Jarmode Tools`, and `Implementation-Version` agree, and is then scanned. Unreadable,
+`Implementation-Title: Spring Boot Jarmode Tools`, and `Implementation-Version` agree and the archive carries
+`org/springframework/boot/jarmode/tools/` classes, and is then scanned. Unreadable,
 resource-only, compressed-nested, and oversized (more than 20,000 entries) archives, archives outside the layers-index
 `application` layer, and every archive when no usable base package is detected, stay unidentified. Without a layers
 index, a library relocated into the application's own package and stripped of its Maven descriptors cannot be told
@@ -249,8 +252,8 @@ Mixed dispositions intentionally preserve an existing behavior while acknowledgi
 | INV-13 | KEEP | Quarkus non-production build-time model emits de-duplicated JAR coordinates and excludes malformed entries. |
 | INV-14 | DEFER | Missing/blank or partially decoded Quarkus model can still report default COMPLETE. |
 | INV-15 | KEEP | Explicit non-capabilities: dependency paths, reachability, shaded-content discovery, and hash lookup. |
-| INV-16 | KEEP | Archives whose every class lives in the application's (multi-segment) base packages are first-party, counted and named (at most 200) separately, and never a coverage gap; one foreign class, a `META-INF/maven/` descriptor, or placement outside a `layers.idx` `application` layer keeps an archive unidentified. |
-| INV-17 | KEEP | `spring-boot-jarmode-tools` is the only archive identified from its manifest, and only when file name, title, and version agree. |
+| INV-16 | KEEP | Archives whose every class lives in the application's (multi-segment) base packages are first-party, counted and named (at most 200) separately, and never a coverage gap; one foreign class, a `META-INF/maven/` descriptor, a bundled archive, or placement outside (or an unreadable) `layers.idx` `application` layer keeps an archive unidentified. |
+| INV-17 | KEEP | `spring-boot-jarmode-tools` is the only archive identified from its manifest, and only when file name, title, and version agree and it carries the jarmode tools classes. |
 
 ### Query and detail transport
 

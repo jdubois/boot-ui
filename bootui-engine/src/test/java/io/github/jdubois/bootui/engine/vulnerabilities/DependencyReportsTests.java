@@ -65,8 +65,7 @@ class DependencyReportsTests {
         for (String severity : List.of("CRITICAL", "HIGH", "MEDIUM", "LOW", "NONE")) {
             var report = assessedReport(severity);
             assertThat(report.evidence().usable()).isTrue();
-            assertThat(report.evidence().limitations())
-                    .doesNotContain("Dependency inventory coverage is incomplete or unavailable.");
+            assertThat(report.evidence().coverageComplete()).isTrue();
             var dismissed = DependencyReports.applyDismissals(
                     report, Set.of(DependencyReports.dismissalKey("V-" + severity, "g:a")));
             assertThat(dismissed.evidence()).isEqualTo(report.evidence());

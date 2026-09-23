@@ -94,6 +94,13 @@ class FirstPartyArchivesTests {
     }
 
     @Test
+    void anArchiveBundlingAnotherArchiveIsNeverFirstParty() {
+        assertThat(FirstPartyArchives.isFirstParty(
+                        List.of("com/boosting/orders/Order.class", "lib/vendor-sdk.JAR"), BASE))
+                .isFalse();
+    }
+
+    @Test
     void anArchiveCarryingMavenDescriptorsIsNeverFirstParty() {
         assertThat(FirstPartyArchives.isFirstParty(
                         List.of(

@@ -116,6 +116,8 @@ final class DependencyCatalog implements DependencyProvider {
     /** The only Spring Boot packaging-time artifact identified from its manifest; see {@link #bootArtifact}. */
     static final String JARMODE_TOOLS_ARTIFACT_ID = "spring-boot-jarmode-tools";
 
+    private static final String JARMODE_TOOLS_PACKAGE = "org/springframework/boot/jarmode/tools/";
+
     private static final String JARMODE_TOOLS_TITLE = "Spring Boot Jarmode Tools";
 
     private static final String SPRING_BOOT_GROUP_ID = "org.springframework.boot";
@@ -323,6 +325,16 @@ final class DependencyCatalog implements DependencyProvider {
         return null;
     }
 
+    /** Whether the archive actually carries the jarmode tools, so a manifest alone cannot claim the identity. */
+    private static boolean containsJarmodeToolsClasses(Iterable<String> entryNames) {
+        for (String name : entryNames) {
+            if (name != null && name.startsWith(JARMODE_TOOLS_PACKAGE) && name.endsWith(".class")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static Attribution classify(
             String archive,
             Manifest manifest,
@@ -331,7 +343,7 @@ final class DependencyCatalog implements DependencyProvider {
             List<String> packages,
             Map<String, DependencyDto> dependencies) {
         DependencyDto bootArtifact = bootArtifact(archive, manifest);
-        if (bootArtifact != null) {
+        if (bootArtifact != null && containsJarmodeToolsClasses(entryNames)) {
             dependencies.putIfAbsent(key(bootArtifact), bootArtifact);
             return Attribution.IDENTIFIED;
         }
@@ -549,7 +561,10 @@ final class DependencyCatalog implements DependencyProvider {
         }
     }
 
-    /** The layers index of a repackaged archive, or {@code null} when it has none or it cannot be read. */
+    /**
+     * The layers index of a repackaged archive, {@code null} when it has none, or {@link LayersIndex#UNREADABLE}
+     * when it has one that cannot be read.
+     */
     private static LayersIndex repackagedLayersIndex(JarFile jarFile) {
         try {
             Manifest manifest = jarFile.getManifest();
@@ -567,13 +582,20 @@ final class DependencyCatalog implements DependencyProvider {
             }
         } catch (IOException | RuntimeException ex) {
             LOGGER.log(System.Logger.Level.DEBUG, "Could not read the layers index: {0}", ex.getMessage());
+            return LayersIndex.UNREADABLE;
         }
         return null;
     }
 
     /**
-     * Whether an extracted {@code BOOT-INF/lib/} archive is in the application layer of the adjacent
-     * {@code BOOT-INF/layers.idx}, or {@code null} when the archive is not in that layout or no index is present.
+     * Whether an extracted {@code BOOT-INF/lib/} archive is in the application layer of a Spring Boot layers
+     * index, or {@code null} when the archive is not in an extracted layout or no index describes it.
+     *
+     * <p>Two layouts are recognized. When the layers of {@code jarmode=tools extract --layers} are copied into one
+     * tree, as a layered image build does, the index sits next to the library at {@code BOOT-INF/layers.idx}.
+     * When the extraction is used in place, each layer is its own {@code <layer>/BOOT-INF/} directory and only the
+     * {@code application} one holds the index, so a library under a sibling layer directory is looked up in that
+     * sibling's index and qualifies only if it is itself under {@code application/}.</p>
      */
     private static Boolean explodedApplicationLayer(Path jar, String archive, Map<Path, Optional<LayersIndex>> cache) {
         Path lib = jar.getParent();
@@ -585,21 +607,41 @@ final class DependencyCatalog implements DependencyProvider {
                 || !"BOOT-INF".equals(bootInf.getFileName().toString())) {
             return null;
         }
-        Optional<LayersIndex> index = cache.computeIfAbsent(bootInf, DependencyCatalog::explodedLayersIndex);
-        return index.map(layers -> layers.isApplication("BOOT-INF/lib/" + archive))
-                .orElse(null);
+        String entryName = "BOOT-INF/lib/" + archive;
+        Optional<LayersIndex> adjacent = cache.computeIfAbsent(bootInf, DependencyCatalog::explodedLayersIndex);
+        if (adjacent.isPresent()) {
+            return adjacent.get().isApplication(entryName);
+        }
+        Path layer = bootInf.getParent();
+        Path root = layer == null ? null : layer.getParent();
+        if (root == null || layer.getFileName() == null) {
+            return null;
+        }
+        Optional<LayersIndex> sibling = cache.computeIfAbsent(
+                root.resolve(LayersIndex.APPLICATION_LAYER).resolve("BOOT-INF"),
+                DependencyCatalog::explodedLayersIndex);
+        if (sibling.isEmpty()) {
+            return null;
+        }
+        Boolean application = sibling.get().isApplication(entryName);
+        return application == null
+                ? null
+                : application
+                        && LayersIndex.APPLICATION_LAYER.equals(
+                                layer.getFileName().toString());
     }
 
+    /** The index in {@code bootInf}, empty when there is none, or {@link LayersIndex#UNREADABLE}. */
     private static Optional<LayersIndex> explodedLayersIndex(Path bootInf) {
         Path index = bootInf.resolve("layers.idx");
         if (!Files.isRegularFile(index)) {
             return Optional.empty();
         }
         try (InputStream input = Files.newInputStream(index)) {
-            return Optional.ofNullable(LayersIndex.read(input));
+            return Optional.of(LayersIndex.read(input));
         } catch (IOException | RuntimeException ex) {
             LOGGER.log(System.Logger.Level.DEBUG, "Could not read the layers index {0}: {1}", index, ex.getMessage());
-            return Optional.empty();
+            return Optional.of(LayersIndex.UNREADABLE);
         }
     }
 

@@ -639,9 +639,10 @@ class DependencyCatalogTests {
         assertThat(coverage.firstPartyArchivesTruncated()).isTrue();
     }
 
+    /** As Spring Boot writes it: every library listed individually, the project module in {@code application}. */
     private static final String LAYERS_INDEX = """
             - "dependencies":
-              - "BOOT-INF/lib/"
+              - "BOOT-INF/lib/boosting-sdk.jar"
             - "spring-boot-loader":
               - "org/"
             - "snapshot-dependencies":
@@ -684,6 +685,58 @@ class DependencyCatalogTests {
 
         assertThat(coverage)
                 .isEqualTo(DependencyCoverageDto.of(2, 1, List.of("boosting-sdk.jar"), 1, List.of("users.jar")));
+    }
+
+    @Test
+    void anInPlaceLayeredExtractionResolvesDependencyLayerArchivesThroughTheApplicationLayerIndex() throws Exception {
+        // jarmode=tools extract --layers --launcher writes each layer to its own <layer>/BOOT-INF/ tree, and only
+        // the application layer carries the index.
+        Path root = tempDir.resolve("in-place");
+        Path application = Files.createDirectories(root.resolve("application/BOOT-INF"));
+        Files.writeString(application.resolve("layers.idx"), LAYERS_INDEX);
+        Path users = writeJar(application.resolve("lib/users.jar"), null, List.of("com/boosting/user/User.class"));
+        Path sdk = writeJar(
+                root.resolve("dependencies/BOOT-INF/lib/boosting-sdk.jar"),
+                null,
+                List.of("com/boosting/sdk/Client.class"));
+
+        DependencyCoverageDto coverage = withClassPathInventory(
+                        new DependencyCatalog(emptyResolver(), () -> List.of("com.boosting")),
+                        users.toString(),
+                        sdk.toString())
+                .coverage();
+
+        assertThat(coverage)
+                .isEqualTo(DependencyCoverageDto.of(2, 1, List.of("boosting-sdk.jar"), 1, List.of("users.jar")));
+    }
+
+    @Test
+    void anUnreadableLayersIndexPlacesNoArchiveInTheApplicationLayer() throws Exception {
+        Path fatJar = repackagedJarWithContents(
+                Map.of("users.jar", jarBytes(null, List.of("com/boosting/user/User.class"))),
+                "this is not a layers index\n",
+                true);
+
+        assertThat(withClassPathInventory(
+                                new DependencyCatalog(emptyResolver(), () -> List.of("com.boosting")),
+                                fatJar.toString())
+                        .coverage())
+                .isEqualTo(DependencyCoverageDto.of(1, 1, List.of("users.jar")));
+    }
+
+    @Test
+    void aJarmodeToolsManifestWithoutTheToolsClassesIsNotIdentified() throws Exception {
+        Path forged = writeJar(
+                tempDir.resolve("spring-boot-jarmode-tools-4.1.1.jar"),
+                jarmodeManifest("4.1.1"),
+                List.of("org/example/Payload.class"));
+
+        DependencyInventory inventory =
+                withClassPathInventory(new DependencyCatalog(emptyResolver(), () -> List.of()), forged.toString());
+
+        assertThat(inventory.coverage())
+                .isEqualTo(DependencyCoverageDto.of(1, 1, List.of("spring-boot-jarmode-tools-4.1.1.jar")));
+        assertThat(inventory.dependencies()).isEmpty();
     }
 
     @Test

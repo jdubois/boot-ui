@@ -17,7 +17,8 @@ import java.util.List;
  * one of the application's base packages (the same packages the Architecture advisor analyzes). A shaded or
  * third-party JAR fails at its first foreign class, and a resource-only JAR, a class in the default package, a
  * class under {@code META-INF/} (other than a multi-release variant), or an archive carrying any Maven descriptor
- * ({@code META-INF/maven/}, which shaded libraries usually keep) is never first-party. A single-segment base
+ * ({@code META-INF/maven/}, which shaded libraries usually keep), or bundling another archive ({@code .jar},
+ * {@code .war}, {@code .zip}), is never first-party. A single-segment base
  * package such as {@code com} is too broad to separate an application from its dependencies and is ignored.</p>
  *
  * <p>Package containment remains a heuristic: a library the application relocated into its own namespace without
@@ -84,7 +85,7 @@ public final class FirstPartyArchives {
             if (entryName == null) {
                 continue;
             }
-            if (entryName.startsWith(MAVEN_DESCRIPTORS)) {
+            if (entryName.startsWith(MAVEN_DESCRIPTORS) || bundlesArchive(entryName)) {
                 return false;
             }
             if (!entryName.endsWith(CLASS_SUFFIX)) {
@@ -107,6 +108,12 @@ public final class FirstPartyArchives {
             applicationClass = true;
         }
         return applicationClass;
+    }
+
+    /** Whether the entry is itself an archive, whose contents would otherwise be hidden unscanned. */
+    private static boolean bundlesArchive(String entryName) {
+        String lower = entryName.toLowerCase(java.util.Locale.ROOT);
+        return lower.endsWith(".jar") || lower.endsWith(".war") || lower.endsWith(".zip");
     }
 
     /** The class entry name with a multi-release {@code META-INF/versions/<n>/} prefix removed. */

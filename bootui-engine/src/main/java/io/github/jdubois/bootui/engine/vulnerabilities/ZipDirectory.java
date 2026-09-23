@@ -67,9 +67,10 @@ public final class ZipDirectory {
         int tailLength = (int) Math.min(length, END_RECORD_SIZE + MAX_COMMENT_SIZE);
         long tailOffset = length - tailLength;
         byte[] tail = readFully(source, tailOffset, tailLength);
+        // As the JDK and Spring Boot loaders do, the record is the last signature whose comment ends the archive.
         int end = -1;
         for (int i = tailLength - END_RECORD_SIZE; i >= 0; i--) {
-            if (int32(tail, i) == END_SIGNATURE) {
+            if (int32(tail, i) == END_SIGNATURE && i + END_RECORD_SIZE + uint16(tail, i + 20) == tailLength) {
                 end = i;
                 break;
             }
@@ -78,6 +79,9 @@ public final class ZipDirectory {
             throw new IOException("No end of central directory record");
         }
         int entryCount = uint16(tail, end + 10);
+        if (uint16(tail, end + 4) != 0 || uint16(tail, end + 6) != 0 || uint16(tail, end + 8) != entryCount) {
+            throw new IOException("Multi-disk archives are not inspected");
+        }
         long directorySize = uint32(tail, end + 12);
         long directoryOffset = uint32(tail, end + 16);
         if (entryCount == 0xFFFF || directorySize == 0xFFFFFFFFL || directoryOffset == 0xFFFFFFFFL) {
@@ -102,7 +106,7 @@ public final class ZipDirectory {
             int commentLength = uint16(directory, position + 32);
             long localHeaderOffset = uint32(directory, position + 42);
             int nameStart = position + CENTRAL_HEADER_SIZE;
-            if (nameStart + nameLength > directory.length) {
+            if ((long) nameStart + nameLength + extraLength + commentLength > directory.length) {
                 throw new IOException("Malformed central directory");
             }
             String name = new String(
@@ -113,7 +117,7 @@ public final class ZipDirectory {
             entries.add(new Entry(name, method, compressedSize, size, localHeaderOffset));
             position = nameStart + nameLength + extraLength + commentLength;
         }
-        if (entries.size() != entryCount) {
+        if (position != directory.length || entries.size() != entryCount) {
             throw new IOException("Central directory entry count mismatch");
         }
         return entries;
@@ -145,7 +149,7 @@ public final class ZipDirectory {
             inflater.setInput(data);
             byte[] content = new byte[(int) entry.size()];
             int length = inflater.inflate(content);
-            if (length != content.length || !inflater.finished() && inflater.inflate(new byte[1]) > 0) {
+            if (length != content.length || !inflater.finished()) {
                 throw new IOException("Entry size mismatch");
             }
             return content;
