@@ -1367,7 +1367,7 @@ final class BroadCorsOriginPatternRule extends AbstractSecurityRule {
                 "SEC-CORS-006",
                 "CORS should not allow broad origin patterns",
                 SecurityCategory.CORS,
-                "MEDIUM",
+                "LOW",
                 "Reviews supported attached origin patterns with broad host scope, beyond wildcard cases covered by SEC-CORS-001/002. A scheme wildcard alone is not host broadening; public-suffix ownership is not inferred.",
                 "Replace broad patterns with the exact origins (or tightly-scoped subdomain wildcards such as https://*.example.com) the application trusts; broad patterns combined with credentials let untrusted sites make authenticated cross-site calls.",
                 "https://docs.spring.io/spring-framework/reference/web/webmvc-cors.html"));
