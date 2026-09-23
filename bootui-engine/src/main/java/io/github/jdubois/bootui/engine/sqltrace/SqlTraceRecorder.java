@@ -62,6 +62,11 @@ public final class SqlTraceRecorder implements IdleReclaimable {
     /**
      * A single immutable captured execution. Parameter bindings are only retained
      * when capture is enabled; callers decide whether to expose them.
+     *
+     * <p>{@code durationMicros} is the exact recorded duration. Statements are timed in nanoseconds and
+     * recorded in microseconds because an ordinary local-database statement finishes well inside one
+     * millisecond; {@link #durationMillis()} is derived from it by rounding, for readers whose contract is
+     * a whole-millisecond count.</p>
      */
     public record CapturedStatement(
             long id,
@@ -69,7 +74,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
             String sql,
             StatementType statementType,
             Category category,
-            long durationMillis,
+            long durationMicros,
             boolean success,
             String errorMessage,
             Long affectedRows,
@@ -82,6 +87,11 @@ public final class SqlTraceRecorder implements IdleReclaimable {
 
         public CapturedStatement {
             parameters = parameters == null ? List.of() : List.copyOf(parameters);
+        }
+
+        /** The exact duration rounded to whole milliseconds. */
+        public long durationMillis() {
+            return SqlDurations.roundedMillis(durationMicros);
         }
     }
 
@@ -180,8 +190,13 @@ public final class SqlTraceRecorder implements IdleReclaimable {
         return slowQueryThresholdMillis;
     }
 
-    public boolean isSlow(long durationMillis) {
-        return slowQueryThresholdMillis > 0 && durationMillis >= slowQueryThresholdMillis;
+    /**
+     * Whether a duration exceeds the configured slow-query threshold. The threshold stays configured in
+     * whole milliseconds ({@code bootui.sql-trace.slow-query-threshold-millis}); only the comparison unit is
+     * microseconds, so the semantics of the property are unchanged.
+     */
+    public boolean isSlow(long durationMicros) {
+        return slowQueryThresholdMillis > 0 && durationMicros >= slowQueryThresholdMillis * 1_000L;
     }
 
     /** Remembers a {@code DataSource} bean that BootUI wrapped for tracing. */
@@ -199,13 +214,17 @@ public final class SqlTraceRecorder implements IdleReclaimable {
         return !dataSourceNames.isEmpty();
     }
 
-    /** Records one execution, truncating oversized SQL and evicting the oldest entry when full. */
+    /**
+     * Records one execution, truncating oversized SQL and evicting the oldest entry when full. The duration
+     * is taken in microseconds so sub-millisecond statements — the normal case against a local database —
+     * contribute their real cost to every aggregate instead of collapsing to zero.
+     */
     public void record(
             StatementType statementType,
             Category category,
             String sql,
             List<String> parameters,
-            long durationMillis,
+            long durationMicros,
             boolean success,
             String errorMessage,
             Long affectedRows,
@@ -221,7 +240,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
                 truncate(sql, maxSqlLength),
                 statementType == null ? StatementType.STATEMENT : statementType,
                 category == null ? Category.OTHER : category,
-                Math.max(0, durationMillis),
+                Math.max(0, durationMicros),
                 success,
                 errorMessage,
                 affectedRows,
@@ -325,8 +344,8 @@ public final class SqlTraceRecorder implements IdleReclaimable {
     /** Computes aggregate counters over the retained buffer. */
     public SqlTraceStatsDto stats() {
         long total = 0;
-        long totalDuration = 0;
-        long maxDuration = 0;
+        long totalDurationMicros = 0;
+        long maxDurationMicros = 0;
         long slow = 0;
         long failed = 0;
         long batches = 0;
@@ -341,9 +360,9 @@ public final class SqlTraceRecorder implements IdleReclaimable {
         }
         for (CapturedStatement entry : snapshot) {
             total++;
-            totalDuration += entry.durationMillis();
-            maxDuration = Math.max(maxDuration, entry.durationMillis());
-            if (isSlow(entry.durationMillis())) {
+            totalDurationMicros += entry.durationMicros();
+            maxDurationMicros = Math.max(maxDurationMicros, entry.durationMicros());
+            if (isSlow(entry.durationMicros())) {
                 slow++;
             }
             if (!entry.success()) {
@@ -360,11 +379,11 @@ public final class SqlTraceRecorder implements IdleReclaimable {
                 default -> others++;
             }
         }
-        double avg = total == 0 ? 0 : (double) totalDuration / total;
+        double avg = total == 0 ? 0 : SqlDurations.millis((double) totalDurationMicros / total);
         return new SqlTraceStatsDto(
                 total,
-                totalDuration,
-                maxDuration,
+                SqlDurations.millis(totalDurationMicros),
+                SqlDurations.millis(maxDurationMicros),
                 avg,
                 slow,
                 failed,
@@ -394,8 +413,8 @@ public final class SqlTraceRecorder implements IdleReclaimable {
             String sql = entry.sql() == null ? "" : entry.sql();
             Aggregate aggregate = byStatement.computeIfAbsent(sql, key -> new Aggregate(key, entry.category()));
             aggregate.executions++;
-            aggregate.totalDuration += entry.durationMillis();
-            aggregate.maxDuration = Math.max(aggregate.maxDuration, entry.durationMillis());
+            aggregate.totalDurationMicros += entry.durationMicros();
+            aggregate.maxDurationMicros = Math.max(aggregate.maxDurationMicros, entry.durationMicros());
             aggregate.addCallSite(entry.callSite());
         }
         return byStatement.values().stream()
@@ -407,8 +426,8 @@ public final class SqlTraceRecorder implements IdleReclaimable {
                         a.sql,
                         a.category.name(),
                         a.executions,
-                        a.totalDuration,
-                        a.maxDuration,
+                        SqlDurations.millis(a.totalDurationMicros),
+                        SqlDurations.millis(a.maxDurationMicros),
                         a.category == Category.SELECT && a.executions >= nPlusOneThreshold,
                         a.callSites()))
                 .toList();
@@ -473,6 +492,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
                 entry.sql(),
                 entry.statementType().name(),
                 entry.category().name(),
+                entry.durationMicros(),
                 entry.durationMillis(),
                 entry.success(),
                 entry.errorMessage(),
@@ -480,7 +500,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
                 entry.batchSize(),
                 entry.connectionId(),
                 entry.thread(),
-                isSlow(entry.durationMillis()),
+                isSlow(entry.durationMicros()),
                 exposeParameters ? entry.parameters() : List.of(),
                 entry.traceId(),
                 entry.callSite());
@@ -576,8 +596,8 @@ public final class SqlTraceRecorder implements IdleReclaimable {
         private final String sql;
         private final Category category;
         private long executions;
-        private long totalDuration;
-        private long maxDuration;
+        private long totalDurationMicros;
+        private long maxDurationMicros;
         private final Set<String> callSites = new LinkedHashSet<>();
 
         private Aggregate(String sql, Category category) {

@@ -1396,6 +1396,7 @@ class LiveActivityAssemblerTests {
                 sql,
                 "PREPARED",
                 "SELECT",
+                5_000L,
                 5L,
                 true,
                 null,

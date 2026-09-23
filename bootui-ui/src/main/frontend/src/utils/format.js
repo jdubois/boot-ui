@@ -25,6 +25,24 @@ export function formatNumber(n) {
   return Number(n).toLocaleString()
 }
 
+/**
+ * A duration already expressed in milliseconds, kept readable at every scale. SQL Trace records
+ * statements in microseconds, so a local-database read is a fraction of a millisecond and must not be
+ * rendered as a flat `0`; large values stay grouped and free of noise decimals.
+ */
+export function formatMillis(millis) {
+  if (millis == null || millis === '') return '—'
+  const n = Number(millis)
+  if (Number.isNaN(n)) return '—'
+  if (n === 0) return '0'
+  const abs = Math.abs(n)
+  if (abs < 0.001) return '<0.001'
+  if (abs < 1) return n.toFixed(3)
+  if (abs < 10) return n.toFixed(2)
+  if (abs < 100) return n.toFixed(1)
+  return Math.round(n).toLocaleString()
+}
+
 export function formatBytes(bytes) {
   if (bytes == null || bytes === '') return '—'
   const n = Number(bytes)

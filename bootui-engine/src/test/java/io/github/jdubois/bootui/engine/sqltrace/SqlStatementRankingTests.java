@@ -137,6 +137,41 @@ class SqlStatementRankingTests {
     }
 
     @Test
+    void ranksAWindowInWhichEveryExecutionIsSubMillisecond() {
+        // The state of a developer's local database: primary-key reads that finish in a few hundred
+        // microseconds. Truncating them to whole milliseconds left every total at zero and the panel with
+        // nothing to rank.
+        List<SqlTraceEntryDto> entries = new ArrayList<>();
+        for (int i = 0; i < 100; i++) {
+            entries.add(entry("select * from users where id = " + i)
+                    .lastingMicros(300)
+                    .build());
+        }
+        for (int i = 0; i < 100; i++) {
+            entries.add(entry("select * from orders where id = " + i)
+                    .lastingMicros(900)
+                    .category("SELECT")
+                    .build());
+        }
+
+        SqlStatementRanking.Ranked ranked = SqlStatementRanking.rank(entries, N_PLUS_ONE);
+
+        assertThat(ranked.totalDurationMicros()).isEqualTo(120_000);
+        assertThat(ranked.statements()).hasSize(2);
+        assertThat(ranked.statements())
+                .allSatisfy(row -> assertThat(row.totalDurationMillis()).isGreaterThan(0));
+        SqlStatementRankingDto heaviest = ranked.statements().get(0);
+        assertThat(heaviest.sql()).contains("orders");
+        assertThat(heaviest.totalDurationMillis()).isEqualTo(90.0);
+        assertThat(heaviest.avgDurationMillis()).isEqualTo(0.9);
+        assertThat(heaviest.maxDurationMillis()).isEqualTo(0.9);
+        assertThat(heaviest.p95DurationMillis()).isEqualTo(0.9);
+        assertThat(heaviest.p99DurationMillis()).isEqualTo(0.9);
+        assertThat(heaviest.shareOfRetainedTimePercent()).isEqualTo(75.0);
+        assertThat(heaviest.topFor()).contains("TOTAL_DURATION");
+    }
+
+    @Test
     void reportsSharesThatAddUpToTheRetainedWindow() {
         SqlStatementRanking.Ranked ranked = SqlStatementRanking.rank(
                 List.of(
@@ -144,7 +179,7 @@ class SqlStatementRankingTests {
                         entry("select * from b").lasting(25).build()),
                 N_PLUS_ONE);
 
-        assertThat(ranked.totalDurationMillis()).isEqualTo(100);
+        assertThat(ranked.totalDurationMicros()).isEqualTo(100_000);
         assertThat(ranked.statements())
                 .extracting(SqlStatementRankingDto::shareOfRetainedTimePercent)
                 .containsExactly(75.0, 25.0);
@@ -205,7 +240,7 @@ class SqlStatementRankingTests {
         assertThat(ranked.statements()).isEmpty();
         assertThat(ranked.truncated()).isFalse();
         assertThat(ranked.distinct()).isZero();
-        assertThat(ranked.totalDurationMillis()).isZero();
+        assertThat(ranked.totalDurationMicros()).isZero();
     }
 
     @Test

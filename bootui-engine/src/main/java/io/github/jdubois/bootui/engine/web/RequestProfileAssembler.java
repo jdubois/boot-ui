@@ -123,7 +123,12 @@ public final class RequestProfileAssembler {
             notes.add("Trace matched by id " + traceId + ".");
         }
 
-        long sqlMs = sql.stream().mapToLong(SqlTraceEntryDto::durationMillis).sum();
+        // Summed in microseconds, the resolution SQL Trace records: on a local database almost every
+        // statement runs in well under a millisecond, so summing rounded milliseconds would report a
+        // request that spent real time in the database as spending none.
+        long sqlMicros =
+                sql.stream().mapToLong(SqlTraceEntryDto::durationMicros).sum();
+        double sqlMs = Math.round(sqlMicros / 1_000.0 * 1_000.0) / 1_000.0;
         Double sqlPercent = (request.durationMs() != null && request.durationMs() > 0)
                 ? Math.round(10000.0 * sqlMs / request.durationMs()) / 100.0
                 : null;

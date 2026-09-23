@@ -196,6 +196,7 @@ class RequestProfileAssemblerTests {
                 sql,
                 "PREPARED",
                 "SELECT",
+                durationMillis * 1_000L,
                 durationMillis,
                 true,
                 null,

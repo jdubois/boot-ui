@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.Category;
@@ -143,14 +144,17 @@ class SqlTraceRecorderTests {
     @Test
     void flagsSlowQueriesByThreshold() {
         SqlTraceRecorder recorder = recorder(true, false, 10, 100);
-        assertThat(recorder.isSlow(150)).isTrue();
-        assertThat(recorder.isSlow(50)).isFalse();
+        // The threshold stays configured in milliseconds; the comparison is in microseconds.
+        assertThat(recorder.isSlow(150_000)).isTrue();
+        assertThat(recorder.isSlow(100_000)).isTrue();
+        assertThat(recorder.isSlow(50_000)).isFalse();
+        assertThat(recorder.isSlow(900)).isFalse();
     }
 
     @Test
     void slowFlaggingDisabledWhenThresholdZero() {
         SqlTraceRecorder recorder = recorder(true, false, 10, 0);
-        assertThat(recorder.isSlow(5000)).isFalse();
+        assertThat(recorder.isSlow(5_000_000)).isFalse();
     }
 
     @Test
@@ -168,11 +172,31 @@ class SqlTraceRecorderTests {
     void computesAggregateStats() {
         SqlTraceRecorder recorder = recorder(true, false, 10, 100);
         recorder.record(
-                StatementType.STATEMENT, Category.SELECT, "select", List.of(), 10, true, null, null, 0, "c1", "main");
+                StatementType.STATEMENT,
+                Category.SELECT,
+                "select",
+                List.of(),
+                10_000,
+                true,
+                null,
+                null,
+                0,
+                "c1",
+                "main");
         recorder.record(
-                StatementType.PREPARED, Category.UPDATE, "update", List.of(), 200, true, null, 3L, 0, "c1", "main");
+                StatementType.PREPARED, Category.UPDATE, "update", List.of(), 200_000, true, null, 3L, 0, "c1", "main");
         recorder.record(
-                StatementType.PREPARED, Category.INSERT, "insert", List.of(), 50, false, "boom", null, 5, "c1", "main");
+                StatementType.PREPARED,
+                Category.INSERT,
+                "insert",
+                List.of(),
+                50_000,
+                false,
+                "boom",
+                null,
+                5,
+                "c1",
+                "main");
 
         SqlTraceStatsDto stats = recorder.stats();
         assertThat(stats.totalQueries()).isEqualTo(3);
@@ -185,6 +209,58 @@ class SqlTraceRecorderTests {
         assertThat(stats.updateCount()).isEqualTo(1);
         assertThat(stats.insertCount()).isEqualTo(1);
         assertThat(stats.deleteCount()).isZero();
+    }
+
+    @Test
+    void keepsSubMillisecondExecutionsOutOfTheStatsRatherThanTruncatingThemToZero() {
+        SqlTraceRecorder recorder = recorder(true, false, 500, 100);
+        for (int i = 0; i < 200; i++) {
+            recorder.record(
+                    StatementType.PREPARED,
+                    Category.SELECT,
+                    "select * from users where id = ?",
+                    List.of(),
+                    310,
+                    true,
+                    null,
+                    null,
+                    0,
+                    "c1",
+                    "main");
+        }
+
+        SqlTraceStatsDto stats = recorder.stats();
+        assertThat(stats.totalQueries()).isEqualTo(200);
+        assertThat(stats.totalDurationMillis()).isEqualTo(62.0);
+        assertThat(stats.maxDurationMillis()).isEqualTo(0.31);
+        assertThat(stats.avgDurationMillis()).isEqualTo(0.31);
+        assertThat(stats.slowQueries()).isZero();
+
+        SqlTraceEntryDto entry = recorder.entries(false).get(0);
+        assertThat(entry.durationMicros()).isEqualTo(310);
+        assertThat(entry.durationMillis()).isZero();
+        assertThat(entry.slow()).isFalse();
+    }
+
+    @Test
+    void roundsTheCompatibilityMillisecondFieldInsteadOfTruncatingIt() {
+        SqlTraceRecorder recorder = recorder(true, false, 10, 100);
+        recorder.record(
+                StatementType.PREPARED,
+                Category.SELECT,
+                "select 1",
+                List.of(),
+                1_600,
+                true,
+                null,
+                null,
+                0,
+                "c1",
+                "main");
+
+        SqlTraceEntryDto entry = recorder.entries(false).get(0);
+        assertThat(entry.durationMicros()).isEqualTo(1_600);
+        assertThat(entry.durationMillis()).isEqualTo(2);
     }
 
     @Test

@@ -405,13 +405,16 @@ public final class LiveActivityAssembler {
                     sqlNPlusOneSuspected));
         }
 
-        Long slowestQuery = null;
+        // Compared in microseconds, the resolution SQL Trace records, so the slowest statement is picked on
+        // its real cost rather than on values that have already been rounded to whole milliseconds.
+        Long slowestQueryMicros = null;
         for (SqlTraceEntryDto s : sql) {
-            if (slowestQuery == null || s.durationMillis() > slowestQuery) {
-                slowestQuery = s.durationMillis();
+            if (slowestQueryMicros == null || s.durationMicros() > slowestQueryMicros) {
+                slowestQueryMicros = s.durationMicros();
             }
             entries.add(toSqlEntry(s, traceIndex.parentRequestId(s.traceId())));
         }
+        Long slowestQuery = slowestQueryMicros == null ? null : Math.round(slowestQueryMicros / 1_000.0);
 
         for (ExceptionGroupDto g : exceptions) {
             String parentId = traceIndex.parentRequestId(g.lastTraceId());

@@ -23,13 +23,14 @@ class SqlTraceInsightsServiceTests {
         return recorder;
     }
 
-    private void record(SqlTraceRecorder recorder, String sql, long duration) {
+    /** {@code durationMillis} is written in milliseconds and recorded in the microseconds the API takes. */
+    private void record(SqlTraceRecorder recorder, String sql, long durationMillis) {
         recorder.record(
                 StatementType.PREPARED,
                 Category.SELECT,
                 sql,
                 List.of(),
-                duration,
+                durationMillis * 1_000L,
                 true,
                 null,
                 null,

@@ -128,6 +128,7 @@ class SqlTraceGroupingTests {
                 sqlText,
                 "PREPARED",
                 category,
+                1_000L,
                 1L,
                 true,
                 null,
