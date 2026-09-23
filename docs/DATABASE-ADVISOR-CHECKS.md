@@ -354,7 +354,10 @@ visibility. Invisible/ignored UNIQUE indexes still enforce uniqueness. A value-p
 *more* values without permitting duplicate full keys. Subset coverage also depends on null semantics:
 Oracle `UNIQUE(a)` with nullable `a` can allow repeated `(NULL, 1)` rows that `UNIQUE(a, b)` rejects.
 Such Oracle subset coverage needs known NOT NULL keys or equivalent evidence; it cannot be assumed.
-INCLUDE payload is not a unique key. Oracle may use nonunique backing indexes for unique constraints.
+INCLUDE payload is not a unique key. Oracle may use nonunique backing indexes for unique constraints, so a
+nonunique constraint-backed index (including a PostgreSQL exclusion constraint) keeps the result unknown; a
+unique constraint-backed index such as a primary key is judged on its own structure. PostgreSQL key parts with
+no collation or the database `default` collation compare plainly; an explicit other collation needs review.
 Partial, invalid and unknown definitions require precise evidence. Review full constraint semantics
 before adding a new guarantee.
 

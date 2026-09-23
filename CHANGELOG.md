@@ -24,6 +24,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   compared, and other ambiguous mappings on non-character columns are now skipped quietly
   ([#1090](https://github.com/jdubois/boot-ui/issues/1090)).
 
+- **DB-HIB-005 concludes on PostgreSQL.** The PostgreSQL catalog reader passed each index key's `indcollation` OID
+  (`0` for no collation, `100` for the database default) as an explicit collation, so every unique index looked like
+  it had non-plain comparison semantics. As a result, DB-HIB-005 reported every `@Column(unique = true)` and
+  `@Table(uniqueConstraints = ...)` as unknown and the scan was PARTIAL. The absent and default collations now count
+  as plain. A unique constraint-backed index such as the primary key no longer makes a genuinely missing unique key
+  come back unknown instead of being reported ([#1087](https://github.com/jdubois/boot-ui/issues/1087)).
+
 ## [1.18.0] - 2026-09-21
 
 Feature release adding PostgreSQL and MySQL operational diagnostics across Spring MVC, Spring WebFlux, and Quarkus,

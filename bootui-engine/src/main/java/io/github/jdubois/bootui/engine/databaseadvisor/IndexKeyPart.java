@@ -12,7 +12,8 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
  * @param expression the indexed expression, or {@code null} for a plain column key part
  * @param ascending {@code TRUE}/{@code FALSE} when the catalog reports a direction, {@code null} otherwise
  * @param prefixLength the indexed prefix length, or {@code null} when the whole value is indexed
- * @param collation the key part's collation when the catalog reports one, or {@code null}
+ * @param collation the key part's explicit non-default collation, or {@code null} when the catalog reports no
+ *     collation or the database default one
  */
 record IndexKeyPart(String columnName, String expression, Boolean ascending, Integer prefixLength, String collation) {
 

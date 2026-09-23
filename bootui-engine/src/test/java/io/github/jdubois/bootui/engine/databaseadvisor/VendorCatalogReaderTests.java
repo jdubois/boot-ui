@@ -6,6 +6,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
+import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedEntityFacts;
+import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedUniqueConstraintFacts;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.sql.Array;
@@ -138,6 +141,115 @@ class VendorCatalogReaderTests {
                     assertThat(index.ready()).isNull();
                     assertThat(index.keyParts().get(0).columnName()).isEqualTo("tenant");
                 });
+    }
+
+    @Test
+    void postgresNoAndDefaultCollationOidsAreNotExplicitCollations() throws Exception {
+        List<Map<String, Object>> rows = List.of(
+                postgresIndexRow("games", "plain_key", "code", "0:0:1978", false, null, null),
+                postgresIndexRow("games", "default_key", "code", "0:100:3126", false, null, null),
+                postgresIndexRow("games", "c_key", "code", "0:950:3126", false, null, null));
+        VendorFindings findings =
+                postgres(18, new ArrayList<>(), sql -> sql.contains("as key_columns") ? rows : List.of());
+        assertThat(findings.findings(VendorFindingKinds.POSTGRES_INDEX_DETAILS))
+                .extracting(detail -> detail.keyParts().get(0).collation())
+                .containsExactly(null, null, "950");
+        assertThat(findings.findings(VendorFindingKinds.POSTGRES_INDEX_DETAILS))
+                .extracting(detail -> detail.comparisonSemantics().get(0))
+                .containsExactly("0:0:1978", "0:100:3126", "0:950:3126");
+    }
+
+    @Test
+    void postgresCatalogIndexesLetDeclaredUniquenessConclude() throws Exception {
+        // Regression for #1087: drive DB-HIB-005 through the PostgreSQL catalog reader and vendor merge rather
+        // than IndexModel.of(...), which never carries a catalog collation.
+        List<Map<String, Object>> rows = List.of(
+                postgresIndexRow("games", "pk_games", "id", "0:0:10065", true, "pk_games", "p"),
+                postgresIndexRow("games", "games_code_key", "code", "0:100:3126", false, "games_code_key", "u"),
+                postgresIndexRow("players", "pk_players", "id", "0:0:10065", true, "pk_players", "p"),
+                postgresIndexRow("players", "players_nick_key", "nick", "0:950:3126", false, null, null));
+        VendorFindings findings =
+                postgres(18, new ArrayList<>(), sql -> sql.contains("as key_columns") ? rows : List.of());
+        List<ColumnModel> gameColumns = List.of(
+                DatabaseAdvisorFixtures.notNullColumn("id", "uuid", java.sql.Types.OTHER),
+                DatabaseAdvisorFixtures.notNullColumn("code", "varchar", java.sql.Types.VARCHAR),
+                DatabaseAdvisorFixtures.column("slug", "varchar", java.sql.Types.VARCHAR));
+        TableModel games = DatabaseAdvisorFixtures.table(
+                "games",
+                gameColumns,
+                List.of("id"),
+                List.of(),
+                List.of(
+                        DatabaseAdvisorFixtures.uniqueIndex("pk_games", List.of("id")),
+                        DatabaseAdvisorFixtures.uniqueIndex("games_code_key", List.of("code"))));
+        TableModel players = DatabaseAdvisorFixtures.table(
+                "players",
+                List.of(
+                        DatabaseAdvisorFixtures.notNullColumn("id", "uuid", java.sql.Types.OTHER),
+                        DatabaseAdvisorFixtures.notNullColumn("nick", "varchar", java.sql.Types.VARCHAR)),
+                List.of("id"),
+                List.of(),
+                List.of(
+                        DatabaseAdvisorFixtures.uniqueIndex("pk_players", List.of("id")),
+                        DatabaseAdvisorFixtures.uniqueIndex("players_nick_key", List.of("nick"))));
+        SchemaSnapshot schema = DatabaseAdvisorFixtures.schema(
+                "ds",
+                Dialect.POSTGRESQL,
+                VendorSchemaMerge.merge(List.of(games, players), Dialect.POSTGRESQL, findings),
+                findings);
+
+        assertThat(uniqueRule(schema, "games", "Game#code", "code").status())
+                .isEqualTo(DatabaseAdvisorRuleSupport.PASS);
+        DatabaseAdvisorRuleResultDto missing = uniqueRule(schema, "games", "Game#slug", "slug");
+        assertThat(missing.status()).isEqualTo(DatabaseAdvisorRuleSupport.VIOLATION);
+        assertThat(missing.sampleViolations()).singleElement().asString().contains("Game#slug", "no enforcing key");
+        assertThat(uniqueRule(schema, "players", "Player#nick", "nick").status())
+                .isEqualTo(DatabaseAdvisorRuleSupport.SKIPPED);
+    }
+
+    private static DatabaseAdvisorRuleResultDto uniqueRule(
+            SchemaSnapshot schema, String table, String description, String column) {
+        MappedEntityFacts entity = new MappedEntityFacts(
+                description,
+                table,
+                null,
+                null,
+                List.of(),
+                List.of(),
+                List.of(new MappedUniqueConstraintFacts(description, List.of(column))));
+        return new HibernateMissingUniqueIndexRule()
+                .evaluate(new DatabaseAdvisorContext(List.of(schema), true, List.of(entity)));
+    }
+
+    private static Map<String, Object> postgresIndexRow(
+            String table,
+            String index,
+            String column,
+            String semantics,
+            boolean primary,
+            String constraintName,
+            String constraintType) {
+        Map<String, Object> row = new HashMap<>();
+        row.put("schema_name", "public");
+        row.put("table_name", table);
+        row.put("index_name", index);
+        row.put("key_column_count", 1);
+        row.put("key_columns", new String[] {column});
+        row.put("key_expressions", new String[] {null});
+        row.put("key_semantics", new String[] {semantics});
+        row.put("included_columns", new String[] {});
+        row.put("is_valid", true);
+        row.put("is_ready", true);
+        row.put("is_live", true);
+        row.put("is_unique", true);
+        row.put("is_primary", primary);
+        row.put("is_partial", false);
+        row.put("nulls_not_distinct", false);
+        row.put("has_expression", false);
+        row.put("method", "btree");
+        row.put("constraint_name", constraintName);
+        row.put("constraint_type", constraintType);
+        return row;
     }
 
     @Test

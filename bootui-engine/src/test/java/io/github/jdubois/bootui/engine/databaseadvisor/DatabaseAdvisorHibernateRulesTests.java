@@ -1523,6 +1523,35 @@ class DatabaseAdvisorHibernateRulesTests {
     }
 
     @Test
+    void uniqueConstraintBackedPrimaryKeyIndexDoesNotHideAMissingUniqueKey() {
+        MappedEntityFacts mapped = entity(
+                "User",
+                "users",
+                List.of(),
+                List.of(),
+                List.of(new MappedUniqueConstraintFacts("User#email", List.of("email"))));
+        IndexModel primaryKey = new IndexModel(
+                        "pk_users",
+                        List.of(IndexKeyPart.column("id", true)),
+                        true,
+                        "btree",
+                        null,
+                        IndexModel.Visibility.VISIBLE,
+                        IndexModel.Validity.VALID)
+                .withBackingConstraint("pk_users");
+        TableModel users = table(
+                "users",
+                List.of(notNullColumn("id", "int8", Types.BIGINT), column("email", "varchar", Types.VARCHAR)),
+                List.of("id"),
+                List.of(),
+                List.of(primaryKey));
+        DatabaseAdvisorContext context = hibernateContext(schema("ds", Dialect.POSTGRESQL, List.of(users)), mapped);
+        assertThat(new HibernateMissingUniqueIndexRule().evaluate(context).status())
+                .isEqualTo(VIOLATION);
+        assertThat(context.evaluationDiagnostics()).isEmpty();
+    }
+
+    @Test
     void oracleNonuniqueBackingIndexDoesNotProveMissingUniqueness() {
         MappedEntityFacts mapped = entity(
                 "User",

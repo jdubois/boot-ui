@@ -157,7 +157,9 @@ final class HibernateMissingUniqueIndexRule extends AbstractHibernateCrossRefere
 
     private boolean uncertainEnforcement(IndexModel index) {
         return !Boolean.TRUE.equals(index.uniquenessKnown())
-                || index.backingConstraint() != null
+                // A nonunique constraint-backed index (Oracle nonunique backing, PostgreSQL exclusion) may still
+                // enforce a guarantee; a unique one is fully judged by the structural checks below.
+                || (index.backingConstraint() != null && !index.unique())
                 || (index.unique()
                         && (index.validity() != IndexModel.Validity.VALID
                                 || index.partial()

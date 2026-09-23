@@ -294,6 +294,17 @@ final class PostgresCatalogReader {
                 nullableBoolean(rs, "is_unique"));
     }
 
+    /**
+     * {@code pg_index.indcollation} is never SQL NULL: {@code 0} (InvalidOid) marks a non-collatable key and
+     * {@code 100} (the pinned {@code default} collation) an ordinary text key. Only an explicit other collation
+     * changes comparison semantics.
+     */
+    static String explicitCollation(String collationOid) {
+        return collationOid == null || collationOid.isEmpty() || "0".equals(collationOid) || "100".equals(collationOid)
+                ? null
+                : collationOid;
+    }
+
     private static PostgresIndexDetail readIndexDetail(ResultSet rs, DialectCapabilities capabilities)
             throws SQLException {
         Integer keyCount = nullableInt(rs, "key_column_count");
@@ -325,7 +336,8 @@ final class PostgresCatalogReader {
                 if (ascending == null) {
                     complete = false;
                 }
-                parts.add(new IndexKeyPart(column, expression, ascending, null, flags.length == 3 ? flags[1] : null));
+                parts.add(new IndexKeyPart(
+                        column, expression, ascending, null, flags.length == 3 ? explicitCollation(flags[1]) : null));
             }
         }
         Boolean valid = nullableBoolean(rs, "is_valid");
