@@ -1,39 +1,64 @@
 # Spring checks
 
-Rule reports keep ten-entry `sampleViolations` previews and their full `violationCount`. **View violations** and
-`GET <api>/spring/rules/{id}/violations?scanId=...&offset=0&limit=100` read additional retained details without
+The Spring panel runs a fixed, on-demand ruleset against your application's running Spring context and `Environment`.
+It takes a read-only snapshot of selected bean groups — Jackson `ObjectMapper`s, `Executor`s and `TaskExecutor`s,
+`DataSource`s — plus feature flags, then evaluates a curated set of configuration and best-practice checks. It never
+mutates the context, intercepts live traffic, or surfaces secrets.
+
+This advisor complements the [Architecture](ARCHITECTURE-CHECKS.md) panel. Architecture statically analyzes compiled
+bytecode with ArchUnit, while this one inspects the live, wired runtime context.
+
+Because it runs inside the started application, its evidence is limited by design. A configured default is not proof of
+effective execution, a bean definition is not proof that the bean is used, and a production-like profile name does not
+establish deployment topology. Concrete configuration concerns and optional INFO opportunities are both useful, but an
+optimization suggestion promises no measured benefit and requires no change.
+
+::: tip Reading more than the preview
+Reports keep ten-entry `sampleViolations` previews alongside the full `violationCount`. **View violations**, or
+`GET <api>/spring/rules/{id}/violations?scanId=...&offset=0&limit=100`, reads additional retained details without
 inspecting the context again. Check retention truncation separately from coverage and score eligibility. See
 [snapshot, retention, and MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
-
-The Spring panel runs a fixed, on-demand ruleset against the host application's **running Spring application context** and `Environment`. It takes a read-only snapshot of selected bean groups (Jackson `ObjectMapper`s, `Executor`s/`TaskExecutor`s, `DataSource`s) and feature flags, then evaluates a curated set of configuration and best-practice checks. It never mutates the context, intercepts live traffic, or surfaces secrets.
-
-Because the advisor runs inside the *started* application, its evidence is deliberately limited. A configured default is not proof of effective execution, a bean definition is not proof that the bean is used, and a production-like profile name does not establish deployment topology. Concrete configuration concerns and optional INFO opportunities are both useful; an optimization suggestion does not promise a measured benefit or require a change.
-
-This advisor is complementary to the **Architecture** panel: Architecture statically analyzes compiled bytecode with ArchUnit, whereas the Spring Advisor inspects the live, wired runtime context.
-
-The same ruleset runs on Spring MVC and WebFlux. Servlet OSIV guidance is inapplicable on WebFlux, while the two [reactive rules](#reactive-webflux-only) are inapplicable on MVC. Virtual-thread advice distinguishes Boot task execution from reactive event loops; Boot's virtual-thread switch does not switch Reactor's shared `boundedElastic` scheduler. Client advice distinguishes observable Boot settings from unknown per-client customization.
+:::
 
 ## Availability and bounds
 
-The panel is always available when the Spring advisor is enabled. Scanning is explicit and on demand; GET returns the cached report. Collection uses bounded, non-eager bean metadata and does not create lazy beans, invoke application customizers, open database connections, or probe remote services. Missing required evidence is unevaluated, not a successful check; inspection failures and invalid bindings are reported without raw exception messages or property values. The Rule results panel lists findings, ordered by severity, finding count, and rule ID.
+The panel is available whenever the Spring advisor is enabled. Scanning is explicit and on demand, and a GET returns
+the cached report.
 
-Scheduler, cache-provider and servlet OSIV gaps retain specific, bounded explanations in both inspected observations
-and coverage limitations. A rule evaluation failure is identified separately from unavailable evidence; neither exposes
-exception messages or raw settings. Independently observed findings survive incomplete registration/provider coverage.
+Collection uses bounded, non-eager bean metadata. It does not create lazy beans, invoke application customizers, open
+database connections, or probe remote services. Missing required evidence is unevaluated rather than a successful
+check, and inspection failures and invalid bindings are reported without raw exception messages or property values.
+
+Scheduler, cache-provider, and servlet OSIV gaps keep specific bounded explanations in both the inspected observations
+and the coverage limitations. A rule evaluation failure is identified separately from unavailable evidence, and
+neither exposes exception messages or raw settings. Independently observed findings survive incomplete registration or
+provider coverage.
+
+### The same ruleset on MVC and WebFlux
+
+Servlet OSIV guidance is inapplicable on WebFlux, and the two [reactive rules](#reactive-webflux-only) are inapplicable
+on MVC.
+
+Virtual-thread advice distinguishes Boot task execution from reactive event loops, because Boot's virtual-thread switch
+does not switch Reactor's shared `boundedElastic` scheduler. Client advice distinguishes observable Boot settings from
+unknown per-client customization.
 
 ## Severity scale
 
-A `SCANNED` report can still contain unknown observations or analysis errors. Usable known-findings scores retain
-those limitations under the shared [score eligibility policy](features/advisors.md#score-eligibility).
+| Severity | Meaning |
+| -------- | ------- |
+| **CRITICAL** | Reserved by the shared report contract. No Spring rule infers it from profile names or management-port equality. |
+| **HIGH** | A setting that commonly causes problems and usually needs attention before production. |
+| **MEDIUM** | A hardening or correctness gap that warrants review. |
+| **LOW** | Lower-impact hygiene or optimization findings. |
+| **INFO** | An informational prompt where the right fix depends heavily on project context. |
 
-- **CRITICAL** - reserved by the shared report contract; no Spring rule infers this severity from profile names or management-port equality.
-- **HIGH** - a setting that commonly causes problems and usually needs attention before production.
-- **MEDIUM** - a hardening or correctness gap that warrants review.
-- **LOW** - lower-impact hygiene or optimization findings.
-- **INFO** - informational prompts where the right fix depends heavily on project context.
+A `SCANNED` report can still contain unknown observations or analysis errors. Usable known-findings scores retain those
+limitations under the shared [score eligibility policy](features/advisors.md#score-eligibility).
 
-The advisor score applies the shared severity penalty to every concrete finding, not just once per violated rule.
-Dismissed rules remove all of their findings from the score.
+The results panel lists findings ordered by severity, finding count, and rule ID. The advisor score applies the shared
+severity penalty to every concrete finding, not once per violated rule, and dismissing a rule removes all of its
+findings from the score.
 
 ---
 
@@ -175,7 +200,7 @@ Dismissed rules remove all of their findings from the score.
 ### SPRING-PERF-002 - Review pooled executor routing
 
 - **Severity**: INFO
-- **Detects**: Virtual threads are configured and a `ThreadPoolTaskExecutor` is defined. Co-presence does not cancel virtual-thread execution elsewhere, establish routing, or prove the pool's custom thread factory uses platform threads.
+- **Detects**: Virtual threads are configured and the application declares a `ThreadPoolTaskExecutor`. When resolvable, each finding names the bean and the class declaring its factory method; otherwise, including for directly registered or scanned pool components, it names the bean type, states that the declaring configuration was not resolved, and still reports the pool. Pools whose factory method is declared by Spring's own configuration classes (`org.springframework.*`, excluding `org.springframework.samples.*` applications), such as the STOMP channel executors (`clientInboundChannelExecutor`, `clientOutboundChannelExecutor`, `brokerChannelExecutor`) that `@EnableWebSocketMessageBroker` registers, are framework-owned and excluded; an application override of such a method, with or without `@Bean`, is reported. Co-presence does not cancel virtual-thread execution elsewhere, establish routing, or prove the pool's custom thread factory uses platform threads.
 - **Recommendation**: Review which tasks use the pool and why. CPU isolation and bounded concurrency can be intentional; do not remove a useful constraint merely to eliminate this prompt.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 

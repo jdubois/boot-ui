@@ -1,134 +1,126 @@
 # Configuration
 
-For advisor detail retention, configure the positive `bootui.advisors.max-retained-violations` setting (default
-`10000`, per advisor's latest scan). Changing the limit does not expand an existing snapshot: recovery of omitted
-details requires an explicit new scan. Counts and compact samples remain unchanged. See the
-[property reference](../PROPERTIES.md#advisor-violation-retention).
-
 ## Configuration
 
 ![BootUI Configuration panel](../images/bootui-configuration.webp)
 
-The Configuration panel shows effective configuration properties, sources, metadata descriptions, defaults when known,
-active profiles, and masked values. It can create, update, and delete local runtime overrides persisted to
-`.bootui/application-bootui.properties`, with restart and rebinding caveats shown for every mutation. Large property
-tables load in bounded server-side pages for search, source, and override-only filters. Search matches property names
-through relaxed binding — `_` and `-` are treated as `.` and case is ignored — so `bootui.mcp.enabled` also finds a
-value supplied as the environment variable `BOOTUI_MCP_ENABLED`, which Spring and Quarkus both enumerate under that
-literal name. Values, descriptions, and defaults are matched literally, and every row still reports the name and source
-its property source gave. Each page reports the full property count and the matched count separately, so a search that
-narrows to nothing is visibly an empty result rather than an empty inventory. The override property-name picker narrows
-the same way — typing `BOOTUI_MCP` suggests `bootui.mcp.enabled` — and each suggestion carries the canonical dotted
-name, so accepting one writes a name the framework binds rather than the environment spelling it was typed as. The
-datalist is limited to the first matches against the full metadata catalog as you type.
+The Configuration panel shows the effective configuration properties, their sources, their metadata descriptions, their
+defaults when known, the active profiles, and masked values. It can also create, update, and delete local runtime
+overrides persisted to `.bootui/application-bootui.properties`, showing the restart and rebinding caveats with every
+mutation.
+
+Large property tables load in bounded server-side pages, with filters for search, source, and overrides only. Each page
+reports the total property count and the matched count separately, so a search that narrows to nothing reads as an
+empty result rather than an empty inventory.
+
+Search matches property names through relaxed binding: `_` and `-` are treated as `.`, and case is ignored. Searching
+for `bootui.mcp.enabled` therefore also finds a value supplied as `BOOTUI_MCP_ENABLED`, which both Spring and Quarkus
+enumerate under that literal name. Values, descriptions, and defaults are matched literally, and every row reports the
+name and source its property source gave.
+
+The override property-name picker narrows the same way. Typing `BOOTUI_MCP` suggests `bootui.mcp.enabled`, and each
+suggestion carries the canonical dotted name, so accepting one writes a name the framework binds rather than the
+environment spelling you typed.
 
 ## Profile Diff
 
 ![BootUI Profile Diff panel](../images/bootui-profile-diff.webp)
 
-The Profile Diff panel compares profile-specific property sources and values. It is useful for understanding what
-changes between local development profiles while still routing browser-visible names and values through BootUI's secret
-masking rules.
+The Profile Diff panel compares profile-specific property sources and values, which is how you see what actually
+changes between local development profiles. Browser-visible names and values still pass through BootUI's secret
+masking.
 
 ## Loggers
 
 ![BootUI Loggers panel](../images/bootui-loggers.webp)
 
-The Loggers panel lists runtime logger configuration. On Spring Boot it reads from Actuator's loggers endpoint. It shows
-configured and effective levels, supports server-side search, and can update or clear logger levels without restarting
-the application. Large logger lists load in bounded pages while filtering still searches the full logger set.
+The Loggers panel lists the runtime logger configuration with configured and effective levels, and can update or clear
+levels without restarting the application. Large logger lists load in bounded pages, while filtering searches the full
+logger set on the server.
 
-On Quarkus the panel is identical, served over the JBoss LogManager that Quarkus uses at runtime: it enumerates the live
-loggers, maps their levels onto the same canonical vocabulary (`OFF`, `FATAL`, `ERROR`, `WARN`, `INFO`, `DEBUG`,
-`TRACE`), and applies level changes to the running JVM. BootUI refuses to change the level of its own loggers on either
-platform.
+On Spring Boot the panel reads Actuator's loggers endpoint. On Quarkus it reads the JBoss LogManager, enumerates the
+live loggers, maps their levels onto the same vocabulary (`OFF`, `FATAL`, `ERROR`, `WARN`, `INFO`, `DEBUG`, `TRACE`),
+and applies changes to the running JVM. On both platforms, BootUI refuses to change the level of its own loggers.
 
 ## Beans
 
 ![BootUI Beans panel](../images/bootui-beans.webp)
 
-The Beans panel helps answer which application-managed beans exist, how they are connected, and where they came from. A
-labeled Graph/List segmented control switches between the dependency visualization and the server-paged bean inventory,
-both of which support server-side search across bean names and types plus classifications (application, Spring framework,
-Java/Jakarta, and other beans). BootUI's own beans are hidden by default, and the empty BootUI classification option is
-omitted; when self-data filtering is disabled they are classified separately as BootUI beans and the option appears.
-Large bean lists load in bounded pages so the initial payload stays small while filters still apply to the full bean set.
+The Beans panel answers which application-managed beans exist, how they are connected, and where they came from. A
+Graph/List control switches between the dependency visualization and the server-paged inventory. Both support
+server-side search across bean names and types, and both classify beans as application, Spring framework,
+Java or Jakarta, and other beans.
+
+BootUI's own beans are hidden by default. Set `bootui.monitoring.exclude-self=false` to classify them separately as
+BootUI beans, which also adds that filter option.
 
 ### Dependency graph mode
 
-The panel opens on the dependency neighbourhood graph; a header toggle switches to the server-paged list when needed. On
-first open the graph selects the connected application bean with the most direct dependencies and dependents (breaking
-ties alphabetically) and centers its node. A search field accepts a bean name, alias, or unique type match, and a
-classification control switches the graph between Application, Framework, BootUI, Platform, Other, or all beans. Clicking
-any node re-focuses the graph on that bean, so you can navigate the neighbourhood iteratively.
+The panel opens on the dependency neighbourhood graph. On first open it focuses the connected application bean with the
+most direct dependencies and dependents, breaking ties alphabetically. A search field accepts a bean name, an alias, or
+a unique type match, and a classification control switches the graph between Application, Framework, BootUI, Platform,
+Other, and all beans. Clicking any node re-focuses the graph on that bean.
+
+A details area for the focused bean shows its type, scope, resource, aliases, definition count, and direct relationship
+counts. When a Spring bean's recorded classpath resource establishes an exact configuration class, the panel queries
+the Conditions endpoint and shows the matching class or method-level evidence under **Why this bean exists**. Missing,
+disabled, failed, or unmatched Conditions data is reported as such rather than inferred.
 
 ::: details Graph rendering, limits, and accessibility
 
-Graph mode fetches beans in bounded 1 000-row pages, up to a 2 000-bean client-side inventory; if the inventory is
-larger, the panel reports both the loaded and total counts. Focus search starts with Application beans selected; the
-selected classification applies to both focus choices and rendered neighbours, so the Application graph contains only
-host-application beans.
+Graph mode fetches beans in bounded 1 000-row pages, up to a 2 000-bean client-side inventory. Beyond that, the panel
+reports both the loaded and the total count. Focus search starts with Application beans selected, and the selected
+classification applies to both focus choices and rendered neighbours.
 
-The graph renders a concentric-ring SVG showing the focused bean at the centre, its direct dependencies (beans it depends
-on, coloured blue), its direct dependents (beans that depend on it, coloured green), mutual/cycle nodes (amber), and
-deeper-hop nodes (grey) up to three hops away and sixty nodes in total. Zoom-out, reset, and zoom-in controls scale the
-graph from 60% to 200% while its scroll region keeps large layouts bounded. When the sixty-node or three-hop limit is
-hit, a notice identifies the bound and invites you to re-focus. Duplicate bean names are combined deterministically and
-explained instead of silently dropping one definition.
+The concentric-ring SVG places the focused bean at the centre, its direct dependencies in blue, its direct dependents
+in green, mutual and cycle nodes in amber, and deeper-hop nodes in grey, up to three hops and sixty nodes. Zoom controls
+scale the graph from 60 % to 200 %. When a limit is reached, a notice names the bound and invites you to re-focus.
+Duplicate bean names are combined deterministically and explained rather than silently dropped.
 
-A focused-bean details area shows type, scope, resource, aliases, definition count, and direct relationship counts. When
-a Spring bean's recorded classpath resource establishes an exact configuration class, the panel queries the existing
-positive Conditions endpoint and shows only matching class or method-level evidence under "Why this bean exists"; missing,
-disabled, failed, or unmatched Conditions data is reported honestly instead of inferred.
-
-Graph and list implementations are split into separate loading paths: opening the default graph does not fetch the
-server-paged list, and switching to the list loads it only once. Each bean name in the list is a keyboard-accessible link
-back to its focused graph and automatically selects that bean's classification. Keyboard navigation uses one graph tab
-stop, arrow/Home/End movement between nodes, and Enter or Space to re-focus; all nodes carry visible focus rings and
-`aria-label` attributes with the full bean name. The static layout introduces no motion, and its role colours meet
-contrast requirements in both light and dark themes.
+Graph and list use separate loading paths: opening the graph does not fetch the list, and switching to the list loads it
+once. Each bean name in the list links back to its focused graph and selects that bean's classification. Keyboard
+navigation uses one graph tab stop, arrow, Home, and End movement between nodes, and Enter or Space to re-focus. All
+nodes carry visible focus rings and `aria-label` attributes with the full bean name. The layout is static, and its role
+colours meet contrast requirements in both themes.
 
 :::
 
-::: details Quarkus dependency capture
-
-Arc resolves injection points during augmentation rather than exposing its wiring model at runtime, so the Quarkus
-deployment adapter captures the retained beans' resolved injection edges after Arc validation and emits them as a
-generated classpath resource. The runtime adapter overlays those edges on the live CDI inventory, giving graph mode the
-same `BeanSummary.dependencies` contract as Spring. The details area still explains that Spring Boot Conditions evidence
-and defining resources are unavailable on Quarkus.
-
-:::
-
-On Quarkus the panel is identical from the UI's point of view. The adapter enumerates beans from the live Arc/CDI
-container (in place of the Spring adapter's Actuator beans endpoint), filters out BootUI's own beans, and classifies them
-with Quarkus-aware framework prefixes (`io.quarkus.`, `io.vertx.`, `org.jboss.`, …). A few fields have reduced fidelity
-because Arc does not expose them at runtime the way Actuator does. The defining `resource` is empty, the `scope` uses the
-CDI vocabulary (`ApplicationScoped`, `Singleton`, …) rather than Spring's `singleton`/`prototype`, and unnamed beans get
-a synthetic decapitalized class name. The inventory also reflects only the beans Arc retains, since Arc removes unused
+On Quarkus the panel looks the same. The adapter enumerates beans from the live Arc/CDI container instead of Actuator,
+filters out BootUI's own beans, and classifies with Quarkus-aware prefixes (`io.quarkus.`, `io.vertx.`, `org.jboss.`).
+Some fields have reduced fidelity because Arc does not expose them at runtime: the defining `resource` is empty, the
+`scope` uses the CDI vocabulary (`ApplicationScoped`, `Singleton`) rather than Spring's, and unnamed beans get a
+synthetic decapitalized class name. The inventory also reflects only the beans Arc retains, since Arc removes unused
 beans at build time.
+
+::: details How Quarkus dependency edges are captured
+Arc resolves injection points during augmentation rather than exposing its wiring model at runtime. The deployment
+adapter therefore captures the retained beans' resolved injection edges after Arc validation and emits them as a
+generated classpath resource. The runtime adapter overlays those edges on the live CDI inventory, which gives graph
+mode the same `BeanSummary.dependencies` contract as Spring.
+:::
 
 ## Conditions
 
 ![BootUI Conditions panel](../images/bootui-conditions.webp)
 
 The Conditions panel explains Spring Boot auto-configuration decisions. It groups positive matches, negative matches,
-and unconditional classes so you can see why an auto-configuration applied or why it was skipped. Large condition reports
-load in bounded pages, and filtering runs on the server so the browser does not need the full report before narrowing
-results.
+and unconditional classes, so you can see why an auto-configuration applied or why it was skipped. Large reports load
+in bounded pages, and filtering runs on the server.
 
 ## Mappings
 
 ![BootUI Mappings panel](../images/bootui-mappings.webp)
 
-The Mappings panel lists HTTP routes from the running application's route table (Actuator mappings data on Spring Boot,
-the JAX-RS resource table on Quarkus). It shows request methods, path patterns, handlers, and
-produces/consumes metadata so the running application's web surface is visible without reading controllers manually.
-Large mapping lists load through a stable, paged BootUI DTO, and the filter continues to search every discovered route
-on the server.
+The Mappings panel lists the HTTP routes of the running application with their request methods, path patterns,
+handlers, and produces and consumes metadata, so you can see the web surface without reading controllers. Large lists
+load through a stable paged DTO, and the filter searches every discovered route on the server. BootUI's own `/bootui`
+routes are filtered out while `bootui.monitoring.exclude-self` is on, which is the default.
 
-On Quarkus the same panel is served by scanning the application's JAX-RS resources from the build-time Jandex index
-(Vert.x exposes no clean runtime route-enumeration API carrying the per-route method and produces/consumes the panel
-renders), then mapping each JAX-RS resource method one-to-one onto the same paged, filterable DTO the Spring adapter
-serves from Actuator. `quarkus-rest` is a hard dependency of the BootUI extension, so the panel is available on both
-frameworks; BootUI's own `/bootui` routes are filtered out on each.
+The route table comes from Actuator's mappings data on Spring Boot and from the JAX-RS resource table on Quarkus.
+
+::: details Why Quarkus scans the Jandex index
+Vert.x exposes no runtime route-enumeration API that carries the per-route method and the produces and consumes
+metadata this panel renders. The adapter therefore scans the application's JAX-RS resources from the build-time Jandex
+index and maps each resource method onto the same paged DTO. `quarkus-rest` is a hard dependency of the BootUI
+extension, so the panel is available on both frameworks.
+:::

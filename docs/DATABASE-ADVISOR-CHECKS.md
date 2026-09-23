@@ -1,11 +1,5 @@
 # Database checks
 
-The ten-entry `sampleViolations` preview does not cap `violationCount`. **View violations** and
-`GET <api>/database-advisor/rules/{id}/violations?scanId=...&offset=0&limit=100` retrieve sanitized details
-already retained by that scan without borrowing connections or querying the database. Retrieval truncation is
-separate from schema/observation bounds; see
-[snapshot, retention, and MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
-
 The Database advisor runs **24 fixed, on-demand checks** over the physical schema reported by the application's
 JDBC datasources, supplemented by vendor catalogs, available JPA declarations and already-retained SQL Trace
 observations. It never executes DDL, advances a sequence, queries application rows or starts work on page load.
@@ -13,6 +7,14 @@ observations. It never executes DDL, advances a sequence, queries application ro
 These are structural observations and review prompts, not workload forecasts, business-model validation or
 automatic migration instructions. A finding describes the available evidence, not everything the database
 could contain. See [the advisor page](features/advisors.md#database) for availability.
+
+::: tip Reading more than the preview
+The ten-entry `sampleViolations` preview does not cap `violationCount`. **View violations** and
+`GET <api>/database-advisor/rules/{id}/violations?scanId=...&offset=0&limit=100` retrieve sanitized details
+already retained by that scan without borrowing connections or querying the database. Retrieval truncation is
+separate from schema/observation bounds; see
+[snapshot, retention, and MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
+:::
 
 ## Availability and bounds
 
@@ -65,14 +67,16 @@ anonymous composite FK cannot safely be reconstructed from adjacent JDBC rows.
 
 ## Severity scale
 
-**HIGH** denotes a concrete integrity/availability concern such as an explicitly invalid index, a known
-generator frontier near its effective bound, or missing declared uniqueness. **MEDIUM** denotes a structural
-discrepancy requiring contextual review. **LOW** denotes limited-evidence or lower-impact review prompts,
-including exact index-definition overlap and observed SQL text variation.
+| Severity | Meaning |
+| -------- | ------- |
+| **HIGH** | A concrete integrity or availability concern, such as an explicitly invalid index, a generator frontier near its effective bound, or missing declared uniqueness. |
+| **MEDIUM** | A structural discrepancy that needs contextual review. |
+| **LOW** | A limited-evidence or lower-impact review prompt, such as exact index-definition overlap or observed SQL text variation. |
 
-Severity is not a prediction that the application is broken. The report sorts findings by severity, count
-and stable rule ID and shows up to ten sample details per rule. Dismissals keep their existing stable IDs;
-retired IDs are never reassigned.
+Severity does not predict that the application is broken.
+
+The report sorts findings by severity, count, and stable rule ID, and shows up to ten sample details per rule.
+Dismissals keep their existing stable IDs, and retired IDs are never reassigned.
 
 ## Schema
 
@@ -316,9 +320,10 @@ auto-applied converters, XML overrides or provider-specific effective JDBC mappi
 metadata. This is not proof that the effective Hibernate table is missing. Review naming strategy,
 relation type, privileges, migration and persistence-unit/datasource assignment before changing anything.
 
-### DB-HIB-003 - Mapped column type/nullability mismatch
+### DB-HIB-003 - Declared column nullability differs from observed metadata
 
-**MEDIUM.** Retains supported nondefault `nullable=false` comparison with known physical nullability.
+**MEDIUM.** Compares a declared `@Column(nullable=false)` against known physical nullability. Java type families are
+not JDBC mapping evidence, so this rule does not compare column types despite its historical heading.
 Relations reported by JDBC as `VIEW` or `MATERIALIZED VIEW`, including secondary views, are excluded:
 a view's reported nullable column does not establish a missing physical NOT NULL constraint.
 Views remain available for relation-name and column-name checks. When only view columns would be

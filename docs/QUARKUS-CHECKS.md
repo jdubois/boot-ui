@@ -1,12 +1,5 @@
 # Quarkus security checks
 
-Quarkus Security keeps its twenty-entry `sampleViolations` preview and full `violationCount`. **View violations**
-and `GET <api>/security/rules/{id}/violations?scanId=...&offset=0&limit=100` read bounded, sanitized details
-retained by the same scan. Retention truncation is separate from security evidence coverage; see
-[snapshot, retention, and MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
-`QS-AUTHZ-004` preserves its aggregate preview while retaining endpoint identities when metadata provides them.
-Legacy count-only observations retain zero endpoint identities and explicitly report incomplete details.
-
 The Security panel, on Quarkus, runs a fixed, on-demand **42-rule** ruleset against the host application's
 **Quarkus security configuration** — not Spring Security. It reads the effective `quarkus.http.*`,
 `quarkus.oidc.*`, `quarkus.smallrye-jwt.*`, `quarkus.tls.*`, `quarkus.management.*`,
@@ -21,6 +14,15 @@ threat model and deployment topology.
 
 OIDC checks aggregate the active default tenant and active named tenants; a tenant with
 `quarkus.oidc[.<tenant>].tenant-enabled=false` is excluded.
+
+::: tip Reading more than the preview
+Quarkus Security keeps its twenty-entry `sampleViolations` preview and full `violationCount`. **View violations**
+and `GET <api>/security/rules/{id}/violations?scanId=...&offset=0&limit=100` read bounded, sanitized details
+retained by the same scan. Retention truncation is separate from security evidence coverage; see
+[snapshot, retention, and MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
+`QS-AUTHZ-004` preserves its aggregate preview while retaining endpoint identities when metadata provides them.
+Legacy count-only observations retain zero endpoint identities and explicitly report incomplete details.
+:::
 
 This is the Quarkus replacement for the Spring ruleset in [SECURITY-CHECKS.md](SECURITY-CHECKS.md):
 the panel and DTO are shared, but the framework-specific registries are mutually exclusive
@@ -68,11 +70,13 @@ already checks, adapted to Quarkus's own config keys and extensions.
 
 ## Severity scale
 
-- **CRITICAL** - exposes credentials/secrets or disables a critical control.
-- **HIGH** - commonly leaves the app exposed; usually fix before production.
-- **MEDIUM** - a hardening gap that warrants review.
-- **LOW** - lower-impact hygiene.
-- **INFO** - informational; fix depends on context.
+| Severity | Meaning |
+| -------- | ------- |
+| **CRITICAL** | Exposes credentials or secrets, or disables a critical control. |
+| **HIGH** | Commonly leaves the application exposed. Usually fix before production. |
+| **MEDIUM** | A hardening gap that warrants review. |
+| **LOW** | Lower-impact hygiene. |
+| **INFO** | Informational. The right fix depends on context. |
 
 The panel lists only checks with findings, ordered by severity, count, then rule id.
 

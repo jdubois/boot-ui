@@ -544,18 +544,28 @@ final class VirtualThreadsOverriddenByPoolRule extends AbstractSpringRule {
                 "Review pooled executor routing",
                 SpringCategory.PERFORMANCE,
                 "INFO",
-                "A pooled executor coexists with enabled virtual-thread configuration. Actual routing and its thread factory may be unknown; a pool can itself use virtual threads.",
+                "An application-declared pooled executor coexists with enabled virtual-thread configuration. Actual routing and its thread factory may be unknown; a pool can itself use virtual threads. Pools declared by Spring's own configuration, such as STOMP channel executors, are not the application's choice and are excluded.",
                 "Review intended executor usage, CPU isolation and bounded concurrency before any change. Co-presence does not cancel virtual-thread benefits.",
                 "features/task-execution-and-scheduling.html");
     }
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        return c.applies(c.virtualThreadsSupported() && c.pooledTaskExecutorPresent()) && c.isVirtualThreadsEnabled()
-                ? violation(
-                        c,
-                        "A ThreadPoolTaskExecutor coexists with virtual-thread configuration. Its routing and thread factory are not inferred; review intentional pooling.")
-                : pass();
+        if (!c.applies(c.virtualThreadsSupported() && !c.pooledTaskExecutors().isEmpty())
+                || !c.isVirtualThreadsEnabled()) return pass();
+        return violation(
+                c,
+                c.pooledTaskExecutors().stream()
+                        .filter(pool -> !pool.frameworkOwned())
+                        .map(
+                                pool -> SpringRuleSupport.detail(
+                                        "ThreadPoolTaskExecutor bean '" + pool.name() + "' "
+                                                + (pool.declaringClass() == null
+                                                        ? "of type " + pool.beanClass()
+                                                                + " (declaring configuration not resolved)"
+                                                        : "declared by " + pool.declaringClass())
+                                                + " coexists with virtual-thread configuration. Its routing and thread factory are not inferred; review intentional pooling."))
+                        .toList());
     }
 }
 

@@ -1,10 +1,12 @@
 # Advisors
 
-BootUI's advisors run explicit, on-demand, rule-based scans and surface severity-ranked findings and coverage limits.
-Each advisor is read-only and inspects a different facet of the application — compiled
-architecture, the REST layer, the live Spring context, persistence, JVM memory, and security. A usable advisor
-assessment shows the same 0–100 **Known-findings score** in its panel and Overview (100 minus the weighted finding
-penalty). This summarizes retained penalties, not application health or safety.
+BootUI's advisors run explicit, on-demand, rule-based scans and report severity-ranked findings together with their
+coverage limits. Each advisor is read-only and inspects one facet of the application: compiled architecture, the REST
+layer, the live Spring context, persistence, JVM memory, and security.
+
+A usable assessment shows the same 0–100 **Known-findings score** in its own panel and in Overview: 100 minus the
+weighted finding penalty. That number summarizes retained penalties. It is not a measure of application health or
+safety.
 
 ### Reading every retained violation
 
@@ -116,69 +118,76 @@ This contract does not apply to GraalVM/CRaC occurrences or Pentesting/Vulnerabi
 
 ### Score eligibility
 
-A diagnostic report is not necessarily eligible for a score. `SCANNED` and `PARTIAL` reports can score when a valid
-severity summary accompanies known-severity observed findings or proven completed applicable checks. An empty
-summary, attempted count, rule registry size, or all-skipped/all-failed report does not establish a clean assessment.
-`ERROR`, `DISABLED`, and `NOT_SCANNED` never score. Malformed evidence or severity data remains unscored with an
-explanation. Findings, severity counts, statuses, and diagnostics are retained independently of eligibility.
+A report is not automatically eligible for a score. `SCANNED` and `PARTIAL` reports can score when a valid severity
+summary accompanies known-severity observed findings or proven completed applicable checks. `ERROR`, `DISABLED`, and
+`NOT_SCANNED` never score, and malformed evidence or severity data stays unscored with an explanation. An empty
+summary, an attempted count, a rule registry size, or an all-skipped or all-failed report does not establish a clean
+assessment. Findings, severity counts, statuses, and diagnostics are retained either way.
 
-The report `evidence` object has three fields:
+The penalties are fixed: CRITICAL 25, HIGH 10, MEDIUM 3, LOW 1, and INFO or NONE 0, clamped and rounded to 0–100.
+Three MEDIUM findings keep an advisor at 91 whether another advisor runs or not, and usable partial evidence is
+included without a missing-check penalty. A partial 100 means no active penalties in the assessed evidence, not that
+unchecked work passed. No coverage percentage, confidence weight, or combined per-rule coverage total is inferred.
 
-- `usable`: whether at least one applicable check completed or a genuine known-severity finding was observed,
-  before filtering or dismissal. Genuine INFO/NONE findings can establish usability; informational missing-evidence
-  notices and UNKNOWN-only vulnerability data cannot.
-- `coverageComplete`: whether applicable evidence is complete. Intentionally inapplicable checks are neutral;
-  missing required observations and failures leave coverage incomplete.
-- `limitations`: an immutable, bounded, sanitized list of explanations for incomplete coverage.
+#### The evidence object
 
-Backend evidence is the sole eligibility authority; it exposes no completion or findings counters. Legacy reports
-without valid explicit evidence remain unscored, with their findings visible. The browser does not reconstruct
-applicability from rule IDs, finding lists, or dependency details. For example, MySQL/Oracle checks on a PostgreSQL-only
-application remain neutral skipped diagnostics, not incomplete assessments or completed passes.
+The backend's `evidence` object is the sole eligibility authority, and it exposes no completion or findings counters:
 
-Score eligibility is separate from coverage completeness. A `SCANNED` report with `usable: false`,
-`coverageComplete: true`, and no limitations has no score and reads **Not applicable**.
-For example, a successful Architecture import with no classes or complete REST API discovery with no supported
-controllers establishes an empty assessed scope, not a passing check. Overview counts it as assessed, not incomplete,
-without inventing a score. Missing discovery or legacy evidence
-remains unknown; a generic lack of score never establishes that nothing applies.
+| Field | Meaning |
+| --- | --- |
+| `usable` | At least one applicable check completed, or a genuine known-severity finding was observed, before filtering or dismissal. Genuine INFO and NONE findings can establish usability; informational missing-evidence notices and UNKNOWN-only vulnerability data cannot. |
+| `coverageComplete` | Applicable evidence is complete. Checks that do not apply are neutral; missing required observations and failures leave coverage incomplete. |
+| `limitations` | An immutable, bounded, sanitized list of explanations for incomplete coverage. |
 
-Inside advisor panels, usable scored results show **Results available**, including when coverage is limited.
-Overview uses **Scan complete** for these results: the scan has finished, but coverage may still be limited.
-Detailed reasons are in a
-collapsed **Scan notes** disclosure in each advisor panel, operable by keyboard and screen reader. Scores with notes
-include **Scan notes available** in their accessible names. Overview summarizes how many advisors have scan notes,
-not how many checks could not run: limitations can be aggregated or capped. Unscored reasons and whole-scan failures
-remain visible, not collapsed, inside advisor panels. Overview keeps unscored cards compact with **Not scored**
-(or **Not applicable** for confirmed empty scope) and **Open panel** for the full explanation; request failures stay
-visible on the card. Backend scan statuses and evidence are unchanged.
-Penalties are unchanged: CRITICAL 25, HIGH 10, MEDIUM 3, LOW 1,
-and INFO/NONE 0, clamped and rounded to 0–100. A partial 100 means no active penalties in the assessed evidence,
-not that unchecked work passed. Advisor panels use neutral numbers; Overview restores green/amber/red score colors
-at the historical 80/50 thresholds to prioritize review, without changing eligibility or implying application safety.
-Complete assessments need no additional coverage paragraph. Overview shows an **Overall score**, the rounded
-arithmetic mean of eligible visible advisor scores and GitHub's eligible security-alert score, with the contributing
-score count alongside retained severities and advisor assessment counts. Missing or unscored reports do not
-contribute fake zeros or hundreds. GitHub uses 10 points per alert only when authenticated, connected, and all three
-required security signals have available valid counts; it never contributes fabricated advisor severities.
-See [Overview](overview.md) for its eligibility policy. Three MEDIUM findings keep that advisor at 91 whether
-another advisor runs or not; usable partial evidence is included without a missing-check penalty. No coverage
-percentage, confidence weight, or combined per-rule coverage total is inferred.
+The browser never reconstructs applicability from rule IDs, finding lists, or dependency details. MySQL and Oracle
+checks on a PostgreSQL-only application therefore stay neutral skipped diagnostics rather than becoming incomplete
+assessments or completed passes. Legacy reports without valid explicit evidence remain unscored, with their findings
+visible.
 
-Known-severity dependency findings (including NONE) establish usability before dismissal. A fully assessed package
-also establishes usability when every retained advisory has known severity, or the result is genuinely empty, and
-both `assessment.queryComplete` and `assessment.detailAssessmentComplete` are true. Query completion requires
-exhausting that dependency's pages; detail completion requires interpreting every returned advisory or confirming
-withdrawal. Missing, failed, capped, mismatched, or unresolved details are not a no-match. UNKNOWN findings remain
-visible and incur no penalty, but UNKNOWN-only evidence stays unscored even after dismissal unless independent
-usable evidence exists. Dismissed known findings remain evidence while their penalties are removed. Neither an empty
-active count nor dismissing every advisory makes a dependency genuinely empty. Inventory/query/detail gaps and UNKNOWN
-findings qualify otherwise usable scores rather than suppressing them. Optional EPSS enrichment does not decide
-eligibility. Inventory coverage is only as reliable as the provider's report, not independent runtime verification.
+#### Eligibility is not coverage
 
-During a new request, or if transport fails, the last accepted report remains visible. A newly received report
-replaces that assessment: usable partial evidence contributes a qualified score, while failed, disabled, and unusable
-reports remove the previous score.
+A `SCANNED` report with `usable: false`, `coverageComplete: true`, and no limitations has no score and reads **Not
+applicable**. A successful Architecture import that found no classes, or complete REST API discovery that found no
+supported controllers, is an empty assessed scope rather than a passing check: Overview counts it as assessed without
+inventing a score. Missing discovery or legacy evidence stays unknown, and a generic lack of score never establishes
+that nothing applies.
+
+#### How results are labelled
+
+Advisor panels show **Results available** for usable scored results, including when coverage is limited. Overview uses
+**Scan complete** for the same reports. Detailed reasons live in a collapsed, keyboard-accessible **Scan notes**
+disclosure in each panel, and scores with notes carry **Scan notes available** in their accessible names.
+
+Unscored reasons and whole-scan failures stay visible rather than collapsed inside advisor panels. Overview keeps
+unscored cards compact with **Not scored**, or **Not applicable** for confirmed empty scope, and **Open panel** for the
+full explanation. Request failures stay visible on the card. Overview summarizes how many advisors have scan notes, not
+how many checks could not run, because limitations can be aggregated or capped.
+
+Advisor panels use neutral score colors. Overview restores green, amber, and red at the 80 and 50 thresholds to help
+prioritize review, without changing eligibility or implying application safety. See [Overview](overview.md) for its
+own eligibility policy.
+
+#### Dependency findings
+
+Known-severity dependency findings, including NONE, establish usability before dismissal. A fully assessed package also
+establishes usability when every retained advisory has a known severity, or the result is genuinely empty, and both
+`assessment.queryComplete` and `assessment.detailAssessmentComplete` are true. Query completion requires exhausting
+that dependency's pages; detail completion requires interpreting every returned advisory or confirming withdrawal.
+Missing, failed, capped, mismatched, and unresolved details are not a no-match.
+
+UNKNOWN findings stay visible and incur no penalty, but UNKNOWN-only evidence stays unscored even after dismissal,
+unless independent usable evidence exists. Dismissed known findings remain evidence while their penalties are removed.
+Neither an empty active count nor dismissing every advisory makes a dependency genuinely empty.
+
+Inventory, query, and detail gaps and UNKNOWN findings qualify an otherwise usable score rather than suppressing it.
+Optional EPSS enrichment never decides eligibility, and inventory coverage is only as reliable as the provider's
+report, not independent runtime verification.
+
+#### While a report is being replaced
+
+The last accepted report stays visible during a new request and when transport fails. A newly received report replaces
+that assessment: usable partial evidence contributes a qualified score, while failed, disabled, and unusable reports
+remove the previous score.
 
 ### Single-flight scans
 
@@ -189,18 +198,19 @@ visible and shows the conflict as a warning. Different scanners remain independe
 
 ### Dismissing findings
 
-Every advisor finding can be **dismissed** when it does not apply to your project. Each rule result carries a _Dismiss_
-button; dismissing moves the rule into a collapsed "Dismissed rules" list and excludes it from the panel's finding
-count, severity bars, and that advisor's known-findings score in both its panel and Overview. Dismissal changes penalties, not application
-safety, observed evidence, or missing coverage. The panel's score recomputes immediately, and the
-Overview dashboard reads cached reports on initial navigation and when you return to it, without rescanning, so a
-panel-originated scan, dismissal, or restore updates both the score and eligibility in both places.
-Rules can be restored at any time from that list.
+Any finding can be dismissed when it does not apply to your project. **Dismiss** moves the rule into a collapsed
+*Dismissed rules* list and removes it from the panel's finding count, severity bars, and known-findings score, in both
+the panel and Overview. You can restore it at any time from that list.
 
-Architecture, REST API, Spring/Quarkus, Database, Hibernate, Memory, Security, and Pentesting disable scan, dismiss,
-and restore controls while the initial cached report, a scan, or a dismissal request is pending, or when the panel is
-read-only or unavailable.
-A failed dismissal leaves the last accepted report visible and displays an error.
+Dismissal changes penalties. It does not change application safety, observed evidence, or missing coverage.
+
+The panel's score recomputes immediately, and Overview reads cached reports on navigation without rescanning, so a
+scan, dismissal, or restore started in a panel updates the score and eligibility in both places. A failed dismissal
+leaves the last accepted report visible and shows an error.
+
+Architecture, REST API, Spring and Quarkus, Database, Hibernate, Memory, Security, and Pentesting disable their scan,
+dismiss, and restore controls while a cached report, a scan, or a dismissal is pending, and when the panel is read-only
+or unavailable.
 
 ::: details Where dismissals are stored
 Dismissals are applied server-side and persisted under the `dismissedRules` node of a local `.bootui/boot-ui.yml` file
@@ -262,11 +272,12 @@ Generator's default Gradle output, and checks module-local handwritten sources f
 or uncertain ownership leave findings visible; lookup failures are reported as limitations. Package and framework checks keep the
 full class graph. See [generated-code scope and limitations](../ARCHITECTURE-CHECKS.md#generated-application-code).
 
-When BootUI is installed through `bootui-spring-boot-starter`, ArchUnit is included transitively; the panel is available
-when a base package is resolvable, and the scan runs on demand and caches the last report. Generic rules are less
-powerful than project-authored ArchUnit tests, so the panel is a starting-point and review aid that complements — not
-replaces — a project-specific ArchUnit test suite. Each rule carries a stable identifier, category, severity, and
-recommendation; the results list shows only violating rules, sorted by severity and violation count.
+ArchUnit comes in transitively with `bootui-spring-boot-starter`, so the panel is available whenever a base package is
+resolvable. The scan runs on demand and caches its last report. Each rule carries a stable identifier, category,
+severity, and recommendation, and the results list shows only violating rules, sorted by severity and violation count.
+
+Generic rules are weaker than project-authored ArchUnit tests, so treat this panel as a starting point that complements
+a project-specific ArchUnit suite rather than replacing it.
 
 > **Not available in GraalVM native images.** The advisor scans compiled `.class` files via ArchUnit's
 > `ClassFileImporter`, which is incompatible with a native executable; the panel is automatically hidden when the
@@ -302,17 +313,18 @@ when needed. The scan still runs on demand and caches the last report, and dismi
 The REST API panel runs a curated, zero-config ruleset against the host application's own web layer — `@RestController`
 / `@Controller` handler methods on Spring, or JAX-RS resources on Quarkus. Like the Architecture panel, it imports the
 compiled handlers from bounded base packages and derives a read-only model: HTTP method(s), path(s), parameters and
-annotations, return type, `produces`/`consumes`, validation flags, and declared throws. It then evaluates 56 REST
-best-practice rules across eight categories: routing and HTTP-method mapping, resource naming, status codes and
-responses, input validation and binding, DTO and payload contracts, pagination, versioning and content negotiation, and
-error handling and documentation. The `RAPI-DOC-*` rules only run when Swagger or MicroProfile OpenAPI annotations are on
-the host classpath.
+annotations, return type, `produces`/`consumes`, validation flags, and declared throws. It then evaluates 56 stable rule
+definitions across eight categories, of which 52 can emit a finding: routing and HTTP-method mapping, resource naming,
+status codes and responses, input validation and binding, DTO and payload contracts, pagination, versioning and content
+negotiation, and error handling and documentation. The `RAPI-DOC-*` rules run only when Swagger or MicroProfile OpenAPI
+annotations are on the classpath.
 
-The advisor deliberately avoids security concerns (CORS, authentication, authorization), which the Security panel owns.
-The scan runs on demand and caches the last report; each rule carries a stable identifier, category, severity,
+Security concerns — CORS, authentication, authorization — belong to the Security panel and are out of scope here.
+
+The scan runs on demand and caches its last report. Each rule carries a stable identifier, category, severity,
 recommendation, and a learn-more link, and the results list shows only flagged rules, sorted by severity and finding
-count. The heuristics complement — not replace — an API design review or contract testing. See
-[REST-API-CHECKS.md](../REST-API-CHECKS.md) for the full catalogue and what each rule inspects.
+count. These heuristics complement an API design review and contract testing rather than replacing them. See
+[REST API checks](../REST-API-CHECKS.md) for the full catalogue.
 
 ### Declared error contract
 
@@ -782,17 +794,24 @@ thresholds can change. The scanner follows that token with follow-up calls, reta
 bounded by 20 page rounds per chunk so a pathological advisory can't loop the scan forever (degrading to `PARTIAL` if
 the bound is hit rather than silently truncating).
 
-OSV also enforces a hard limit of 1,000 queries per `/v1/querybatch` request; the scanner partitions the (already
-`max-packages`-bounded) package list into batches of at most 1,000 before querying, so configuring `max-packages` above
-1,000 no longer causes OSV to reject the whole batch with an HTTP 400. Every successful response must contain exactly one
-structurally valid result per query, and every reported vulnerability reference must carry a non-blank id; missing,
-short, or malformed result arrays fail visibly instead of reading as a clean scan. Repeated advisory ids are
-fetched/reported once per dependency, a detail response whose id does not match the request is counted as a failed fetch,
-and a later page or chunk failure preserves previous pages and completed queries as `PARTIAL`. This includes queries
-already completed in the same chunk as a failed page. `packagesScanned` counts only queries exhausted without a token,
-including at the page cap; a token-only empty page is not complete. Failure before any valid page is `ERROR` with local
-inventory. `packagesSkipped` counts only the configured package-cap omission; unfinished/failed work is explained in
-the message. Per-request streaming limits remain 5 MiB for queries and 1 MiB for details/EPSS.
+OSV enforces a hard limit of 1,000 queries per `/v1/querybatch` request. The scanner partitions the already
+`max-packages`-bounded package list into batches of at most 1,000 before querying, so setting `max-packages` above
+1,000 does not make OSV reject the whole batch with an HTTP 400.
+
+Responses are validated rather than trusted. Every successful response must contain exactly one structurally valid
+result per query, and every reported vulnerability reference must carry a non-blank id. Missing, short, and malformed
+result arrays fail visibly instead of reading as a clean scan. A repeated advisory id is fetched and reported once per
+dependency, and a detail response whose id does not match the request counts as a failed fetch.
+
+A later page or chunk failure preserves previous pages and completed queries as `PARTIAL`, including queries already
+completed in the same chunk as the failed page. Failure before any valid page is `ERROR`, with the local inventory
+retained.
+
+The counters are narrow on purpose. `packagesScanned` counts only queries exhausted without a token, including at the
+page cap, so a token-only empty page is not complete. `packagesSkipped` counts only the configured package-cap
+omission, and unfinished or failed work is explained in the message instead.
+
+Per-request streaming limits are 5 MiB for queries and 1 MiB for details and EPSS.
 :::
 
 ### EPSS enrichment

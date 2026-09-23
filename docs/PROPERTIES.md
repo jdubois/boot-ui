@@ -835,7 +835,9 @@ The JMS panel is a dedicated view over the same bounded Spring JMS capture that 
 The MCP server exposes BootUI's advisors and read-only diagnostics to local AI agents (GitHub Copilot, Claude Code) over
 a loopback-only Model Context Protocol endpoint at `POST <bootui.api-path>/mcp` (default
 `POST /bootui/api/mcp`). It is **off by default** and only ever active
-while BootUI itself is active, so it is never reachable in production. Tools inherit the same safety model as the panels:
+while BootUI itself is active: absent from a Quarkus production build, and disabled by the Spring `prod` and
+`production` profiles unless an explicit `bootui.enabled=ON` overrides them. Tools inherit the same safety model as
+the panels:
 read tools require the backing panel to be enabled, action (`*_scan`) tools are additionally refused when the panel is
 read-only, and all values flow through the same secret masking as the REST API.
 

@@ -32,8 +32,8 @@ readiness, and more. Every panel reuses the same controllers and immutable DTOs 
 That REST surface is also what lets [Coffilot](https://www.julien-dubois.com/coffilot/) reach its richest tier. When
 Coffilot detects BootUI on a running app, it sources live JVM metrics from BootUI's sanitized DTOs (and shows a `BootUI`
 badge), and it adds a REST advisor-scan panel that runs BootUI's scans and hands the findings straight back to the agent
-for a fix-and-rescan loop. Both BootUI and Coffilot stay strictly loopback-only, so this richer integration never widens
-your app's exposure.
+for a fix-and-rescan loop. Both BootUI and Coffilot reject non-loopback callers by default, so this richer integration never widens your app's
+exposure.
 
 ## Learn more
 

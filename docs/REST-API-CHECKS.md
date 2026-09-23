@@ -1,10 +1,5 @@
 # REST API checks
 
-The ten-entry `sampleViolations` preview does not cap `violationCount`. **View violations** and
-`GET <api>/rest-api/rules/{id}/violations?scanId=...&offset=0&limit=100` read bounded retained details from the
-same scan without re-importing declarations. Retention truncation is separate from declaration coverage; see
-[snapshot, retention, and MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
-
 The REST API panel runs a fixed, zero-config ruleset against the host application's compiled web declarations:
 Spring MVC and Spring WebFlux controllers, or JAX-RS/Quarkus REST resource methods. It reports declaration conflicts
 and conditional design-review prompts, not a verdict on the application's runtime HTTP behavior.
@@ -13,6 +8,13 @@ There are **56 stable rule definitions across 8 categories, with 52 potentially 
 (`RAPI-MAP-008`, `RAPI-NAME-004`, `RAPI-ERR-011`, and `RAPI-DOC-003`) retain their IDs but always return `SKIPPED`.
 Their original evidence cannot establish the alleged defect. Their IDs are not reused, so saved dismissals keep
 their identity. The [complete audit disposition ledger](#complete-audit-disposition-ledger) records all 56 decisions.
+
+::: tip Reading more than the preview
+The ten-entry `sampleViolations` preview does not cap `violationCount`. **View violations** and
+`GET <api>/rest-api/rules/{id}/violations?scanId=...&offset=0&limit=100` read bounded retained details from the
+same scan without re-importing declarations. Retention truncation is separate from declaration coverage; see
+[snapshot, retention, and MCP/CLI retrieval](features/advisors.md#reading-every-retained-violation).
+:::
 
 Rules are registered in
 [`RestApiRuleRegistry`](https://github.com/jdubois/boot-ui/blob/main/bootui-engine/src/main/java/io/github/jdubois/bootui/engine/restapi/RestApiRuleRegistry.java)
