@@ -9,6 +9,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Hibernate Advisor PARTIAL scans are now explainable.** The report gains a `diagnostics` array
+  (`source`, `unit`, `level`, `message`) naming each rule evaluation that failed or lacked required evidence and each
+  discovery gap, with controlled phrases for the missing evidence and up to three sanitized examples such as
+  `OrderRepository#findRecent`. Findings from a partly evaluated rule carry a `coverageNote`, advisor limits by design
+  are reported at `INFO`, and the list is capped at 200 entries without dropping any affected rule. `scan.message` no
+  longer truncates rules with "+N more". The Hibernate and Database Advisor panels share an accessible
+  **Scan diagnostics** card, and the new members are returned unchanged by REST, MCP, and the CLI
+  ([#1086](https://github.com/jdubois/boot-ui/issues/1086)).
+
 - **SPRING-PERF-002 names the pool it reports and ignores Spring's own executors.** Each finding now names the
   `ThreadPoolTaskExecutor` bean and the class declaring its factory method, or its bean type when that declaration
   cannot be resolved. Pools declared by Spring's own configuration, such as the STOMP channel executors

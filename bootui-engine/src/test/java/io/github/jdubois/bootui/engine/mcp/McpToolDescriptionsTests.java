@@ -56,6 +56,11 @@ class McpToolDescriptionsTests {
                                 "smaller limit");
             }
         }
+        for (String name : List.of("hibernate_scan", "get_hibernate_report")) {
+            assertThat(McpToolDescriptions.spring(name)).contains("PARTIAL", "diagnostics", "coverageNote");
+            assertThat(McpToolDescriptions.quarkus(name)).contains("PARTIAL", "diagnostics", "coverageNote");
+        }
+        assertThat(McpToolDescriptions.spring("architecture_scan")).doesNotContain("coverageNote");
         assertThat(McpToolDescriptions.spring("get_spring_report")).contains("up to 10");
         assertThat(McpToolDescriptions.quarkus("get_spring_report")).contains("up to 20");
         assertThat(McpToolDescriptions.quarkus("get_security_report")).contains("up to 20");

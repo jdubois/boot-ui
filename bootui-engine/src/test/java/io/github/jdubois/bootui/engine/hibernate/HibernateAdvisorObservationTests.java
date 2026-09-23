@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.hibernate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.core.dto.HibernateDiagnosticDto;
 import io.github.jdubois.bootui.core.dto.HibernateReport;
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
 import jakarta.persistence.Cacheable;
@@ -195,9 +196,22 @@ class HibernateAdvisorObservationTests {
                             List.of(new IdentityDisablesBatchingRule(), throwing))
                     .scan();
             assertThat(report.scan().status()).isEqualTo("PARTIAL");
-            assertThat(report.scan().message())
-                    .contains("failed 1", "HIB-TEST-ERROR", "failed-unit")
-                    .doesNotContain("secret-jdbc-password");
+            assertThat(report.scan().message()).contains("failed 1").doesNotContain("secret-jdbc-password");
+            assertThat(report.diagnostics())
+                    .containsExactly(
+                            new HibernateDiagnosticDto(
+                                    "discovery",
+                                    "failed-unit",
+                                    "WARNING",
+                                    "EntityManagerFactory unavailable; its mappings were not inspected."),
+                            new HibernateDiagnosticDto(
+                                    "HIB-TEST-ERROR",
+                                    "orders",
+                                    "ERROR",
+                                    "Rule evaluation failed; no conclusion was reached for this unit."));
+            assertThat(report.diagnostics())
+                    .extracting(HibernateDiagnosticDto::message)
+                    .noneMatch(value -> value.contains("secret-jdbc-password"));
             assertThat(report.results()).extracting(HibernateRuleResultDto::id).containsExactly("HIB-ID-006");
             assertThat(report.evidence().usable()).isTrue();
             assertThat(report.evidence().coverageComplete()).isFalse();
@@ -211,7 +225,15 @@ class HibernateAdvisorObservationTests {
                 .scan();
         assertThat(missing.scan().status()).isEqualTo("PARTIAL");
         assertThat(missing.results()).isEmpty();
-        assertThat(missing.scan().message()).contains("required evidence unavailable 1");
+        assertThat(missing.scan().message()).contains("required evidence unavailable 1", "See diagnostics for 1 entry");
+        assertThat(missing.diagnostics()).singleElement().satisfies(diagnostic -> {
+            assertThat(diagnostic.source()).isEqualTo("HIB-CONFIG-004");
+            assertThat(diagnostic.unit()).isEqualTo("orders");
+            assertThat(diagnostic.level()).isEqualTo("WARNING");
+            assertThat(diagnostic.message())
+                    .isEqualTo("No conclusion reached. Required evidence unavailable: 1 effective"
+                            + " persistence-unit setting(s) unavailable.");
+        });
         assertThat(missing.evidence().usable()).isFalse();
         assertThat(missing.evidence().coverageComplete()).isFalse();
         HibernateReport panache = scanner(
@@ -224,7 +246,10 @@ class HibernateAdvisorObservationTests {
                                 new OpenInViewRule()))
                 .scan();
         assertThat(panache.scan().status()).isEqualTo("SCANNED");
-        assertThat(panache.scan().message()).contains("skipped 4", "required evidence unavailable 0");
+        assertThat(panache.scan().message())
+                .contains("skipped 4", "required evidence unavailable 0")
+                .doesNotContain("diagnostics");
+        assertThat(panache.diagnostics()).isEmpty();
         assertThat(panache.evidence().usable()).isFalse();
         assertThat(panache.evidence().coverageComplete()).isTrue();
     }
@@ -254,6 +279,271 @@ class HibernateAdvisorObservationTests {
         assertThat(report.results()).hasSize(1);
         assertThat(report.evidence().usable()).isTrue();
         assertThat(report.evidence().coverageComplete()).isFalse();
+        assertThat(report.evidence().limitations()).singleElement().asString().contains("see the report diagnostics");
+        assertThat(result(report, "HIB-TEST-UNKNOWN").coverageNote())
+                .isEqualTo("Incomplete in [unit]: 1 required observation(s) unavailable.");
+        assertThat(report.diagnostics())
+                .containsExactly(new HibernateDiagnosticDto(
+                        "HIB-TEST-UNKNOWN",
+                        "unit",
+                        "WARNING",
+                        "Partly evaluated; findings come from the evaluated part only. Required evidence"
+                                + " unavailable: 1 required observation(s) unavailable."));
+    }
+
+    @Test
+    void everyIncompleteEvaluationIsListedInDiagnosticsWithoutTruncation() {
+        List<HibernateRule> rules = new ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            String id = "HIB-TEST-" + i;
+            rules.add(testRule(id, context -> {
+                context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE);
+                context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE);
+                context.missingEvidence(HibernateEvidenceGap.QUERY_PROVENANCE);
+                return HibernateRuleSupport.pass(definition(id, "INFO"));
+            }));
+        }
+        HibernateReport report = scanner(List.of(unit("default", settings(25), List.of())), List.of(), rules)
+                .scan();
+
+        assertThat(report.scan().status()).isEqualTo("PARTIAL");
+        assertThat(report.scan().message())
+                .contains("required evidence unavailable 12", "See diagnostics for 12 entries")
+                .doesNotContain("more", "Incomplete:");
+        assertThat(report.diagnostics()).hasSize(12);
+        assertThat(report.diagnostics())
+                .extracting(HibernateDiagnosticDto::source)
+                .containsExactlyElementsOf(java.util.stream.IntStream.range(0, 12)
+                        .mapToObj(i -> "HIB-TEST-" + i)
+                        .toList());
+        assertThat(report.diagnostics().get(0).message())
+                .startsWith("No conclusion reached. Required evidence unavailable: 1 repository query method(s)"
+                        + " whose query provenance is unverified")
+                .contains("; 2 repository query method(s) whose JPQL statement is outside the readable shape");
+    }
+
+    @Test
+    void failedEvaluationKeepsTheEvidenceGapsItRecordedBeforeFailing() {
+        HibernateRule failing = testRule("HIB-TEST-FAIL", context -> {
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE);
+            throw new IllegalStateException("secret");
+        });
+        HibernateReport report = scanner(List.of(unit("default", settings(25), List.of())), List.of(), List.of(failing))
+                .scan();
+
+        assertThat(report.scan().message()).contains("failed 1", "required evidence unavailable 0");
+        assertThat(report.diagnostics()).singleElement().satisfies(diagnostic -> {
+            assertThat(diagnostic.level()).isEqualTo("ERROR");
+            assertThat(diagnostic.message())
+                    .startsWith("Rule evaluation failed;")
+                    .contains("Required evidence also unavailable: 1 repository query method(s) whose JPQL")
+                    .doesNotContain("secret");
+        });
+    }
+
+    @Test
+    void failedUnitIsNamedInTheCoverageNoteOfAViolatingRule() {
+        HibernateRule rule = testRule("HIB-TEST-SPLIT", context -> {
+            if ("broken".equals(context.unitLabel())) throw new IllegalStateException("secret");
+            return HibernateRuleSupport.violation(definition("HIB-TEST-SPLIT", "LOW"), List.of("Finding"));
+        });
+        HibernateReport report = scanner(
+                        List.of(unit("ok", settings(25), List.of()), unit("broken", settings(25), List.of())),
+                        List.of(),
+                        List.of(rule))
+                .scan();
+
+        assertThat(result(report, "HIB-TEST-SPLIT").coverageNote())
+                .isEqualTo("Incomplete in [broken]: rule evaluation failed.");
+        assertThat(report.scan().message()).contains("failed 1", "required evidence unavailable 0");
+    }
+
+    @Test
+    void partialCleanPassAdvisorLimitsAndSubjectExamplesAreDescribed() {
+        HibernateRule partialPass = testRule("HIB-TEST-PASS", context -> {
+            context.evidence().markApplicable(true);
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, "OrderRepository#findA");
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, "OrderRepository#findA");
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, "OrderRepository#findB");
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, "OrderRepository#findC");
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE, "OrderRepository#findD");
+            return HibernateRuleSupport.pass(definition("HIB-TEST-PASS", "LOW"));
+        });
+        HibernateRule byDesign = testRule("HIB-TEST-DESIGN", context -> {
+            context.missingEvidence(HibernateEvidenceGap.POOL_GUARANTEES_BY_DESIGN);
+            return HibernateRuleSupport.skipped(definition("HIB-TEST-DESIGN", "LOW"), "Not observed.");
+        });
+        HibernateReport report = scanner(
+                        List.of(unit("default", settings(25), List.of())), List.of(), List.of(partialPass, byDesign))
+                .scan();
+
+        assertThat(report.diagnostics()).hasSize(2);
+        HibernateDiagnosticDto pass = report.diagnostics().get(0);
+        assertThat(pass.level()).isEqualTo("WARNING");
+        assertThat(pass.message())
+                .startsWith("Partly evaluated; the evaluated part produced no findings. Required evidence"
+                        + " unavailable: 4 repository query method(s) whose JPQL")
+                .endsWith("(e.g. OrderRepository#findA, OrderRepository#findB, OrderRepository#findC, ...).");
+        HibernateDiagnosticDto design = report.diagnostics().get(1);
+        assertThat(design.level()).isEqualTo("INFO");
+        assertThat(design.message()).startsWith("No conclusion reached.").contains("by design");
+    }
+
+    @Test
+    void diagnosticsAndCoverageNotesStayBoundedAcrossManyUnits() {
+        List<HibernatePersistenceUnitObservation> units = new ArrayList<>();
+        for (int i = 0; i < 30; i++) units.add(unit("unit-" + i, settings(25), List.of()));
+        List<HibernateRule> rules = new ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            String id = "HIB-TEST-" + i;
+            rules.add(testRule(id, context -> {
+                context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE);
+                return HibernateRuleSupport.violation(definition(id, "LOW"), List.of("Finding"));
+            }));
+        }
+        HibernateReport report = scanner(units, List.of(), rules).scan();
+
+        assertThat(report.scan().message()).contains("Diagnostics show 199 of 300 entries");
+        assertThat(report.diagnostics()).hasSize(HibernateScanner.MAX_DIAGNOSTICS);
+        HibernateDiagnosticDto omitted = report.diagnostics().get(HibernateScanner.MAX_DIAGNOSTICS - 1);
+        assertThat(omitted.source()).isEqualTo(HibernateScanner.OMITTED_SOURCE);
+        assertThat(omitted.message()).startsWith("101 further diagnostics omitted;");
+        assertThat(report.diagnostics().subList(0, HibernateScanner.MAX_DIAGNOSTICS - 1))
+                .extracting(HibernateDiagnosticDto::source)
+                .containsAll(java.util.stream.IntStream.range(0, 10)
+                        .mapToObj(i -> "HIB-TEST-" + i)
+                        .toList());
+        assertThat(result(report, "HIB-TEST-0").coverageNote())
+                .contains("[unit-9]")
+                .doesNotContain("[unit-10]")
+                .endsWith("; and 20 more units.");
+    }
+
+    @Test
+    void capKeepsLateRulesAndEveryFailure() {
+        List<HibernatePersistenceUnitObservation> units = new ArrayList<>();
+        for (int i = 0; i < 250; i++) units.add(unit("unit-" + i, settings(25), List.of()));
+        HibernateRule noisy = testRule("HIB-TEST-NOISY", context -> {
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE);
+            return HibernateRuleSupport.pass(definition("HIB-TEST-NOISY", "LOW"));
+        });
+        HibernateRule failing = testRule("HIB-TEST-LATE", context -> {
+            if ("unit-249".equals(context.unitLabel())) throw new IllegalStateException("secret");
+            return HibernateRuleSupport.pass(definition("HIB-TEST-LATE", "LOW"));
+        });
+        HibernateReport report =
+                scanner(units, List.of(), List.of(noisy, failing)).scan();
+
+        assertThat(report.diagnostics())
+                .filteredOn(diagnostic -> "HIB-TEST-LATE".equals(diagnostic.source()))
+                .singleElement()
+                .satisfies(diagnostic -> {
+                    assertThat(diagnostic.level()).isEqualTo("ERROR");
+                    assertThat(diagnostic.unit()).isEqualTo("unit-249");
+                });
+        assertThat(report.diagnostics().get(report.diagnostics().size() - 1).message())
+                .startsWith("52 further diagnostics omitted;");
+    }
+
+    @Test
+    void boundedKeepsEveryRuleAndDiscoveryReasonWhenFailuresAloneExceedTheCap() {
+        List<HibernateDiagnosticDto> diagnostics = new ArrayList<>();
+        diagnostics.add(new HibernateDiagnosticDto("discovery", "a", "WARNING", "Factory unavailable."));
+        diagnostics.add(new HibernateDiagnosticDto("discovery", "b", "WARNING", "Factory unavailable."));
+        diagnostics.add(new HibernateDiagnosticDto("discovery", "c", "WARNING", "Metamodel unavailable."));
+        for (int i = 0; i < 300; i++)
+            diagnostics.add(
+                    new HibernateDiagnosticDto("HIB-TEST-FAIL", "unit-" + i, "ERROR", "Rule evaluation failed."));
+        diagnostics.add(new HibernateDiagnosticDto("HIB-TEST-LAST", "unit-0", "WARNING", "No conclusion reached."));
+
+        List<HibernateDiagnosticDto> bounded = HibernateScanner.bounded(diagnostics);
+
+        assertThat(bounded).hasSize(HibernateScanner.MAX_DIAGNOSTICS);
+        assertThat(bounded)
+                .extracting(HibernateDiagnosticDto::message)
+                .contains("Factory unavailable.", "Metamodel unavailable.", "No conclusion reached.");
+        assertThat(bounded).filteredOn(d -> "ERROR".equals(d.level())).hasSize(HibernateScanner.MAX_DIAGNOSTICS - 4);
+        assertThat(bounded.get(bounded.size() - 1).message()).startsWith("105 further diagnostics omitted;");
+        assertThat(HibernateScanner.bounded(diagnostics.subList(0, HibernateScanner.MAX_DIAGNOSTICS)))
+                .hasSize(HibernateScanner.MAX_DIAGNOSTICS)
+                .noneMatch(d -> HibernateScanner.OMITTED_SOURCE.equals(d.source()));
+    }
+
+    @Test
+    void gapCountsDistinctIdentitiesWhileShowingSanitizedExamples() {
+        HibernateEvaluationEvidence evidence = new HibernateEvaluationEvidence();
+        evidence.markRequiredUnknown(HibernateEvidenceGap.QUERY_SHAPE, "Repo#find", "Repo#find(int)");
+        evidence.markRequiredUnknown(HibernateEvidenceGap.QUERY_SHAPE, "Repo#find", "Repo#find(long)");
+        evidence.markRequiredUnknown(HibernateEvidenceGap.QUERY_SHAPE, "Repo#find", "Repo#find(long)");
+        evidence.markRequiredUnknown(HibernateEvidenceGap.QUERY_SHAPE);
+
+        assertThat(evidence.gaps()).containsEntry(HibernateEvidenceGap.QUERY_SHAPE, 3);
+        assertThat(evidence.subjects(HibernateEvidenceGap.QUERY_SHAPE)).containsExactly("Repo#find");
+        assertThat(evidence.hasMoreSubjects(HibernateEvidenceGap.QUERY_SHAPE)).isFalse();
+    }
+
+    @Test
+    void unitsSharingADisplayLabelAreCountedSeparately() {
+        HibernateRule rule = testRule("HIB-TEST-DUP", context -> {
+            context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE);
+            return HibernateRuleSupport.pass(definition("HIB-TEST-DUP", "LOW"));
+        });
+        List<HibernatePersistenceUnitObservation> units = List.of(
+                new HibernatePersistenceUnitObservation(
+                        "first",
+                        "unit-2",
+                        List.of(HibernateEntityModel.fromClass(Order.class)),
+                        List.of(),
+                        "7.2.19.Final",
+                        settings(25),
+                        false),
+                new HibernatePersistenceUnitObservation(
+                        "second",
+                        "unit-2",
+                        List.of(HibernateEntityModel.fromClass(Order.class)),
+                        List.of(),
+                        "7.2.19.Final",
+                        settings(25),
+                        false));
+
+        HibernateReport report = scanner(units, List.of(), List.of(rule)).scan();
+
+        assertThat(report.scan().message()).contains("required evidence unavailable 2");
+        assertThat(report.diagnostics()).hasSize(2);
+    }
+
+    @Test
+    void violatingRuleKeepsAPerUnitCoverageNoteAcrossUnits() {
+        HibernateRule mixed = testRule("HIB-TEST-MIXED", context -> {
+            if ("partial".equals(context.unitLabel())) context.missingEvidence(HibernateEvidenceGap.QUERY_SHAPE);
+            if ("clean".equals(context.unitLabel()))
+                return HibernateRuleSupport.pass(definition("HIB-TEST-MIXED", "LOW"));
+            return HibernateRuleSupport.violation(
+                    definition("HIB-TEST-MIXED", "LOW"), List.of("Finding in " + context.unitLabel()));
+        });
+        HibernateReport report = scanner(
+                        List.of(
+                                unit("full", settings(25), List.of()),
+                                unit("partial", settings(25), List.of()),
+                                unit("clean", settings(25), List.of())),
+                        List.of(),
+                        List.of(mixed))
+                .scan();
+
+        HibernateRuleResultDto result = result(report, "HIB-TEST-MIXED");
+        assertThat(result.violationCount()).isEqualTo(2);
+        assertThat(result.coverageNote())
+                .isEqualTo("Incomplete in [partial]: 1 repository query method(s) whose JPQL statement is outside"
+                        + " the readable shape (subquery, set operation, multiple roots, or an unrecognized statement"
+                        + " head).");
+        assertThat(report.diagnostics()).singleElement().satisfies(diagnostic -> {
+            assertThat(diagnostic.source()).isEqualTo("HIB-TEST-MIXED");
+            assertThat(diagnostic.unit()).isEqualTo("partial");
+            assertThat(diagnostic.message()).startsWith("Partly evaluated;");
+        });
+        HibernateReport dismissed = scanner(List.of(), List.of(), List.of()).applyDismissals(report, Set.of("x"));
+        assertThat(dismissed.diagnostics()).isEqualTo(report.diagnostics());
+        assertThat(report.withViolationDetails(null).diagnostics()).isEqualTo(report.diagnostics());
     }
 
     @Test
@@ -499,6 +789,11 @@ class HibernateAdvisorObservationTests {
         HibernateRuleResultDto result = new AssignedIdPersistableRule().evaluate(context);
         assertThat(result.violationCount()).isEqualTo(1);
         assertThat(result.sampleViolations()).allMatch(value -> value.contains("PrimitiveVersion"));
+    }
+
+    private static HibernateRuleDefinition definition(String id, String severity) {
+        return new HibernateRuleDefinition(
+                id, "Test", HibernateCategory.CONFIGURATION, severity, "Test", "Review", null);
     }
 
     private static HibernateRule testRule(

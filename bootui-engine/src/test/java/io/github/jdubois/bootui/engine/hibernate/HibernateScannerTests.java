@@ -351,7 +351,16 @@ class HibernateScannerTests {
         HibernateReport report = scanner.scan();
 
         assertThat(report.scan().status()).isEqualTo("PARTIAL");
-        assertThat(report.scan().message()).contains("required evidence unavailable");
+        assertThat(report.scan().message()).contains("required evidence unavailable", "See diagnostics for");
+        assertThat(report.diagnostics()).isNotEmpty().allSatisfy(diagnostic -> {
+            assertThat(diagnostic.source()).startsWith("HIB-");
+            assertThat(diagnostic.level()).isIn("WARNING", "INFO");
+            assertThat(diagnostic.message()).contains("Required evidence unavailable");
+        });
+        assertThat(report.diagnostics())
+                .filteredOn(diagnostic -> "INFO".equals(diagnostic.level()))
+                .isNotEmpty()
+                .allSatisfy(diagnostic -> assertThat(diagnostic.message()).contains("by design"));
         assertThat(report.violationsFound()).isZero();
         assertThat(report.results()).isEmpty();
     }

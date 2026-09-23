@@ -18,6 +18,14 @@ test.describe('Hibernate Advisor view', () => {
     expect(report.rulesEvaluated).toBe(71)
     expect(report.scan.status).toBe('PARTIAL')
     expect(report.scan.message).toBeTruthy()
+    expect(Array.isArray(report.diagnostics)).toBe(true)
+    expect(report.diagnostics.length).toBeGreaterThan(0)
+    expect(report.scan.message).not.toMatch(/Incomplete: |\+\d+ more/)
+    for (const diagnostic of report.diagnostics) {
+      expect(['ERROR', 'WARNING', 'INFO']).toContain(diagnostic.level)
+      expect(diagnostic.source).toBeTruthy()
+      expect(diagnostic.message).toBeTruthy()
+    }
     expect(report.entitiesAnalyzed).toBeGreaterThan(0)
     expect(new Set(report.results.map((result) => result.id)).size).toBe(report.results.length)
     for (const id of ['HIB-FETCH-004', 'HIB-MAP-012', 'HIB-MAP-019', 'HIB-ENTITY-003', 'HIB-ENTITY-004']) {
@@ -27,6 +35,18 @@ test.describe('Hibernate Advisor view', () => {
     // After the scan the findings render and the empty state disappears.
     await expect(page.getByText('No Hibernate Advisor data yet')).toHaveCount(0, {timeout: 30_000})
     await expect(page.getByText('Eager fetching should stay explicit and bounded')).toBeVisible()
+
+    const diagnosticsToggle = page.getByRole('button', {name: 'Show diagnostics'})
+    await expect(page.getByText('Scan diagnostics')).toBeVisible()
+    await expect(diagnosticsToggle).toHaveAttribute('aria-expanded', 'false')
+    await diagnosticsToggle.click()
+    const hideDiagnostics = page.getByRole('button', {name: 'Hide diagnostics'})
+    await expect(hideDiagnostics).toHaveAttribute('aria-expanded', 'true')
+    const diagnosticsListId = await hideDiagnostics.getAttribute('aria-controls')
+    await expect(page.locator(`[id=${JSON.stringify(diagnosticsListId)}]`).locator('li')).toHaveCount(
+      report.diagnostics.length
+    )
+    await hideDiagnostics.click()
     await expect(page.getByText(/SampleOrder#customer is mapped as FetchType.EAGER/)).toBeVisible()
     await expect(
       page.getByText(/SampleAppPreferences#enabledFeatures is an @ElementCollection mapped as FetchType.EAGER/)

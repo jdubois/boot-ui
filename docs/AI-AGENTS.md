@@ -339,7 +339,9 @@ the offset on any error. Keep pages bounded and stop rather than looping if even
 Advisor tool success means a report was returned, not that its assessment is complete or healthy. Inspect
 `scan.status`, `evidence`, and the retained diagnostics. `SCANNED` and `PARTIAL` reports can establish a UI score
 when `evidence.usable` is true and the severity data is valid. The additive `evidence` object contains boolean
-`usable`, boolean `coverageComplete`, and immutable, bounded, sanitized `limitations`.
+`usable`, boolean `coverageComplete`, and immutable, bounded, sanitized `limitations`. The Database and Hibernate
+advisor reports list the specific gaps in a `diagnostics` array; a Hibernate finding from a partly evaluated rule
+also carries a `coverageNote`.
 Usability means at least one applicable check completed or a genuine known-severity finding was observed before
 filtering or dismissal; missing-evidence notices cannot establish it. Missing metadata, failed checks, and unknown
 evidence must not be interpreted as passes. `ERROR`, `DISABLED`, and `NOT_SCANNED` remain unscored.

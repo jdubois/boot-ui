@@ -1712,6 +1712,13 @@ Features:
 - Report findings by severity and category, including fetching, identifier, configuration, repository-query, cascade, and
   cache risks.
 - Show scanned entity packages, rule counts, mapped-entity counts, sample evidence, and remediation guidance.
+- Expose a `diagnostics` array (`source`, `unit`, `level`, `message`) with one entry per failed rule evaluation, per
+  rule/unit evaluation whose required evidence was unavailable, and per discovery gap, plus a nullable per-result
+  `coverageNote` for findings from partly evaluated rules. Levels are `ERROR` (failed), `WARNING` (evidence
+  unavailable) and `INFO` (advisor limit by design). At most 200 entries are returned; when capped, the last is a
+  `source: "diagnostics"` entry stating the omitted count, and every rule and distinct discovery reason keeps at least
+  one entry, failures first. Diagnostics are
+  never counted as findings.
 - Cache the latest report until the next explicit scan.
 
 Availability:

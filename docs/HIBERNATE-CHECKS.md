@@ -41,9 +41,26 @@ Repository checks need JPA provenance and unambiguous unit and domain attributio
 annotations, projections, and entity graphs all affect applicability. Unsupported and ambiguous query shapes are not
 guessed, and Panache query methods stay outside the repository analysis.
 
-Rule failures and unavailable required evidence produce a `PARTIAL` scan while retaining valid findings. The report's
-`results` list still contains findings only, and the scan message explains coverage and failures through bounded
-identifiers and controlled reasons. Platform inapplicability is distinct from a failed applicable check, and
+Rule failures and unavailable required evidence produce an incomplete `PARTIAL` scan while retaining valid findings.
+The report's `results` list still contains findings only; the scan message summarizes coverage counts, and the report's
+`diagnostics` array lists every affected evaluation as `{source, unit, level, message}`: `source` is the rule id (or
+`discovery` for an unavailable factory, metamodel, repository metadata or unit attribution), `unit` is the
+persistence-unit label (`application` for application-wide rules), and `level` is `ERROR` for a failed rule,
+`WARNING` for unavailable evidence, or `INFO` when the only missing evidence is something this advisor does not observe
+by design (such as pool auto-commit guarantees or a provider-selected cache strategy). The `message` says whether the
+rule reached no conclusion, was partly evaluated with no findings, or reported findings from the evaluated part only,
+and names the missing evidence kinds with occurrence counts and up to three sanitized examples such as
+`OrderRepository#findRecent` or an entity name (for example query provenance, a JPQL shape outside the readable subset,
+or an unavailable unit setting). Messages use controlled phrases only and never carry query text, property values or
+exception messages. A failed evaluation is counted as failed, not also as unavailable evidence, and the skipped count
+excludes both. The array holds at most 200 entries: when more are produced, the last entry has source `diagnostics`
+and states how many were omitted, every rule and every distinct discovery reason keeps at least one entry (an `ERROR`
+when it has one), remaining slots go to further `ERROR`s and then round-robin by rule, and `scan.message` states
+"Diagnostics show M of N entries" while keeping the full counts. HIB-CONFIG-008 and HIB-CONFIG-011 gaps are reported
+at `INFO` level because they are advisor limits, but they still make the scan `PARTIAL` (see below). A rule that
+reports findings but could not evaluate every unit or query carries a `coverageNote` on its `results` entry (for
+example `Incomplete in [default]: …`) naming up to ten affected units and why, including units where the rule failed.
+Platform inapplicability is distinct from a failed applicable check, and
 `rulesEvaluated` counts distinct active rule attempts, not successful verification of every mapping.
 
 Two things are not fully observable today: pool auto-commit guarantees (HIB-CONFIG-008) and effective cache access

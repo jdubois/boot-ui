@@ -2066,7 +2066,7 @@ const hibernate = {
     "These checks are review prompts, not verdicts, and should be validated against the application's data access patterns.",
   entityPackages: ['io.github.jdubois.bootui.sample'],
   entitiesAnalyzed: 6,
-  rulesEvaluated: 63,
+  rulesEvaluated: 71,
   violationsFound: 4,
   severityCounts: [
     {severity: 'HIGH', count: 1},
@@ -2076,10 +2076,13 @@ const hibernate = {
   ],
   scan: {
     analyzer: 'BootUI Hibernate Advisor',
-    status: 'SCANNED',
-    message: 'Hibernate Advisor completed against 6 mapped entities.',
+    status: 'PARTIAL',
+    message:
+      'Hibernate Advisor inspected 6 entity mappings across 1 persistence units. Attempted 71 distinct rules ' +
+      '(71 unit/application evaluations); failed 0, required evidence unavailable 3, otherwise skipped 9. ' +
+      'See diagnostics for 3 entries naming each affected rule and unit.',
     scannedAt: nowMillis - 28_000,
-    rulesEvaluated: 63,
+    rulesEvaluated: 71,
     entitiesAnalyzed: 6,
     violationsFound: 4
   },
@@ -2132,6 +2135,32 @@ const hibernate = {
       ],
       'Set a bounded hibernate.default_batch_fetch_size or targeted @BatchSize for associations traversed across multiple owner rows; use explicit fetch plans or paged queries for a single oversized collection.'
     )
+  ],
+  diagnostics: [
+    {
+      source: 'HIB-QUERY-006',
+      unit: 'default',
+      level: 'WARNING',
+      message:
+        'No conclusion reached. Required evidence unavailable: 2 × repository query method(s) whose query provenance ' +
+        'is unverified (named query, query rewriter, or unverified method) (SampleOrderRepository#findRecent, ' +
+        'SampleOrderRepository#findByTag).'
+    },
+    {
+      source: 'HIB-CONFIG-004',
+      unit: 'default',
+      level: 'WARNING',
+      message:
+        'No conclusion reached. Required evidence unavailable: 1 × effective persistence-unit setting(s) unavailable.'
+    },
+    {
+      source: 'HIB-CONFIG-008',
+      unit: 'default',
+      level: 'INFO',
+      message:
+        'No conclusion reached. Required evidence unavailable: 1 × pool auto-commit and resource-local guarantees, ' +
+        'which this advisor does not observe by design.'
+    }
   ]
 }
 
