@@ -244,8 +244,7 @@ public final class HibernateSchemaBridge {
                 || attribute.annotations().stream().anyMatch(HibernateSchemaBridge::changesColumnRepresentation)
                 || hasClassConversion(entityType)
                 || annotationString(column, "columnDefinition") != null
-                || attribute.isEnumAttribute()
-                || attribute.enumeratedAnnotation() != null
+                || ambiguousEnum(attribute)
                 || attribute.isLob();
         String tableName = attribute.annotationStringValue(column, "table");
         columns.add(new MappedColumnFacts(
@@ -262,6 +261,21 @@ public final class HibernateSchemaBridge {
             uniqueConstraints.add(new MappedUniqueConstraintFacts(
                     attribute.description(), List.of(columnName), blankToNull(tableName)));
         }
+    }
+
+    /**
+     * Whether an enum mapping leaves the persisted representation undetermined. Jakarta Persistence fixes an
+     * explicit {@code @Enumerated(EnumType.STRING)} to the constant's {@code name()}, unless the enum declares an
+     * {@code @EnumeratedValue} field; implicit and {@code ORDINAL} mappings remain ambiguous.
+     */
+    private static boolean ambiguousEnum(HibernateAttributeModel attribute) {
+        Annotation enumerated = attribute.enumeratedAnnotation();
+        if (!attribute.isEnumAttribute() && enumerated == null) {
+            return false;
+        }
+        return enumerated == null
+                || !"STRING".equals(attribute.annotationValueName(enumerated, "value"))
+                || HibernateRuleModelSupport.hasEnumeratedValue(attribute);
     }
 
     private static String blankToNull(String value) {
@@ -748,8 +762,10 @@ public final class HibernateSchemaBridge {
      * @param declaredLength the declared {@code @Column(length=...)}, or {@code null} when not declared or
      *     left at the JPA default
      * @param lob whether the attribute is an {@code @Lob}
-     * @param ambiguousType whether a converter/{@code @Enumerated}/{@code @Lob} decides the persisted shape,
-     *     so the Java type says nothing reliable about the physical column
+     * @param ambiguousType whether a converter, custom type, native column definition, {@code @Lob}, or a
+     *     non-{@code STRING} enum mapping decides the persisted shape, so the Java type says nothing reliable
+     *     about the physical column; an explicit {@code @Enumerated(EnumType.STRING)} without
+     *     {@code @EnumeratedValue} is not ambiguous
      * @param identifier whether the attribute is the entity's {@code @Id}
      * @param tableName the explicit {@code @Column(table=...)} secondary-table name, or {@code null} for the
      *     entity's primary table
