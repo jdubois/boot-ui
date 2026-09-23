@@ -1,6 +1,8 @@
 ---
 name: bootui-java-development
 description: Use when implementing, debugging, refactoring, or testing existing BootUI Java code, including framework-neutral engine logic, Spring MVC and WebFlux adapters, Quarkus runtime and deployment integration, optional dependencies, DTO contracts, and Maven build failures. Not for frontend-only work, creating unrelated applications, or release operations.
+metadata:
+  internal: true
 ---
 
 # BootUI Java development
