@@ -18,6 +18,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `bootui.sql-trace.slow-query-threshold-millis` property keeps its millisecond semantics
   ([#1093](https://github.com/jdubois/boot-ui/issues/1093)).
 
+- **DB-HIB-004 compares `@Enumerated(EnumType.STRING)` lengths.** Explicit STRING enum mappings without
+  `@EnumeratedValue` are now compared with bounded character columns instead of being reported as an unknown JDBC
+  representation, which made the Database Advisor scan PARTIAL. Native MySQL/MariaDB `ENUM`/`SET` columns are not
+  compared, and other ambiguous mappings on non-character columns are now skipped quietly
+  ([#1090](https://github.com/jdubois/boot-ui/issues/1090)).
+
 ## [1.18.0] - 2026-09-21
 
 Feature release adding PostgreSQL and MySQL operational diagnostics across Spring MVC, Spring WebFlux, and Quarkus,

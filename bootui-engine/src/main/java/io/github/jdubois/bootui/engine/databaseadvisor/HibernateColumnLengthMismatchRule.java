@@ -15,7 +15,8 @@ final class HibernateColumnLengthMismatchRule extends AbstractHibernateCrossRefe
                 DatabaseAdvisorCategory.HIBERNATE_MAPPING,
                 DatabaseAdvisorRuleSupport.MEDIUM,
                 "Compares positive nondefault @Column(length=...) declarations with bounded character-column sizes. "
-                        + "LOBs, known converters, native column definitions and unknown sizes are not compared.",
+                        + "Explicit @Enumerated(STRING) enums are compared; LOBs, known converters, native column "
+                        + "definitions, other enum mappings and unknown sizes are not.",
                 "Review the DDL declaration and observed column size after confirming the effective physical mapping. "
                         + "@Column(length) is schema-generation metadata, not a runtime input validator; this "
                         + "comparison alone does not establish truncation or accepted application input.",
@@ -68,19 +69,19 @@ final class HibernateColumnLengthMismatchRule extends AbstractHibernateCrossRefe
             MappedColumnFacts column,
             List<String> details) {
         Integer declaredLength = column.declaredLength();
-        if (column.ambiguousType()) {
-            unknown(
-                    context,
-                    column.attributeDescription()
-                            + ": effective JDBC representation is unknown for length comparison.");
-            return false;
-        }
         ColumnModel physical = schema.declaredColumn(table, column.columnName());
         if (physical == null) {
             unknownColumn(context, schema, table, column.columnName(), column.attributeDescription());
             return false;
         }
         if (!boundedCharacterType(physical)) {
+            return false;
+        }
+        if (column.ambiguousType()) {
+            unknown(
+                    context,
+                    column.attributeDescription()
+                            + ": effective JDBC representation is unknown for length comparison.");
             return false;
         }
         Integer size = physical.size();
@@ -102,9 +103,18 @@ final class HibernateColumnLengthMismatchRule extends AbstractHibernateCrossRefe
         if (typeName.contains("text") || typeName.contains("clob") || typeName.contains("max")) {
             return false;
         }
+        // MySQL/MariaDB report native ENUM/SET as character types sized to the longest label, which Hibernate
+        // uses for @Enumerated(STRING) by default; the label list, not a length, bounds those values.
+        if (nativeLabelType(typeName, "enum") || nativeLabelType(typeName, "set")) {
+            return false;
+        }
         return column.jdbcType() == Types.CHAR
                 || column.jdbcType() == Types.VARCHAR
                 || column.jdbcType() == Types.NCHAR
                 || column.jdbcType() == Types.NVARCHAR;
+    }
+
+    private static boolean nativeLabelType(String typeName, String keyword) {
+        return typeName.equals(keyword) || typeName.startsWith(keyword + "(");
     }
 }

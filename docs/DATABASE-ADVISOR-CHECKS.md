@@ -333,6 +333,11 @@ Review declarations and actual column constraints, not a guessed Java-to-SQL rep
 
 **MEDIUM.** Compares positive **nondefault** declared lengths with a positively bounded physical string
 column. LOB, conversion, native-definition and unresolved placement ambiguity are excluded.
+An explicit `@Enumerated(EnumType.STRING)` enum without an `@EnumeratedValue` field stores the constant's
+`name()`, so it is compared like a string. Implicit or `ORDINAL` enums, and other ambiguous mappings, are silently
+skipped on non-character columns and reported as unknown evidence only when the physical column is bounded
+character storage. Native MySQL/MariaDB `ENUM` and `SET` columns, which drivers report as character types sized
+to the longest label, are not compared.
 An arbitrary large length is not synonymous with an unbounded SQL type.
 `@Column(length=...)` describes schema generation, not runtime input validation; review declaration versus
 database definition rather than assuming the mapping accepts or validates every string of that length.

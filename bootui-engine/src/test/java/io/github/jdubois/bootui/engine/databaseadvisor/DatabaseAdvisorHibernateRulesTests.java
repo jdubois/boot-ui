@@ -353,6 +353,109 @@ class DatabaseAdvisorHibernateRulesTests {
                 .isEqualTo(SKIPPED);
     }
 
+    @Test
+    void stringEnumLengthsAreComparedAgainstBoundedCharacterColumns() {
+        TableModel orders = table(
+                "orders", List.of(column("status", "varchar", Types.VARCHAR, 20)), List.of(), List.of(), List.of());
+        for (int declared : List.of(20, 30)) {
+            MappedEntityFacts mapped = entity(
+                    "com.example.Order",
+                    "orders",
+                    List.of(),
+                    List.of(new MappedColumnFacts(
+                            "com.example.Order#status",
+                            "status",
+                            false,
+                            "OrderStatus",
+                            declared,
+                            false,
+                            false,
+                            false,
+                            null)),
+                    List.of());
+            DatabaseAdvisorContext context = hibernateContext(schema("ds", Dialect.GENERIC, List.of(orders)), mapped);
+            assertThat(new HibernateColumnLengthMismatchRule().evaluate(context).status())
+                    .isEqualTo(declared > 20 ? VIOLATION : PASS);
+            assertThat(context.evaluationDiagnostics()).isEmpty();
+        }
+    }
+
+    @Test
+    void ambiguousMappingsOnlyReportUnknownRepresentationForBoundedCharacterColumns() {
+        MappedEntityFacts mapped = entity(
+                "com.example.Order",
+                "orders",
+                List.of(),
+                List.of(new MappedColumnFacts(
+                        "com.example.Order#status", "status", false, "OrderStatus", 20, false, true, false, null)),
+                List.of());
+
+        TableModel ordinal =
+                table("orders", List.of(column("status", "int2", Types.SMALLINT, 5)), List.of(), List.of(), List.of());
+        DatabaseAdvisorContext ordinalContext =
+                hibernateContext(schema("ds", Dialect.GENERIC, List.of(ordinal)), mapped);
+        assertThat(new HibernateColumnLengthMismatchRule()
+                        .evaluate(ordinalContext)
+                        .status())
+                .isEqualTo(SKIPPED);
+        assertThat(ordinalContext.evaluationDiagnostics()).isEmpty();
+
+        TableModel character = table(
+                "orders", List.of(column("status", "varchar", Types.VARCHAR, 20)), List.of(), List.of(), List.of());
+        DatabaseAdvisorContext characterContext =
+                hibernateContext(schema("ds", Dialect.GENERIC, List.of(character)), mapped);
+        new HibernateColumnLengthMismatchRule().evaluate(characterContext);
+        assertThat(characterContext.evaluationDiagnostics())
+                .singleElement()
+                .extracting(SchemaDiagnostic::message)
+                .asString()
+                .contains("effective JDBC representation is unknown");
+    }
+
+    @Test
+    void stringEnumLengthsAreNotComparedWithNativeEnumOrSetLabelWidths() {
+        MappedEntityFacts mapped = entity(
+                "com.example.Order",
+                "orders",
+                List.of(),
+                List.of(new MappedColumnFacts(
+                        "com.example.Order#status", "status", false, "OrderStatus", 20, false, false, false, null)),
+                List.of());
+        for (String nativeType : List.of("enum", "ENUM", "set", "ENUM('NEW','SHIPPED')", "Set('A','B')")) {
+            for (int jdbcType : List.of(Types.CHAR, Types.VARCHAR)) {
+                TableModel orders = table(
+                        "orders", List.of(column("status", nativeType, jdbcType, 7)), List.of(), List.of(), List.of());
+                DatabaseAdvisorContext context =
+                        hibernateContext(schema("ds", Dialect.GENERIC, List.of(orders)), mapped);
+                assertThat(new HibernateColumnLengthMismatchRule()
+                                .evaluate(context)
+                                .status())
+                        .isEqualTo(SKIPPED);
+                assertThat(context.evaluationDiagnostics()).isEmpty();
+            }
+        }
+    }
+
+    @Test
+    void ambiguousMappingsOnMissingColumnsLeaveCompleteInventoriesToTheMissingColumnRule() {
+        MappedEntityFacts mapped = entity(
+                "com.example.Order",
+                "orders",
+                List.of(),
+                List.of(new MappedColumnFacts(
+                        "com.example.Order#status", "status", false, "OrderStatus", 20, false, true, false, null)),
+                List.of());
+        TableModel complete = table(
+                "orders", List.of(column("other", "varchar", Types.VARCHAR, 20)), List.of(), List.of(), List.of());
+        DatabaseAdvisorContext completeContext =
+                hibernateContext(schema("ds", Dialect.GENERIC, List.of(complete)), mapped);
+        assertThat(new HibernateColumnLengthMismatchRule()
+                        .evaluate(completeContext)
+                        .status())
+                .isEqualTo(SKIPPED);
+        assertThat(completeContext.evaluationDiagnostics()).isEmpty();
+    }
+
     // --- DB-HIB-005: unique constraint coverage ---
 
     @Test

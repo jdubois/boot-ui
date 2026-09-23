@@ -139,15 +139,26 @@ class HibernateSchemaBridgeTests {
     }
 
     @Test
-    void convertersEnumsAndLobsMarkTheColumnTypeAsAmbiguous() {
+    void convertersAndLobsMarkTheColumnTypeAsAmbiguous() {
         MappedEntityFacts facts = factsFor(Columns.class);
 
         assertThat(column(facts, "email").ambiguousType()).isFalse();
         assertThat(column(facts, "payload").ambiguousType()).isTrue();
         assertThat(column(facts, "payload").lob()).isTrue();
-        assertThat(column(facts, "status").ambiguousType()).isTrue();
         assertThat(column(facts, "status").lob()).isFalse();
         assertThat(column(facts, "money").ambiguousType()).isTrue();
+    }
+
+    @Test
+    void onlyExplicitStringEnumsWithoutEnumeratedValueHaveAKnownRepresentation() {
+        MappedEntityFacts facts = factsFor(EnumColumns.class);
+
+        assertThat(column(factsFor(Columns.class), "status").ambiguousType()).isFalse();
+        assertThat(column(facts, "string_status").ambiguousType()).isFalse();
+        assertThat(column(facts, "ordinal_status").ambiguousType()).isTrue();
+        assertThat(column(facts, "implicit_status").ambiguousType()).isTrue();
+        assertThat(column(facts, "coded_status").ambiguousType()).isTrue();
+        assertThat(column(facts, "converted_status").ambiguousType()).isTrue();
     }
 
     @Test
@@ -665,6 +676,55 @@ class HibernateSchemaBridgeTests {
     }
 
     @Entity
+    enum CodedStatus {
+        NEW("N"),
+        SHIPPED("S");
+
+        @jakarta.persistence.EnumeratedValue
+        final String code;
+
+        CodedStatus(String code) {
+            this.code = code;
+        }
+    }
+
+    static class StatusConverter implements jakarta.persistence.AttributeConverter<Status, String> {
+        @Override
+        public String convertToDatabaseColumn(Status attribute) {
+            return attribute == null ? null : attribute.name().substring(0, 1);
+        }
+
+        @Override
+        public Status convertToEntityAttribute(String dbData) {
+            return dbData == null ? null : "N".equals(dbData) ? Status.NEW : Status.SHIPPED;
+        }
+    }
+
+    static class EnumColumns {
+        @Id
+        Long id;
+
+        @Enumerated(EnumType.STRING)
+        @Column(name = "string_status", length = 20)
+        Status stringStatus;
+
+        @Enumerated(EnumType.ORDINAL)
+        @Column(name = "ordinal_status", length = 20)
+        Status ordinalStatus;
+
+        @Column(name = "implicit_status", length = 20)
+        Status implicitStatus;
+
+        @Enumerated(EnumType.STRING)
+        @Column(name = "coded_status", length = 20)
+        CodedStatus codedStatus;
+
+        @Enumerated(EnumType.STRING)
+        @Convert(converter = StatusConverter.class)
+        @Column(name = "converted_status", length = 20)
+        Status convertedStatus;
+    }
+
     static class NativeColumn {
         @Id
         Long id;
