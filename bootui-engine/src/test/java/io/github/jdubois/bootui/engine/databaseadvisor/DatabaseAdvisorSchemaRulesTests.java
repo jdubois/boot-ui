@@ -4,11 +4,13 @@ import static io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorFix
 import static io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorFixtures.context;
 import static io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorFixtures.schema;
 import static io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorFixtures.table;
+import static io.github.jdubois.bootui.engine.databaseadvisor.IndexModel.Validity.VALID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.DatabaseAdvisorRuleResultDto;
 import java.sql.DatabaseMetaData;
 import java.sql.Types;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -224,6 +226,81 @@ class DatabaseAdvisorSchemaRulesTests {
                                         index("extra", List.of("a"), true, List.of("payload"), null))))
                         .status())
                 .isEqualTo("PASS");
+    }
+
+    @Test
+    void structurallyExcludedExtraUniqueIndexesAreNotReportedAsUnknown() {
+        List<IndexModel> excluded = List.of(
+                extraUnique("uq_partial", keyParts("a"), "btree", "a IS NOT NULL", VALID, false, false),
+                extraUnique(
+                        "uq_expression",
+                        List.of(IndexKeyPart.expression("lower(a)")),
+                        "btree",
+                        null,
+                        VALID,
+                        false,
+                        false),
+                extraUnique(
+                        "uq_prefix",
+                        List.of(new IndexKeyPart("a", null, true, 10, null)),
+                        "btree",
+                        null,
+                        VALID,
+                        false,
+                        false),
+                extraUnique("uq_partitioned", keyParts("a"), "btree", null, VALID, true, false),
+                extraUnique("uq_specialized", keyParts("a"), "btree", null, VALID, false, true),
+                extraUnique("uq_invalid", keyParts("a"), "btree", null, IndexModel.Validity.INVALID, false, false),
+                extraUnique("uq_hashed", keyParts("a"), "hashed", null, VALID, false, false));
+        for (IndexModel index : excluded) {
+            DatabaseAdvisorContext context =
+                    context(schema("ds", Dialect.POSTGRESQL, List.of(backedTable("orders", index))));
+            assertThat(new RedundantPrimaryKeyUniqueIndexRule()
+                            .evaluate(context)
+                            .status())
+                    .as(index.name())
+                    .isEqualTo("SKIPPED");
+            assertThat(context.evaluationDiagnostics()).as(index.name()).isEmpty();
+        }
+    }
+
+    @Test
+    void unknownExtraUniqueIndexDiagnosticsNameEveryOccurrence() {
+        DatabaseAdvisorContext context = context(schema(
+                "ds",
+                Dialect.POSTGRESQL,
+                List.of(
+                        backedTable("orders", IndexModel.of("uq_orders_reference", List.of("a"), true)),
+                        backedTable(
+                                "promo_codes",
+                                extraUnique(
+                                        "uq_promo_codes_code",
+                                        keyParts("a"),
+                                        "btree",
+                                        null,
+                                        IndexModel.Validity.UNKNOWN,
+                                        false,
+                                        false)),
+                        backedTable(
+                                "carts",
+                                extraUnique("uq_carts_token", keyParts("a"), "  ", null, VALID, false, false)))));
+        new RedundantPrimaryKeyUniqueIndexRule().evaluate(context);
+        assertThat(context.evaluationDiagnostics())
+                .extracting(SchemaDiagnostic::message)
+                .containsExactlyInAnyOrder(
+                        "ds: public.orders unique index uq_orders_reference has unknown comparison semantics.",
+                        "ds: public.promo_codes unique index uq_promo_codes_code has unknown comparison semantics.",
+                        "ds: public.carts unique index uq_carts_token has unknown comparison semantics.");
+    }
+
+    @Test
+    void incompleteIndexInventoryDiagnosticsNameTheirDataSource() {
+        TableModel table = incomplete(backedTable("orders"), true, false);
+        DatabaseAdvisorContext context = context(schema("ds", Dialect.POSTGRESQL, List.of(table)));
+        new RedundantPrimaryKeyUniqueIndexRule().evaluate(context);
+        assertThat(context.evaluationDiagnostics())
+                .extracting(SchemaDiagnostic::message)
+                .containsExactly("ds: public.orders primary-key or index inventory is incomplete.");
     }
 
     @Test
@@ -567,6 +644,45 @@ class DatabaseAdvisorSchemaRulesTests {
                 true,
                 true,
                 backing);
+    }
+
+    private static TableModel backedTable(String name, IndexModel... extra) {
+        List<IndexModel> indexes = new ArrayList<>();
+        indexes.add(index("pk_" + name, List.of("a"), true, List.of(), "pk_" + name));
+        indexes.addAll(List.of(extra));
+        return table(name, List.of(column("a", "int4", Types.INTEGER)), List.of("a"), List.of(), indexes);
+    }
+
+    private static List<IndexKeyPart> keyParts(String... columns) {
+        return List.of(columns).stream()
+                .map(column -> IndexKeyPart.column(column, true))
+                .toList();
+    }
+
+    private static IndexModel extraUnique(
+            String name,
+            List<IndexKeyPart> parts,
+            String method,
+            String filterCondition,
+            IndexModel.Validity validity,
+            boolean partitioned,
+            boolean specialized) {
+        return new IndexModel(
+                name,
+                parts,
+                true,
+                method,
+                filterCondition,
+                IndexModel.Visibility.VISIBLE,
+                validity,
+                false,
+                false,
+                partitioned,
+                specialized,
+                List.of(),
+                true,
+                true,
+                null);
     }
 
     private static IndexModel complete(String name, List<IndexKeyPart> parts, boolean unique) {
