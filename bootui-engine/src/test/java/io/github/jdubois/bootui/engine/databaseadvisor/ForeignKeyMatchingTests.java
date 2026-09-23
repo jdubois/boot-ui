@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.engine.hibernate.HibernateSchemaBridge.MappedForeignKeyFacts;
 import java.sql.DatabaseMetaData;
 import java.sql.Types;
+import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -131,6 +132,110 @@ class ForeignKeyMatchingTests {
                 .isTrue();
         assertThat(ForeignKeyMatching.hasMatchingPhysicalForeignKey(child, missingCatalog))
                 .isFalse();
+    }
+
+    @Test
+    void omittedReferencedColumnDefaultsToTheTargetsSinglePrimaryKeyColumn() {
+        TableModel target = orders(List.of("id"));
+        SchemaSnapshot schema =
+                schema("ds", Dialect.GENERIC, List.of(orderItems(List.of(orderForeignKey("id"))), target));
+        ForeignKeyMatching.Assessment matched = ForeignKeyMatching.assess(
+                context(schema), schema, schema.tables().get(0), defaultedOrder());
+        assertThat(matched.status()).isEqualTo(ForeignKeyMatching.Status.MATCHED);
+        assertThat(matched.foreignKey().name()).isEqualTo("fk_order_items_order_id");
+
+        schema = schema("ds", Dialect.GENERIC, List.of(orderItems(List.of()), target));
+        assertThat(ForeignKeyMatching.assess(
+                                context(schema), schema, schema.tables().get(0), defaultedOrder())
+                        .status())
+                .isEqualTo(ForeignKeyMatching.Status.NOT_FOUND);
+    }
+
+    @Test
+    void omittedReferencedColumnStaysUnknownWithoutASingleObservedPrimaryKey() {
+        TableModel unreadPrimaryKey =
+                orders(List.of("id")).withMetadata(new TableMetadata(true, false, true, true, false, List.of()));
+        for (TableModel target : List.of(orders(List.of()), orders(List.of("id", "code")), unreadPrimaryKey)) {
+            SchemaSnapshot schema =
+                    schema("ds", Dialect.GENERIC, List.of(orderItems(List.of(orderForeignKey("id"))), target));
+            assertThat(ForeignKeyMatching.assess(
+                                    context(schema), schema, schema.tables().get(0), defaultedOrder())
+                            .status())
+                    .isEqualTo(ForeignKeyMatching.Status.UNKNOWN);
+        }
+    }
+
+    @Test
+    void omittedReferencedColumnPairedWithANonPrimaryKeyColumnIsUnknownNotMissing() {
+        SchemaSnapshot schema = schema(
+                "ds", Dialect.GENERIC, List.of(orderItems(List.of(orderForeignKey("code"))), orders(List.of("id"))));
+        ForeignKeyMatching.Assessment assessment = ForeignKeyMatching.assess(
+                context(schema), schema, schema.tables().get(0), defaultedOrder());
+        assertThat(assessment.status()).isEqualTo(ForeignKeyMatching.Status.UNKNOWN);
+        assertThat(assessment.reason()).contains("non-primary-key");
+    }
+
+    @Test
+    void compositeDeclarationWithAnOmittedReferencedColumnIsUnknown() {
+        TableModel child = child(List.of(physical(true)));
+        TableModel target = table(
+                "parent",
+                List.of(column("x", "int4", Types.INTEGER), column("y", "int4", Types.INTEGER)),
+                List.of("x", "y"),
+                List.of(),
+                List.of());
+        SchemaSnapshot schema = schema("ds", Dialect.GENERIC, List.of(child, target));
+        MappedForeignKeyFacts composite = new MappedForeignKeyFacts(
+                "association", List.of("A", "B"), Arrays.asList("X", null), null, true, "PARENT", "PUBLIC", "APP");
+        assertThat(ForeignKeyMatching.assess(context(schema), schema, child, composite)
+                        .status())
+                .isEqualTo(ForeignKeyMatching.Status.UNKNOWN);
+    }
+
+    private static MappedForeignKeyFacts defaultedOrder() {
+        return new MappedForeignKeyFacts(
+                "OrderItemEntity#order",
+                List.of("order_id"),
+                Arrays.asList((String) null),
+                null,
+                true,
+                "orders",
+                null,
+                null);
+    }
+
+    private static ForeignKeyModel orderForeignKey(String parentColumn) {
+        return new ForeignKeyModel(
+                "fk_order_items_order_id",
+                List.of("order_id"),
+                "app",
+                "public",
+                "orders",
+                List.of(parentColumn),
+                0,
+                0,
+                DatabaseMetaData.importedKeyNotDeferrable,
+                true,
+                true,
+                null);
+    }
+
+    private static TableModel orderItems(List<ForeignKeyModel> foreignKeys) {
+        return table(
+                "order_items",
+                List.of(column("id", "uuid", Types.OTHER), column("order_id", "uuid", Types.OTHER)),
+                List.of("id"),
+                foreignKeys,
+                List.of());
+    }
+
+    private static TableModel orders(List<String> primaryKey) {
+        return table(
+                "orders",
+                List.of(column("id", "uuid", Types.OTHER), column("code", "varchar", Types.VARCHAR)),
+                primaryKey,
+                List.of(),
+                List.of());
     }
 
     private static MappedForeignKeyFacts mapped() {

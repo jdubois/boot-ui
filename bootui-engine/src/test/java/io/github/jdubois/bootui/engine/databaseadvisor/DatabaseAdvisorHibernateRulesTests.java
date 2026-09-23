@@ -669,6 +669,39 @@ class DatabaseAdvisorHibernateRulesTests {
         assertThat(result.sampleViolations().get(0)).contains("customer_id");
     }
 
+    @Test
+    void hibernateMissingForeignKeyConstraintRuleAssessesAnOmittedReferencedColumnAgainstThePrimaryKey() {
+        TableModel orders =
+                table("orders", List.of(column("id", "uuid", Types.OTHER)), List.of("id"), List.of(), List.of());
+        MappedForeignKeyFacts foreignKey = new MappedForeignKeyFacts(
+                "com.example.OrderItemEntity#order",
+                List.of("order_id"),
+                Arrays.asList((String) null),
+                null,
+                true,
+                "orders",
+                null,
+                null);
+        MappedEntityFacts entity =
+                new MappedEntityFacts("com.example.OrderItemEntity", "order_items", List.of(foreignKey), List.of());
+        TableModel constrained = table(
+                "order_items",
+                List.of(column("id", "uuid", Types.OTHER), column("order_id", "uuid", Types.OTHER)),
+                List.of("id"),
+                List.of(foreignKey("fk_order_items_order_id", List.of("order_id"), "orders", List.of("id"))
+                        .withEnforcement(true, true, "SIMPLE")),
+                List.of());
+        DatabaseAdvisorRuleResultDto passing = new HibernateMissingForeignKeyConstraintRule()
+                .evaluate(hibernateContext(schema("ds", Dialect.GENERIC, List.of(constrained, orders)), entity));
+        assertThat(passing.status()).isEqualTo(PASS);
+
+        TableModel unconstrained = constrained.withForeignKeys(List.of());
+        DatabaseAdvisorRuleResultDto violation = new HibernateMissingForeignKeyConstraintRule()
+                .evaluate(hibernateContext(schema("ds", Dialect.GENERIC, List.of(unconstrained, orders)), entity));
+        assertThat(violation.status()).isEqualTo(VIOLATION);
+        assertThat(violation.sampleViolations().get(0)).contains("OrderItemEntity#order");
+    }
+
     // --- @SecondaryTable support ---
 
     @Test
