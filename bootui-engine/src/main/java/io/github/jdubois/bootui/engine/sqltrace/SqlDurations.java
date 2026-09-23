@@ -11,7 +11,6 @@ package io.github.jdubois.bootui.engine.sqltrace;
  */
 public final class SqlDurations {
 
-    /** Decimal places kept when reporting milliseconds, i.e. full microsecond resolution. */
     private static final double MICROS_PER_MILLI = 1_000.0;
 
     private static final long MICROS_PER_MILLI_EXACT = 1_000L;
@@ -23,9 +22,12 @@ public final class SqlDurations {
         return micros / MICROS_PER_MILLI;
     }
 
-    /** The fractional milliseconds a microsecond mean represents, rounded to microsecond resolution. */
+    /**
+     * The fractional milliseconds a microsecond mean represents. Kept exact rather than rounded to a whole
+     * microsecond, so a group ranked for a positive mean never reports a mean of {@code 0}.
+     */
     public static double millis(double micros) {
-        return Math.round(micros) / MICROS_PER_MILLI;
+        return micros / MICROS_PER_MILLI;
     }
 
     /**
@@ -43,6 +45,10 @@ public final class SqlDurations {
      * a statement started later than it did and could absorb it into a request window it began before.
      */
     public static long ceilMillis(long micros) {
-        return micros <= 0 ? 0 : (micros + MICROS_PER_MILLI_EXACT - 1) / MICROS_PER_MILLI_EXACT;
+        if (micros <= 0) {
+            return 0;
+        }
+        // Divide first so values near Long.MAX_VALUE cannot overflow the way (micros + 999) / 1000 would.
+        return micros / MICROS_PER_MILLI_EXACT + (micros % MICROS_PER_MILLI_EXACT == 0 ? 0 : 1);
     }
 }

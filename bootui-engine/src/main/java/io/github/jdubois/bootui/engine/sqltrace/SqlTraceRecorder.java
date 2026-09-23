@@ -133,11 +133,10 @@ public final class SqlTraceRecorder implements IdleReclaimable {
         this.captureCallSite = captureCallSite;
         this.maxEntries = Math.max(1, maxEntries);
         this.slowQueryThresholdMillis = Math.max(0, slowQueryThresholdMillis);
-        // Saturating conversion: an absurdly large configured threshold would otherwise overflow into a
-        // negative bound and flag every statement as slow, the exact opposite of what it asks for.
-        this.slowQueryThresholdMicros = this.slowQueryThresholdMillis > Long.MAX_VALUE / 1_000L
-                ? Long.MAX_VALUE
-                : this.slowQueryThresholdMillis * 1_000L;
+        // A threshold too large to express in microseconds cannot be reached by any recorded duration, so it
+        // is held as 0 (never slow) instead of overflowing into a negative bound that would flag everything.
+        this.slowQueryThresholdMicros =
+                this.slowQueryThresholdMillis > Long.MAX_VALUE / 1_000L ? 0L : this.slowQueryThresholdMillis * 1_000L;
         this.maxSqlLength = Math.max(16, maxSqlLength);
         this.maxParameterLength = Math.max(8, maxParameterLength);
         this.nPlusOneThreshold = Math.max(2, nPlusOneThreshold);
@@ -202,7 +201,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
      * microseconds, so the semantics of the property are unchanged.
      */
     public boolean isSlow(long durationMicros) {
-        return slowQueryThresholdMillis > 0 && durationMicros >= slowQueryThresholdMicros;
+        return slowQueryThresholdMicros > 0 && durationMicros >= slowQueryThresholdMicros;
     }
 
     /** Remembers a {@code DataSource} bean that BootUI wrapped for tracing. */

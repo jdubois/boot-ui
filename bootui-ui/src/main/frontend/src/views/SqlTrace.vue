@@ -126,8 +126,8 @@ const rankedStatements = computed(() => {
 
 const hasRankedStatements = computed(() => Boolean(insights.value?.statements?.length))
 
-// True when every retained statement scores zero on the selected criterion, e.g. an in-memory database
-// where each execution rounds down to 0 ms.
+// True when every retained statement scores zero on the selected criterion, e.g. no errors for the error
+// ranking, or durations the capture path could not time (Quarkus Hibernate ORM records 0 µs).
 const rankingMetricUnmeasured = computed(
   () => hasRankedStatements.value && !insights.value.statements.some((row) => Number(row[rankingMetric.value]) > 0)
 )

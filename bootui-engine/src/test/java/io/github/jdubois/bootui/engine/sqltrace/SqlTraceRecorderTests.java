@@ -153,11 +153,21 @@ class SqlTraceRecorderTests {
 
     @Test
     void neverFlagsEverythingSlowWhenTheThresholdIsAbsurdlyLarge() {
-        // Converting such a threshold to microseconds overflows; saturating instead keeps it unreachable,
-        // which is what an enormous threshold asks for.
-        SqlTraceRecorder recorder = recorder(true, false, 10, Long.MAX_VALUE);
-        assertThat(recorder.isSlow(1)).isFalse();
-        assertThat(recorder.isSlow(Long.MAX_VALUE - 1)).isFalse();
+        // Converting such a threshold to microseconds overflows. No recorded duration can reach it, so it
+        // must stay unreachable instead of wrapping into a negative bound that would flag everything.
+        for (long threshold : new long[] {Long.MAX_VALUE / 1_000L + 1, Long.MAX_VALUE}) {
+            SqlTraceRecorder recorder = recorder(true, false, 10, threshold);
+            assertThat(recorder.isSlow(1)).isFalse();
+            assertThat(recorder.isSlow(Long.MAX_VALUE)).isFalse();
+        }
+    }
+
+    @Test
+    void keepsTheLargestRepresentableThresholdExact() {
+        long threshold = Long.MAX_VALUE / 1_000L;
+        SqlTraceRecorder recorder = recorder(true, false, 10, threshold);
+        assertThat(recorder.isSlow(threshold * 1_000L - 1)).isFalse();
+        assertThat(recorder.isSlow(threshold * 1_000L)).isTrue();
         assertThat(recorder.isSlow(Long.MAX_VALUE)).isTrue();
     }
 

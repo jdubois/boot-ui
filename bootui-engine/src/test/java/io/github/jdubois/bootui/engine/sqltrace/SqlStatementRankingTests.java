@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.sqltrace;
 
 import static io.github.jdubois.bootui.engine.sqltrace.SqlTraceEntryFixtures.entry;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 import io.github.jdubois.bootui.core.dto.SqlStatementRankingDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
@@ -296,6 +297,28 @@ class SqlStatementRankingTests {
 
         assertThat(ranked.statements().get(0).errorCount()).isZero();
         assertThat(ranked.statements().get(0).topFor()).doesNotContain("ERROR_COUNT");
+    }
+
+    @Test
+    void reportsAPositiveMeanForAGroupRankedOnItsMean() {
+        // A mean below one microsecond is still positive, so the group earns its AVG_DURATION slot; the
+        // reported mean must not round to 0 and read as unmeasured.
+        SqlStatementRanking.Ranked ranked = SqlStatementRanking.rank(
+                List.of(
+                        entry("select * from users where id = 1")
+                                .lastingMicros(1)
+                                .build(),
+                        entry("select * from users where id = 2")
+                                .lastingMicros(0)
+                                .build(),
+                        entry("select * from users where id = 3")
+                                .lastingMicros(0)
+                                .build()),
+                N_PLUS_ONE);
+
+        SqlStatementRankingDto row = ranked.statements().get(0);
+        assertThat(row.topFor()).contains("AVG_DURATION");
+        assertThat(row.avgDurationMillis()).isGreaterThan(0.0).isCloseTo(1.0 / 3_000.0, within(1e-12));
     }
 
     @Test
