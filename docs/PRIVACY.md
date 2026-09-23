@@ -10,7 +10,7 @@ This page describes what the BootUI documentation site collects, and how to chan
 
 ## The BootUI console itself collects nothing
 
-BootUI is a local-only developer console. It runs inside your own application, binds to loopback, and never sends
+BootUI is a local-only developer console. It runs inside your own application, rejects non-loopback requests by default, and never sends
 telemetry, usage data, or analytics anywhere. Nothing on this page applies to the console — only to this documentation
 website.
 

@@ -4,23 +4,32 @@ The Vulnerabilities advisor looks up known advisories for locally discovered Mav
 application for exploitability. Spring MVC, Spring WebFlux, and Quarkus share the report contract and neutral evidence
 interpretation; Spring and Quarkus retain their native HTTP/JSON adapters.
 
+Security and Pentesting are separate advisors.
+
+::: details Where these rules come from
 This catalogue records the evidence rules and complete audit disposition for
-[#978](https://github.com/jdubois/boot-ui/issues/978). Research did not submit a dependency inventory or run an external
-scan. That change concerns OSV interpretation and reporting, not inventory repairs or a new scanner.
-[#989](https://github.com/jdubois/boot-ui/issues/989) adds evidence-based panel/Overview scoring; cached GET-only
-dismissal refresh is retained. Security and Pentesting remain separate advisors.
+[#978](https://github.com/jdubois/boot-ui/issues/978), which concerns OSV interpretation and reporting rather than
+inventory repairs or a new scanner. That research submitted no dependency inventory and ran no external scan.
+[#989](https://github.com/jdubois/boot-ui/issues/989) added evidence-based panel and Overview scoring, retaining the
+cached GET-only dismissal refresh.
+:::
 
 ## Reading the result
 
-Each dependency exposes `assessment.queryComplete` (all its query pages exhausted) and
-`assessment.detailAssessmentComplete` (all returned details interpreted or conclusively excluded as withdrawn).
-Successful withdrawal is distinct from absent, failed, capped, mismatched, malformed, or unresolved details.
-A genuine no-match has both flags true and an empty retained advisory list. Copies for dismissal and EPSS preserve
-the flags. Known-severity findings (including NONE) or a fully assessed package establish `evidence.usable`.
-UNKNOWN remains visible and excluded from penalties, but cannot establish usability and limits coverage even after
-dismissal. Inventory and query/detail gaps qualify otherwise usable known-findings scores.
-See the shared [score eligibility policy](features/advisors.md#score-eligibility) for the evidence contract and
-dismissal behavior. No extra OSV/EPSS work runs on render.
+Each dependency exposes two flags: `assessment.queryComplete`, meaning all its query pages were exhausted, and
+`assessment.detailAssessmentComplete`, meaning every returned detail was interpreted or conclusively excluded as
+withdrawn. Successful withdrawal is distinct from absent, failed, capped, mismatched, malformed, and unresolved
+details.
+
+A genuine no-match has both flags true and an empty retained advisory list. Copies made for dismissal and EPSS
+preserve the flags.
+
+Known-severity findings, including NONE, or a fully assessed package establish `evidence.usable`. UNKNOWN stays
+visible and carries no penalty, but it cannot establish usability and it limits coverage even after dismissal.
+Inventory, query, and detail gaps qualify an otherwise usable known-findings score. See the shared
+[score eligibility policy](features/advisors.md#score-eligibility) for the evidence contract and dismissal behavior.
+
+No extra OSV or EPSS work runs on render.
 
 Keep three kinds of evidence separate:
 
