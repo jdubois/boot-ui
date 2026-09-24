@@ -13,7 +13,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   through `SecretMasker` and the `bootui.expose-values` / `bootui.mask-secrets` policy before serialization on Spring
   MVC, Spring WebFlux, and Quarkus, so a secret-named or secret-looking value such as
   `-Dspring.datasource.password=…` is shown as `******` with its key kept visible in the panels, REST API, MCP tools,
-  and CLI. `METADATA_ONLY` masks every `-D` value and agent option string. ([#1113](https://github.com/jdubois/boot-ui/issues/1113))
+  and CLI. `-XX:OnError`/`-XX:OnOutOfMemoryError` commands are always masked, and `METADATA_ONLY` also masks every
+  `-D` value, agent option string, and free-text JVM option value. ([#1113](https://github.com/jdubois/boot-ui/issues/1113))
 - **ARCH-CODE-002 no longer reports OpenAPI Generator's `ApiUtil` in packaged applications.** When an application runs
   from a jar or an extracted image layout with no local source tree, classes read from the archive whose bytecode
   exactly matches the OpenAPI Generator Spring servlet `ApiUtil` template are excluded from the coding-practice rules.

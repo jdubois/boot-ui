@@ -696,7 +696,8 @@ Features:
 - The Live Memory panel shows memory pool usage.
 - The JVM Tuning panel shows JVM input arguments. Their values pass through `SecretMasker` and the
   `bootui.expose-values` / `bootui.mask-secrets` policy before serialization, keeping each key visible:
-  `METADATA_ONLY` masks every `-D` value and agent option string while keeping `-X`/`-XX` flags visible.
+  `-XX:OnError`/`-XX:OnOutOfMemoryError` commands are always masked, and `METADATA_ONLY` masks every `-D` value
+  and agent option string while keeping `-X`/`-XX` flags and their plain values visible, masking free-text values.
 - The JVM Tuning panel explains `spring.threads.virtual.enabled=true`, detects whether Spring virtual threads are
   enabled in the current application, and shows an information or warning bubble. The detected state is explanatory:
   generated JVM or Kubernetes snippets do not set the Spring property, and virtual threads do not trigger a speculative

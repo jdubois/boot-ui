@@ -91,8 +91,10 @@ JVM input arguments go through the same secret masking and `bootui.expose-values
 configuration values, in the panel, the REST API, the `get_jvm_tuning` and `get_live_memory` MCP tools, and the CLI.
 Keys stay visible and only values are replaced: with the default `MASKED` mode a secret-named or secret-looking value
 is shown as `******` (for example `-Dspring.datasource.password=******`), including `key=value` options of
-`-javaagent:`, `-agentlib:`, and `-agentpath:` arguments. `METADATA_ONLY` masks every `-D` system property value and
-every agent option string but keeps `-X` and `-XX` JVM flags visible for tuning. Only `FULL`, or `MASKED` with
+`-javaagent:`, `-agentlib:`, and `-agentpath:` arguments. The shell commands of `-XX:OnError` and
+`-XX:OnOutOfMemoryError` are always masked. `METADATA_ONLY` masks every `-D` system property value and every agent
+option string. It keeps `-X` and `-XX` flags visible for tuning, with plain values such as `75`, `512m`, or `summary`,
+but masks free-text values such as paths, commands, and `-Xlog` selections. Only `FULL`, or `MASKED` with
 `bootui.mask-secrets=false`, shows the raw arguments.
 
 The bare-metal calculator partitions a target process memory budget into heap, metaspace, code cache, direct memory,

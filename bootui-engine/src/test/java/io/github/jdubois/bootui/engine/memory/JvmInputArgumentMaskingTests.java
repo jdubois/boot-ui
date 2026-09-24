@@ -111,6 +111,60 @@ class JvmInputArgumentMaskingTests {
     }
 
     @Test
+    void masksOpaqueShellCommandsOfErrorHandlerOptions() {
+        assertThat(masked(
+                        ValueExposure.MASKED,
+                        "-XX:OnError=curl -u deploy:hunter2 https://hooks.example.com/crash",
+                        "-XX:OnOutOfMemoryError=kill -9 %p",
+                        "-XX:OnError="))
+                .containsExactly("-XX:OnError=******", "-XX:OnOutOfMemoryError=******", "-XX:OnError=");
+    }
+
+    @Test
+    void masksSecretOptionsNestedInsideAKeyValueArgument() {
+        assertThat(masked(
+                        ValueExposure.MASKED,
+                        "-Dapp.opts=user=admin,password=hunter2",
+                        "-XX:StartFlightRecording=duration=30s,filename=rec.jfr"))
+                .containsExactly(
+                        "-Dapp.opts=user=admin,password=******",
+                        "-XX:StartFlightRecording=duration=30s,filename=rec.jfr");
+    }
+
+    @Test
+    void metadataOnlyKeepsPlainTuningValuesButMasksFreeTextValuesAndOperands() {
+        assertThat(masked(
+                        ValueExposure.METADATA_ONLY,
+                        "-XX:+UseG1GC",
+                        "-XX:NativeMemoryTracking=summary",
+                        "-XX:MaxRAMPercentage=75.0",
+                        "-Xmx512m",
+                        "-Xshare:auto",
+                        "-Xlog:gc*:file=/var/log/gc.log",
+                        "-Xbootclasspath/a:/opt/boot.jar",
+                        "-XX:StartFlightRecording=filename=/tmp/rec.jfr",
+                        "-XX:OnError=curl -u deploy:hunter2 https://hooks.example.com/crash",
+                        "--add-opens=java.base/java.lang=ALL-UNNAMED",
+                        "--add-modules",
+                        "jdk.incubator.vector",
+                        "-XX:SomeApiKey=abc123"))
+                .containsExactly(
+                        "-XX:+UseG1GC",
+                        "-XX:NativeMemoryTracking=summary",
+                        "-XX:MaxRAMPercentage=75.0",
+                        "-Xmx512m",
+                        "-Xshare:auto",
+                        "-Xlog:******",
+                        "-Xbootclasspath/a:******",
+                        "-XX:StartFlightRecording=******",
+                        "-XX:OnError=******",
+                        "--add-opens=******",
+                        "--add-modules",
+                        "******",
+                        "-XX:SomeApiKey=******");
+    }
+
+    @Test
     void metadataOnlyMasksEvenWhenSecretMaskingIsDisabled() {
         List<String> result = JvmInputArgumentMasking.mask(
                 List.of("-Dspring.datasource.password=s3cr3t"), policy(ValueExposure.METADATA_ONLY, false));

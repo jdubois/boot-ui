@@ -1622,11 +1622,12 @@ public abstract class AbstractBootUiApiConformanceTest {
     @Test
     void jvmInputArgumentSecretsAreMaskedBeforeSerialization() {
         String masked = "-D" + JVM_SECRET_ARGUMENT_KEY + "=******";
-        List<String> panels = List.of("jvm-tuning", "live-memory").stream()
-                .filter(this::isPanelUsableInLiveManifest)
-                .toList();
-        assumeTrue(!panels.isEmpty(), "neither jvm-tuning nor live-memory is available in this environment");
-        for (String panel : panels) {
+        for (String panel : List.of("jvm-tuning", "live-memory")) {
+            // Both panels read only JMX beans present on every JVM, so unavailability is itself a wiring
+            // regression and must fail rather than skip the masking check.
+            assertThat(isPanelUsableInLiveManifest(panel))
+                    .as(panel + " must be available on every stack")
+                    .isTrue();
             Response response = probe().get(api("/" + panel));
             assertThat(response.status()).as(panel + " status").isEqualTo(200);
             assertThat(response.body())
