@@ -236,7 +236,8 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar}</argLine>
+                    <!-- A secret-named system property the API conformance suite asserts is masked in JVM input arguments. -->
+                    <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar} -Dbootui.conformance.jvm-password=conformance-raw-jvm-secret</argLine>
                 </configuration>
             </plugin>
             <plugin>

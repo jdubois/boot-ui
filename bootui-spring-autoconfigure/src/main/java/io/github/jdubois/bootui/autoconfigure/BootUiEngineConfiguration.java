@@ -420,10 +420,11 @@ public class BootUiEngineConfiguration {
     @Bean
     @Lazy
     @ConditionalOnMissingBean
-    MemoryReportProvider bootUiMemoryReportProvider(Environment environment) {
+    MemoryReportProvider bootUiMemoryReportProvider(Environment environment, BootUiExposure exposure) {
         // Live policy: virtual-threads and Kubernetes health-probe settings are read from the live
-        // Environment (and thus the runtime override property source) on every report, not snapshotted.
-        return new MemoryReportProvider(new SpringMemoryRuntimeConfig(environment));
+        // Environment (and thus the runtime override property source) on every report, not snapshotted,
+        // and the exposure policy masking JVM input arguments is re-read the same way.
+        return new MemoryReportProvider(new SpringMemoryRuntimeConfig(environment), exposure);
     }
 
     @Bean

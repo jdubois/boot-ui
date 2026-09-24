@@ -180,8 +180,9 @@ public class BootUiEngineProducer {
 
     @Produces
     @Singleton
-    public MemoryReportProvider memoryReportProvider(QuarkusMemoryRuntimeConfig runtimeConfig) {
-        return new MemoryReportProvider(runtimeConfig);
+    public MemoryReportProvider memoryReportProvider(
+            QuarkusMemoryRuntimeConfig runtimeConfig, QuarkusExposurePolicy exposure) {
+        return new MemoryReportProvider(runtimeConfig, exposure);
     }
 
     /**

@@ -6,10 +6,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.LiveMemoryReport;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import io.github.jdubois.bootui.spi.HealthProbeManifest;
 import io.github.jdubois.bootui.spi.MemoryRuntimeConfig;
+import java.util.List;
 import java.util.OptionalLong;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -204,5 +208,55 @@ class MemoryReportProviderTests {
         assertThat(report.kubernetes().confidence()).isEqualTo("Low");
         verify(detector).detect();
         verifyNoMoreInteractions(detector);
+    }
+
+    @Test
+    void masksSecretJvmInputArgumentsBeforeSerialization() {
+        List<String> arguments =
+                List.of("-Dspring.datasource.password=raw-jvm-secret", "-Dspring.profiles.active=dev", "-XX:+UseG1GC");
+        MemoryReportProvider provider = new MemoryReportProvider(
+                new MemoryCalculator(),
+                ContainerMemoryLimitDetector.disabled(),
+                MemoryRuntimeConfig.DEFAULTS,
+                null,
+                () -> arguments);
+
+        LiveMemoryReport report = provider.buildReport(null, null, null, null, null);
+
+        assertThat(report.jvmInputArguments())
+                .containsExactly("-Dspring.datasource.password=******", "-Dspring.profiles.active=dev", "-XX:+UseG1GC");
+    }
+
+    @Test
+    void rereadsTheLiveExposurePolicyOnEveryReport() {
+        AtomicReference<ValueExposure> exposure = new AtomicReference<>(ValueExposure.MASKED);
+        ExposurePolicy policy = new ExposurePolicy() {
+            @Override
+            public ValueExposure valueExposure() {
+                return exposure.get();
+            }
+
+            @Override
+            public boolean maskSecrets() {
+                return true;
+            }
+        };
+        MemoryReportProvider provider = new MemoryReportProvider(
+                new MemoryCalculator(),
+                ContainerMemoryLimitDetector.disabled(),
+                MemoryRuntimeConfig.DEFAULTS,
+                policy,
+                () -> List.of("-Dapp.api-token=raw-token", "-Dapp.name=demo", "-Xss512k"));
+
+        assertThat(provider.buildReport(null, null, null, null, null).jvmInputArguments())
+                .containsExactly("-Dapp.api-token=******", "-Dapp.name=demo", "-Xss512k");
+
+        exposure.set(ValueExposure.METADATA_ONLY);
+        assertThat(provider.buildReport(null, null, null, null, null).jvmInputArguments())
+                .containsExactly("-Dapp.api-token=******", "-Dapp.name=******", "-Xss512k");
+
+        exposure.set(ValueExposure.FULL);
+        assertThat(provider.buildReport(null, null, null, null, null).jvmInputArguments())
+                .containsExactly("-Dapp.api-token=raw-token", "-Dapp.name=demo", "-Xss512k");
     }
 }
