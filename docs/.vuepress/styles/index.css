@@ -875,13 +875,16 @@ html.dark .hint-container.details summary:hover::before {
   display: contents;
 }
 
-.vp-home > [vp-content] > div > .bootui-home-carousel {
-  order: 3;
-  width: 100%;
-  margin: 2rem 0 0;
+/* The feature cards follow the hero, then the showcase video, then the page content. */
+.vp-home > .vp-features {
+  order: 2;
 }
 
-.vp-home > [vp-content] > div > :not(.bootui-home-carousel) {
+.vp-home > .bootui-home-showcase-video {
+  order: 3;
+}
+
+.vp-home > [vp-content] > div > * {
   order: 4;
 }
 

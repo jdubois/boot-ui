@@ -1,0 +1,250 @@
+WEBVTT
+
+1
+00:00:00.480 --> 00:00:03.890
+You start your Spring Boot app, and the logs start scrolling.
+
+2
+00:00:03.940 --> 00:00:07.510
+Beans, pools, migrations, endpoints…
+
+3
+00:00:07.560 --> 00:00:10.740
+But now, how do you know what's actually running in your app?
+
+4
+00:00:11.690 --> 00:00:14.010
+BootUI answers that, with just one dependency.
+
+5
+00:00:14.060 --> 00:00:20.650
+It's a developer tool that embeds a console right inside your app, for Spring Boot,
+
+6
+00:00:20.700 --> 00:00:24.610
+with MVC or WebFlux, and for Quarkus.
+
+7
+00:00:24.660 --> 00:00:29.370
+It's local-only, it masks your secrets, and it's disabled in production.
+
+8
+00:00:30.980 --> 00:00:33.060
+Open /bootui in your browser.
+
+9
+00:00:33.110 --> 00:00:36.430
+The Overview shows your app at a glance:
+
+10
+00:00:36.480 --> 00:00:41.470
+health, findings, and one known-findings score across every advisor.
+
+11
+00:00:43.360 --> 00:00:45.110
+Start with the advisors.
+
+12
+00:00:45.160 --> 00:00:47.170
+BootUI doesn't just show you data:
+
+13
+00:00:47.220 --> 00:00:48.780
+it tells you what's wrong.
+
+14
+00:00:48.830 --> 00:00:53.590
+Ten advisors review your architecture, REST API, Spring setup, database,
+
+15
+00:00:53.640 --> 00:00:57.280
+Hibernate mappings, memory, security and dependencies.
+
+16
+00:00:57.330 --> 00:01:03.170
+They run only when you ask, and rank every finding by severity, with a concrete fix.
+
+17
+00:01:03.220 --> 00:01:07.190
+On the sample app, Hibernate flags HIB-FETCH-001:
+
+18
+00:01:07.240 --> 00:01:11.730
+SampleOrder.customer is fetched eagerly, so every order drags its customer along.
+
+19
+00:01:11.780 --> 00:01:16.250
+Pentesting checks your own endpoints against the OWASP Top 10,
+
+20
+00:01:16.300 --> 00:01:21.630
+and Vulnerabilities matches your dependencies against OSV.
+
+21
+00:01:22.250 --> 00:01:24.040
+Then open Live Activity:
+
+22
+00:01:24.090 --> 00:01:27.200
+it shows everything your app is doing, as it happens.
+
+23
+00:01:27.250 --> 00:01:30.370
+Live Flow draws your application map:
+
+24
+00:01:30.420 --> 00:01:34.250
+incoming HTTP traffic, the database and the caches,
+
+25
+00:01:34.300 --> 00:01:37.280
+animated as each request flows through.
+
+26
+00:01:37.330 --> 00:01:40.920
+Below, every HTTP request is grouped with what it triggered.
+
+27
+00:01:40.970 --> 00:01:44.810
+This request expands to the four SQL statements it ran.
+
+28
+00:01:44.860 --> 00:01:47.240
+That one, to the exception it threw.
+
+29
+00:01:47.290 --> 00:01:50.390
+Click Profile, and you get the full story of a request,
+
+30
+00:01:50.440 --> 00:01:53.180
+correlated exactly by its trace ID.
+
+31
+00:01:54.960 --> 00:01:57.060
+Then go deeper into the runtime.
+
+32
+00:01:57.110 --> 00:02:00.670
+JVM Tuning reviews your JVM arguments,
+
+33
+00:02:00.720 --> 00:02:04.880
+and turns a memory budget into ready-to-paste JVM options,
+
+34
+00:02:04.930 --> 00:02:07.880
+for a dedicated host or for Kubernetes.
+
+35
+00:02:07.930 --> 00:02:13.850
+Live Memory shows heap, non-heap and every memory pool, as the JVM runs.
+
+36
+00:02:13.900 --> 00:02:17.150
+The Spring Security panel lists your filter chains,
+
+37
+00:02:17.200 --> 00:02:20.220
+and explains which rules protect each endpoint.
+
+38
+00:02:20.270 --> 00:02:25.270
+SQL Trace captures the statements your app runs, ranks them by time,
+
+39
+00:02:25.320 --> 00:02:27.030
+and flags N+1 queries.
+
+40
+00:02:27.080 --> 00:02:31.070
+The PostgreSQL panel reads what the database itself reports:
+
+41
+00:02:31.120 --> 00:02:34.230
+cache hit ratio, sessions, the most expensive statements,
+
+42
+00:02:34.280 --> 00:02:36.940
+index usage and autovacuum health.
+
+43
+00:02:36.990 --> 00:02:40.010
+And Exceptions groups repeated failures into one entry,
+
+44
+00:02:40.060 --> 00:02:42.790
+with the full stack trace and a triage status.
+
+45
+00:02:42.840 --> 00:02:44.560
+And that's just the start:
+
+46
+00:02:44.610 --> 00:02:50.560
+health, metrics, threads, beans, configuration, mappings, caches, traces, logs.
+
+47
+00:02:50.610 --> 00:02:52.850
+BootUI ships around sixty panels.
+
+48
+00:02:54.730 --> 00:02:56.840
+Now bring in your AI agent.
+
+49
+00:02:56.890 --> 00:03:02.020
+Turn on the local MCP server, or install the BootUI agent skill,
+
+50
+00:03:02.070 --> 00:03:07.860
+and GitHub Copilot, or any MCP client, can call the same seventy-nine tools.
+
+51
+00:03:07.910 --> 00:03:11.020
+Ask your agent to fix the top Hibernate finding.
+
+52
+00:03:11.070 --> 00:03:16.450
+It runs hibernate_scan, reads the remediation, and switches the association to LAZY.
+
+53
+00:03:16.500 --> 00:03:18.740
+Then it scans again:
+
+54
+00:03:18.790 --> 00:03:22.780
+three violations become two, verified against the running app,
+
+55
+00:03:22.830 --> 00:03:24.690
+not guessed from the source.
+
+56
+00:03:26.630 --> 00:03:28.820
+And when you'd rather stay in your terminal,
+
+57
+00:03:28.870 --> 00:03:33.750
+the same diagnostics are one command away with the bootui CLI:
+
+58
+00:03:34.010 --> 00:03:37.630
+exact JSON, ready for scripts and CI.
+
+59
+00:03:39.460 --> 00:03:41.000
+One dependency.
+
+60
+00:03:41.050 --> 00:03:44.920
+One running application, finally understandable.
+
+61
+00:03:44.970 --> 00:03:50.140
+BootUI is free and open source, and contributions are welcome.
+
+62
+00:03:50.190 --> 00:03:54.850
+Find it on GitHub, at jdubois/boot-ui, and give it a star!
+

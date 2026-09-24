@@ -36,6 +36,8 @@ coverage/
 .eslintcache
 **/.vuepress/.cache/
 **/.vuepress/.temp/
+# The showcase video is a GitHub Release asset, downloaded by pages.yml at build time.
+docs/.vuepress/public/videos/*.mp4
 
 # BootUI runtime persistence (local developer overrides)
 .bootui/
@@ -52,3 +54,6 @@ coverage/
 /.mvn/maven.config
 /bootui-spring-sample-app/Dockerfile-native
 /bootui-spring-sample-app/src/main/resources/META-INF/native-image/com.julien-dubois.bootui/bootui-spring-sample-app/reachability-metadata.json
+
+# Local HyperFrames video projects and their renders; published videos live as GitHub Release assets
+/videos/

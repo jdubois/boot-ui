@@ -54,6 +54,21 @@ jobs:
       - name: Check analytics consent handling
         run: npm run test:analytics
 
+      # The showcase video is too large for Git, so it lives as an asset of the non-version
+      # `showcase-video` GitHub Release and is served from Pages next to its committed poster
+      # and captions. A missing asset fails the build rather than publishing a broken player.
+      - name: Download showcase video
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download showcase-video \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern bootui-showcase.mp4 \
+            --dir docs/.vuepress/public/videos \
+            --clobber
+          test -s docs/.vuepress/public/videos/bootui-showcase.mp4
+
       - name: Build VuePress site
         run: npm run docs:build
         env:
@@ -61,6 +76,16 @@ jobs:
 
       - name: Check published install scripts
         run: bash .github/scripts/check-docs-downloads.sh docs/.vuepress/dist
+
+      - name: Check published showcase video
+        run: |
+          set -euo pipefail
+          for asset in bootui-showcase.mp4 bootui-showcase-poster.jpg bootui-showcase.en.vtt; do
+            if [[ ! -s "docs/.vuepress/dist/videos/$asset" ]]; then
+              echo "::error::docs/.vuepress/dist/videos/$asset is missing from the built site"
+              exit 1
+            fi
+          done
 
       - name: Check documentation fragment links
         run: python3 -B -m unittest discover -s .github/scripts -p 'test_docs_links.py'
