@@ -6,6 +6,9 @@ actions:
   - text: Explore features
     link: /features
     type: primary
+  - text: Watch the video
+    link: '#showcase-video'
+    type: secondary
   - text: Set up BootUI
     link: /setup
     type: secondary
@@ -35,9 +38,8 @@ features:
     link: /setup/activation
     linkText: Activation and safety
 footer: Apache-2.0 Licensed | BootUI
+showcaseVideo: true
 ---
-
-<ScreenshotCarousel />
 
 ## Start here
 
