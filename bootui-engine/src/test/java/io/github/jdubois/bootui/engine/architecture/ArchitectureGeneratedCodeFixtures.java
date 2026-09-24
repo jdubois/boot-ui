@@ -5,11 +5,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import java.io.IOException;
+import java.net.JarURLConnection;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.jar.JarFile;
 import javax.tools.DiagnosticCollector;
 import javax.tools.JavaFileObject;
 import javax.tools.ToolProvider;
@@ -48,6 +51,16 @@ final class ArchitectureGeneratedCodeFixtures {
                     .isTrue();
         }
         return new ClassFileImporter().importPath(classes);
+    }
+
+    /**
+     * Opens the JDK URL-cached handle that ArchUnit reuses when importing {@code jar}. Closing it evicts the cache
+     * entry, so Windows can delete the file afterwards.
+     */
+    static JarFile cachedJar(Path jar) throws IOException {
+        var connection = (JarURLConnection)
+                URI.create("jar:" + jar.toUri() + "!/").toURL().openConnection();
+        return connection.getJarFile();
     }
 
     static Path write(Path file, String content) throws IOException {

@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.architecture;
 
+import static io.github.jdubois.bootui.engine.architecture.ArchitectureGeneratedCodeFixtures.cachedJar;
 import static io.github.jdubois.bootui.engine.architecture.ArchitectureGeneratedCodeFixtures.compile;
 import static io.github.jdubois.bootui.engine.architecture.ArchitectureGeneratedCodeFixtures.write;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -116,7 +117,7 @@ class OpenApiGeneratorApiUtilFingerprintTests {
     }
 
     private static JavaClasses importJar(Path jar) throws IOException {
-        try (var jarFile = new JarFile(jar.toFile())) {
+        try (JarFile jarFile = cachedJar(jar)) {
             return new ClassFileImporter().importJar(jarFile);
         }
     }
@@ -141,7 +142,8 @@ class OpenApiGeneratorApiUtilFingerprintTests {
         Path jar = jar(sources);
         Thread thread = Thread.currentThread();
         ClassLoader previous = thread.getContextClassLoader();
-        try (var loader = new URLClassLoader(new URL[] {jar.toUri().toURL()}, previous)) {
+        try (JarFile cached = cachedJar(jar);
+                var loader = new URLClassLoader(new URL[] {jar.toUri().toURL()}, previous)) {
             thread.setContextClassLoader(loader);
             var scanner = new ArchitectureScanner(
                     () -> List.of("sample"),

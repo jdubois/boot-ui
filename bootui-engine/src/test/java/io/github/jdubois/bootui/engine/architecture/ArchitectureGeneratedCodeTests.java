@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.architecture;
 
 import static io.github.jdubois.bootui.engine.architecture.ArchitectureGeneratedCodeFixtures.apiUtil;
+import static io.github.jdubois.bootui.engine.architecture.ArchitectureGeneratedCodeFixtures.cachedJar;
 import static io.github.jdubois.bootui.engine.architecture.ArchitectureGeneratedCodeFixtures.compile;
 import static io.github.jdubois.bootui.engine.architecture.ArchitectureGeneratedCodeFixtures.write;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -235,7 +236,7 @@ class ArchitectureGeneratedCodeTests {
             Files.copy(root.resolve("custom-output/sample/ApiUtil.class"), out);
             out.closeEntry();
         }
-        try (var jarFile = new JarFile(jar.toFile())) {
+        try (JarFile jarFile = cachedJar(jar)) {
             var packaged = new ClassFileImporter().importJar(jarFile);
             assertThat(packaged).hasSize(1);
             assertThat(ArchitectureGeneratedCode.resolve(packaged).generatedClasses())
