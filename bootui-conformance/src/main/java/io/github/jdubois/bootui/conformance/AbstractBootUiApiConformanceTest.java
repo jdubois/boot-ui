@@ -74,6 +74,11 @@ public abstract class AbstractBootUiApiConformanceTest {
 
     private static final String IMMUTABLE = "public, max-age=31536000, immutable";
 
+    /** System property every consumer module passes on the test JVM command line to exercise argument masking. */
+    protected static final String JVM_SECRET_ARGUMENT_KEY = "bootui.conformance.jvm-password";
+
+    protected static final String JVM_SECRET_ARGUMENT_VALUE = "conformance-raw-jvm-secret";
+
     private static final String NO_CACHE = "no-cache";
 
     private static final Pattern BUILT_ASSET =
@@ -1606,6 +1611,36 @@ public abstract class AbstractBootUiApiConformanceTest {
                 .isNotNull();
         assertThat(matching.path("masked").asBoolean()).isTrue();
         assertThat(matching.path("value").asText()).isEqualTo("******");
+    }
+
+    /**
+     * JVM input arguments carry system properties exactly as typed on the command line. The Live Memory and JVM
+     * Tuning reports must mask a secret-named {@code -D} value while keeping its key, on every stack. Each consumer
+     * module passes {@value #JVM_SECRET_ARGUMENT_KEY} through its Surefire {@code argLine}; the test JVM is the
+     * server JVM on Spring MVC, Spring WebFlux and Quarkus alike.
+     */
+    @Test
+    void jvmInputArgumentSecretsAreMaskedBeforeSerialization() {
+        String masked = "-D" + JVM_SECRET_ARGUMENT_KEY + "=******";
+        for (String panel : List.of("jvm-tuning", "live-memory")) {
+            // Both panels read only JMX beans present on every JVM, so unavailability is itself a wiring
+            // regression and must fail rather than skip the masking check.
+            assertThat(isPanelUsableInLiveManifest(panel))
+                    .as(panel + " must be available on every stack")
+                    .isTrue();
+            Response response = probe().get(api("/" + panel));
+            assertThat(response.status()).as(panel + " status").isEqualTo(200);
+            assertThat(response.body())
+                    .as(panel + " must never serialize a raw JVM argument secret")
+                    .doesNotContain(JVM_SECRET_ARGUMENT_VALUE);
+            List<String> arguments = new ArrayList<>();
+            response.json().path("jvmInputArguments").forEach(argument -> arguments.add(argument.asText()));
+            assertThat(arguments)
+                    .as(panel + " must keep the secret argument key visible with a masked value; configure "
+                            + "-D" + JVM_SECRET_ARGUMENT_KEY + "=" + JVM_SECRET_ARGUMENT_VALUE
+                            + " in the Surefire argLine")
+                    .contains(masked);
+        }
     }
 
     /**

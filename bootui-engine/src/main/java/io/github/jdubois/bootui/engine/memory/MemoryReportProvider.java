@@ -4,14 +4,19 @@ import io.github.jdubois.bootui.core.dto.KubernetesMemoryRecommendationDto;
 import io.github.jdubois.bootui.core.dto.LiveMemoryReport;
 import io.github.jdubois.bootui.core.dto.MemoryCalculationDto;
 import io.github.jdubois.bootui.core.dto.MemoryPoolDto;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import io.github.jdubois.bootui.spi.MemoryRuntimeConfig;
 import java.lang.management.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalLong;
+import java.util.function.Supplier;
 
 /**
  * Builds the live JVM memory report shared by the Live Memory and JVM Tuning panels.
+ *
+ * <p>JVM input arguments are read raw for sizing decisions but serialized only after the live
+ * {@link ExposurePolicy} has been applied, so a secret passed as {@code -Dkey=value} never leaves the engine.</p>
  */
 public class MemoryReportProvider {
 
@@ -20,6 +25,8 @@ public class MemoryReportProvider {
     private final MemoryCalculator calculator;
     private final ContainerMemoryLimitDetector containerMemoryLimitDetector;
     private final MemoryRuntimeConfig runtimeConfig;
+    private final ExposurePolicy exposure;
+    private final Supplier<List<String>> inputArgumentsSupplier;
 
     public MemoryReportProvider() {
         this(new MemoryCalculator(), ContainerMemoryLimitDetector.standard(), MemoryRuntimeConfig.DEFAULTS);
@@ -27,6 +34,18 @@ public class MemoryReportProvider {
 
     public MemoryReportProvider(MemoryRuntimeConfig runtimeConfig) {
         this(new MemoryCalculator(), ContainerMemoryLimitDetector.standard(), runtimeConfig);
+    }
+
+    /**
+     * @param exposure live policy re-read on every report to mask secret-bearing JVM input arguments
+     */
+    public MemoryReportProvider(MemoryRuntimeConfig runtimeConfig, ExposurePolicy exposure) {
+        this(
+                new MemoryCalculator(),
+                ContainerMemoryLimitDetector.standard(),
+                runtimeConfig,
+                exposure,
+                MemoryReportProvider::runtimeInputArguments);
     }
 
     MemoryReportProvider(MemoryCalculator calculator) {
@@ -41,9 +60,29 @@ public class MemoryReportProvider {
             MemoryCalculator calculator,
             ContainerMemoryLimitDetector containerMemoryLimitDetector,
             MemoryRuntimeConfig runtimeConfig) {
+        this(
+                calculator,
+                containerMemoryLimitDetector,
+                runtimeConfig,
+                JvmInputArgumentMasking.MASKED_BY_DEFAULT,
+                MemoryReportProvider::runtimeInputArguments);
+    }
+
+    MemoryReportProvider(
+            MemoryCalculator calculator,
+            ContainerMemoryLimitDetector containerMemoryLimitDetector,
+            MemoryRuntimeConfig runtimeConfig,
+            ExposurePolicy exposure,
+            Supplier<List<String>> inputArgumentsSupplier) {
         this.calculator = calculator;
         this.containerMemoryLimitDetector = containerMemoryLimitDetector;
         this.runtimeConfig = runtimeConfig;
+        this.exposure = exposure == null ? JvmInputArgumentMasking.MASKED_BY_DEFAULT : exposure;
+        this.inputArgumentsSupplier = inputArgumentsSupplier;
+    }
+
+    private static List<String> runtimeInputArguments() {
+        return ManagementFactory.getRuntimeMXBean().getInputArguments();
     }
 
     public LiveMemoryReport buildReport(
@@ -70,7 +109,10 @@ public class MemoryReportProvider {
             }
         }
 
-        List<String> inputArgs = ManagementFactory.getRuntimeMXBean().getInputArguments();
+        List<String> inputArgs = inputArgumentsSupplier.get();
+        if (inputArgs == null) {
+            inputArgs = List.of();
+        }
 
         int liveThreads = threadBean.getThreadCount();
         int liveClasses = classBean.getLoadedClassCount();
@@ -126,7 +168,14 @@ public class MemoryReportProvider {
                 resolvedKubernetesActuatorEnabled,
                 runtimeConfig.healthProbeManifest());
 
-        return new LiveMemoryReport(heap, nonHeap, pools, inputArgs, calculation.jvmOptions(), calculation, kubernetes);
+        return new LiveMemoryReport(
+                heap,
+                nonHeap,
+                pools,
+                JvmInputArgumentMasking.mask(inputArgs, exposure),
+                calculation.jvmOptions(),
+                calculation,
+                kubernetes);
     }
 
     private long totalMemoryBytes(long requestedMebibytes) {
@@ -167,7 +216,7 @@ public class MemoryReportProvider {
 
     private boolean nativeMemoryTrackingEnabled(List<String> inputArgs) {
         for (String inputArg : inputArgs) {
-            if (inputArg.startsWith("-XX:NativeMemoryTracking=") && !inputArg.endsWith("=off")) {
+            if (inputArg != null && inputArg.startsWith("-XX:NativeMemoryTracking=") && !inputArg.endsWith("=off")) {
                 return true;
             }
         }
