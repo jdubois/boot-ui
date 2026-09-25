@@ -22,7 +22,7 @@ Use `bootui-spring-boot-starter-reactive` instead of `bootui-spring-boot-starter
 <dependency>
   <groupId>com.julien-dubois.bootui</groupId>
   <artifactId>bootui-spring-boot-starter-reactive</artifactId>
-  <version>1.18.0</version>
+  <version>1.19.0</version>
 </dependency>
 ```
 
@@ -30,12 +30,12 @@ Use `bootui-spring-boot-starter-reactive` instead of `bootui-spring-boot-starter
 
 ```groovy
 // Groovy DSL (build.gradle)
-runtimeOnly 'com.julien-dubois.bootui:bootui-spring-boot-starter-reactive:1.18.0'
+runtimeOnly 'com.julien-dubois.bootui:bootui-spring-boot-starter-reactive:1.19.0'
 ```
 
 ```kotlin
 // Kotlin DSL (build.gradle.kts)
-runtimeOnly("com.julien-dubois.bootui:bootui-spring-boot-starter-reactive:1.18.0")
+runtimeOnly("com.julien-dubois.bootui:bootui-spring-boot-starter-reactive:1.19.0")
 ```
 
 :::

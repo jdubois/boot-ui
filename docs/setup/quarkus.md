@@ -20,7 +20,7 @@ backed by the Quarkus build of the framework-neutral engine.
 <dependency>
   <groupId>com.julien-dubois.bootui</groupId>
   <artifactId>bootui-quarkus</artifactId>
-  <version>1.18.0</version>
+  <version>1.19.0</version>
 </dependency>
 ```
 
@@ -28,12 +28,12 @@ backed by the Quarkus build of the framework-neutral engine.
 
 ```groovy
 // Groovy DSL (build.gradle)
-implementation 'com.julien-dubois.bootui:bootui-quarkus:1.18.0'
+implementation 'com.julien-dubois.bootui:bootui-quarkus:1.19.0'
 ```
 
 ```kotlin
 // Kotlin DSL (build.gradle.kts)
-implementation("com.julien-dubois.bootui:bootui-quarkus:1.18.0")
+implementation("com.julien-dubois.bootui:bootui-quarkus:1.19.0")
 ```
 
 :::
