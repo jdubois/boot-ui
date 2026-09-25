@@ -7,6 +7,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-09-25
+
+Maintenance release focused on accurate diagnostics. JVM Tuning and Live Memory now mask secrets passed as JVM
+arguments, SQL Trace records durations in microseconds, and Hibernate Advisor PARTIAL scans explain which evidence was
+missing. Hibernate, database schema, Spring performance, and architecture checks report fewer false unknowns and false
+positives, and vulnerability coverage recognizes the application's own module JARs.
+
+### Changed
+
+- **HIB-QUERY-007 and SEC-CORS-006 declare the severity they actually emit.** HIB-QUERY-007 is declared `MEDIUM`
+  instead of `HIGH`, and SEC-CORS-006 is declared `LOW` instead of `MEDIUM`, matching its reactive twin
+  SEC-RXF-CORS-003. Only the rule catalogue and PASS/SKIPPED results change; emitted finding severities and advisor
+  scores are unchanged ([#1098](https://github.com/jdubois/boot-ui/pull/1098),
+  [#1100](https://github.com/jdubois/boot-ui/issues/1100)).
+
 ### Fixed
 
 - **JVM Tuning and Live Memory no longer expose secrets passed as JVM arguments.** JVM input arguments now pass
@@ -69,6 +84,27 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   unknown, which left the rule with no applicable targets. Composite joins with an omitted referenced column, `@Id`
   columns that cannot be established without guessing a naming strategy, and constraints that reference a
   non-primary-key column remain unknown ([#1088](https://github.com/jdubois/boot-ui/issues/1088)).
+
+- **Vulnerabilities coverage recognizes the application's own module JARs and `spring-boot-jarmode-tools`.** On
+  Spring applications, an archive left unidentified by the SBOM, Maven descriptors, and file names is inspected once
+  more, reading only its manifest and entry names. An archive whose every class lives in the application's base
+  packages is reported as first-party (`archivesFirstParty`, at most 200 `firstPartyArchives` plus
+  `firstPartyArchivesTruncated`) and no longer keeps coverage `INCOMPLETE`. `spring-boot-jarmode-tools` is identified
+  from its manifest when file name, title, version, and contents agree, and is then scanned. Exploded layouts honor
+  `BOOT-INF/layers.idx` and `WEB-INF/layers.idx` ([#1084](https://github.com/jdubois/boot-ui/issues/1084)).
+
+- **DB-SCHEMA-003 no longer degrades a whole table to unknown for one hash or GIN index.** The unknown is raised only
+  for a non-comparable index that shares its access method and key columns with another index on the same table, and
+  names that index. PostgreSQL applications using Spring Modulith no longer get a PARTIAL scan from the
+  `event_publication` tables ([#1092](https://github.com/jdubois/boot-ui/issues/1092)).
+
+- **DB-SCHEMA-004 compares `uuid` and identically declared foreign key columns.** These pairs are now treated as fully
+  compared instead of reported as unknown ([#1089](https://github.com/jdubois/boot-ui/issues/1089)).
+
+- **DB-SCHEMA-005 names the index it could not assess.** Partial, expression, prefix, special-type, partitioned, and
+  invalid unique indexes are skipped as intentional exclusions, and each remaining unknown names its datasource,
+  table, and index instead of collapsing into one anonymous line
+  ([#1091](https://github.com/jdubois/boot-ui/issues/1091)).
 
 ## [1.18.0] - 2026-09-21
 
@@ -2279,7 +2315,10 @@ First tagged BootUI alpha. Highlights of the harden-all-visible-panels scope:
   request history, distributed tracing, multi-service orchestration, and live
   Docker Compose lifecycle control are intentionally out of scope for the alpha.
 
-[Unreleased]: https://github.com/jdubois/boot-ui/compare/v1.16.0...HEAD
+[Unreleased]: https://github.com/jdubois/boot-ui/compare/v1.19.0...HEAD
+[1.19.0]: https://github.com/jdubois/boot-ui/compare/v1.18.0...v1.19.0
+[1.18.0]: https://github.com/jdubois/boot-ui/compare/v1.17.0...v1.18.0
+[1.17.0]: https://github.com/jdubois/boot-ui/compare/v1.16.0...v1.17.0
 [1.16.0]: https://github.com/jdubois/boot-ui/compare/v1.15.0...v1.16.0
 [1.15.0]: https://github.com/jdubois/boot-ui/compare/v1.14.1...v1.15.0
 [1.14.1]: https://github.com/jdubois/boot-ui/compare/v1.14.0...v1.14.1
