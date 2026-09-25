@@ -88,12 +88,6 @@ record ForeignKeyModel(
                 matchType);
     }
 
-    String referencedQualifiedName() {
-        return referencedSchema == null || referencedSchema.isBlank()
-                ? String.valueOf(referencedTable)
-                : referencedSchema + "." + referencedTable;
-    }
-
     /** True when the driver reported the same number of referencing and referenced columns. */
     boolean consistent() {
         return referencedTable != null

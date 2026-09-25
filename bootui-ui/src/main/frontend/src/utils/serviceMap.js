@@ -24,12 +24,12 @@
  * how its replay is paced.
  */
 
-export const PROTOCOL_HTTP_INBOUND = 'HTTP_INBOUND'
-export const PROTOCOL_HTTP = 'HTTP'
-export const PROTOCOL_JDBC = 'JDBC'
-export const PROTOCOL_KAFKA = 'KAFKA'
-export const PROTOCOL_RABBITMQ = 'RABBITMQ'
-export const PROTOCOL_CACHE = 'CACHE'
+const PROTOCOL_HTTP_INBOUND = 'HTTP_INBOUND'
+const PROTOCOL_HTTP = 'HTTP'
+const PROTOCOL_JDBC = 'JDBC'
+const PROTOCOL_KAFKA = 'KAFKA'
+const PROTOCOL_RABBITMQ = 'RABBITMQ'
+const PROTOCOL_CACHE = 'CACHE'
 
 export const PROTOCOL_LABELS = {
   APPLICATION: 'Application',
@@ -83,8 +83,6 @@ export const REDUCED_MOTION_HIGHLIGHT_MS = 1200
 export const PULSE_DURATION_OK_MS = 750
 export const PULSE_DURATION_SLOW_MS = 1350
 export const PULSE_DURATION_FAILED_MS = 1000
-/** Back-compat alias equal to the normal-tone duration; existing call sites keep working unchanged. */
-export const PULSE_DURATION_MS = PULSE_DURATION_OK_MS
 
 /** The travel duration for one pulse, keyed by the tone `pulseTone` classified it into. */
 export function pulseDurationMs(tone) {

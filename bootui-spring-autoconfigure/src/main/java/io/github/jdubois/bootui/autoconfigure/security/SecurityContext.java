@@ -295,20 +295,6 @@ record SecurityContext(
     static final List<String> SENSITIVE_ACTUATOR_ENDPOINTS =
             List.of("env", "beans", "configprops", "heapdump", "threaddump", "shutdown", "loggers", "mappings");
 
-    private static Set<String> tokenize(String commaSeparated) {
-        if (commaSeparated == null || commaSeparated.isBlank()) {
-            return Set.of();
-        }
-        Set<String> tokens = new LinkedHashSet<>();
-        for (String token : commaSeparated.toLowerCase(Locale.ROOT).split(",")) {
-            String trimmed = token.trim();
-            if (!trimmed.isEmpty()) {
-                tokens.add(trimmed);
-            }
-        }
-        return tokens;
-    }
-
     /**
      * The subset of {@link #SENSITIVE_ACTUATOR_ENDPOINTS} still reachable once
      * {@code management.endpoints.web.exposure.exclude} has been applied to

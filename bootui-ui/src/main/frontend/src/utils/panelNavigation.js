@@ -1,4 +1,4 @@
-export const UNAVAILABLE_GROUP_LABEL = 'Disabled / unavailable'
+const UNAVAILABLE_GROUP_LABEL = 'Disabled / unavailable'
 
 export function createPanelLookup(manifest) {
   return new Map((manifest?.panels ?? []).map((panel) => [panel.id, panel]))
@@ -8,7 +8,7 @@ export function resolveRouteTitle(route, platform) {
   return route?.meta?.titleByPlatform?.[platform] || route?.meta?.title || null
 }
 
-export function panelForRoute(route, panelLookup) {
+function panelForRoute(route, panelLookup) {
   return route?.name ? panelLookup.get(route.name) : null
 }
 
@@ -48,10 +48,6 @@ export function routePanelState(route, panelLookup) {
 export function routeUnavailable(route, panelLookup) {
   const kind = routePanelState(route, panelLookup)?.kind
   return kind === 'disabled' || kind === 'unavailable'
-}
-
-export function routeReadOnly(route, panelLookup) {
-  return routePanelState(route, panelLookup)?.kind === 'read-only'
 }
 
 export function routeStatusIcon(route, panelLookup) {

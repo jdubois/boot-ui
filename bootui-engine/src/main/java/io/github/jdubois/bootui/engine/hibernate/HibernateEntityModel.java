@@ -76,15 +76,6 @@ public record HibernateEntityModel(String name, Class<?> javaType, List<Hibernat
         return javaType != null && implementsInterface(javaType, PERSISTENT_ATTRIBUTE_INTERCEPTABLE);
     }
 
-    String inheritanceStrategy() {
-        Annotation inheritance = annotationInHierarchy("jakarta.persistence.Inheritance");
-        return annotationValueName(inheritance, "strategy");
-    }
-
-    boolean hasDiscriminatorColumn() {
-        return annotationInHierarchy("jakarta.persistence.DiscriminatorColumn") != null;
-    }
-
     Annotation hibernateCacheAnnotation() {
         return annotationInHierarchy("org.hibernate.annotations.Cache");
     }
@@ -154,10 +145,6 @@ public record HibernateEntityModel(String name, Class<?> javaType, List<Hibernat
 
     boolean overridesHashCode() {
         return declaresMethod("hashCode");
-    }
-
-    boolean overridesToString() {
-        return declaresMethod("toString");
     }
 
     private boolean declaresMethod(String name, Class<?>... parameterTypes) {

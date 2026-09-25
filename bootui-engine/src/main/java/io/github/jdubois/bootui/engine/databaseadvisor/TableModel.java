@@ -166,25 +166,6 @@ record TableModel(
                 .orElse(null);
     }
 
-    /** True when at least one usable index supports equality lookups on {@code columns} in that order. */
-    boolean hasUsableLeadingIndex(List<String> orderedColumns) {
-        return indexes.stream().anyMatch(index -> index.supportsLeadingEquality(orderedColumns));
-    }
-
-    /**
-     * True when at least one usable index's leading key parts are exactly {@code columns}, as a set, in any
-     * order — Oracle's own documented guidance for what supports a composite foreign key, since a pure
-     * multi-column equality lookup does not care which leading key part binds to which column.
-     */
-    boolean hasUsableLeadingIndexAnyOrder(List<String> columns) {
-        return indexes.stream().anyMatch(index -> index.supportsLeadingEqualityAnyOrder(columns));
-    }
-
-    /** True when at least one usable unique index genuinely enforces uniqueness over {@code columns}. */
-    boolean hasEnforcedUniqueness(List<String> uniqueColumns) {
-        return uniquenessCoverage(uniqueColumns) == IndexModel.UniquenessCoverage.ENFORCED;
-    }
-
     IndexModel.UniquenessCoverage uniquenessCoverage(List<String> uniqueColumns) {
         if (uniqueColumns.isEmpty() || uniqueColumns.stream().anyMatch(Objects::isNull)) {
             return IndexModel.UniquenessCoverage.UNKNOWN;

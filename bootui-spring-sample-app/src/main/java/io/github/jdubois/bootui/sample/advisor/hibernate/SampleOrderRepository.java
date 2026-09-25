@@ -12,7 +12,7 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 // Hibernate Advisor demo repository for SampleOrder, whose mappings intentionally trigger
-// HIB-FETCH-001/HIB-FETCH-004/HIB-MAP-002/HIB-MAP-003/HIB-MAP-004/HIB-MAP-005,
+// HIB-FETCH-001/HIB-MAP-002/HIB-MAP-003/HIB-MAP-004/HIB-MAP-005,
 // plus the HIB-QUERY-* checks below.
 public interface SampleOrderRepository extends JpaRepository<SampleOrder, Long> {
 

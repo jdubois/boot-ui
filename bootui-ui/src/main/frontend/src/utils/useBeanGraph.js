@@ -3,7 +3,7 @@ import {apiFetch} from '../api.js'
 import {describeLoadError} from './loadError.js'
 
 /** Maximum beans to fetch when building the graph index. */
-export const MAX_GRAPH_LOAD = 2000
+const MAX_GRAPH_LOAD = 2000
 /** The shared backend paging helper caps every response at 1 000 rows. */
 export const GRAPH_LOAD_PAGE_SIZE = 1000
 /** Maximum nodes to include in a single neighbourhood render. */

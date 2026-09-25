@@ -20,11 +20,6 @@ record PostgresReadContext(
         PostgresInsightLimits limits,
         ExposurePolicy exposure) {
 
-    /** The server major version, or {@code -1} when the driver could not report it. */
-    int majorVersion() {
-        return version.major();
-    }
-
     int timeoutSeconds() {
         return budget.remainingSecondsAtMost(limits.statementTimeoutSeconds());
     }

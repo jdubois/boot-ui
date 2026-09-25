@@ -89,9 +89,4 @@ public final class ErrorBodyCategory {
         }
         return CUSTOM_OBJECT;
     }
-
-    /** Whether the named type is an RFC 9457 problem-details document. */
-    public static boolean isProblemDetail(String typeName) {
-        return typeName != null && PROBLEM_DETAIL_TYPES.contains(typeName);
-    }
 }

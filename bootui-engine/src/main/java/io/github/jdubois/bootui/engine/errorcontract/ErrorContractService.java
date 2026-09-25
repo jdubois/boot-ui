@@ -34,14 +34,6 @@ public final class ErrorContractService implements ErrorContractLinkResolver {
     /** Default upper bound on catalogued entries, so a pathological application cannot unbound the panel. */
     public static final int DEFAULT_MAX_ENTRIES = 500;
 
-    // --- Response-body categories (classified by the shared ErrorBodyCategory) -------------------
-    static final String BODY_PROBLEM_DETAIL = ErrorBodyCategory.PROBLEM_DETAIL;
-    static final String BODY_CUSTOM_OBJECT = ErrorBodyCategory.CUSTOM_OBJECT;
-    static final String BODY_STRING = ErrorBodyCategory.STRING;
-    static final String BODY_EMPTY = ErrorBodyCategory.EMPTY;
-    static final String BODY_DYNAMIC = ErrorBodyCategory.DYNAMIC;
-    static final String BODY_UNRESOLVED = ErrorBodyCategory.UNRESOLVED;
-
     // --- Status sources ------------------------------------------------------------------------
     static final String STATUS_ANNOTATION = "ANNOTATION";
     static final String STATUS_DYNAMIC = "DYNAMIC";

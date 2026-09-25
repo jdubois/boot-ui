@@ -104,38 +104,6 @@ enum JdbcTypeFamily {
             "bit varying");
     private static final Set<String> UUID_TYPE_NAMES = Set.of("uuid", "uniqueidentifier");
 
-    private static final Set<String> STRING_JAVA_TYPES = Set.of("String", "Character", "char");
-    private static final Set<String> NUMERIC_JAVA_TYPES = Set.of(
-            "byte",
-            "short",
-            "int",
-            "long",
-            "float",
-            "double",
-            "Byte",
-            "Short",
-            "Integer",
-            "Long",
-            "Float",
-            "Double",
-            "BigDecimal",
-            "BigInteger");
-    private static final Set<String> BOOLEAN_JAVA_TYPES = Set.of("boolean", "Boolean");
-    private static final Set<String> DATE_TIME_JAVA_TYPES = Set.of(
-            "Date",
-            "LocalDate",
-            "LocalDateTime",
-            "LocalTime",
-            "Instant",
-            "OffsetDateTime",
-            "OffsetTime",
-            "ZonedDateTime",
-            "Timestamp",
-            "Time",
-            "Calendar");
-    private static final Set<String> BINARY_JAVA_TYPES = Set.of("byte[]", "Byte[]", "Blob");
-    private static final Set<String> UUID_JAVA_TYPES = Set.of("UUID");
-
     /** Classifies a physical column from its JDBC type code, falling back to the reported type name. */
     static JdbcTypeFamily of(ColumnModel column) {
         if (column == null) {
@@ -196,32 +164,6 @@ enum JdbcTypeFamily {
         }
         if (NUMERIC_TYPE_NAMES.contains(normalized)) {
             return NUMERIC;
-        }
-        return OTHER;
-    }
-
-    /** Classifies a mapped Java attribute's raw type simple name (e.g. {@code String}, {@code Integer}). */
-    static JdbcTypeFamily ofJavaType(String javaTypeSimpleName) {
-        if (javaTypeSimpleName == null) {
-            return OTHER;
-        }
-        if (STRING_JAVA_TYPES.contains(javaTypeSimpleName)) {
-            return STRING;
-        }
-        if (NUMERIC_JAVA_TYPES.contains(javaTypeSimpleName)) {
-            return NUMERIC;
-        }
-        if (BOOLEAN_JAVA_TYPES.contains(javaTypeSimpleName)) {
-            return BOOLEAN;
-        }
-        if (DATE_TIME_JAVA_TYPES.contains(javaTypeSimpleName)) {
-            return DATE_TIME;
-        }
-        if (BINARY_JAVA_TYPES.contains(javaTypeSimpleName)) {
-            return BINARY;
-        }
-        if (UUID_JAVA_TYPES.contains(javaTypeSimpleName)) {
-            return UUID;
         }
         return OTHER;
     }

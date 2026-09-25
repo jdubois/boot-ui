@@ -126,7 +126,6 @@ public class TelemetryStore {
             if (bucket.spans.size() < effectiveMaxSpansPerTrace()) {
                 bucket.spans.add(span);
             }
-            bucket.lastUpdateEpochNanos = Math.max(bucket.lastUpdateEpochNanos, span.endEpochNanos());
             tracesById.put(traceId, bucket);
             return true;
         } finally {
@@ -227,12 +226,9 @@ public class TelemetryStore {
 
         private final List<NormalizedSpan> spans;
 
-        private final long lastUpdateEpochNanos;
-
-        private TraceBucket(String traceId, List<NormalizedSpan> spans, long lastUpdateEpochNanos) {
+        private TraceBucket(String traceId, List<NormalizedSpan> spans) {
             this.traceId = traceId;
             this.spans = List.copyOf(spans);
-            this.lastUpdateEpochNanos = lastUpdateEpochNanos;
         }
 
         public String traceId() {
@@ -242,10 +238,6 @@ public class TelemetryStore {
         public List<NormalizedSpan> spans() {
             return spans;
         }
-
-        public long lastUpdateEpochNanos() {
-            return lastUpdateEpochNanos;
-        }
     }
 
     private static final class MutableTraceBucket {
@@ -254,14 +246,12 @@ public class TelemetryStore {
 
         private final List<NormalizedSpan> spans = new ArrayList<>();
 
-        private long lastUpdateEpochNanos;
-
         private MutableTraceBucket(String traceId) {
             this.traceId = traceId;
         }
 
         private TraceBucket snapshot() {
-            return new TraceBucket(traceId, spans, lastUpdateEpochNanos);
+            return new TraceBucket(traceId, spans);
         }
     }
 }

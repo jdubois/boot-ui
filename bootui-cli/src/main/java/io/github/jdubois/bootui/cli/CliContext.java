@@ -56,14 +56,6 @@ final class CliContext {
         return manifest;
     }
 
-    PrintWriter out() {
-        return out;
-    }
-
-    PrintWriter err() {
-        return err;
-    }
-
     /**
      * Opens a client, runs one call against it, and reports {@link BootUiClientException} the same way every
      * command does.

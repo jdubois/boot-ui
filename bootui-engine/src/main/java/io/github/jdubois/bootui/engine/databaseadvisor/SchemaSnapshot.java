@@ -108,13 +108,6 @@ record SchemaSnapshot(
         return matches.size() == 1 ? matches.get(0) : null;
     }
 
-    /** Every table matching {@code tableName}, across schemas — used to detect ambiguous matches. */
-    List<TableModel> tablesNamed(String catalog, String schema, String tableName) {
-        return tables.stream()
-                .filter(table -> table.matches(catalog, schema, tableName))
-                .toList();
-    }
-
     TableModel exactTable(String catalog, String schema, String tableName) {
         List<TableModel> candidates = tables.stream()
                 .filter(table -> java.util.Objects.equals(table.catalog(), catalog)

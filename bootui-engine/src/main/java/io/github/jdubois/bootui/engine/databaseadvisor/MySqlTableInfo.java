@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import java.math.BigInteger;
-import java.util.Locale;
 
 /**
  * One MySQL/MariaDB base table's {@code information_schema.tables} row: its storage engine, its default
@@ -24,9 +23,5 @@ record MySqlTableInfo(String schema, String table, String engine, String collati
         }
         int separator = collation.indexOf('_');
         return separator <= 0 ? collation : collation.substring(0, separator);
-    }
-
-    boolean hasEngine(String candidate) {
-        return engine != null && engine.toLowerCase(Locale.ROOT).equals(candidate.toLowerCase(Locale.ROOT));
     }
 }

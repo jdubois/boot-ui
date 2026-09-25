@@ -32,9 +32,6 @@ import java.util.function.Supplier;
  */
 public final class CliService {
 
-    /** The path tools are invoked under, relative to the CLI endpoint. */
-    public static final String TOOLS_PATH = "/tools";
-
     private final boolean enabled;
     private final Supplier<List<McpTool>> tools;
     private final McpPanelPolicy policy;

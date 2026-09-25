@@ -2,8 +2,6 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import java.io.IOException;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.UrlPathHelper;
 
@@ -45,12 +43,6 @@ public abstract class AbstractBootUiFilter extends OncePerRequestFilter {
                 || path.startsWith(basePath + "/")
                 || path.equals(apiPath)
                 || path.startsWith(apiPath + "/");
-    }
-
-    protected void writeBlockedResponse(HttpServletResponse response, String reason) throws IOException {
-        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-        response.setContentType("application/json");
-        response.getWriter().write("{\"error\":\"BootUI access denied\",\"reason\":\"" + escape(reason) + "\"}");
     }
 
     protected String escape(String value) {

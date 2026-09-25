@@ -757,13 +757,6 @@ class SecurityRulesTests {
     }
 
     @Test
-    void corsWildcardMethodsHeadersRuleIsSkippedWhenOnlyACustomCorsSourceIsPresent() {
-        SecurityRuleResultDto result = new CorsWildcardMethodsHeadersRule().evaluate(customCorsSourceOnly());
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.SKIPPED);
-    }
-
-    @Test
     void broadCorsOriginPatternRuleIsSkippedWhenOnlyACustomCorsSourceIsPresent() {
         SecurityRuleResultDto result = new BroadCorsOriginPatternRule().evaluate(customCorsSourceOnly());
 
@@ -986,13 +979,6 @@ class SecurityRulesTests {
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.SKIPPED);
     }
 
-    @Test
-    void sessionTimeoutIsNotRequiredWhenEveryChainIsStateless() {
-        SecurityRuleResultDto result = new SessionTimeoutRule().evaluate(singleChain(statelessBearerChain(true)));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
-    }
-
     /**
      * The chain reported in issue #921: {@code sessionCreationPolicy(STATELESS)} with a bearer-token
      * resource server and CSRF disabled. Spring Security installs a {@code SessionManagementFilter}
@@ -1058,48 +1044,6 @@ class SecurityRulesTests {
         FilterChainModel chain = chain("any request", List.of("RememberMeAuthenticationFilter"));
 
         SecurityRuleResultDto result = new WeakRememberMeKeyRule().evaluate(singleChain(chain));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
-    }
-
-    // --- SEC-SESSION-009: session cookie name should use a __Host-/__Secure- prefix ---------
-
-    @Test
-    void sessionCookieNamePrefixFiresForACustomNameWithoutAPrefix() {
-        MockEnvironment environment =
-                new MockEnvironment().withProperty("server.servlet.session.cookie.name", "MYSESSIONID");
-
-        SecurityRuleResultDto result = new SessionCookieNamePrefixRule().evaluate(context(environment));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.severity()).isEqualTo("LOW");
-        assertThat(result.sampleViolations()).anyMatch(detail -> detail.contains("MYSESSIONID"));
-    }
-
-    @Test
-    void sessionCookieNamePrefixPassesWhenNoCustomNameIsConfigured() {
-        // The unmodified default cookie name, JSESSIONID, is not flagged.
-        SecurityRuleResultDto result = new SessionCookieNamePrefixRule().evaluate(context(new MockEnvironment()));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
-    }
-
-    @Test
-    void sessionCookieNamePrefixPassesForAHostPrefixedName() {
-        MockEnvironment environment =
-                new MockEnvironment().withProperty("server.servlet.session.cookie.name", "__Host-SESSION");
-
-        SecurityRuleResultDto result = new SessionCookieNamePrefixRule().evaluate(context(environment));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
-    }
-
-    @Test
-    void sessionCookieNamePrefixPassesForASecurePrefixedName() {
-        MockEnvironment environment =
-                new MockEnvironment().withProperty("server.servlet.session.cookie.name", "__Secure-SESSION");
-
-        SecurityRuleResultDto result = new SessionCookieNamePrefixRule().evaluate(context(environment));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }

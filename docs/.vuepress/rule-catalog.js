@@ -64,5 +64,3 @@ function normalizeSeverity(value) {
   const upper = value.toUpperCase()
   return KNOWN_SEVERITIES.find((severity) => upper.startsWith(severity)) ?? 'INFO'
 }
-
-export const severityOrder = KNOWN_SEVERITIES

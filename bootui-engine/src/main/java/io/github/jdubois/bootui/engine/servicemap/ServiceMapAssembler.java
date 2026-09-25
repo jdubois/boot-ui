@@ -647,10 +647,6 @@ public final class ServiceMapAssembler {
             return this;
         }
 
-        private void observe(String interactionId, long timestamp, String operation, boolean failed, Long durationMs) {
-            observe(interactionId, timestamp, operation, failed, durationMs, null);
-        }
-
         /**
          * Records one completed interaction, stamping it with the opaque {@code flowId} derived from
          * {@code traceId} (see {@link ServiceMapIdentities#flowId}) so the browser can recognize this

@@ -65,10 +65,6 @@ public final class BootUiSelfDataFilter {
         return classifier;
     }
 
-    public boolean shouldExcludeSelf() {
-        return excludeSelf;
-    }
-
     public boolean shouldInclude(boolean selfData) {
         return !excludeSelf || !selfData;
     }

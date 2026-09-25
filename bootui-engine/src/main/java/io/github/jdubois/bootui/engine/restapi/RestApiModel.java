@@ -86,13 +86,6 @@ final class RestApiModel {
 
         // --- JAX-RS (jakarta.ws.rs) — recognised so the advisor models Quarkus / JAX-RS resources too ---
         static final String JAXRS_PATH = "jakarta.ws.rs.Path";
-        static final String JAXRS_GET = "jakarta.ws.rs.GET";
-        static final String JAXRS_POST = "jakarta.ws.rs.POST";
-        static final String JAXRS_PUT = "jakarta.ws.rs.PUT";
-        static final String JAXRS_DELETE = "jakarta.ws.rs.DELETE";
-        static final String JAXRS_PATCH = "jakarta.ws.rs.PATCH";
-        static final String JAXRS_HEAD = "jakarta.ws.rs.HEAD";
-        static final String JAXRS_OPTIONS = "jakarta.ws.rs.OPTIONS";
         static final String JAXRS_HTTP_METHOD = "jakarta.ws.rs.HttpMethod";
         static final String JAXRS_PATH_PARAM = "jakarta.ws.rs.PathParam";
         static final String JAXRS_QUERY_PARAM = "jakarta.ws.rs.QueryParam";

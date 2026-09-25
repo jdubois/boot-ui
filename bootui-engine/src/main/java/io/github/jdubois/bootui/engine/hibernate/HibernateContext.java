@@ -309,10 +309,6 @@ record HibernateContext(
         return hibernateVersion.isAtLeastMajorMinor(7, 4);
     }
 
-    String hibernateVersionDisplay() {
-        return hibernateVersion.display();
-    }
-
     boolean isHibernateEnhancementEnabled(HibernateEntityModel entity) {
         if (observed()) {
             if (Boolean.TRUE.equals(enhancementVerified) || entity.isBytecodeEnhanced()) return true;

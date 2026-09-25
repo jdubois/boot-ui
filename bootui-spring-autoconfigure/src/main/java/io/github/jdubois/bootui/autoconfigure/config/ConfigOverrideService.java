@@ -28,8 +28,6 @@ public class ConfigOverrideService {
 
     private final ConfigurableEnvironment environment;
 
-    private final BootUiProperties properties;
-
     private final BootUiExposure exposure;
 
     private final ConfigOverridesFileStore store;
@@ -43,7 +41,6 @@ public class ConfigOverrideService {
     public ConfigOverrideService(
             ConfigurableEnvironment environment, BootUiProperties properties, BootUiExposure exposure) {
         this.environment = environment;
-        this.properties = properties;
         this.exposure = exposure;
         this.store = new ConfigOverridesFileStore(resolveFile(properties));
     }

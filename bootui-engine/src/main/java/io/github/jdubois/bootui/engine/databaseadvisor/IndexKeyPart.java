@@ -50,11 +50,4 @@ record IndexKeyPart(
     boolean matchesColumn(String candidate) {
         return columnName != null && candidate != null && columnName.equals(candidate);
     }
-
-    String describe() {
-        if (isExpression()) {
-            return "(" + (expression == null ? "expression" : expression) + ")";
-        }
-        return isPrefix() ? columnName + "(" + prefixLength + ")" : columnName;
-    }
 }
