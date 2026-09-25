@@ -1,6 +1,6 @@
 // Deterministic synthetic observations. No live credentials, SQL samples, application rows,
 // lock payloads, server addresses or replication configuration belong in this fixture.
-export const mysqlSections = [
+const mysqlSections = [
   ['vital-signs', 'Vital signs', 'SERVER'],
   ['sessions', 'Sessions', 'DEFAULT_SCHEMA_ASSOCIATED'],
   ['statements', 'Statements', 'DEFAULT_SCHEMA_ASSOCIATED'],
