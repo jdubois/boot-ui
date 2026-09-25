@@ -43,7 +43,7 @@ export const SAFE_REQUEST_HEADERS = Object.freeze(
 )
 
 /** Human-readable list used in the action feedback. */
-export const SAFE_REQUEST_HEADER_LABEL = Object.values(SAFE_REQUEST_HEADERS)
+const SAFE_REQUEST_HEADER_LABEL = Object.values(SAFE_REQUEST_HEADERS)
   .map((name, index, all) => (index === all.length - 1 ? `and ${name}` : name))
   .join(', ')
 

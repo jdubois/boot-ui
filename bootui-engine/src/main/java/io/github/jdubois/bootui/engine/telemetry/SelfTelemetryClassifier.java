@@ -46,10 +46,6 @@ public final class SelfTelemetryClassifier {
         return new SelfTelemetryClassifier(false, "/bootui", "/bootui/api");
     }
 
-    public boolean shouldExcludeSelf() {
-        return excludeSelf;
-    }
-
     public boolean shouldInclude(boolean selfData) {
         return !excludeSelf || !selfData;
     }

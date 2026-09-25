@@ -10,7 +10,7 @@ import {
   OUTCOME_LABELS,
   PROTOCOL_ICONS,
   PROTOCOL_LABELS,
-  PULSE_DURATION_MS,
+  PULSE_DURATION_OK_MS,
   REDUCED_MOTION_HIGHLIGHT_MS,
   createFlowQueue,
   createTransientTargetStateManager,
@@ -69,7 +69,7 @@ let unmounted = false
 let pauseGeneration = 0
 const highlightTimers = new Map()
 
-const queue = createFlowQueue({maxConcurrent: MAX_CONCURRENT_PULSES, duration: PULSE_DURATION_MS})
+const queue = createFlowQueue({maxConcurrent: MAX_CONCURRENT_PULSES, duration: PULSE_DURATION_OK_MS})
 const unsubscribeQueue = queue.subscribe((active) => {
   pulses.value = [...active]
 })
@@ -213,7 +213,7 @@ function clearTransientEvidence() {
 function pulseGeometry(pulse) {
   const edge = layout.value.edges.find((candidate) => candidate.id === pulse.edgeId)
   if (!edge) return null
-  const duration = `${pulse.durationMs ?? PULSE_DURATION_MS}ms`
+  const duration = `${pulse.durationMs ?? PULSE_DURATION_OK_MS}ms`
   const delay = `${pulse.startDelayMs ?? 0}ms`
   return {
     key: pulse.id,

@@ -126,10 +126,6 @@ public abstract class AgentSessionStore {
         return Paths.get(expanded).toAbsolutePath().normalize();
     }
 
-    public Path getSessionStateDir() {
-        return sessionStateDir;
-    }
-
     /** True when the configured directory currently exists and is readable. */
     public boolean isDirectoryAvailable() {
         return Files.isDirectory(sessionStateDir) && Files.isReadable(sessionStateDir);

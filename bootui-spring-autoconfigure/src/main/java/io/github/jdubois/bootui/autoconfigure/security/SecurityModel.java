@@ -353,15 +353,8 @@ final class SecurityModel {
             return hasFilter("UsernamePasswordAuthenticationFilter") || hasFilter("BasicAuthenticationFilter");
         }
 
-        boolean hasAuthenticationFilter() {
-            return isFormOrBasic()
-                    || hasFilterContaining("BearerTokenAuthenticationFilter")
-                    || hasFilterContaining("OAuth2LoginAuthenticationFilter")
-                    || hasFilterContaining("AuthenticationFilter");
-        }
-
         /**
-         * Like {@link #hasAuthenticationFilter()} but excludes the {@code AnonymousAuthenticationFilter}
+         * Reports any {@code *AuthenticationFilter} except the {@code AnonymousAuthenticationFilter}
          * that Spring Security installs on every chain. Used by rules that must distinguish a chain
          * configuring a real authentication mechanism (form, basic, bearer, OAuth2, SAML, X.509, CAS,
          * custom {@code *AuthenticationFilter}, ...) from one that only ever sees anonymous callers.
@@ -378,18 +371,6 @@ final class SecurityModel {
 
         boolean matchesAnyRequest() {
             return details.unconditional();
-        }
-
-        /**
-         * {@code true} when this chain's {@code securityMatcher} description mentions the actuator
-         * base path. Only a textual signal, used as a fallback when {@link #matchesActuatorPath()}
-         * could not be evaluated: a whole-application chain that protects the actuator through its
-         * authorization rules alone renders as {@code any request} and is not recognized here.
-         */
-        boolean matcherReferences(String basePath) {
-            return matcher != null
-                    && basePath != null
-                    && matcher.toLowerCase(Locale.ROOT).contains(basePath.toLowerCase(Locale.ROOT));
         }
 
         String describe() {
@@ -436,14 +417,6 @@ final class SecurityModel {
 
         boolean allowsWildcardOrigin() {
             return allowedOrigins.contains("*") || allowedOriginPatterns.contains("*");
-        }
-
-        boolean allowsWildcardMethod() {
-            return allowedMethods.contains("*");
-        }
-
-        boolean allowsWildcardHeader() {
-            return allowedHeaders.contains("*");
         }
 
         boolean allowsCredentials() {

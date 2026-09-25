@@ -31,8 +31,6 @@ public class BootUiQuarkusStartupBanner {
 
     static final String SHOW_BANNER_KEY = "bootui.show-banner";
     static final String ROOT_PATH_KEY = "quarkus.http.root-path";
-    static final String BASE_PATH_KEY = "bootui.path";
-    static final String DEFAULT_BASE_PATH = "/bootui";
 
     private static final Logger LOG = Logger.getLogger(BootUiQuarkusStartupBanner.class);
 

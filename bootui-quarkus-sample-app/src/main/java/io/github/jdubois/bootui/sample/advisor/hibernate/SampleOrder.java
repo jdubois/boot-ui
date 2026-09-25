@@ -40,7 +40,7 @@ public class SampleOrder {
     @ManyToMany(cascade = CascadeType.ALL)
     private List<SampleTag> tags;
 
-    // Intentionally adds a second bag collection so SampleOrder triggers HIB-FETCH-004.
+    // Intentionally adds a second bag collection; the retired HIB-FETCH-004 must stay silent for it.
     @OneToMany
     @JoinColumn(name = "sample_order_id")
     private List<SampleInvoice> invoices;

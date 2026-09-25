@@ -172,33 +172,6 @@ final class WeakPasswordEncoderRule extends AbstractSecurityRule {
     }
 }
 
-final class MissingPasswordEncoderRule extends AbstractSecurityRule {
-
-    MissingPasswordEncoderRule() {
-        super(new SecurityRuleDefinition(
-                "SEC-AUTH-003",
-                "Form or HTTP Basic login should define a PasswordEncoder",
-                SecurityCategory.AUTHENTICATION,
-                "MEDIUM",
-                "Detects form-login or HTTP Basic chains with no PasswordEncoder bean exposed to the context.",
-                "Declare a PasswordEncoder bean (a delegating encoder) so stored credentials are hashed and verified consistently.",
-                "https://docs.spring.io/spring-security/reference/servlet/authentication/passwords/index.html"));
-    }
-
-    @Override
-    SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        if (!context.applies(context.hasFormOrBasicChain())) {
-            return pass();
-        }
-        if (!context.passwordEncoderTypes().isEmpty()) {
-            return pass();
-        }
-        return violation(
-                context,
-                List.of("A form-login or HTTP Basic chain is configured but no PasswordEncoder bean was found."));
-    }
-}
-
 final class DefaultInMemoryUserRule extends AbstractSecurityRule {
 
     DefaultInMemoryUserRule() {
@@ -222,34 +195,6 @@ final class DefaultInMemoryUserRule extends AbstractSecurityRule {
                 context,
                 List.of(
                         "spring.security.user.* defines a static in-memory account; not suitable for shared or production use."));
-    }
-}
-
-final class DefaultLoginPageProductionRule extends AbstractSecurityRule {
-
-    DefaultLoginPageProductionRule() {
-        super(new SecurityRuleDefinition(
-                "SEC-AUTH-005",
-                "Avoid the auto-generated login page in production",
-                SecurityCategory.AUTHENTICATION,
-                "LOW",
-                "Detects the framework's DefaultLoginPageGeneratingFilter while a production profile is active.",
-                "Provide a custom login page via formLogin().loginPage(...) for production so the unstyled default page (which advertises the Spring Security stack) is not served.",
-                "https://docs.spring.io/spring-security/reference/servlet/authentication/passwords/form.html"));
-    }
-
-    @Override
-    SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        if (!context.applies(context.isProductionProfileActive())) {
-            return pass();
-        }
-        List<String> details = new ArrayList<>();
-        for (FilterChainModel chain : context.chains()) {
-            if (chain.hasFilter("DefaultLoginPageGeneratingFilter")) {
-                details.add(chain.describe() + " serves the auto-generated Spring Security login page in production.");
-            }
-        }
-        return violation(context, details);
     }
 }
 
@@ -764,33 +709,6 @@ final class SessionCookieSameSiteRule extends AbstractSecurityRule {
     }
 }
 
-final class SessionTimeoutRule extends AbstractSecurityRule {
-
-    SessionTimeoutRule() {
-        super(new SecurityRuleDefinition(
-                "SEC-SESSION-005",
-                "An explicit session timeout should be configured",
-                SecurityCategory.SESSION,
-                "INFO",
-                "Detects that server.servlet.session.timeout is unset, which uses Spring Boot's 30-minute default.",
-                "Confirm that the 30-minute default suits the application's risk profile or set server.servlet.session.timeout explicitly.",
-                "https://docs.spring.io/spring-boot/reference/web/servlet.html"));
-    }
-
-    @Override
-    SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        if (!context.applies(context.hasStatefulChain())) {
-            return pass();
-        }
-        String value = context.firstProperty("server.servlet.session.timeout", "spring.session.timeout");
-        if (value == null) {
-            return violation(
-                    context, List.of("No explicit session timeout is configured for the session-based chains."));
-        }
-        return pass();
-    }
-}
-
 final class BearerTokenStatefulRule extends AbstractSecurityRule {
 
     BearerTokenStatefulRule() {
@@ -883,40 +801,6 @@ final class WeakRememberMeKeyRule extends AbstractSecurityRule {
             }
         }
         return violation(context, details);
-    }
-}
-
-final class SessionCookieNamePrefixRule extends AbstractSecurityRule {
-
-    SessionCookieNamePrefixRule() {
-        super(
-                new SecurityRuleDefinition(
-                        "SEC-SESSION-009",
-                        "Custom session cookie names should use a __Host-/__Secure- prefix",
-                        SecurityCategory.SESSION,
-                        "LOW",
-                        "Detects server.servlet.session.cookie.name configured to a custom value that does not start with the"
-                                + " __Host- or __Secure- cookie-name prefix (exact case -- browsers only honor these prefixes"
-                                + " verbatim). The unmodified default name, JSESSIONID, is not flagged; this rule only fires"
-                                + " once an application has already chosen to customize the cookie name.",
-                        "Name the session cookie with the __Host- prefix, e.g. __Host-SESSION (requires Secure, no"
-                                + " Domain attribute, and Path=/) or, at minimum, the __Secure- prefix, e.g."
-                                + " __Secure-SESSION, so the browser rejects the cookie unless it was set over HTTPS --"
-                                + " hardening against cookie-tossing from a sibling or subdomain.",
-                        "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html#cookie-name-prefixes"));
-    }
-
-    @Override
-    SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        String name = context.firstProperty("server.servlet.session.cookie.name");
-        context.applies(context.hasStatefulChain());
-        if (name == null || name.startsWith("__Host-") || name.startsWith("__Secure-")) {
-            return pass();
-        }
-        return violation(
-                context,
-                List.of("server.servlet.session.cookie.name is set to '" + name
-                        + "', which does not use the __Host- or __Secure- cookie-name prefix."));
     }
 }
 
@@ -1043,61 +927,6 @@ final class ContentTypeOptionsRule extends AbstractSecurityRule {
                     && chain.details().headersKnown()
                     && !chain.hasHeaderWriterContaining("XContentTypeOptions")) {
                 details.add(chain.describe() + " has no standard nosniff writer; actual responses are not observed.");
-            }
-        }
-        return violation(context, details);
-    }
-}
-
-final class ReferrerPolicyHeaderRule extends AbstractSecurityRule {
-
-    ReferrerPolicyHeaderRule() {
-        super(
-                new SecurityRuleDefinition(
-                        "SEC-HEAD-005",
-                        "A Referrer-Policy header should be emitted",
-                        SecurityCategory.HEADERS,
-                        "LOW",
-                        "Detects chains whose header writers do not emit a Referrer-Policy header (not sent by default).",
-                        "Add a ReferrerPolicyHeaderWriter via headers().referrerPolicy(...) with a policy such as strict-origin-when-cross-origin to limit referrer leakage.",
-                        "https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-referrer"));
-    }
-
-    @Override
-    SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        List<String> details = new ArrayList<>();
-        for (FilterChainModel chain : context.chains()) {
-            if (context.applies(chain.headerWriterFilterPresent())
-                    && !chain.hasHeaderWriterContaining("ReferrerPolicy")) {
-                details.add(chain.describe() + " does not emit a Referrer-Policy header.");
-            }
-        }
-        return violation(context, details);
-    }
-}
-
-final class PermissionsPolicyHeaderRule extends AbstractSecurityRule {
-
-    PermissionsPolicyHeaderRule() {
-        super(
-                new SecurityRuleDefinition(
-                        "SEC-HEAD-006",
-                        "A Permissions-Policy header should be considered",
-                        SecurityCategory.HEADERS,
-                        "INFO",
-                        "Detects chains whose header writers do not emit a Permissions-Policy header (not sent by default).",
-                        "Add a PermissionsPolicyHeaderWriter via headers().permissionsPolicyHeader(...) to restrict powerful browser features the application does not use.",
-                        "https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-permissions-policy"));
-    }
-
-    @Override
-    SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        List<String> details = new ArrayList<>();
-        for (FilterChainModel chain : context.chains()) {
-            if (context.applies(chain.headerWriterFilterPresent())
-                    && !chain.hasHeaderWriterContaining("PermissionsPolicy")
-                    && !chain.hasHeaderWriterContaining("FeaturePolicy")) {
-                details.add(chain.describe() + " does not emit a Permissions-Policy header.");
             }
         }
         return violation(context, details);
@@ -1317,42 +1146,6 @@ final class CorsNotInSecurityChainRule extends AbstractSecurityRule {
                     "CORS attachment differs across chains; external handling and intended origin scope are unknown.");
         }
         return pass();
-    }
-}
-
-final class CorsWildcardMethodsHeadersRule extends AbstractSecurityRule {
-
-    CorsWildcardMethodsHeadersRule() {
-        super(new SecurityRuleDefinition(
-                "SEC-CORS-004",
-                "CORS should not allow all methods or headers with credentials",
-                SecurityCategory.CORS,
-                "MEDIUM",
-                "Detects a CorsConfiguration that allows the * wildcard for methods or headers together with allowCredentials=true.",
-                "Enumerate the exact methods and headers the API needs instead of \"*\" when credentials are allowed, so cross-site callers cannot send arbitrary authenticated requests.",
-                "https://docs.spring.io/spring-security/reference/servlet/integrations/cors.html"));
-    }
-
-    @Override
-    SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        List<String> details = new ArrayList<>();
-        for (CorsConfigModel cors : context.targets(context.corsConfigs())) {
-            if (!cors.allowsCredentials()) {
-                continue;
-            }
-            if (cors.allowsWildcardMethod()) {
-                details.add(cors.describe() + " allows all HTTP methods (*) with allowCredentials=true.");
-            }
-            if (cors.allowsWildcardHeader()) {
-                details.add(cors.describe() + " allows all request headers (*) with allowCredentials=true.");
-            }
-        }
-        boolean complete = context.required(!context.customCorsSourcePresent());
-        if (details.isEmpty() && !complete) {
-            return skipped(
-                    "A custom CorsConfigurationSource is present and cannot be introspected for wildcard methods/headers with credentials.");
-        }
-        return violation(context, details);
     }
 }
 

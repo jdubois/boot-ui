@@ -68,26 +68,8 @@ record OracleConstraintDetail(
         return "VALIDATED".equalsIgnoreCase(validated);
     }
 
-    boolean isCheck() {
-        return "C".equalsIgnoreCase(constraintType);
-    }
-
     boolean isForeignKey() {
         return "R".equalsIgnoreCase(constraintType);
-    }
-
-    /**
-     * True for Oracle's own system-generated column-level {@code NOT NULL} check constraint: unnamed by the
-     * user and whose search condition is exactly the {@code IS NOT NULL} test Oracle synthesizes for it. A
-     * user-authored, merely-unnamed {@code CHECK (...)} constraint is also system-named but has a different
-     * search condition, so it is not excluded by this.
-     */
-    boolean systemGeneratedNotNull() {
-        if (!systemGeneratedName || !isCheck() || searchCondition == null) {
-            return false;
-        }
-        String normalized = searchCondition.trim().toUpperCase(java.util.Locale.ROOT);
-        return normalized.endsWith("IS NOT NULL") && !normalized.contains(" AND ") && !normalized.contains(" OR ");
     }
 
     String describeType() {

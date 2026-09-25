@@ -194,10 +194,6 @@ public final class RabbitActivityRecorder {
         }
     }
 
-    static String hashCorrelationId(String value) {
-        return hashCorrelationId(value, 16);
-    }
-
     static String hashCorrelationId(String value, int maxLength) {
         if (value == null) {
             return null;

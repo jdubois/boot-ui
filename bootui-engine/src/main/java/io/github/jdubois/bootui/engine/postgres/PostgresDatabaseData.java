@@ -173,33 +173,10 @@ final class PostgresDatabaseData {
         return truncated;
     }
 
-    /**
-     * Why the session could not be pinned, or {@code null} when every pin was accepted.
-     *
-     * <p>An unpinned session is not a cosmetic failure: the documented statement, lock and idle bounds are
-     * what make this read safe to run against a live server, so a read taken without them must not be
-     * presented as a complete, bounded scan.</p>
-     */
-    String unpinnedReason() {
-        return unpinnedReason;
-    }
-
     void markSessionUnpinned(String reason) {
         if (reason != null && unpinnedReason == null) {
             unpinnedReason = reason;
         }
-    }
-
-    /**
-     * Why the borrowed connection could not be put back the way it was found, or {@code null} when it was.
-     *
-     * <p>A failed rollback may leave the read's transaction open, and a failed auto-commit or read-only
-     * restoration hands a pooled connection back to the application in a state it did not have. Either is a
-     * caveat on the read as a whole, so it degrades the database exactly like an unpinned session rather
-     * than living only in the diagnostics list.</p>
-     */
-    String notRestoredReason() {
-        return notRestoredReason;
     }
 
     void markConnectionNotRestored(String reason) {

@@ -191,11 +191,6 @@ record IndexModel(
         return keyParts.stream().map(IndexKeyPart::columnName).toList();
     }
 
-    /** The index's leading key part's column, or {@code null} for an empty or expression-led index. */
-    String leadingColumn() {
-        return keyParts.isEmpty() ? null : keyParts.get(0).columnName();
-    }
-
     boolean partial() {
         return filterCondition != null && !filterCondition.isBlank();
     }
@@ -306,19 +301,6 @@ record IndexModel(
         return UniquenessCoverage.ENFORCED;
     }
 
-    /** True when the index covers exactly {@code columns} in the same order, with plain key parts only. */
-    boolean coversExactlyInOrder(List<String> columns) {
-        if (keyParts.size() != columns.size()) {
-            return false;
-        }
-        for (int i = 0; i < columns.size(); i++) {
-            if (!keyParts.get(i).matchesColumn(columns.get(i))) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     /** True when nothing in the catalog marks this index as unusable by the optimizer. */
     boolean usable() {
         return !invalid() && !invisible() && !partial();
@@ -412,36 +394,6 @@ record IndexModel(
 
     boolean exactDuplicateOf(IndexModel other) {
         return sameSemanticsAs(other) && keyParts.equals(other.keyParts());
-    }
-
-    /** True when {@code this} index's key parts are a leading prefix of {@code other}'s (or identical). */
-    boolean isKeyPrefixOf(IndexModel other) {
-        if (keyParts.isEmpty() || keyParts.size() > other.keyParts.size()) {
-            return false;
-        }
-        for (int i = 0; i < keyParts.size(); i++) {
-            if (!sameKeyPart(keyParts.get(i), other.keyParts.get(i))) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    String describeKeyParts() {
-        return keyParts.stream().map(IndexKeyPart::describe).toList().toString();
-    }
-
-    private static boolean sameKeyPart(IndexKeyPart left, IndexKeyPart right) {
-        if (left.isExpression() != right.isExpression()) {
-            return false;
-        }
-        if (left.isExpression()) {
-            return left.expression() != null && Objects.equals(left.expression(), right.expression());
-        }
-        return left.matchesColumn(right.columnName())
-                && Objects.equals(left.prefixLength(), right.prefixLength())
-                && Objects.equals(left.ascending(), right.ascending())
-                && Objects.equals(left.collation(), right.collation());
     }
 
     private List<String> sortedKeyColumns() {

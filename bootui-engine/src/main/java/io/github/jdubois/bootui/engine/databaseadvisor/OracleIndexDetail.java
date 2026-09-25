@@ -76,21 +76,7 @@ record OracleIndexDetail(
         return indexType != null && indexType.toUpperCase(java.util.Locale.ROOT).startsWith("NORMAL");
     }
 
-    boolean functionBased() {
-        return indexType != null && indexType.toUpperCase(java.util.Locale.ROOT).contains("FUNCTION-BASED");
-    }
-
     boolean domain() {
         return "DOMAIN".equalsIgnoreCase(indexType);
-    }
-
-    boolean bitmap() {
-        return indexType != null && indexType.toUpperCase(java.util.Locale.ROOT).contains("BITMAP");
-    }
-
-    boolean lobOrIot() {
-        return indexType != null
-                && (indexType.toUpperCase(java.util.Locale.ROOT).contains("LOB")
-                        || indexType.toUpperCase(java.util.Locale.ROOT).contains("IOT"));
     }
 }

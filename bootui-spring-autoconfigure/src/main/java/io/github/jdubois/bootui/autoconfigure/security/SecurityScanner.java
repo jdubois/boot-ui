@@ -92,7 +92,6 @@ final class SecurityScanner {
             .thenComparing(SecurityRuleResultDto::id);
 
     private final Supplier<SecurityDiscovery> discoverySupplier;
-    private final Environment environment;
     private final Clock clock;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
     private final AdvisorScanState<SecurityReport> scanState =
@@ -103,16 +102,15 @@ final class SecurityScanner {
             ObjectProvider<ListableBeanFactory> beanFactories,
             Environment environment,
             Clock clock) {
-        this(() -> discover(filterChainProxies, beanFactories, environment), environment, clock);
+        this(() -> discover(filterChainProxies, beanFactories, environment), clock);
     }
 
     SecurityScanner(SecurityContext context, Clock clock) {
-        this(() -> new SecurityDiscovery(context, List.of()), context.environment(), clock);
+        this(() -> new SecurityDiscovery(context, List.of()), clock);
     }
 
-    private SecurityScanner(Supplier<SecurityDiscovery> discoverySupplier, Environment environment, Clock clock) {
+    private SecurityScanner(Supplier<SecurityDiscovery> discoverySupplier, Clock clock) {
         this.discoverySupplier = discoverySupplier;
-        this.environment = environment;
         this.clock = clock;
     }
 

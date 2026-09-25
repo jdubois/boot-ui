@@ -126,7 +126,6 @@ final class HibernateQueryShape {
 
     private static final Pattern UPDATE_PREFIX = Pattern.compile("(?is)^\\s*update\\b");
     private static final Pattern UPDATE_HEAD = Pattern.compile("(?is)^\\s*update\\s+(.+?)\\s+set\\b");
-    private static final Pattern UPDATE_VERSIONED = Pattern.compile("(?is)^\\s*update\\s+versioned\\b");
     private static final Pattern UPDATE_SET_CLAUSE = Pattern.compile("(?is)\\bset\\s+(.*?)(?:\\bwhere\\b|$)");
     private static final Pattern QUERY_PARAMETER = Pattern.compile("(?::[A-Za-z_]\\w*|\\?[1-9]\\d*)");
     private static final Pattern CURRENT_TIMESTAMP = Pattern.compile("(?i)current_timestamp(?:\\s*\\(\\s*\\))?");
@@ -134,11 +133,6 @@ final class HibernateQueryShape {
     static boolean isUpdate(String query) {
         String text = lexical(query);
         return text != null && UPDATE_PREFIX.matcher(text).find();
-    }
-
-    static boolean isUpdateVersioned(String query) {
-        String text = lexical(query);
-        return text != null && UPDATE_VERSIONED.matcher(text).find();
     }
 
     record UpdateTarget(HibernateEntityModel entity, String alias, String query, boolean versioned) {}

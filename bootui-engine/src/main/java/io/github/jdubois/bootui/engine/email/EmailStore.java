@@ -53,11 +53,6 @@ public final class EmailStore {
         return maxEntries;
     }
 
-    /** Maximum number of characters retained per captured text/HTML body before truncation. */
-    public int maxBodyLength() {
-        return maxBodyLength;
-    }
-
     /**
      * Replaces the trace-id source used to stamp each captured email. Defaults to the SLF4J MDC
      * {@code traceId} key that Micrometer Tracing publishes on Spring MVC. Passing {@code null}

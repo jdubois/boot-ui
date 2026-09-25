@@ -138,18 +138,6 @@ final class HibernateRuleModelSupport {
         return byJavaType;
     }
 
-    static HibernateEntityModel entityForDomainType(HibernateContext context, Class<?> domainType) {
-        if (domainType == null) {
-            return null;
-        }
-        for (HibernateEntityModel entity : context.entities()) {
-            if (domainType.equals(entity.javaType())) {
-                return entity;
-            }
-        }
-        return null;
-    }
-
     static String rootAlias(String query) {
         query = HibernateQueryShape.lexical(query);
         if (query == null) {
@@ -761,43 +749,6 @@ final class OptionalPersistentAttributeRule extends AbstractHibernateRule {
                 if (attribute.isOptionalAttribute()) {
                     details.add(attribute.description() + " is mapped as java.util.Optional.");
                 }
-            }
-        }
-        return violation(context, details);
-    }
-}
-
-final class MultipleBagCollectionRule extends AbstractHibernateRule {
-
-    MultipleBagCollectionRule() {
-        super(
-                new HibernateRuleDefinition(
-                        "HIB-FETCH-004",
-                        "Review entities with multiple bag collections",
-                        HibernateCategory.FETCHING,
-                        "INFO",
-                        "Detects entities with two or more unordered List/Collection associations (bags). Declaring"
-                                + " multiple bags is common and safe on its own - the risk is only realized if two of them"
-                                + " are ever join-fetched in the same query, which throws MultipleBagFetchException."
-                                + " HIB-QUERY-007 already flags that specific case (JOIN FETCH of 2+ collections in the"
-                                + " same query); this is an informational reminder to keep it that way.",
-                        "No action is required unless you plan to fetch these together: never JOIN FETCH more than one"
-                                + " of these collections in the same query. Add @OrderColumn when list order is"
-                                + " persistent, or use Set<> if you do need to fetch two of them eagerly in one query.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching-strategies"));
-    }
-
-    @Override
-    HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
-        for (HibernateEntityModel entity : context.entities()) {
-            List<String> bagNames = context.targets(entity.collectionAttributes()).stream()
-                    .filter(HibernateAttributeModel::isBagAttribute)
-                    .map(HibernateAttributeModel::name)
-                    .toList();
-            if (bagNames.size() >= 2) {
-                details.add(entity.name() + " has " + bagNames.size() + " bag collections: "
-                        + String.join(", ", bagNames) + ".");
             }
         }
         return violation(context, details);
@@ -1834,34 +1785,6 @@ final class FinalEntityRule extends AbstractHibernateRule {
     }
 }
 
-final class SingleTableMissingDiscriminatorRule extends AbstractHibernateRule {
-
-    SingleTableMissingDiscriminatorRule() {
-        super(new HibernateRuleDefinition(
-                "HIB-MAP-012",
-                "SINGLE_TABLE inheritance should declare @DiscriminatorColumn",
-                HibernateCategory.MAPPING,
-                "INFO",
-                "Detects @Inheritance(SINGLE_TABLE) roots without an explicit @DiscriminatorColumn, leaving the"
-                        + " default name and length implicit.",
-                "Declare @DiscriminatorColumn (with name, type, and length) on the SINGLE_TABLE root so schema"
-                        + " generation and reviews see the chosen contract instead of provider defaults.",
-                "https://jakarta.ee/specifications/persistence/3.1/jakarta-persistence-spec-3.1.html#a3158"));
-    }
-
-    @Override
-    HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
-        for (HibernateEntityModel entity : context.targets(
-                context.entities(), candidate -> "SINGLE_TABLE".equals(candidate.inheritanceStrategy()))) {
-            if ("SINGLE_TABLE".equals(entity.inheritanceStrategy()) && !entity.hasDiscriminatorColumn()) {
-                details.add(entity.name() + " uses SINGLE_TABLE inheritance without @DiscriminatorColumn.");
-            }
-        }
-        return violation(context, details);
-    }
-}
-
 final class StringColumnLengthRule extends AbstractHibernateRule {
 
     StringColumnLengthRule() {
@@ -2008,82 +1931,6 @@ final class ManyToOneOptionalRule extends AbstractHibernateRule {
                     details.add(attribute.description()
                             + " is @ManyToOne with @JoinColumn(nullable=false) but optional=true; set optional=false.");
                 }
-            }
-        }
-        return violation(context, details);
-    }
-}
-
-final class EqualsHashCodeAssociationsRule extends AbstractHibernateRule {
-
-    EqualsHashCodeAssociationsRule() {
-        super(
-                new HibernateRuleDefinition(
-                        "HIB-ENTITY-003",
-                        "equals/hashCode should not include lazy associations",
-                        HibernateCategory.ENTITY_DESIGN,
-                        "INFO",
-                        "Detects entities that override equals and hashCode while exposing JPA associations. Generated"
-                                + " implementations (Lombok @Data/@EqualsAndHashCode without exclusions, IDE templates)"
-                                + " typically include those associations and trigger lazy loads when entities are stored"
-                                + " in collections.",
-                        "Base equals/hashCode on a stable business key or natural id only. If associations must"
-                                + " participate, exclude lazy ones explicitly and use the entity class to avoid proxy"
-                                + " mismatches.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#mapping-model-pojo-equalshashcode"));
-    }
-
-    @Override
-    HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
-        for (HibernateEntityModel entity : context.targets(
-                context.entities(),
-                candidate -> candidate.attributes().stream().anyMatch(HibernateAttributeModel::isAssociation))) {
-            if (!entity.overridesEquals() || !entity.overridesHashCode()) {
-                continue;
-            }
-            boolean hasAssociation = entity.attributes().stream().anyMatch(HibernateAttributeModel::isAssociation);
-            if (hasAssociation) {
-                details.add(entity.name()
-                        + " overrides equals/hashCode and declares associations; verify they are not included.");
-            }
-        }
-        return violation(context, details);
-    }
-}
-
-final class ToStringAssociationsRule extends AbstractHibernateRule {
-
-    ToStringAssociationsRule() {
-        super(
-                new HibernateRuleDefinition(
-                        "HIB-ENTITY-004",
-                        "toString should not include lazy associations",
-                        HibernateCategory.ENTITY_DESIGN,
-                        "INFO",
-                        "Detects entities that override toString while exposing JPA associations. Generated"
-                                + " implementations (Lombok @Data/@ToString without exclusions, IDE templates) typically"
-                                + " traverse associations and trigger N+1 lazy loads or LazyInitializationException"
-                                + " outside an open session.",
-                        "Base toString on the identifier and a few stable scalar fields. Exclude associations"
-                                + " explicitly (for example with @ToString(exclude=...)) so logging or debugging does not"
-                                + " pull the object graph.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#mapping-model-pojo-tostring"));
-    }
-
-    @Override
-    HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
-        for (HibernateEntityModel entity : context.targets(
-                context.entities(),
-                candidate -> candidate.attributes().stream().anyMatch(HibernateAttributeModel::isAssociation))) {
-            if (!entity.overridesToString()) {
-                continue;
-            }
-            boolean hasAssociation = entity.attributes().stream().anyMatch(HibernateAttributeModel::isAssociation);
-            if (hasAssociation) {
-                details.add(
-                        entity.name() + " overrides toString and declares associations; verify they are not included.");
             }
         }
         return violation(context, details);

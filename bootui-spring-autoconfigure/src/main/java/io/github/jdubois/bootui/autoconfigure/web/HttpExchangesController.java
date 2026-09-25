@@ -30,8 +30,6 @@ public class HttpExchangesController {
 
     private final ObjectProvider<HttpExchangeRepository> repository;
 
-    private final BootUiProperties properties;
-
     private final BootUiExposure exposure;
 
     private final BootUiSelfDataFilter selfDataFilter;
@@ -51,7 +49,6 @@ public class HttpExchangesController {
             BootUiSelfDataFilter selfDataFilter,
             BootUiExposure exposure) {
         this.repository = repository;
-        this.properties = properties;
         this.selfDataFilter = selfDataFilter;
         this.exposure = exposure;
     }

@@ -1746,25 +1746,6 @@ final class RestApiHandlerModelBuilder {
         return List.copyOf(new LinkedHashSet<>(values));
     }
 
-    /** Reads enum-valued attributes (e.g. {@code method}) from a type-level annotation. */
-    private static List<String> mappingEnumAttribute(JavaClass type, String annotationName, String key) {
-        Optional<? extends JavaAnnotation<?>> annotation = type.tryGetAnnotationOfType(annotationName);
-        if (annotation.isEmpty()) {
-            return List.of();
-        }
-        return enumValues(annotation.get(), key);
-    }
-
-    /** Reads the first non-blank string attribute from a type-level annotation. */
-    private static String mappingStringAttribute(JavaClass type, String annotationName, String key) {
-        for (String value : mappingAttribute(type, annotationName, key)) {
-            if (value != null && !value.isBlank()) {
-                return value;
-            }
-        }
-        return "";
-    }
-
     /**
      * True when the response body type exposes any field typed {@code java.util.Date} or
      * {@code java.util.Calendar}.

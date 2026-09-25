@@ -166,9 +166,6 @@ final class SpringStereotypes {
             .or(annotatedWith(CACHING))
             .as("annotated with a Spring cache operation");
 
-    static final DescribedPredicate<CanBeAnnotated> SCHEDULED_ANNOTATED =
-            annotatedWith(SCHEDULED).as("annotated with @Scheduled");
-
     static final DescribedPredicate<CanBeAnnotated> CONFIGURATION_PROPERTIES_ANNOTATED =
             annotatedWith(CONFIGURATION_PROPERTIES).as("annotated with @ConfigurationProperties");
 

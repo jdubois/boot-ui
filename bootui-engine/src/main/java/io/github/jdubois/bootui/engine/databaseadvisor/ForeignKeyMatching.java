@@ -178,17 +178,6 @@ final class ForeignKeyMatching {
     }
 
     /**
-     * True when some physical foreign key on {@code table} covers exactly {@code columns} (same size, same
-     * column names, order-independent). Used only to tell whether {@code DB-SCHEMA-002} already independently
-     * evaluates this foreign key's index coverage from the physical side, so {@code DB-HIB-001} does not
-     * double-count the same missing index: every physical foreign key is evaluated by {@code DB-SCHEMA-002}
-     * regardless of any Hibernate mapping, so skipping here can only remove a duplicate, never a gap.
-     */
-    static boolean anyForeignKeyCoversColumnSet(TableModel table, List<String> columns) {
-        return table.foreignKeys().stream().anyMatch(foreignKey -> sameColumnSet(foreignKey.columns(), columns));
-    }
-
-    /**
      * Checks already-canonicalized physical column pairs and qualified target identity exactly.
      * A false result does not establish absence; declaration-facing callers should use {@link #assess}
      * to distinguish incomplete evidence from a complete no-match inventory.

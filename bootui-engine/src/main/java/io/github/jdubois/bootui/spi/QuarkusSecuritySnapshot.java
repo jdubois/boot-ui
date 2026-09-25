@@ -594,14 +594,6 @@ public record QuarkusSecuritySnapshot(
         return oidcConfigured || jwtConfigured || basicAuth || formAuth || mtls;
     }
 
-    public int annotationCount() {
-        return rolesAllowedCount
-                + permitAllCount
-                + denyAllCount
-                + authenticatedCount
-                + quarkusAuthorizationAnnotationCount;
-    }
-
     public int protectiveAnnotationCount() {
         return rolesAllowedCount + denyAllCount + authenticatedCount + quarkusAuthorizationAnnotationCount;
     }

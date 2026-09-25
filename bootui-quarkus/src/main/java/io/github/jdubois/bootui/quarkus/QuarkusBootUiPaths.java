@@ -32,10 +32,6 @@ public final class QuarkusBootUiPaths {
         return rootPrefix(config) + path;
     }
 
-    public static String applicationUiPath(Config config) {
-        return applicationPath(config, uiPath(config));
-    }
-
     public static String applicationApiPath(Config config) {
         return applicationPath(config, apiPath(config));
     }
