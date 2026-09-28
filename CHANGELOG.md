@@ -7,6 +7,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Spring MVC Log Tail streams no longer throw on a worker thread when a client disconnects or the application
+  stops.** When the servlet container had already failed the async request, the stream worker still tried to
+  complete the `SseEmitter`. Tomcat rejected that with an uncaught `IllegalStateException`, and the session could
+  stay registered. The container's completion, timeout, or error callback now cancels any pending completion, and a
+  concurrent rejection no longer prevents the session from being released.
+
 ## [1.19.0] - 2026-09-25
 
 Maintenance release focused on accurate diagnostics. JVM Tuning and Live Memory now mask secrets passed as JVM

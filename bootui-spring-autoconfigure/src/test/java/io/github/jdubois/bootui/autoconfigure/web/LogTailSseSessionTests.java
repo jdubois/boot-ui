@@ -204,6 +204,66 @@ class LogTailSseSessionTests {
         }
     }
 
+    @Test
+    void sendFailureAfterContainerErrorStillReleasesTheSession() {
+        LogTailBuffer buffer = new LogTailBuffer();
+        BootUiLogAppender appender = freshAppender(buffer);
+        TestEmitter emitter = new TestEmitter();
+        emitter.rejectErrorCompletion();
+        AtomicInteger attempts = new AtomicInteger();
+        LogTailController controller = new LogTailController(appender, () -> emitter, 4, (ignored, line) -> {
+            attempts.incrementAndGet();
+            throw new IOException("client disconnected");
+        });
+
+        try {
+            controller.stream();
+            buffer.add(line("first"));
+
+            await().atMost(Duration.ofSeconds(2)).untilAsserted(() -> {
+                assertThat(controller.activeStreamCount()).isZero();
+                assertThat(emitter.completedError.get()).isInstanceOf(IOException.class);
+            });
+
+            buffer.add(line("second"));
+            assertThat(attempts).hasValue(1);
+        } finally {
+            controller.shutdown();
+        }
+    }
+
+    @Test
+    void containerErrorDropsThePendingTerminalAction() throws Exception {
+        LogTailBuffer buffer = new LogTailBuffer();
+        BootUiLogAppender appender = freshAppender(buffer);
+        TestEmitter emitter = new TestEmitter();
+        CountDownLatch sendStarted = new CountDownLatch(1);
+        CountDownLatch releaseSend = new CountDownLatch(1);
+        LogTailController controller = new LogTailController(appender, () -> emitter, 4, (ignored, line) -> {
+            sendStarted.countDown();
+            awaitUninterruptibly(releaseSend);
+        });
+
+        try {
+            controller.stream();
+            buffer.add(line("blocked"));
+            assertThat(sendStarted.await(1, TimeUnit.SECONDS)).isTrue();
+
+            controller.shutdown();
+            emitter.fireError(new IllegalStateException("async request already failed"));
+            releaseSend.countDown();
+
+            await().atMost(Duration.ofSeconds(2))
+                    .untilAsserted(
+                            () -> assertThat(controller.activeStreamCount()).isZero());
+            assertThat(emitter.completions).hasValue(0);
+            assertThat(emitter.completedError.get()).isNull();
+        } finally {
+            releaseSend.countDown();
+            controller.shutdown();
+        }
+    }
+
     private static BootUiLogAppender freshAppender(LogTailBuffer buffer) {
         BootUiLogAppender appender = new BootUiLogAppender(buffer);
         appender.setName("TEST_APPENDER_" + System.nanoTime());
@@ -223,6 +283,21 @@ class LogTailSseSessionTests {
         }
     }
 
+    private static void awaitUninterruptibly(CountDownLatch latch) {
+        boolean interrupted = false;
+        while (true) {
+            try {
+                latch.await();
+                break;
+            } catch (InterruptedException ex) {
+                interrupted = true;
+            }
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     private static final class TestEmitter extends SseEmitter {
 
         private Runnable completion = () -> {};
@@ -234,6 +309,7 @@ class LogTailSseSessionTests {
         private CountDownLatch releaseCompletion = new CountDownLatch(0);
         private CountDownLatch errorCompletionStarted = new CountDownLatch(0);
         private CountDownLatch releaseErrorCompletion = new CountDownLatch(0);
+        private volatile boolean rejectErrorCompletion;
 
         private TestEmitter() {
             super(0L);
@@ -266,6 +342,9 @@ class LogTailSseSessionTests {
             completedError.set(ex);
             errorCompletionStarted.countDown();
             awaitLatch(releaseErrorCompletion);
+            if (rejectErrorCompletion) {
+                throw new IllegalStateException("AsyncContext already errored");
+            }
             error.accept(ex);
         }
 
@@ -277,6 +356,14 @@ class LogTailSseSessionTests {
         private void blockErrorCompletion(CountDownLatch started, CountDownLatch release) {
             errorCompletionStarted = started;
             releaseErrorCompletion = release;
+        }
+
+        private void rejectErrorCompletion() {
+            rejectErrorCompletion = true;
+        }
+
+        private void fireError(Throwable failure) {
+            error.accept(failure);
         }
 
         private void fireCompletion() {
