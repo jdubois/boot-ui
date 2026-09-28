@@ -164,10 +164,15 @@ final class LogTailSseSession implements AutoCloseable {
         if (action == null) {
             return;
         }
-        if (action.error() == null) {
-            emitter.complete();
-        } else {
-            emitter.completeWithError(action.error());
+        try {
+            if (action.error() == null) {
+                emitter.complete();
+            } else {
+                emitter.completeWithError(action.error());
+            }
+        } catch (IllegalStateException ex) {
+            // The container ended the async request concurrently (client disconnect or shutdown), so
+            // it already owns completion and the emitter can no longer be completed from this thread.
         }
     }
 
@@ -181,8 +186,16 @@ final class LogTailSseSession implements AutoCloseable {
         return new IllegalStateException("BootUI log-tail stream disconnected because its pending event queue is full");
     }
 
+    /**
+     * Container-driven termination (completion, timeout, or error callback). The request is already
+     * over, so any terminal action still pending from a failed send is dropped rather than replayed
+     * against a dead async context.
+     */
     @Override
     public void close() {
+        synchronized (lifecycleMonitor) {
+            terminalAction = null;
+        }
         releaseResources(null);
     }
 
