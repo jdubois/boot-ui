@@ -61,9 +61,10 @@ invocation in that script. Do not put `${maven.multiModuleProjectDirectory}/.m2`
 may pass it through literally as a non-absolute path. Do not commit a project-wide repository override solely for
 worktree isolation.
 
-Detailed rules are path-scoped under `.github/instructions/` and apply automatically by file path. Two custom agents
-under `.github/agents/` are available: `bootui-vertical-pr` for end-to-end feature delivery, and `bootui-release` for
-conducting a release or changing release machinery. They supplement rather than replace repository safety rules.
+Detailed rules are path-scoped under `.github/instructions/` and apply automatically by file path. Three custom agents
+under `.github/agents/` are available: `bootui-vertical-pr` for end-to-end feature delivery, `bootui-release` for
+conducting a release or changing release machinery, and `bootui-dependabot` for auditing, merging, or closing
+Dependabot pull requests. They supplement rather than replace repository safety rules.
 
 For substantive Java development or Maven failure diagnosis, load the `bootui-java-development` repository skill at
 `.github/skills/bootui-java-development/SKILL.md`. It covers investigation, reliable LSP use, focused validation, and
