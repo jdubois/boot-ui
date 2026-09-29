@@ -25,7 +25,7 @@
     "@vue/test-utils": "2.5.1",
     "fonteditor-core": "2.6.3",
     "jsdom": "30.0.1",
-    "prettier": "3.9.6",
+    "prettier": "3.9.8",
     "typescript": "^6.0.3",
     "vite": "8.3.0",
     "vite-plugin-checker": "^0.14.5",
