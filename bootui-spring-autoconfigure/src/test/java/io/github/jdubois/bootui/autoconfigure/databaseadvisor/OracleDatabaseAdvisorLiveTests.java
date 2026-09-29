@@ -11,6 +11,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import javax.sql.DataSource;
@@ -41,7 +42,9 @@ import org.testcontainers.oracle.OracleContainer;
 class OracleDatabaseAdvisorLiveTests {
 
     @Container
-    static OracleContainer oracle = new OracleContainer("gvenzl/oracle-free:slim-faststart");
+    // The default 60 s wait is too tight on shared CI runners: Oracle Free can report ready just past it.
+    static OracleContainer oracle =
+            new OracleContainer("gvenzl/oracle-free:slim-faststart").withStartupTimeout(Duration.ofMinutes(3));
 
     private static DataSource dataSource;
 
