@@ -1,7 +1,8 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
 
-// The sample app wires a real LangChain4j + Ollama Dev Service (see ChatResource / AiAssistant),
+// The sample app wires a real LangChain4j + Ollama chat model (see ChatResource / AiAssistant) --
+// its Ollama Dev Services are disabled for this suite in playwright.config.js --
 // but a full model round-trip is slow and non-deterministic on CI hardware, so this spec mocks the
 // three AI endpoints -- exactly as the Spring suite's ai.spec.js does -- while keeping the real
 // `/bootui/api/panels` and `/bootui/api/overview` responses (the panel is genuinely available: the

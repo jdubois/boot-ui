@@ -27,7 +27,7 @@ const sampleAppDir = path.resolve(e2eDir, '..')
 const repoRoot = path.resolve(sampleAppDir, '..')
 const mvnw = path.join(repoRoot, process.platform === 'win32' ? 'mvnw.cmd' : 'mvnw')
 // Quarkus dev-mode has to augment the app and let Dev Services pull/start a throwaway PostgreSQL
-// (and Ollama) container, which is much slower than a Spring Boot start on a cold CI runner -
+// container (Ollama Dev Services are disabled below), which is much slower than a Spring Boot start on a cold CI runner -
 // mirrors playwright.config.js's own WEBSERVER_TIMEOUT default.
 const startupTimeoutMs = 300_000
 
@@ -237,6 +237,8 @@ async function startSampleApp(properties) {
       `-Dquarkus.http.port=${port}`,
       '-Dquarkus.test.continuous-testing=disabled',
       '-Dquarkus.analytics.disabled=true',
+      '-Dquarkus.langchain4j.devservices.enabled=false',
+      '-Dquarkus.langchain4j.ollama.devservices.enabled=false',
       ...Object.entries(properties).map(([name, value]) => `-D${name}=${value}`)
     ],
     {
