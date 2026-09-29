@@ -25,9 +25,12 @@ const USE_LIVE_OSV = process.env.BOOTUI_OSV_LIVE === '1'
 // container, which on a cold CI runner is much slower than a Spring Boot start, so allow the
 // web-server startup timeout to be raised from the environment.
 const WEBSERVER_TIMEOUT = Number(process.env.BOOTUI_WEBSERVER_TIMEOUT || 300_000)
+// The AI spec mocks every AI endpoint, so the LangChain4j Ollama Dev Services are disabled: they
+// would otherwise pull a multi-gigabyte Ollama image and llama3 model before the app accepts requests.
 const QUARKUS_COMMAND =
   `../../mvnw -f ../pom.xml quarkus:dev -Dquarkus.http.port=${PORT}` +
   ' -Dquarkus.test.continuous-testing=disabled -Dquarkus.analytics.disabled=true' +
+  ' -Dquarkus.langchain4j.devservices.enabled=false -Dquarkus.langchain4j.ollama.devservices.enabled=false' +
   ' -Dbootui.vulnerabilities.epss-enabled=false' +
   (USE_LIVE_OSV
     ? ' -Dbootui.vulnerabilities.request-timeout=10s' +
