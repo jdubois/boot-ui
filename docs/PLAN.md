@@ -46,6 +46,8 @@ will therefore be additive rather than an extension of the SQL-specific panels.
 | Planned  | gRPC | Services | Spring gRPC / Quarkus gRPC registries and metrics | No | Planned |
 | Planned  | Spring Batch | Services | Spring Batch `JobExplorer` / `JobRepository` | No | Planned |
 | Planned  | Correlation-ID filtering | Diagnostics | Existing request and Live Activity capture | No (capture only) | Planned |
+| Planned  | Data access map | Database | Existing SQL Trace evidence, route attribution, and JPA metamodel | No | Planned |
+| Planned  | Structured violation locations | Advisors | Existing advisor scans, ArchUnit source locations, and local source lookup | No | Planned |
 | Delivered | Fault Tolerance | Services | Resilience4j / Spring Retry / SmallRye Fault Tolerance | No (capture only) | Delivered |
 | Delivered | WebSocket endpoints | Services | Spring WebSocket/STOMP / Quarkus WebSockets Next | No (capture only) | Delivered |
 | Delivered | Error-contract catalogue | Services | Spring exception handlers / Quarkus exception mappers | No | Delivered |
@@ -808,6 +810,176 @@ Mocks and a green H2-only conformance run do not establish MySQL support. See
 for the executable commands.
 This feature does not replace or expand the MongoDB scope above.
 
+### 3.18 Data access map — SQL Trace 📋 Planned
+
+SQL Trace already attributes retained statements to inbound routes (§3.12), but it answers "which routes spend database
+time?" rather than "which routes read or write this table?". This enhancement derives a route-by-table access map from
+the same retained evidence, so a developer or agent can ask "who writes `orders`?" or "what does `POST /api/checkout`
+touch?" without reading the code. It is the runtime counterpart of a static CRUD matrix: it shows access observed in the
+retained window, never a complete inventory of what the code could do.
+
+Scope:
+
+- Add `GET /bootui/api/sql-trace/data-access` to the existing SQL Trace panel on Spring MVC, Spring WebFlux, and
+  Quarkus. Keep the existing panel id, route, enablement, read-only policy, capture controls, and retention settings.
+- Extract the tables each retained statement references from its normalized, literal-free SQL, and classify every
+  reference as a read, insert, update, delete, or merge. `INSERT … SELECT`, `UPDATE … FROM`, `DELETE … USING`,
+  `MERGE … USING`, joins, and subqueries report the write target separately from the tables they read. `MERGE` and
+  upsert forms (`ON CONFLICT … DO UPDATE`, `ON DUPLICATE KEY UPDATE`) count as merge. `SELECT … FOR UPDATE` and
+  `FOR SHARE` stay reads, marked as locking.
+- Split `;`-joined batch text into its statements. Exclude `DDL` and `OTHER` statements from the map but count them.
+- Report, per table, the routes that read it and the routes that write it, with operation counts, executions, errors,
+  summed duration, and a bounded list of distinct application call sites. A statement touching several tables counts
+  toward each of them, so per-table totals are labelled as not summing to the window.
+- Reuse the §3.12 route attribution unchanged, including the explicit **Unattributed** and **Ambiguous** buckets, so
+  background jobs, startup work, and migrations stay visible rather than disappearing from a table's writers.
+- Label a table with its mapped JPA entity only when exactly one entity declares that exact name through an explicit
+  `@Table`, using the shared metamodel reader the Hibernate and Database advisors already use. Tables mapped through the
+  default naming strategy stay unlabelled rather than guessed.
+- Mark each statement's extraction as `COMPLETE` when every table reference was resolved, `PARTIAL` when some constructs
+  were not understood, or `UNRESOLVED` when no reliable reference could be read: procedure calls, truncated SQL, or
+  unsupported vendor syntax. Unresolved statements stay visible in their own bucket with counts and deep links.
+- Filter server-side by exact table name, route id, and read or write access, so "who writes `orders`?" is one request.
+- Open on a **By table** view with the search field first, and offer a **Matrix** view of routes by tables. Cells pair
+  letters (`R`, `C`, `U`, `D`, `M`) with accessible text so meaning never relies on color alone, and deep-link into the
+  filtered execution list exactly as the existing rankings do.
+- Expose the same report and filters through a read-only MCP tool and generated CLI command, for example
+  `get_sql_data_access` and `bootui sql data-access`, so an agent can check which routes a table change affects.
+
+Architecture:
+
+- Put table extraction, access classification, aggregation, bounds, and entity labelling in JSON-free, framework-neutral
+  engine services beside `SqlTraceInsightsService`. Adapters supply only the request evidence, correlation tiers, and
+  route templates they already supply for insights.
+- Build a small reference scanner over `SqlStatementNormalizer` output, in the same dependency-free lexical style. Add
+  no SQL grammar dependency and no dialect-specific parser, and never fail on unknown syntax.
+- Never report a CTE name, derived table, table-valued function, or alias as a table. Quoted identifiers keep their
+  case while unquoted ones fold for grouping. A schema-qualified name is never merged with an unqualified one, because
+  the connection's default schema is unknown.
+- Share one per-execution attribution decision between the insights report and the map by exposing
+  `SqlRouteAttribution`'s internal match result inside the engine. Both reports then reconcile exactly, instead of
+  re-deriving attribution from the bounded `entryIds`.
+- Reach the metamodel reader only through the existing optional Hibernate/JPA gates. Without Hibernate the map works
+  identically, just without entity labels, and loads no optional class.
+- Bound tables, routes per table, cells, call sites, and unresolved statements before serialization, with visible
+  truncation counts. Route templates, masked paths, and call sites follow the existing SQL Trace privacy rules; no SQL
+  literal, bound parameter, query string, or path-parameter value reaches the report.
+- Map the new tool in the MCP catalog and `CliCommandPaths` under the SQL Trace panel's policy, and regenerate
+  `bootui-tools.json`.
+
+Out of scope for the first release:
+
+- Static analysis of repositories, entities, or source code to predict access that did not run in the window.
+- Resolving default naming-strategy table names or reading Hibernate-internal persister metadata. The engine keeps to
+  the standard JPA metamodel, as the Database advisor does.
+- Distinguishing views from tables, and following writes made by triggers, stored procedures, or cascading foreign keys.
+- Telling same-named tables in separate datasources apart, because SQL Trace executions do not carry their datasource.
+  The report states this whenever more than one datasource is traced.
+- R2DBC and any other non-JDBC access, which SQL Trace does not capture.
+- Column-level lineage, query plans, index advice, or advisor rules derived from the map.
+- Persisting the map beyond the SQL Trace retention window.
+
+Acceptance criteria:
+
+- Opening the map runs no query, opens no connection, adds no JDBC interception or request capture, and reads only the
+  retained SQL Trace buffer.
+- Equivalent evidence produces the same DTOs on Spring MVC, Spring WebFlux, and Quarkus. WebFlux without request trace
+  context still reports tables and call sites, with route rows unavailable and the reason stated, as in §3.12.
+- Per-table and per-route counts reconcile with the retained window and with the insights attribution, including the
+  unattributed and ambiguous buckets, `DDL` and `OTHER` exclusions, and unresolved statements.
+- Extraction fixtures cover Hibernate-generated SQL with aliases, joins, and subqueries; `INSERT … SELECT`,
+  `UPDATE … FROM`, `DELETE … USING`, `MERGE`, and upserts; CTEs, including data-modifying CTEs; `FOR UPDATE`; quoted and
+  schema-qualified identifiers; batches; truncated statements; procedure calls; and unknown vendor syntax. No fixture
+  reports a CTE, alias, or function as a table.
+- Entity labels appear only for unique explicit `@Table` matches, and their absence causes no failure when Hibernate is
+  not on the classpath.
+- High-cardinality applications stay bounded, with deterministic ordering and visible truncation.
+- `BootUiApiContractCatalog`, conformance, the MCP catalog and regenerated `bootui-tools.json`,
+  `docs/features/database.md`, `docs/CLI.md`, `docs/AI-AGENTS.md`, `docs/SPECIFICATION.md`, `skills/bootui/SKILL.md`,
+  frontend unit tests, and the Spring MVC, Spring WebFlux, and Quarkus browser suites cover the new view.
+
+### 3.19 Structured violation locations — Advisors 📋 Planned
+
+Advisor findings name the offending code only inside free text. `sampleViolations` and the retained detail pages are
+sanitized strings, so neither the browser nor an agent can reliably tell which class, member, file, and line a finding
+points at. This enhancement adds an optional structured location next to each violation text where the advisor has
+one, without changing that text or any count, severity, score, or dismissal.
+
+Scope:
+
+- Add a core `AdvisorViolationLocationDto` carrying the class name, an optional member name and kind (`CLASS`, `METHOD`,
+  `CONSTRUCTOR`, `FIELD`), the class file's recorded source file name, an optional positive line number, an optional
+  local source path, and a `precision` of `LINE`, `MEMBER`, or `CLASS`.
+- Add `sampleLocations` to the Architecture, REST API, and Hibernate rule-result DTOs, aligned index-for-index with
+  `sampleViolations`. Add `locations` to the shared `AdvisorRuleViolationsDto`, aligned with `violations`.
+- A `null` element means that violation has no location. An empty list means the report carries no location data at
+  all, as for an unsupported advisor or an older snapshot. Existing fields keep their meaning and content.
+- Populate locations in the first release only where the scan evidence names one code element:
+  - **Architecture:** from ArchUnit's violating objects and their `SourceCodeLocation` — class, member, source file,
+    and line — never by parsing the report text.
+  - **REST API:** the handler method or exception handler the finding concerns, from the same ArchUnit model.
+  - **Hibernate:** the entity class and the mapped attribute's Java member, at member precision, because the metamodel
+    and reflection carry no line number.
+- Leave locations empty, never guessed, for findings that span several elements, such as package cycles, and for
+  findings about beans, configuration, schema, JVM state, dependencies, or security policy. This covers the Spring and
+  Quarkus application, Memory, Security, Quarkus Security, Database, Pentesting, and Vulnerabilities advisors.
+- Resolve the source path only during an explicit scan. Reuse the Architecture advisor's bounded module and source-set
+  lookup to find exactly one source file for a class compiled into a local Maven or Gradle output directory. See
+  [Generated application code](ARCHITECTURE-CHECKS.md#generated-application-code) for that lookup.
+- Classes read from archives, ambiguous matches, and exhausted lookup budgets keep a `null` path with a scan note.
+- Show the location beside each sample and detail row in the shared advisor violation component, with a
+  **Copy location** action producing, for example, `com.example.OrderService#place (OrderService.java:42)`.
+- Add an opt-in, per-browser **Open in** preference — None (the default), VS Code, or IntelliJ IDEA — stored through
+  `safeLocalStorage` like the other UI preferences. When both a path and a preset are available, the location becomes a
+  link built from that preset's fixed URL scheme.
+- Do not accept custom templates or web URLs, so a local path can never be sent to a network address.
+- Return the same locations through REST, the report and `get_*_rule_violations` MCP tools, and the CLI, and mention
+  them in the tool summaries so agents can navigate straight to the code.
+
+Architecture:
+
+- Extend `AdvisorViolationCollector` to retain an optional location with each sanitized detail. Derive the samples and
+  the retained detail pages from those same records, so text and location cannot drift apart. The retention budget
+  still counts violations, not bytes.
+- Keep ArchUnit and reflection types inside the engine advisor packages; `bootui-core` carries only the neutral record.
+  Kotlin-aware filtering applies unchanged.
+- A Kotlin file facade or companion reports its declaring source file. A line that falls outside the resolved source
+  file, such as an inline-function mapping, is dropped to member precision rather than shown wrong.
+- Bound every string and path length, and discard line numbers of zero or less, which ArchUnit uses for "unknown".
+- Treat source paths like SQL Trace call sites: application metadata about the developer's own code, not a value gated
+  by the exposure policy.
+- Detail reads keep their contract. They read the latest published snapshot and never scan, import classes, or touch
+  the filesystem.
+- Advisor output changes update the corresponding `docs/*-CHECKS.md` notes, as every advisor change must.
+
+Out of scope for the first release:
+
+- Parsing locations out of existing violation text, or inventing a location for a finding that has none.
+- Launching an IDE or opening files from the server, and any server-side action triggered by a location.
+- Per-occurrence dismissal, notes, or tags. Dismissal remains per rule.
+- Column numbers, end lines, source excerpts, or reading source text into reports.
+- Locations for bean, configuration, schema, runtime, dependency, and security findings.
+- SARIF or any other interchange export. This contract makes such an export possible, but it needs its own
+  specification.
+
+Acceptance criteria:
+
+- Violation text, counts, severities, ordering, scan IDs, dismissals, evidence, and scores are unchanged when locations
+  are present. Older clients reading only `sampleViolations` and `violations` see identical content.
+- Every location list is either empty or exactly aligned with its text list, on every sample and detail page, including
+  dismissed rules, truncated retention, and paging.
+- Architecture, REST API, and Hibernate report the expected class, member, source file, line, and precision on Spring
+  MVC, Spring WebFlux, and Quarkus for Java and Kotlin fixtures. Compiler-generated members stay filtered.
+- Source paths resolve for local Maven and Gradle layouts. They stay `null`, with a scan note, for executable jars,
+  extracted `BOOT-INF/lib` images, Quarkus `lib` layouts, ambiguous matches, and exhausted budgets. No lookup runs
+  outside an explicit scan.
+- The **Open in** preference is off by default, produces links only from its fixed presets, and is keyboard accessible;
+  **Copy location** works without it.
+- MCP responses stay within the existing response budgets at the default page size.
+- The regenerated `bootui-tools.json`, `docs/features/advisors.md`, `docs/AI-AGENTS.md`, `docs/CLI.md`,
+  `skills/bootui/SKILL.md`, `BootUiApiContractCatalog`, conformance, frontend unit tests, and the browser suites cover
+  the change.
+
 ## 4. Cross-cutting work for every new panel
 
 For each feature above, the following must move together, consistent with the existing panel-registration process:
@@ -835,6 +1007,11 @@ For each feature above, the following must move together, consistent with the ex
 | MongoDB optional drivers break applications without the extension | 3.5 | High | Keep driver types in adapter-only providers and use Spring classpath gates plus Quarkus capability/exclusion build steps. |
 | Large MongoDB catalog or partial permissions make inspection slow or misleading | 3.5 | Medium | Hard caps, paging, configurable timeouts, partial-result DTOs, and per-target permission errors. |
 | Scope creep beyond the planned MongoDB inventory/advisor surface | 3.5 | High | Keep document browsing, arbitrary commands, writes, tracing, and migrations out of the first release. |
+| Lexical table extraction misreads SQL and invents or misses access | 3.18 | High | Per-statement extraction status, an explicit unresolved bucket, no CTE/alias/function ever reported as a table, and a fixture corpus of Hibernate and vendor SQL. |
+| The data access map is read as a complete CRUD matrix | 3.18 | Medium | Label every view as observed in the retained window, show the window, evictions, and exclusions inline, and add no static inference. |
+| Location lists drift from violation text or break older clients | 3.19 | Medium | Derive text and location from one retained record, keep fields additive, and test alignment on every advisor, sample, and page. |
+| Source-path lookup slows scans or reads unexpected files | 3.19 | Medium | Reuse the existing bounded lookup and budgets, run it only during explicit scans, never follow symlinks, and never resolve archives. |
+| IDE links send local paths somewhere unexpected | 3.19 | Low | Off by default, fixed IDE URL-scheme presets only, and no custom or web templates. |
 
 ## 6. Validation checklist
 
