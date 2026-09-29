@@ -38,7 +38,7 @@ Spring Data panel, but it has no framework-neutral operational view of MongoDB c
 collections, or indexes, and the existing JDBC/Flyway/Liquibase panels cannot represent those concepts. The new panel
 will therefore be additive rather than an extension of the SQL-specific panels.
 
-A second, diagnostics-focused workstream (§3.18–§3.24) shapes already-captured evidence so it reads the way developers
+A second, diagnostics-focused workstream (§3.20–§3.26) shapes already-captured evidence so it reads the way developers
 investigate: every entry point anchors a correlated timeline, logs link to the execution that wrote them, entities read
 as summary → runs → timeline, and failure evidence outlives routine traffic. Sampling, quotas, remote ingestion,
 alerting integrations, and personal-data capture stay out of scope, because BootUI remains local-only, bounded, and
@@ -53,13 +53,15 @@ and explicit, on-demand local reads.
 | Planned  | gRPC | Services | Spring gRPC / Quarkus gRPC registries and metrics | No | Planned |
 | Planned  | Spring Batch | Services | Spring Batch `JobExplorer` / `JobRepository` | No | Planned |
 | Planned  | Correlation-ID filtering | Diagnostics | Existing request and Live Activity capture | No (capture only) | Planned |
+| Planned  | Data access map | Database | Existing SQL Trace evidence, route attribution, and JPA metamodel | No | Planned |
+| Planned  | Structured violation locations | Advisors | Existing advisor scans, ArchUnit source locations, and local source lookup | No | Planned |
 | Planned  | Execution-context profiles | Overview | Existing scheduled-run and messaging capture | No (capture only) | Planned |
 | Planned  | Log correlation | Diagnostics | Existing Logback appender and Quarkus log handler | No (capture only) | Planned |
 | Planned  | Route performance rankings | Diagnostics | Existing HTTP exchange and route-template evidence | No | Planned |
 | Planned  | Scheduled task run history | Services | Existing `ScheduledTaskRunStore` | No | Planned |
 | Planned  | Failure-preserving retention and ignore rules | Diagnostics | Existing bounded capture buffers | No (capture only) | Planned |
 | Planned  | Agent-ready profiles and exception export | Developer tools | Existing profiler and exception store | No | Planned |
-| Planned  | Source context for application frames | Diagnostics | Local exploded-build source tree | No | Planned |
+| Planned  | Source context for application frames | Diagnostics | Exception frames and the local source lookup shared with §3.19 | No | Planned |
 | Delivered | Fault Tolerance | Services | Resilience4j / Spring Retry / SmallRye Fault Tolerance | No (capture only) | Delivered |
 | Delivered | WebSocket endpoints | Services | Spring WebSocket/STOMP / Quarkus WebSockets Next | No (capture only) | Delivered |
 | Delivered | Error-contract catalogue | Services | Spring exception handlers / Quarkus exception mappers | No | Delivered |
@@ -822,7 +824,177 @@ Mocks and a green H2-only conformance run do not establish MySQL support. See
 for the executable commands.
 This feature does not replace or expand the MongoDB scope above.
 
-### 3.18 Execution-context profiles — Live Activity 📋 Planned
+### 3.18 Data access map — SQL Trace 📋 Planned
+
+SQL Trace already attributes retained statements to inbound routes (§3.12), but it answers "which routes spend database
+time?" rather than "which routes read or write this table?". This enhancement derives a route-by-table access map from
+the same retained evidence, so a developer or agent can ask "who writes `orders`?" or "what does `POST /api/checkout`
+touch?" without reading the code. It is the runtime counterpart of a static CRUD matrix: it shows access observed in the
+retained window, never a complete inventory of what the code could do.
+
+Scope:
+
+- Add `GET /bootui/api/sql-trace/data-access` to the existing SQL Trace panel on Spring MVC, Spring WebFlux, and
+  Quarkus. Keep the existing panel id, route, enablement, read-only policy, capture controls, and retention settings.
+- Extract the tables each retained statement references from its normalized, literal-free SQL, and classify every
+  reference as a read, insert, update, delete, or merge. `INSERT … SELECT`, `UPDATE … FROM`, `DELETE … USING`,
+  `MERGE … USING`, joins, and subqueries report the write target separately from the tables they read. `MERGE` and
+  upsert forms (`ON CONFLICT … DO UPDATE`, `ON DUPLICATE KEY UPDATE`) count as merge. `SELECT … FOR UPDATE` and
+  `FOR SHARE` stay reads, marked as locking.
+- Split `;`-joined batch text into its statements. Exclude `DDL` and `OTHER` statements from the map but count them.
+- Report, per table, the routes that read it and the routes that write it, with operation counts, executions, errors,
+  summed duration, and a bounded list of distinct application call sites. A statement touching several tables counts
+  toward each of them, so per-table totals are labelled as not summing to the window.
+- Reuse the §3.12 route attribution unchanged, including the explicit **Unattributed** and **Ambiguous** buckets, so
+  background jobs, startup work, and migrations stay visible rather than disappearing from a table's writers.
+- Label a table with its mapped JPA entity only when exactly one entity declares that exact name through an explicit
+  `@Table`, using the shared metamodel reader the Hibernate and Database advisors already use. Tables mapped through the
+  default naming strategy stay unlabelled rather than guessed.
+- Mark each statement's extraction as `COMPLETE` when every table reference was resolved, `PARTIAL` when some constructs
+  were not understood, or `UNRESOLVED` when no reliable reference could be read: procedure calls, truncated SQL, or
+  unsupported vendor syntax. Unresolved statements stay visible in their own bucket with counts and deep links.
+- Filter server-side by exact table name, route id, and read or write access, so "who writes `orders`?" is one request.
+- Open on a **By table** view with the search field first, and offer a **Matrix** view of routes by tables. Cells pair
+  letters (`R`, `C`, `U`, `D`, `M`) with accessible text so meaning never relies on color alone, and deep-link into the
+  filtered execution list exactly as the existing rankings do.
+- Expose the same report and filters through a read-only MCP tool and generated CLI command, for example
+  `get_sql_data_access` and `bootui sql data-access`, so an agent can check which routes a table change affects.
+
+Architecture:
+
+- Put table extraction, access classification, aggregation, bounds, and entity labelling in JSON-free, framework-neutral
+  engine services beside `SqlTraceInsightsService`. Adapters supply only the request evidence, correlation tiers, and
+  route templates they already supply for insights.
+- Build a small reference scanner over `SqlStatementNormalizer` output, in the same dependency-free lexical style. Add
+  no SQL grammar dependency and no dialect-specific parser, and never fail on unknown syntax.
+- Never report a CTE name, derived table, table-valued function, or alias as a table. Quoted identifiers keep their
+  case while unquoted ones fold for grouping. A schema-qualified name is never merged with an unqualified one, because
+  the connection's default schema is unknown.
+- Share one per-execution attribution decision between the insights report and the map by exposing
+  `SqlRouteAttribution`'s internal match result inside the engine. Both reports then reconcile exactly, instead of
+  re-deriving attribution from the bounded `entryIds`.
+- Reach the metamodel reader only through the existing optional Hibernate/JPA gates. Without Hibernate the map works
+  identically, just without entity labels, and loads no optional class.
+- Bound tables, routes per table, cells, call sites, and unresolved statements before serialization, with visible
+  truncation counts. Route templates, masked paths, and call sites follow the existing SQL Trace privacy rules; no SQL
+  literal, bound parameter, query string, or path-parameter value reaches the report.
+- Map the new tool in the MCP catalog and `CliCommandPaths` under the SQL Trace panel's policy, and regenerate
+  `bootui-tools.json`.
+
+Out of scope for the first release:
+
+- Static analysis of repositories, entities, or source code to predict access that did not run in the window.
+- Resolving default naming-strategy table names or reading Hibernate-internal persister metadata. The engine keeps to
+  the standard JPA metamodel, as the Database advisor does.
+- Distinguishing views from tables, and following writes made by triggers, stored procedures, or cascading foreign keys.
+- Telling same-named tables in separate datasources apart, because SQL Trace executions do not carry their datasource.
+  The report states this whenever more than one datasource is traced.
+- R2DBC and any other non-JDBC access, which SQL Trace does not capture.
+- Column-level lineage, query plans, index advice, or advisor rules derived from the map.
+- Persisting the map beyond the SQL Trace retention window.
+
+Acceptance criteria:
+
+- Opening the map runs no query, opens no connection, adds no JDBC interception or request capture, and reads only the
+  retained SQL Trace buffer.
+- Equivalent evidence produces the same DTOs on Spring MVC, Spring WebFlux, and Quarkus. WebFlux without request trace
+  context still reports tables and call sites, with route rows unavailable and the reason stated, as in §3.12.
+- Per-table and per-route counts reconcile with the retained window and with the insights attribution, including the
+  unattributed and ambiguous buckets, `DDL` and `OTHER` exclusions, and unresolved statements.
+- Extraction fixtures cover Hibernate-generated SQL with aliases, joins, and subqueries; `INSERT … SELECT`,
+  `UPDATE … FROM`, `DELETE … USING`, `MERGE`, and upserts; CTEs, including data-modifying CTEs; `FOR UPDATE`; quoted and
+  schema-qualified identifiers; batches; truncated statements; procedure calls; and unknown vendor syntax. No fixture
+  reports a CTE, alias, or function as a table.
+- Entity labels appear only for unique explicit `@Table` matches, and their absence causes no failure when Hibernate is
+  not on the classpath.
+- High-cardinality applications stay bounded, with deterministic ordering and visible truncation.
+- `BootUiApiContractCatalog`, conformance, the MCP catalog and regenerated `bootui-tools.json`,
+  `docs/features/database.md`, `docs/CLI.md`, `docs/AI-AGENTS.md`, `docs/SPECIFICATION.md`, `skills/bootui/SKILL.md`,
+  frontend unit tests, and the Spring MVC, Spring WebFlux, and Quarkus browser suites cover the new view.
+
+### 3.19 Structured violation locations — Advisors 📋 Planned
+
+Advisor findings name the offending code only inside free text. `sampleViolations` and the retained detail pages are
+sanitized strings, so neither the browser nor an agent can reliably tell which class, member, file, and line a finding
+points at. This enhancement adds an optional structured location next to each violation text where the advisor has
+one, without changing that text or any count, severity, score, or dismissal.
+
+Scope:
+
+- Add a core `AdvisorViolationLocationDto` carrying the class name, an optional member name and kind (`CLASS`, `METHOD`,
+  `CONSTRUCTOR`, `FIELD`), the class file's recorded source file name, an optional positive line number, an optional
+  local source path, and a `precision` of `LINE`, `MEMBER`, or `CLASS`.
+- Add `sampleLocations` to the Architecture, REST API, and Hibernate rule-result DTOs, aligned index-for-index with
+  `sampleViolations`. Add `locations` to the shared `AdvisorRuleViolationsDto`, aligned with `violations`.
+- A `null` element means that violation has no location. An empty list means the report carries no location data at
+  all, as for an unsupported advisor or an older snapshot. Existing fields keep their meaning and content.
+- Populate locations in the first release only where the scan evidence names one code element:
+  - **Architecture:** from ArchUnit's violating objects and their `SourceCodeLocation` — class, member, source file,
+    and line — never by parsing the report text.
+  - **REST API:** the handler method or exception handler the finding concerns, from the same ArchUnit model.
+  - **Hibernate:** the entity class and the mapped attribute's Java member, at member precision, because the metamodel
+    and reflection carry no line number.
+- Leave locations empty, never guessed, for findings that span several elements, such as package cycles, and for
+  findings about beans, configuration, schema, JVM state, dependencies, or security policy. This covers the Spring and
+  Quarkus application, Memory, Security, Quarkus Security, Database, Pentesting, and Vulnerabilities advisors.
+- Resolve the source path only during an explicit scan. Reuse the Architecture advisor's bounded module and source-set
+  lookup to find exactly one source file for a class compiled into a local Maven or Gradle output directory. See
+  [Generated application code](ARCHITECTURE-CHECKS.md#generated-application-code) for that lookup.
+- Classes read from archives, ambiguous matches, and exhausted lookup budgets keep a `null` path with a scan note.
+- Show the location beside each sample and detail row in the shared advisor violation component, with a
+  **Copy location** action producing, for example, `com.example.OrderService#place (OrderService.java:42)`.
+- Add an opt-in, per-browser **Open in** preference — None (the default), VS Code, or IntelliJ IDEA — stored through
+  `safeLocalStorage` like the other UI preferences. When both a path and a preset are available, the location becomes a
+  link built from that preset's fixed URL scheme.
+- Do not accept custom templates or web URLs, so a local path can never be sent to a network address.
+- Return the same locations through REST, the report and `get_*_rule_violations` MCP tools, and the CLI, and mention
+  them in the tool summaries so agents can navigate straight to the code.
+
+Architecture:
+
+- Extend `AdvisorViolationCollector` to retain an optional location with each sanitized detail. Derive the samples and
+  the retained detail pages from those same records, so text and location cannot drift apart. The retention budget
+  still counts violations, not bytes.
+- Keep ArchUnit and reflection types inside the engine advisor packages; `bootui-core` carries only the neutral record.
+  Kotlin-aware filtering applies unchanged.
+- A Kotlin file facade or companion reports its declaring source file. A line that falls outside the resolved source
+  file, such as an inline-function mapping, is dropped to member precision rather than shown wrong.
+- Bound every string and path length, and discard line numbers of zero or less, which ArchUnit uses for "unknown".
+- Treat source paths like SQL Trace call sites: application metadata about the developer's own code, not a value gated
+  by the exposure policy.
+- Detail reads keep their contract. They read the latest published snapshot and never scan, import classes, or touch
+  the filesystem.
+- Advisor output changes update the corresponding `docs/*-CHECKS.md` notes, as every advisor change must.
+
+Out of scope for the first release:
+
+- Parsing locations out of existing violation text, or inventing a location for a finding that has none.
+- Launching an IDE or opening files from the server, and any server-side action triggered by a location.
+- Per-occurrence dismissal, notes, or tags. Dismissal remains per rule.
+- Column numbers, end lines, source excerpts, or reading source text into reports.
+- Locations for bean, configuration, schema, runtime, dependency, and security findings.
+- SARIF or any other interchange export. This contract makes such an export possible, but it needs its own
+  specification.
+
+Acceptance criteria:
+
+- Violation text, counts, severities, ordering, scan IDs, dismissals, evidence, and scores are unchanged when locations
+  are present. Older clients reading only `sampleViolations` and `violations` see identical content.
+- Every location list is either empty or exactly aligned with its text list, on every sample and detail page, including
+  dismissed rules, truncated retention, and paging.
+- Architecture, REST API, and Hibernate report the expected class, member, source file, line, and precision on Spring
+  MVC, Spring WebFlux, and Quarkus for Java and Kotlin fixtures. Compiler-generated members stay filtered.
+- Source paths resolve for local Maven and Gradle layouts. They stay `null`, with a scan note, for executable jars,
+  extracted `BOOT-INF/lib` images, Quarkus `lib` layouts, ambiguous matches, and exhausted budgets. No lookup runs
+  outside an explicit scan.
+- The **Open in** preference is off by default, produces links only from its fixed presets, and is keyboard accessible;
+  **Copy location** works without it.
+- MCP responses stay within the existing response budgets at the default page size.
+- The regenerated `bootui-tools.json`, `docs/features/advisors.md`, `docs/AI-AGENTS.md`, `docs/CLI.md`,
+  `skills/bootui/SKILL.md`, `BootUiApiContractCatalog`, conformance, frontend unit tests, and the browser suites cover
+  the change.
+
+### 3.20 Execution-context profiles — Live Activity 📋 Planned
 
 The per-request profiler (`GET /bootui/api/activity/request/{id}`, `RequestProfileDto`) explains what one HTTP request
 did, but work that starts anywhere else has no equivalent. A `SCHEDULED` entry is top-level, and only an unowned
@@ -898,7 +1070,7 @@ Acceptance criteria:
   invocations, a request and a consumed message sharing one trace, consumed and sent messages, Quarkus fire-time
   windows, masked children, truncation, and all three adapters.
 
-### 3.19 Log correlation — Log Tail and Live Activity 📋 Planned
+### 3.21 Log correlation — Log Tail and Live Activity 📋 Planned
 
 Log Tail captures log lines through `BootUiLogAppender`, a Logback appender, on Spring and through
 `QuarkusLogTailHandler`, a root `java.util.logging` handler, on Quarkus, both into the shared `LogTailBuffer`. Each
@@ -923,7 +1095,7 @@ Scope:
 - Add a `LOG` signal to Live Activity for `WARN` and above, with the threshold set by `bootui.activity.log-level`,
   bound on every adapter. Nest it under its request or execution by trace id, then by serving thread within the request
   window on Spring MVC.
-- Include correlated log lines in request and execution profiles (§3.18), and link each Log Tail row that has a trace id
+- Include correlated log lines in request and execution profiles (§3.20), and link each Log Tail row that has a trace id
   to its profile and Traces entry.
 - Apply the exception-message exposure rule to log messages and context values at read time, in Log Tail, Live Activity,
   profiles, and `get_log_tail`: `MASKED` scrubs secret-like assignments, `METADATA_ONLY` omits messages and context
@@ -964,7 +1136,7 @@ Acceptance criteria:
 - Fixtures cover present and absent MDC, WebFlux context hops, Quarkus OpenTelemetry, every exposure mode, oversized
   values, allowlist rejection, de-duplication, filters, and all three adapters.
 
-### 3.20 Route performance rankings — HTTP Exchanges 📋 Planned
+### 3.22 Route performance rankings — HTTP Exchanges 📋 Planned
 
 SQL Trace ranks statements and database time by request route, but HTTP Exchanges is a flat list of recent requests,
 and `HttpExchangesReport` carries no aggregates. Live Activity's KPI strip computes p50 and p95 latency and names the
@@ -1012,7 +1184,7 @@ Acceptance criteria:
 - Fixtures cover templated and untemplated routes, ties, status classes, masked paths, eviction, self traffic, and all
   three adapters.
 
-### 3.21 Scheduled task run history — Scheduled Tasks 📋 Planned
+### 3.23 Scheduled task run history — Scheduled Tasks 📋 Planned
 
 The Scheduled Tasks panel lists task definitions only (`ScheduledTaskDto`: runnable, trigger type, expression, initial
 delay, and time unit). Every completed `@Scheduled` method execution is already retained in `ScheduledTaskRunStore` to
@@ -1024,7 +1196,7 @@ Scope:
 - Per task: retained run count, failure count, average, p95, and maximum duration, last run time and outcome, and the
   last failure's exception class and exposure-governed message.
 - The next scheduled execution when the framework exposes it, and an explicit unavailable state when it does not.
-- A per-task drill-down of recent runs, newest first, each linking to its execution profile (§3.18) or Live Activity
+- A per-task drill-down of recent runs, newest first, each linking to its execution profile (§3.20) or Live Activity
   entry.
 - An explicit **Unmatched runs** group for runs whose identifier matches no listed definition, instead of dropping them.
 - Filters for task name, outcome, and slow runs. The slow threshold is a new
@@ -1038,7 +1210,7 @@ Scope:
 Architecture:
 
 - Join in a framework-neutral engine service over `ScheduledTasksService` definitions and `ScheduledTaskRunStore` runs,
-  keyed by the runnable identifier both already share. Reuse the shared percentile helper from §3.20.
+  keyed by the runnable identifier both already share. Reuse the shared percentile helper from §3.22.
 - Keep the DTO change additive: each definition gains a nullable run summary, and the report gains the window and
   unmatched runs.
 - Apply the exception-message exposure rule to failure messages.
@@ -1060,7 +1232,7 @@ Acceptance criteria:
 - Fixtures cover successes, failures, slow runs, eviction, unmatched runs, overlapping runs, missing next-execution
   support, and all three adapters.
 
-### 3.22 Failure-preserving retention and ignore rules — Diagnostics 📋 Planned
+### 3.24 Failure-preserving retention and ignore rules — Diagnostics 📋 Planned
 
 Every capture buffer evicts oldest first. That applies to HTTP Exchanges, which use Actuator's
 `InMemoryHttpExchangeRepository` on Spring and BootUI's `HttpExchangeBuffer` on Quarkus, as well as to SQL Trace and
@@ -1117,7 +1289,7 @@ Acceptance criteria:
 - Tests cover classification, eviction order under mixed load, a capacity of one, valid and invalid patterns,
   self-filter interaction, and all three adapters.
 
-### 3.23 Agent-ready profiles and exception export — Developer tools 📋 Planned
+### 3.25 Agent-ready profiles and exception export — Developer tools 📋 Planned
 
 The MCP server and CLI expose `get_live_activity`, `get_exceptions`, and `get_exception_detail`, but no tool returns a
 request profile. An agent can see that a request was slow, but not its SQL, N+1 groups, or call sites. In the browser,
@@ -1128,11 +1300,11 @@ Scope:
 
 - Add a read-only `get_request_profile` MCP tool that takes an activity entry id and returns the same
   `RequestProfileDto` as `GET /bootui/api/activity/request/{id}`, exposed as `bootui activity profile <id>`.
-- Once §3.18 lands, add `get_execution_profile`, exposed as `bootui activity execution <id>`.
+- Once §3.20 lands, add `get_execution_profile`, exposed as `bootui activity execution <id>`.
 - Add an additive `exceptionGroupId` to `RequestProfileExceptionDto`, so a profile can reach each exception's detail.
 - Add **Copy for AI** to the Exceptions detail and the profiler drawer. It produces one Markdown document with the
   summary, exception type and exposure-governed message, the cause chain with application frames marked, recent
-  occurrences with request context, correlated normalized SQL with N+1 call sites, and, once §3.24 lands, source
+  occurrences with request context, correlated normalized SQL with N+1 call sites, and, once §3.26 lands, source
   excerpts.
 - Render **Copy profile** through the same Markdown helper.
 - Show the full document before copying, as **Copy as cURL** does, and list what was omitted, such as masked values or
@@ -1169,40 +1341,41 @@ Acceptance criteria:
 - Tests cover profiles with and without SQL, N+1 groups, truncated sections, unknown ids, masked values, cause chains,
   and identical output across adapters.
 
-### 3.24 Source context for application frames — Exceptions 📋 Planned
+### 3.26 Source context for application frames — Exceptions 📋 Planned
 
 Exception frames carry a class, method, file, and line, and `ExceptionStore` marks application frames using the detected
 application packages. The developer still has to find each file by hand. BootUI runs beside the source it diagnoses, so
 it can show a few lines around each application frame and open the file in the IDE. This enhancement adds both,
-fail-closed.
+fail-closed, and applies to exception frames the location model and **Open in** preference that §3.19 introduces for
+advisor findings.
 
 Scope:
 
 - For application frames only, show a short excerpt around the failing line, read from the local source tree, in the
   Exceptions detail, the profilers, and **Copy for AI**.
-- Offer **Open in IDE** per application frame through a URL template chosen in the UI and remembered in the browser,
-  with presets for IntelliJ IDEA and VS Code, and an option to hide links.
-- Resolve a frame to a file only through its package path and file name under exact allowed source roots. Never search
-  the disk.
+- Link each application frame through the per-browser **Open in** preference from §3.19. It is off by default, offers
+  only the VS Code and IntelliJ IDEA presets with their fixed URL schemes, and accepts no custom template or web URL.
+  **Copy location** works without it.
+- Resolve a frame to exactly one file through §3.19's lookup. Never search the disk.
 - Allow the feature to be turned off with `bootui.exceptions.source-context.enabled`.
 
 Architecture:
 
-- Add a framework-neutral engine source locator behind an SPI that returns exact allowed source roots, not a project
-  root. Spring derives them from exploded class-output directories — the application's own code source and, for other
-  application frames, the class-file resource location looked up without loading the class — mapped from Maven and
-  Gradle output layouts to their conventional `src/main/java` and `src/main/kotlin` directories, and confined under
-  `ProjectSourceTree`'s project root. `bootui.exceptions.source-context.roots` adds explicit roots, under the same
-  confinement, for layouts that cannot be inferred. Quarkus supplies source roots in dev mode where the adapter can
-  determine them. Packaged jars, native images, and unresolved roots report the feature as unavailable with a reason.
-- Confine resolution to normalized paths under the source roots, refuse symlinks that escape them, read only regular
-  `.java` and `.kt` files under a size cap, and cache bounded excerpts.
+- Reuse the Architecture advisor's bounded module and source-set lookup that §3.19 reuses. It maps a class compiled
+  into a local Maven or Gradle output directory to its module's sources, which covers multi-module projects launched
+  from the reactor root. Share one engine locator between the two features rather than adding a second one.
+- Run the lookup only when the user opens an exception group or prepares an export. Classes read from archives,
+  ambiguous matches, exhausted lookup budgets, native images, and Quarkus `lib` layouts keep no path and report the
+  reason.
+- Read only the one resolved regular `.java` or `.kt` file, refuse symlinks, cap the file size, and cache bounded
+  excerpts.
 - Serve excerpts from a separate read endpoint for one exception group, called only when the user opens that group or
   prepares an export, so rendering the list reads no files.
 - Apply the exposure policy to excerpts. Pattern-based secret detection cannot recognize every credential in source, so
   `MASKED` lexes the whole file and replaces the contents of every string, character, and text-block literal and every
-  comment with a placeholder, omitting the excerpt when the file cannot be lexed. `METADATA_ONLY` omits excerpts but
-  keeps IDE links, and only `FULL` shows source verbatim.
+  comment with a placeholder, omitting the excerpt when the file cannot be lexed. `METADATA_ONLY` omits excerpts, and
+  only `FULL` shows source verbatim. As in §3.19, the source path and location themselves are application metadata, not
+  exposure-gated values, so the **Open in** link stays available in every mode.
 
 Out of scope for the first release:
 
@@ -1214,14 +1387,15 @@ Out of scope for the first release:
 Acceptance criteria:
 
 - No file is read to render the exception list.
-- Escaping paths and symlinks, missing files, non-source files, and oversized files are refused with a per-frame reason.
-- A packaged jar, native image, or unresolved project root disables excerpts with a reason while frames stay readable.
+- Symlinks, ambiguous or missing files, non-source files, and oversized files are refused with a per-frame reason.
+- A packaged jar, native image, or unresolved class location disables the excerpt with a reason while the frame stays
+  readable.
 - Under `MASKED`, no literal or comment content reaches the browser; excerpts are omitted under `METADATA_ONLY`; and a
   live exposure change applies without a restart.
 - Out-of-range line numbers and generated, lambda, or synthetic frames produce no excerpt rather than a wrong one.
-- The IntelliJ IDEA and VS Code presets open the correct file and line.
-- Tests cover Maven and Gradle layouts, Kotlin sources, multi-module projects launched from the reactor root, explicit
-  roots, traversal attempts, and availability on all three adapters.
+- The **Open in** links match §3.19's behavior exactly, and open the correct file and line.
+- Tests cover Maven and Gradle layouts, Kotlin sources, multi-module projects launched from the reactor root, archive
+  classes, and availability on all three adapters.
 
 ## 4. Cross-cutting work for every new panel
 
@@ -1250,11 +1424,16 @@ For each feature above, the following must move together, consistent with the ex
 | MongoDB optional drivers break applications without the extension | 3.5 | High | Keep driver types in adapter-only providers and use Spring classpath gates plus Quarkus capability/exclusion build steps. |
 | Large MongoDB catalog or partial permissions make inspection slow or misleading | 3.5 | Medium | Hard caps, paging, configurable timeouts, partial-result DTOs, and per-target permission errors. |
 | Scope creep beyond the planned MongoDB inventory/advisor surface | 3.5 | High | Keep document browsing, arbitrary commands, writes, tracing, and migrations out of the first release. |
-| Correlation over-claims which request or execution caused a record | 3.18, 3.19 | Medium | Tiered, labelled correlation with a unique-candidate rule; ambiguous work stays top-level. |
-| Log messages, MDC values, exports, or source excerpts leak secrets | 3.19, 3.23, 3.24 | High | Explicitly configured MDC keys, read-time exposure policy, omission under `METADATA_ONLY`, literal and comment stripping for source under `MASKED`, and exports built only from masked DTOs. |
-| New capture fields slow application hot paths | 3.18, 3.19, 3.22 | Medium | Copy only data already at hand at existing hooks, with bounded copies and fail-open capture. |
-| Reserved retention hides recent routine traffic | 3.22 | Low | Reserve a bounded share of existing capacity and report retained, reserved, and evicted counts. |
-| Source reads escape the project tree | 3.24 | High | Resolve only by package path under exact allowed source roots, refuse escaping paths and symlinks, and read only on open or export. |
+| Lexical table extraction misreads SQL and invents or misses access | 3.18 | High | Per-statement extraction status, an explicit unresolved bucket, no CTE/alias/function ever reported as a table, and a fixture corpus of Hibernate and vendor SQL. |
+| The data access map is read as a complete CRUD matrix | 3.18 | Medium | Label every view as observed in the retained window, show the window, evictions, and exclusions inline, and add no static inference. |
+| Location lists drift from violation text or break older clients | 3.19 | Medium | Derive text and location from one retained record, keep fields additive, and test alignment on every advisor, sample, and page. |
+| Source-path lookup slows scans or reads unexpected files | 3.19 | Medium | Reuse the existing bounded lookup and budgets, run it only during explicit scans, never follow symlinks, and never resolve archives. |
+| IDE links send local paths somewhere unexpected | 3.19 | Low | Off by default, fixed IDE URL-scheme presets only, and no custom or web templates. |
+| Correlation over-claims which request or execution caused a record | 3.20, 3.21 | Medium | Tiered, labelled correlation with a unique-candidate rule; ambiguous work stays top-level. |
+| Log messages, MDC values, exports, or source excerpts leak secrets | 3.21, 3.25, 3.26 | High | Explicitly configured MDC keys, read-time exposure policy, omission under `METADATA_ONLY`, literal and comment stripping for source under `MASKED`, and exports built only from masked DTOs. |
+| New capture fields slow application hot paths | 3.20, 3.21, 3.24 | Medium | Copy only data already at hand at existing hooks, with bounded copies and fail-open capture. |
+| Reserved retention hides recent routine traffic | 3.24 | Low | Reserve a bounded share of existing capacity and report retained, reserved, and evicted counts. |
+| Source reads escape the project tree | 3.26 | High | Reuse §3.19's bounded module and source-set lookup, refuse symlinks and archives, and read only one resolved file on open or export. |
 
 ## 6. Validation checklist
 
