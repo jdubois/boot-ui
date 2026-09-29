@@ -7,6 +7,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Quarkus 3.33.3.3.** The Quarkus extension, integration tests, and sample app move to Quarkus 3.33.3.3, the
+  newest micro release of the 3.33 LTS stream.
+
 ### Fixed
 
 - **Spring MVC Log Tail streams no longer throw on a worker thread when a client disconnects or the application
