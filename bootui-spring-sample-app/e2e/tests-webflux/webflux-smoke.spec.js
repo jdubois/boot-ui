@@ -301,7 +301,7 @@ test.describe('BootUI on Spring WebFlux', () => {
     await page.goto('/bootui/#/http-exchanges')
     await page.locator('#http-exchanges-filter').fill('curlProbe')
 
-    const probeRow = page.locator('tbody tr', {hasText: 'curlProbe'}).first()
+    const probeRow = page.locator('.http-exchanges-table tbody tr', {hasText: 'curlProbe'}).first()
     await expect(probeRow).toBeVisible({timeout: 15_000})
     await probeRow.locator('.http-exchanges-detail-toggle').click()
     // Precondition: the header really was recorded, so the absence assertions below cannot pass vacuously.
@@ -327,6 +327,28 @@ test.describe('BootUI on Spring WebFlux', () => {
     expect(copied).not.toContain('beta')
     expect(copied.toLowerCase()).not.toContain('x-api-key')
     expect(copied).not.toContain('e2e-must-not-be-copied')
+  })
+
+  test('HTTP Exchanges ranks routes by their WebFlux template, never by a path value', async ({page, request}) => {
+    for (const name of ['Ada', 'Grace', 'Barbara']) {
+      expect((await request.get(`/api/greetings/${name}`)).ok()).toBeTruthy()
+    }
+
+    await page.goto('/bootui/#/http-exchanges')
+
+    // A word-shaped path value such as a name is indistinguishable from a route word, so only the matched
+    // handler pattern can group these three requests into one row.
+    const routeRow = page.locator('.http-routes-table tbody tr[data-route-id="GET /api/greetings/{name}"]')
+    await expect(routeRow).toBeVisible({timeout: 15_000})
+    await expect(routeRow.locator('.http-routes-source')).toHaveText(/template/)
+    await expect(page.locator('.http-routes-table')).not.toContainText('Grace')
+    await expect(page.locator('.http-routes-table')).not.toContainText('/bootui')
+
+    await routeRow.locator('.http-routes-exchanges-link').click()
+    await expect(page).toHaveURL(/route=GET/)
+    await expect(page.locator('.http-exchanges-route-filter')).toContainText('GET /api/greetings/{name}')
+    await expect(page.locator('.http-exchanges-table tbody tr').first()).toContainText('/api/greetings/')
+    await expect(page.locator('.http-exchanges-table')).not.toContainText('/api/notes')
   })
 
   test('panels with no reactive equivalent yet explain why in the sidebar and panel alert', async ({page}) => {

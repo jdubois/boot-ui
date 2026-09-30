@@ -427,7 +427,7 @@ onMounted(() => {
           Routes <span class="badge bg-secondary">{{ formatNumber(rankedRoutes.length) }}</span>
         </h3>
         <div class="d-flex align-items-center gap-2">
-          <label class="form-label small mb-0 text-muted" for="http-routes-metric">Rank by</label>
+          <label class="form-label small mb-0 text-muted text-nowrap" for="http-routes-metric">Rank by</label>
           <select id="http-routes-metric" v-model="rankingMetric" class="form-select form-select-sm">
             <option v-for="metric in ROUTE_METRICS" :key="metric.key" :value="metric.key">
               {{ metric.label }}
