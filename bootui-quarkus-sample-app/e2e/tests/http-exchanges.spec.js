@@ -19,6 +19,22 @@ test.describe('HTTP Exchanges view (Quarkus)', () => {
     await expect(page.locator('.http-exchanges-detail').first()).toContainText('Request headers')
   })
 
+  test('states the failure-preserving retention window', async ({openView, page}) => {
+    const apiResponse = await page.request.get('/api/sample/hello')
+    expect(apiResponse.ok()).toBeTruthy()
+
+    await openView('http-exchanges', 'HTTP Exchanges')
+
+    const retention = page.locator('.capture-retention')
+    await expect(retention).toContainText('Retention:', {timeout: 15_000})
+    await expect(retention).toContainText(/keeping \d+ of 200 exchanges/)
+    await expect(retention).toContainText(/of 50 reserved for recent 5xx or slow exchanges \(slow means ≥ 1,?000 ms\)/)
+    const exchangesTable = page.locator('table.http-exchanges-table')
+    await expect(exchangesTable).toContainText('/api/sample/hello')
+    await expect(exchangesTable).not.toContainText('/bootui/api/')
+    await expect(page.locator('table.http-routes-table')).not.toContainText('/bootui/api/')
+  })
+
   test('shows security failures recorded before the Quarkus security filter short-circuits', async ({
     openView,
     page

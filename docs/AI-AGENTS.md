@@ -246,7 +246,10 @@ the classpath) are simply not advertised.
   `get_live_activity` returns the correlated feed the [Live Activity panel](features/overview.md#live-activity) shows (HTTP requests, SQL
   statements, exceptions, and security events grouped by request/trace); `get_exception_detail` takes a required `id`
   (from `get_exceptions` or `get_live_activity`) and returns that exception group's full stack trace, causes, and
-  individual occurrences.
+  individual occurrences. `get_http_exchanges`, `get_sql_traces`, and `get_rest_client_traces` read bounded buffers
+  that keep recent failed and slow records longer than routine ones; each includes a `retention` object with the
+  capacity and the retained, reserved, and evicted counts, so an agent can tell a partial window from "it never
+  happened". See [Failure-preserving retention](features/diagnostics.md#failure-preserving-retention).
 - **Core context and integration reads:** `get_overview`, `get_health`, `get_config` (masked), `get_beans`,
   `get_mappings`, `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`,
   `get_cache_stats`,

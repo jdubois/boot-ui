@@ -103,4 +103,73 @@ class ActivityCaptureCoordinatorTests {
                 .count();
         assertThat(firstCaptureCount).isEqualTo(2);
     }
+
+    @Test
+    void neverReCapturesAnEntryThatStaysInTheViewWhileNewerEntriesFlood() {
+        RecordingStore store = new RecordingStore();
+        ActivityCaptureCoordinator coordinator =
+                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 1);
+        // A failure held in a failure-preserving buffer's reserved share outlives many routine entries.
+        ActivityEntryDto failure = entry("failure", "REQUEST", 1, "ERROR", "boom");
+
+        coordinator.ingest(List.of(failure));
+        for (int poll = 0; poll < 5; poll++) {
+            List<ActivityEntryDto> view = new ArrayList<>();
+            for (int i = 0; i < 20; i++) {
+                int id = poll * 20 + i;
+                view.add(0, entry("ok-" + id, "REQUEST", id + 2, "OK", "ok"));
+            }
+            view.add(failure);
+            coordinator.ingest(view);
+        }
+
+        assertThat(store.allAppended.stream()
+                        .filter(e -> "failure".equals(e.entry().id())))
+                .hasSize(1);
+        assertThat(store.allAppended).hasSize(1 + 5 * 20);
+    }
+
+    @Test
+    void neverReCapturesAFailureThatNewerRoutineEntriesHidFromACappedView() {
+        RecordingStore store = new RecordingStore();
+        ActivityCaptureCoordinator coordinator =
+                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 1);
+        ActivityEntryDto failure = entry("failure", "REQUEST", 1, "ERROR", "boom");
+
+        coordinator.ingest(List.of(failure));
+        for (int poll = 0; poll < 5; poll++) {
+            List<ActivityEntryDto> view = new ArrayList<>();
+            for (int i = 0; i < 20; i++) {
+                int id = poll * 20 + i;
+                view.add(0, entry("sql-" + id, "SQL", id + 2, "OK", "select"));
+            }
+            // The capped view no longer reaches the failure, which its source still retains.
+            coordinator.ingest(view);
+        }
+        // The newer entries are cleared, so the retained failure is visible again.
+        coordinator.ingest(List.of(failure));
+
+        assertThat(store.allAppended.stream()
+                        .filter(e -> "failure".equals(e.entry().id())))
+                .hasSize(1);
+    }
+
+    @Test
+    void routineWarningsDoNotEvictAReservedFailureFromTheReservedWindow() {
+        RecordingStore store = new RecordingStore();
+        ActivityCaptureCoordinator coordinator =
+                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 1);
+        ActivityEntryDto failure = entry("failure", "REQUEST", 1, "ERROR", "boom");
+
+        coordinator.ingest(List.of(failure));
+        for (int i = 0; i < 40; i++) {
+            // 4xx exchanges are WARN in the stream but routine in the exchange buffer.
+            coordinator.ingest(List.of(entry("not-found-" + i, "REQUEST", i + 2, "WARN", "404")));
+        }
+        coordinator.ingest(List.of(failure));
+
+        assertThat(store.allAppended.stream()
+                        .filter(e -> "failure".equals(e.entry().id())))
+                .hasSize(1);
+    }
 }

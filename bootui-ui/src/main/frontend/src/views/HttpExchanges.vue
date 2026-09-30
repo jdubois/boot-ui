@@ -2,6 +2,7 @@
 import {computed, nextTick, onMounted, ref, watch} from 'vue'
 import {useRoute, useRouter} from 'vue-router'
 import {getJson} from '../api.js'
+import CaptureRetention from './components/CaptureRetention.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import ServerListFooter from './components/ServerListFooter.vue'
@@ -445,6 +446,8 @@ onMounted(() => {
       <strong>HTTP exchange recording is unavailable.</strong>
       <span class="d-block small">{{ unavailableReason }}</span>
     </div>
+
+    <CaptureRetention :retention="data?.retention ?? null" noun="exchanges" reserved-for="5xx or slow" />
 
     <div v-if="routesError" class="alert alert-warning small py-2">{{ routesError }}</div>
 

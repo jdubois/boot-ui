@@ -119,6 +119,24 @@ class HttpExchangesServiceTests {
     }
 
     @Test
+    void judgesSelfTrafficOnThePathOnlyNeverTheQueryString() {
+        HttpExchangesReport report = service.report(
+                List.of(exchange("/api/orders?next=/bootui/api", 500, Map.of())),
+                new io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier(true, "/bootui", "/bootui/api")
+                        ::isBootUiPath,
+                true,
+                ValueExposure.MASKED,
+                null,
+                null,
+                null,
+                null,
+                null);
+
+        assertThat(report.hiddenSelf()).isZero();
+        assertThat(report.exchanges()).extracting(HttpExchangeDto::path).containsExactly("/api/orders");
+    }
+
+    @Test
     void bufferCapsAndReversesNewestFirst() {
         HttpExchangeBuffer buffer = new HttpExchangeBuffer(2);
         buffer.record(exchange("/a", 200, Map.of()));

@@ -3,8 +3,10 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.HttpRoutesReport;
+import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
 import io.github.jdubois.bootui.engine.web.HttpExchangesService;
@@ -30,6 +32,12 @@ import org.springframework.web.bind.annotation.RestController;
  * route resolution and paging to the shared {@link HttpExchangesService}, and route rankings to the shared
  * {@link HttpRouteSummaryService}, so the wire is identical to the Quarkus adapter. Shared by the Spring MVC
  * and Spring WebFlux adapters.
+ *
+ * <p>When the repository is BootUI's own {@link BootUiHttpExchangeRepository}, the exchange list and the route
+ * rankings carry its retention counts, read from the same snapshot as the exchanges: the list's {@code retention}
+ * object, and the route window's buffer size and evictions. An application-provided repository, or BootUI's
+ * repository fed by an application-provided filter, reports its retention as application-managed and leaves the
+ * window's evictions unreported.</p>
  */
 @RestController
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/http-exchanges")
@@ -130,9 +138,10 @@ public class HttpExchangesController implements BeanFactoryAware {
         if (exchangeRepository == null) {
             return HttpExchangesReport.unavailable(UNAVAILABLE_REASON);
         }
+        Window window = window(exchangeRepository);
         return service.report(
-                captured(exchangeRepository),
-                selfPath(),
+                window.captured(),
+                window.selfPath(),
                 exposure.maskSecrets(),
                 exposure.valueExposure(),
                 declaredRoutes.get(),
@@ -141,7 +150,8 @@ public class HttpExchangesController implements BeanFactoryAware {
                 statusClass,
                 route,
                 offset,
-                limit);
+                limit,
+                window.retention());
     }
 
     /** Route rankings without a pinned route, for programmatic callers such as MCP. */
@@ -162,22 +172,53 @@ public class HttpExchangesController implements BeanFactoryAware {
         if (exchangeRepository == null) {
             return HttpRoutesReport.unavailable(UNAVAILABLE_REASON);
         }
+        Window window = window(exchangeRepository);
+        CaptureRetentionDto retention = window.retention();
         return routeSummary.summarize(
-                captured(exchangeRepository),
-                selfPath(),
+                window.captured(),
+                window.selfPath(),
                 declaredRoutes.get(),
-                // Actuator's repository API reports neither its capacity nor its evictions.
+                // Actuator's repository API reports neither its capacity nor its evictions; BootUI's own repository
+                // reports both, except when an application filter records into it (application-managed).
                 new HttpRouteSummaryService.ExchangeSource(
-                        bufferSize(exchangeRepository),
-                        null,
+                        retention.capacity() != null ? retention.capacity() : bufferSize(exchangeRepository),
+                        retention.evicted(),
                         traceRegistry == null ? List.of(NO_TEMPLATE_NOTE) : List.of()),
                 limit,
                 route);
     }
 
-    private List<CapturedHttpExchange> captured(HttpExchangeRepository exchangeRepository) {
-        return exchangeRepository.findAll().stream().map(this::toCaptured).toList();
+    /**
+     * The retained exchanges, the retention counts that describe them, and the read-time self filter, all from one
+     * snapshot of the repository. BootUI's own recording filter already kept BootUI's requests out of a BootUI-owned
+     * repository, so no read-time check runs there; an application-managed recorder keeps it.
+     */
+    private Window window(HttpExchangeRepository exchangeRepository) {
+        List<HttpExchange> exchanges;
+        CaptureRetentionDto retention;
+        boolean selfExcludedAtCapture = false;
+        if (exchangeRepository instanceof BootUiHttpExchangeRepository bootUiRepository) {
+            TieredCaptureBuffer.Snapshot<HttpExchange> snapshot = bootUiRepository.snapshot();
+            exchanges = snapshot.newestFirst();
+            retention = bootUiRepository.retention(snapshot);
+            selfExcludedAtCapture = bootUiRepository.ownsRetention();
+        } else {
+            exchanges = exchangeRepository.findAll();
+            retention = CaptureRetentionDto.applicationManaged(exchanges.size());
+        }
+        HttpExchangeTraceRegistry.Matcher traces = traceRegistry == null ? null : traceRegistry.matcher();
+        List<CapturedHttpExchange> captured =
+                exchanges.stream().map(exchange -> toCaptured(exchange, traces)).toList();
+        return new Window(
+                captured,
+                retention,
+                selfExcludedAtCapture ? HttpExchangesService.BootUiSelfPath.EXCLUDED_AT_CAPTURE : selfPath());
     }
+
+    private record Window(
+            List<CapturedHttpExchange> captured,
+            CaptureRetentionDto retention,
+            HttpExchangesService.BootUiSelfPath selfPath) {}
 
     private HttpExchangesService.BootUiSelfPath selfPath() {
         return uri -> !selfDataFilter.shouldInclude(selfDataFilter.isBootUiPath(uri));
@@ -199,7 +240,7 @@ public class HttpExchangesController implements BeanFactoryAware {
         return null;
     }
 
-    private CapturedHttpExchange toCaptured(HttpExchange exchange) {
+    private CapturedHttpExchange toCaptured(HttpExchange exchange, HttpExchangeTraceRegistry.Matcher traces) {
         HttpExchange.Request request = exchange.getRequest();
         HttpExchange.Response response = exchange.getResponse();
         Long durationMs =
@@ -215,8 +256,8 @@ public class HttpExchangesController implements BeanFactoryAware {
                 exchange.getSession() == null ? null : exchange.getSession().getId(),
                 request == null ? null : request.getHeaders(),
                 response == null ? null : response.getHeaders(),
-                capturedTraceId(exchange, request, durationMs),
-                capturedRouteTemplate(exchange, request, durationMs));
+                capturedTraceId(traces, exchange, request, durationMs),
+                capturedRouteTemplate(traces, exchange, request, durationMs));
     }
 
     /**
@@ -225,13 +266,17 @@ public class HttpExchangesController implements BeanFactoryAware {
      * registry is installed (or OpenTelemetry is absent on the reactive adapter) so callers fall back to
      * header-derived extraction unchanged.
      */
-    private String capturedTraceId(HttpExchange exchange, HttpExchange.Request request, Long durationMs) {
-        if (traceRegistry == null || request == null || exchange.getTimestamp() == null) {
+    private static String capturedTraceId(
+            HttpExchangeTraceRegistry.Matcher traces,
+            HttpExchange exchange,
+            HttpExchange.Request request,
+            Long durationMs) {
+        if (traces == null || request == null || exchange.getTimestamp() == null) {
             return null;
         }
         long start = exchange.getTimestamp().toEpochMilli();
         long end = durationMs == null ? start : start + durationMs;
-        return traceRegistry.match(request.getMethod(), request.getUri().getPath(), start, end);
+        return traces.match(request.getMethod(), request.getUri().getPath(), start, end);
     }
 
     /**
@@ -240,13 +285,16 @@ public class HttpExchangesController implements BeanFactoryAware {
      * installed or the candidates disagree, so the engine falls back to declared mappings, then a masked
      * path.
      */
-    private String capturedRouteTemplate(HttpExchange exchange, HttpExchange.Request request, Long durationMs) {
-        if (traceRegistry == null || request == null || request.getUri() == null || exchange.getTimestamp() == null) {
+    private static String capturedRouteTemplate(
+            HttpExchangeTraceRegistry.Matcher traces,
+            HttpExchange exchange,
+            HttpExchange.Request request,
+            Long durationMs) {
+        if (traces == null || request == null || request.getUri() == null || exchange.getTimestamp() == null) {
             return null;
         }
         long start = exchange.getTimestamp().toEpochMilli();
         long end = durationMs == null ? start : start + durationMs;
-        return traceRegistry.matchRouteTemplate(
-                request.getMethod(), request.getUri().getPath(), start, end);
+        return traces.matchRouteTemplate(request.getMethod(), request.getUri().getPath(), start, end);
     }
 }

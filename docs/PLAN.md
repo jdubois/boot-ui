@@ -46,7 +46,6 @@ have shipped. Each row is one pull request.
 
 | Wave | Item                                            | Panels                                                | Depends on            |
 | ---- | ----------------------------------------------- | ----------------------------------------------------- | --------------------- |
-| 1    | §3.24a Failure-preserving retention             | HTTP Exchanges, SQL Trace, REST Client                | —                     |
 | 2    | §3.20b Scheduled-run profiles                   | Live Activity                                         | §3.20a                |
 | 2    | §3.20c Consumed-message profiles                | Live Activity                                         | §3.20a                |
 | 2    | §3.24b Capture ignore rules                     | HTTP Exchanges, Live Activity, SQL Trace, REST Client | §3.24a                |
@@ -64,8 +63,7 @@ have shipped. Each row is one pull request.
   §3.21 still lists it as a dependency, now satisfied, because it builds on §3.27's read path.
 - **Wave 1** builds the shared pieces that later items reuse: the tiered capture buffer, the generalized profile
   assembler, one percentile helper and slowest-request KPI, and the violation location model with its source locator.
-  The generalized profile assembler has shipped as §3.20a, so §3.20b, §3.20c, and §3.25 can start, and the percentile
-  helper and slowest-request KPI have shipped as §3.22.
+  All of them have shipped, as §3.24a, §3.20a, §3.22, and §3.19, so wave 2 can start.
 - **Wave 2** builds directly on wave 1 or improves existing evidence independently. §3.14 lands before §3.21 so log
   correlation can match configured correlation identifiers from the start. §3.25's `get_execution_profile` tool
   follows §3.20b, and its source excerpts follow §3.26, as small follow-up pull requests.
@@ -84,7 +82,7 @@ graph LR
   S20c --> S21
   S20b --> S23["3.23 Run history"]
   S22["3.22 Route rankings ✅"] --> S23
-  S24a["3.24a Retention"] --> S24b["3.24b Ignore rules"]
+  S24a["3.24a Retention ✅"] --> S24b["3.24b Ignore rules"]
   S19["3.19 Violation locations ✅"] --> S26["3.26 Source context"]
   S14["3.14 Correlation IDs"] -.-> S21
   S20b -.-> S25
@@ -96,20 +94,21 @@ node has shipped and stays in the graph while items that depend on it remain pla
 
 ### Delivered
 
-| §     | Item                                                         | Release    | Documentation                                                           |
-| ----- | ------------------------------------------------------------ | ---------- | ----------------------------------------------------------------------- |
-| 3.7   | Fault Tolerance panel                                        | 1.15.0     | [Fault Tolerance](features/services.md#fault-tolerance)                 |
-| 3.10  | WebSockets panel                                             | 1.15.0     | [WebSockets](features/services.md#websockets)                           |
-| 3.11  | Error-contract catalogue in REST API and Exceptions          | 1.15.0     | [Declared error contract](features/advisors.md#declared-error-contract) |
-| 3.12  | Slow-SQL ranking and route attribution in SQL Trace          | 1.15.0     | [SQL Trace rankings](features/database.md#rankings)                     |
-| 3.15  | Meter provenance and explanation in Metrics                  | 1.15.0     | [Metrics](features/runtime.md#metrics)                                  |
-| 3.16  | Cache tiering and hit ratios                                 | 1.15.0     | [Tiering and hit ratios](features/services.md#tiering-and-hit-ratios)   |
-| —     | Command-line endpoint, `bootui` CLI, and Command Line panel  | 1.16.0     | [Command Line](features/developer-tools.md#command-line), [CLI](CLI.md) |
-| 3.17  | MySQL operational view, tested on Oracle MySQL 8.4 LTS       | 1.18.0     | [MySQL](features/database.md#mysql)                                     |
-| 3.19  | Structured violation locations in advisor findings           | Unreleased | [Violation locations](features/advisors.md#violation-locations)         |
-| 3.20a | Shared profile assembler with REST client and cache evidence | Unreleased | [Per-request profiler](features/overview.md#the-per-request-profiler)   |
-| 3.22  | Route performance rankings in HTTP Exchanges                 | Unreleased | [Route rankings](features/diagnostics.md#route-rankings)                |
-| 3.27  | Log exposure policy for Log Tail and Dev Services            | Unreleased | [Log message exposure](features/diagnostics.md#log-message-exposure)    |
+| §     | Item                                                                       | Release    | Documentation                                                                        |
+| ----- | -------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------ |
+| 3.7   | Fault Tolerance panel                                                      | 1.15.0     | [Fault Tolerance](features/services.md#fault-tolerance)                              |
+| 3.10  | WebSockets panel                                                           | 1.15.0     | [WebSockets](features/services.md#websockets)                                        |
+| 3.11  | Error-contract catalogue in REST API and Exceptions                        | 1.15.0     | [Declared error contract](features/advisors.md#declared-error-contract)              |
+| 3.12  | Slow-SQL ranking and route attribution in SQL Trace                        | 1.15.0     | [SQL Trace rankings](features/database.md#rankings)                                  |
+| 3.15  | Meter provenance and explanation in Metrics                                | 1.15.0     | [Metrics](features/runtime.md#metrics)                                               |
+| 3.16  | Cache tiering and hit ratios                                               | 1.15.0     | [Tiering and hit ratios](features/services.md#tiering-and-hit-ratios)                |
+| —     | Command-line endpoint, `bootui` CLI, and Command Line panel                | 1.16.0     | [Command Line](features/developer-tools.md#command-line), [CLI](CLI.md)              |
+| 3.17  | MySQL operational view, tested on Oracle MySQL 8.4 LTS                     | 1.18.0     | [MySQL](features/database.md#mysql)                                                  |
+| 3.19  | Structured violation locations in advisor findings                         | Unreleased | [Violation locations](features/advisors.md#violation-locations)                      |
+| 3.20a | Shared profile assembler with REST client and cache evidence               | Unreleased | [Per-request profiler](features/overview.md#the-per-request-profiler)                |
+| 3.22  | Route performance rankings in HTTP Exchanges                               | Unreleased | [Route rankings](features/diagnostics.md#route-rankings)                             |
+| 3.24a | Failure-preserving retention in HTTP Exchanges, SQL Trace, and REST Client | Unreleased | [Failure-preserving retention](features/diagnostics.md#failure-preserving-retention) |
+| 3.27  | Log exposure policy for Log Tail and Dev Services                          | Unreleased | [Log message exposure](features/diagnostics.md#log-message-exposure)                 |
 
 Earlier deliveries were removed from this plan when they shipped; `CHANGELOG.md` records every release. MariaDB support
 in the MySQL panel remains an unsupported follow-up outside this roadmap.
@@ -580,8 +579,8 @@ Scope:
 - Filters for task name, outcome, and slow runs. The slow threshold is a new
   `bootui.activity.scheduled-task-slow-threshold-ms`, bound on every adapter beside
   `bootui.activity.max-scheduled-task-runs`. It also drives the `SLOW` severity of `SCHEDULED` entries, which today use
-  the Spring MVC request threshold (1,000 ms by default) or a fixed 500 ms in the shared engine assembler. One
-  documented default replaces both.
+  the request threshold `bootui.activity.request-slow-threshold-ms` (1,000 ms by default) on every adapter. A dedicated,
+  documented default replaces it for scheduled runs.
 - The evidence window: retained runs, `bootui.activity.max-scheduled-task-runs`, and evictions.
 - Extend `get_scheduled_tasks` and `bootui scheduled` with the run summary.
 
@@ -612,25 +611,24 @@ Acceptance criteria:
 
 ### 3.24 Failure-preserving retention and ignore rules — Diagnostics 📋 Planned
 
-Every capture buffer evicts oldest first. That applies to HTTP Exchanges, which use Actuator's
-`InMemoryHttpExchangeRepository` on Spring and BootUI's `HttpExchangeBuffer` on Quarkus, as well as to SQL Trace and
-REST Client. On Spring, BootUI's own requests are hidden at read time but still occupy HTTP exchange slots; Quarkus
-already drops them before recording. No setting excludes routine application traffic such as health probes or polling
-endpoints, so a chatty local loop can evict, within seconds, the one failure a developer came to investigate. This
-enhancement keeps failure evidence longer than routine evidence and lets developers drop noise at capture time.
+Slice §3.24a shipped failure-preserving retention (see [Delivered](#delivered) and
+[Failure-preserving retention](features/diagnostics.md#failure-preserving-retention)). Every BootUI-owned HTTP
+exchange, SQL Trace, and REST Client buffer now runs on the engine's `TieredCaptureBuffer`, which reserves a share of
+its capacity for failed and slow records. On Spring, BootUI's own `BootUiHttpExchangeRepository` replaces the
+in-memory fallback, BootUI's recording filter keeps BootUI's own requests out of it while
+`bootui.monitoring.exclude-self` is on, as Quarkus already did, and retention reads as application-managed when the
+application provides its own repository or recording filter. BootUI's own requests are dropped in its recording filter
+rather than on `add`, because only the request, not the recorded absolute URL, knows the path below the context
+path. Each report carries a
+`retention` object with the retained, reserved, and evicted counts, and `bootui.activity.request-slow-threshold-ms`
+classifies slow exchanges on every adapter.
+
+No setting yet excludes routine application traffic such as health probes or polling endpoints, which still takes
+routine slots from the rest of the application's requests. The remaining slice, §3.24b, lets developers drop that
+noise at capture time.
 
 Scope:
 
-- Reserve a bounded, configurable share of each BootUI-owned HTTP exchange, SQL Trace, and REST Client buffer for failed
-  or slow records: 5xx responses, failed statements, failed and error-response calls, and records over the buffer's
-  slow threshold. The reservation comes out of existing capacity, never extra memory.
-- Classify slow records with the existing `bootui.sql-trace.slow-query-threshold-millis` and
-  `bootui.rest-client-trace.slow-call-threshold-millis`, and, for exchanges, `bootui.activity.request-slow-threshold-ms`.
-  That last property is bound on Spring MVC only today, while Spring WebFlux and Quarkus use a fixed 500 ms in the engine
-  assembler: bind it on every adapter with one documented default, which also sets the `SLOW` severity of their
-  `REQUEST` entries. A threshold of `0` disables slow classification for that buffer, so only failures are reserved.
-- Evict routine records first. The reserved share evicts its own oldest record only when it is full.
-- Report retained, reserved, and evicted counts per buffer, so no panel implies its window is complete.
 - Add `bootui.monitoring.ignore-paths`, a list of path patterns whose requests are not captured as exchanges, Live
   Activity requests, route rankings, or route attribution. It is empty by default. A 5xx on an ignored path is still
   captured, and Exceptions capture is never affected.
@@ -640,20 +638,17 @@ Scope:
 - Keep SQL and REST client work done while serving an ignored request out of **Unattributed**. For each ignored
   request, retain only its correlation evidence — trace id, serving thread, time window, and matched pattern, never the
   exchange — in a bounded buffer, so route attribution reports that work in an explicit **Ignored routes** bucket.
-- On Spring, keep BootUI's own requests out of the application's slots while `bootui.monitoring.exclude-self` is on, as
-  Quarkus already does.
-- Apply these capture-time guarantees only where BootUI owns recording: SQL Trace, REST Client, Quarkus exchanges, and
-  Spring exchanges recorded by BootUI's fallback repository and filter. When the application provides its own
-  `HttpExchangeRepository` or `HttpExchangesFilter`, BootUI keeps its current back-off, reports retention as managed by
-  the application, and applies ignore rules at read time only.
+- Apply ignore rules at capture time only where BootUI owns recording: Quarkus exchanges and Spring exchanges recorded
+  by BootUI's repository and filter. When the application provides its own `HttpExchangeRepository` or
+  `HttpExchangesFilter`, BootUI keeps its current back-off and applies ignore rules at read time only.
 
 Architecture:
 
-- Add one framework-neutral tiered buffer to the engine and reuse it for Quarkus exchanges, SQL Trace, and REST Client.
-- On Spring, replace BootUI's `InMemoryHttpExchangeRepository` fallback with a BootUI-owned `HttpExchangeRepository`
-  over the same buffer, which also drops ignored and self paths on `add`.
-- Classify records at insertion from data already on them, and keep panels newest-first across both tiers.
-- Own the pattern matcher in the engine beside the self-path check, and consult it at the existing capture points.
+- Own the pattern matcher in the engine beside the self-path check, and consult it at the existing capture points:
+  BootUI's recording filters on Spring (`BootUiHttpExchangesFilter` and `BootUiHttpExchangesWebFilter`), which already
+  drop self paths below the context path, and the Vert.x capture filter on Quarkus.
+- Record the correlation evidence of ignored requests in a bounded engine buffer that SQL Trace route attribution
+  reads beside the retained exchanges.
 
 Out of scope for the first release:
 
@@ -664,25 +659,21 @@ Out of scope for the first release:
 
 Acceptance criteria:
 
-- Under a flood of successful requests, the most recent failed and slow records survive up to the reserved capacity in
-  every BootUI-owned buffer on all three adapters.
-- Retained records never exceed the configured capacity, and reported counts reconcile with buffer contents.
 - Ignored paths produce no exchange, Live Activity request, or route-ranking entry, while a 5xx on an ignored path is
   still captured. The same pattern matches the same paths on every adapter, and an invalid pattern matches nothing.
 - SQL and REST client work done while serving an ignored request appears under **Ignored routes**, never under
   **Unattributed** or another route.
-- Spring MVC, Spring WebFlux, and Quarkus classify slow exchanges with the same threshold.
-- BootUI's own traffic no longer displaces application exchanges on Spring while `exclude-self` is on.
-- An application-provided repository or filter is never replaced, its retention is labelled as application-managed,
-  and ignore rules apply to it at read time.
-- Tests cover classification, eviction order under mixed load, a capacity of one, disabled slow thresholds, valid and
-  invalid patterns, ignored-route attribution, self-filter interaction, and all three adapters.
+- An application-provided repository or filter is never replaced, and ignore rules apply to it at read time.
+- Ignored requests take no slot in the failure-preserving buffers, and the retained, reserved, and evicted counts still
+  reconcile with the buffer contents.
+- Tests cover valid and invalid patterns, ignored-route attribution, the interaction with the self filter and the
+  reserved share, application-provided repositories and filters, and all three adapters.
 
 Delivery slices, each one pull request with its own tests and documentation:
 
-- **§3.24a Failure-preserving retention.** The tiered engine buffer, the BootUI-owned Spring `HttpExchangeRepository`
-  that keeps BootUI's own requests out of application slots, the request slow threshold on every adapter, and the
-  retained, reserved, and evicted counts.
+- ✅ **§3.24a Failure-preserving retention.** Delivered: the tiered engine buffer, the BootUI-owned Spring
+  `HttpExchangeRepository` that keeps BootUI's own requests out of application slots, the request slow threshold on
+  every adapter, and the retained, reserved, and evicted counts.
 - **§3.24b Capture ignore rules.** `bootui.monitoring.ignore-paths`, the shared pattern grammar and matcher, capture-time
   dropping where BootUI owns recording, read-time filtering for application-provided repositories, and the
   **Ignored routes** attribution bucket.

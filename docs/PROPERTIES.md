@@ -52,7 +52,7 @@ equivalents).
 | `bootui.dev-services.restart-enabled` / `.log-tail-bytes`                    | Spring only                | Quarkus Dev Services are build-time; the panel has no log-tail or restart controls.                                                      |
 | `bootui.graalvm.*`                                                           | Spring only                | The GraalVM panel is not applicable on Quarkus.                                                                                          |
 | `bootui.http-sessions.max-sessions`                                          | Spring only                | The HTTP Sessions panel is not applicable on Quarkus.                                                                                    |
-| `bootui.activity.max-entries`, `bootui.activity.n-plus-one-threshold`, `bootui.activity.request-slow-threshold-ms` | Spring only | Stream cap, N+1 detection threshold, and slow-request threshold apply only to Spring's richer tiered-correlation profiler; Quarkus's reduced trace-id-only profiler has no equivalent config. `bootui.activity.max-scheduled-task-runs` is shared by both adapters (see below). The optional durable-persistence backend (`bootui.activity.persistence.*`) is **shared** — see below. |
+| `bootui.activity.max-entries`, `bootui.activity.n-plus-one-threshold` | Spring only | Stream cap and N+1 detection threshold apply only to Spring's richer tiered-correlation profiler; Quarkus's reduced trace-id-only profiler has no equivalent config. `bootui.activity.request-slow-threshold-ms` and `bootui.activity.max-scheduled-task-runs` are shared by both adapters (see below). The optional durable-persistence backend (`bootui.activity.persistence.*`) is **shared** — see below. |
 | `bootui.telemetry.max-request-bytes`                                         | Spring only                | Sizes the embedded OTLP receiver, which Quarkus does not run (it captures spans in-process).                                             |
 | `bootui.cache.activity-capture-enabled`, `bootui.cache.activity-max-events`  | Spring only                | Feeds the Live Activity `CACHE` events and cache hit ratio KPI, captured by decorating Spring `CacheManager` beans; Quarkus has no comparable runtime interception seam for `quarkus-cache`'s build-time-woven annotations. |
 | `bootui.internal.*`                                                          | **Quarkus only, internal** | Build-time facts (base packages, dependency inventory, capability-present flags) emitted by build steps. Not a user setting — never set by hand. |
@@ -69,6 +69,8 @@ default — on both adapters. This includes the safety keys (`bootui.allow-non-l
 `bootui.authentication.token`),
 `bootui.expose-values`, `bootui.mask-secrets`, `bootui.path` / `bootui.api-path`,
 `bootui.monitoring.exclude-self`, `bootui.http-exchanges.max-exchanges` (default `200`),
+`bootui.http-exchanges.reserved-share-percent` (default `25`), `bootui.activity.request-slow-threshold-ms` (default
+`1000`),
 `bootui.log-tail.max-bytes` (default `0`, meaning unbounded), and the `bootui.github.*`,
 `bootui.vulnerabilities.*` (including `osv-base-uri`, default `https://api.osv.dev`),
 `bootui.sql-trace.*`, `bootui.postgresql.*`, `bootui.transactions.*`, `bootui.telemetry.*` (except `max-request-bytes`), `bootui.heap-dump.*`,
@@ -470,7 +472,8 @@ See [MySQL](features/database.md#mysql) for permissions, evidence scopes, and sa
 | `bootui.sql-trace.capture-parameters`     | `false` | Capture bound statement parameters alongside the SQL text. Off by default because values may be sensitive; metadata-only exposure suppresses them even when enabled. Prepared batches preview at most five parameter sets and five values per set, with omitted counts shown explicitly. |
 | `bootui.sql-trace.capture-call-site`      | `true`  | Capture the call site (class, method, line) in your own application code that triggered each statement, via a small, bounded stack walk. A call site carries no bound values, so — unlike parameter capture — it is not privacy-gated and defaults on; set `false` to skip the stack walk entirely. |
 | `bootui.sql-trace.max-entries`            | `200`   | Maximum number of executed statements retained in the in-memory ring buffer.                                                                 |
-| `bootui.sql-trace.slow-query-threshold-millis` | `100` | Executions at or above this many milliseconds are flagged as slow. Set to `0` to disable slow-query flagging.                              |
+| `bootui.sql-trace.slow-query-threshold-millis` | `100` | Executions at or above this many milliseconds are flagged as slow and eligible for the reserved share. Set to `0` to disable slow-query flagging, so only failed executions are reserved. |
+| `bootui.sql-trace.reserved-share-percent` | `25` | Percentage of `max-entries` reserved for the most recent failed and slow executions, so routine executions are evicted first. Taken out of the buffer, never added to it; `0` evicts strictly oldest first. See [Failure-preserving retention](features/diagnostics.md#failure-preserving-retention). |
 | `bootui.sql-trace.max-sql-length`         | `2000`  | Maximum retained SQL text length; longer statements are truncated. Plain `Statement` batches preview at most five statements and 256 characters per statement before this report-level limit is applied. |
 | `bootui.sql-trace.max-parameter-length`   | `200`   | Maximum retained length of a single captured parameter value.                                                                                |
 | `bootui.sql-trace.n-plus-one-threshold`   | `5`     | Number of times an identical `SELECT` must repeat within the buffer before it is flagged as a likely N+1 access pattern (minimum `2`).       |
@@ -498,7 +501,8 @@ See [MySQL](features/database.md#mysql) for permissions, evidence scopes, and sa
 | `bootui.rest-client-trace.capture-headers`            | `false` | **Spring only:** capture bounded request headers and mask them at report time. Quarkus ignores this property and never reads or retains arbitrary headers, credentials, cookies, or tokens. |
 | `bootui.rest-client-trace.capture-call-site`          | `true`  | Capture the first application stack frame that triggered each outbound call, when available. Attribution is best-effort on Quarkus because reactive callbacks may run after the issuing stack has unwound. |
 | `bootui.rest-client-trace.max-entries`                | `200`   | Maximum number of outbound calls retained in the in-memory ring buffer. |
-| `bootui.rest-client-trace.slow-call-threshold-millis` | `1000`  | Calls at or above this many milliseconds are flagged as slow. Set to `0` to disable slow-call flagging. |
+| `bootui.rest-client-trace.slow-call-threshold-millis` | `1000`  | Calls at or above this many milliseconds are flagged as slow and eligible for the reserved share. Set to `0` to disable slow-call flagging, so only failed and error-response calls are reserved. |
+| `bootui.rest-client-trace.reserved-share-percent`     | `25`    | Percentage of `max-entries` reserved for the most recent failed, error-response (`4xx`/`5xx`), and slow calls, so routine calls are evicted first. Taken out of the buffer, never added to it; `0` evicts strictly oldest first. |
 | `bootui.rest-client-trace.max-uri-length`             | `2000`  | Maximum retained length of the request URI and path; longer values are truncated. |
 | `bootui.rest-client-trace.max-header-value-length`    | `200`   | **Spring only:** maximum retained length of a captured header value. Quarkus captures no headers. |
 | `bootui.rest-client-trace.chatty-call-threshold`      | `5`     | Number of calls to the same method/host/path (with numeric and UUID path segments normalized) within the buffer before the group is flagged as a likely repeated-call access pattern (minimum `2`). |
@@ -544,7 +548,7 @@ drawer additionally lists the flagged group's call site(s) whenever `bootui.sql-
 | ---------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------- |
 | `bootui.panels.activity.enabled`              | `true`  | Show the Live Activity panel (merged stream and per-request profiler).                                           |
 | `bootui.activity.max-entries`                 | `200`   | Maximum number of merged stream entries returned per page after merging and sorting all sources.                 |
-| `bootui.activity.request-slow-threshold-ms`   | `1000`  | Duration in milliseconds above which a request is flagged as slow in the stream and KPI strip.                   |
+| `bootui.activity.request-slow-threshold-ms`   | `1000`  | Duration in milliseconds at or above which a request is slow, on every stack: it sets the `SLOW` severity of `REQUEST` and `SCHEDULED` entries and decides which HTTP exchanges are kept in the reserved share. Set to `0` to disable slow classification. |
 | `bootui.activity.n-plus-one-threshold`        | `5`     | Number of identical correlated `SELECT` statements above which a request is flagged with a potential N+1 pattern, both as a list-level badge and in its profile drawer. |
 | `bootui.activity.max-scheduled-task-runs`     | `200`   | Maximum number of captured `@Scheduled` method executions retained for `SCHEDULED` stream entries. Shared by both adapters: Spring feeds it from Micrometer's `ScheduledTaskObservationContext`, Quarkus from the CDI `SuccessfulExecution`/`FailedExecution` events (see [Live Activity](features/overview.md#the-ten-signals)). |
 
@@ -647,6 +651,7 @@ buffering/flush, merge-for-reads, re-queue-on-failure, the flush guard, and mult
 | -------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------- |
 | `bootui.panels.http-exchanges.enabled`       | `true`  | Show recent inbound HTTP exchanges and create a bounded in-memory recorder when none exists.    |
 | `bootui.http-exchanges.max-exchanges`        | `200`   | Maximum recent HTTP exchanges retained in memory. Requires restart because it sizes the buffer. |
+| `bootui.http-exchanges.reserved-share-percent` | `25`  | Percentage of `max-exchanges` reserved for the most recent `5xx` and slow exchanges (at or above `bootui.activity.request-slow-threshold-ms`), so routine requests are evicted first. `0` evicts strictly oldest first. Applies only while BootUI owns the recorder. On Spring, slow exchanges are reserved only while `management.httpexchanges.recording.include` records `time-taken`, which it does by default. Requires restart. |
 | `management.httpexchanges.recording.enabled` | `true`  | Spring Boot recorder switch. Set to `false` to disable capture while leaving the panel visible. |
 
 ### HTTP Probe

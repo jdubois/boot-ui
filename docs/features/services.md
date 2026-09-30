@@ -41,9 +41,12 @@ around it, so an instrumentation error never breaks the call.
 
 ### Reading the panel
 
-Calls are retained in a bounded, most-recent-first ring buffer with aggregate stats: retained count, average and
-slowest duration, and a configurable slow-call count. An outbound call can fail two ways, so unlike SQL Trace there are
-two failure counters:
+Calls are retained in a bounded, most-recent-first buffer with aggregate stats: retained count, average and
+slowest duration, and a configurable slow-call count. A share of the buffer, 25% by default
+(`bootui.rest-client-trace.reserved-share-percent`), is reserved for the most recent failed, error-response, and slow
+calls, so routine calls are evicted first; the panel states the kept, reserved, and evicted counts, as described in
+[Failure-preserving retention](diagnostics.md#failure-preserving-retention). An outbound call can fail two ways, so
+unlike SQL Trace there are two failure counters:
 
 | Counter | Counts |
 | ------- | ------ |

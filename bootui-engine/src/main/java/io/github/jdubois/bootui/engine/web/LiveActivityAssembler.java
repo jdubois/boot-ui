@@ -100,7 +100,7 @@ import java.util.Map;
  */
 public final class LiveActivityAssembler {
 
-    private static final long SLOW_MS = 500L;
+    private final long requestSlowThresholdMillis;
 
     /** Maximum characters of a SQL statement shown inline in a stream summary. */
     private static final int MAX_SQL_SUMMARY = 160;
@@ -125,6 +125,19 @@ public final class LiveActivityAssembler {
     private static final String SEVERITY_SLOW = "SLOW";
     private static final String SEVERITY_WARN = "WARN";
     private static final String SEVERITY_ERROR = "ERROR";
+
+    /** An assembler using the documented default of {@code bootui.activity.request-slow-threshold-ms}. */
+    public LiveActivityAssembler() {
+        this(RequestSlowThreshold.DEFAULT_MILLIS);
+    }
+
+    /**
+     * @param requestSlowThresholdMillis {@code bootui.activity.request-slow-threshold-ms}: the duration at or above
+     *     which a {@code REQUEST} or {@code SCHEDULED} entry is {@code SLOW}; {@code 0} disables the flag
+     */
+    public LiveActivityAssembler(long requestSlowThresholdMillis) {
+        this.requestSlowThresholdMillis = Math.max(0L, requestSlowThresholdMillis);
+    }
 
     /**
      * Builds the report by merging the captured signals.
@@ -754,7 +767,7 @@ public final class LiveActivityAssembler {
         String severity;
         if (!run.success()) {
             severity = SEVERITY_ERROR;
-        } else if (run.durationMs() >= SLOW_MS) {
+        } else if (RequestSlowThreshold.isSlow(run.durationMs(), requestSlowThresholdMillis)) {
             severity = SEVERITY_SLOW;
         } else {
             severity = SEVERITY_OK;
@@ -854,7 +867,7 @@ public final class LiveActivityAssembler {
         if (status >= 400) {
             return SEVERITY_WARN;
         }
-        if (durationMs != null && durationMs >= SLOW_MS) {
+        if (RequestSlowThreshold.isSlow(durationMs, requestSlowThresholdMillis)) {
             return SEVERITY_SLOW;
         }
         return SEVERITY_OK;

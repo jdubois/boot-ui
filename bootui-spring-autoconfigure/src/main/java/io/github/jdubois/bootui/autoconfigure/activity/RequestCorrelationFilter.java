@@ -1,8 +1,10 @@
 package io.github.jdubois.bootui.autoconfigure.activity;
 
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationRegistry.RequestCorrelation;
+import io.github.jdubois.bootui.autoconfigure.web.BootUiMounts;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry.HttpExchangeTrace;
+import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -12,6 +14,7 @@ import java.net.URI;
 import org.slf4j.MDC;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.servlet.HandlerMapping;
+import org.springframework.web.util.UrlPathHelper;
 
 /**
  * Records, for every application request, which worker thread served it, its wall-clock window, and the
@@ -32,13 +35,32 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
 
     private final RequestCorrelationRegistry registry;
     private final HttpExchangeTraceRegistry traceRegistry;
-    private final String bootUiPathPrefix;
+    private final String bootUiPath;
+    private final String bootUiApiPath;
+    private final long requestSlowThresholdMs;
 
     public RequestCorrelationFilter(
-            RequestCorrelationRegistry registry, HttpExchangeTraceRegistry traceRegistry, String bootUiPathPrefix) {
+            RequestCorrelationRegistry registry, HttpExchangeTraceRegistry traceRegistry, String bootUiPath) {
+        this(registry, traceRegistry, bootUiPath, null, RequestSlowThreshold.DEFAULT_MILLIS);
+    }
+
+    /**
+     * @param bootUiPath {@code bootui.path}
+     * @param bootUiApiPath {@code bootui.api-path}
+     * @param requestSlowThresholdMs {@code bootui.activity.request-slow-threshold-ms}, so a slow request's trace
+     *     record is retained as long as its exchange
+     */
+    public RequestCorrelationFilter(
+            RequestCorrelationRegistry registry,
+            HttpExchangeTraceRegistry traceRegistry,
+            String bootUiPath,
+            String bootUiApiPath,
+            long requestSlowThresholdMs) {
         this.registry = registry;
         this.traceRegistry = traceRegistry;
-        this.bootUiPathPrefix = bootUiPathPrefix;
+        this.bootUiPath = bootUiPath;
+        this.bootUiApiPath = bootUiApiPath;
+        this.requestSlowThresholdMs = requestSlowThresholdMs;
     }
 
     @Override
@@ -48,14 +70,21 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
         String thread = Thread.currentThread().getName();
         String method = request.getMethod();
         String path = request.getRequestURI();
+        boolean threw = true;
         try {
             chain.doFilter(request, response);
+            threw = false;
         } finally {
             long end = System.currentTimeMillis();
             String traceId = currentTraceId();
             String routeTemplate = routeTemplate(request);
             registry.record(new RequestCorrelation(start, end, thread, method, path, routeTemplate, traceId));
-            traceRegistry.record(new HttpExchangeTrace(start, end, method, decodedPath(path), traceId, routeTemplate));
+            // Classified exactly as Actuator's servlet HttpExchangesFilter records the exchange: 500 whenever the
+            // chain throws, so the trace record and the exchange agree on whether it is reserved.
+            int status = threw ? 500 : response.getStatus();
+            traceRegistry.record(
+                    new HttpExchangeTrace(start, end, method, decodedPath(path), traceId, routeTemplate),
+                    RequestSlowThreshold.isFailedOrSlow(status, end - start, requestSlowThresholdMs));
         }
     }
 
@@ -98,10 +127,16 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
         }
     }
 
+    /**
+     * Skips BootUI's own requests, matched on the decoded path below the context path exactly as BootUI's recording
+     * filter matches them, so, while {@code bootui.monitoring.exclude-self} is on, this filter's trace records and the
+     * recorded exchanges cover the same requests. With it off, BootUI's own exchanges are recorded and shown without a
+     * server trace id or route template, as before.
+     */
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        String uri = request.getRequestURI();
-        return uri != null && bootUiPathPrefix != null && uri.startsWith(bootUiPathPrefix);
+        return BootUiMounts.contains(
+                UrlPathHelper.defaultInstance.getPathWithinApplication(request), bootUiPath, bootUiApiPath);
     }
 
     @Override

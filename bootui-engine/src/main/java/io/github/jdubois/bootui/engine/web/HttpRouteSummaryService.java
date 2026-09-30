@@ -238,7 +238,8 @@ public final class HttpRouteSummaryService {
                     + "the window is not known.");
         }
         if (window.bufferSize() != null && window.retainedExchanges() >= window.bufferSize()) {
-            notes.add("The exchange buffer is full, so each new request evicts the oldest one. Raise "
+            notes.add("The exchange buffer is full, so each new request evicts an older one; where BootUI reserves "
+                    + "room for failed and slow requests, routine ones are evicted first. Raise "
                     + "bootui.http-exchanges.max-exchanges to widen the window.");
         }
         if (truncated) {

@@ -82,6 +82,62 @@ class HttpExchangeTraceRegistryTests {
     }
 
     @Test
+    void keepsFailedAndSlowRequestsAsLongAsTheReservedShareOfTheExchangeRepository() {
+        HttpExchangeTraceRegistry registry = new HttpExchangeTraceRegistry(4, 50);
+        registry.record(new HttpExchangeTrace(1000, 1100, "GET", "/failing", "trace-failing"), true);
+        for (int i = 0; i < 20; i++) {
+            registry.record(new HttpExchangeTrace(2000 + i, 2001 + i, "GET", "/ok-" + i, "trace-" + i));
+        }
+
+        assertThat(registry.match("GET", "/failing", 1000, 1100)).isEqualTo("trace-failing");
+        assertThat(registry.recent()).hasSize(4);
+        assertThat(registry.recent().get(0).path()).isEqualTo("/failing");
+    }
+
+    @Test
+    void keepsTheTraceOfEveryFailureTheRepositoryRetainsDespiteOutOfOrderRecording() {
+        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(8, 25, 1_000L, false);
+        HttpExchangeTraceRegistry registry = HttpExchangeTraceRegistry.forExchangeRepository(8);
+        // Five failures reach the repository, but their trace records are written only after a sixth failure's.
+        for (int i = 1; i <= 5; i++) {
+            repository.add(exchange("/failing-" + i, 500, i * 10L));
+        }
+        repository.add(exchange("/failing-6", 500, 60L));
+        registry.record(new HttpExchangeTrace(60, 61, "GET", "/failing-6", "trace-6"), true);
+        for (int i = 1; i <= 5; i++) {
+            registry.record(new HttpExchangeTrace(i * 10L, i * 10L + 1, "GET", "/failing-" + i, "trace-" + i), true);
+        }
+        for (int i = 0; i < 100; i++) {
+            long start = 1_000L + i;
+            repository.add(exchange("/ok-" + i, 200, start));
+            registry.record(new HttpExchangeTrace(start, start + 1, "GET", "/ok-" + i, "ok-" + i));
+        }
+
+        for (org.springframework.boot.actuate.web.exchanges.HttpExchange exchange : repository.findAll()) {
+            String path = exchange.getRequest().getUri().getPath();
+            long start = exchange.getTimestamp().toEpochMilli();
+            assertThat(registry.match("GET", path, start, start + 1))
+                    .as("trace of retained exchange %s", path)
+                    .isNotNull();
+        }
+        assertThat(repository.findAll())
+                .extracting(exchange -> exchange.getRequest().getUri().getPath())
+                .contains("/failing-5", "/failing-6");
+    }
+
+    private static org.springframework.boot.actuate.web.exchanges.HttpExchange exchange(
+            String path, int status, long startMillis) {
+        return new org.springframework.boot.actuate.web.exchanges.HttpExchange(
+                java.time.Instant.ofEpochMilli(startMillis),
+                new org.springframework.boot.actuate.web.exchanges.HttpExchange.Request(
+                        java.net.URI.create("http://localhost" + path), "127.0.0.1", "GET", java.util.Map.of()),
+                new org.springframework.boot.actuate.web.exchanges.HttpExchange.Response(status, java.util.Map.of()),
+                null,
+                null,
+                java.time.Duration.ofMillis(1));
+    }
+
+    @Test
     void matchesTheRouteTemplateRecordedForTheOverlappingRequest() {
         HttpExchangeTraceRegistry registry = new HttpExchangeTraceRegistry(10);
         registry.record(new HttpExchangeTrace(1000, 1100, "GET", "/orders/1", null, " /orders/{id} "));

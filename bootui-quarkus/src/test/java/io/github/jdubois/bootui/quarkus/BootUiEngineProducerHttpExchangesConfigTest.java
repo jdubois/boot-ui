@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.quarkus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.smallrye.config.PropertiesConfigSource;
 import io.smallrye.config.SmallRyeConfig;
@@ -29,6 +30,8 @@ class BootUiEngineProducerHttpExchangesConfigTest {
         HttpExchangeBuffer buffer = new BootUiEngineProducer().httpExchangeBuffer(config(Map.of()));
 
         assertThat(buffer.capacity()).isEqualTo(200);
+        assertThat(buffer.slowThresholdMillis()).isEqualTo(1_000L);
+        assertThat(buffer.retention()).isEqualTo(new CaptureRetentionDto(false, 200, 50, 0, 0, 0L, 1_000L));
     }
 
     @Test
@@ -37,5 +40,17 @@ class BootUiEngineProducerHttpExchangesConfigTest {
                 .httpExchangeBuffer(config(Map.of("bootui.http-exchanges.max-exchanges", "42")));
 
         assertThat(buffer.capacity()).isEqualTo(42);
+    }
+
+    @Test
+    void bindsTheReservedShareAndTheSharedRequestSlowThreshold() {
+        HttpExchangeBuffer buffer = new BootUiEngineProducer()
+                .httpExchangeBuffer(config(Map.of(
+                        "bootui.http-exchanges.max-exchanges", "40",
+                        "bootui.http-exchanges.reserved-share-percent", "10",
+                        "bootui.activity.request-slow-threshold-ms", "250")));
+
+        assertThat(buffer.slowThresholdMillis()).isEqualTo(250L);
+        assertThat(buffer.retention()).isEqualTo(new CaptureRetentionDto(false, 40, 4, 0, 0, 0L, 250L));
     }
 }

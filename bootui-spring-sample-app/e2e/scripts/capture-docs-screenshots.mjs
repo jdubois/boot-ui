@@ -2897,10 +2897,10 @@ const httpRoutes = {
   available: true,
   unavailableReason: null,
   window: {
-    retainedExchanges: 200,
+    retainedExchanges: 143,
     bufferSize: 200,
-    evicted: null,
-    hiddenSelfExchanges: 57,
+    evicted: 0,
+    hiddenSelfExchanges: 0,
     summarizedExchanges: 143,
     timedExchanges: 143,
     oldestTimestamp: nowMillis - 18 * 60 * 1000,
@@ -3303,7 +3303,16 @@ const restClientTrace = {
       callSites: ['SamplePaymentClient.charge(SamplePaymentClient.java:51)']
     }
   ],
-  warnings: []
+  warnings: [],
+  retention: {
+    applicationManaged: false,
+    capacity: 500,
+    reservedCapacity: 125,
+    retained: restClientTraceEntries.length,
+    reserved: 2,
+    evicted: 0,
+    slowThresholdMillis: 1000
+  }
 }
 
 const copilotSessionId = 'session-bootui-2026-001'
@@ -3799,7 +3808,16 @@ const sqlTrace = {
     sqlTraceEntry(2, 90, sqlSelectProductsActive, 'SELECT', 18, true, null, 'conn-1', 2, null, callSiteProductsActive),
     sqlTraceEntry(1, 96, sqlSelectProductById, 'SELECT', 6, true, null, 'conn-1', 2, null, callSiteProductById)
   ],
-  warnings: []
+  warnings: [],
+  retention: {
+    applicationManaged: false,
+    capacity: 200,
+    reservedCapacity: 50,
+    retained: 14,
+    reserved: 2,
+    evicted: 0,
+    slowThresholdMillis: 100
+  }
 }
 
 const sqlStatementRanking = (
@@ -6753,6 +6771,15 @@ async function handleApiRoute(route) {
         total: httpRoutes.window.summarizedExchanges,
         matched: httpRoutes.window.summarizedExchanges,
         hasMore: true
+      },
+      retention: {
+        applicationManaged: false,
+        capacity: httpRoutes.window.bufferSize,
+        reservedCapacity: 50,
+        retained: httpRoutes.window.retainedExchanges,
+        reserved: 6,
+        evicted: httpRoutes.window.evicted,
+        slowThresholdMillis: 1000
       }
     })
   }

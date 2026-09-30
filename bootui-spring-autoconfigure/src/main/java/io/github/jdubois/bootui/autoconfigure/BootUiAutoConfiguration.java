@@ -76,6 +76,7 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aot.AotDetector;
+import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
@@ -84,7 +85,6 @@ import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.actuate.audit.InMemoryAuditEventRepository;
 import org.springframework.boot.actuate.autoconfigure.web.exchanges.HttpExchangesProperties;
 import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
-import org.springframework.boot.actuate.web.exchanges.InMemoryHttpExchangeRepository;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurationPackages;
 import org.springframework.boot.autoconfigure.AutoConfigureBefore;
@@ -296,13 +296,23 @@ public class BootUiAutoConfiguration {
 
         private static final String BOOTUI_HTTP_EXCHANGE_REPOSITORY_BEAN = "bootUiHttpExchangeRepository";
 
+        private static final String BOOTUI_HTTP_EXCHANGES_FILTER_BEAN = "bootUiHttpExchangesFilter";
+
+        /**
+         * BootUI's failure-preserving repository. When the application registers its own
+         * {@link HttpExchangesFilter}, BootUI keeps its back-off: the repository is created without a reserved
+         * share and reports its retention as application-managed.
+         */
         @Bean
         @ConditionalOnMissingBean(HttpExchangeRepository.class)
-        HttpExchangeRepository bootUiHttpExchangeRepository(BootUiProperties properties) {
-            InMemoryHttpExchangeRepository repository = new InMemoryHttpExchangeRepository();
-            repository.setCapacity(Math.max(1, properties.getHttpExchanges().getMaxExchanges()));
-            repository.setReverse(true);
-            return repository;
+        HttpExchangeRepository bootUiHttpExchangeRepository(
+                BootUiProperties properties, Environment environment, ListableBeanFactory beanFactory) {
+            return new BootUiHttpExchangeRepository(
+                    properties.getHttpExchanges().getMaxExchanges(),
+                    properties.getHttpExchanges().getReservedSharePercent(),
+                    ExchangeSlowThreshold.resolve(properties, environment),
+                    BootUiHttpExchangeRepository.isRecordedByApplication(
+                            beanFactory, HttpExchangesFilter.class, BOOTUI_HTTP_EXCHANGES_FILTER_BEAN));
         }
 
         /**
@@ -334,7 +344,7 @@ public class BootUiAutoConfiguration {
             };
         }
 
-        @Bean
+        @Bean(BOOTUI_HTTP_EXCHANGES_FILTER_BEAN)
         @ConditionalOnMissingBean(HttpExchangesFilter.class)
         @ConditionalOnProperty(
                 prefix = "management.httpexchanges.recording",
@@ -342,9 +352,15 @@ public class BootUiAutoConfiguration {
                 havingValue = "true",
                 matchIfMissing = true)
         HttpExchangesFilter bootUiHttpExchangesFilter(
-                HttpExchangeRepository repository, HttpExchangesProperties properties) {
-            HttpExchangesFilter filter = new HttpExchangesFilter(
-                    repository, properties.getRecording().getInclude());
+                HttpExchangeRepository repository,
+                HttpExchangesProperties properties,
+                BootUiProperties bootUiProperties,
+                ObjectProvider<BootUiSelfDataFilter> selfDataFilter) {
+            HttpExchangesFilter filter = new BootUiHttpExchangesFilter(
+                    repository,
+                    properties.getRecording().getInclude(),
+                    bootUiProperties,
+                    selfDataFilter.getIfAvailable(() -> new BootUiSelfDataFilter(bootUiProperties)));
             filter.setOrder(HTTP_EXCHANGES_FILTER_ORDER);
             return filter;
         }
@@ -718,7 +734,8 @@ public class BootUiAutoConfiguration {
 
     @Bean
     public HttpExchangeTraceRegistry bootUiHttpExchangeTraceRegistry(BootUiProperties properties) {
-        return new HttpExchangeTraceRegistry(properties.getHttpExchanges().getMaxExchanges());
+        return HttpExchangeTraceRegistry.forExchangeRepository(
+                properties.getHttpExchanges().getMaxExchanges());
     }
 
     @Bean
@@ -739,7 +756,8 @@ public class BootUiAutoConfiguration {
                 sqlTrace.getSlowQueryThresholdMillis(),
                 sqlTrace.getMaxSqlLength(),
                 sqlTrace.getMaxParameterLength(),
-                sqlTrace.getNPlusOneThreshold());
+                sqlTrace.getNPlusOneThreshold(),
+                sqlTrace.getReservedSharePercent());
     }
 
     /**
@@ -945,9 +963,17 @@ public class BootUiAutoConfiguration {
 
     @Bean
     public FilterRegistrationBean<RequestCorrelationFilter> bootUiRequestCorrelationFilterRegistration(
-            RequestCorrelationRegistry registry, HttpExchangeTraceRegistry traceRegistry, BootUiProperties properties) {
-        FilterRegistrationBean<RequestCorrelationFilter> registration = new FilterRegistrationBean<>(
-                new RequestCorrelationFilter(registry, traceRegistry, properties.getPath()));
+            RequestCorrelationRegistry registry,
+            HttpExchangeTraceRegistry traceRegistry,
+            BootUiProperties properties,
+            Environment environment) {
+        FilterRegistrationBean<RequestCorrelationFilter> registration =
+                new FilterRegistrationBean<>(new RequestCorrelationFilter(
+                        registry,
+                        traceRegistry,
+                        properties.getPath(),
+                        properties.getApiPath(),
+                        ExchangeSlowThreshold.resolve(properties, environment)));
         registration.addUrlPatterns("/*");
         registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE + 100);
         registration.setName("bootUiRequestCorrelationFilter");

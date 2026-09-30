@@ -27,6 +27,7 @@ import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
 import io.github.jdubois.bootui.autoconfigure.pentesting.PentestingController;
 import io.github.jdubois.bootui.autoconfigure.postgres.PostgresqlController;
 import io.github.jdubois.bootui.autoconfigure.rabbit.RabbitController;
+import io.github.jdubois.bootui.autoconfigure.reactive.BootUiHttpExchangesWebFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.BootUiJsonWebFluxConfigurer;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveActivitySignalFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveAgentSessionController;
@@ -84,6 +85,7 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aot.AotDetector;
+import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -94,7 +96,6 @@ import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.actuate.audit.InMemoryAuditEventRepository;
 import org.springframework.boot.actuate.autoconfigure.web.exchanges.HttpExchangesProperties;
 import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
-import org.springframework.boot.actuate.web.exchanges.InMemoryHttpExchangeRepository;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurationPackages;
 import org.springframework.boot.autoconfigure.AutoConfigureBefore;
@@ -731,7 +732,8 @@ public class BootUiReactiveAutoConfiguration {
                 sqlTrace.getSlowQueryThresholdMillis(),
                 sqlTrace.getMaxSqlLength(),
                 sqlTrace.getMaxParameterLength(),
-                sqlTrace.getNPlusOneThreshold());
+                sqlTrace.getNPlusOneThreshold(),
+                sqlTrace.getReservedSharePercent());
     }
 
     /**
@@ -950,13 +952,23 @@ public class BootUiReactiveAutoConfiguration {
 
         private static final String BOOTUI_HTTP_EXCHANGE_REPOSITORY_BEAN = "bootUiReactiveHttpExchangeRepository";
 
+        private static final String BOOTUI_HTTP_EXCHANGES_WEB_FILTER_BEAN = "bootUiHttpExchangesWebFilter";
+
+        /**
+         * Reactive sibling of {@code BootUiAutoConfiguration.HttpExchangeRepositoryConfiguration
+         * #bootUiHttpExchangeRepository}: an application-provided {@link HttpExchangesWebFilter} keeps BootUI's
+         * back-off and makes the retention of BootUI's repository read as application-managed.
+         */
         @Bean(BOOTUI_HTTP_EXCHANGE_REPOSITORY_BEAN)
         @ConditionalOnMissingBean(HttpExchangeRepository.class)
-        HttpExchangeRepository bootUiReactiveHttpExchangeRepository(BootUiProperties properties) {
-            InMemoryHttpExchangeRepository repository = new InMemoryHttpExchangeRepository();
-            repository.setCapacity(Math.max(1, properties.getHttpExchanges().getMaxExchanges()));
-            repository.setReverse(true);
-            return repository;
+        HttpExchangeRepository bootUiReactiveHttpExchangeRepository(
+                BootUiProperties properties, Environment environment, ListableBeanFactory beanFactory) {
+            return new BootUiHttpExchangeRepository(
+                    properties.getHttpExchanges().getMaxExchanges(),
+                    properties.getHttpExchanges().getReservedSharePercent(),
+                    ExchangeSlowThreshold.resolve(properties, environment),
+                    BootUiHttpExchangeRepository.isRecordedByApplication(
+                            beanFactory, HttpExchangesWebFilter.class, BOOTUI_HTTP_EXCHANGES_WEB_FILTER_BEAN));
         }
 
         /**
@@ -984,7 +996,7 @@ public class BootUiReactiveAutoConfiguration {
             };
         }
 
-        @Bean
+        @Bean(BOOTUI_HTTP_EXCHANGES_WEB_FILTER_BEAN)
         @ConditionalOnMissingBean(HttpExchangesWebFilter.class)
         @ConditionalOnProperty(
                 prefix = "management.httpexchanges.recording",
@@ -992,9 +1004,15 @@ public class BootUiReactiveAutoConfiguration {
                 havingValue = "true",
                 matchIfMissing = true)
         HttpExchangesWebFilter bootUiHttpExchangesWebFilter(
-                HttpExchangeRepository repository, HttpExchangesProperties properties) {
-            return new HttpExchangesWebFilter(
-                    repository, properties.getRecording().getInclude());
+                HttpExchangeRepository repository,
+                HttpExchangesProperties properties,
+                BootUiProperties bootUiProperties,
+                ObjectProvider<BootUiSelfDataFilter> selfDataFilter) {
+            return new BootUiHttpExchangesWebFilter(
+                    repository,
+                    properties.getRecording().getInclude(),
+                    bootUiProperties,
+                    selfDataFilter.getIfAvailable(() -> new BootUiSelfDataFilter(bootUiProperties)));
         }
     }
 
@@ -1030,7 +1048,8 @@ public class BootUiReactiveAutoConfiguration {
 
         @Bean
         HttpExchangeTraceRegistry bootUiHttpExchangeTraceRegistry(BootUiProperties properties) {
-            return new HttpExchangeTraceRegistry(properties.getHttpExchanges().getMaxExchanges());
+            return HttpExchangeTraceRegistry.forExchangeRepository(
+                    properties.getHttpExchanges().getMaxExchanges());
         }
 
         @Bean
@@ -1043,8 +1062,10 @@ public class BootUiReactiveAutoConfiguration {
         ReactiveHttpExchangeTraceFilter bootUiReactiveHttpExchangeTraceFilter(
                 BootUiProperties properties,
                 HttpExchangeTraceRegistry registry,
-                ReactiveOtelTraceIdProvider traceIdProvider) {
-            return new ReactiveHttpExchangeTraceFilter(properties, registry, traceIdProvider);
+                ReactiveOtelTraceIdProvider traceIdProvider,
+                Environment environment) {
+            return new ReactiveHttpExchangeTraceFilter(
+                    properties, registry, traceIdProvider, ExchangeSlowThreshold.resolve(properties, environment));
         }
 
         /**
