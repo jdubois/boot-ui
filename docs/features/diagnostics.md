@@ -53,13 +53,30 @@ diagnosis without leaving the console.
 ### Log message exposure
 
 Log messages follow the same exposure rule as [exception messages](#exposure-and-bounds). Under the default
-`bootui.expose-values=MASKED` the value of each secret-like `key=value` or `key: value` assignment, such as a password,
-token, or API key, is replaced with `******`, on every line of a multi-line message. Under `METADATA_ONLY` the message
-is omitted while the timestamp, level, logger, and thread remain, and the panel marks each such line
-**message omitted by policy** rather than showing it empty. Only under `FULL`, or with `bootui.mask-secrets=false`, are
-messages shown verbatim. Only the first word of an assignment's value is masked, so a bare token, a credential inside
-a connection string, or the token after an authorization scheme, as in `Authorization: Bearer <token>`, is not. Treat
-log output as local diagnostic data.
+`bootui.expose-values=MASKED`, on every line of a multi-line message:
+
+- The value of each secret-like `key=value` or `key: value` assignment, such as a password, token, or API key, is
+  replaced with `******`.
+- After an `authorization` key, the credential that follows an HTTP authorization scheme is masked while the key and
+  the scheme stay visible, as in `Authorization: Bearer ******`, `"authorization": "Basic ******"`, or
+  `Proxy-Authorization: Digest ******`. Every comma-separated parameter of a Digest, OAuth, or AWS signature
+  credential and every value of a multi-valued header, as in `Authorization=[Basic ******, Bearer ******]` or
+  Spring's `Authorization:"Bearer ******", "Bearer ******"`, is covered.
+  A scheme BootUI does not recognize is masked together with its credential, because it cannot be told apart from a
+  bare credential. After any other secret-like key, a scheme is masked together with its credential, as in
+  `X-Auth-Token: ******`.
+- A credential after `Bearer`, `Basic`, `Negotiate`, or `NTLM` is masked even when no key precedes it, as in
+  `sending Bearer ******`, when its shape shows it is one: a `Bearer` credential must have at least eight characters
+  including a digit, or at least twenty, a `Basic` credential must decode to `user:password`, and a `Negotiate` or
+  `NTLM` credential must decode to an NTLM message or a SPNEGO token. Prose such as `missing Bearer token`,
+  `Basic auth is enabled`, or `unable to negotiate TLS_AES_128_GCM_SHA256` stays readable. Other scheme names are
+  common words, so they are recognized only after a secret-like key.
+
+Under `METADATA_ONLY` the message is omitted while the timestamp, level, logger, and thread remain, and the panel marks
+each such line **message omitted by policy** rather than showing it empty. Only under `FULL`, or with
+`bootui.mask-secrets=false`, are messages shown verbatim. Any other assignment has only the first word of its value
+masked, and a bare token or a credential inside a connection string is not detected. Treat log output as local
+diagnostic data.
 
 The rule applies when a line is read, not when it is captured, so it covers the recent snapshot
 (`GET /bootui/api/log-tail/recent`), the SSE stream including its replayed backlog, the `get_log_tail` MCP tool, and
@@ -110,8 +127,9 @@ returns `400`, and an unknown group returns `404`.
 ### Exposure and bounds
 
 Exception messages follow the same exposure policy as the rest of BootUI. Under the default `bootui.expose-values=MASKED`
-they are scrubbed of secret-like `key=value` assignments, under `METADATA_ONLY` they are omitted entirely, and only
-under `FULL` are they shown verbatim. Request paths are captured without their query string, and stack frames carry
+they are scrubbed of secret-like `key=value` assignments and of the credential after an authorization scheme, exactly
+as [log messages](#log-message-exposure) are, under `METADATA_ONLY` they are omitted entirely, and only under `FULL`
+are they shown verbatim. Request paths are captured without their query string, and stack frames carry
 only class, method, file, and line information.
 
 The in-memory store resets on restart and through the panel's clear action, which honors the panel's read-only setting.

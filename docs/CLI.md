@@ -357,7 +357,8 @@ loopback, `Host` allow-list, cross-site-write, and authentication-token protecti
 route — so the application has to be running on the same runner as the job, not in a deployed environment. And
 no tool becomes reachable that was not already reachable — the CLI is a second spelling of the same panel data,
 gated by the same per-panel policy and the same `bootui.expose-values` rule. `bootui logs tail`, for example,
-prints log messages with secret-like assignments masked by default, and without messages under `METADATA_ONLY`.
+prints log messages with secret-like assignments and authorization credentials masked by default, and without
+messages under `METADATA_ONLY`.
 
 ## Every command
 

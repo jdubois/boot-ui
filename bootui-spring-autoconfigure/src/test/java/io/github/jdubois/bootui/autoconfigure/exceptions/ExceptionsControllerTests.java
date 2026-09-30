@@ -53,6 +53,23 @@ class ExceptionsControllerTests {
     }
 
     @Test
+    void masksTheCredentialAfterAnAuthorizationSchemeInMessages() throws Exception {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        store.record(
+                new IllegalStateException("401 from api with Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.e30.c2ln"),
+                "main",
+                "GET",
+                "/api/orders",
+                "X#y",
+                "web");
+        MockMvc mvc = buildMvc(store, new BootUiProperties());
+
+        mvc.perform(get("/bootui/api/exceptions"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.groups[0].message").value("401 from api with Authorization: Bearer ******"));
+    }
+
+    @Test
     void hidesMessagesInMetadataOnlyMode() throws Exception {
         ExceptionStore store = new ExceptionStore(100, 25, 50);
         store.record(new IllegalStateException("secret detail"), "main", null, null, null, "log");

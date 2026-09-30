@@ -77,6 +77,28 @@ class ExceptionsServiceTests {
     }
 
     @Test
+    void masksTheCredentialAfterAnAuthorizationSchemeInGroupAndCauseMessages() {
+        String token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln";
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        store.record(
+                new IllegalStateException(
+                        "upstream call failed\nAuthorization: Bearer " + token,
+                        new IllegalArgumentException("retried with Bearer " + token)),
+                "main",
+                null,
+                null,
+                null,
+                "log");
+        ExceptionsService service = new ExceptionsService(policy(ValueExposure.MASKED, true));
+
+        ExceptionGroupDto group = service.report(store).groups().get(0);
+        ExceptionStore.GroupDetail detail = store.find(group.id());
+
+        assertThat(group.message()).isEqualTo("upstream call failed\nAuthorization: Bearer ******");
+        assertThat(service.detail(detail).causes().get(0).message()).isEqualTo("retried with Bearer ******");
+    }
+
+    @Test
     void omitsMessageInMetadataOnlyMode() {
         ExceptionStore store = new ExceptionStore(100, 25, 50);
         store.record(new IllegalStateException("boom"), "main", null, null, null, "log");

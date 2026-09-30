@@ -11,7 +11,8 @@ import java.util.UUID;
 import java.util.logging.Logger;
 
 /**
- * Writes one secret-bearing application log line and checks how a Log Tail surface returns it: the recent snapshot,
+ * Writes one secret-bearing application log line, holding secret assignments and a credential after an authorization
+ * scheme, and checks how a Log Tail surface returns it: the recent snapshot,
  * the SSE stream, {@code get_log_tail} over MCP, and the same tool over the CLI endpoint. Every conformance runner
  * boots the application in the test JVM, and both Spring (through its {@code java.util.logging} bridge) and Quarkus
  * (through the JBoss LogManager) route a {@code java.util.logging} record into Log Tail capture.
@@ -33,6 +34,8 @@ final class LogTailExposureContract {
     private final String password = "pw-" + UUID.randomUUID();
 
     private final String apiKey = "ak-" + UUID.randomUUID();
+
+    private final String bearerToken = "tok-" + UUID.randomUUID();
 
     /** Logs the line at {@code WARN}, so every adapter's default threshold keeps it. */
     LogTailExposureContract log() {
@@ -90,16 +93,19 @@ final class LogTailExposureContract {
     private void assertMasked(JsonNode line, String surface) {
         assertThat(line.toString())
                 .as("%s must never carry a secret value", surface)
-                .doesNotContain(password, apiKey);
+                .doesNotContain(password, apiKey, bearerToken);
         assertThat(line.path("message").asText())
                 .as("%s message", surface)
-                .isEqualTo(marker + " login password=******\nretrying with api_key: ******");
+                .isEqualTo(marker + " login password=******\nretrying with api_key: ******"
+                        + "\ncalling api with Authorization: Bearer ******");
         assertMessageOmitted(line, false, surface);
         assertMetadata(line, surface);
     }
 
     private void assertOmitted(JsonNode line, String surface) {
-        assertThat(line.toString()).as("%s must carry no message text", surface).doesNotContain(marker, password);
+        assertThat(line.toString())
+                .as("%s must carry no message text", surface)
+                .doesNotContain(marker, password, bearerToken);
         assertThat(line.has("message"))
                 .as("%s keeps the message field", surface)
                 .isTrue();
@@ -133,7 +139,8 @@ final class LogTailExposureContract {
     }
 
     private String verbatim() {
-        return marker + " login password=" + password + "\nretrying with api_key: " + apiKey;
+        return marker + " login password=" + password + "\nretrying with api_key: " + apiKey
+                + "\ncalling api with Authorization: Bearer " + bearerToken;
     }
 
     /**

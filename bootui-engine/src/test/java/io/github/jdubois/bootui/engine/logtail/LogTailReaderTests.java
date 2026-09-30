@@ -50,6 +50,18 @@ class LogTailReaderTests {
     }
 
     @Test
+    void masksTheCredentialAfterAnAuthorizationSchemeInTheSnapshotAndTheStream() {
+        LogTailBuffer buffer = new LogTailBuffer();
+        LogLineDto captured = line("calling api with Authorization: Bearer tok-42\nretrying with Bearer 0123abcd9");
+        buffer.add(captured);
+        LogTailReader reader = new LogTailReader(buffer, policy);
+        String masked = "calling api with Authorization: Bearer ******\nretrying with Bearer ******";
+
+        assertThat(reader.recent().get(0).message()).isEqualTo(masked);
+        assertThat(reader.expose(captured).message()).isEqualTo(masked);
+    }
+
+    @Test
     void omitsMessagesButKeepsMetadataUnderMetadataOnly() {
         LogTailBuffer buffer = new LogTailBuffer();
         buffer.add(line(SECRET_MESSAGE));
