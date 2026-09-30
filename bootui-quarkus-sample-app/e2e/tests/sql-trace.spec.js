@@ -28,6 +28,17 @@ test.describe('SQL Trace + Live Activity capture (Quarkus)', () => {
       .filter({hasText: /select/i})
       .first()
     await expect(selectStatement).toBeVisible()
+
+    // The inspector runs synchronously on the worker thread that issued the query, and the sample app's own
+    // frames are application code rather than BootUI's, so the expanded statement names a sample method.
+    const executions = page.locator('section').filter({hasText: 'Recent executions'})
+    const productRow = executions
+      .locator('tbody tr.sql-row')
+      .filter({hasText: 'SELECT'})
+      .filter({hasText: 'sample_products'})
+      .first()
+    await productRow.click()
+    await expect(executions.locator('tr.sql-detail-row').first()).toContainText('io.github.jdubois.bootui.sample.')
   })
 
   test('ranks normalized statements and attributes them without claiming thread affinity', async ({openView, page}) => {

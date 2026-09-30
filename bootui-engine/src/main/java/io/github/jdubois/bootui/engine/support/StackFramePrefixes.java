@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.support;
 
 import java.util.List;
+import java.util.stream.Stream;
 
 /**
  * Shared deny-list of fully-qualified class name prefixes that belong to the JDK, common frameworks/
@@ -10,10 +11,25 @@ import java.util.List;
  * io.github.jdubois.bootui.engine.exceptions.ExceptionStore}'s exception location, and for {@code
  * SqlTraceRecorder}'s SQL call-site capture — without either feature special-casing JDBC drivers,
  * connection pools, Hibernate internals, or BootUI's own instrumentation.</p>
+ *
+ * <p>BootUI is matched by its module packages rather than by the whole {@code io.github.jdubois.bootui} namespace,
+ * so the sample applications ({@code io.github.jdubois.bootui.sample} and {@code
+ * io.github.jdubois.bootui.webfluxsample}) count as application code and show real call sites.</p>
  */
 public final class StackFramePrefixes {
 
-    private static final List<String> FRAMEWORK_PREFIXES = List.of(
+    /** Package prefixes of BootUI's own modules, including their tests. Package-private for tests. */
+    static final List<String> BOOTUI_MODULE_PREFIXES = List.of(
+            "io.github.jdubois.bootui.core.",
+            "io.github.jdubois.bootui.engine.",
+            "io.github.jdubois.bootui.spi.",
+            "io.github.jdubois.bootui.autoconfigure.",
+            "io.github.jdubois.bootui.quarkus.",
+            "io.github.jdubois.bootui.client.",
+            "io.github.jdubois.bootui.cli.",
+            "io.github.jdubois.bootui.conformance.");
+
+    private static final List<String> THIRD_PARTY_PREFIXES = List.of(
             "java.",
             "javax.",
             "jakarta.",
@@ -36,8 +52,11 @@ public final class StackFramePrefixes {
             "io.quarkus.",
             "org.aspectj.",
             "net.bytebuddy.",
-            "org.jboss.",
-            "io.github.jdubois.bootui.");
+            "org.jboss.");
+
+    private static final List<String> FRAMEWORK_PREFIXES = Stream.concat(
+                    THIRD_PARTY_PREFIXES.stream(), BOOTUI_MODULE_PREFIXES.stream())
+            .toList();
 
     private StackFramePrefixes() {}
 
