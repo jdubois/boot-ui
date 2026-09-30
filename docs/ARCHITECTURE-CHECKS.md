@@ -165,8 +165,12 @@ objects, never from the report text:
 
 ARCH-PKG-001 cycles span several packages and never carry a location. Classes from archives, other layouts, ambiguous
 matches, and exhausted budgets keep a `null` path, with the reason in `violationDetails.locationNotes`; a location
-failure never changes a finding, its text, or the scan status. Kotlin lines that the class's source map attributes to
-an inlined function from another file, and lines past the end of the resolved file, are dropped to `MEMBER` precision.
+failure never changes a finding, its text, or the scan status. A Kotlin line is kept only when the class's source map
+maps it one-to-one onto the class's own file; inlined code, whether its inline function lives in another file or the
+same one, and lines past the end of the resolved file drop to `MEMBER` precision. At most 1,024 Kotlin class files are
+read for their source map per scan, only from local output directories; beyond that, lines are dropped and a location
+note says so. Symbolic links under `src/*/resources` or `src/*/webapp` are ignored, while any other link in a source
+tree leaves that module's classes without a path, with its own note.
 Unlike the limitations above, resolved locations deliberately include the local source path, so the panel and agents
 can open the file.
 

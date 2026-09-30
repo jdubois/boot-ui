@@ -80,6 +80,16 @@ class SpringHibernateRepositoryDiscoveryTests {
     }
 
     @Test
+    void anInheritedQueryMethodRecordsTheInterfaceThatDeclaresIt() throws Exception {
+        Method inherited = InheritingRepository.class.getMethod("limited", Limit.class, List.class);
+        HibernateRepositoryMethodModel method =
+                SpringHibernateRepositoryDiscovery.readMethod(InheritingRepository.class, Order.class, inherited);
+
+        assertThat(method.repositoryInterface()).isEqualTo(InheritingRepository.class.getName());
+        assertThat(method.declaringType()).isEqualTo(ParameterRepository.class);
+    }
+
+    @Test
     void dynamicProjectionParameterIsExcludedByNativeBindableMetadata() throws Exception {
         HibernateRepositoryMethodModel method = SpringHibernateRepositoryDiscovery.readMethod(
                 ParameterRepository.class,
@@ -269,6 +279,8 @@ class SpringHibernateRepositoryDiscoveryTests {
     }
 
     interface ReadOnlyRepository extends Repository<Order, Long> {}
+
+    interface InheritingRepository extends ParameterRepository {}
 
     @Retention(RetentionPolicy.RUNTIME)
     @Target(ElementType.METHOD)

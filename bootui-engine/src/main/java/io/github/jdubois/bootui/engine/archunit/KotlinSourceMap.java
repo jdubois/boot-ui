@@ -110,6 +110,16 @@ final class KotlinSourceMap {
     }
 
     /**
+     * Whether output line {@code line} is the declaring file's own line, unchanged. Kotlin maps the class's own
+     * code one-to-one and gives inlined code, even an inline function from the same file, lines past the end of
+     * the file that map elsewhere, so only an identity mapping names the line of the member that holds it.
+     */
+    boolean isOwnLine(int line) {
+        OptionalInt declaring = declaringLine(line);
+        return declaring.isPresent() && declaring.getAsInt() == line;
+    }
+
+    /**
      * The line of the declaring file that output line {@code line} maps back to, or empty when the line came
      * from another file (inlined code) or is not mapped at all.
      */

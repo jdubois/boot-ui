@@ -864,7 +864,7 @@ public abstract class AbstractBootUiApiConformanceTest {
             String query = "?scanId="
                     + URLEncoder.encode(
                             report.path("violationDetails").path("scanId").asText(), StandardCharsets.UTF_8);
-            if (panel.equals("architecture") && expectsResolvedSourcePaths()) {
+            if (located.contains(panel) && !panel.equals("hibernate") && expectsResolvedSourcePaths()) {
                 assertThat(report.path("results").findValues("sampleLocations").stream()
                                 .flatMap(list -> java.util.stream.StreamSupport.stream(list.spliterator(), false))
                                 .filter(location -> !location.isNull()
@@ -872,8 +872,9 @@ public abstract class AbstractBootUiApiConformanceTest {
                                 .map(location -> java.nio.file.Path.of(
                                         location.path("sourcePath").asText()))
                                 .anyMatch(path -> java.nio.file.Files.isRegularFile(path)
-                                        && path.toString().contains("src" + java.io.File.separator + "main")))
-                        .as("an architecture location resolves to the application's own source file")
+                                        && (path.toString().contains("src" + java.io.File.separator + "main")
+                                                || path.toString().contains("src" + java.io.File.separator + "test"))))
+                        .as(panel + ": a location resolves to the application's own source file")
                         .isTrue();
             }
             for (JsonNode rule : report.path("results")) {
@@ -911,7 +912,8 @@ public abstract class AbstractBootUiApiConformanceTest {
 
     /**
      * Whether this runner's application classes are compiled into a local Maven or Gradle output directory, so
-     * the explicit Architecture scan must resolve at least one location to the application's source file.
+     * the explicit Architecture and REST API scans must each resolve at least one location to a source file under
+     * the module's {@code src/main} or {@code src/test} tree.
      */
     protected boolean expectsResolvedSourcePaths() {
         return false;

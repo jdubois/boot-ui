@@ -202,7 +202,7 @@ class ArchitectureViolationLocationTests {
                 .filter(text -> text.contains("KotlinStreamUser.inlined()"))
                 .findFirst()
                 .orElseThrow();
-        assertThat(inlinedText).contains("KotlinLocationFixtures.kt:25");
+        assertThat(inlinedText).contains("KotlinLocationFixtures.kt:36");
         AdvisorViolationLocationDto inlined = locationOf(result, "KotlinStreamUser.inlined()");
         assertThat(inlined.memberName()).isEqualTo("inlined");
         assertThat(inlined.line()).isNull();
@@ -221,6 +221,15 @@ class ArchitectureViolationLocationTests {
         assertThat(facade.sourceFile()).isEqualTo("KotlinLocationFixtures.kt");
         assertThat(facade.line()).isEqualTo(22);
         assertThat(facade.sourcePath()).isEqualTo(direct.sourcePath());
+
+        // An inline function from the same file maps back to its own body, a line of another member: dropped too.
+        AdvisorViolationLocationDto sameFile = locationOf(result, "KotlinSameFileInline.caller()");
+        assertThat(sameFile.memberName()).isEqualTo("caller");
+        assertThat(sameFile.line()).isNull();
+        assertThat(sameFile.precision()).isEqualTo(AdvisorViolationLocationDto.PRECISION_MEMBER);
+        AdvisorViolationLocationDto inlineBody = locationOf(result, "KotlinSameFileInline.shoutHere(");
+        assertThat(inlineBody.memberName()).isEqualTo("shoutHere");
+        assertThat(inlineBody.line()).isEqualTo(32);
 
         AdvisorViolationLocationDto helper = locationOf(result, "KotlinInlineHelpersKt.shout(");
         assertThat(helper.sourceFile()).isEqualTo("KotlinInlineHelpers.kt");

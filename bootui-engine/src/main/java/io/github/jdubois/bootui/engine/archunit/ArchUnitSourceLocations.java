@@ -11,7 +11,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.OptionalInt;
 import java.util.function.UnaryOperator;
 
 /**
@@ -25,6 +24,9 @@ import java.util.function.UnaryOperator;
  * member (or class) precision.</p>
  */
 public final class ArchUnitSourceLocations {
+
+    /** Kotlin class files read for their source map in one scan, at most. */
+    static final int MAX_SOURCE_MAP_READS = 1024;
 
     private sealed interface LineCheck {}
 
@@ -54,6 +56,8 @@ public final class ArchUnitSourceLocations {
         }
         List<SourceLocator.Request> requests = new ArrayList<>();
         Map<String, LineCheck> checks = new HashMap<>();
+        int[] reads = {0};
+        int[] unread = {0};
         located.forEach((name, type) -> {
             java.net.URI classFile = ArchUnitLocations.classFile(type).orElse(null);
             String sourceFile = type.getSource()
@@ -61,18 +65,33 @@ public final class ArchUnitSourceLocations {
                     .orElse(null);
             requests.add(new SourceLocator.Request(name, classFile, sourceFile));
             if (Boolean.TRUE.equals(hasLine.get(name)) && KotlinBytecode.isKotlinClass(type)) {
-                checks.put(name, kotlinCheck(classFile));
+                // Only a local class file can have a source path, so only its source map is worth reading, and
+                // only within a fixed number of reads per scan.
+                if (classFile == null || !"file".equals(classFile.getScheme())) {
+                    checks.put(name, new Unverifiable());
+                } else if (reads[0] >= MAX_SOURCE_MAP_READS) {
+                    checks.put(name, new Unverifiable());
+                    unread[0]++;
+                } else {
+                    reads[0]++;
+                    checks.put(name, kotlinCheck(classFile));
+                }
             }
         });
         SourceLocator.Result result = SourceLocator.resolve(requests, limits);
+        List<String> notes = new ArrayList<>();
+        if (unread[0] > 0) {
+            notes.add("The Kotlin source-map budget ran out; " + unread[0]
+                    + " Kotlin class(es) keep their member but not their line.");
+        }
+        notes.addAll(result.notes());
         UnaryOperator<AdvisorViolationLocationDto> mapper = location -> {
             if (location == null) return null;
             String name = location.className();
             Integer line = location.line();
             LineCheck check = checks.getOrDefault(name, new AllLines());
             if (line != null && check instanceof Mapped mapped) {
-                OptionalInt declaring = mapped.map().declaringLine(line);
-                line = declaring.isPresent() ? Integer.valueOf(declaring.getAsInt()) : null;
+                if (!mapped.map().isOwnLine(line)) line = null;
             } else if (line != null && check instanceof Unverifiable) {
                 line = null;
             }
@@ -86,7 +105,7 @@ public final class ArchUnitSourceLocations {
                     line,
                     resolved == null ? null : resolved.path().toString());
         };
-        return new AdvisorLocations.Resolution(mapper, result.notes());
+        return new AdvisorLocations.Resolution(mapper, notes);
     }
 
     private static LineCheck kotlinCheck(java.net.URI classFile) {

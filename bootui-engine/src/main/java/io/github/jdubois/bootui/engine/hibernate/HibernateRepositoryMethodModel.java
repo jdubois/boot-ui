@@ -16,7 +16,43 @@ public record HibernateRepositoryMethodModel(
         boolean modifyingClearsAutomatically,
         boolean modifyingFlushesAutomatically,
         List<Class<?>> parameterTypes,
-        HibernateQueryEvidence evidence) {
+        HibernateQueryEvidence evidence,
+        Class<?> declaringType) {
+
+    /**
+     * The canonical model without a declaring type: the finding keeps its text but carries no location, because
+     * an inherited query method is not declared on {@code repositoryInterface}.
+     */
+    public HibernateRepositoryMethodModel(
+            String repositoryInterface,
+            String methodName,
+            Class<?> domainType,
+            Class<?> returnType,
+            String query,
+            boolean nativeQuery,
+            String countQuery,
+            boolean hasPageableParameter,
+            boolean modifying,
+            boolean modifyingClearsAutomatically,
+            boolean modifyingFlushesAutomatically,
+            List<Class<?>> parameterTypes,
+            HibernateQueryEvidence evidence) {
+        this(
+                repositoryInterface,
+                methodName,
+                domainType,
+                returnType,
+                query,
+                nativeQuery,
+                countQuery,
+                hasPageableParameter,
+                modifying,
+                modifyingClearsAutomatically,
+                modifyingFlushesAutomatically,
+                parameterTypes,
+                evidence,
+                null);
+    }
 
     public HibernateRepositoryMethodModel(
             String repositoryInterface,

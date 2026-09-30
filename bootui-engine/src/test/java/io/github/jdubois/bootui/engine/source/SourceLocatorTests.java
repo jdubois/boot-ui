@@ -226,7 +226,49 @@ class SourceLocatorTests {
                 SourceLocator.resolve(List.of(request("com.example.Order", compiled, "Order.java")));
 
         assertThat(result.get("com.example.Order")).isEmpty();
-        assertThat(result.notes()).singleElement().asString().contains("failed in a module (IOException)");
+        assertThat(result.notes()).singleElement().asString().contains("source tree contains a symbolic link");
+    }
+
+    @Test
+    void aSymbolicLinkAmongResourcesDoesNotBlockTheModule() throws IOException {
+        Path source = write("shop/src/main/java/com/example/Order.java", "package com.example; class Order {}");
+        Path config = write("elsewhere/application.properties", "a=b");
+        Files.createDirectories(workspace.resolve("shop/src/main/resources"));
+        try {
+            Files.createSymbolicLink(workspace.resolve("shop/src/main/resources/application.properties"), config);
+        } catch (UnsupportedOperationException | IOException ex) {
+            assumeTrue(false, "Symbolic links are unavailable: " + ex.getMessage());
+        }
+        URI compiled = classFile("shop/target/classes/com/example/Order.class");
+
+        SourceLocator.Result result =
+                SourceLocator.resolve(List.of(request("com.example.Order", compiled, "Order.java")));
+
+        assertThat(result.get("com.example.Order").orElseThrow().path())
+                .isEqualTo(source.toAbsolutePath().normalize());
+        assertThat(result.notes()).isEmpty();
+    }
+
+    @Test
+    void refusesAClassFileReachedThroughASymbolicLinkToAnotherModule() throws IOException {
+        write("one/src/main/java/com/example/Order.java", "package com.example; class Order {}");
+        write("two/src/main/java/com/example/Order.java", "package com.example; class Order {}");
+        Path real =
+                write("two/target/classes/com/example/Order.class", "cafebabe").getParent();
+        Files.createDirectories(workspace.resolve("one/target/classes/com"));
+        try {
+            Files.createSymbolicLink(workspace.resolve("one/target/classes/com/example"), real);
+        } catch (UnsupportedOperationException | IOException ex) {
+            assumeTrue(false, "Symbolic links are unavailable: " + ex.getMessage());
+        }
+        URI linked =
+                workspace.resolve("one/target/classes/com/example/Order.class").toUri();
+
+        SourceLocator.Result result =
+                SourceLocator.resolve(List.of(request("com.example.Order", linked, "Order.java")));
+
+        assertThat(result.get("com.example.Order")).isEmpty();
+        assertThat(result.notes()).singleElement().asString().contains("reached through a symbolic link");
     }
 
     @Test

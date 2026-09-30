@@ -56,6 +56,7 @@ public final class SourceTreeReader {
     private final String consequence;
     private int entries;
     private int bytes;
+    private int symbolicLinks;
 
     /**
      * @param subject how limit messages name the lookup, for example {@code Generated-source}
@@ -83,6 +84,11 @@ public final class SourceTreeReader {
         return directory(current);
     }
 
+    /** How many symbolic links this reader refused so far; each one failed the lookup that met it. */
+    public int symbolicLinks() {
+        return symbolicLinks;
+    }
+
     /** Visits every regular file under {@code directory}, descending only where {@code descend} allows. */
     public void walk(Path directory, Visitor visitor, Predicate<Path> descend) throws IOException {
         walk(directory, 0, visitor, descend);
@@ -97,7 +103,10 @@ public final class SourceTreeReader {
                 BasicFileAttributes attributes =
                         Files.readAttributes(child, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
                 // A skipped subtree could contain a conflicting declaration.
-                if (attributes.isSymbolicLink()) throw new IOException("Symbolic source entry");
+                if (attributes.isSymbolicLink()) {
+                    symbolicLinks++;
+                    throw new IOException("Symbolic source entry");
+                }
                 if (attributes.isDirectory()) walk(child, depth + 1, visitor, descend);
                 else if (attributes.isRegularFile()) visitor.visit(child);
             }
@@ -134,7 +143,10 @@ public final class SourceTreeReader {
         } catch (NoSuchFileException ex) {
             return false;
         }
-        if (attributes.isSymbolicLink()) throw new IOException("Symbolic source root");
+        if (attributes.isSymbolicLink()) {
+            symbolicLinks++;
+            throw new IOException("Symbolic source root");
+        }
         return attributes.isDirectory();
     }
 

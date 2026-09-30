@@ -1,10 +1,15 @@
 package io.github.jdubois.bootui.engine.restapi;
 
+import io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto;
 import io.github.jdubois.bootui.core.dto.RestApiRuleResultDto;
 import io.github.jdubois.bootui.engine.advisor.AdvisorFindings;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ExceptionHandlerModel;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ThrownExceptionModel;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -56,8 +61,10 @@ final class DeclaredExceptionsHaveHandlersRule extends AbstractRestApiRule {
         for (ExceptionHandlerModel handler : context.exceptionHandlers()) {
             mapped.addAll(handler.handledExceptionTypes());
         }
-        AdvisorFindings violations = new AdvisorFindings();
-        Set<String> reported = new LinkedHashSet<>();
+        // Texts are deduplicated as before. One text can stand for several endpoints (overloads, or controllers
+        // sharing a simple name), so it keeps a location only when every occurrence names the same element.
+        Map<String, AdvisorViolationLocationDto> reported = new LinkedHashMap<>();
+        Set<String> spanning = new HashSet<>();
         for (ThrownExceptionModel thrown : context.targets(context.thrownExceptions())) {
             if (isMapped(thrown, mapped)) {
                 continue;
@@ -65,10 +72,16 @@ final class DeclaredExceptionsHaveHandlersRule extends AbstractRestApiRule {
             String violation = thrown.controllerSimpleName() + "#" + thrown.methodName() + " declares "
                     + thrown.exceptionSimpleName()
                     + ", for which no handler declaration was found in the imported model";
-            if (reported.add(violation)) {
-                violations.add(violation, context.location(thrown));
+            AdvisorViolationLocationDto location = context.location(thrown);
+            if (!reported.containsKey(violation)) {
+                reported.put(violation, location);
+            } else if (!Objects.equals(reported.get(violation), location)) {
+                spanning.add(violation);
             }
         }
+        AdvisorFindings violations = new AdvisorFindings();
+        reported.forEach(
+                (violation, location) -> violations.add(violation, spanning.contains(violation) ? null : location));
         return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 

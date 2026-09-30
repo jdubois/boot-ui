@@ -26,10 +26,13 @@ final class HibernateLocations {
                 attribute.fieldMember() ? AdvisorViolationLocationDto.FIELD : AdvisorViolationLocationDto.METHOD);
     }
 
-    /** The repository method a query finding concerns. */
+    /**
+     * The repository method a query finding concerns, on the interface that declares it: an inherited query method
+     * is not declared on the repository the finding names. Without a known declaring type there is no location.
+     */
     static AdvisorViolationLocationDto of(HibernateRepositoryMethodModel method) {
-        if (method == null) return null;
-        return location(method.repositoryInterface(), method.methodName(), AdvisorViolationLocationDto.METHOD);
+        if (method == null || method.declaringType() == null) return null;
+        return location(method.declaringType().getName(), method.methodName(), AdvisorViolationLocationDto.METHOD);
     }
 
     private static AdvisorViolationLocationDto location(String className, String memberName, String kind) {

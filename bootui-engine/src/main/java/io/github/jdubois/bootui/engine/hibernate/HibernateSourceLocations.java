@@ -27,12 +27,14 @@ final class HibernateSourceLocations {
 
     private static final int MAX_SUPERCLASS_DEPTH = 32;
 
+    /** Located classes whose class file one scan reads, at most. */
+    static final int MAX_CLASS_FILE_READS = 1024;
+
     private HibernateSourceLocations() {}
 
     static AdvisorLocations.Resolution resolve(
             HibernateAdvisorObservation observation, Collection<AdvisorViolationLocationDto> located) {
         Map<String, Class<?>> types = new HashMap<>();
-        Map<String, ClassLoader> loaders = new HashMap<>();
         for (HibernatePersistenceUnitObservation unit : observation.units()) {
             for (HibernateEntityModel entity : unit.entities()) {
                 Class<?> type = entity.javaType();
@@ -42,9 +44,10 @@ final class HibernateSourceLocations {
                 }
             }
             for (HibernateRepositoryModel repository : unit.repositories()) {
-                Class<?> domain = repository.domainType();
-                if (repository.repositoryInterface() != null && domain != null && domain.getClassLoader() != null) {
-                    loaders.putIfAbsent(repository.repositoryInterface(), domain.getClassLoader());
+                for (HibernateRepositoryMethodModel method : repository.methods()) {
+                    if (method.declaringType() != null) {
+                        types.putIfAbsent(method.declaringType().getName(), method.declaringType());
+                    }
                 }
             }
         }
@@ -53,9 +56,14 @@ final class HibernateSourceLocations {
         ClassFileLocator classFiles = ClassFileLocator.forScan();
         Map<String, String> sourceFiles = new LinkedHashMap<>();
         List<SourceLocator.Request> requests = new ArrayList<>();
+        int unread = 0;
         for (String name : names) {
+            if (requests.size() >= MAX_CLASS_FILE_READS) {
+                unread++;
+                continue;
+            }
             Class<?> type = types.get(name);
-            ClassLoader loader = type != null ? type.getClassLoader() : loaders.get(name);
+            ClassLoader loader = type == null ? null : type.getClassLoader();
             if (loader == null) continue;
             URI classFile = classFiles.locate(name, loader, type);
             String sourceFile = sourceFile(classFile, loader, name);
@@ -75,7 +83,17 @@ final class HibernateSourceLocations {
                             null,
                             resolved == null ? null : resolved.path().toString());
                 },
-                result.notes());
+                notes(unread, classFiles.notes(), result.notes()));
+    }
+
+    private static List<String> notes(int unread, List<String> classFileNotes, List<String> lookupNotes) {
+        List<String> notes = new ArrayList<>();
+        if (unread > 0) {
+            notes.add("The class-file budget ran out; " + unread + " class(es) keep no source file or path.");
+        }
+        notes.addAll(classFileNotes);
+        notes.addAll(lookupNotes);
+        return notes;
     }
 
     /**

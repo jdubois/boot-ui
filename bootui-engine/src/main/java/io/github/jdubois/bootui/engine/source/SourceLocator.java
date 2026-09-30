@@ -3,9 +3,14 @@ package io.github.jdubois.bootui.engine.source;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.DirectoryIteratorException;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -30,6 +35,7 @@ public final class SourceLocator {
     public static final Limits DEFAULT_LIMITS = new Limits(64, 50_000, 32, 256 * 1024, 16 * 1024 * 1024);
 
     private static final Set<String> SKIPPED_DIRECTORIES = Set.of(".git", ".gradle", ".m2", "node_modules");
+    private static final Set<String> NON_SOURCE_DIRECTORIES = Set.of("resources", "webapp", "frontend");
 
     /** Budgets for one lookup; each must be positive. */
     public record Limits(int modules, int entries, int depth, int fileBytes, int totalBytes) {
@@ -81,7 +87,11 @@ public final class SourceLocator {
         AMBIGUOUS("%d class(es) matched more than one source file, so no source path is shown for them."),
         UNREADABLE("%d class(es) had a candidate source file that could not be read or parsed, so no source path"
                 + " is shown for them."),
+        UNTRUSTED_OUTPUT("%d class(es) have a class file that is missing or reached through a symbolic link, so"
+                + " their module is not proven and they have no source path."),
         BUDGET("The bounded source lookup ran out of budget; %d class(es) keep no source path."),
+        SYMBOLIC_LINK("%d class(es) keep no source path because their module's source tree contains a symbolic"
+                + " link, which the lookup never follows."),
         FAILED("The source lookup failed in a module (%s); %d class(es) keep no source path.");
 
         private final String format;
@@ -97,6 +107,7 @@ public final class SourceLocator {
     private final Map<String, Resolved> resolved = new LinkedHashMap<>();
     private final Map<Reason, Set<String>> unresolved = new TreeMap<>();
     private final Map<String, Set<String>> failures = new TreeMap<>();
+    private final Map<String, Path> classFiles = new LinkedHashMap<>();
 
     private SourceLocator(Limits limits) {
         this.limits = limits;
@@ -138,6 +149,7 @@ public final class SourceLocator {
                 unresolved(Reason.BUDGET, className);
                 continue;
             }
+            classFiles.put(className, Path.of(classFile));
             int dot = className.lastIndexOf('.');
             Key key = new Key(dot < 0 ? "" : className.substring(0, dot), request.sourceFile());
             modules.computeIfAbsent(module.get(), ignored -> new LinkedHashMap<>())
@@ -153,9 +165,13 @@ public final class SourceLocator {
     }
 
     private void resolveModule(SourceTreeReader tree, LocalSourceModule module, Map<Key, Set<String>> keys) {
+        verifyClassOutput(tree, module, keys);
+        if (keys.isEmpty()) return;
         Set<String> fileNames = new LinkedHashSet<>();
         keys.keySet().forEach(key -> fileNames.add(key.fileName()));
         List<Path[]> candidates = new ArrayList<>();
+        int links = tree.symbolicLinks();
+        Path sourceSetRoot = module.sourceSetRoot();
         try {
             List<Path> roots = new ArrayList<>();
             roots.add(module.sourceSetRoot());
@@ -170,13 +186,21 @@ public final class SourceLocator {
                             }
                         },
                         directory -> !SKIPPED_DIRECTORIES.contains(
-                                directory.getFileName().toString()));
+                                        directory.getFileName().toString())
+                                // Resources and web assets are never compiled, so a link there is irrelevant.
+                                && !(sourceSetRoot.equals(directory.getParent())
+                                        && NON_SOURCE_DIRECTORIES.contains(
+                                                directory.getFileName().toString())));
             }
         } catch (SourceTreeReader.LimitException ex) {
             keys.values().forEach(classes -> unresolved(Reason.BUDGET, classes));
             return;
         } catch (IOException | DirectoryIteratorException | SecurityException ex) {
-            keys.values().forEach(classes -> failed(ex.getClass().getSimpleName(), classes));
+            if (tree.symbolicLinks() > links) {
+                keys.values().forEach(classes -> unresolved(Reason.SYMBOLIC_LINK, classes));
+            } else {
+                keys.values().forEach(classes -> failed(ex.getClass().getSimpleName(), classes));
+            }
             return;
         }
 
@@ -231,6 +255,43 @@ public final class SourceLocator {
             } else {
                 classes.forEach(className -> resolved.put(className, found.get(0)));
             }
+        }
+    }
+
+    /**
+     * Keeps only classes whose class file is a regular file reached from the module root without a symbolic link: the
+     * module is derived from the class file's path, so a linked output directory could belong to another module.
+     */
+    private void verifyClassOutput(SourceTreeReader tree, LocalSourceModule module, Map<Key, Set<String>> keys) {
+        Map<Path, Boolean> directories = new HashMap<>();
+        for (Iterator<Map.Entry<Key, Set<String>>> entries = keys.entrySet().iterator(); entries.hasNext(); ) {
+            Set<String> classes = entries.next().getValue();
+            for (Iterator<String> names = classes.iterator(); names.hasNext(); ) {
+                String className = names.next();
+                if (!trustedClassFile(tree, module, classFiles.get(className), directories)) {
+                    unresolved(Reason.UNTRUSTED_OUTPUT, className);
+                    names.remove();
+                }
+            }
+            if (classes.isEmpty()) entries.remove();
+        }
+    }
+
+    private static boolean trustedClassFile(
+            SourceTreeReader tree, LocalSourceModule module, Path classFile, Map<Path, Boolean> directories) {
+        if (classFile == null || classFile.getParent() == null) return false;
+        try {
+            Boolean safe = directories.get(classFile.getParent());
+            if (safe == null) {
+                safe = tree.safeDirectory(module.root(), classFile.getParent());
+                directories.put(classFile.getParent(), safe);
+            }
+            return safe
+                    && Files.readAttributes(classFile, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS)
+                            .isRegularFile();
+        } catch (IOException | SecurityException ex) {
+            directories.put(classFile.getParent(), false);
+            return false;
         }
     }
 

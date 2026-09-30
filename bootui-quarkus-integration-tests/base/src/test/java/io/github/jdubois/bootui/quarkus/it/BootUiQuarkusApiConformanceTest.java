@@ -55,6 +55,11 @@ class BootUiQuarkusApiConformanceTest extends AbstractBootUiApiConformanceTest {
      * fixture declared here would be filtered out exactly like BootUI's own resources.
      */
     @Override
+    protected boolean expectsResolvedSourcePaths() {
+        return true;
+    }
+
+    @Override
     protected Set<String> expectedErrorContractComponents() {
         return Set.of("ItCatalogueExceptionMapper");
     }

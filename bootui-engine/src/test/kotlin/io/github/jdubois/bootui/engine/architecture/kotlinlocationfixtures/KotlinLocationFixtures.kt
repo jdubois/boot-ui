@@ -21,3 +21,14 @@ class KotlinStreamUser {
 fun topLevel() {
     System.out.println("file facade access")
 }
+
+class KotlinSameFileInline {
+    fun caller() {
+        shoutHere("inlined from this file")
+    }
+
+    @Suppress("NOTHING_TO_INLINE")
+    private inline fun shoutHere(message: String) {
+        System.out.println(message)
+    }
+}

@@ -43,6 +43,17 @@ class KotlinSourceMapTests {
     }
 
     @Test
+    void onlyTheDeclaringFilesOwnLinesAreKeptEvenForSameFileInlining() {
+        String smap = "SMAP\nA.kt\nKotlin\n*S Kotlin\n*F\n+ 1 A.kt\na/A\n*L\n1#1,30:1\n8#1,2:31\n*E\n";
+        KotlinSourceMap map = KotlinSourceMap.parse(smap, "A.kt");
+
+        assertThat(map.isOwnLine(12)).isTrue();
+        assertThat(map.declaringLine(31)).hasValue(8);
+        assertThat(map.isOwnLine(31)).isFalse();
+        assertThat(map.isOwnLine(40)).isFalse();
+    }
+
+    @Test
     void mapsShiftedRangesBackToTheirInputLine() {
         String smap = "SMAP\nA.kt\nKotlin\n*S Kotlin\n*F\n1 A.kt\n*L\n10#1,3:40,2\n*E\n";
         KotlinSourceMap map = KotlinSourceMap.parse(smap, "A.kt");
@@ -75,7 +86,8 @@ class KotlinSourceMapTests {
         assertThat(facts.sourceMap()).startsWith("SMAP\nKotlinLocationFixtures.kt\nKotlin\n");
         KotlinSourceMap map = KotlinSourceMap.parse(facts.sourceMap(), facts.sourceFile());
         assertThat(map.declaringLine(7)).hasValue(7);
-        assertThat(map.declaringLine(25)).isEmpty();
+        assertThat(map.declaringLine(36)).isEmpty();
+        assertThat(map.isOwnLine(36)).isFalse();
 
         URI java = LocatedStreamUser.class
                 .getResource(LocatedStreamUser.class.getSimpleName() + ".class")

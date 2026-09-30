@@ -83,8 +83,9 @@ show a line. During the explicit scan BootUI reads each located class's recorded
 file, without loading any class, and resolves its local source path through the Architecture advisor's
 [module and source-set lookup](ARCHITECTURE-CHECKS.md#violation-locations). The class file is found through the class's
 own class loader. Quarkus serves bytecode-enhanced entities from memory, so BootUI then looks for the same class file in
-the launch class path's output directories, including those a launcher jar's manifest names, and keeps no path when
-none or more than one holds it. Configuration,
+the launch class path's output directories, including those a manifest-only launcher jar names, and keeps no path when
+none or more than one holds it, or when the class path is too large to search completely. At most 1,024 located
+classes are read per scan. Configuration,
 settings, and profile findings, and findings that span several elements such as composite identifier classes, carry no
 location. Unit-labelled samples and retained details keep the same location for the same finding across persistence
 units.

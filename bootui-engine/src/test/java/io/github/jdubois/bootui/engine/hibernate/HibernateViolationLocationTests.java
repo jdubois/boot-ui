@@ -95,13 +95,17 @@ class HibernateViolationLocationTests {
         assertThat(bulk.sampleLocations())
                 .hasSize(bulk.sampleViolations().size())
                 .allSatisfy(location -> {
-                    assertThat(location.className()).isEqualTo(OrderRepository.class.getName());
                     assertThat(location.kind()).isEqualTo(AdvisorViolationLocationDto.METHOD);
                     assertThat(location.sourceFile()).isEqualTo(THIS_FILE);
                 });
         for (int index = 0; index < bulk.sampleViolations().size(); index++) {
+            AdvisorViolationLocationDto location = bulk.sampleLocations().get(index);
+            // The text names the repository; the location names the interface that declares the method.
             assertThat(bulk.sampleViolations().get(index))
-                    .contains("#" + bulk.sampleLocations().get(index).memberName() + " ");
+                    .startsWith("[orders] " + OrderRepository.class.getName() + "#" + location.memberName() + " ");
+            int number = Integer.parseInt(location.memberName().substring("update".length()));
+            assertThat(location.className())
+                    .isEqualTo((number % 2 == 0 ? OrderRepository.class : BaseRepository.class).getName());
         }
 
         assertThat(report.violationDetails().locationNotes()).isEmpty();
@@ -140,6 +144,37 @@ class HibernateViolationLocationTests {
                 .get(0);
         assertThat(dismissed.dismissed()).isTrue();
         assertThat(dismissed.sampleLocations()).containsExactlyElementsOf(bulk.sampleLocations());
+    }
+
+    @Test
+    void aRepositoryMethodWithoutAKnownDeclaringTypeKeepsItsTextButNoLocation() {
+        HibernateRepositoryMethodModel method = new HibernateRepositoryMethodModel(
+                OrderRepository.class.getName(),
+                "update0",
+                VersionedOrder.class,
+                int.class,
+                "update VersionedOrder e set e.amount = 1",
+                false,
+                null,
+                false,
+                true,
+                false,
+                false,
+                List.of(),
+                new HibernateQueryEvidence(true, true, false, false, false, int.class, false, null, null, List.of()));
+        HibernatePersistenceUnitObservation unit = new HibernatePersistenceUnitObservation(
+                "orders",
+                "orders",
+                List.of(HibernateEntityModel.fromClass(VersionedOrder.class)),
+                List.of(new HibernateRepositoryModel(
+                        OrderRepository.class.getName(), VersionedOrder.class, List.of(method))),
+                "7.4.5.Final",
+                HibernateFactorySettings.unknown(),
+                false);
+        HibernateRuleResultDto bulk = result(
+                scanner(List.of(unit), List.of(new BulkUpdateVersionRule())).scan(), "HIB-QUERY-008");
+        assertThat(bulk.sampleViolations()).hasSize(1);
+        assertThat(bulk.sampleLocations()).isEmpty();
     }
 
     @Test
@@ -194,7 +229,8 @@ class HibernateViolationLocationTests {
                         false,
                         List.of(),
                         new HibernateQueryEvidence(
-                                true, true, false, false, false, int.class, false, null, null, List.of())))
+                                true, true, false, false, false, int.class, false, null, null, List.of()),
+                        index % 2 == 0 ? OrderRepository.class : BaseRepository.class))
                 .toList();
         List<HibernateEntityModel> models = new ArrayList<>();
         models.add(HibernateEntityModel.fromClass(VersionedOrder.class));
@@ -209,7 +245,9 @@ class HibernateViolationLocationTests {
                 false);
     }
 
-    interface OrderRepository {}
+    interface BaseRepository {}
+
+    interface OrderRepository extends BaseRepository {}
 
     @Entity
     static class VersionedOrder {
