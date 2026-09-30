@@ -28,7 +28,8 @@ public final class BootUiApiContractCatalog {
                             "frameworkVersion", JsonType.NULLABLE_STRING,
                             "javaVersion", JsonType.STRING,
                             "activeProfiles", JsonType.ARRAY,
-                            "activation", JsonType.OBJECT)),
+                            "activation", JsonType.OBJECT,
+                            "run", JsonType.OBJECT)),
             read(
                     "health",
                     "/health",

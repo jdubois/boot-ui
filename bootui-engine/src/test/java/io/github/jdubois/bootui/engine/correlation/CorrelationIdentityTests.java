@@ -95,4 +95,17 @@ class CorrelationIdentityTests {
         assertThat(new ScopedCorrelationContextProvider(() -> null).current()).isSameAs(CorrelationContext.NONE);
         assertThat(new ScopedCorrelationContextProvider(failing).current()).isSameAs(CorrelationContext.NONE);
     }
+
+    @Test
+    void everyRunOfAnInstanceSharesItsInstanceIdAndPublishesItsOwnRun() {
+        RunIdentity first = RunIdentity.start(() -> 1_000L);
+        RunIdentity second = RunIdentity.start(() -> 2_000L);
+
+        assertThat(RunIdentity.instanceId()).matches("[0-9a-f]{8}");
+        assertThat(first.toDto().instanceId()).isEqualTo(RunIdentity.instanceId());
+        assertThat(second.toDto().instanceId()).isEqualTo(RunIdentity.instanceId());
+        assertThat(second.toDto().runId()).isEqualTo(second.id()).isNotEqualTo(first.id());
+        assertThat(second.toDto().ordinal()).isEqualTo(first.ordinal() + 1);
+        assertThat(second.toDto().startedAt()).isEqualTo(2_000L);
+    }
 }

@@ -32,6 +32,7 @@ import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
+import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.BootUiSpanExporter;
@@ -41,6 +42,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.aot.AotDetector;
@@ -124,6 +126,26 @@ class BootUiAutoConfigurationTests {
                         .hasSingleBean(HttpSessionsController.class)
                         .hasSingleBean(BootUiSpanExporter.class)
                         .hasSingleBean(BootUiActivation.class));
+    }
+
+    @Test
+    void eachContextStartIsANewRunOfTheSameInstanceCreatedEagerly() {
+        AtomicReference<RunIdentity> first = new AtomicReference<>();
+        runner.withPropertyValues("bootui.enabled=ON").run(context -> {
+            assertThat(context.getBeanFactory()
+                            .getBeanDefinition("bootUiRunIdentity")
+                            .isLazyInit())
+                    .as("the run starts with the context, not when BootUI is first opened")
+                    .isFalse();
+            first.set(context.getBean(RunIdentity.class));
+        });
+        runner.withPropertyValues("bootui.enabled=ON").run(context -> {
+            RunIdentity second = context.getBean(RunIdentity.class);
+            assertThat(second.id()).isNotEqualTo(first.get().id());
+            assertThat(second.ordinal()).isGreaterThan(first.get().ordinal());
+            assertThat(second.toDto().instanceId())
+                    .isEqualTo(first.get().toDto().instanceId());
+        });
     }
 
     @Test

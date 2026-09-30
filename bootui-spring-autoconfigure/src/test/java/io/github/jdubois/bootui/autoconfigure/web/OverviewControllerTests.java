@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import io.github.jdubois.bootui.autoconfigure.BootUiActivation;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -52,6 +53,22 @@ class OverviewControllerTests {
                 .andExpect(jsonPath("$.frameworkVersion").exists())
                 .andExpect(jsonPath("$.javaVersion").exists())
                 .andExpect(jsonPath("$.bootUiVersion").exists());
+    }
+
+    @Test
+    void publishesTheRunItWasCreatedFor() throws Exception {
+        RunIdentity run = RunIdentity.start();
+        OverviewController controller = new OverviewController(
+                new MockEnvironment(), new BootUiActivation(true, "forced on", List.of()), new BootUiProperties(), run);
+
+        standaloneSetup(controller)
+                .build()
+                .perform(get("/bootui/api/overview").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.run.instanceId").value(RunIdentity.instanceId()))
+                .andExpect(jsonPath("$.run.runId").value(run.id()))
+                .andExpect(jsonPath("$.run.ordinal").value(run.ordinal()))
+                .andExpect(jsonPath("$.run.startedAt").value(run.startedAtEpochMillis()));
     }
 
     @Test

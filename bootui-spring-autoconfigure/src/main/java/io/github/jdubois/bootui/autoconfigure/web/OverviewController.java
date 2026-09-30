@@ -5,8 +5,10 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.BootUiInfo;
 import io.github.jdubois.bootui.core.dto.ActivationStatus;
 import io.github.jdubois.bootui.core.dto.OverviewDto;
+import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import java.util.Arrays;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootVersion;
 import org.springframework.core.env.Environment;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,10 +25,19 @@ public class OverviewController {
 
     private final BootUiProperties properties;
 
+    private final RunIdentity run;
+
     public OverviewController(Environment environment, BootUiActivation activation, BootUiProperties properties) {
+        this(environment, activation, properties, null);
+    }
+
+    @Autowired
+    public OverviewController(
+            Environment environment, BootUiActivation activation, BootUiProperties properties, RunIdentity run) {
         this.environment = environment;
         this.activation = activation;
         this.properties = properties;
+        this.run = run;
     }
 
     @GetMapping
@@ -57,7 +68,8 @@ public class OverviewController {
                         !properties.isAllowNonLocalhost(),
                         activation.reason(),
                         activation.warnings() == null ? List.of() : activation.warnings()),
-                detectOpenApiUrl());
+                detectOpenApiUrl(),
+                run == null ? null : run.toDto());
     }
 
     private String detectOpenApiUrl() {

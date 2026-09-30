@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.correlation;
 
+import io.github.jdubois.bootui.core.dto.ApplicationRunDto;
 import java.util.HexFormat;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -21,13 +22,31 @@ public record RunIdentity(String id, int ordinal, long startedAtEpochMillis) {
 
     private static final AtomicInteger ORDINALS = new AtomicInteger();
 
+    private static final String INSTANCE_ID = randomId();
+
+    /**
+     * The random id of this BootUI instance: one per JVM, since BootUI's jars stay in the class loader that survives
+     * DevTools restarts and Quarkus live reloads. It changes only when that class loader is replaced.
+     */
+    public static String instanceId() {
+        return INSTANCE_ID;
+    }
+
+    /** The run as published in {@code /overview}. */
+    public ApplicationRunDto toDto() {
+        return new ApplicationRunDto(INSTANCE_ID, id, ordinal, startedAtEpochMillis);
+    }
+
     /** Starts a new run now. Adapters call it once per application-context start. */
     public static RunIdentity start() {
         return start(System::currentTimeMillis);
     }
 
     static RunIdentity start(LongSupplier clock) {
-        String id = HexFormat.of().toHexDigits(ThreadLocalRandom.current().nextInt());
-        return new RunIdentity(id, ORDINALS.incrementAndGet(), clock.getAsLong());
+        return new RunIdentity(randomId(), ORDINALS.incrementAndGet(), clock.getAsLong());
+    }
+
+    private static String randomId() {
+        return HexFormat.of().toHexDigits(ThreadLocalRandom.current().nextInt());
     }
 }

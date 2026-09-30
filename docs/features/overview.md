@@ -117,6 +117,11 @@ each advisor's own reports and displays its independent score, so no backend das
 chrome around every panel — application name, framework and version, Java version, active profiles, and active or
 disabled status — comes from the framework-neutral `GET /bootui/api/overview` endpoint every adapter exposes.
 
+That endpoint also reports the current **run** in its `run` object: a random `instanceId` for this JVM's BootUI
+instance, and a random `runId`, an `ordinal`, and a `startedAt` time for the current application start. A Spring
+DevTools restart or a Quarkus live reload starts a new run with the next ordinal inside the same instance. The ids carry
+no host, user, or application data.
+
 ## Live Activity
 
 ![BootUI Live Activity panel](../images/bootui-activity.webp)

@@ -3,8 +3,11 @@ package io.github.jdubois.bootui.quarkus;
 import io.github.jdubois.bootui.core.BootUiInfo;
 import io.github.jdubois.bootui.core.dto.ActivationStatus;
 import io.github.jdubois.bootui.core.dto.OverviewDto;
+import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.quarkus.runtime.StartupEvent;
 import io.smallrye.config.SmallRyeConfig;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
 import java.util.List;
 import org.eclipse.microprofile.config.Config;
@@ -36,9 +39,24 @@ public class QuarkusApplicationInfo {
 
     private final Config config;
 
+    private final RunIdentity run = RunIdentity.start();
+
     @Inject
     public QuarkusApplicationInfo(Config config) {
         this.config = config;
+    }
+
+    /**
+     * Creates this bean when the application starts, so its run ({@code docs/PLAN-v2.md} §5.1) starts with the
+     * application rather than when BootUI is first opened. A live reload starts a new application, and so a new run.
+     */
+    void onStart(@Observes StartupEvent event) {
+        // Observing the event is enough to instantiate the bean eagerly.
+    }
+
+    /** This application start, as one run. */
+    public RunIdentity run() {
+        return run;
     }
 
     public OverviewDto overview() {
@@ -59,7 +77,8 @@ public class QuarkusApplicationInfo {
                 optString("quarkus.http.root-path", ""),
                 null,
                 activation(),
-                null);
+                null,
+                run.toDto());
     }
 
     private String applicationName() {

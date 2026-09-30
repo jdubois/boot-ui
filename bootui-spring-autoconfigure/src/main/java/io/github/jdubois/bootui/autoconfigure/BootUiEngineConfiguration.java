@@ -49,6 +49,7 @@ import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.cache.CacheService;
 import io.github.jdubois.bootui.engine.config.ConfigService;
+import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.crac.CracReadinessScanner;
 import io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorScanner;
 import io.github.jdubois.bootui.engine.datasource.ConnectionPoolService;
@@ -166,6 +167,17 @@ import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMappi
  */
 @Configuration(proxyBeanMethods = false)
 public class BootUiEngineConfiguration {
+
+    /**
+     * This application-context start, as one run ({@code docs/PLAN-v2.md} §5.1). Deliberately eager, unlike the
+     * other engine beans: a DevTools restart creates a new context and so a new run, and the run must start when the
+     * context does, not when BootUI is first opened. Creating it only reads the clock and a random number.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    RunIdentity bootUiRunIdentity() {
+        return RunIdentity.start();
+    }
 
     @Bean
     @Lazy

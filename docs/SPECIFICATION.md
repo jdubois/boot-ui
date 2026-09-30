@@ -2576,7 +2576,7 @@ Initial endpoints:
 
 | Endpoint                                     | Method | Purpose                                                                                |
 | -------------------------------------------- | ------ | -------------------------------------------------------------------------------------- |
-| `/bootui/api/overview`                       | GET    | App, runtime, Spring Boot, profile, and BootUI status                                  |
+| `/bootui/api/overview`                       | GET    | App, runtime, Spring Boot, profile, BootUI status, and the current run                 |
 | `/bootui/api/panels`                         | GET    | Panel availability, enabled state, and read-only state                                 |
 | `/bootui/api/github`                         | GET    | Local GitHub origin metadata and the latest cached dashboard snapshot                  |
 | `/bootui/api/github/refresh`                 | POST   | Explicit bounded GitHub API refresh for project metrics and quotas                     |

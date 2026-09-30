@@ -57,6 +57,21 @@ class BootUiQuarkusOverviewResourceTest {
     }
 
     @Test
+    void overviewPublishesTheRunThatStartedWithTheApplication() {
+        JsonNode first = probe().get("/bootui/api/overview").json().path("run");
+        JsonNode second = probe().get("/bootui/api/overview").json().path("run");
+
+        assertThat(first.path("instanceId").asText()).matches("[0-9a-f]{8}");
+        assertThat(first.path("runId").asText()).matches("[0-9a-f]{8}");
+        assertThat(first.path("ordinal").asInt()).isPositive();
+        assertThat(first.path("startedAt").asLong())
+                .as("the run started with the application, before this request")
+                .isPositive()
+                .isLessThanOrEqualTo(System.currentTimeMillis());
+        assertThat(second).as("one application start is one run").isEqualTo(first);
+    }
+
+    @Test
     void overviewReportsActiveActivationStatus() {
         Response response = probe().get("/bootui/api/overview");
         assertThat(response.status()).as("GET /bootui/api/overview status").isEqualTo(200);
