@@ -3,14 +3,19 @@ package io.github.jdubois.bootui.autoconfigure.reactive;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry.HttpExchangeTrace;
+import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
+import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.core.Ordered;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.web.ErrorResponse;
 import org.springframework.web.reactive.HandlerMapping;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilterChain;
 import org.springframework.web.util.pattern.PathPattern;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.SignalType;
 
 /**
  * Reactive (WebFlux) sibling of {@code RequestCorrelationFilter}: instead of the serving thread - which
@@ -42,12 +47,26 @@ public final class ReactiveHttpExchangeTraceFilter extends AbstractReactiveBootU
 
     private final HttpExchangeTraceRegistry registry;
     private final TraceIdProvider traceIdProvider;
+    private final long requestSlowThresholdMs;
 
     public ReactiveHttpExchangeTraceFilter(
             BootUiProperties properties, HttpExchangeTraceRegistry registry, TraceIdProvider traceIdProvider) {
+        this(properties, registry, traceIdProvider, properties.getActivity().getRequestSlowThresholdMs());
+    }
+
+    /**
+     * @param requestSlowThresholdMs the slow threshold BootUI's exchange repository applies (see
+     *     {@code ExchangeSlowThreshold}), so a trace record is reserved exactly when its exchange is
+     */
+    public ReactiveHttpExchangeTraceFilter(
+            BootUiProperties properties,
+            HttpExchangeTraceRegistry registry,
+            TraceIdProvider traceIdProvider,
+            long requestSlowThresholdMs) {
         super(properties);
         this.registry = registry;
         this.traceIdProvider = traceIdProvider;
+        this.requestSlowThresholdMs = requestSlowThresholdMs;
     }
 
     @Override
@@ -66,11 +85,35 @@ public final class ReactiveHttpExchangeTraceFilter extends AbstractReactiveBootU
         long start = System.currentTimeMillis();
         String method = request.getMethod() == null ? null : request.getMethod().name();
         String path = request.getURI() == null ? null : request.getURI().getPath();
-        return chain.filter(exchange).doFinally(signal -> {
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        return chain.filter(exchange).doOnError(failure::set).doFinally(signal -> {
+            long end = System.currentTimeMillis();
             String traceId = safeCurrentTraceId();
-            registry.record(new HttpExchangeTrace(
-                    start, System.currentTimeMillis(), method, path, traceId, routeTemplate(exchange)));
+            registry.record(
+                    new HttpExchangeTrace(start, end, method, path, traceId, routeTemplate(exchange)),
+                    RequestSlowThreshold.isFailedOrSlow(
+                            status(exchange, signal, failure.get()), end - start, requestSlowThresholdMs));
         });
+    }
+
+    /**
+     * The response status known when the chain completes. WebFlux's exception handlers render an error still
+     * propagating after the filters unwind, and Actuator's {@code HttpExchangesWebFilter} records the exchange when
+     * that rendered response commits, so the status comes from the error itself: the status an {@link ErrorResponse}
+     * such as {@code ResponseStatusException} declares, otherwise {@code 500}. Fully guarded.
+     */
+    private static int status(ServerWebExchange exchange, SignalType signal, Throwable failure) {
+        if (signal == SignalType.ON_ERROR) {
+            return failure instanceof ErrorResponse errorResponse
+                    ? errorResponse.getStatusCode().value()
+                    : 500;
+        }
+        try {
+            HttpStatusCode status = exchange.getResponse().getStatusCode();
+            return status == null ? 0 : status.value();
+        } catch (RuntimeException ex) {
+            return 0;
+        }
     }
 
     /**

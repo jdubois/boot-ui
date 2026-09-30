@@ -87,6 +87,15 @@ function traceReport(overrides = {}) {
       }
     ],
     warnings: ['Bound parameter values are captured in clear text.'],
+    retention: {
+      applicationManaged: false,
+      capacity: 200,
+      reservedCapacity: 50,
+      retained: 2,
+      reserved: 1,
+      evicted: 0,
+      slowThresholdMillis: 100
+    },
     ...overrides
   }
 }
@@ -296,6 +305,9 @@ describe('SqlTrace', () => {
     expect(text).toContain('captured since startup')
     expect(text).toContain('captured in clear text')
     expect(text).toContain('com.example.TodoRepository.findById(TodoRepository.java:42)')
+    expect(wrapper.get('.capture-retention').text()).toContain(
+      'keeping 2 of 200 executions · 1 of 50 reserved for recent failed or slow executions (slow means ≥ 100 ms)'
+    )
   })
 
   it('shows a sub-millisecond execution at its real cost instead of as zero', async () => {

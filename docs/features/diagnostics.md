@@ -151,16 +151,51 @@ response size when a `Content-Length` header is present, and trace identifiers f
 Expanding a row shows the request and response headers, with secret-like headers and query parameters masked unless
 `bootui.expose-values=FULL` is configured.
 
-BootUI's own requests are hidden by default through `bootui.monitoring.exclude-self`, although they still count against
-the bounded recorder. The buffer retains 200 exchanges by default; change it with
-`bootui.http-exchanges.max-exchanges`, which takes effect on the next restart.
+BootUI's own requests are not recorded while `bootui.monitoring.exclude-self` is on, which is the default, so console
+polling never takes a slot from application traffic. The check uses the request path below the servlet context path or
+WebFlux base path, never the query string, so an application request whose query mentions `/bootui` is still recorded. The buffer retains 200 exchanges by default;
+change it with `bootui.http-exchanges.max-exchanges`, which takes effect on the next restart.
 
-On Spring Boot, BootUI contributes an in-memory `HttpExchangeRepository` when the panel is enabled and the application
-has not defined one. If no repository is available, the panel says so, so an empty list never reads as "no traffic
-yet". Quarkus has no Actuator repository, so a small Vert.x route filter samples each completed request
-in the response body-end handler, where status, duration, and size are final, into a capped ring buffer sized by the
-same property. That filter is wired in dev and test only, never in production. Masking, trace-id extraction,
-self-exclusion, and paging run through the shared engine service, so the wire format is identical.
+On Spring Boot, BootUI contributes its own bounded `HttpExchangeRepository`, and the Actuator filter that records into
+it, when the panel is enabled and the application has not defined a repository. If no repository is available, the
+panel says so, so an empty list never reads as "no traffic yet". Quarkus has no Actuator repository, so a small Vert.x
+route filter samples each completed request in the response body-end handler, where status, duration, and size are
+final, into a bounded buffer sized by the same property. That filter is wired in dev and test only, never in
+production. Masking, trace-id extraction, self-exclusion, and paging run through the shared engine service, so the wire
+format is identical.
+
+### Failure-preserving retention
+
+A burst of successful requests would otherwise evict the one failure you came to investigate. Every BootUI-owned
+capture buffer — HTTP Exchanges on all three stacks, [SQL Trace](database.md#sql-trace), and
+[REST Client](services.md#rest-client) — therefore reserves a share of its capacity for failed and slow records:
+
+| Buffer         | Reserved for                                                                              | Slow threshold                                        |
+| -------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| HTTP Exchanges | `5xx` responses and requests at or above the slow threshold                               | `bootui.activity.request-slow-threshold-ms` (`1000`)   |
+| SQL Trace      | Failed statements and statements at or above the slow threshold                           | `bootui.sql-trace.slow-query-threshold-millis` (`100`) |
+| REST Client    | Calls that failed, received a `4xx` or `5xx` response, or took at least the slow threshold | `bootui.rest-client-trace.slow-call-threshold-millis` (`1000`) |
+
+Routine records are evicted first. The reserved share evicts its own oldest record only once it is full, so under a
+flood of successes the most recent failed and slow records survive up to that share. The reservation is carved out of
+the existing capacity, never added to it, and never takes the whole buffer, so the newest record is always kept.
+Records are classified once, when they are captured, and the list stays newest-first across both tiers.
+
+The share is 25% of each buffer by default. Set `bootui.http-exchanges.reserved-share-percent`,
+`bootui.sql-trace.reserved-share-percent`, or `bootui.rest-client-trace.reserved-share-percent` to change it, or to `0`
+to evict strictly oldest first. A slow threshold of `0` disables slow classification for that buffer, so only failures
+are reserved.
+
+Each panel states its window above the list — records kept of the capacity, how many sit in the reserved share, and how
+many were evicted since startup — so no panel implies it holds every request. The same counts are in the `retention`
+object of each report, and therefore in `get_http_exchanges`, `get_sql_traces`, and `get_rest_client_traces` for MCP
+clients and the `bootui` CLI.
+
+On Spring Boot these guarantees apply only while BootUI owns recording. When the application defines its own
+`HttpExchangeRepository`, BootUI leaves it untouched. When it defines its own `HttpExchangesFilter` or
+`HttpExchangesWebFilter`, BootUI keeps its repository's former behavior: every exchange it is given is kept, oldest
+evicted first, and BootUI's own requests are hidden at read time instead. In both cases the panel reports retention as
+managed by the application.
 
 Every exchange carries the route it belongs to, shown under its path when the two differ, and a **Profile** link that
 opens the request's profile in [Live Activity](overview.md#the-per-request-profiler). Stacks that correlate a profile
@@ -206,8 +241,9 @@ it.
 - Every figure covers only the retained, visible exchanges. They are diagnostic evidence for that window, not lifetime
   or service-level metrics; the Metrics panel's `http.server.requests` meter covers the application's lifetime.
 - The line above the table states the evidence window: retained exchanges, the buffer size, evictions, the oldest
-  retained exchange, and how many BootUI exchanges were hidden. A value the exchange source does not report, such as an
-  application-provided repository's capacity or the evictions of either buffer, reads as not reported.
+  retained exchange, and how many BootUI exchanges were hidden. BootUI's own buffers report their capacity and
+  evictions from the same snapshot as the ranked exchanges; a value an application-managed recorder does not report,
+  such as its capacity or evictions, reads as not reported.
 - Percentiles are exact nearest-rank values over each route's timed exchanges, computed by the same helper as SQL Trace
   and the Live Activity KPIs. A route whose exchanges carry no duration shows no timings rather than zeros.
 - The response returns the union of each criterion's top 25 routes and marks which criteria each route leads, so the

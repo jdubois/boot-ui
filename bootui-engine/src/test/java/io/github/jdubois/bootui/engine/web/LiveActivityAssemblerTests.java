@@ -1180,6 +1180,61 @@ class LiveActivityAssemblerTests {
     }
 
     @Test
+    void requestAndScheduledSeverityUseTheSharedRequestSlowThreshold() {
+        HttpExchangesReport requests = requests(
+                timedRequest("req-fast", 200, 999L, 5_000L),
+                timedRequest("req-slow", 200, 1_000L, 4_000L),
+                timedRequest("req-failed", 503, 1_500L, 3_000L));
+        List<ScheduledTaskRunStore.Run> scheduled = List.of(
+                new ScheduledTaskRunStore.Run(1L, "com.example.Job#run", 1_000L, 1_200L, true, null, null, "w-1"),
+                new ScheduledTaskRunStore.Run(2L, "com.example.Job#run", 2_000L, 600L, true, null, null, "w-1"));
+
+        LiveActivityReport defaults = severityReport(new LiveActivityAssembler(), requests, scheduled);
+        assertThat(entry(defaults, "req-fast").severity()).isEqualTo("OK");
+        assertThat(entry(defaults, "req-slow").severity()).isEqualTo("SLOW");
+        assertThat(entry(defaults, "req-failed").severity()).isEqualTo("ERROR");
+        assertThat(entry(defaults, "sched-1").severity()).isEqualTo("SLOW");
+        // 600 ms was SLOW under the former fixed 500 ms threshold; the shared default is 1,000 ms.
+        assertThat(entry(defaults, "sched-2").severity()).isEqualTo("OK");
+
+        LiveActivityReport custom = severityReport(new LiveActivityAssembler(500), requests, scheduled);
+        assertThat(entry(custom, "req-fast").severity()).isEqualTo("SLOW");
+        assertThat(entry(custom, "sched-2").severity()).isEqualTo("SLOW");
+
+        LiveActivityReport disabled = severityReport(new LiveActivityAssembler(0), requests, scheduled);
+        assertThat(entry(disabled, "req-slow").severity()).isEqualTo("OK");
+        assertThat(entry(disabled, "req-failed").severity()).isEqualTo("ERROR");
+        assertThat(entry(disabled, "sched-1").severity()).isEqualTo("OK");
+    }
+
+    private static LiveActivityReport severityReport(
+            LiveActivityAssembler assembler, HttpExchangesReport requests, List<ScheduledTaskRunStore.Run> scheduled) {
+        return assembler.report(
+                requests, List.of(), false, null, List.of(), List.of(), false, List.of(), false, scheduled, "UP", 0,
+                List.of(), false, List.of(), false, List.of(), false, List.of(), false);
+    }
+
+    private static HttpExchangeDto timedRequest(String id, int status, long durationMs, long epochMillis) {
+        return new HttpExchangeDto(
+                id,
+                Instant.ofEpochMilli(epochMillis),
+                "GET",
+                "/orders",
+                null,
+                "http://localhost:8080/orders",
+                status,
+                status >= 500 ? "5xx" : "2xx",
+                durationMs,
+                34L,
+                "127.0.0.1",
+                null,
+                null,
+                null,
+                List.of(),
+                List.of());
+    }
+
+    @Test
     void mapsRestClientEntrySeveritySummaryDetailAndParentFromTraceId() {
         HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
         List<RestClientTraceEntryDto> rest =

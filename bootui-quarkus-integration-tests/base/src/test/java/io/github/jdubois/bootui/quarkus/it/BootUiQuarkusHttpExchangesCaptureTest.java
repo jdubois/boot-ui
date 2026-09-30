@@ -113,9 +113,10 @@ class BootUiQuarkusHttpExchangesCaptureTest {
         assertThat(window.path("bufferSize").asInt())
                 .as("the Quarkus buffer reports its capacity")
                 .isPositive();
-        assertThat(window.path("evicted").isNull() || window.path("evicted").isMissingNode())
-                .as("the buffer does not count evictions")
+        assertThat(window.path("evicted").isIntegralNumber())
+                .as("the failure-preserving buffer counts its evictions")
                 .isTrue();
+        assertThat(window.path("evicted").asLong(-1)).isNotNegative();
         assertThat(window.path("summarizedExchanges").asInt()).isGreaterThanOrEqualTo(3);
 
         JsonNode widgets = null;

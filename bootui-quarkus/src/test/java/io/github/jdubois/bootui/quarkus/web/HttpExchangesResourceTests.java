@@ -1,0 +1,100 @@
+package io.github.jdubois.bootui.quarkus.web;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
+import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
+import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
+import io.github.jdubois.bootui.core.dto.HttpRoutesReport;
+import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
+import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
+import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
+import io.smallrye.config.PropertiesConfigSource;
+import io.smallrye.config.SmallRyeConfigBuilder;
+import java.net.URI;
+import java.time.Instant;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
+
+/**
+ * The Quarkus HTTP Exchanges resource reports the buffer's failure-preserving retention from the same snapshot as the
+ * exchanges it lists, so the counts reconcile with the panel at the Spring adapters' parity.
+ */
+class HttpExchangesResourceTests {
+
+    private static CapturedHttpExchange exchange(String path, int status, long durationMs) {
+        return new CapturedHttpExchange(
+                Instant.ofEpochMilli(1_000L),
+                "GET",
+                URI.create("http://localhost:8080" + path),
+                status,
+                durationMs,
+                "127.0.0.1",
+                null,
+                null,
+                Map.of(),
+                Map.of(),
+                null);
+    }
+
+    @Test
+    void floodOfSuccessesKeepsTheRecentFailuresAndReportsReconcilingRetention() {
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(4, 50, 1_000L);
+        buffer.record(exchange("/server-error", 500, 5));
+        buffer.record(exchange("/slow", 200, 1_200));
+        for (int i = 0; i < 25; i++) {
+            buffer.record(exchange("/ok-" + i, 200, 5));
+        }
+        HttpExchangesResource resource = new HttpExchangesResource(
+                buffer,
+                new QuarkusExposurePolicy(new SmallRyeConfigBuilder()
+                        .withSources(new PropertiesConfigSource(Map.of(), "test", 1000))
+                        .build()));
+
+        HttpExchangesReport report = resource.exchanges(null, null, null, null, null);
+
+        assertThat(report.exchanges())
+                .extracting(HttpExchangeDto::path)
+                .containsExactly("/ok-24", "/ok-23", "/slow", "/server-error");
+        assertThat(report.retention()).isEqualTo(new CaptureRetentionDto(false, 4, 2, 4, 2, 23L, 1_000L));
+        assertThat(report.retention().retained()).isEqualTo(report.recorded());
+    }
+
+    @Test
+    void neverHidesAnApplicationRequestWhosePathMerelyContainsTheBootUiMount() {
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(4, 50, 1_000L);
+        buffer.record(exchange("/api/bootui/export", 200, 5));
+        HttpExchangesResource resource = new HttpExchangesResource(
+                buffer,
+                new QuarkusExposurePolicy(new SmallRyeConfigBuilder()
+                        .withSources(new PropertiesConfigSource(Map.of(), "test", 1000))
+                        .build()));
+
+        HttpExchangesReport report = resource.exchanges(null, null, null, null, null);
+
+        assertThat(report.hiddenSelf()).isZero();
+        assertThat(report.exchanges()).extracting(HttpExchangeDto::path).containsExactly("/api/bootui/export");
+    }
+
+    @Test
+    void routeWindowReportsTheBufferCapacityAndEvictionsFromTheSameSnapshot() {
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(4, 50, 1_000L);
+        buffer.record(exchange("/server-error", 500, 5));
+        for (int i = 0; i < 10; i++) {
+            buffer.record(exchange("/ok", 200, 5));
+        }
+        HttpExchangesResource resource = new HttpExchangesResource(
+                buffer,
+                new QuarkusExposurePolicy(new SmallRyeConfigBuilder()
+                        .withSources(new PropertiesConfigSource(Map.of(), "test", 1000))
+                        .build()));
+
+        HttpRoutesReport report = resource.routes(null);
+
+        assertThat(report.window().bufferSize()).isEqualTo(4);
+        assertThat(report.window().evicted()).isEqualTo(7L);
+        assertThat(report.window().retainedExchanges()).isEqualTo(4);
+        assertThat(report.window().hiddenSelfExchanges()).isZero();
+        assertThat(report.notes()).noneMatch(note -> note.contains("does not count evictions"));
+    }
+}

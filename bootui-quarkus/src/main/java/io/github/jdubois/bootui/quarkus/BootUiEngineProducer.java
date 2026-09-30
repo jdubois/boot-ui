@@ -53,6 +53,7 @@ import io.github.jdubois.bootui.engine.quarkussecurity.QuarkusSecurityScanner;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
+import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
 import io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTasksService;
@@ -64,6 +65,7 @@ import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
 import io.github.jdubois.bootui.engine.threads.ThreadDumpService;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.engine.web.HttpProbeService;
+import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import io.github.jdubois.bootui.engine.websocket.WebSocketActivityRecorder;
 import io.github.jdubois.bootui.engine.websocket.WebSocketService;
 import io.github.jdubois.bootui.engine.websocket.WebSocketSettings;
@@ -218,19 +220,26 @@ public class BootUiEngineProducer {
     }
 
     /**
-     * The Quarkus-only HTTP exchange ring buffer fed by the Vert.x capture filter — Quarkus has no
+     * The Quarkus-only HTTP exchange buffer fed by the Vert.x capture filter — Quarkus has no
      * Actuator {@code HttpExchangeRepository}, so this is the capture source for the HTTP Exchanges and
      * Live Activity panels. Capacity bounds memory ({@code bootui.http-exchanges.max-exchanges}, default
-     * 200, unified with the Spring adapter's {@code BootUiProperties.HttpExchanges.maxExchanges}); the
-     * buffer caps and reverses, the engine service masks. A singleton so writes and reads share one
-     * bounded buffer.
+     * 200), and {@code bootui.http-exchanges.reserved-share-percent} (default 25) of it is reserved for
+     * {@code 5xx} and slow exchanges, where slow means at or above {@code bootui.activity.request-slow-threshold-ms}
+     * (default 1,000 ms) — the same keys and defaults as the Spring adapter's {@code BootUiProperties}. The buffer
+     * also carries that threshold to the Live Activity assembler, so both agree on which requests are slow. The
+     * buffer caps and orders, the engine service masks. A singleton so writes and reads share one bounded buffer.
      */
     @Produces
     @Singleton
     public HttpExchangeBuffer httpExchangeBuffer(Config config) {
         int maxExchanges = config.getOptionalValue("bootui.http-exchanges.max-exchanges", Integer.class)
                 .orElse(200);
-        return new HttpExchangeBuffer(maxExchanges);
+        int reservedSharePercent = config.getOptionalValue(
+                        "bootui.http-exchanges.reserved-share-percent", Integer.class)
+                .orElse(TieredCaptureBuffer.DEFAULT_RESERVED_SHARE_PERCENT);
+        long requestSlowThresholdMs = config.getOptionalValue("bootui.activity.request-slow-threshold-ms", Long.class)
+                .orElse(RequestSlowThreshold.DEFAULT_MILLIS);
+        return new HttpExchangeBuffer(maxExchanges, reservedSharePercent, requestSlowThresholdMs);
     }
 
     /**
@@ -1294,6 +1303,9 @@ public class BootUiEngineProducer {
         int chattyCallThreshold = config.getOptionalValue(
                         "bootui.rest-client-trace.chatty-call-threshold", Integer.class)
                 .orElse(5);
+        int reservedSharePercent = config.getOptionalValue(
+                        "bootui.rest-client-trace.reserved-share-percent", Integer.class)
+                .orElse(TieredCaptureBuffer.DEFAULT_RESERVED_SHARE_PERCENT);
         // Quarkus capture is deliberately metadata-only: arbitrary request headers are never retained,
         // even if the Spring-oriented capture-headers property is configured.
         RestClientTraceRecorder recorder = new RestClientTraceRecorder(
@@ -1305,7 +1317,8 @@ public class BootUiEngineProducer {
                 slowCallThresholdMillis,
                 maxUriLength,
                 maxHeaderValueLength,
-                chattyCallThreshold);
+                chattyCallThreshold,
+                reservedSharePercent);
         if (traceIdProvider.isResolvable()) {
             recorder.setTraceIdProvider(traceIdProvider.get());
         }

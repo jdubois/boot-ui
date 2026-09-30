@@ -17,6 +17,8 @@ import java.util.List;
  * @param entries the retained executions, most recent first
  * @param topStatements statements grouped by exact text, most frequent first
  * @param warnings non-fatal advisories about the current trace state
+ * @param retention how the buffer retains executions, including its reserved share for failed or slow
+ *     executions and its eviction count, or {@code null} when tracing is unavailable
  */
 public record SqlTraceReport(
         boolean available,
@@ -30,13 +32,44 @@ public record SqlTraceReport(
         SqlTraceStatsDto stats,
         List<SqlTraceEntryDto> entries,
         List<SqlTraceGroupDto> topStatements,
-        List<String> warnings) {
+        List<String> warnings,
+        CaptureRetentionDto retention) {
 
     public SqlTraceReport {
         dataSources = DtoCollections.immutableCopy(dataSources);
         entries = DtoCollections.immutableCopy(entries);
         topStatements = DtoCollections.immutableCopy(topStatements);
         warnings = DtoCollections.immutableCopy(warnings);
+    }
+
+    /** A report without retention counts, for callers that assemble entries from no known buffer. */
+    public SqlTraceReport(
+            boolean available,
+            String unavailableReason,
+            boolean capturing,
+            boolean captureParameters,
+            int bufferSize,
+            long totalCaptured,
+            long slowQueryThresholdMillis,
+            List<String> dataSources,
+            SqlTraceStatsDto stats,
+            List<SqlTraceEntryDto> entries,
+            List<SqlTraceGroupDto> topStatements,
+            List<String> warnings) {
+        this(
+                available,
+                unavailableReason,
+                capturing,
+                captureParameters,
+                bufferSize,
+                totalCaptured,
+                slowQueryThresholdMillis,
+                dataSources,
+                stats,
+                entries,
+                topStatements,
+                warnings,
+                null);
     }
 
     public static SqlTraceReport unavailable(String reason) {
@@ -52,6 +85,7 @@ public record SqlTraceReport(
                 SqlTraceStatsDto.empty(),
                 List.of(),
                 List.of(),
-                List.of());
+                List.of(),
+                null);
     }
 }

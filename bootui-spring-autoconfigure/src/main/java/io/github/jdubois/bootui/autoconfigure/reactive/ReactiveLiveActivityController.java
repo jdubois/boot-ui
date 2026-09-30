@@ -141,7 +141,7 @@ public class ReactiveLiveActivityController {
     private final ReactiveBootUiChangeStream changeStream;
     private final SwitchableActivityStore activityStore;
     private final ActivityPersistenceSettings persistenceSettings;
-    private final LiveActivityAssembler assembler = new LiveActivityAssembler();
+    private final LiveActivityAssembler assembler;
     private final ExecutionProfileAssembler profileAssembler = new ExecutionProfileAssembler();
     private final List<Runnable> unsubscribers = Collections.synchronizedList(new ArrayList<>());
 
@@ -186,6 +186,7 @@ public class ReactiveLiveActivityController {
         this.persistenceSettings = persistenceSettings;
         this.properties = properties;
         this.exposure = exposure;
+        this.assembler = new LiveActivityAssembler(properties.getActivity().getRequestSlowThresholdMs());
         this.exceptionsService = new ExceptionsService(exposure);
         this.changeStream = new ReactiveBootUiChangeStream("activity");
         SqlTraceRecorder recorder = sqlTraceRecorder.getIfAvailable();

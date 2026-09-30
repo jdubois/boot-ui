@@ -33,6 +33,15 @@ function report(overrides = {}) {
     recorded: 2,
     hiddenSelf: 1,
     unavailableReason: null,
+    retention: {
+      applicationManaged: false,
+      capacity: 200,
+      reservedCapacity: 50,
+      retained: 2,
+      reserved: 1,
+      evicted: 0,
+      slowThresholdMillis: 1000
+    },
     page: {total: 1, matched: 1, offset: 0, limit: 200, returned: 1, hasMore: false},
     exchanges: [
       {
@@ -86,6 +95,7 @@ describe('HTTP Exchanges', () => {
     expect(wrapper.text()).toContain('201')
     expect(wrapper.text()).toContain('37 ms')
     expect(wrapper.text()).toContain('42 B')
+    expect(wrapper.get('.capture-retention').text()).toContain('keeping 2 of 200 exchanges')
     expect(wrapper.text()).toContain('4bf92f3577b34da6a3ce929d0e0e4736')
     expect(wrapper.text()).not.toContain('Authorization')
     expect(wrapper.text()).not.toContain('BootUI self-request')

@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
+import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.Category;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.StatementType;
@@ -102,6 +104,98 @@ class SqlTraceRecorderTests {
                 .containsExactly("third", "second");
         assertThat(recorder.totalCaptured()).isEqualTo(3);
         assertThat(recorder.evicted()).isEqualTo(1);
+    }
+
+    private void recordTimed(SqlTraceRecorder recorder, String sql, long durationMicros, boolean success) {
+        recorder.record(
+                StatementType.STATEMENT,
+                Category.SELECT,
+                sql,
+                List.of(),
+                durationMicros,
+                success,
+                success ? null : "boom",
+                null,
+                0,
+                "c1",
+                "main");
+    }
+
+    @Test
+    void floodOfFastQueriesKeepsRecentFailedAndSlowExecutionsUpToTheReservedShare() {
+        SqlTraceRecorder recorder = new SqlTraceRecorder(true, true, false, false, 8, 100, 2000, 200, 5, 50);
+        recordTimed(recorder, "failed-1", 1, false);
+        recordTimed(recorder, "slow-1", 100_000, true);
+        recordTimed(recorder, "failed-2", 1, false);
+        recordTimed(recorder, "slow-2", 250_000, true);
+        recordTimed(recorder, "failed-3", 1, false);
+        for (int i = 0; i < 500; i++) {
+            recordTimed(recorder, "fast-" + i, 99_999, true);
+        }
+
+        assertThat(recorder.getReservedCapacity()).isEqualTo(4);
+        assertThat(recorder.recent())
+                .extracting(SqlTraceRecorder.CapturedStatement::sql)
+                .containsExactly(
+                        "fast-499", "fast-498", "fast-497", "fast-496", "failed-3", "slow-2", "failed-2", "slow-1");
+        assertThat(recorder.retention()).isEqualTo(new CaptureRetentionDto(false, 8, 4, 8, 4, 497L, 100L));
+    }
+
+    @Test
+    void disabledSlowThresholdReservesOnlyFailures() {
+        SqlTraceRecorder recorder = new SqlTraceRecorder(true, true, false, false, 4, 0, 2000, 200, 5, 50);
+        recordTimed(recorder, "failed", 1, false);
+        recordTimed(recorder, "very-slow", 60_000_000, true);
+        for (int i = 0; i < 10; i++) {
+            recordTimed(recorder, "fast-" + i, 1, true);
+        }
+
+        assertThat(recorder.recent())
+                .extracting(SqlTraceRecorder.CapturedStatement::sql)
+                .containsExactly("fast-9", "fast-8", "fast-7", "failed");
+        assertThat(recorder.retention().slowThresholdMillis()).isZero();
+        assertThat(recorder.retention().reserved()).isEqualTo(1);
+    }
+
+    @Test
+    void reportRetentionReconcilesWithEntriesStatsAndWarning() {
+        SqlTraceRecorder recorder = new SqlTraceRecorder(true, true, false, false, 4, 100, 2000, 200, 5, 25);
+        recordTimed(recorder, "failed", 1, false);
+        for (int i = 0; i < 6; i++) {
+            recordTimed(recorder, "fast-" + i, 1, true);
+        }
+
+        SqlTraceReport report = recorder.report(false);
+
+        CaptureRetentionDto retention = report.retention();
+        assertThat(retention.retained()).isEqualTo(report.entries().size()).isEqualTo(4);
+        assertThat(retention.capacity()).isEqualTo(report.bufferSize());
+        assertThat(retention.evicted()).isEqualTo(report.stats().evicted()).isEqualTo(3L);
+        assertThat(retention.retained() + retention.evicted()).isEqualTo(report.totalCaptured());
+        assertThat(retention.reserved()).isEqualTo(1);
+        assertThat(report.stats().failedQueries()).isEqualTo(1);
+        assertThat(report.warnings())
+                .contains("Older queries were dropped; the buffer keeps up to 4 executions, reserving 1 for the most "
+                        + "recent failed or slow ones, so routine executions are dropped first.");
+    }
+
+    @Test
+    void zeroReservedShareKeepsTheStrictlyNewestWarning() {
+        SqlTraceRecorder recorder = new SqlTraceRecorder(true, true, false, false, 2, 100, 2000, 200, 5, 0);
+        recordTimed(recorder, "failed", 1, false);
+        recordTimed(recorder, "fast-1", 1, true);
+        recordTimed(recorder, "fast-2", 1, true);
+
+        SqlTraceReport report = recorder.report(false);
+        assertThat(report.entries()).extracting(SqlTraceEntryDto::sql).containsExactly("fast-2", "fast-1");
+        assertThat(report.retention().reservedCapacity()).isZero();
+        assertThat(report.warnings())
+                .contains("Older queries were dropped; the buffer keeps up to 2 executions, newest first.");
+    }
+
+    @Test
+    void unavailableReportCarriesNoRetention() {
+        assertThat(SqlTraceReport.unavailable("off").retention()).isNull();
     }
 
     @Test

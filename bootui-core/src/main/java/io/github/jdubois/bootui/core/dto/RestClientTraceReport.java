@@ -18,6 +18,8 @@ import java.util.List;
  * @param entries the retained calls, most recent first
  * @param topCalls calls grouped by method/host/normalized path, most frequent first
  * @param warnings non-fatal advisories about the current trace state
+ * @param retention how the buffer retains calls, including its reserved share for failed or slow
+ *     calls and its eviction count, or {@code null} when tracing is unavailable
  */
 public record RestClientTraceReport(
         boolean available,
@@ -31,13 +33,44 @@ public record RestClientTraceReport(
         RestClientTraceStatsDto stats,
         List<RestClientTraceEntryDto> entries,
         List<RestClientTraceGroupDto> topCalls,
-        List<String> warnings) {
+        List<String> warnings,
+        CaptureRetentionDto retention) {
 
     public RestClientTraceReport {
         clientTypes = DtoCollections.immutableCopy(clientTypes);
         entries = DtoCollections.immutableCopy(entries);
         topCalls = DtoCollections.immutableCopy(topCalls);
         warnings = DtoCollections.immutableCopy(warnings);
+    }
+
+    /** A report without retention counts, for callers that assemble entries from no known buffer. */
+    public RestClientTraceReport(
+            boolean available,
+            String unavailableReason,
+            boolean capturing,
+            boolean captureHeaders,
+            int bufferSize,
+            long totalCaptured,
+            long slowCallThresholdMillis,
+            List<String> clientTypes,
+            RestClientTraceStatsDto stats,
+            List<RestClientTraceEntryDto> entries,
+            List<RestClientTraceGroupDto> topCalls,
+            List<String> warnings) {
+        this(
+                available,
+                unavailableReason,
+                capturing,
+                captureHeaders,
+                bufferSize,
+                totalCaptured,
+                slowCallThresholdMillis,
+                clientTypes,
+                stats,
+                entries,
+                topCalls,
+                warnings,
+                null);
     }
 
     public static RestClientTraceReport unavailable(String reason) {
@@ -53,6 +86,7 @@ public record RestClientTraceReport(
                 RestClientTraceStatsDto.empty(),
                 List.of(),
                 List.of(),
-                List.of());
+                List.of(),
+                null);
     }
 }

@@ -214,7 +214,8 @@ public final class BootUiApiContractCatalog {
                             "total", JsonType.INTEGER,
                             "recorded", JsonType.INTEGER,
                             "hiddenSelf", JsonType.INTEGER,
-                            "unavailableReason", JsonType.NULLABLE_STRING)),
+                            "unavailableReason", JsonType.NULLABLE_STRING,
+                            "retention", JsonType.NULLABLE_OBJECT)),
             locatedAdvisor("architecture", "/architecture", "results"),
             locatedAdvisor("rest-api", "/rest-api", "results"),
             read(
@@ -260,9 +261,13 @@ public final class BootUiApiContractCatalog {
                             "warnings", JsonType.ARRAY)),
             advisor("spring", "/spring", "results"),
             advisor("crac", "/crac", "findings"),
-            capture("sql-trace", "/sql-trace", "entries"),
+            capture("sql-trace", "/sql-trace", "entries", fields("retention", JsonType.NULLABLE_OBJECT)),
             capture("transactions", "/transactions", "entries"),
-            capture("rest-client-trace", "/rest-client-trace", "entries"),
+            capture(
+                    "rest-client-trace",
+                    "/rest-client-trace",
+                    "entries",
+                    fields("retention", JsonType.NULLABLE_OBJECT)),
             read(
                     "mcp-server",
                     "/mcp-server",
@@ -571,20 +576,24 @@ public final class BootUiApiContractCatalog {
     }
 
     private static ReadContract capture(String panelId, String path, String itemsField) {
-        return read(
-                panelId,
-                path,
-                fields(
-                        "available",
-                        JsonType.BOOLEAN,
-                        "unavailableReason",
-                        JsonType.NULLABLE_STRING,
-                        "capturing",
-                        JsonType.BOOLEAN,
-                        "totalCaptured",
-                        JsonType.NUMBER,
-                        itemsField,
-                        JsonType.ARRAY));
+        return capture(panelId, path, itemsField, Map.of());
+    }
+
+    private static ReadContract capture(
+            String panelId, String path, String itemsField, Map<String, JsonType> additionalFields) {
+        Map<String, JsonType> required = new LinkedHashMap<>(fields(
+                "available",
+                JsonType.BOOLEAN,
+                "unavailableReason",
+                JsonType.NULLABLE_STRING,
+                "capturing",
+                JsonType.BOOLEAN,
+                "totalCaptured",
+                JsonType.NUMBER,
+                itemsField,
+                JsonType.ARRAY));
+        required.putAll(additionalFields);
+        return read(panelId, path, required);
     }
 
     private static ReadContract agent(String panelId, String path) {

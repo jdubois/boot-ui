@@ -28,7 +28,6 @@ import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
-import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
@@ -246,6 +245,41 @@ class LiveActivityResourceTests {
             assertThat(entry.parentId()).isEqualTo(requestId);
             assertThat(entry.correlationId()).isEqualTo("trace-a");
         });
+    }
+
+    @Test
+    void mergedReportClassifiesSlowRequestsWithTheExchangeBufferThreshold() {
+        assertThat(requestSeverity(new HttpExchangeBuffer(50))).isEqualTo("OK");
+        assertThat(requestSeverity(new HttpExchangeBuffer(50, 25, 600L))).isEqualTo("SLOW");
+        assertThat(requestSeverity(new HttpExchangeBuffer(50, 25, 0L))).isEqualTo("OK");
+    }
+
+    private static String requestSeverity(HttpExchangeBuffer buffer) {
+        buffer.record(new CapturedHttpExchange(
+                Instant.ofEpochMilli(1_000L),
+                "GET",
+                URI.create("http://localhost:8080/orders"),
+                200,
+                700L,
+                "127.0.0.1",
+                null,
+                null,
+                Map.of(),
+                Map.of(),
+                null));
+        LiveActivityResource resource = resourceWith(
+                new SwitchableActivityStore(new InMemoryActivityStore(10)),
+                disabledSettings(),
+                unsatisfiedDataSource(),
+                buffer,
+                unsatisfiedEmailCaptureService(),
+                new KafkaActivityRecorder(true, true, 200, 16),
+                config(Map.of()));
+        return resource.mergedReport(0).entries().stream()
+                .filter(entry -> "REQUEST".equals(entry.type()))
+                .findFirst()
+                .orElseThrow()
+                .severity();
     }
 
     @Test
@@ -727,22 +761,11 @@ class LiveActivityResourceTests {
                 kafkaRecorder,
                 rabbitRecorder,
                 new FaultToleranceEventRecorder(true, 200),
-                restClientTraceRecorder,
-                selfTelemetryClassifier(config));
+                restClientTraceRecorder);
     }
 
     private static RestClientTraceRecorder restClientRecorder(boolean enabled) {
         return new RestClientTraceRecorder(enabled, true, false, false, 200, 1000, 256, 256, 5);
-    }
-
-    /** Mirrors {@code BootUiTelemetryProducer.selfTelemetryClassifier} so tests wire the same classifier. */
-    private static SelfTelemetryClassifier selfTelemetryClassifier(SmallRyeConfig config) {
-        boolean excludeSelf = config.getOptionalValue("bootui.monitoring.exclude-self", Boolean.class)
-                .orElse(Boolean.TRUE);
-        String path = config.getOptionalValue("bootui.path", String.class).orElse("/bootui");
-        String apiPath =
-                config.getOptionalValue("bootui.api-path", String.class).orElse("/bootui/api");
-        return new SelfTelemetryClassifier(excludeSelf, path, apiPath);
     }
 
     private static SmallRyeConfig config(Map<String, String> properties) {

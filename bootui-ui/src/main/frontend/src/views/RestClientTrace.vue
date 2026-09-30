@@ -8,6 +8,7 @@ import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useConfirm} from '../utils/useConfirm.js'
 import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
+import CaptureRetention from './components/CaptureRetention.vue'
 import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -239,6 +240,8 @@ function clearTrace() {
             only) to record request header values.
           </template>
         </div>
+
+        <CaptureRetention :retention="report.retention" noun="calls" reserved-for="failed, error, or slow" />
 
         <section class="mb-4">
           <div class="row g-2 stat-cards">

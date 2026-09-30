@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry;
+import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry.HttpExchangeTrace;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanContext;
 import io.opentelemetry.api.trace.TraceFlags;
@@ -17,6 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.web.reactive.HandlerMapping;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.server.WebFilterChain;
 import org.springframework.web.util.pattern.PathPatternParser;
 import reactor.core.publisher.Mono;
@@ -121,6 +123,36 @@ class ReactiveHttpExchangeTraceFilterTests {
 
         assertThat(registry.recent()).hasSize(1);
         assertThat(registry.recent().get(0).routeTemplate()).isNull();
+    }
+
+    @Test
+    void reservesTraceRecordsOfServerErrorsAndFailedRequests() {
+        HttpExchangeTraceRegistry registry = new HttpExchangeTraceRegistry(3, 67);
+        properties.getActivity().setRequestSlowThresholdMs(0);
+        ReactiveHttpExchangeTraceFilter filter =
+                new ReactiveHttpExchangeTraceFilter(properties, registry, new ReactiveOtelTraceIdProvider());
+
+        filter.filter(exchange("GET", "/api/server-error"), serverExchange -> {
+                    serverExchange.getResponse().setStatusCode(HttpStatus.SERVICE_UNAVAILABLE);
+                    return Mono.empty();
+                })
+                .block(Duration.ofSeconds(5));
+        filter.filter(exchange("GET", "/api/failing"), serverExchange -> Mono.error(new IllegalStateException("boom")))
+                .onErrorResume(IllegalStateException.class, ex -> Mono.empty())
+                .block(Duration.ofSeconds(5));
+        // A ResponseStatusException is rendered with its own status after the filters unwind: a 404 is routine.
+        filter.filter(
+                        exchange("GET", "/api/missing"),
+                        serverExchange -> Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .onErrorResume(ResponseStatusException.class, ex -> Mono.empty())
+                .block(Duration.ofSeconds(5));
+        for (int i = 0; i < 5; i++) {
+            filter.filter(exchange("GET", "/api/ok-" + i), OK_CHAIN).block(Duration.ofSeconds(5));
+        }
+
+        assertThat(registry.recent())
+                .extracting(HttpExchangeTrace::path)
+                .containsExactly("/api/server-error", "/api/failing", "/api/ok-4");
     }
 
     private static MockServerWebExchange exchange(String method, String uri) {

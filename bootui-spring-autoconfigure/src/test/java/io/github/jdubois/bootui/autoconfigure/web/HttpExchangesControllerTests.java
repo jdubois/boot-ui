@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.HttpHeaderDto;
@@ -121,6 +122,65 @@ class HttpExchangesControllerTests {
         assertHeader(dto.requestHeaders(), "Authorization", true, SecretMasker.MASKED_VALUE);
         assertHeader(dto.requestHeaders(), "Cookie", true, SecretMasker.MASKED_VALUE);
         assertHeader(dto.responseHeaders(), "Set-Cookie", true, SecretMasker.MASKED_VALUE);
+    }
+
+    @Test
+    void reportsApplicationManagedRetentionForAnApplicationRepository() {
+        HttpExchangesController controller = new HttpExchangesController(
+                providerOf(repositoryWith(
+                        exchange("GET", "http://localhost/api/a", 200),
+                        exchange("GET", "http://localhost/api/b", 500))),
+                new BootUiProperties());
+
+        HttpExchangesReport report = controller.exchanges(null, null, null, null, null);
+
+        assertThat(report.retention()).isEqualTo(CaptureRetentionDto.applicationManaged(2));
+    }
+
+    @Test
+    void reportsBootUiRetentionFromTheSameSnapshotAsTheExchanges() {
+        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(3, 34, 1_000L, false);
+        repository.add(exchange("GET", "http://localhost/api/failing", 500));
+        for (int i = 0; i < 4; i++) {
+            repository.add(exchange("GET", "http://localhost/api/ok-" + i, 200));
+        }
+        HttpExchangesController controller =
+                new HttpExchangesController(providerOf(repository), new BootUiProperties());
+
+        HttpExchangesReport report = controller.exchanges(null, null, "5xx", null, null);
+
+        assertThat(report.recorded()).isEqualTo(3);
+        assertThat(report.exchanges()).extracting(HttpExchangeDto::path).containsExactly("/api/failing");
+        assertThat(report.retention()).isEqualTo(new CaptureRetentionDto(false, 3, 1, 3, 1, 2L, 1_000L));
+    }
+
+    @Test
+    void doesNotHideApplicationExchangesUnderAContextPathThatContainsTheBootUiMount() {
+        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(5, 25, 1_000L, false);
+        // Recorded by BootUI's filter under server.servlet.context-path=/bootui: the path within the application is
+        // /api/orders, so it is application traffic even though the absolute URL starts with the BootUI mount.
+        repository.add(exchange("GET", "http://localhost/bootui/api/orders", 500));
+        HttpExchangesController controller =
+                new HttpExchangesController(providerOf(repository), new BootUiProperties());
+
+        HttpExchangesReport report = controller.exchanges(null, null, null, null, null);
+
+        assertThat(report.hiddenSelf()).isZero();
+        assertThat(report.exchanges()).extracting(HttpExchangeDto::path).containsExactly("/bootui/api/orders");
+    }
+
+    @Test
+    void stillHidesBootUiExchangesAtReadTimeForAnApplicationRecordedRepository() {
+        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(5, 25, 1_000L, true);
+        repository.add(exchange("GET", "http://localhost/bootui/api/panels", 200));
+        repository.add(exchange("GET", "http://localhost/api/orders", 200));
+        HttpExchangesController controller =
+                new HttpExchangesController(providerOf(repository), new BootUiProperties());
+
+        HttpExchangesReport report = controller.exchanges(null, null, null, null, null);
+
+        assertThat(report.hiddenSelf()).isEqualTo(1);
+        assertThat(report.exchanges()).extracting(HttpExchangeDto::path).containsExactly("/api/orders");
     }
 
     @Test
@@ -396,5 +456,39 @@ class HttpExchangesControllerTests {
                 .orElseThrow();
         assertThat(header.masked()).isEqualTo(masked);
         assertThat(header.values()).containsExactly(values);
+    }
+
+    @Test
+    void routeWindowReportsTheCapacityAndEvictionsOfBootUisOwnRepository() {
+        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(3, 34, 1_000L, false);
+        repository.add(exchange("GET", "http://localhost/api/failing", 500));
+        for (int i = 0; i < 5; i++) {
+            repository.add(exchange("GET", "http://localhost/api/ok", 200));
+        }
+        HttpExchangesController controller =
+                new HttpExchangesController(providerOf(repository), new BootUiProperties());
+
+        HttpRoutesReport report = controller.routes(null);
+
+        assertThat(report.window().bufferSize()).isEqualTo(3);
+        assertThat(report.window().evicted()).isEqualTo(3L);
+        assertThat(report.window().retainedExchanges()).isEqualTo(3);
+        assertThat(report.notes()).noneMatch(note -> note.contains("does not count evictions"));
+        assertThat(report.window().evicted())
+                .isEqualTo(controller
+                        .exchanges(null, null, null, null, null)
+                        .retention()
+                        .evicted());
+    }
+
+    @Test
+    void routeWindowLeavesEvictionsUnreportedWhenAnApplicationFilterRecordsIntoBootUisRepository() {
+        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(1, 25, 1_000L, true);
+        repository.add(exchange("GET", "http://localhost/api/one", 200));
+        repository.add(exchange("GET", "http://localhost/api/two", 200));
+        HttpExchangesController controller =
+                new HttpExchangesController(providerOf(repository), new BootUiProperties());
+
+        assertThat(controller.routes(null).window().evicted()).isNull();
     }
 }

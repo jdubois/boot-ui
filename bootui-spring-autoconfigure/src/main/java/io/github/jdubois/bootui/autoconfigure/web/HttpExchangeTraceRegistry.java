@@ -1,8 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Deque;
+import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
 import java.util.List;
 
 /**
@@ -20,7 +18,12 @@ import java.util.List;
  * <p>Matched by method + path + overlapping time window, exactly like
  * {@code RequestCorrelationRegistry} - including requiring a <em>unique</em> candidate, so two genuinely
  * concurrent identical requests safely correlate neither rather than risk cross-attribution. The buffer
- * is capped and evicts oldest-first so it never grows unbounded.</p>
+ * is capped so it never grows unbounded. Built by {@link #forExchangeRepository}, it is twice the size of BootUI's
+ * HTTP exchange repository and reserves that repository's whole capacity for failed and slow requests, so an
+ * exchange the repository keeps longer also keeps its trace id and route template. The two buffers record each
+ * request independently, from two filters of the same request, so a retained failure loses its trace record only
+ * if more failures than the repository's routine share complete between those two filters; it then reads with no
+ * trace id, never a wrong one.</p>
  */
 public final class HttpExchangeTraceRegistry {
 
@@ -42,29 +45,45 @@ public final class HttpExchangeTraceRegistry {
         }
     }
 
-    private final int maxEntries;
-    private final Deque<HttpExchangeTrace> buffer = new ArrayDeque<>();
-    private final Object lock = new Object();
+    private final TieredCaptureBuffer<HttpExchangeTrace> buffer;
 
+    /**
+     * The registry that indexes a BootUI HTTP exchange repository of {@code maxExchanges}: twice its size, with the
+     * repository's whole capacity reserved for failed and slow requests (see the class documentation).
+     */
+    public static HttpExchangeTraceRegistry forExchangeRepository(int maxExchanges) {
+        return new HttpExchangeTraceRegistry((int) Math.min(Integer.MAX_VALUE, 2L * Math.max(1, maxExchanges)), 50);
+    }
+
+    /** A registry that evicts strictly oldest first. */
     public HttpExchangeTraceRegistry(int maxEntries) {
-        this.maxEntries = Math.max(1, maxEntries);
+        this(maxEntries, 0);
     }
 
     /**
-     * Records one completed request, evicting the oldest entry when the buffer is full. Requests without a
-     * usable trace id are retained as ambiguity blockers: otherwise an overlapping traced request with the
-     * same method and path could be incorrectly assigned to the untraced exchange.
+     * @param maxEntries {@code bootui.http-exchanges.max-exchanges}
+     * @param reservedSharePercent {@code bootui.http-exchanges.reserved-share-percent}, so failed and slow requests
+     *     are retained as long as their exchanges
+     */
+    public HttpExchangeTraceRegistry(int maxEntries, int reservedSharePercent) {
+        this.buffer = new TieredCaptureBuffer<>(maxEntries, reservedSharePercent);
+    }
+
+    /**
+     * Records one completed routine request, evicting per the retention policy when the buffer is full.
+     * Requests without a usable trace id are retained as ambiguity blockers: otherwise an overlapping traced
+     * request with the same method and path could be incorrectly assigned to the untraced exchange.
      */
     public void record(HttpExchangeTrace trace) {
-        if (trace == null) {
-            return;
-        }
-        synchronized (lock) {
-            buffer.addLast(trace);
-            while (buffer.size() > maxEntries) {
-                buffer.removeFirst();
-            }
-        }
+        record(trace, false);
+    }
+
+    /**
+     * Records one completed request, reserving it with failed and slow requests when {@code failedOrSlow} is set
+     * (a {@code 5xx} response, a request that threw, or one at or above the request slow threshold).
+     */
+    public void record(HttpExchangeTrace trace, boolean failedOrSlow) {
+        buffer.add(trace, failedOrSlow);
     }
 
     /**
@@ -73,13 +92,32 @@ public final class HttpExchangeTraceRegistry {
      * than one candidate (see {@code RequestCorrelationRegistry#match} for why uniqueness is required).
      */
     public String match(String method, String path, long start, long end) {
-        if (method == null || path == null) {
-            return null;
+        return matcher().match(method, path, start, end);
+    }
+
+    /** A matcher over one snapshot of the retained records, for a caller that matches many exchanges at once. */
+    public Matcher matcher() {
+        return new Matcher(buffer.newestFirst());
+    }
+
+    /** Matches exchanges against one snapshot of the retained records. */
+    public static final class Matcher {
+
+        private final List<HttpExchangeTrace> traces;
+
+        private Matcher(List<HttpExchangeTrace> traces) {
+            this.traces = traces;
         }
-        long slack = 50L;
-        HttpExchangeTrace found = null;
-        synchronized (lock) {
-            for (HttpExchangeTrace candidate : buffer) {
+
+        /** See {@link HttpExchangeTraceRegistry#match}. */
+        public String match(String method, String path, long start, long end) {
+            if (method == null || path == null) {
+                return null;
+            }
+            long slack = 50L;
+            HttpExchangeTrace found = null;
+            // Uniqueness, not order, decides the match, so the newest-first snapshot is read as is.
+            for (HttpExchangeTrace candidate : traces) {
                 if (!method.equalsIgnoreCase(candidate.method()) || !path.equals(candidate.path())) {
                     continue;
                 }
@@ -91,27 +129,18 @@ public final class HttpExchangeTraceRegistry {
                 }
                 found = candidate;
             }
+            return found == null || found.traceId() == null || found.traceId().isBlank() ? null : found.traceId();
         }
-        return found == null || found.traceId() == null || found.traceId().isBlank() ? null : found.traceId();
-    }
 
-    /**
-     * Returns the handler pattern recorded for the request(s) whose handling window overlaps
-     * {@code [start, end]} for the given method and path, or {@code null} when none matches or the
-     * candidates disagree. Unlike {@link #match}, several overlapping candidates are not ambiguous by
-     * themselves: requests with the same method and path reach the same handler, so the route is decided
-     * whenever every candidate recorded the same, non-blank pattern. A candidate with no pattern, or with a
-     * different one, leaves the route undecided rather than guessed.
-     */
-    public String matchRouteTemplate(String method, String path, long start, long end) {
-        if (method == null || path == null) {
-            return null;
-        }
-        long slack = 50L;
-        String template = null;
-        boolean found = false;
-        synchronized (lock) {
-            for (HttpExchangeTrace candidate : buffer) {
+        /** See {@link HttpExchangeTraceRegistry#matchRouteTemplate}. */
+        public String matchRouteTemplate(String method, String path, long start, long end) {
+            if (method == null || path == null) {
+                return null;
+            }
+            long slack = 50L;
+            String template = null;
+            boolean found = false;
+            for (HttpExchangeTrace candidate : traces) {
                 if (!method.equalsIgnoreCase(candidate.method()) || !path.equals(candidate.path())) {
                     continue;
                 }
@@ -131,8 +160,20 @@ public final class HttpExchangeTraceRegistry {
                 template = candidateTemplate;
                 found = true;
             }
+            return template;
         }
-        return template;
+    }
+
+    /**
+     * Returns the handler pattern recorded for the request(s) whose handling window overlaps
+     * {@code [start, end]} for the given method and path, or {@code null} when none matches or the
+     * candidates disagree. Unlike {@link #match}, several overlapping candidates are not ambiguous by
+     * themselves: requests with the same method and path reach the same handler, so the route is decided
+     * whenever every candidate recorded the same, non-blank pattern. A candidate with no pattern, or with a
+     * different one, leaves the route undecided rather than guessed.
+     */
+    public String matchRouteTemplate(String method, String path, long start, long end) {
+        return matcher().matchRouteTemplate(method, path, start, end);
     }
 
     /**
@@ -140,15 +181,11 @@ public final class HttpExchangeTraceRegistry {
      * SQL Trace route attribution — never iterates the live buffer while a request is being recorded.
      */
     public List<HttpExchangeTrace> recent() {
-        synchronized (lock) {
-            return List.copyOf(buffer);
-        }
+        return List.copyOf(buffer.oldestFirst());
     }
 
     /** Test-only snapshot of the retained records, oldest first. */
     List<HttpExchangeTrace> snapshot() {
-        synchronized (lock) {
-            return new ArrayList<>(buffer);
-        }
+        return buffer.oldestFirst();
     }
 }

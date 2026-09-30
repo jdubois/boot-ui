@@ -320,9 +320,12 @@ The panel inherits BootUI's full safety model — loopback filter, Host allow-li
 masking. Its reads are read-only, and its one state-changing action is confirmation-gated and blocked whenever the app
 or panel is read-only.
 
-The stream is capped by `bootui.activity.max-entries` and the slow-request threshold is
-`bootui.activity.request-slow-threshold-ms`. Individual sources can be turned off through their own `bootui.panels.*`
-toggles; a disabled source simply drops out of the stream.
+The stream is capped by `bootui.activity.max-entries`. The slow-request threshold,
+`bootui.activity.request-slow-threshold-ms` (1,000 ms by default, `0` to disable), applies on Spring MVC, Spring
+WebFlux, and Quarkus alike: it sets the `SLOW` severity of request and scheduled-task entries, and decides which HTTP
+exchanges the [failure-preserving retention](diagnostics.md#failure-preserving-retention) keeps longer. Individual
+sources can be turned off through their own `bootui.panels.*` toggles; a disabled source simply drops out of the
+stream.
 
 ### Per-stack behavior
 

@@ -445,10 +445,16 @@ statement, bound parameters, statement type, connection id, executing thread, ca
 Capture uses a hand-written JDBC tracing proxy built on the JDK's own dynamic-proxy support. BootUI bundles no
 third-party database-proxy library.
 
-Executions are retained in a bounded ring buffer, most recent first, alongside aggregate stats: total, average, and
+Executions are retained in a bounded buffer, most recent first, alongside aggregate stats: total, average, and
 maximum time, slow-query and failure counts, per-category counters, and evictions. A configurable slow-query threshold
 highlights expensive statements, and local-only **Pause**, **Resume**, and **Clear** actions stop recording or empty
 the buffer without unwrapping the data source.
+
+The buffer keeps failure evidence longer than routine traffic: a share of it, 25% by default
+(`bootui.sql-trace.reserved-share-percent`), is reserved for the most recent failed and slow executions, so a burst of
+fast queries evicts routine executions first. The panel states how many executions it keeps, how many sit in that
+reserved share, and how many were evicted; see
+[Failure-preserving retention](diagnostics.md#failure-preserving-retention).
 
 Statements are timed in nanoseconds and recorded in microseconds, as `durationMicros` on each execution, with
 `durationMillis` kept as a rounded compatibility field. Every aggregate — totals, averages, percentiles, shares, and
@@ -513,8 +519,9 @@ route segment.
 ### Attribution is evidence, not lifetime metrics
 
 These rankings are diagnostic evidence over a bounded capture window. They describe only the statements still in the
-ring buffer, and the panel states that window inline: retained statements, buffer size, evictions, and the age of the
-oldest retained execution.
+buffer, and the panel states that window inline: retained statements, buffer size, evictions, and the age of the
+oldest retained execution. Because failed and slow executions outlive routine ones, a window that has evicted
+executions can over-represent them, and the panel notes that too.
 
 Attribution is conservative. It correlates a statement to a request in tiers, each requiring a single unambiguous
 candidate:

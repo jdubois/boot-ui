@@ -1884,6 +1884,83 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     /**
+     * Failure-preserving retention must describe each BootUI-owned capture buffer the same way on Spring MVC, Spring
+     * WebFlux, and Quarkus: counts that reconcile with the records in the same response, a reservation carved out
+     * of the capacity rather than added to it, and one shared request slow threshold for HTTP exchanges. An
+     * application-provided recorder reports only what BootUI read.
+     */
+    @Test
+    void captureBuffersReportReconcilingRetention() {
+        if (isPanelUsableInLiveManifest("http-exchanges")) {
+            JsonNode root = okJson("/http-exchanges?limit=1");
+            JsonNode retention = root.path("retention");
+            assertThat(retention.isObject()).as("http-exchanges.retention").isTrue();
+            assertThat(retention.path("retained").asInt(-1))
+                    .as("http-exchanges.retention.retained must equal the recorded exchanges")
+                    .isEqualTo(root.path("recorded").asInt());
+            if (!retention.path("applicationManaged").asBoolean(true)) {
+                assertOwnedRetention("http-exchanges", retention);
+                assertThat(retention.path("slowThresholdMillis").asLong(-1))
+                        .as("every adapter classifies slow exchanges with bootui.activity.request-slow-threshold-ms")
+                        .isEqualTo(1_000L);
+            }
+        }
+        for (String panel : List.of("sql-trace", "rest-client-trace")) {
+            if (!isPanelUsableInLiveManifest(panel)) {
+                continue;
+            }
+            JsonNode root = okJson("/" + panel);
+            if (!root.path("available").asBoolean(false)) {
+                continue;
+            }
+            JsonNode retention = root.path("retention");
+            assertThat(retention.isObject()).as(panel + ".retention").isTrue();
+            assertThat(retention.path("applicationManaged").asBoolean(true))
+                    .as(panel + " buffers are always BootUI-owned")
+                    .isFalse();
+            assertOwnedRetention(panel, retention);
+            assertThat(retention.path("retained").asInt(-1))
+                    .as(panel + ".retention.retained must equal the returned entries")
+                    .isEqualTo(root.path("entries").size());
+            assertThat(retention.path("capacity").asInt(-1))
+                    .as(panel + ".retention.capacity must equal bufferSize")
+                    .isEqualTo(root.path("bufferSize").asInt());
+            assertThat(retention.path("evicted").asLong(-1))
+                    .as(panel + ".retention.evicted must equal stats.evicted")
+                    .isEqualTo(root.path("stats").path("evicted").asLong());
+        }
+    }
+
+    private JsonNode okJson(String relativePath) {
+        Response response = probe().get(api(relativePath));
+        assertThat(response.status()).as("GET %s status", relativePath).isEqualTo(200);
+        assertThat(response.isJson()).as("GET %s content-type", relativePath).isTrue();
+        return response.json();
+    }
+
+    private static void assertOwnedRetention(String panel, JsonNode retention) {
+        int capacity = retention.path("capacity").asInt(-1);
+        int reservedCapacity = retention.path("reservedCapacity").asInt(-1);
+        int retained = retention.path("retained").asInt(-1);
+        int reserved = retention.path("reserved").asInt(-1);
+        assertThat(capacity).as(panel + ".retention.capacity").isPositive();
+        assertThat(reservedCapacity)
+                .as(panel + ".retention.reservedCapacity is carved out of the capacity")
+                .isBetween(0, capacity - 1);
+        assertThat(retained).as(panel + ".retention.retained").isBetween(0, capacity);
+        assertThat(reserved).as(panel + ".retention.reserved").isBetween(0, Math.min(reservedCapacity, retained));
+        assertThat(retention.path("evicted").isIntegralNumber())
+                .as(panel + ".retention.evicted")
+                .isTrue();
+        assertThat(retention.path("evicted").asLong(-1))
+                .as(panel + ".retention.evicted")
+                .isNotNegative();
+        assertThat(retention.path("slowThresholdMillis").asLong(-1))
+                .as(panel + ".retention.slowThresholdMillis")
+                .isNotNegative();
+    }
+
+    /**
      * SQL Trace rankings and route attribution must present the same bounded, self-describing shape on
      * Spring MVC, Spring WebFlux and Quarkus. Values differ per runtime and per workload; the contract does
      * not. In particular the response must always say which correlation tiers it could use, so a stack with

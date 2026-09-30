@@ -15,7 +15,6 @@ import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.servicemap.ServiceMapAssembler;
 import io.github.jdubois.bootui.engine.servicemap.ServiceMapSources;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
-import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.engine.web.HttpExchangesService;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
@@ -53,7 +52,6 @@ public class LiveServiceMapResource {
     private final HttpExchangeBuffer buffer;
     private final QuarkusExposurePolicy exposure;
     private final QuarkusPanelAvailability panelAvailability;
-    private final SelfTelemetryClassifier selfClassifier;
     private final ConnectionPoolService connectionPools;
     private final Instance<SqlTraceRecorder> sqlRecorder;
     private final RestClientTraceRecorder restClientTraceRecorder;
@@ -67,7 +65,6 @@ public class LiveServiceMapResource {
             HttpExchangeBuffer buffer,
             QuarkusExposurePolicy exposure,
             QuarkusPanelAvailability panelAvailability,
-            SelfTelemetryClassifier selfClassifier,
             ConnectionPoolService connectionPools,
             Instance<SqlTraceRecorder> sqlRecorder,
             RestClientTraceRecorder restClientTraceRecorder,
@@ -76,7 +73,6 @@ public class LiveServiceMapResource {
         this.buffer = buffer;
         this.exposure = exposure;
         this.panelAvailability = panelAvailability;
-        this.selfClassifier = selfClassifier;
         this.connectionPools = connectionPools;
         this.sqlRecorder = sqlRecorder;
         this.restClientTraceRecorder = restClientTraceRecorder;
@@ -129,7 +125,8 @@ public class LiveServiceMapResource {
         }
         HttpExchangesReport report = exchanges.report(
                 buffer.snapshot(),
-                uri -> !selfClassifier.shouldInclude(selfClassifier.isBootUiPath(uri)),
+                // The capture filter never records BootUI's own requests, judged below the root path.
+                HttpExchangesService.BootUiSelfPath.EXCLUDED_AT_CAPTURE,
                 exposure.maskSecrets(),
                 exposure.valueExposure(),
                 null,

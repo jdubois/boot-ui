@@ -2,10 +2,12 @@ package io.github.jdubois.bootui.engine.restclienttrace;
 
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
 import io.github.jdubois.bootui.core.dto.RestClientTraceStatsDto;
+import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
 import io.github.jdubois.bootui.engine.support.CredentialRedaction;
 import io.github.jdubois.bootui.engine.support.DetailText;
 import io.github.jdubois.bootui.engine.support.SensitiveNames;
@@ -13,9 +15,7 @@ import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import io.github.jdubois.bootui.engine.support.UriMasking;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -31,9 +31,11 @@ import java.util.stream.Stream;
  * In-memory, bounded buffer of recently made outbound HTTP client calls (Spring {@code RestClient}, {@code
  * RestTemplate}, and {@code WebClient}).
  *
- * <p>Mirrors {@code SqlTraceRecorder}'s shape: thread-safe, capped at {@code maxEntries}, evicts the oldest
- * call once full, and can be paused/resumed at runtime via {@link #setRecording(boolean)} without removing
- * the client instrumentation. The recorder also tracks which client types were actually instrumented, so
+ * <p>Mirrors {@code SqlTraceRecorder}'s shape: thread-safe, capped at {@code maxEntries}, and can be
+ * paused/resumed at runtime via {@link #setRecording(boolean)} without removing the client instrumentation.
+ * Retention is failure-preserving ({@link TieredCaptureBuffer}): a bounded share of the capacity is reserved
+ * for failed calls, error responses ({@code 4xx}/{@code 5xx}), and slow calls, so routine calls are evicted
+ * first. The recorder also tracks which client types were actually instrumented, so
  * the panel can distinguish "no HTTP client instrumented yet" from "tracing disabled".</p>
  *
  * <p>Unlike SQL bound parameters (only ever exposed at all when capture is explicitly enabled), query
@@ -91,17 +93,16 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
     private final int maxHeaderValueLength;
     private final int chattyCallThreshold;
 
-    private final Deque<CapturedCall> buffer = new ArrayDeque<>();
-    private final Object lock = new Object();
+    private final TieredCaptureBuffer<CapturedCall> buffer;
     private final AtomicLong sequence = new AtomicLong();
     private final AtomicLong totalCaptured = new AtomicLong();
-    private final AtomicLong evicted = new AtomicLong();
     private final AtomicBoolean recording;
     private volatile boolean idleSuspended = false;
     private final Set<String> clientTypes = new ConcurrentSkipListSet<>();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
     private volatile TraceIdProvider traceIdProvider = RestClientTraceRecorder::mdcTraceId;
 
+    /** A recorder reserving the default share of its buffer for failed, error-response, and slow calls. */
     public RestClientTraceRecorder(
             boolean enabled,
             boolean recording,
@@ -112,6 +113,34 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
             int maxUriLength,
             int maxHeaderValueLength,
             int chattyCallThreshold) {
+        this(
+                enabled,
+                recording,
+                captureHeaders,
+                captureCallSite,
+                maxEntries,
+                slowCallThresholdMillis,
+                maxUriLength,
+                maxHeaderValueLength,
+                chattyCallThreshold,
+                TieredCaptureBuffer.DEFAULT_RESERVED_SHARE_PERCENT);
+    }
+
+    /**
+     * @param reservedSharePercent share of {@code maxEntries} reserved for failed, error-response, and slow calls
+     *     ({@code bootui.rest-client-trace.reserved-share-percent}); {@code 0} evicts strictly oldest first
+     */
+    public RestClientTraceRecorder(
+            boolean enabled,
+            boolean recording,
+            boolean captureHeaders,
+            boolean captureCallSite,
+            int maxEntries,
+            long slowCallThresholdMillis,
+            int maxUriLength,
+            int maxHeaderValueLength,
+            int chattyCallThreshold,
+            int reservedSharePercent) {
         this.enabled = enabled;
         this.recording = new AtomicBoolean(recording);
         this.captureHeaders = captureHeaders;
@@ -121,6 +150,7 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
         this.maxUriLength = Math.max(16, maxUriLength);
         this.maxHeaderValueLength = Math.max(8, maxHeaderValueLength);
         this.chattyCallThreshold = Math.max(2, chattyCallThreshold);
+        this.buffer = new TieredCaptureBuffer<>(this.maxEntries, reservedSharePercent);
     }
 
     public boolean isEnabled() {
@@ -172,6 +202,19 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
         return slowCallThresholdMillis > 0 && durationMillis >= slowCallThresholdMillis;
     }
 
+    /** Calls of {@link #getMaxEntries()} reserved for failed, error-response, and slow calls. */
+    public int getReservedCapacity() {
+        return buffer.reservedCapacity();
+    }
+
+    /**
+     * Whether a call belongs in the reserved share: the client threw, the server answered {@code 4xx}/{@code 5xx}
+     * (the same "error response" the panel counts), or the call reached the slow-call threshold.
+     */
+    private boolean isFailedOrSlow(CapturedCall call) {
+        return !call.success() || (call.status() != null && call.status() >= 400) || isSlow(call.durationMillis());
+    }
+
     /** Remembers that a client type (RestClient, RestTemplate, or WebClient) was instrumented. */
     public void registerClientCustomization(String clientType) {
         if (clientType != null && !clientType.isBlank()) {
@@ -188,8 +231,8 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
     }
 
     /**
-     * Records one outbound call, truncating oversized URIs/header values and evicting the oldest entry
-     * when full. Query and header values are stored raw (unmasked) so masking can honor the live exposure
+     * Records one outbound call, truncating oversized URIs/header values and evicting per the
+     * failure-preserving policy when full. Query and header values are stored raw (unmasked) so masking can honor the live exposure
      * policy at report time (see the class-level docs); URI user-info credentials and the client error
      * message are sanitized here instead, because no exposure setting ever reveals them.
      */
@@ -292,24 +335,14 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
                 thread,
                 traceId,
                 captureCallSite ? currentCallSite() : null);
-        synchronized (lock) {
-            buffer.addLast(entry);
-            while (buffer.size() > maxEntries) {
-                buffer.removeFirst();
-                evicted.incrementAndGet();
-            }
-        }
+        buffer.add(entry, isFailedOrSlow(entry));
         totalCaptured.incrementAndGet();
         notifyListeners();
     }
 
-    /** Returns the retained calls, most recent first. */
+    /** Returns the retained calls, most recent first, across both retention tiers. */
     public List<CapturedCall> recent() {
-        synchronized (lock) {
-            List<CapturedCall> snapshot = new ArrayList<>(buffer);
-            java.util.Collections.reverse(snapshot);
-            return snapshot;
-        }
+        return new ArrayList<>(buffer.newestFirst());
     }
 
     public long totalCaptured() {
@@ -317,13 +350,16 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
     }
 
     public long evicted() {
-        return evicted.get();
+        return buffer.evicted();
+    }
+
+    /** The buffer's retention counts: capacity, reserved share, retained and reserved calls, and evictions. */
+    public CaptureRetentionDto retention() {
+        return buffer.snapshot().retention(slowCallThresholdMillis);
     }
 
     public void clear() {
-        synchronized (lock) {
-            buffer.clear();
-        }
+        buffer.clear();
         notifyListeners();
     }
 
@@ -360,6 +396,10 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
 
     /** Computes aggregate counters over the retained buffer. */
     public RestClientTraceStatsDto stats() {
+        return stats(buffer.snapshot());
+    }
+
+    private RestClientTraceStatsDto stats(TieredCaptureBuffer.Snapshot<CapturedCall> snapshot) {
         long total = 0;
         long totalDuration = 0;
         long maxDuration = 0;
@@ -371,11 +411,7 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
         long puts = 0;
         long deletes = 0;
         long others = 0;
-        List<CapturedCall> snapshot;
-        synchronized (lock) {
-            snapshot = new ArrayList<>(buffer);
-        }
-        for (CapturedCall entry : snapshot) {
+        for (CapturedCall entry : snapshot.newestFirst()) {
             total++;
             totalDuration += entry.durationMillis();
             maxDuration = Math.max(maxDuration, entry.durationMillis());
@@ -411,7 +447,7 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
                 puts,
                 deletes,
                 others,
-                evicted.get());
+                snapshot.evicted());
     }
 
     /**
@@ -424,6 +460,10 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
         List<RestClientTraceEntryDto> entries = recent().stream()
                 .map(entry -> toDto(entry, maskSecrets, exposure))
                 .toList();
+        return topCalls(entries);
+    }
+
+    private List<RestClientTraceGroupDto> topCalls(List<RestClientTraceEntryDto> entries) {
         return RestClientTraceGrouping.group(entries, chattyCallThreshold).stream()
                 .limit(TOP_CALLS_LIMIT)
                 .toList();
@@ -435,7 +475,9 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
      * class-level docs).
      */
     public RestClientTraceReport report(boolean maskSecrets, ValueExposure exposure) {
-        List<RestClientTraceEntryDto> entries = recent().stream()
+        // One snapshot feeds every section, so the entries, statistics, and retention counts always reconcile.
+        TieredCaptureBuffer.Snapshot<CapturedCall> snapshot = buffer.snapshot();
+        List<RestClientTraceEntryDto> entries = snapshot.newestFirst().stream()
                 .map(entry -> toDto(entry, maskSecrets, exposure))
                 .toList();
         return new RestClientTraceReport(
@@ -447,13 +489,14 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
                 totalCaptured(),
                 getSlowCallThresholdMillis(),
                 clientTypes(),
-                stats(),
+                stats(snapshot),
                 entries,
-                topCalls(maskSecrets, exposure),
-                warnings());
+                topCalls(entries),
+                warnings(snapshot),
+                snapshot.retention(slowCallThresholdMillis));
     }
 
-    private List<String> warnings() {
+    private List<String> warnings(TieredCaptureBuffer.Snapshot<CapturedCall> snapshot) {
         List<String> warnings = new ArrayList<>();
         if (!isRecording()) {
             warnings.add("Recording is paused. Resume it to capture new calls.");
@@ -463,8 +506,14 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
                     + "displayed, but review bootui.rest-client-trace.capture-headers if this is a shared "
                     + "environment.");
         }
-        if (evicted() > 0) {
-            warnings.add("Older calls were dropped; the buffer keeps the most recent " + getMaxEntries() + ".");
+        if (snapshot.evicted() > 0) {
+            String warning = "Older calls were dropped; the buffer keeps up to " + snapshot.capacity() + " calls";
+            warnings.add(
+                    snapshot.reservedCapacity() == 0
+                            ? warning + ", newest first."
+                            : warning + ", reserving " + snapshot.reservedCapacity()
+                                    + " for the most recent failed, error, or slow ones, so routine calls are "
+                                    + "dropped first.");
         }
         return warnings;
     }
