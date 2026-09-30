@@ -9,6 +9,8 @@ import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaParameter;
 import com.tngtech.archunit.core.domain.JavaParameterizedType;
 import com.tngtech.archunit.core.domain.JavaType;
+import io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitLocations;
 import io.github.jdubois.bootui.engine.archunit.KotlinBytecode;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ControllerModel;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ExceptionHandlerModel;
@@ -16,6 +18,7 @@ import io.github.jdubois.bootui.engine.restapi.RestApiModel.HandlerMethodModel;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ThrownExceptionModel;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.Types;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -167,6 +170,7 @@ final class RestApiHandlerModelBuilder {
     private final List<ExceptionHandlerModel> exceptionHandlers = new ArrayList<>();
     private final List<String> responseStatusExceptionClasses = new ArrayList<>();
     private final List<ThrownExceptionModel> thrownExceptions = new ArrayList<>();
+    private final IdentityHashMap<Object, AdvisorViolationLocationDto> locations = new IdentityHashMap<>();
     private boolean hasExceptionHandling;
     private int springControllerCount;
     private int jaxRsResourceCount;
@@ -208,6 +212,17 @@ final class RestApiHandlerModelBuilder {
 
     boolean hasExceptionHandling() {
         return hasExceptionHandling;
+    }
+
+    /** Where each model instance was declared, from the same ArchUnit elements the model was derived from. */
+    RestApiLocations locations() {
+        return RestApiLocations.of(locations);
+    }
+
+    private <T> T located(T model, Object element) {
+        AdvisorViolationLocationDto location = ArchUnitLocations.of(element);
+        if (location != null) locations.put(model, location);
+        return model;
     }
 
     boolean incomplete() {
@@ -286,24 +301,26 @@ final class RestApiHandlerModelBuilder {
                         typeLevelMethods,
                         typeLevelVersion);
                 if (model != null) {
-                    handlers.add(model);
+                    handlers.add(located(model, method));
                     handlerCount++;
                 }
             } catch (RuntimeException | LinkageError ex) {
                 incomplete = true;
             }
         }
-        controllers.add(new ControllerModel(
-                type.getName(),
-                safeSimpleName(type),
-                restController,
-                typeLevelPaths,
-                classValidated,
-                hasTag,
-                hidden,
-                safeIsInterface(type),
-                handlerCount,
-                RestApiModel.Framework.SPRING));
+        controllers.add(located(
+                new ControllerModel(
+                        type.getName(),
+                        safeSimpleName(type),
+                        restController,
+                        typeLevelPaths,
+                        classValidated,
+                        hasTag,
+                        hidden,
+                        safeIsInterface(type),
+                        handlerCount,
+                        RestApiModel.Framework.SPRING),
+                type));
     }
 
     /** A class is a JAX-RS resource when it carries {@code @Path} or any JAX-RS HTTP-method method. */
@@ -337,24 +354,26 @@ final class RestApiHandlerModelBuilder {
                 HandlerMethodModel model = toJaxRsHandler(
                         type, method, classValidated, hidden, typeLevelPaths, typeLevelProduces, typeLevelConsumes);
                 if (model != null) {
-                    handlers.add(model);
+                    handlers.add(located(model, method));
                     handlerCount++;
                 }
             } catch (RuntimeException | LinkageError ex) {
                 incomplete = true;
             }
         }
-        controllers.add(new ControllerModel(
-                type.getName(),
-                safeSimpleName(type),
-                true,
-                typeLevelPaths,
-                classValidated,
-                hasTag,
-                hidden,
-                safeIsInterface(type),
-                handlerCount,
-                RestApiModel.Framework.JAX_RS));
+        controllers.add(located(
+                new ControllerModel(
+                        type.getName(),
+                        safeSimpleName(type),
+                        true,
+                        typeLevelPaths,
+                        classValidated,
+                        hasTag,
+                        hidden,
+                        safeIsInterface(type),
+                        handlerCount,
+                        RestApiModel.Framework.JAX_RS),
+                type));
     }
 
     private HandlerMethodModel toJaxRsHandler(
@@ -667,21 +686,23 @@ final class RestApiHandlerModelBuilder {
         // reliably prove that an arbitrary JAX-RS payload implements the problem-details schema.
         boolean catchesExceptionOrThrowable = exceptionTypes.stream()
                 .anyMatch(name -> "java.lang.Exception".equals(name) || "java.lang.Throwable".equals(name));
-        exceptionHandlers.add(new ExceptionHandlerModel(
-                type.getName(),
-                methodName,
-                bodyType,
-                false,
-                returnsResponseEntity,
-                returnsVoid,
-                false,
-                "",
-                catchesExceptionOrThrowable,
-                hasResponseParam,
-                true,
-                exceptionTypes,
-                declaredProduces(type, methodOpt),
-                RestApiModel.Framework.JAX_RS));
+        exceptionHandlers.add(located(
+                new ExceptionHandlerModel(
+                        type.getName(),
+                        methodName,
+                        bodyType,
+                        false,
+                        returnsResponseEntity,
+                        returnsVoid,
+                        false,
+                        "",
+                        catchesExceptionOrThrowable,
+                        hasResponseParam,
+                        true,
+                        exceptionTypes,
+                        declaredProduces(type, methodOpt),
+                        RestApiModel.Framework.JAX_RS),
+                methodOpt.isPresent() ? methodOpt.get() : type));
     }
 
     private void collectExceptionHandlers(JavaClass type) {
@@ -714,21 +735,23 @@ final class RestApiHandlerModelBuilder {
                 boolean hasResponseParam = hasResponseParameter(method);
                 boolean methodRendersBody =
                         rendersBody || method.isAnnotatedWith(Types.RESPONSE_BODY) || hasBodyEnvelope(returnType);
-                exceptionHandlers.add(new ExceptionHandlerModel(
-                        type.getName(),
-                        method.getName(),
-                        bodyType,
-                        problemType,
-                        returnsResponseEntity,
-                        returnsVoid,
-                        hasResponseStatus,
-                        handlerResponseStatusValue,
-                        catchesExceptionOrThrowable,
-                        hasResponseParam,
-                        methodRendersBody,
-                        springHandledExceptionTypes(method),
-                        springDeclaredProduces(method, type),
-                        RestApiModel.Framework.SPRING));
+                exceptionHandlers.add(located(
+                        new ExceptionHandlerModel(
+                                type.getName(),
+                                method.getName(),
+                                bodyType,
+                                problemType,
+                                returnsResponseEntity,
+                                returnsVoid,
+                                hasResponseStatus,
+                                handlerResponseStatusValue,
+                                catchesExceptionOrThrowable,
+                                hasResponseParam,
+                                methodRendersBody,
+                                springHandledExceptionTypes(method),
+                                springDeclaredProduces(method, type),
+                                RestApiModel.Framework.SPRING),
+                        method));
                 if (isAdvice) {
                     foundAdviceHandler = true;
                 }
@@ -1675,8 +1698,10 @@ final class RestApiHandlerModelBuilder {
                 for (JavaClass ancestor : thrown.getAllRawSuperclasses()) {
                     superTypes.add(ancestor.getName());
                 }
-                thrownExceptions.add(new ThrownExceptionModel(
-                        type.getSimpleName(), method.getName(), name, thrown.getSimpleName(), superTypes));
+                thrownExceptions.add(located(
+                        new ThrownExceptionModel(
+                                type.getSimpleName(), method.getName(), name, thrown.getSimpleName(), superTypes),
+                        method));
             }
         } catch (RuntimeException | LinkageError ex) {
             incomplete = true;

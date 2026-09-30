@@ -7,6 +7,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Architecture, REST API, and Hibernate findings say where the code is.** Each rule result carries
+  `sampleLocations`, aligned index-for-index with `sampleViolations`, and each detail page carries `locations`,
+  aligned with `violations`, on REST, the report and `get_*_rule_violations` MCP tools, and the CLI. A location names
+  the class, member, recorded source file, line, and local source path of the one code element a finding concerns,
+  with a `LINE`, `MEMBER`, or `CLASS` precision. Source paths are resolved only during an explicit scan, through the
+  Architecture advisor's bounded module and source-set lookup; archives, other layouts, ambiguous matches, and
+  exhausted budgets keep no path and say why in `violationDetails.locationNotes`. Kotlin lines inlined from another
+  file are dropped rather than shown wrong. The panels show each location with a **Copy location** action and an
+  opt-in, per-browser **Open in** preference for VS Code or IntelliJ IDEA. Violation text, counts, severities,
+  dismissals, evidence, and scores are unchanged, and findings that span several elements carry no location.
+
 ### Changed
 
 - **Quarkus 3.33.3.3.** The Quarkus extension, integration tests, and sample app move to Quarkus 3.33.3.3, the

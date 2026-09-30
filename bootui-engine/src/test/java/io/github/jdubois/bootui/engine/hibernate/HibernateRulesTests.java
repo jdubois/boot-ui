@@ -738,6 +738,9 @@ class HibernateRulesTests {
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
         assertThat(result.severity()).isEqualTo(HibernateRuleSupport.CRITICAL);
+        // A configuration finding names no code element, so it carries no location.
+        assertThat(result.sampleViolations()).isNotEmpty();
+        assertThat(result.sampleLocations()).isEmpty();
     }
 
     @Test

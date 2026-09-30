@@ -1,11 +1,10 @@
 package io.github.jdubois.bootui.engine.restapi;
 
 import io.github.jdubois.bootui.core.dto.RestApiRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorFindings;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ExceptionHandlerModel;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ThrownExceptionModel;
-import java.util.ArrayList;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -57,7 +56,7 @@ final class DeclaredExceptionsHaveHandlersRule extends AbstractRestApiRule {
         for (ExceptionHandlerModel handler : context.exceptionHandlers()) {
             mapped.addAll(handler.handledExceptionTypes());
         }
-        List<String> violations = new ArrayList<>();
+        AdvisorFindings violations = new AdvisorFindings();
         Set<String> reported = new LinkedHashSet<>();
         for (ThrownExceptionModel thrown : context.targets(context.thrownExceptions())) {
             if (isMapped(thrown, mapped)) {
@@ -67,7 +66,7 @@ final class DeclaredExceptionsHaveHandlersRule extends AbstractRestApiRule {
                     + thrown.exceptionSimpleName()
                     + ", for which no handler declaration was found in the imported model";
             if (reported.add(violation)) {
-                violations.add(violation);
+                violations.add(violation, context.location(thrown));
             }
         }
         return RestApiRuleSupport.fromViolations(context, definition(), violations);

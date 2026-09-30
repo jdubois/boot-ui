@@ -32,6 +32,7 @@ Each report has additive `violationDetails` metadata:
 | `retained` | Number of sanitized detail entries retained across those rules. |
 | `retentionLimit` | Effective per-advisor limit frozen for this scan. |
 | `truncated` | Some counted details are missing from the retained index. |
+| `locationNotes` | Why some [violation locations](#violation-locations) carry no source path; empty otherwise. |
 
 Only the latest snapshot is retained. While another scan is running, detail reads still refer to the previous
 completed snapshot; publishing its replacement changes the ID. Dismiss/restore changes neither the ID nor retained
@@ -96,7 +97,8 @@ The equivalent MCP `tools/call` arguments are:
 ```
 
 The page DTO contains `scanId`, `ruleId`, the full `violationCount`, `retainedCount`, `truncated`, sanitized
-`violations`, and `page: {total, matched, offset, limit, returned, hasMore}`. `page.total` and `page.matched` count
+`violations`, `page: {total, matched, offset, limit, returned, hasMore}`, and `locations`, described in
+[Violation locations](#violation-locations). `page.total` and `page.matched` count
 **retained** entries, not the full rule count. Check the identity on every response. To continue, set the next offset
 to `page.offset + page.returned` while `page.hasMore` is true, keeping the same scan ID; after the terminal page,
 still inspect `truncated`. Reaching the retained end yields an empty terminal page. A violating rule may have zero
@@ -115,6 +117,61 @@ in-band client error, or CLI-facade **400** (CLI 404 is reserved for an unadvert
 dismissed-rule summary.
 
 This contract does not apply to GraalVM/CRaC occurrences or Pentesting/Vulnerabilities, whose report models differ.
+
+### Violation locations
+
+Architecture, REST API, and Hibernate findings that name exactly one code element also say where it is. Each rule
+result carries `sampleLocations`, aligned index-for-index with `sampleViolations`, and each detail page carries
+`locations`, aligned with `violations`. A `null` entry means that violation has no location; an empty list means none
+of the listed violations has one, as for every other advisor and for reports from older versions. The violation text,
+counts, severities, ordering, scan ID, dismissals, evidence, and score are unchanged by locations, so a client that
+reads only `sampleViolations` and `violations` sees exactly what it saw before.
+
+| Field | Meaning |
+| --- | --- |
+| `className` | JVM binary class name, such as `com.example.Outer$Inner` or a Kotlin `OrderUtilsKt` file facade. |
+| `memberName` | Method, constructor (`<init>`), or field name; `null` for the class itself or a compiler-generated member. |
+| `kind` | `CLASS`, `METHOD`, `CONSTRUCTOR`, or `FIELD`. |
+| `sourceFile` | The source file name the class file records; a Kotlin facade or companion names its declaring `.kt` file. |
+| `line` | A positive line in that file, or `null` when unknown or not verifiable. |
+| `sourcePath` | The absolute local source path resolved during the scan, or `null`. |
+| `precision` | `LINE` when a line is known, `MEMBER` when only the member is, otherwise `CLASS`. |
+
+Where locations come from:
+
+- **Architecture** reads them from ArchUnit's violating objects and their recorded source locations, never from the
+  report text: the class, the member, and the line of the access, call, or declaration. A lambda body is attributed to
+  the method or constructor ArchUnit reports; a compiler-generated member keeps its class and line but not its name.
+- **REST API** points at the handler method, exception handler, throwing endpoint, or controller class the finding
+  concerns, from the same ArchUnit model the rules read.
+- **Hibernate** points at the entity class, the Java field or getter behind a mapped attribute, or a repository method.
+  The JPA metamodel and reflection carry no line numbers, so these stay at `MEMBER` or `CLASS` precision.
+
+Findings that span several elements, such as package cycles, duplicate routes, or conflicting exception handlers, keep
+no location, as do configuration-level findings and every finding of the other advisors. Nothing is ever parsed out of
+the violation text or guessed.
+
+Source paths are resolved only while an explicit scan runs, through the Architecture advisor's bounded module and
+source-set lookup (see [Generated application code](../ARCHITECTURE-CHECKS.md#generated-application-code)). A class
+compiled into a local Maven `target/classes` or `target/test-classes`, or Gradle `build/classes/{java,kotlin}/*`,
+directory maps to exactly one `.java` or `.kt` file under its module's `src/main` or `src/test` tree or its
+generated-source roots. The lookup never follows symbolic links and reads only same-named candidate files, to learn
+their package and length. Classes read from an archive (an executable jar, an extracted `BOOT-INF/lib` jar, or a
+Quarkus `lib` directory), classes in any other layout, ambiguous matches, and an exhausted lookup budget keep a `null`
+path, and `violationDetails.locationNotes` says why. Detail reads serve the published records: they never scan,
+import classes, or touch the filesystem. Source paths describe the developer's own code, like SQL Trace call sites, so
+they are not gated by the value-exposure policy.
+
+A line is shown only when it belongs to the named file. Kotlin gives inlined code line numbers of the file the inline
+function came from; BootUI reads the class's source map during the scan and drops such a line, and any line past the
+end of the resolved file, to `MEMBER` precision rather than show a wrong one.
+
+In the panels, each sample and detail row shows its location beside the text, with a keyboard-accessible **Copy
+location** button that copies, for example, `com.example.OrderService#place (OrderService.java:42)`. The **Open
+locations in** selector above the rule results is a per-browser preference, off (**None**) by default. Choosing **VS
+Code** or **IntelliJ IDEA** turns each location that has a source path into a link built from that editor's fixed URL
+scheme (`vscode://file/…` or `idea://open?file=…`). BootUI offers no custom template and no web URL, so a local path is
+never sent to a network address, and it never opens an editor or a file from the server.
 
 ### Score eligibility
 

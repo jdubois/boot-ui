@@ -44,6 +44,19 @@ function detailPage({scanId = 'scan-1', count = 29, retained = count, offset = 0
   }
 }
 
+const located = ['architecture', 'rest-api', 'hibernate']
+const location = (index) => ({
+  className: `example.Service${index}`,
+  memberName: 'handle',
+  kind: 'METHOD',
+  sourceFile: `Service${index}.java`,
+  line: index + 40,
+  sourcePath: `/work/app/src/main/java/example/Service${index}.java`,
+  precision: 'LINE'
+})
+const locations = (count, offset = 0) =>
+  Array.from({length: count}, (_, index) => ((offset + index) % 4 === 3 ? null : location(offset + index)))
+
 /**
  * Deterministic UI contracts; the adapter/conformance suites test real collection.
  * @param {typeof import('@playwright/test').test} test
@@ -108,6 +121,71 @@ export function registerAdvisorViolationTests(test, expect, {uiPath = '/bootui',
         expect(scans).toHaveLength(0)
       })
     }
+
+    for (const advisor of located) {
+      test(`${advisor}: shows copyable locations and opt-in editor links`, async ({page, context}) => {
+        await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+        const body = report()
+        body.results[0].sampleLocations = locations(10)
+        await page.route(`**${apiPath}/${advisor}`, (route) => route.fulfill({json: body}))
+        await page.route(`**${apiPath}/${advisor}/rules/*/violations?*`, (route) =>
+          route.fulfill({json: {...detailPage(), locations: locations(29)}})
+        )
+        await page.goto(`${uiPath}/#/${advisor}`)
+        const detail = page.locator('.advisor-rule-violations')
+        const rows = detail.locator('li')
+        await expect(rows).toHaveCount(10)
+        await expect(rows.nth(0)).toContainText('example.Service0#handle (Service0.java:40)')
+        await expect(rows.nth(3).locator('.advisor-violation-location')).toHaveCount(0)
+
+        const openIn = page.getByLabel('Open locations in')
+        await expect(openIn).toHaveValue('none')
+        await expect(detail.locator('a')).toHaveCount(0)
+
+        const copy = detail.getByRole('button', {name: 'Copy location example.Service0#handle (Service0.java:40)'})
+        await copy.focus()
+        await page.keyboard.press('Enter')
+        await expect(copy).toHaveText('Copied')
+        expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+          'example.Service0#handle (Service0.java:40)'
+        )
+        await expect(detail.getByRole('status')).toHaveText(
+          'Copied location example.Service0#handle (Service0.java:40).'
+        )
+
+        await openIn.focus()
+        await openIn.selectOption('vscode')
+        const link = detail.getByRole('link', {name: 'Open example.Service0#handle (Service0.java:40) in VS Code'})
+        await expect(link).toHaveAttribute('href', 'vscode://file/work/app/src/main/java/example/Service0.java:40')
+        const hrefs = await detail.locator('a').evaluateAll((links) => links.map((link) => link.getAttribute('href')))
+        expect(hrefs.length).toBeGreaterThan(0)
+        expect(hrefs.every((href) => href.startsWith('vscode://file/'))).toBe(true)
+
+        await page.reload()
+        await expect(page.getByLabel('Open locations in')).toHaveValue('vscode')
+        await detail.getByRole('button', {name: `View violations for ${ruleId}`}).click()
+        await expect(rows).toHaveCount(29)
+        await expect(rows.nth(28)).toContainText('example.Service28#handle (Service28.java:68)')
+        await expect(rows.nth(27).locator('.advisor-violation-location')).toHaveCount(0)
+        await page.getByLabel('Open locations in').selectOption('idea')
+        await expect(
+          detail.getByRole('link', {name: 'Open example.Service28#handle (Service28.java:68) in IntelliJ IDEA'})
+        ).toHaveAttribute(
+          'href',
+          'idea://open?file=%2Fwork%2Fapp%2Fsrc%2Fmain%2Fjava%2Fexample%2FService28.java&line=68'
+        )
+        await page.getByLabel('Open locations in').selectOption('none')
+        await expect(detail.locator('a')).toHaveCount(0)
+      })
+    }
+
+    test('advisors without locations offer no Open in preference', async ({page}) => {
+      await page.route(`**${apiPath}/spring`, (route) => route.fulfill({json: report()}))
+      await page.goto(`${uiPath}/#/spring`)
+      await expect(page.locator('.advisor-rule-violations li')).toHaveCount(10)
+      await expect(page.getByLabel('Open locations in')).toHaveCount(0)
+      await expect(page.locator('.advisor-violation-location')).toHaveCount(0)
+    })
 
     test('pages without appending and keeps the accepted page through retry', async ({page}) => {
       const offsets = []

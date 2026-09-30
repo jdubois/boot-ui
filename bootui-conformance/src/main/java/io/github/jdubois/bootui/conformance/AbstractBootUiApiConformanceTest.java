@@ -842,6 +842,107 @@ public abstract class AbstractBootUiApiConformanceTest {
         }
     }
 
+    /**
+     * Structured violation locations: every location list is either empty or aligned index-for-index with its
+     * text list, on report samples and on detail pages alike, and only the Architecture, REST API, and Hibernate
+     * advisors carry any. Locations are bounded and precise about what they know.
+     */
+    @Test
+    void advisorViolationLocationsAreAlignedBoundedAndOnlyOnLocatedAdvisors() {
+        Set<String> located = Set.of("architecture", "rest-api", "hibernate");
+        for (String panel :
+                List.of("architecture", "hibernate", "spring", "rest-api", "memory", "security", "database-advisor")) {
+            if (!isPanelUsableInLiveManifest(panel)) continue;
+            BootUiHttpProbe probe = probe();
+            Response scanned = probe.request("POST", api("/" + panel + "/scan"), stateChangingHeaders(probe), "");
+            assertThat(scanned.status()).as(panel + " scan").isEqualTo(200);
+            JsonNode report = scanned.json();
+            JsonNode notes = report.path("violationDetails").path("locationNotes");
+            assertThat(notes.isArray())
+                    .as(panel + " violationDetails.locationNotes")
+                    .isTrue();
+            String query = "?scanId="
+                    + URLEncoder.encode(
+                            report.path("violationDetails").path("scanId").asText(), StandardCharsets.UTF_8);
+            if (panel.equals("architecture") && expectsResolvedSourcePaths()) {
+                assertThat(report.path("results").findValues("sampleLocations").stream()
+                                .flatMap(list -> java.util.stream.StreamSupport.stream(list.spliterator(), false))
+                                .filter(location -> !location.isNull()
+                                        && !location.path("sourcePath").isNull())
+                                .map(location -> java.nio.file.Path.of(
+                                        location.path("sourcePath").asText()))
+                                .anyMatch(path -> java.nio.file.Files.isRegularFile(path)
+                                        && path.toString().contains("src" + java.io.File.separator + "main")))
+                        .as("an architecture location resolves to the application's own source file")
+                        .isTrue();
+            }
+            for (JsonNode rule : report.path("results")) {
+                JsonNode samples = rule.path("sampleViolations");
+                JsonNode sampleLocations = rule.path("sampleLocations");
+                if (located.contains(panel)) {
+                    assertThat(sampleLocations.isArray())
+                            .as(panel + " sampleLocations")
+                            .isTrue();
+                    assertLocations(panel + " " + rule.path("id").asText() + " samples", samples, sampleLocations);
+                } else {
+                    assertThat(sampleLocations.isMissingNode())
+                            .as(panel + " results carry no sampleLocations")
+                            .isTrue();
+                }
+                String route = api("/" + panel + "/rules/"
+                        + URLEncoder.encode(rule.path("id").asText(), StandardCharsets.UTF_8) + "/violations");
+                Response detail = probe.get(route + query + "&offset=0&limit=5");
+                if (detail.status() != 200) continue;
+                JsonNode page = detail.json();
+                assertThat(page.path("locations").isArray())
+                        .as(panel + " detail locations")
+                        .isTrue();
+                assertLocations(panel + " detail page", page.path("violations"), page.path("locations"));
+                if (!located.contains(panel)) {
+                    assertThat(page.path("locations"))
+                            .as(panel + " detail page carries no locations")
+                            .isEmpty();
+                } else if (!page.path("locations").isEmpty() && sampleLocations.size() > 0) {
+                    assertThat(page.path("locations").get(0)).isEqualTo(sampleLocations.get(0));
+                }
+            }
+        }
+    }
+
+    /**
+     * Whether this runner's application classes are compiled into a local Maven or Gradle output directory, so
+     * the explicit Architecture scan must resolve at least one location to the application's source file.
+     */
+    protected boolean expectsResolvedSourcePaths() {
+        return false;
+    }
+
+    private static void assertLocations(String subject, JsonNode texts, JsonNode locations) {
+        if (locations.isEmpty()) return;
+        assertThat(locations.size()).as(subject + " locations align with texts").isEqualTo(texts.size());
+        boolean any = false;
+        for (JsonNode location : locations) {
+            if (location.isNull()) continue;
+            any = true;
+            assertThat(location.path("className").asText())
+                    .as(subject + " className")
+                    .isNotBlank();
+            assertThat(location.path("className").asText().length()).isLessThanOrEqualTo(512);
+            assertThat(location.path("kind").asText()).isIn("CLASS", "METHOD", "CONSTRUCTOR", "FIELD");
+            assertThat(location.path("precision").asText()).isIn("LINE", "MEMBER", "CLASS");
+            JsonNode line = location.path("line");
+            assertThat(line.isNull() || line.asInt() > 0).as(subject + " line").isTrue();
+            assertThat(location.path("precision").asText().equals("LINE")).isEqualTo(!line.isNull());
+            JsonNode path = location.path("sourcePath");
+            assertThat(path.isNull() || path.asText().length() <= 1024)
+                    .as(subject + " sourcePath")
+                    .isTrue();
+        }
+        assertThat(any)
+                .as(subject + " a non-empty location list has a location")
+                .isTrue();
+    }
+
     @Test
     void concurrentArchitectureScansReturnCanonicalBusyConflict() throws Exception {
         assumeTrue(

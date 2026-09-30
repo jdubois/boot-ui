@@ -7,6 +7,7 @@ import {panelProps} from '../utils/panelState.js'
 import {useServerPagedList} from '../utils/useServerPagedList.js'
 import AdvisorSummary from './components/AdvisorSummary.vue'
 import AdvisorRuleViolations from './components/AdvisorRuleViolations.vue'
+import SourceLocationPreference from './components/SourceLocationPreference.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import ServerListFooter from './components/ServerListFooter.vue'
@@ -227,6 +228,10 @@ watch(contractFilter, () => contract.scheduleReload())
             class="badge text-bg-secondary"
             >{{ panel.noFindingsLabel }}</span
           >
+          <SourceLocationPreference
+            v-if="panel.visibleResults.length > 0"
+            :notes="panel.report.violationDetails?.locationNotes"
+          />
         </div>
         <div v-if="panel.visibleResults.length === 0" class="card-body text-center text-muted py-5">
           <i class="bi bi-signpost-split fs-2 d-block mb-2"></i>
