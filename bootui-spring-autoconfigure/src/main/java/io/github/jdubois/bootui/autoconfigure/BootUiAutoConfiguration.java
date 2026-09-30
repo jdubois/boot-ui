@@ -735,8 +735,7 @@ public class BootUiAutoConfiguration {
     @Bean
     public HttpExchangeTraceRegistry bootUiHttpExchangeTraceRegistry(BootUiProperties properties) {
         return HttpExchangeTraceRegistry.forExchangeRepository(
-                properties.getHttpExchanges().getMaxExchanges(),
-                properties.getHttpExchanges().getReservedSharePercent());
+                properties.getHttpExchanges().getMaxExchanges());
     }
 
     @Bean

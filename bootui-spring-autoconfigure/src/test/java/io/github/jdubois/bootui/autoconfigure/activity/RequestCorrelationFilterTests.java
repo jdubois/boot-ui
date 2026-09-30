@@ -136,4 +136,32 @@ class RequestCorrelationFilterTests {
                 .extracting(HttpExchangeTraceRegistry.HttpExchangeTrace::path)
                 .containsExactly("/api/failing", "/api/throwing", "/api/slow", "/api/ok-9");
     }
+
+    @Test
+    void classifiesAnyEscapingExceptionAsAServerErrorAsActuatorRecordsIt() throws Exception {
+        HttpExchangeTraceRegistry traceRegistry = new HttpExchangeTraceRegistry(2, 50);
+        RequestCorrelationFilter filter =
+                new RequestCorrelationFilter(new RequestCorrelationRegistry(10), traceRegistry, "/bootui", 0L);
+        try {
+            filter.doFilter(
+                    new MockHttpServletRequest("GET", "/api/missing"),
+                    new MockHttpServletResponse(),
+                    (request, response) -> {
+                        throw new org.springframework.web.server.ResponseStatusException(
+                                org.springframework.http.HttpStatus.NOT_FOUND);
+                    });
+        } catch (org.springframework.web.server.ResponseStatusException expected) {
+            // Actuator's servlet HttpExchangesFilter records this exchange as a 500.
+        }
+        for (int i = 0; i < 5; i++) {
+            filter.doFilter(
+                    new MockHttpServletRequest("GET", "/api/ok-" + i),
+                    new MockHttpServletResponse(),
+                    new MockFilterChain());
+        }
+
+        assertThat(traceRegistry.recent())
+                .extracting(HttpExchangeTraceRegistry.HttpExchangeTrace::path)
+                .containsExactly("/api/missing", "/api/ok-4");
+    }
 }

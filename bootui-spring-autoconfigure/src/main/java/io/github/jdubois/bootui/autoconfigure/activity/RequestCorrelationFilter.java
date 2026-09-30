@@ -11,7 +11,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.URI;
 import org.slf4j.MDC;
-import org.springframework.web.ErrorResponse;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.servlet.HandlerMapping;
 
@@ -64,24 +63,18 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
         String thread = Thread.currentThread().getName();
         String method = request.getMethod();
         String path = request.getRequestURI();
-        Throwable failure = null;
+        boolean threw = true;
         try {
             chain.doFilter(request, response);
-        } catch (IOException | ServletException | RuntimeException | Error ex) {
-            failure = ex;
-            throw ex;
+            threw = false;
         } finally {
             long end = System.currentTimeMillis();
             String traceId = currentTraceId();
             String routeTemplate = routeTemplate(request);
             registry.record(new RequestCorrelation(start, end, thread, method, path, routeTemplate, traceId));
-            // An exception still propagating is rendered by the container's error handling, as a 5xx unless it
-            // declares its own status.
-            int status = failure == null
-                    ? response.getStatus()
-                    : failure instanceof ErrorResponse errorResponse
-                            ? errorResponse.getStatusCode().value()
-                            : 500;
+            // Classified exactly as Actuator's servlet HttpExchangesFilter records the exchange: 500 whenever the
+            // chain throws, so the trace record and the exchange agree on whether it is reserved.
+            int status = threw ? 500 : response.getStatus();
             traceRegistry.record(
                     new HttpExchangeTrace(start, end, method, decodedPath(path), traceId, routeTemplate),
                     RequestSlowThreshold.isFailedOrSlow(status, end - start, requestSlowThresholdMs));

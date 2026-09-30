@@ -18,11 +18,12 @@ import java.util.List;
  * <p>Matched by method + path + overlapping time window, exactly like
  * {@code RequestCorrelationRegistry} - including requiring a <em>unique</em> candidate, so two genuinely
  * concurrent identical requests safely correlate neither rather than risk cross-attribution. The buffer
- * is capped so it never grows unbounded. Built by {@link #forExchangeRepository}, it reserves the same share as
- * BootUI's HTTP exchange repository for failed and slow requests and is twice that repository's size, so an
- * exchange the repository keeps longer also keeps its trace id and route template, even though the two buffers
- * record each request independently, in a completion order and with a classification that can differ slightly
- * under concurrency.</p>
+ * is capped so it never grows unbounded. Built by {@link #forExchangeRepository}, it is twice the size of BootUI's
+ * HTTP exchange repository and reserves that repository's whole capacity for failed and slow requests, so an
+ * exchange the repository keeps longer also keeps its trace id and route template. The two buffers record each
+ * request independently, from two filters of the same request, so a retained failure loses its trace record only
+ * if more failures than the repository's routine share complete between those two filters; it then reads with no
+ * trace id, never a wrong one.</p>
  */
 public final class HttpExchangeTraceRegistry {
 
@@ -47,11 +48,10 @@ public final class HttpExchangeTraceRegistry {
 
     /**
      * The registry that indexes a BootUI HTTP exchange repository of {@code maxExchanges}: twice its size, with the
-     * same reserved share, so the records of every retained exchange outlive it despite independent insertion order.
+     * repository's whole capacity reserved for failed and slow requests (see the class documentation).
      */
-    public static HttpExchangeTraceRegistry forExchangeRepository(int maxExchanges, int reservedSharePercent) {
-        return new HttpExchangeTraceRegistry(
-                (int) Math.min(Integer.MAX_VALUE, 2L * Math.max(1, maxExchanges)), reservedSharePercent);
+    public static HttpExchangeTraceRegistry forExchangeRepository(int maxExchanges) {
+        return new HttpExchangeTraceRegistry((int) Math.min(Integer.MAX_VALUE, 2L * Math.max(1, maxExchanges)), 50);
     }
 
     /** A registry that evicts strictly oldest first. */

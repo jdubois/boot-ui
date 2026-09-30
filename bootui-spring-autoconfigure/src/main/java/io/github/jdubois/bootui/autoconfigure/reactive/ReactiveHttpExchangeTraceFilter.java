@@ -86,8 +86,9 @@ public final class ReactiveHttpExchangeTraceFilter extends AbstractReactiveBootU
 
     /**
      * The response status known when the chain completes. WebFlux's exception handlers render an error still
-     * propagating after the filters unwind, so its status comes from the error itself: the status an
-     * {@link ErrorResponse} such as {@code ResponseStatusException} declares, otherwise {@code 500}. Fully guarded.
+     * propagating after the filters unwind, and Actuator's {@code HttpExchangesWebFilter} records the exchange when
+     * that rendered response commits, so the status comes from the error itself: the status an {@link ErrorResponse}
+     * such as {@code ResponseStatusException} declares, otherwise {@code 500}. Fully guarded.
      */
     private static int status(ServerWebExchange exchange, SignalType signal, Throwable failure) {
         if (signal == SignalType.ON_ERROR) {
