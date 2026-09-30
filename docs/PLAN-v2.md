@@ -505,6 +505,21 @@ Acceptance criteria:
 - Aggregates reconcile with every event published, including events evicted from the retained rows.
 - BootUI's own traffic and SQL never enter the journal.
 
+Delivery slices for M2, which covers this item, §5.3, and §5.11's scope readings, GC by id, CPU ledger, and resource
+track. Each slice is one pull request to `v2` with its own tests and documentation:
+
+| Slice | Delivers | Depends on | Status |
+| --- | --- | --- | --- |
+| M2-1 | Engine journal core, in a new `journal` package. It adds the `RuntimeEvent` envelope and its immutable payloads, and `RuntimeEventSink`, whose non-blocking `offer` feeds a bounded queue with its reserved tail for failed and slow events. One `bootui-journal-dispatch` daemon drains it in batches, and drops are counted per source. Retained rows sit in the routine and reserved evidence rings, bounded by count and by estimated bytes, beside the per-run dictionary. The `bootui.runtime-journal.*` properties are bound. No recorder publishes yet | M1 | 📋 Planned |
+| M2-2 | The log-linear histogram and the incremental aggregates: per route, statement fingerprint, exception group and route, transactional method, thread family without a request, and run, each with its cardinality cap and **Other** bucket, and reconciliation tests | M2-1 | 📋 Planned |
+| M2-3 | Every existing recorder publishes on all three stacks: HTTP, SQL, exception occurrence, security, REST client, cache, messaging, and scheduled run. It adds self-exclusion, the journal status block, and **Clear recording**, and proves the PoC-scale scenario loses nothing and that a stalled dispatcher never slows a request | M2-2 | 📋 Planned |
+| M2-4 | New sources: transactions, framework `WARN` and `ERROR` log events with their templates, per-occurrence exception events, connection checkout and release, four interned application frames, thread kinds on every event, and trace links for consumed messages that carry `traceparent` | M2-3 | 📋 Planned |
+| M2-5 | Run summaries: the holder of the 5 most recent runs, ≤ 256 KB each, across application-context restarts | M2-2 | 📋 Planned |
+| M2-6 | §5.11's scope readings (`SegmentMeter`) and GC by id (the `gc` source), with the per-request CPU time, allocated bytes, and GC pauses | M2-3 | 📋 Planned |
+| M2-7 | §5.11's CPU ledger and resource track | M2-6 | 📋 Planned |
+| M2-8 | §5.3: Live Activity's feed, Live Flow, and SSE stream served from the journal, persistence fed by a journal subscriber, parity tests against the poller, and the route, run, request id, and **No request** filters | M2-4 | 📋 Planned |
+| M2-9 | §5.3's request profile additions (the unified timeline and its GC lane, route comparison, and touched resources) and §5.11's **Work outside requests** breakdown, in the UI | M2-7, M2-8 | 📋 Planned |
+
 ### 5.3 Live Activity on the journal — Overview 📋 Planned
 
 Live Activity is where developers already connect events, and where the missing links show. This item serves it from
