@@ -163,16 +163,17 @@ Nothing is published before 2.0.0 (§4.3), so feedback comes from outside the re
 
 ## 3. Relationship to the v1 plan
 
-The v1 plan's diagnostics workstream (PLAN.md §2, waves 0–3) shapes evidence BootUI already captures. v2 builds exact
+The v1 plan's diagnostics workstream (PLAN.md §2, waves 0–3) shapes evidence BootUI already captures. Items marked ✅
+are delivered on `main` and merged into `v2`. v2 builds exact
 keys, the journal, and observations on top of it. **Each shared capability has one implementation and one owner.** A
 v1 foundation is delivered on `main` in its wave and merged into `v2`; v2 extends it instead of duplicating it.
 
 | v1 item and wave | Dependency | How v2 uses it |
 | --- | --- | --- |
-| §3.27 Log exposure policy, wave 0 | Hard, M2 | Journal `LOG` events reuse its read-time exposure path, and the journal follows the same read-time model (§8) |
+| §3.27 Log exposure policy, wave 0 ✅ | Hard, M2 | Journal `LOG` events reuse its read-time path (`LogTailReader` and the shared `MessageExposure` helper), and the journal follows the same read-time model (§8) |
 | §3.24a Failure-preserving retention, wave 1 | Hard, M1 | Exact exchange correlation stamps the context in its BootUI-owned Spring `HttpExchangeRepository`. There is no second repository decorator |
-| §3.20a Shared profile assembler, wave 1 | Hard, M1 | v2 adds a `REQUEST_ID` tier ahead of its `TRACE_ID`, `SERVING_THREAD`, and `TIME_WINDOW` tiers |
-| §3.22 Route performance rankings, wave 1 | Hard, M2 | Its percentile helper and route-template resolution serve route comparison and every route-level observation |
+| §3.20a Shared profile assembler, wave 1 ✅ | Hard, M1 | v2 adds a `REQUEST_ID` tier ahead of the `TRACE_ID`, `SERVING_THREAD`, and `TIME_WINDOW` tiers of `ExecutionProfileAssembler` and `CorrelationTier` |
+| §3.22 Route performance rankings, wave 1 ✅ | Hard, M2 | Its `Percentiles` helper, `RouteTemplateResolver`, and `HttpRouteSummaryService` serve route comparison and every route-level observation |
 | §3.25 Agent-ready profiles, wave 2 | Hard, M3 | `get_request_profile` is the drill-down behind every exemplar request id |
 | §3.20b and §3.20c execution profiles, wave 2 | Soft | Scheduled and consumed-message anchors become journal anchors with their own execution ids |
 | §3.14 Correlation-ID filtering, wave 2 | Soft | `CorrelationContext` carries its keyed lookup identity |
@@ -195,7 +196,7 @@ Three design points change how v1 items are finished, without changing their v1 
 | Milestone | Delivers | Depends on | Effort (engineer-days, rough) | Status |
 | --- | --- | --- | --- | --- |
 | **M0 Readiness** | CI on `v2`, the correlation and overhead scenarios as baselines, and the propagation and restart spikes (§5.1, §5.8) | — | 5–8 | ✅ Delivered |
-| **M1 Exact correlation** (§5.1) | One correlation context on every event, with or without tracing, on all three stacks, and the request phase markers | M0; v1 wave 1 (§3.20a, §3.24a) | 45–56 | 📋 Planned |
+| **M1 Exact correlation** (§5.1) | One correlation context on every event, with or without tracing, on all three stacks, and the request phase markers | M0; v1 wave 1 (§3.20a ✅, §3.24a) | 45–56 | 🚧 In progress |
 | **M2 Journal and Live Activity** (§5.2, §5.3, §5.11) | The in-memory journal, incremental aggregates, run summaries, resource correlation (scope readings, GC by id, CPU ledger, resource track), and Live Activity served from the journal with its unified timeline | M1; §3.22, §3.27 | 44–56 | 📋 Planned |
 | **M3 Runtime Insights** (§5.4–§5.6) | Projections, the runtime model, the panel, Live Activity entry points, twelve observations, agent tools, and the demo | M2; §3.25 | 52–65 | 📋 Planned |
 | **M4 Change loop and 2.0 readiness** (§5.7–§5.9, §5.12) | Change impact, run comparison and behavior diff, anonymous access, proxy bypass, external validation, and the release path | M3; §3.18 | 33–45 | 📋 Planned |
@@ -354,6 +355,17 @@ Acceptance criteria:
 - A DevTools restart and a Quarkus live reload each produce a new `runId`.
 - Every new DTO field is nullable and additive, and `BootUiApiContractCatalog` and the three conformance runners pass.
 - The request profiler no longer marks request-thread work approximate.
+
+Delivery slices, each one pull request to `v2` with its own tests and documentation:
+
+| Slice | Delivers | Depends on | Status |
+| --- | --- | --- | --- |
+| M1-1 | Engine correlation core: `CorrelationContext` and the `CorrelationContextProvider` SPI, the scope-based holder that always restores the previous context, request ids, and run identity. No capture changes yet | — | 🚧 In progress |
+| M1-2 | Quarkus: request scope in `QuarkusHttpExchangeCaptureFilter`, restored around worker dispatch, and the exchange stamped with its request id | M1-1 | 📋 Planned |
+| M1-3 | Spring MVC: request scope in `RequestCorrelationFilter` with async redispatch, phase markers, and the exchange stamped in §3.24a's BootUI-owned repository | M1-1, §3.24a | 📋 Planned |
+| M1-4 | Spring WebFlux: the Reactor-context bridge, the `spring.reactor.context-propagation=auto` default, and exchange stamping at `beforeCommit` | M1-1, §3.24a | 📋 Planned |
+| M1-5 | Request ids on SQL, transactions, exceptions (as occurrences), security, REST client, cache, and logs; `REQUEST_ID` first in `ExecutionProfileAssembler` | M1-2 to M1-4 | 📋 Planned |
+| M1-6 | Messaging propagation, thread kinds, GraphQL operations, run ids in `/overview`, and the extended correlation scenario with its floors | M1-5 | 📋 Planned |
 
 ### 5.2 Runtime journal — Diagnostics 📋 Planned
 
