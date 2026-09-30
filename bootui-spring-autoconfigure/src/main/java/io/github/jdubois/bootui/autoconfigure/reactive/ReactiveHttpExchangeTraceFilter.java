@@ -3,14 +3,17 @@ package io.github.jdubois.bootui.autoconfigure.reactive;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry.HttpExchangeTrace;
+import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import org.springframework.core.Ordered;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.web.reactive.HandlerMapping;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilterChain;
 import org.springframework.web.util.pattern.PathPattern;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.SignalType;
 
 /**
  * Reactive (WebFlux) sibling of {@code RequestCorrelationFilter}: instead of the serving thread - which
@@ -42,12 +45,14 @@ public final class ReactiveHttpExchangeTraceFilter extends AbstractReactiveBootU
 
     private final HttpExchangeTraceRegistry registry;
     private final TraceIdProvider traceIdProvider;
+    private final long requestSlowThresholdMs;
 
     public ReactiveHttpExchangeTraceFilter(
             BootUiProperties properties, HttpExchangeTraceRegistry registry, TraceIdProvider traceIdProvider) {
         super(properties);
         this.registry = registry;
         this.traceIdProvider = traceIdProvider;
+        this.requestSlowThresholdMs = properties.getActivity().getRequestSlowThresholdMs();
     }
 
     @Override
@@ -67,10 +72,28 @@ public final class ReactiveHttpExchangeTraceFilter extends AbstractReactiveBootU
         String method = request.getMethod() == null ? null : request.getMethod().name();
         String path = request.getURI() == null ? null : request.getURI().getPath();
         return chain.filter(exchange).doFinally(signal -> {
+            long end = System.currentTimeMillis();
             String traceId = safeCurrentTraceId();
-            registry.record(new HttpExchangeTrace(
-                    start, System.currentTimeMillis(), method, path, traceId, routeTemplate(exchange)));
+            registry.record(
+                    new HttpExchangeTrace(start, end, method, path, traceId, routeTemplate(exchange)),
+                    RequestSlowThreshold.isFailedOrSlow(status(exchange, signal), end - start, requestSlowThresholdMs));
         });
+    }
+
+    /**
+     * The response status known when the chain completes. An error still propagating becomes a {@code 5xx} once
+     * WebFlux's exception handlers render it, so it is classified as one. Fully guarded.
+     */
+    private static int status(ServerWebExchange exchange, SignalType signal) {
+        if (signal == SignalType.ON_ERROR) {
+            return 500;
+        }
+        try {
+            HttpStatusCode status = exchange.getResponse().getStatusCode();
+            return status == null ? 0 : status.value();
+        } catch (RuntimeException ex) {
+            return 0;
+        }
     }
 
     /**

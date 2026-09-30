@@ -25,6 +25,7 @@ import io.github.jdubois.bootui.autoconfigure.restapi.RestApiController;
 import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.web.AiController;
 import io.github.jdubois.bootui.autoconfigure.web.BeansController;
+import io.github.jdubois.bootui.autoconfigure.web.BootUiHttpExchangeRepository;
 import io.github.jdubois.bootui.autoconfigure.web.ClaudeCodeSessionStore;
 import io.github.jdubois.bootui.autoconfigure.web.ConfigController;
 import io.github.jdubois.bootui.autoconfigure.web.CopilotSessionStore;
@@ -36,6 +37,7 @@ import io.github.jdubois.bootui.autoconfigure.web.OtlpReceiverController;
 import io.github.jdubois.bootui.autoconfigure.web.OverviewController;
 import io.github.jdubois.bootui.autoconfigure.web.PanelsController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
+import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
@@ -608,12 +610,10 @@ class BootUiReactiveAutoConfigurationTests {
 
     @Test
     void reactiveHttpExchangeRepositoryCapturesRequests() {
-        // Genuinely new code (not a mechanical re-@Import): proves the reactive HttpExchangesWebFilter
-        // records exchanges into the same framework-neutral HttpExchangeRepository that the reused
-        // HttpExchangesController reads, exactly as the servlet HttpExchangesFilter does. Every request
-        // in this test hits a /bootui/** path, so BootUiSelfDataFilter correctly hides it from the
-        // visible list (self-exclusion) while still counting it as recorded - the same behavior the
-        // servlet adapter has for its own self-traffic.
+        // Proves the reactive HttpExchangesWebFilter records into BootUI's own HttpExchangeRepository, which the
+        // shared HttpExchangesController reads, exactly as the servlet HttpExchangesFilter does. Every request in
+        // this test hits a /bootui/** path, so while bootui.monitoring.exclude-self is on the repository drops it on
+        // add rather than hiding it at read time: BootUI's own polling never occupies an application slot.
         webFluxRunner()
                 .withPropertyValues("bootui.enabled=ON", "bootui.allow-non-localhost=true")
                 .run(context -> {
@@ -638,9 +638,59 @@ class BootUiReactiveAutoConfigurationTests {
                             .expectStatus()
                             .isOk()
                             .expectBody(String.class)
-                            .value(body ->
-                                    assertThat(body).contains("\"recorded\":1").contains("\"hiddenSelf\":1"));
+                            .value(body -> assertThat(body)
+                                    .contains("\"recorded\":0")
+                                    .contains("\"hiddenSelf\":0")
+                                    .contains("\"applicationManaged\":false")
+                                    .contains("\"slowThresholdMillis\":1000"));
+                    assertThat(context.getBean(HttpExchangeRepository.class))
+                            .isInstanceOf(BootUiHttpExchangeRepository.class);
                 });
+    }
+
+    @Test
+    void reactiveHttpExchangeRepositoryBindsRetentionProperties() {
+        webFluxRunner()
+                .withPropertyValues(
+                        "bootui.enabled=ON",
+                        "bootui.http-exchanges.max-exchanges=40",
+                        "bootui.http-exchanges.reserved-share-percent=10",
+                        "bootui.activity.request-slow-threshold-ms=250")
+                .run(context -> {
+                    BootUiHttpExchangeRepository repository =
+                            (BootUiHttpExchangeRepository) context.getBean(HttpExchangeRepository.class);
+                    assertThat(repository.ownsRetention()).isTrue();
+                    assertThat(repository.retention(repository.snapshot()))
+                            .isEqualTo(new CaptureRetentionDto(false, 40, 4, 0, 0, 0L, 250L));
+                });
+    }
+
+    @Test
+    void applicationHttpExchangesWebFilterKeepsBackOffAndMarksRetentionApplicationManaged() {
+        webFluxRunner()
+                .withUserConfiguration(ApplicationHttpExchangesWebFilterConfiguration.class)
+                .withPropertyValues("bootui.enabled=ON")
+                .run(context -> {
+                    assertThat(context).hasSingleBean(HttpExchangesWebFilter.class);
+                    assertThat(context).doesNotHaveBean("bootUiHttpExchangesWebFilter");
+                    BootUiHttpExchangeRepository repository =
+                            (BootUiHttpExchangeRepository) context.getBean(HttpExchangeRepository.class);
+                    assertThat(repository.ownsRetention()).isFalse();
+                    assertThat(context.getBean(HttpExchangesController.class)
+                                    .exchanges(null, null, null, null, null)
+                                    .retention()
+                                    .applicationManaged())
+                            .isTrue();
+                });
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class ApplicationHttpExchangesWebFilterConfiguration {
+
+        @Bean
+        HttpExchangesWebFilter applicationHttpExchangesWebFilter(HttpExchangeRepository repository) {
+            return new HttpExchangesWebFilter(repository, java.util.Set.of());
+        }
     }
 
     @Test

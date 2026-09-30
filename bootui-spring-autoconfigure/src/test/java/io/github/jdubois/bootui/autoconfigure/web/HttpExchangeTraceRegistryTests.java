@@ -80,4 +80,17 @@ class HttpExchangeTraceRegistryTests {
 
         assertThat(registry.match("GET", "/a", 1030, 1090)).isNull();
     }
+
+    @Test
+    void keepsFailedAndSlowRequestsAsLongAsTheReservedShareOfTheExchangeRepository() {
+        HttpExchangeTraceRegistry registry = new HttpExchangeTraceRegistry(4, 50);
+        registry.record(new HttpExchangeTrace(1000, 1100, "GET", "/failing", "trace-failing"), true);
+        for (int i = 0; i < 20; i++) {
+            registry.record(new HttpExchangeTrace(2000 + i, 2001 + i, "GET", "/ok-" + i, "trace-" + i));
+        }
+
+        assertThat(registry.match("GET", "/failing", 1000, 1100)).isEqualTo("trace-failing");
+        assertThat(registry.recent()).hasSize(4);
+        assertThat(registry.recent().get(0).path()).isEqualTo("/failing");
+    }
 }

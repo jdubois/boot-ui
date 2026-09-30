@@ -153,7 +153,7 @@ public class LiveActivityResource {
     private final RestClientTraceRecorder restClientTraceRecorder;
     private final SelfTelemetryClassifier selfClassifier;
     private final HttpExchangesService exchanges = new HttpExchangesService();
-    private final LiveActivityAssembler assembler = new LiveActivityAssembler();
+    private final LiveActivityAssembler assembler;
     private final RequestProfileAssembler profileAssembler = new RequestProfileAssembler();
     private final SecurityLogsService securityLogs = new SecurityLogsService();
     private final AtomicInteger openStreams = new AtomicInteger();
@@ -180,6 +180,9 @@ public class LiveActivityResource {
             RestClientTraceRecorder restClientTraceRecorder,
             SelfTelemetryClassifier selfClassifier) {
         this.buffer = buffer;
+        // The exchange buffer carries bootui.activity.request-slow-threshold-ms, so REQUEST severity and exchange
+        // retention classify slow requests identically.
+        this.assembler = new LiveActivityAssembler(buffer.slowThresholdMillis());
         this.exposure = exposure;
         this.sqlRecorder = sqlRecorder;
         this.exceptionStore = exceptionStore;

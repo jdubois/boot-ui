@@ -1077,12 +1077,28 @@ public class BootUiProperties {
          */
         private int maxExchanges = 200;
 
+        /**
+         * Percentage of the retained exchanges reserved for the most recent 5xx and slow exchanges
+         * (at or above {@code bootui.activity.request-slow-threshold-ms}), so routine traffic is
+         * evicted first. Taken out of {@code max-exchanges}, never added to it. Set to {@code 0} to
+         * evict strictly oldest first. Applies only when BootUI owns the repository.
+         */
+        private int reservedSharePercent = 25;
+
         public int getMaxExchanges() {
             return maxExchanges;
         }
 
         public void setMaxExchanges(int maxExchanges) {
             this.maxExchanges = maxExchanges;
+        }
+
+        public int getReservedSharePercent() {
+            return reservedSharePercent;
+        }
+
+        public void setReservedSharePercent(int reservedSharePercent) {
+            this.reservedSharePercent = reservedSharePercent;
         }
     }
 
@@ -1300,6 +1316,13 @@ public class BootUiProperties {
         private long slowQueryThresholdMillis = 100;
 
         /**
+         * Percentage of the retained executions reserved for the most recent failed and slow
+         * executions, so routine executions are evicted first. Taken out of {@code max-entries},
+         * never added to it. Set to {@code 0} to evict strictly oldest first.
+         */
+        private int reservedSharePercent = 25;
+
+        /**
          * Maximum retained SQL text length; longer statements are truncated.
          */
         private int maxSqlLength = 2000;
@@ -1361,6 +1384,14 @@ public class BootUiProperties {
 
         public void setSlowQueryThresholdMillis(long slowQueryThresholdMillis) {
             this.slowQueryThresholdMillis = slowQueryThresholdMillis;
+        }
+
+        public int getReservedSharePercent() {
+            return reservedSharePercent;
+        }
+
+        public void setReservedSharePercent(int reservedSharePercent) {
+            this.reservedSharePercent = reservedSharePercent;
         }
 
         public int getMaxSqlLength() {
@@ -1509,6 +1540,13 @@ public class BootUiProperties {
         private long slowCallThresholdMillis = 1000;
 
         /**
+         * Percentage of the retained calls reserved for the most recent failed, error-response
+         * ({@code 4xx}/{@code 5xx}), and slow calls, so routine calls are evicted first. Taken out
+         * of {@code max-entries}, never added to it. Set to {@code 0} to evict strictly oldest first.
+         */
+        private int reservedSharePercent = 25;
+
+        /**
          * Maximum retained length of the request URI and path; longer values are truncated.
          */
         private int maxUriLength = 2000;
@@ -1571,6 +1609,14 @@ public class BootUiProperties {
 
         public void setSlowCallThresholdMillis(long slowCallThresholdMillis) {
             this.slowCallThresholdMillis = slowCallThresholdMillis;
+        }
+
+        public int getReservedSharePercent() {
+            return reservedSharePercent;
+        }
+
+        public void setReservedSharePercent(int reservedSharePercent) {
+            this.reservedSharePercent = reservedSharePercent;
         }
 
         public int getMaxUriLength() {
@@ -2548,8 +2594,10 @@ public class BootUiProperties {
         private int maxEntries = 200;
 
         /**
-         * Threshold in milliseconds above which a request is flagged as slow in the stream and KPI
-         * strip.
+         * Duration in milliseconds at or above which a request is slow, on every stack: it sets the
+         * {@code SLOW} severity of Live Activity request and scheduled-task entries, and classifies
+         * HTTP exchanges for the reserved share of the HTTP Exchanges buffer. Set to {@code 0} to
+         * disable slow classification.
          */
         private long requestSlowThresholdMs = 1000;
 

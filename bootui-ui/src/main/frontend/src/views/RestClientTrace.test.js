@@ -89,6 +89,15 @@ function traceReport(overrides = {}) {
       }
     ],
     warnings: ['Captured header values are shown in clear text.'],
+    retention: {
+      applicationManaged: false,
+      capacity: 200,
+      reservedCapacity: 50,
+      retained: 2,
+      reserved: 1,
+      evicted: 0,
+      slowThresholdMillis: 100
+    },
     ...overrides
   }
 }
@@ -147,6 +156,9 @@ describe('RestClientTrace', () => {
     expect(text).toContain('clear text')
     expect(text).toContain('com.example.OrderClient.getOrder(OrderClient.java:10)')
     expect(text).toContain('RestClient')
+    expect(wrapper.get('.capture-retention').text()).toContain(
+      '1 of 50 reserved for recent failed, error, or slow calls (slow means ≥ 100 ms)'
+    )
   })
 
   it('explains Quarkus metadata-only capture without suggesting header capture can be enabled', async () => {

@@ -28,6 +28,8 @@ import io.github.jdubois.bootui.autoconfigure.spring.SpringController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.*;
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
+import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
@@ -639,6 +641,86 @@ class BootUiAutoConfigurationTests {
     }
 
     @Test
+    void bootUiOwnsTheFallbackHttpExchangeRepositoryAndKeepsItsOwnRequestsOutOfApplicationSlots() {
+        runner.withPropertyValues(
+                        "bootui.enabled=ON",
+                        "bootui.http-exchanges.max-exchanges=2",
+                        "bootui.http-exchanges.reserved-share-percent=50",
+                        "bootui.activity.request-slow-threshold-ms=250")
+                .run(context -> {
+                    HttpExchangeRepository repository = context.getBean(HttpExchangeRepository.class);
+                    assertThat(repository).isInstanceOf(BootUiHttpExchangeRepository.class);
+                    assertThat(context).hasBean("bootUiHttpExchangesFilter");
+
+                    repository.add(exchange("/one"));
+                    repository.add(exchange("/two"));
+                    for (int i = 0; i < 5; i++) {
+                        repository.add(exchange("/bootui/api/http-exchanges"));
+                    }
+
+                    assertThat(repository.findAll())
+                            .extracting(
+                                    exchange -> exchange.getRequest().getUri().getPath())
+                            .containsExactly("/two", "/one");
+                    HttpExchangesReport report =
+                            context.getBean(HttpExchangesController.class).exchanges(null, null, null, null, null);
+                    assertThat(report.hiddenSelf()).isZero();
+                    assertThat(report.retention()).isEqualTo(new CaptureRetentionDto(false, 2, 1, 2, 0, 0L, 250L));
+                });
+    }
+
+    @Test
+    void applicationHttpExchangesFilterKeepsBackOffAndMarksRetentionApplicationManaged() {
+        runner.withUserConfiguration(ApplicationHttpExchangesFilterConfiguration.class)
+                .withPropertyValues("bootui.enabled=ON")
+                .run(context -> {
+                    assertThat(context).hasSingleBean(HttpExchangesFilter.class);
+                    assertThat(context).doesNotHaveBean("bootUiHttpExchangesFilter");
+                    BootUiHttpExchangeRepository repository =
+                            (BootUiHttpExchangeRepository) context.getBean(HttpExchangeRepository.class);
+                    assertThat(repository.ownsRetention()).isFalse();
+
+                    repository.add(exchange("/bootui/api/panels"));
+                    HttpExchangesReport report =
+                            context.getBean(HttpExchangesController.class).exchanges(null, null, null, null, null);
+                    assertThat(report.retention()).isEqualTo(CaptureRetentionDto.applicationManaged(1));
+                    assertThat(report.recorded()).isEqualTo(1);
+                    assertThat(report.hiddenSelf()).isEqualTo(1);
+                });
+    }
+
+    @Test
+    void disabledRecordingKeepsBootUiRetention() {
+        runner.withPropertyValues("bootui.enabled=ON", "management.httpexchanges.recording.enabled=false")
+                .run(context -> assertThat(
+                                ((BootUiHttpExchangeRepository) context.getBean(HttpExchangeRepository.class))
+                                        .ownsRetention())
+                        .isTrue());
+    }
+
+    @Test
+    void traceRecordersReserveTheDefaultOrConfiguredShareOfTheirBuffers() {
+        runner.withPropertyValues("bootui.enabled=ON").run(context -> {
+            assertThat(context.getBean(io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.class)
+                            .getReservedCapacity())
+                    .isEqualTo(50);
+            assertThat(context.getBean(RestClientTraceRecorder.class).getReservedCapacity())
+                    .isEqualTo(50);
+        });
+        runner.withPropertyValues(
+                        "bootui.enabled=ON",
+                        "bootui.sql-trace.reserved-share-percent=10",
+                        "bootui.rest-client-trace.reserved-share-percent=0")
+                .run(context -> {
+                    assertThat(context.getBean(io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.class)
+                                    .getReservedCapacity())
+                            .isEqualTo(20);
+                    assertThat(context.getBean(RestClientTraceRecorder.class).getReservedCapacity())
+                            .isZero();
+                });
+    }
+
+    @Test
     void httpExchangesFilterRunsBeforeSpringSecurityFilterOrder() {
         runner.withPropertyValues("bootui.enabled=ON").run(context -> {
             HttpExchangesFilter filter = context.getBean(HttpExchangesFilter.class);
@@ -676,6 +758,10 @@ class BootUiAutoConfigurationTests {
                     assertThat(context.getBean(HttpExchangesFilter.class))
                             .extracting("repository")
                             .isSameAs(context.getBean(HttpExchangeRepository.class));
+                    assertThat(context.getBean(HttpExchangesController.class)
+                                    .exchanges(null, null, null, null, null)
+                                    .retention())
+                            .isEqualTo(CaptureRetentionDto.applicationManaged(0));
                 });
     }
 
@@ -917,6 +1003,15 @@ class BootUiAutoConfigurationTests {
                 null,
                 null,
                 Duration.ofMillis(1));
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class ApplicationHttpExchangesFilterConfiguration {
+
+        @Bean
+        HttpExchangesFilter applicationHttpExchangesFilter(HttpExchangeRepository repository) {
+            return new HttpExchangesFilter(repository, java.util.Set.of());
+        }
     }
 
     @AutoConfiguration(after = BootUiAutoConfiguration.class)

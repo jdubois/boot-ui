@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.web;
 
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.HttpHeaderDto;
@@ -40,6 +41,25 @@ public final class HttpExchangesService {
             String statusClass,
             Integer offset,
             Integer limit) {
+        return report(captured, selfFilter, maskSecrets, exposure, query, method, statusClass, offset, limit, null);
+    }
+
+    /**
+     * Builds the report as {@link #report(List, BootUiSelfPath, boolean, ValueExposure, String, String, String,
+     * Integer, Integer)} does, carrying the recorder's retention counts so the panel can state how complete its
+     * window is. {@code retention} is {@code null} when the adapter does not know how its recorder retains records.
+     */
+    public HttpExchangesReport report(
+            List<CapturedHttpExchange> captured,
+            BootUiSelfPath selfFilter,
+            boolean maskSecrets,
+            ValueExposure exposure,
+            String query,
+            String method,
+            String statusClass,
+            Integer offset,
+            Integer limit,
+            CaptureRetentionDto retention) {
         List<HttpExchangeDto> visible = new ArrayList<>();
         int hiddenSelf = 0;
         for (CapturedHttpExchange exchange : captured) {
@@ -58,7 +78,8 @@ public final class HttpExchangesService {
                 exchange -> matches(exchange, normalizedQuery, normalizedMethod, normalizedStatusClass),
                 offset,
                 limit);
-        return new HttpExchangesReport(visible.size(), captured.size(), hiddenSelf, page.items(), page.page(), null);
+        return new HttpExchangesReport(
+                visible.size(), captured.size(), hiddenSelf, page.items(), page.page(), null, retention);
     }
 
     private boolean isSelfExchange(CapturedHttpExchange exchange, BootUiSelfPath selfFilter) {

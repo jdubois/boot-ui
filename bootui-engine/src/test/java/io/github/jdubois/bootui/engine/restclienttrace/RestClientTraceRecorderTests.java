@@ -6,6 +6,7 @@ import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
@@ -82,6 +83,80 @@ class RestClientTraceRecorderTests {
 
         record(recorder, "/orders");
         assertThat(recorder.recent()).isEmpty();
+    }
+
+    private void recordCall(
+            RestClientTraceRecorder recorder, String path, Integer status, long durationMillis, boolean success) {
+        recorder.record(
+                "GET",
+                path,
+                "api.example.com",
+                path,
+                status,
+                durationMillis,
+                success,
+                success ? null : "Connection refused",
+                "RestClient",
+                Map.of(),
+                "main");
+    }
+
+    @Test
+    void floodOfSuccessfulCallsKeepsRecentFailedErrorAndSlowCallsUpToTheReservedShare() {
+        RestClientTraceRecorder recorder =
+                new RestClientTraceRecorder(true, true, false, false, 8, 500, 2000, 200, 5, 50);
+        recordCall(recorder, "/failed", null, 3, false);
+        recordCall(recorder, "/not-found", 404, 3, true);
+        recordCall(recorder, "/server-error", 503, 3, true);
+        recordCall(recorder, "/slow", 200, 500, true);
+        recordCall(recorder, "/redirect", 302, 3, true);
+        for (int i = 0; i < 100; i++) {
+            recordCall(recorder, "/ok-" + i, 200, 499, true);
+        }
+
+        assertThat(recorder.getReservedCapacity()).isEqualTo(4);
+        assertThat(recorder.recent())
+                .extracting(RestClientTraceRecorder.CapturedCall::path)
+                .containsExactly(
+                        "/ok-99", "/ok-98", "/ok-97", "/ok-96", "/slow", "/server-error", "/not-found", "/failed");
+        assertThat(recorder.retention()).isEqualTo(new CaptureRetentionDto(false, 8, 4, 8, 4, 97L, 500L));
+    }
+
+    @Test
+    void disabledSlowCallThresholdReservesOnlyFailedAndErrorCalls() {
+        RestClientTraceRecorder recorder =
+                new RestClientTraceRecorder(true, true, false, false, 4, 0, 2000, 200, 5, 50);
+        recordCall(recorder, "/error", 500, 1, true);
+        recordCall(recorder, "/very-slow", 200, 60_000, true);
+        for (int i = 0; i < 10; i++) {
+            recordCall(recorder, "/ok-" + i, 200, 1, true);
+        }
+
+        assertThat(recorder.recent())
+                .extracting(RestClientTraceRecorder.CapturedCall::path)
+                .containsExactly("/ok-9", "/ok-8", "/ok-7", "/error");
+    }
+
+    @Test
+    void reportRetentionReconcilesWithEntriesAndWarning() {
+        RestClientTraceRecorder recorder =
+                new RestClientTraceRecorder(true, true, false, false, 4, 500, 2000, 200, 5, 25);
+        recordCall(recorder, "/failed", null, 1, false);
+        for (int i = 0; i < 6; i++) {
+            recordCall(recorder, "/ok-" + i, 200, 1, true);
+        }
+
+        RestClientTraceReport report = recorder.report(true, ValueExposure.MASKED);
+
+        CaptureRetentionDto retention = report.retention();
+        assertThat(retention.retained()).isEqualTo(report.entries().size()).isEqualTo(4);
+        assertThat(retention.evicted()).isEqualTo(report.stats().evicted()).isEqualTo(3L);
+        assertThat(retention.retained() + retention.evicted()).isEqualTo(report.totalCaptured());
+        assertThat(retention.reserved()).isEqualTo(1);
+        assertThat(report.warnings())
+                .contains("Older calls were dropped; the buffer keeps up to 4 calls, reserving 1 for the most "
+                        + "recent failed, error, or slow ones, so routine calls are dropped first.");
+        assertThat(RestClientTraceReport.unavailable("off").retention()).isNull();
     }
 
     @Test

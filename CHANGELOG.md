@@ -7,8 +7,31 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Failure-preserving retention for HTTP Exchanges, SQL Trace, and REST Client.** Each BootUI-owned capture buffer
+  now reserves a share of its existing capacity, 25% by default, for the most recent failed and slow records: `5xx`
+  and slow exchanges, failed and slow statements, and failed, `4xx`/`5xx`, and slow calls. Routine records are evicted
+  first, so a burst of successful traffic no longer evicts the failure you came to investigate; the reservation never
+  adds memory. Tune it with `bootui.http-exchanges.reserved-share-percent`, `bootui.sql-trace.reserved-share-percent`,
+  and `bootui.rest-client-trace.reserved-share-percent` (`0` restores strictly oldest-first eviction). The three
+  panels state how many records they keep, how many sit in the reserved share, and how many were evicted, and their
+  reports, MCP tools, and CLI commands gain an additive `retention` object with the same counts. On Spring, an
+  application-provided `HttpExchangeRepository` or recording filter is never replaced and its retention is reported
+  as application-managed ([PLAN §3.24a](docs/PLAN.md#_3-24-failure-preserving-retention-and-ignore-rules-diagnostics-planned)).
+
 ### Changed
 
+- **One request slow threshold on every stack.** `bootui.activity.request-slow-threshold-ms` (default 1,000 ms) is now
+  honored by Spring WebFlux and Quarkus as well as Spring MVC. It sets the `SLOW` severity of Live Activity `REQUEST`
+  and `SCHEDULED` entries and decides which exchanges are kept longer. Spring WebFlux and Quarkus previously used a
+  fixed 500 ms, so by default an entry that took 500–999 ms is no longer flagged `SLOW` there. A value of `0` now
+  disables slow classification on every stack; Spring MVC previously flagged every request as slow at `0`.
+- **BootUI's own requests no longer take Spring HTTP exchange slots.** While `bootui.monitoring.exclude-self` is on,
+  BootUI's Spring `HttpExchangeRepository` drops BootUI's own requests when they are recorded instead of hiding them
+  when the panel is read, as Quarkus already did. Console polling no longer evicts application exchanges, `hiddenSelf`
+  now reads `0` on Spring as on Quarkus, and Actuator's `httpexchanges` endpoint, when backed by BootUI's repository,
+  no longer lists them.
 - **Quarkus 3.33.3.3.** The Quarkus extension, integration tests, and sample app move to Quarkus 3.33.3.3, the
   newest micro release of the 3.33 LTS stream.
 

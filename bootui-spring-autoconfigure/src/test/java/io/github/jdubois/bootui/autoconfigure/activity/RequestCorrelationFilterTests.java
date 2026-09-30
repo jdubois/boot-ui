@@ -97,4 +97,43 @@ class RequestCorrelationFilterTests {
         assertThat(traceRegistry.match("GET", "/api/items/a b", record.startMillis(), record.endMillis()))
                 .isEqualTo("server-created-trace");
     }
+
+    @Test
+    void reservesTraceRecordsOfFailedThrowingAndSlowRequests() throws Exception {
+        RequestCorrelationRegistry registry = new RequestCorrelationRegistry(10);
+        HttpExchangeTraceRegistry traceRegistry = new HttpExchangeTraceRegistry(4, 75);
+        RequestCorrelationFilter filter = new RequestCorrelationFilter(registry, traceRegistry, "/bootui", 1L);
+        MockHttpServletResponse serverError = new MockHttpServletResponse();
+        serverError.setStatus(503);
+        filter.doFilter(new MockHttpServletRequest("GET", "/api/failing"), serverError, new MockFilterChain());
+        try {
+            filter.doFilter(
+                    new MockHttpServletRequest("GET", "/api/throwing"),
+                    new MockHttpServletResponse(),
+                    (request, response) -> {
+                        throw new IllegalStateException("boom");
+                    });
+        } catch (IllegalStateException expected) {
+            // The filter must never swallow the application's exception.
+        }
+        filter.doFilter(
+                new MockHttpServletRequest("GET", "/api/slow"), new MockHttpServletResponse(), (request, response) -> {
+                    try {
+                        Thread.sleep(5);
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                    }
+                });
+        RequestCorrelationFilter routineFilter = new RequestCorrelationFilter(registry, traceRegistry, "/bootui", 0L);
+        for (int i = 0; i < 10; i++) {
+            routineFilter.doFilter(
+                    new MockHttpServletRequest("GET", "/api/ok-" + i),
+                    new MockHttpServletResponse(),
+                    new MockFilterChain());
+        }
+
+        assertThat(traceRegistry.recent())
+                .extracting(HttpExchangeTraceRegistry.HttpExchangeTrace::path)
+                .containsExactly("/api/failing", "/api/throwing", "/api/slow", "/api/ok-9");
+    }
 }

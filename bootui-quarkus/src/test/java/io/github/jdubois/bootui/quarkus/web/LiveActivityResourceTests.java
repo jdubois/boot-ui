@@ -249,6 +249,41 @@ class LiveActivityResourceTests {
     }
 
     @Test
+    void mergedReportClassifiesSlowRequestsWithTheExchangeBufferThreshold() {
+        assertThat(requestSeverity(new HttpExchangeBuffer(50))).isEqualTo("OK");
+        assertThat(requestSeverity(new HttpExchangeBuffer(50, 25, 600L))).isEqualTo("SLOW");
+        assertThat(requestSeverity(new HttpExchangeBuffer(50, 25, 0L))).isEqualTo("OK");
+    }
+
+    private static String requestSeverity(HttpExchangeBuffer buffer) {
+        buffer.record(new CapturedHttpExchange(
+                Instant.ofEpochMilli(1_000L),
+                "GET",
+                URI.create("http://localhost:8080/orders"),
+                200,
+                700L,
+                "127.0.0.1",
+                null,
+                null,
+                Map.of(),
+                Map.of(),
+                null));
+        LiveActivityResource resource = resourceWith(
+                new SwitchableActivityStore(new InMemoryActivityStore(10)),
+                disabledSettings(),
+                unsatisfiedDataSource(),
+                buffer,
+                unsatisfiedEmailCaptureService(),
+                new KafkaActivityRecorder(true, true, 200, 16),
+                config(Map.of()));
+        return resource.mergedReport(0).entries().stream()
+                .filter(entry -> "REQUEST".equals(entry.type()))
+                .findFirst()
+                .orElseThrow()
+                .severity();
+    }
+
+    @Test
     void mergedReportIncludesRestClientCallsAndCorrelatesThemByTraceId() {
         HttpExchangeBuffer buffer = new HttpExchangeBuffer(50);
         buffer.record(new CapturedHttpExchange(

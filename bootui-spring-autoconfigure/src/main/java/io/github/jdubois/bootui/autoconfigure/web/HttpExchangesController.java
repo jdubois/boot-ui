@@ -3,7 +3,9 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
+import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
 import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
 import io.github.jdubois.bootui.engine.web.HttpExchangesService;
 import java.util.List;
@@ -21,6 +23,10 @@ import org.springframework.web.bind.annotation.RestController;
  * {@link HttpExchangeRepository} as the capture source; this controller maps each recorded exchange into
  * a neutral {@link CapturedHttpExchange} and delegates masking, trace-id extraction, self-exclusion and
  * paging to the shared {@link HttpExchangesService} so the wire is identical to the Quarkus adapter.
+ *
+ * <p>When the repository is BootUI's own {@link BootUiHttpExchangeRepository}, the report carries its retention
+ * counts, read from the same snapshot as the exchanges. An application-provided repository, or BootUI's repository fed
+ * by an application-provided filter, reports its retention as application-managed.</p>
  */
 @RestController
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/http-exchanges")
@@ -75,8 +81,18 @@ public class HttpExchangesController {
         if (exchangeRepository == null) {
             return HttpExchangesReport.unavailable(UNAVAILABLE_REASON);
         }
+        List<HttpExchange> exchanges;
+        CaptureRetentionDto retention;
+        if (exchangeRepository instanceof BootUiHttpExchangeRepository bootUiRepository) {
+            TieredCaptureBuffer.Snapshot<HttpExchange> snapshot = bootUiRepository.snapshot();
+            exchanges = snapshot.newestFirst();
+            retention = bootUiRepository.retention(snapshot);
+        } else {
+            exchanges = exchangeRepository.findAll();
+            retention = CaptureRetentionDto.applicationManaged(exchanges.size());
+        }
         List<CapturedHttpExchange> captured =
-                exchangeRepository.findAll().stream().map(this::toCaptured).toList();
+                exchanges.stream().map(this::toCaptured).toList();
         return service.report(
                 captured,
                 uri -> !selfDataFilter.shouldInclude(selfDataFilter.isBootUiPath(uri)),
@@ -86,7 +102,8 @@ public class HttpExchangesController {
                 method,
                 statusClass,
                 offset,
-                limit);
+                limit,
+                retention);
     }
 
     private CapturedHttpExchange toCaptured(HttpExchange exchange) {

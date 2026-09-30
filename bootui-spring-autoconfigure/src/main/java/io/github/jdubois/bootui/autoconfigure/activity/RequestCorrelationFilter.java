@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.activity;
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationRegistry.RequestCorrelation;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry.HttpExchangeTrace;
+import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -33,12 +34,26 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
     private final RequestCorrelationRegistry registry;
     private final HttpExchangeTraceRegistry traceRegistry;
     private final String bootUiPathPrefix;
+    private final long requestSlowThresholdMs;
 
     public RequestCorrelationFilter(
             RequestCorrelationRegistry registry, HttpExchangeTraceRegistry traceRegistry, String bootUiPathPrefix) {
+        this(registry, traceRegistry, bootUiPathPrefix, RequestSlowThreshold.DEFAULT_MILLIS);
+    }
+
+    /**
+     * @param requestSlowThresholdMs {@code bootui.activity.request-slow-threshold-ms}, so a slow request's trace
+     *     record is retained as long as its exchange
+     */
+    public RequestCorrelationFilter(
+            RequestCorrelationRegistry registry,
+            HttpExchangeTraceRegistry traceRegistry,
+            String bootUiPathPrefix,
+            long requestSlowThresholdMs) {
         this.registry = registry;
         this.traceRegistry = traceRegistry;
         this.bootUiPathPrefix = bootUiPathPrefix;
+        this.requestSlowThresholdMs = requestSlowThresholdMs;
     }
 
     @Override
@@ -48,14 +63,20 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
         String thread = Thread.currentThread().getName();
         String method = request.getMethod();
         String path = request.getRequestURI();
+        boolean threw = true;
         try {
             chain.doFilter(request, response);
+            threw = false;
         } finally {
             long end = System.currentTimeMillis();
             String traceId = currentTraceId();
             String routeTemplate = routeTemplate(request);
             registry.record(new RequestCorrelation(start, end, thread, method, path, routeTemplate, traceId));
-            traceRegistry.record(new HttpExchangeTrace(start, end, method, decodedPath(path), traceId, routeTemplate));
+            // An exception still propagating becomes a 5xx once the container handles it.
+            int status = threw ? 500 : response.getStatus();
+            traceRegistry.record(
+                    new HttpExchangeTrace(start, end, method, decodedPath(path), traceId, routeTemplate),
+                    RequestSlowThreshold.isFailedOrSlow(status, end - start, requestSlowThresholdMs));
         }
     }
 

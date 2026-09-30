@@ -1062,8 +1062,9 @@ Purpose: inspect recent inbound HTTP requests handled by the running application
 
 Data sources:
 
-- Spring Boot Actuator `HttpExchangeRepository`, with a BootUI-provided bounded `InMemoryHttpExchangeRepository` when no
-  application repository exists.
+- Spring Boot Actuator `HttpExchangeRepository`, with BootUI's own bounded, failure-preserving
+  `BootUiHttpExchangeRepository` when no application repository exists.
+- On Quarkus, the framework-neutral `HttpExchangeBuffer`, fed by a dev/test-only Vert.x route filter.
 
 Features:
 
@@ -1073,11 +1074,25 @@ Features:
 - Offer a client-side **Copy as cURL** action in row details that rebuilds a runnable command template from the retained
   exchange metadata, without capturing a body or replaying the request.
 - Provide server-side filtering by path/URL/trace id, method, and status class with bounded paging.
-- Hide BootUI self-requests by default through `bootui.monitoring.exclude-self`.
+- Hide BootUI self-requests by default through `bootui.monitoring.exclude-self`. Where BootUI owns recording they are
+  dropped before they are recorded, so console polling never displaces application exchanges.
+- State the retained window above the list: exchanges kept of the capacity, the reserved share and how much of it holds
+  failed or slow exchanges, and evictions since startup.
 
 Acceptance criteria:
 
 - The recorder is bounded by `bootui.http-exchanges.max-exchanges`, defaulting to 200.
+- Retention is failure-preserving wherever BootUI owns recording (Quarkus, and Spring when BootUI contributes both the
+  repository and its recording filter). `bootui.http-exchanges.reserved-share-percent` (default 25) of the capacity is
+  reserved for the most recent `5xx` exchanges and exchanges at or above `bootui.activity.request-slow-threshold-ms`
+  (default 1000; `0` disables slow classification). Routine exchanges are evicted first; the reserved share evicts its
+  own oldest exchange only when full. The reservation never adds memory and never takes the whole buffer. SQL Trace and
+  REST Client buffers apply the same engine policy with their own slow thresholds and
+  `bootui.sql-trace.reserved-share-percent` / `bootui.rest-client-trace.reserved-share-percent`.
+- The report carries a `retention` object (capacity, reserved capacity, retained, reserved, evicted, slow threshold)
+  computed from the same snapshot as the exchanges. When the application provides its own `HttpExchangeRepository` or
+  recording filter, BootUI never replaces it, keeps its former plain behavior, and reports `applicationManaged: true`
+  with only the retained count.
 - Secret-like headers and query parameters are masked unless value exposure is explicitly set to `FULL`. Sensitive
   parameter names are matched percent-decoded, so a URL-encoded name cannot evade masking, and the same masking applies
   to a query-shaped URI fragment.
@@ -1534,6 +1549,9 @@ Acceptance criteria:
   of any HTTP method.
 - Pause/Resume and Clear are gated by `bootui.panels.rest-client-trace.read-only`; recording state, buffer size, and
   the slow/chatty thresholds are configurable under `bootui.rest-client-trace.*`.
+- Retention is failure-preserving: `bootui.rest-client-trace.reserved-share-percent` (default 25) of the buffer is
+  reserved for the most recent failed, `4xx`/`5xx`, and slow calls, routine calls are evicted first, and the report's
+  `retention` object states the kept, reserved, and evicted counts.
 - Recent calls surface in Live Activity as `REST_CLIENT` entries. Spring MVC uses trace-id-first/serving-thread-second
   correlation; Quarkus and WebFlux use trace id only because neither reactive runtime has a thread-per-request model.
 - The dedicated panel is available on Spring MVC and Quarkus. Quarkus keeps it visible whenever the optional capability
@@ -2663,6 +2681,7 @@ Initial properties:
 | `bootui.cache.clear-enabled`                 | `true`                                  | Enable Cache clear actions after explicit browser confirmation.                            |
 | `bootui.http-sessions.max-sessions`          | `50`                                    | Maximum local embedded Tomcat HTTP sessions listed by the HTTP Sessions panel.                    |
 | `bootui.http-exchanges.max-exchanges`        | `200`                                   | Maximum recent HTTP exchanges retained in memory for the HTTP Exchanges panel.                    |
+| `bootui.http-exchanges.reserved-share-percent` | `25`                                  | Share of the HTTP exchange buffer reserved for recent `5xx` and slow exchanges; `0` disables it.   |
 | `bootui.email.max-entries`                   | `100`                                   | Maximum outgoing emails retained in memory for the Email panel; oldest evicted first.              |
 | `bootui.email.dev-trap`                      | `false`                                 | Capture outgoing email without handing it to the real mail transport (MailDev/GreenMail-style trap). |
 | `bootui.vulnerabilities.osv-enabled`            | `true`                                  | Allow the user-initiated OSV.dev vulnerability scan action.                                       |

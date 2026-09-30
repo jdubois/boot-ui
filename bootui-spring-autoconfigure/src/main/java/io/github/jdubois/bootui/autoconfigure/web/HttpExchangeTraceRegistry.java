@@ -1,8 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Deque;
+import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
 import java.util.List;
 
 /**
@@ -20,7 +18,9 @@ import java.util.List;
  * <p>Matched by method + path + overlapping time window, exactly like
  * {@code RequestCorrelationRegistry} - including requiring a <em>unique</em> candidate, so two genuinely
  * concurrent identical requests safely correlate neither rather than risk cross-attribution. The buffer
- * is capped and evicts oldest-first so it never grows unbounded.</p>
+ * is capped so it never grows unbounded, and it reserves the same share as BootUI's HTTP exchange repository
+ * for failed and slow requests, so an exchange that repository keeps longer also keeps its trace id and route
+ * template.</p>
  */
 public final class HttpExchangeTraceRegistry {
 
@@ -41,29 +41,37 @@ public final class HttpExchangeTraceRegistry {
         }
     }
 
-    private final int maxEntries;
-    private final Deque<HttpExchangeTrace> buffer = new ArrayDeque<>();
-    private final Object lock = new Object();
+    private final TieredCaptureBuffer<HttpExchangeTrace> buffer;
 
+    /** A registry that evicts strictly oldest first. */
     public HttpExchangeTraceRegistry(int maxEntries) {
-        this.maxEntries = Math.max(1, maxEntries);
+        this(maxEntries, 0);
     }
 
     /**
-     * Records one completed request, evicting the oldest entry when the buffer is full. Requests without a
-     * usable trace id are retained as ambiguity blockers: otherwise an overlapping traced request with the
-     * same method and path could be incorrectly assigned to the untraced exchange.
+     * @param maxEntries {@code bootui.http-exchanges.max-exchanges}
+     * @param reservedSharePercent {@code bootui.http-exchanges.reserved-share-percent}, so failed and slow requests
+     *     are retained as long as their exchanges
+     */
+    public HttpExchangeTraceRegistry(int maxEntries, int reservedSharePercent) {
+        this.buffer = new TieredCaptureBuffer<>(maxEntries, reservedSharePercent);
+    }
+
+    /**
+     * Records one completed routine request, evicting per the retention policy when the buffer is full.
+     * Requests without a usable trace id are retained as ambiguity blockers: otherwise an overlapping traced
+     * request with the same method and path could be incorrectly assigned to the untraced exchange.
      */
     public void record(HttpExchangeTrace trace) {
-        if (trace == null) {
-            return;
-        }
-        synchronized (lock) {
-            buffer.addLast(trace);
-            while (buffer.size() > maxEntries) {
-                buffer.removeFirst();
-            }
-        }
+        record(trace, false);
+    }
+
+    /**
+     * Records one completed request, reserving it with failed and slow requests when {@code failedOrSlow} is set
+     * (a {@code 5xx} response, a request that threw, or one at or above the request slow threshold).
+     */
+    public void record(HttpExchangeTrace trace, boolean failedOrSlow) {
+        buffer.add(trace, failedOrSlow);
     }
 
     /**
@@ -77,19 +85,17 @@ public final class HttpExchangeTraceRegistry {
         }
         long slack = 50L;
         HttpExchangeTrace found = null;
-        synchronized (lock) {
-            for (HttpExchangeTrace candidate : buffer) {
-                if (!method.equalsIgnoreCase(candidate.method()) || !path.equals(candidate.path())) {
-                    continue;
-                }
-                if (candidate.startMillis() > end + slack || candidate.endMillis() < start - slack) {
-                    continue;
-                }
-                if (found != null) {
-                    return null;
-                }
-                found = candidate;
+        for (HttpExchangeTrace candidate : buffer.oldestFirst()) {
+            if (!method.equalsIgnoreCase(candidate.method()) || !path.equals(candidate.path())) {
+                continue;
             }
+            if (candidate.startMillis() > end + slack || candidate.endMillis() < start - slack) {
+                continue;
+            }
+            if (found != null) {
+                return null;
+            }
+            found = candidate;
         }
         return found == null || found.traceId() == null || found.traceId().isBlank() ? null : found.traceId();
     }
@@ -99,15 +105,11 @@ public final class HttpExchangeTraceRegistry {
      * SQL Trace route attribution — never iterates the live buffer while a request is being recorded.
      */
     public List<HttpExchangeTrace> recent() {
-        synchronized (lock) {
-            return List.copyOf(buffer);
-        }
+        return List.copyOf(buffer.oldestFirst());
     }
 
     /** Test-only snapshot of the retained records, oldest first. */
     List<HttpExchangeTrace> snapshot() {
-        synchronized (lock) {
-            return new ArrayList<>(buffer);
-        }
+        return buffer.oldestFirst();
     }
 }

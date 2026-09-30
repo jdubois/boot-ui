@@ -9,8 +9,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.HttpHeaderDto;
@@ -117,6 +119,37 @@ class HttpExchangesControllerTests {
         assertHeader(dto.requestHeaders(), "Authorization", true, SecretMasker.MASKED_VALUE);
         assertHeader(dto.requestHeaders(), "Cookie", true, SecretMasker.MASKED_VALUE);
         assertHeader(dto.responseHeaders(), "Set-Cookie", true, SecretMasker.MASKED_VALUE);
+    }
+
+    @Test
+    void reportsApplicationManagedRetentionForAnApplicationRepository() {
+        HttpExchangesController controller = new HttpExchangesController(
+                providerOf(repositoryWith(
+                        exchange("GET", "http://localhost/api/a", 200),
+                        exchange("GET", "http://localhost/api/b", 500))),
+                new BootUiProperties());
+
+        HttpExchangesReport report = controller.exchanges(null, null, null, null, null);
+
+        assertThat(report.retention()).isEqualTo(CaptureRetentionDto.applicationManaged(2));
+    }
+
+    @Test
+    void reportsBootUiRetentionFromTheSameSnapshotAsTheExchanges() {
+        BootUiHttpExchangeRepository repository =
+                new BootUiHttpExchangeRepository(3, 34, 1_000L, BootUiSelfDataFilter.defaults());
+        repository.add(exchange("GET", "http://localhost/api/failing", 500));
+        for (int i = 0; i < 4; i++) {
+            repository.add(exchange("GET", "http://localhost/api/ok-" + i, 200));
+        }
+        HttpExchangesController controller =
+                new HttpExchangesController(providerOf(repository), new BootUiProperties());
+
+        HttpExchangesReport report = controller.exchanges(null, null, "5xx", null, null);
+
+        assertThat(report.recorded()).isEqualTo(3);
+        assertThat(report.exchanges()).extracting(HttpExchangeDto::path).containsExactly("/api/failing");
+        assertThat(report.retention()).isEqualTo(new CaptureRetentionDto(false, 3, 1, 3, 1, 2L, 1_000L));
     }
 
     @Test

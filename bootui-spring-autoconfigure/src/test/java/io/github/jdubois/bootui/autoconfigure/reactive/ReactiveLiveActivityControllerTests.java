@@ -324,6 +324,53 @@ class ReactiveLiveActivityControllerTests {
     }
 
     @Test
+    void mergedReportClassifiesSlowRequestsWithTheBoundRequestSlowThreshold() {
+        HttpExchangesController httpExchanges = mock(HttpExchangesController.class);
+        when(httpExchanges.exchanges(null, null, null, null, null))
+                .thenReturn(new HttpExchangesReport(
+                        1,
+                        1,
+                        0,
+                        List.of(exchange("req-1", "GET", "/api/products", 200, null)),
+                        new PageMetadata(0, 0, 0, 0, 0, false),
+                        null));
+
+        assertThat(requestSeverity(httpExchanges, new BootUiProperties())).isEqualTo("OK");
+        BootUiProperties properties = new BootUiProperties();
+        properties.getActivity().setRequestSlowThresholdMs(5);
+        assertThat(requestSeverity(httpExchanges, properties)).isEqualTo("SLOW");
+    }
+
+    private String requestSeverity(HttpExchangesController httpExchanges, BootUiProperties properties) {
+        ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
+                provider(httpExchanges),
+                empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
+                empty(DataSource.class),
+                empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
+                empty(ReactiveSecurityLogsController.class),
+                empty(TracesController.class),
+                empty(HealthController.class),
+                empty(EmailController.class),
+                empty(EmailCaptureService.class),
+                empty(CacheActivityRecorder.class),
+                empty(KafkaActivityRecorder.class),
+                empty(JmsActivityRecorder.class),
+                empty(FaultToleranceEventRecorder.class),
+                empty(RabbitActivityRecorder.class),
+                defaultActivityStore(),
+                disabledSettings(),
+                properties,
+                new BootUiExposure(properties));
+        return controller.mergedReport(0).entries().stream()
+                .filter(entry -> "req-1".equals(entry.id()))
+                .findFirst()
+                .orElseThrow()
+                .severity();
+    }
+
+    @Test
     void mergedReportIncludesCacheEventsWhenRecorderPresent() {
         CacheActivityRecorder cacheRecorder = new CacheActivityRecorder(true, 10);
         cacheRecorder.recordMiss("cacheManager", "products", "product-1");

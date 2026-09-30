@@ -84,6 +84,7 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aot.AotDetector;
+import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -94,7 +95,6 @@ import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.actuate.audit.InMemoryAuditEventRepository;
 import org.springframework.boot.actuate.autoconfigure.web.exchanges.HttpExchangesProperties;
 import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
-import org.springframework.boot.actuate.web.exchanges.InMemoryHttpExchangeRepository;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurationPackages;
 import org.springframework.boot.autoconfigure.AutoConfigureBefore;
@@ -731,7 +731,8 @@ public class BootUiReactiveAutoConfiguration {
                 sqlTrace.getSlowQueryThresholdMillis(),
                 sqlTrace.getMaxSqlLength(),
                 sqlTrace.getMaxParameterLength(),
-                sqlTrace.getNPlusOneThreshold());
+                sqlTrace.getNPlusOneThreshold(),
+                sqlTrace.getReservedSharePercent());
     }
 
     /**
@@ -950,13 +951,28 @@ public class BootUiReactiveAutoConfiguration {
 
         private static final String BOOTUI_HTTP_EXCHANGE_REPOSITORY_BEAN = "bootUiReactiveHttpExchangeRepository";
 
+        private static final String BOOTUI_HTTP_EXCHANGES_WEB_FILTER_BEAN = "bootUiHttpExchangesWebFilter";
+
         @Bean(BOOTUI_HTTP_EXCHANGE_REPOSITORY_BEAN)
         @ConditionalOnMissingBean(HttpExchangeRepository.class)
-        HttpExchangeRepository bootUiReactiveHttpExchangeRepository(BootUiProperties properties) {
-            InMemoryHttpExchangeRepository repository = new InMemoryHttpExchangeRepository();
-            repository.setCapacity(Math.max(1, properties.getHttpExchanges().getMaxExchanges()));
-            repository.setReverse(true);
-            return repository;
+        HttpExchangeRepository bootUiReactiveHttpExchangeRepository(
+                BootUiProperties properties, ObjectProvider<BootUiSelfDataFilter> selfDataFilter) {
+            return new BootUiHttpExchangeRepository(
+                    properties.getHttpExchanges().getMaxExchanges(),
+                    properties.getHttpExchanges().getReservedSharePercent(),
+                    properties.getActivity().getRequestSlowThresholdMs(),
+                    selfDataFilter.getIfAvailable(() -> new BootUiSelfDataFilter(properties)));
+        }
+
+        /**
+         * Reactive sibling of {@code BootUiAutoConfiguration.HttpExchangeRepositoryConfiguration
+         * #bootUiHttpExchangeRecorderOwnership}: an application-provided {@link HttpExchangesWebFilter} keeps BootUI's
+         * back-off and makes the retention of BootUI's repository read as application-managed.
+         */
+        @Bean
+        static SmartInitializingSingleton bootUiReactiveHttpExchangeRecorderOwnership(ListableBeanFactory beanFactory) {
+            return () -> BootUiHttpExchangeRepository.detectApplicationRecording(
+                    beanFactory, HttpExchangesWebFilter.class, BOOTUI_HTTP_EXCHANGES_WEB_FILTER_BEAN);
         }
 
         /**
@@ -984,7 +1000,7 @@ public class BootUiReactiveAutoConfiguration {
             };
         }
 
-        @Bean
+        @Bean(BOOTUI_HTTP_EXCHANGES_WEB_FILTER_BEAN)
         @ConditionalOnMissingBean(HttpExchangesWebFilter.class)
         @ConditionalOnProperty(
                 prefix = "management.httpexchanges.recording",
@@ -1030,7 +1046,9 @@ public class BootUiReactiveAutoConfiguration {
 
         @Bean
         HttpExchangeTraceRegistry bootUiHttpExchangeTraceRegistry(BootUiProperties properties) {
-            return new HttpExchangeTraceRegistry(properties.getHttpExchanges().getMaxExchanges());
+            return new HttpExchangeTraceRegistry(
+                    properties.getHttpExchanges().getMaxExchanges(),
+                    properties.getHttpExchanges().getReservedSharePercent());
         }
 
         @Bean

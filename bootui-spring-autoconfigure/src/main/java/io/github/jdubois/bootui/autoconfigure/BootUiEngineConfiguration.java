@@ -761,7 +761,8 @@ public class BootUiEngineConfiguration {
                     restClientTrace.getSlowCallThresholdMillis(),
                     restClientTrace.getMaxUriLength(),
                     restClientTrace.getMaxHeaderValueLength(),
-                    restClientTrace.getChattyCallThreshold());
+                    restClientTrace.getChattyCallThreshold(),
+                    restClientTrace.getReservedSharePercent());
         }
 
         /**

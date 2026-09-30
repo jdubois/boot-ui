@@ -237,6 +237,29 @@ class LiveActivityServiceTests {
     }
 
     @Test
+    void zeroRequestSlowThresholdDisablesSlowSeverity() {
+        BootUiProperties properties = new BootUiProperties();
+        properties.getActivity().setRequestSlowThresholdMs(0);
+        LiveActivityService service = service(
+                requests(
+                        exchange("fast", BASE.plusMillis(10), "GET", "/fast", 200, 0L),
+                        exchange("slow", BASE.plusMillis(20), "GET", "/slow", 200, 60_000L),
+                        exchange("err", BASE.plusMillis(30), "GET", "/err", 500, 5L)),
+                null,
+                null,
+                null,
+                null,
+                properties);
+
+        LiveActivityReport report = service.report(null, null, 0, 0);
+
+        assertThat(report.entries())
+                .filteredOn(e -> e.type().equals("REQUEST"))
+                .extracting(e -> e.id() + "=" + e.severity())
+                .containsExactlyInAnyOrder("fast=OK", "slow=OK", "err=ERROR");
+    }
+
+    @Test
     void appliesTypeSeveritySinceAndLimitFilters() {
         LiveActivityService service = service(
                 requests(

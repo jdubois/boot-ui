@@ -39,6 +39,7 @@ import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import io.github.jdubois.bootui.engine.support.BlankStrings;
+import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import io.github.jdubois.bootui.engine.web.SecurityActivityIds;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
@@ -525,7 +526,7 @@ public class LiveActivityService {
             severity = SEVERITY_ERROR;
         } else if (status >= 400) {
             severity = SEVERITY_WARN;
-        } else if (durationMs != null && durationMs >= requestSlowThresholdMs()) {
+        } else if (RequestSlowThreshold.isSlow(durationMs, requestSlowThresholdMs())) {
             severity = SEVERITY_SLOW;
         } else {
             severity = SEVERITY_OK;
@@ -755,7 +756,7 @@ public class LiveActivityService {
         String severity;
         if (!run.success()) {
             severity = SEVERITY_ERROR;
-        } else if (run.durationMs() >= requestSlowThresholdMs()) {
+        } else if (RequestSlowThreshold.isSlow(run.durationMs(), requestSlowThresholdMs())) {
             severity = SEVERITY_SLOW;
         } else {
             severity = SEVERITY_OK;

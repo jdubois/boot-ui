@@ -1,18 +1,18 @@
 package io.github.jdubois.bootui.engine.sqltrace;
 
+import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
 import io.github.jdubois.bootui.engine.activity.BootUiJdbcCaptureGuard;
+import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
 import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -29,8 +29,11 @@ import java.util.stream.Stream;
  *
  * <p>This is the hand-written replacement for the listener/registry that a
  * third-party JDBC proxy library (such as datasource-proxy or p6spy) would
- * provide. It is thread-safe, capped at {@code maxEntries}, and evicts the
- * oldest execution once full so it never grows unbounded.</p>
+ * provide. It is thread-safe and capped at {@code maxEntries} so it never grows
+ * unbounded. Retention is failure-preserving ({@link TieredCaptureBuffer}): a
+ * bounded share of the capacity is reserved for failed and slow executions, so
+ * routine executions are evicted first and a flood of fast queries cannot evict
+ * the most recent failures.</p>
  *
  * <p>Recording can be paused and resumed at runtime without unwrapping the
  * {@code DataSource}: {@link #setRecording(boolean)} flips a flag that
@@ -105,11 +108,9 @@ public final class SqlTraceRecorder implements IdleReclaimable {
     private final int maxParameterLength;
     private final int nPlusOneThreshold;
 
-    private final Deque<CapturedStatement> buffer = new ArrayDeque<>();
-    private final Object lock = new Object();
+    private final TieredCaptureBuffer<CapturedStatement> buffer;
     private final AtomicLong sequence = new AtomicLong();
     private final AtomicLong totalCaptured = new AtomicLong();
-    private final AtomicLong evicted = new AtomicLong();
     private final AtomicBoolean recording;
     private volatile boolean idleSuspended = false;
     private final Set<String> dataSourceNames = new ConcurrentSkipListSet<>();
@@ -117,6 +118,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
     private volatile TraceIdProvider traceIdProvider = SqlTraceRecorder::mdcTraceId;
     private volatile SpanEnricher spanEnricher = SpanEnricher.NO_OP;
 
+    /** A recorder reserving the default share of its buffer for failed and slow executions. */
     public SqlTraceRecorder(
             boolean enabled,
             boolean recording,
@@ -127,6 +129,34 @@ public final class SqlTraceRecorder implements IdleReclaimable {
             int maxSqlLength,
             int maxParameterLength,
             int nPlusOneThreshold) {
+        this(
+                enabled,
+                recording,
+                captureParameters,
+                captureCallSite,
+                maxEntries,
+                slowQueryThresholdMillis,
+                maxSqlLength,
+                maxParameterLength,
+                nPlusOneThreshold,
+                TieredCaptureBuffer.DEFAULT_RESERVED_SHARE_PERCENT);
+    }
+
+    /**
+     * @param reservedSharePercent share of {@code maxEntries} reserved for failed and slow executions
+     *     ({@code bootui.sql-trace.reserved-share-percent}); {@code 0} evicts strictly oldest first
+     */
+    public SqlTraceRecorder(
+            boolean enabled,
+            boolean recording,
+            boolean captureParameters,
+            boolean captureCallSite,
+            int maxEntries,
+            long slowQueryThresholdMillis,
+            int maxSqlLength,
+            int maxParameterLength,
+            int nPlusOneThreshold,
+            int reservedSharePercent) {
         this.enabled = enabled;
         this.recording = new AtomicBoolean(recording);
         this.captureParameters = captureParameters;
@@ -140,6 +170,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
         this.maxSqlLength = Math.max(16, maxSqlLength);
         this.maxParameterLength = Math.max(8, maxParameterLength);
         this.nPlusOneThreshold = Math.max(2, nPlusOneThreshold);
+        this.buffer = new TieredCaptureBuffer<>(this.maxEntries, reservedSharePercent);
     }
 
     public boolean isEnabled() {
@@ -195,6 +226,11 @@ public final class SqlTraceRecorder implements IdleReclaimable {
         return slowQueryThresholdMillis;
     }
 
+    /** Executions of {@link #getMaxEntries()} reserved for failed and slow executions. */
+    public int getReservedCapacity() {
+        return buffer.reservedCapacity();
+    }
+
     /**
      * Whether a duration exceeds the configured slow-query threshold. The threshold stays configured in
      * whole milliseconds ({@code bootui.sql-trace.slow-query-threshold-millis}); only the comparison unit is
@@ -220,7 +256,8 @@ public final class SqlTraceRecorder implements IdleReclaimable {
     }
 
     /**
-     * Records one execution, truncating oversized SQL and evicting the oldest entry when full. The duration
+     * Records one execution, truncating oversized SQL and evicting per the failure-preserving policy when full.
+     * A failed statement or one at or above the slow-query threshold is eligible for the reserved share. The duration
      * is taken in microseconds so sub-millisecond statements — the normal case against a local database —
      * contribute their real cost to every aggregate instead of collapsing to zero.
      */
@@ -255,13 +292,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
                 resolveTraceId(),
                 captureParameters ? List.copyOf(parameters == null ? List.of() : parameters) : List.of(),
                 captureCallSite ? currentCallSite() : null);
-        synchronized (lock) {
-            buffer.addLast(entry);
-            while (buffer.size() > maxEntries) {
-                buffer.removeFirst();
-                evicted.incrementAndGet();
-            }
-        }
+        buffer.add(entry, !entry.success() || isSlow(entry.durationMicros()));
         totalCaptured.incrementAndGet();
         notifyListeners();
         enrichActiveSpan(entry.traceId());
@@ -291,13 +322,9 @@ public final class SqlTraceRecorder implements IdleReclaimable {
         return SqlTraceGrouping.anySuspectedNPlusOne(forTrace, nPlusOneThreshold);
     }
 
-    /** Returns the retained executions, most recent first. */
+    /** Returns the retained executions, most recent first, across both retention tiers. */
     public List<CapturedStatement> recent() {
-        synchronized (lock) {
-            List<CapturedStatement> snapshot = new ArrayList<>(buffer);
-            java.util.Collections.reverse(snapshot);
-            return snapshot;
-        }
+        return new ArrayList<>(buffer.newestFirst());
     }
 
     public long totalCaptured() {
@@ -305,13 +332,16 @@ public final class SqlTraceRecorder implements IdleReclaimable {
     }
 
     public long evicted() {
-        return evicted.get();
+        return buffer.evicted();
+    }
+
+    /** The buffer's retention counts: capacity, reserved share, retained and reserved executions, and evictions. */
+    public CaptureRetentionDto retention() {
+        return buffer.snapshot().retention(slowQueryThresholdMillis);
     }
 
     public void clear() {
-        synchronized (lock) {
-            buffer.clear();
-        }
+        buffer.clear();
         notifyListeners();
     }
 
@@ -348,6 +378,10 @@ public final class SqlTraceRecorder implements IdleReclaimable {
 
     /** Computes aggregate counters over the retained buffer. */
     public SqlTraceStatsDto stats() {
+        return stats(buffer.snapshot());
+    }
+
+    private SqlTraceStatsDto stats(TieredCaptureBuffer.Snapshot<CapturedStatement> snapshot) {
         long total = 0;
         long totalDurationMicros = 0;
         long maxDurationMicros = 0;
@@ -359,11 +393,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
         long updates = 0;
         long deletes = 0;
         long others = 0;
-        List<CapturedStatement> snapshot;
-        synchronized (lock) {
-            snapshot = new ArrayList<>(buffer);
-        }
-        for (CapturedStatement entry : snapshot) {
+        for (CapturedStatement entry : snapshot.newestFirst()) {
             total++;
             totalDurationMicros += entry.durationMicros();
             maxDurationMicros = Math.max(maxDurationMicros, entry.durationMicros());
@@ -398,7 +428,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
                 updates,
                 deletes,
                 others,
-                evicted.get());
+                snapshot.evicted());
     }
 
     /**
@@ -408,13 +438,12 @@ public final class SqlTraceRecorder implements IdleReclaimable {
      * by walking the snapshot most-recent-first before aggregating.
      */
     public List<SqlTraceGroupDto> topStatements() {
-        List<CapturedStatement> snapshot;
-        synchronized (lock) {
-            snapshot = new ArrayList<>(buffer);
-        }
-        java.util.Collections.reverse(snapshot);
+        return topStatements(buffer.snapshot());
+    }
+
+    private List<SqlTraceGroupDto> topStatements(TieredCaptureBuffer.Snapshot<CapturedStatement> snapshot) {
         Map<String, Aggregate> byStatement = new LinkedHashMap<>();
-        for (CapturedStatement entry : snapshot) {
+        for (CapturedStatement entry : snapshot.newestFirst()) {
             String sql = entry.sql() == null ? "" : entry.sql();
             Aggregate aggregate = byStatement.computeIfAbsent(sql, key -> new Aggregate(key, entry.category()));
             aggregate.executions++;
@@ -450,6 +479,8 @@ public final class SqlTraceRecorder implements IdleReclaimable {
      * unavailable case (no data source / tracing off); this method covers the available, wrapped case.
      */
     public SqlTraceReport report(boolean exposeParameters) {
+        // One snapshot feeds every section, so the entries, statistics, and retention counts always reconcile.
+        TieredCaptureBuffer.Snapshot<CapturedStatement> snapshot = buffer.snapshot();
         return new SqlTraceReport(
                 true,
                 null,
@@ -459,10 +490,13 @@ public final class SqlTraceRecorder implements IdleReclaimable {
                 totalCaptured(),
                 getSlowQueryThresholdMillis(),
                 dataSourceNames(),
-                stats(),
-                entries(exposeParameters),
-                topStatements(),
-                warnings(exposeParameters));
+                stats(snapshot),
+                snapshot.newestFirst().stream()
+                        .map(entry -> toDto(entry, exposeParameters))
+                        .toList(),
+                topStatements(snapshot),
+                warnings(exposeParameters, snapshot),
+                snapshot.retention(slowQueryThresholdMillis));
     }
 
     /**
@@ -475,7 +509,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
         return recent().stream().map(entry -> toDto(entry, exposeParameters)).toList();
     }
 
-    private List<String> warnings(boolean exposeParameters) {
+    private List<String> warnings(boolean exposeParameters, TieredCaptureBuffer.Snapshot<CapturedStatement> snapshot) {
         List<String> warnings = new ArrayList<>();
         if (!isRecording()) {
             warnings.add("Recording is paused. Resume it to capture new queries.");
@@ -484,10 +518,19 @@ public final class SqlTraceRecorder implements IdleReclaimable {
             warnings.add("Bound parameter values are captured in clear text. "
                     + "Set bootui.sql-trace.capture-parameters=false to hide them.");
         }
-        if (evicted() > 0) {
-            warnings.add("Older queries were dropped; the buffer keeps the most recent " + getMaxEntries() + ".");
+        if (snapshot.evicted() > 0) {
+            warnings.add(evictionWarning(snapshot));
         }
         return warnings;
+    }
+
+    private static String evictionWarning(TieredCaptureBuffer.Snapshot<CapturedStatement> snapshot) {
+        String warning = "Older queries were dropped; the buffer keeps up to " + snapshot.capacity() + " executions";
+        if (snapshot.reservedCapacity() == 0) {
+            return warning + ", newest first.";
+        }
+        return warning + ", reserving " + snapshot.reservedCapacity()
+                + " for the most recent failed or slow ones, so routine executions are dropped first.";
     }
 
     private SqlTraceEntryDto toDto(CapturedStatement entry, boolean exposeParameters) {

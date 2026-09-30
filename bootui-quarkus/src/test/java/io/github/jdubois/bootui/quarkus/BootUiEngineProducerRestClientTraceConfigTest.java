@@ -28,7 +28,9 @@ class BootUiEngineProducerRestClientTraceConfigTest {
                 "bootui.rest-client-trace.max-entries",
                 "11",
                 "bootui.rest-client-trace.chatty-call-threshold",
-                "4"));
+                "4",
+                "bootui.rest-client-trace.reserved-share-percent",
+                "50"));
         RestClientTraceRecorder recorder = new BootUiEngineProducer()
                 .restClientTraceRecorder(config, new FixedInstance<>((TraceIdProvider) () -> "trace-from-otel"));
 
@@ -50,6 +52,7 @@ class BootUiEngineProducerRestClientTraceConfigTest {
         assertThat(recorder.getSlowCallThresholdMillis()).isEqualTo(37);
         assertThat(recorder.getMaxEntries()).isEqualTo(11);
         assertThat(recorder.getChattyCallThreshold()).isEqualTo(4);
+        assertThat(recorder.getReservedCapacity()).isEqualTo(5);
         assertThat(recorder.recent()).singleElement().satisfies(call -> {
             assertThat(call.traceId()).isEqualTo("trace-from-otel");
             assertThat(call.requestHeaders()).isEmpty();

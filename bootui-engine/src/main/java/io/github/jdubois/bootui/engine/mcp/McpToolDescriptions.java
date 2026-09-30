@@ -52,7 +52,9 @@ public final class McpToolDescriptions {
             Map.entry(
                     "get_sql_traces",
                     "Return the current bounded SQL trace snapshot with statements and timings. Application SQL may "
-                            + "contain sensitive values; correlate it locally with request or trace identifiers."),
+                            + "contain sensitive values; correlate it locally with request or trace identifiers. "
+                            + "The retention object reports capacity and retained, reserved, and evicted counts: "
+                            + "failed and slow statements are kept longer, so the window is not complete."),
             Map.entry(
                     "get_transactions",
                     "Return the current bounded transaction-boundary snapshot with outcomes, timings, nesting, and "
@@ -69,7 +71,9 @@ public final class McpToolDescriptions {
             Map.entry(
                     "get_http_exchanges",
                     "Return a bounded, newest-first snapshot of application HTTP request/response metadata. Correlate "
-                            + "paths, statuses, and timings with live activity and traces."),
+                            + "paths, statuses, and timings with live activity and traces. The retention object "
+                            + "reports capacity and retained, reserved, and evicted counts: 5xx and slow exchanges "
+                            + "are kept longer, so the window is not complete."),
             Map.entry(
                     "get_overview",
                     "Return stable application identity and runtime context, including versions, active profiles, and "
@@ -231,7 +235,9 @@ public final class McpToolDescriptions {
             Map.entry(
                     "get_rest_client_traces",
                     "Return the current bounded REST-client trace snapshot with masked headers and bodies according to "
-                            + "BootUI exposure policy. This does not send requests or change recording state."),
+                            + "BootUI exposure policy. This does not send requests or change recording state. The "
+                            + "retention object reports capacity and retained, reserved, and evicted counts: failed, "
+                            + "error, and slow calls are kept longer, so the window is not complete."),
             Map.entry(
                     "get_ai_overview",
                     "Return the local AI-framework telemetry overview derived from already-captured OTLP spans. This "

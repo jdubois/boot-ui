@@ -111,6 +111,11 @@ public final class SqlTraceInsightsService {
         if (recorder.evicted() > 0) {
             notes.add("Older executions have been dropped from the buffer, so totals and percentiles "
                     + "under-report work that has already aged out.");
+            if (recorder.getReservedCapacity() > 0) {
+                notes.add("Failed and slow executions are kept longer than routine ones (up to "
+                        + recorder.getReservedCapacity() + " of the buffer), so the window can over-represent "
+                        + "them relative to the traffic that produced them.");
+            }
         }
         if (!recorder.isRecording()) {
             notes.add("Recording is paused, so the window will not grow until it is resumed.");

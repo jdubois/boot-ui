@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.quarkus.sqltrace;
 
 import io.agroal.api.AgroalDataSource;
+import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies;
 import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
@@ -58,6 +59,8 @@ public class BootUiSqlTraceProducer {
                 .orElse(200);
         int nPlusOne = config.getOptionalValue("bootui.sql-trace.n-plus-one-threshold", Integer.class)
                 .orElse(5);
+        int reservedSharePercent = config.getOptionalValue("bootui.sql-trace.reserved-share-percent", Integer.class)
+                .orElse(TieredCaptureBuffer.DEFAULT_RESERVED_SHARE_PERCENT);
         SqlTraceRecorder recorder = new SqlTraceRecorder(
                 enabled,
                 recording,
@@ -67,7 +70,8 @@ public class BootUiSqlTraceProducer {
                 slowThreshold,
                 maxSqlLength,
                 maxParamLength,
-                nPlusOne);
+                nPlusOne,
+                reservedSharePercent);
         // When OpenTelemetry is present, stamp each recorded statement with the active span's trace id so the
         // Live Activity timeline nests it under its owning request. This replaces the engine's default SLF4J
         // MDC lookup, which Quarkus does not populate on the worker thread blocking SQL runs on; the
