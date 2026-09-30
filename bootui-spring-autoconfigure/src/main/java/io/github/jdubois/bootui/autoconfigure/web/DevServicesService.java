@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.core.dto.DevServiceDto;
 import io.github.jdubois.bootui.core.dto.DevServiceLogReport;
 import io.github.jdubois.bootui.core.dto.DevServicePortDto;
 import io.github.jdubois.bootui.core.dto.DevServiceRestartResult;
+import io.github.jdubois.bootui.engine.devservices.DevServiceLogTail;
 import io.github.jdubois.bootui.engine.devservices.DevServiceTypeInference;
 import java.lang.reflect.Array;
 import java.lang.reflect.InvocationTargetException;
@@ -142,14 +143,15 @@ class DevServicesService implements io.github.jdubois.bootui.spi.DevServicesProv
         if (logsMethod == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Logs are not available for this service");
         }
-        Object logs = invokeLogs(bean, logsMethod);
-        String text = logs == null ? "" : String.valueOf(logs);
         int maxBytes = Math.max(1024, properties.getDevServices().getLogTailBytes());
-        boolean truncated = text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > maxBytes;
-        if (truncated) {
-            text = tailByBytes(text, maxBytes);
-        }
-        return new DevServiceLogReport(id, text, truncated, maxBytes);
+        return DevServiceLogTail.report(
+                id,
+                () -> {
+                    Object logs = invokeLogs(bean, logsMethod);
+                    return logs == null ? "" : String.valueOf(logs);
+                },
+                maxBytes,
+                exposure);
     }
 
     public DevServiceRestartResult restart(String id) {
@@ -696,19 +698,5 @@ class DevServicesService implements io.github.jdubois.bootui.spi.DevServicesProv
 
     private boolean isPresent(String className) {
         return ClassUtils.isPresent(className, applicationContext.getClassLoader());
-    }
-
-    private String tailByBytes(String text, int maxBytes) {
-        byte[] bytes = text.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        if (bytes.length <= maxBytes) {
-            return text;
-        }
-        String tail = new String(bytes, bytes.length - maxBytes, maxBytes, java.nio.charset.StandardCharsets.UTF_8);
-        int replacement = tail.indexOf('\uFFFD');
-        while (replacement == 0 && tail.length() > 1) {
-            tail = tail.substring(1);
-            replacement = tail.indexOf('\uFFFD');
-        }
-        return tail;
     }
 }

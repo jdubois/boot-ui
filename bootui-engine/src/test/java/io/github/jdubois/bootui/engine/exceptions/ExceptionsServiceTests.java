@@ -7,6 +7,8 @@ import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.ExceptionsReport;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
+import java.util.List;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
 class ExceptionsServiceTests {
@@ -85,6 +87,54 @@ class ExceptionsServiceTests {
                         .get(0)
                         .message())
                 .isNull();
+    }
+
+    @Test
+    void messagesMatchThePreSharedRuleInEveryExposureMode() {
+        // The secret-assignment pattern moved into the shared MessageExposure helper. This pins the exact output
+        // the service produced before the move, for group and cause messages alike.
+        Pattern before = Pattern.compile(
+                "(?i)([\"']?(?:password|passwd|pwd|secret|token|api[-_]?key|apikey|authorization|credential|"
+                        + "access[-_]?key|client[-_]?secret|private[-_]?key)[\"']?\\s*[=:]\\s*[\"']?)([^\\s\"',;&)]+)");
+        List<String> messages = List.of(
+                "auth failed password=hunter2",
+                "{\"apiKey\": \"ak-1\", 'client_secret':'cs-2'}",
+                "multi\nline token: tok-3\nAuthorization: basic-4",
+                "Access-Key = ak5, private_key=pk6; pwd=(x)",
+                "nothing secret here",
+                "");
+        for (ValueExposure mode : ValueExposure.values()) {
+            for (boolean mask : new boolean[] {true, false}) {
+                for (String message : messages) {
+                    ExceptionsService service = new ExceptionsService(policy(mode, mask));
+                    String expected = mode == ValueExposure.METADATA_ONLY
+                            ? null
+                            : mode == ValueExposure.MASKED && mask
+                                    ? before.matcher(message).replaceAll(result -> result.group(1) + "******")
+                                    : message;
+
+                    ExceptionStore direct = new ExceptionStore(100, 25, 50);
+                    direct.record(new IllegalStateException(message), "main", null, null, null, "log");
+                    ExceptionStore wrapped = new ExceptionStore(100, 25, 50);
+                    wrapped.record(
+                            new IllegalStateException("outer", new IllegalArgumentException(message)),
+                            "main",
+                            null,
+                            null,
+                            null,
+                            "log");
+                    ExceptionStore.GroupDetail detail =
+                            wrapped.find(wrapped.groups().get(0).fingerprint());
+
+                    assertThat(service.report(direct).groups().get(0).message())
+                            .as("%s/%s group: %s", mode, mask, message)
+                            .isEqualTo(expected);
+                    assertThat(service.detail(detail).causes().get(0).message())
+                            .as("%s/%s cause: %s", mode, mask, message)
+                            .isEqualTo(expected);
+                }
+            }
+        }
     }
 
     @Test

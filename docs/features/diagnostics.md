@@ -50,6 +50,24 @@ keep a misconfigured local exporter from overflowing the UI. These bounds behave
 The Log Tail panel reads recent local application logs and streams new log events from the running process, for quick
 diagnosis without leaving the console.
 
+### Log message exposure
+
+Log messages follow the same exposure rule as [exception messages](#exposure-and-bounds). Under the default
+`bootui.expose-values=MASKED` the value of each secret-like `key=value` or `key: value` assignment, such as a password,
+token, or API key, is replaced with `******`, on every line of a multi-line message. Under `METADATA_ONLY` the message
+is omitted while the timestamp, level, logger, and thread remain, and the panel marks each such line
+**message omitted by policy** rather than showing it empty. Only under `FULL`, or with `bootui.mask-secrets=false`, are
+messages shown verbatim. Only the first word of an assignment's value is masked, so a bare token, a credential inside
+a connection string, or the token after an authorization scheme, as in `Authorization: Bearer <token>`, is not. Treat
+log output as local diagnostic data.
+
+The rule applies when a line is read, not when it is captured, so it covers the recent snapshot
+(`GET /bootui/api/log-tail/recent`), the SSE stream including its replayed backlog, the `get_log_tail` MCP tool, and
+`bootui logs tail` on Spring MVC, Spring WebFlux, and Quarkus alike. Changing `bootui.expose-values` or
+`bootui.mask-secrets` at runtime applies to the next snapshot and the next streamed line, including lines captured
+before the change, without a restart. Each line carries a `messageOmitted` flag that is `true` only when the policy
+withheld its message.
+
 ## Exceptions
 
 ![BootUI Exceptions panel](../images/bootui-exceptions.webp)

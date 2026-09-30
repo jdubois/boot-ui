@@ -382,7 +382,11 @@ async function responseMessage(res) {
                   <h4 class="fs-6 mb-0">Logs</h4>
                   <span v-if="logs.truncated" class="badge text-bg-warning">Tail {{ logs.maxBytes }} bytes</span>
                 </div>
-                <pre class="logs rounded border p-2 mt-2 mb-0"><code>{{
+                <div v-if="logs.logsOmitted" class="alert alert-info py-2 small mt-2 mb-0" role="note">
+                  <i aria-hidden="true" class="bi bi-eye-slash me-1"></i>
+                  Container logs are omitted because <code>bootui.expose-values</code> is <code>METADATA_ONLY</code>.
+                </div>
+                <pre v-else class="logs rounded border p-2 mt-2 mb-0"><code>{{
                     logs.logs || 'No log output yet.'
                   }}</code></pre>
               </template>

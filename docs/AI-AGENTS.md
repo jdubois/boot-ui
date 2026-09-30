@@ -423,7 +423,8 @@ The MCP server inherits BootUI's full safety posture, so handing it to an agent 
 - Read tools require the backing panel to be enabled; all action tools are additionally refused when the panel is
   read-only or `bootui.read-only=true`, returning a clear tool error instead of running.
 - Values pass through the same secret masking and `bootui.expose-values` mode as the REST API, and paginated reads are
-  capped by `bootui.mcp.max-results` (default `200`).
+  capped by `bootui.mcp.max-results` (default `200`). `get_log_tail` and `get_exceptions` mask secret-like assignments
+  in messages by default and omit messages under `METADATA_ONLY`, flagging a log line's `messageOmitted`.
 - MCP request size, concurrency, tool execution time, and rendered response size are independently bounded through
   `bootui.mcp.*`; capacity, timeout, and response-limit failures are explicit rather than silently truncated.
 

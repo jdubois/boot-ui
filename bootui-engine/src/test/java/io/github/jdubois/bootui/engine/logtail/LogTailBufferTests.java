@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.core.dto.LogLineDto;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ThreadFactory;
 import org.junit.jupiter.api.Test;
 
 class LogTailBufferTests {
@@ -66,5 +67,34 @@ class LogTailBufferTests {
         buffer.add(line("first"));
         assertThat(seen).containsExactly("first");
         assertThat(buffer.recent().stream().map(LogLineDto::message)).containsExactly("first");
+    }
+
+    @Test
+    void neverCapturesLinesLoggedOnADeliveryThread() throws Exception {
+        LogTailBuffer buffer = new LogTailBuffer();
+        List<LogLineDto> delivered = new ArrayList<>();
+        buffer.subscribeWithReplay(delivered::add);
+        ThreadFactory factory = LogTailBuffer.deliveryThreadFactory("bootui-log-tail-test-");
+
+        Thread delivery = factory.newThread(() -> buffer.add(line("logged while delivering")));
+        delivery.start();
+        delivery.join(5_000);
+        buffer.add(line("application line"));
+
+        assertThat(delivery.getName()).isEqualTo("bootui-log-tail-test-1");
+        assertThat(delivery.isDaemon()).isTrue();
+        assertThat(buffer.recent()).extracting(LogLineDto::message).containsExactly("application line");
+        assertThat(delivered).extracting(LogLineDto::message).containsExactly("application line");
+    }
+
+    @Test
+    void countsLiveSubscribers() {
+        LogTailBuffer buffer = new LogTailBuffer();
+        LogTailBuffer.Subscription first = buffer.subscribeWithReplay(line -> {});
+        buffer.subscribeWithReplay(line -> {});
+
+        assertThat(buffer.subscriberCount()).isEqualTo(2);
+        first.unsubscribe().run();
+        assertThat(buffer.subscriberCount()).isOne();
     }
 }

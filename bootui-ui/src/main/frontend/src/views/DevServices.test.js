@@ -79,4 +79,64 @@ describe('DevServices', () => {
     expect(wrapper.text()).toContain('1 Dev Service')
     expect(wrapper.text()).not.toContain('No Quarkus Dev Services are running')
   })
+
+  it('says why container logs are missing when the exposure policy omits them', async () => {
+    const container = service({id: 'bean:redis', name: 'Redis', source: 'Testcontainers', logsAvailable: true})
+    const responses = {
+      'api/dev-services': report({services: [container], total: 1, testcontainersPresent: true}),
+      'api/dev-services/bean%3Aredis/logs': {
+        id: 'bean:redis',
+        logs: null,
+        truncated: false,
+        maxBytes: 65536,
+        logsOmitted: true
+      }
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => Promise.resolve(new Response(JSON.stringify(responses[String(url)]), {status: 200})))
+    )
+    const wrapper = mount(DevServices)
+    await flushPromises()
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'View logs')
+      .trigger('click')
+    await flushPromises()
+
+    const note = wrapper.get('[role="note"]')
+    expect(note.text()).toContain('Container logs are omitted because bootui.expose-values is METADATA_ONLY.')
+    expect(wrapper.find('pre.logs').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('No log output yet.')
+  })
+
+  it('shows masked container logs as returned', async () => {
+    const container = service({id: 'bean:redis', name: 'Redis', source: 'Testcontainers', logsAvailable: true})
+    const responses = {
+      'api/dev-services': report({services: [container], total: 1, testcontainersPresent: true}),
+      'api/dev-services/bean%3Aredis/logs': {
+        id: 'bean:redis',
+        logs: 'ready\nREDIS_PASSWORD=******',
+        truncated: false,
+        maxBytes: 65536,
+        logsOmitted: false
+      }
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => Promise.resolve(new Response(JSON.stringify(responses[String(url)]), {status: 200})))
+    )
+    const wrapper = mount(DevServices)
+    await flushPromises()
+
+    await wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'View logs')
+      .trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('pre.logs').text()).toBe('ready\nREDIS_PASSWORD=******')
+    expect(wrapper.find('[role="note"]').exists()).toBe(false)
+  })
 })

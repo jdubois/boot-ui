@@ -85,6 +85,27 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Log Tail and Dev Services container logs follow the value-exposure policy.** Log messages were returned exactly
+  as captured on every surface, and Spring's Dev Services container logs verbatim, so a logged password assignment was
+  shown in full under the default `MASKED` mode. Both now apply the rule exception messages already follow, through
+  one shared engine helper: secret-like `key=value` and `key: value` assignments are masked under `MASKED`, text is
+  omitted under `METADATA_ONLY`, and it is verbatim only under `FULL` or with `bootui.mask-secrets=false`. Log Tail
+  applies it when a line is read, so the recent snapshot, the SSE stream and its replayed backlog, `get_log_tail`, and
+  `bootui logs tail` are covered on Spring MVC, Spring WebFlux, and Quarkus, and a runtime exposure change applies to
+  retained lines and open streams without a restart. Container logs are masked before the tail is cut and are not read
+  at all under `METADATA_ONLY`. `LogLineDto.message` and `DevServiceLogReport.logs` are now nullable, and the additive
+  `messageOmitted` and `logsOmitted` flags let the Log Tail and Dev Services panels say a message was omitted by policy
+  instead of showing an empty line. Exception messages are unchanged.
+- **Log Tail streams no longer do exposure or encoding work on application logging threads.** Spring WebFlux and
+  Quarkus now hand each captured line to dedicated delivery threads, as Spring MVC already did. A line logged on one of
+  those threads is never captured, and WebFlux serializes each line there rather than leaving it to Spring's encoder,
+  so a stream can no longer feed its own log output, such as framework debug logging, back to itself. Like Spring MVC,
+  a WebFlux or Quarkus client that falls 1,000 lines behind is disconnected and reconnects, instead of buffering
+  without bound, and a stream always releases its slot and subscription, even when its delivery task is rejected.
+- **An invalid `bootui.expose-values` or `bootui.mask-secrets` value is reported once rather than on every read, on
+  Spring and Quarkus.** On Quarkus an unrecognized `bootui.mask-secrets` value such as a typo now keeps masking on,
+  instead of being converted to `false`, and `bootui.expose-values=metadata-only` is accepted for `METADATA_ONLY`, as
+  Spring's relaxed binding already did.
 - **SQL Trace and REST Client show call sites for the sample apps.** BootUI skipped the whole
   `io.github.jdubois.bootui` namespace when looking for the application frame that issued a statement or an
   outbound call. Because the Spring MVC, Spring WebFlux, and Quarkus sample apps live under it, their call sites were
