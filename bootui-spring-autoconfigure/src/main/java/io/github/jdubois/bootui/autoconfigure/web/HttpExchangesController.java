@@ -83,10 +83,12 @@ public class HttpExchangesController {
         }
         List<HttpExchange> exchanges;
         CaptureRetentionDto retention;
+        boolean selfExcludedAtCapture = false;
         if (exchangeRepository instanceof BootUiHttpExchangeRepository bootUiRepository) {
             TieredCaptureBuffer.Snapshot<HttpExchange> snapshot = bootUiRepository.snapshot();
             exchanges = snapshot.newestFirst();
             retention = bootUiRepository.retention(snapshot);
+            selfExcludedAtCapture = bootUiRepository.ownsRetention();
         } else {
             exchanges = exchangeRepository.findAll();
             retention = CaptureRetentionDto.applicationManaged(exchanges.size());
@@ -94,9 +96,13 @@ public class HttpExchangesController {
         HttpExchangeTraceRegistry.Matcher traces = traceRegistry == null ? null : traceRegistry.matcher();
         List<CapturedHttpExchange> captured =
                 exchanges.stream().map(exchange -> toCaptured(exchange, traces)).toList();
+        // BootUI's own recording filter already kept BootUI's requests out; an application-managed recorder keeps the
+        // read-time check.
         return service.report(
                 captured,
-                uri -> !selfDataFilter.shouldInclude(selfDataFilter.isBootUiPath(uri)),
+                selfExcludedAtCapture
+                        ? HttpExchangesService.BootUiSelfPath.EXCLUDED_AT_CAPTURE
+                        : uri -> !selfDataFilter.shouldInclude(selfDataFilter.isBootUiPath(uri)),
                 exposure.maskSecrets(),
                 exposure.valueExposure(),
                 query,

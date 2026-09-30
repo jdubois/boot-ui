@@ -151,6 +151,35 @@ class HttpExchangesControllerTests {
     }
 
     @Test
+    void doesNotHideApplicationExchangesUnderAContextPathThatContainsTheBootUiMount() {
+        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(5, 25, 1_000L, false);
+        // Recorded by BootUI's filter under server.servlet.context-path=/bootui: the path within the application is
+        // /api/orders, so it is application traffic even though the absolute URL starts with the BootUI mount.
+        repository.add(exchange("GET", "http://localhost/bootui/api/orders", 500));
+        HttpExchangesController controller =
+                new HttpExchangesController(providerOf(repository), new BootUiProperties());
+
+        HttpExchangesReport report = controller.exchanges(null, null, null, null, null);
+
+        assertThat(report.hiddenSelf()).isZero();
+        assertThat(report.exchanges()).extracting(HttpExchangeDto::path).containsExactly("/bootui/api/orders");
+    }
+
+    @Test
+    void stillHidesBootUiExchangesAtReadTimeForAnApplicationRecordedRepository() {
+        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(5, 25, 1_000L, true);
+        repository.add(exchange("GET", "http://localhost/bootui/api/panels", 200));
+        repository.add(exchange("GET", "http://localhost/api/orders", 200));
+        HttpExchangesController controller =
+                new HttpExchangesController(providerOf(repository), new BootUiProperties());
+
+        HttpExchangesReport report = controller.exchanges(null, null, null, null, null);
+
+        assertThat(report.hiddenSelf()).isEqualTo(1);
+        assertThat(report.exchanges()).extracting(HttpExchangeDto::path).containsExactly("/api/orders");
+    }
+
+    @Test
     void masksBareSensitiveQueryParameterWithoutFabricatingEquals() {
         HttpExchange appExchange = exchange("GET", "http://localhost/api/orders?token&page=1", 200);
         HttpExchangesController controller =

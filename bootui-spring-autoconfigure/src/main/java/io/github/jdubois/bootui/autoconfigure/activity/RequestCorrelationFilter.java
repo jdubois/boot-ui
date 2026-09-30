@@ -129,7 +129,9 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
 
     /**
      * Skips BootUI's own requests, matched on the decoded path below the context path exactly as BootUI's recording
-     * filter matches them, so this filter's trace records and the recorded exchanges cover the same requests.
+     * filter matches them, so, while {@code bootui.monitoring.exclude-self} is on, this filter's trace records and the
+     * recorded exchanges cover the same requests. With it off, BootUI's own exchanges are recorded and shown without a
+     * server trace id or route template, as before.
      */
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {

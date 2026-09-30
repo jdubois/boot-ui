@@ -340,6 +340,14 @@ public final class HttpExchangesService {
 
     /** Decides whether an exchange URI is BootUI's own traffic (hidden from the panel). */
     public interface BootUiSelfPath {
+
+        /**
+         * For a recorder that already kept BootUI's own requests out, judged on the path below the context path:
+         * hides nothing, because a second check on the absolute URL could only hide application requests under a
+         * context path that contains the BootUI mount.
+         */
+        BootUiSelfPath EXCLUDED_AT_CAPTURE = uri -> false;
+
         boolean isBootUiPath(String uri);
     }
 }

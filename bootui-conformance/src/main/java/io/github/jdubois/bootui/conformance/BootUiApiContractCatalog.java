@@ -215,7 +215,7 @@ public final class BootUiApiContractCatalog {
                             "recorded", JsonType.INTEGER,
                             "hiddenSelf", JsonType.INTEGER,
                             "unavailableReason", JsonType.NULLABLE_STRING,
-                            "retention", JsonType.OBJECT)),
+                            "retention", JsonType.NULLABLE_OBJECT)),
             advisor("architecture", "/architecture", "results"),
             advisor("rest-api", "/rest-api", "results"),
             read(
