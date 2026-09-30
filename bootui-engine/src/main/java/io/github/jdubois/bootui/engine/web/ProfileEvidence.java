@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
 import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
+import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Function;
@@ -85,6 +86,23 @@ public record ProfileEvidence(
         /** A source whose panel is enabled but is not capturing on this application. */
         public static <T> Source<T> notCapturing(String panelTitle) {
             return unavailable(panelTitle + " is not capturing on this application.");
+        }
+
+        /**
+         * The cache accesses a recorder retained, or why it cannot contribute: absent, disabled, or not yet
+         * wrapping any cache manager, in which case no access could have been captured.
+         */
+        public static Source<CacheActivityEvent> cacheAccesses(CacheActivityRecorder recorder) {
+            if (recorder == null) {
+                return unavailable("Cache access capture is not available on this application.");
+            }
+            if (!recorder.isEnabled()) {
+                return unavailable("Cache access capture is disabled (bootui.cache.activity-capture-enabled=false).");
+            }
+            if (!recorder.hasInstrumentedManager()) {
+                return unavailable("No cache manager is instrumented for cache access capture on this application.");
+            }
+            return of(recorder.recentEvents());
         }
     }
 }

@@ -202,7 +202,8 @@ A servlet request runs start-to-finish on one worker thread that serves only one
 thread is unambiguously its own. Spring WebFlux and Quarkus serve requests on shared event-loop and worker threads, so
 their profiles correlate by trace id only and list the serving-thread and time-window tiers as unavailable rather than
 guessing. For SQL, the time-window fallback applies only when no statement matched a trace id or the serving thread —
-two genuinely concurrent identical requests, or SQL run on an async thread.
+two genuinely concurrent identical requests, or SQL run on an async thread. On Spring MVC, exceptions still match the
+request's method, path, and window; a trace id or the serving thread then settles which request threw them.
 
 Security audit events follow the same rule: matched by time window and principal, but pinned exactly to the serving
 thread when BootUI captured them there, so two concurrent requests sharing a principal cannot trade security events. An
@@ -210,8 +211,9 @@ event proven to have fired on another thread is excluded.
 
 A signal attaches to at most one request. A trace id shared by two captured requests — a reused inbound
 `traceparent`, or an application calling itself — attaches nothing to either, and a signal that two requests' threads
-or windows could equally claim stays out of both profiles. The notes count every such signal, so nothing is attributed
-by guesswork.
+or windows could equally claim, such as a statement inside the overlapping windows of two concurrent identical
+requests, stays out of both profiles. The notes count every such signal, so nothing is attributed by guesswork. When a
+section mixes tiers, each entry names the tier that matched it.
 
 **REST client calls** are shown exactly as the REST Client panel shows them, with query and header values masked by
 the same exposure policy, and **cache accesses** carry only the short key hash the cache recorder computed, never a raw
@@ -223,7 +225,7 @@ group lists the call sites in your own code that issued it — class, method, an
 `bootui.sql-trace.capture-call-site` (on by default) — so you know which repository or service method to fix.
 
 Each section shows at most 200 entries and states how many more were correlated; N+1 groups and timing still count
-every correlated statement and call. A section whose source panel is disabled or not capturing explains why instead of
+every correlated statement and call, and at most 200 statement groups are listed. A section whose source panel is disabled or not capturing explains why instead of
 looking empty.
 
 The drawer also shows the request's timing breakdown (SQL and outbound REST calls versus everything else), its auth

@@ -23,8 +23,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   now serve the profile through `ExecutionProfileAssembler`, so identical evidence produces an identical profile. Each
   signal attaches to at most one request: a trace id shared by two captured requests, or a serving thread or time
   window two requests could equally claim, now leaves the signal out of both profiles and counts it in the notes,
-  instead of showing it in both. On Spring MVC, exceptions that carry the request's trace id now match it by trace id
-  first, as SQL already did.
+  instead of showing it in both. On Spring MVC, exceptions keep their method, path, and window match, within which a
+  trace id now settles which request threw them; on Quarkus, a disabled SQL Trace, Exceptions, or Security Logs panel
+  no longer contributes to request profiles, as on Spring.
 - **Quarkus 3.33.3.3.** The Quarkus extension, integration tests, and sample app move to Quarkus 3.33.3.3, the
   newest micro release of the 3.33 LTS stream.
 

@@ -16,6 +16,7 @@ import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
 import {useCopyToClipboard} from '../utils/useCopyToClipboard.js'
 import {
   cacheAccessSummary,
+  childTierLabel,
   profileSections,
   restCallSummary,
   tierLabel,
@@ -514,7 +515,7 @@ function renderProfileReport() {
   if (p.approximate) lines.push('Correlation: approximate (some signals were matched by time window only)')
   const meta = sections.value
   lines.push('')
-  lines.push(`SQL (${p.sqlCorrelationApproximate ? 'approximate, time-window' : 'exact'}${tierSuffix(meta.SQL)}):`)
+  lines.push(sqlHeading(p, meta.SQL))
   if (meta.SQL && !meta.SQL.available) {
     lines.push(`  (unavailable: ${meta.SQL.unavailableReason})`)
   } else if (p.sqlGroups && p.sqlGroups.length) {
@@ -532,9 +533,9 @@ function renderProfileReport() {
   if (p.exceptions && p.exceptions.length) {
     lines.push('')
     lines.push(`Exceptions${tierSuffix(meta.EXCEPTION, true)}:`)
-    for (const ex of p.exceptions) {
+    for (const [index, ex] of p.exceptions.entries()) {
       const message = ex.message ? `: ${ex.message}` : ''
-      lines.push(`  ${ex.exceptionClassName}${message}`)
+      lines.push(`  ${ex.exceptionClassName}${message}${childTierSuffix(meta.EXCEPTION, index)}`)
       if (ex.location) lines.push(`    at ${ex.location}`)
     }
     pushTruncation(lines, meta.EXCEPTION)
@@ -542,10 +543,10 @@ function renderProfileReport() {
   if (p.security && p.security.length) {
     lines.push('')
     lines.push(`Security events${tierSuffix(meta.SECURITY, true)}:`)
-    for (const event of p.security) {
+    for (const [index, event] of p.security.entries()) {
       const principal = event.principal ? ` · ${event.principal}` : ''
       const match = event.threadMatched ? ' (exact)' : ''
-      lines.push(`  ${event.type}${principal}${match}`)
+      lines.push(`  ${event.type}${principal}${match}${childTierSuffix(meta.SECURITY, index)}`)
     }
     pushTruncation(lines, meta.SECURITY)
   }
@@ -555,8 +556,10 @@ function renderProfileReport() {
     if (!meta.REST_CLIENT.available) {
       lines.push(`  (unavailable: ${meta.REST_CLIENT.unavailableReason})`)
     } else if (p.restCalls && p.restCalls.length) {
-      for (const call of p.restCalls) {
-        lines.push(`  ${restCallSummary(call)} · ${formatDurationMs(call.durationMillis)}`)
+      for (const [index, call] of p.restCalls.entries()) {
+        lines.push(
+          `  ${restCallSummary(call)} · ${formatDurationMs(call.durationMillis)}${childTierSuffix(meta.REST_CLIENT, index)}`
+        )
         if (!call.success && call.errorMessage) lines.push(`    ${call.errorMessage}`)
         if (call.callSite) lines.push(`    at ${call.callSite}`)
       }
@@ -571,9 +574,9 @@ function renderProfileReport() {
     if (!meta.CACHE.available) {
       lines.push(`  (unavailable: ${meta.CACHE.unavailableReason})`)
     } else if (p.cacheAccesses && p.cacheAccesses.length) {
-      for (const access of p.cacheAccesses) {
+      for (const [index, access] of p.cacheAccesses.entries()) {
         const key = access.keyHash ? ` · key ${access.keyHash}` : ''
-        lines.push(`  ${cacheAccessSummary(access)}${key}`)
+        lines.push(`  ${cacheAccessSummary(access)}${key}${childTierSuffix(meta.CACHE, index)}`)
       }
       pushTruncation(lines, meta.CACHE)
     } else {
@@ -593,6 +596,19 @@ function tierSuffix(section, standalone = false) {
   const label = tierLabel(section?.tier)
   if (!label) return ''
   return standalone ? ` (${label})` : `, ${label}`
+}
+
+function childTierSuffix(section, index) {
+  const label = childTierLabel(section, index)
+  return label ? ` [${label}]` : ''
+}
+
+// Older servers send no sections, so keep their original heading; otherwise name the tier that was used.
+function sqlHeading(p, section) {
+  if (!section) return `SQL (${p.sqlCorrelationApproximate ? 'approximate, time-window' : 'exact'}):`
+  if (!section.available) return 'SQL (unavailable):'
+  if (!section.tier) return 'SQL:'
+  return `SQL (${section.tier === 'TIME_WINDOW' ? 'approximate' : 'exact'}${tierSuffix(section)}):`
 }
 
 function pushTruncation(lines, section) {
@@ -1261,6 +1277,9 @@ function toggleFlow() {
               <div v-for="(ex, index) in profile.exceptions" :key="index" class="small mb-1">
                 <code>{{ ex.exceptionClassName }}</code>
                 <span v-if="ex.message" class="text-muted">: {{ ex.message }}</span>
+                <span v-if="childTierLabel(sections.EXCEPTION, index)" class="text-muted activity-child-tier">
+                  · {{ childTierLabel(sections.EXCEPTION, index) }}</span
+                >
                 <span v-if="ex.location" class="d-block text-muted">{{ ex.location }}</span>
               </div>
               <p v-if="sections.EXCEPTION?.truncationText" class="text-muted small mb-0">
@@ -1295,7 +1314,13 @@ function toggleFlow() {
                 >
                   principal
                 </span>
+                <span v-if="childTierLabel(sections.SECURITY, index)" class="text-muted activity-child-tier">
+                  · {{ childTierLabel(sections.SECURITY, index) }}</span
+                >
               </div>
+              <p v-if="sections.SECURITY?.truncationText" class="text-muted small mb-0">
+                {{ sections.SECURITY.truncationText }}
+              </p>
             </section>
 
             <section v-if="sections.REST_CLIENT" class="mb-3">
@@ -1312,9 +1337,12 @@ function toggleFlow() {
                 {{ sections.REST_CLIENT.unavailableReason }}
               </p>
               <template v-else>
-                <div v-for="call in profile.restCalls" :key="call.id" class="small mb-1 activity-rest-call">
+                <div v-for="(call, index) in profile.restCalls" :key="call.id" class="small mb-1 activity-rest-call">
                   <code>{{ restCallSummary(call) }}</code>
                   <span class="text-muted"> · {{ formatDurationMs(call.durationMillis) }}</span>
+                  <span v-if="childTierLabel(sections.REST_CLIENT, index)" class="text-muted activity-child-tier">
+                    · {{ childTierLabel(sections.REST_CLIENT, index) }}</span
+                  >
                   <span v-if="!call.success && call.errorMessage" class="d-block text-muted">{{
                     call.errorMessage
                   }}</span>
@@ -1350,6 +1378,9 @@ function toggleFlow() {
                 >
                   <code>{{ cacheAccessSummary(access) }}</code>
                   <span v-if="access.keyHash" class="text-muted"> · key {{ access.keyHash }}</span>
+                  <span v-if="childTierLabel(sections.CACHE, index)" class="text-muted activity-child-tier">
+                    · {{ childTierLabel(sections.CACHE, index) }}</span
+                  >
                 </div>
                 <p v-if="!profile.cacheAccesses?.length" class="text-muted small mb-0">
                   No cache accesses correlated to this request.

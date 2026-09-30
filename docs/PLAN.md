@@ -514,7 +514,9 @@ Architecture:
   assembler instead of growing Spring's `LiveActivityCorrelator` separately. §3.20a shipped it as
   `ExecutionProfileAssembler`, which every adapter now uses for request profiles: a later anchor type adds a
   `ProfileAnchor.Type`, its window, and a DTO projection, and reuses the tiers, bounds, and notes. HTTP anchors keep
-  today's request-profile policy.
+  today's tiers and keys, including Spring MVC's method, path, and window gate for exceptions; the at-most-one rule now
+  applies to them too, so a signal two captured requests could equally claim is counted in the notes instead of
+  appearing in both profiles.
 - Correlate by trace id first on every adapter. A trace id attaches a child only when exactly one anchor of any type
   carries that trace and its window contains the child, extending `TraceCorrelationIndex`'s uniqueness guard across
   anchor types, because a request and the message or execution it triggers can share one trace. §3.20a shipped this

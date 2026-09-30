@@ -1219,11 +1219,12 @@ Features:
   thread and window tiers; security events add the principal and are pinned to the serving thread when BootUI captured
   the audit event on it, so a concurrent request sharing the principal cannot trade events. SQL is matched exactly by
   trace id when present, otherwise exactly by the request's serving thread; it falls back to an approximate time-window
-  match only when neither matched any statement (concurrent identical requests or async execution). REST client calls
-  and cache accesses attach by trace id or serving thread only, like the stream. A signal attaches to at most one
-  request: a trace id, thread, or window two captured requests could equally claim attaches the signal to neither and is
-  counted in the notes. Each section reports its availability, the weakest tier it used, and its total, truncated
-  (above 200 entries), and ambiguous counts; `correlationTiers` lists the tiers the adapter can provide, with a reason
+  match only when neither matched any statement (concurrent identical requests or async execution). On Spring MVC,
+  exceptions keep their method, path, and window gate, within which a trace id or the serving thread decides first.
+  REST client calls and cache accesses attach by trace id or serving thread only, like the stream. A signal attaches to
+  at most one request: a trace id, thread, or window two captured requests could equally claim attaches the signal to
+  neither and is counted in the notes. Each section reports its availability, the weakest tier it used, the tier of
+  each shown child, and its total, truncated (above 200 entries), and ambiguous counts; `correlationTiers` lists the tiers the adapter can provide, with a reason
   for each one it cannot; and `approximate` flags a profile that used the time window. Every new field is additive.
   Repeated identical `SELECT`s above
   `bootui.activity.n-plus-one-threshold` are surfaced as a potential N+1, together with the distinct application call

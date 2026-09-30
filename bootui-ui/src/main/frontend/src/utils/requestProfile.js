@@ -40,16 +40,44 @@ export function profileSections(profile) {
   const sections = {}
   for (const section of profile?.sections ?? []) {
     const shown = Math.max(0, (section.total ?? 0) - (section.truncated ?? 0))
+    const childTiers = section.childTiers ?? []
     sections[section.type] = {
       ...section,
       tierLabel: tierLabel(section.tier),
       tierTitle: tierTitle(section.tier),
-      truncationText: section.truncated
-        ? `Showing the first ${shown} of ${section.total} ${SECTION_NOUNS[section.type] ?? 'items'}.`
-        : ''
+      // Per-child labels only add information when a section mixes tiers.
+      mixedTiers: new Set(childTiers).size > 1,
+      truncationText: truncationText(section, shown)
     }
   }
   return sections
+}
+
+/**
+ * @param {any} section
+ * @param {number} shown
+ * @returns {string}
+ */
+function truncationText(section, shown) {
+  if (!section.truncated) return ''
+  // The drawer shows SQL as groups built from every correlated statement, so only the raw statement
+  // list the profile carries is bounded.
+  if (section.type === 'SQL') {
+    return `Groups and timing count all ${section.total} correlated statements; the profile lists the first ${shown}.`
+  }
+  return `Showing the first ${shown} of ${section.total} ${SECTION_NOUNS[section.type] ?? 'items'}.`
+}
+
+/**
+ * The tier label of the child at `index`, or '' when the section does not mix tiers.
+ *
+ * @param {any} section
+ * @param {number | string} index
+ * @returns {string}
+ */
+export function childTierLabel(section, index) {
+  if (!section?.mixedTiers) return ''
+  return tierLabel(section.childTiers?.[Number(index)])
 }
 
 /**

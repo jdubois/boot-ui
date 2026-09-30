@@ -12,10 +12,11 @@ import java.util.Map;
  * be attributed to the one execution that produced it.
  *
  * <p>The uniqueness guard spans every anchor type: a trace id attaches a child only when exactly one
- * anchor of any type carries it and that anchor's trace window admits the child. A request and the
- * message or execution it triggers can share one trace, and a reused inbound {@code traceparent} can put
- * one trace on two requests; in both cases no anchor claims the child, so it can never be attributed to
- * the wrong execution.</p>
+ * anchor of any type carries it and has a trace window that contains the child. A request and the message
+ * or execution it triggers can share one trace, and a reused inbound {@code traceparent} can put one trace
+ * on two requests; whenever two such anchors could both hold the child, neither claims it, so it can never
+ * be attributed to the wrong execution. An HTTP request's trace window is open, so two requests sharing a
+ * trace never attach anything by it.</p>
  *
  * <p>{@link LiveActivityAssembler} uses {@link #parentRequestId(String)} to nest children under their
  * REQUEST entry in the merged feed, and {@link ExecutionProfileAssembler} uses {@link #match(String, long)}
@@ -33,7 +34,7 @@ final class TraceCorrelationIndex {
     static TraceCorrelationIndex of(List<HttpExchangeDto> exchanges) {
         List<ProfileAnchor> anchors = new ArrayList<>(exchanges.size());
         for (HttpExchangeDto exchange : exchanges) {
-            anchors.add(ProfileAnchor.request(exchange, null));
+            anchors.add(ProfileAnchor.request(exchange, null, false));
         }
         return ofAnchors(anchors);
     }
@@ -69,15 +70,20 @@ final class TraceCorrelationIndex {
     Match match(String childTraceId, long childTimestamp) {
         List<ProfileAnchor> carriers = carriers(childTraceId);
         if (carriers.isEmpty()) {
-            return new Match(Status.UNCLAIMED, null, carriers);
+            return new Match(Status.UNCLAIMED, null, carriers, carriers);
         }
-        if (carriers.size() > 1) {
-            return new Match(Status.AMBIGUOUS, null, carriers);
+        List<ProfileAnchor> claimants = new ArrayList<>(carriers.size());
+        for (ProfileAnchor carrier : carriers) {
+            if (carrier.traceWindowAdmits(childTimestamp)) {
+                claimants.add(carrier);
+            }
         }
-        ProfileAnchor anchor = carriers.get(0);
-        return anchor.traceWindowAdmits(childTimestamp)
-                ? new Match(Status.ATTACHED, anchor, carriers)
-                : new Match(Status.OUTSIDE_WINDOW, null, carriers);
+        if (claimants.isEmpty()) {
+            return new Match(Status.OUTSIDE_WINDOW, null, carriers, claimants);
+        }
+        return claimants.size() == 1
+                ? new Match(Status.ATTACHED, claimants.get(0), carriers, claimants)
+                : new Match(Status.AMBIGUOUS, null, carriers, claimants);
     }
 
     private List<ProfileAnchor> carriers(String traceId) {
@@ -89,11 +95,11 @@ final class TraceCorrelationIndex {
     enum Status {
         /** No trace id, or no anchor carries it. */
         UNCLAIMED,
-        /** Exactly one anchor carries it and its trace window admits the child. */
+        /** Exactly one anchor carrying it has a trace window that contains the child. */
         ATTACHED,
-        /** Exactly one anchor carries it but its bounded trace window does not contain the child. */
+        /** Anchors carry it, but none has a trace window that contains the child. */
         OUTSIDE_WINDOW,
-        /** More than one anchor carries it, so no anchor may claim the child by trace id. */
+        /** More than one anchor carrying it could contain the child, so none may claim it by trace id. */
         AMBIGUOUS
     }
 
@@ -103,12 +109,18 @@ final class TraceCorrelationIndex {
      * @param status how the trace id resolved
      * @param anchor the attached anchor when {@code status} is {@link Status#ATTACHED}, otherwise {@code null}
      * @param carriers every anchor carrying the trace id
+     * @param claimants the carriers whose trace window contains the child
      */
-    record Match(Status status, ProfileAnchor anchor, List<ProfileAnchor> carriers) {
+    record Match(Status status, ProfileAnchor anchor, List<ProfileAnchor> carriers, List<ProfileAnchor> claimants) {
 
-        /** Whether {@code candidate} is among the anchors carrying the trace id. */
+        /** Whether {@code candidate} carries the trace id, whatever its window. */
         boolean carriedBy(ProfileAnchor candidate) {
             return carriers.contains(candidate);
+        }
+
+        /** Whether {@code candidate} carries the trace id and its trace window contains the child. */
+        boolean claimedBy(ProfileAnchor candidate) {
+            return claimants.contains(candidate);
         }
     }
 }

@@ -114,11 +114,10 @@ public final class ExecutionProfileAssembler {
             return RequestProfileDto.unavailable("Request " + requestId + " is no longer in the buffer");
         }
         String traceId = BlankStrings.blankToNull(request.traceId());
-        if (traceId == null && capabilities.traceIdOnlyAdapter()) {
+        Context context = context(request, evidence.requests(), capabilities);
+        if (traceId == null && !context.self().hasHeuristicTier()) {
             return RequestProfileDto.unavailable(NO_TRACE_ID_REASON);
         }
-
-        Context context = context(request, evidence.requests(), capabilities);
         List<String> notes = new ArrayList<>();
         if (capabilities.traceIdOnlyAdapter()) {
             notes.add(REDUCED_PROFILE_NOTE);
@@ -167,6 +166,10 @@ public final class ExecutionProfileAssembler {
 
         List<SqlTraceEntryDto> allSql = sql.records();
         List<SqlTraceGroupDto> sqlGroups = SqlTraceGrouping.group(allSql, nPlusOneThreshold);
+        if (sqlGroups.size() > maxChildrenPerSection) {
+            notes.add("Showing the " + maxChildrenPerSection + " most repeated of " + sqlGroups.size()
+                    + " distinct SQL statements.");
+        }
         List<RestClientTraceEntryDto> allRestCalls = restCalls.records();
         List<Section<?>> sections = List.of(sql, exceptions, security, restCalls, cache);
         boolean approximate = sections.stream().anyMatch(section -> section.tier() == CorrelationTier.TIME_WINDOW);
@@ -176,7 +179,7 @@ public final class ExecutionProfileAssembler {
                 null,
                 request,
                 bounded(allSql),
-                sqlGroups,
+                bounded(sqlGroups),
                 sql.tier() == CorrelationTier.TIME_WINDOW,
                 bounded(exceptions.records()),
                 bounded(security.records()),
@@ -209,7 +212,8 @@ public final class ExecutionProfileAssembler {
         List<ProfileAnchor> anchors = new ArrayList<>(requests.size());
         ProfileAnchor self = null;
         for (HttpExchangeDto exchange : requests) {
-            ProfileAnchor anchor = ProfileAnchor.request(exchange, servingThread(exchange, capabilities));
+            ProfileAnchor anchor =
+                    ProfileAnchor.request(exchange, servingThread(exchange, capabilities), capabilities.timeWindow());
             anchors.add(anchor);
             if (self == null && exchange == request) {
                 self = anchor;
@@ -254,6 +258,9 @@ public final class ExecutionProfileAssembler {
         }
         if (!byTrace.isEmpty()) {
             byTrace.forEach(entry -> section.add(entry, CorrelationTier.TRACE_ID));
+            section.ambiguous((int) decisions.stream()
+                    .filter(decision -> decision.outcome() == Outcome.AMBIGUOUS)
+                    .count());
             return section.sorted(SqlTraceEntryDto::timestamp);
         }
 
@@ -286,7 +293,7 @@ public final class ExecutionProfileAssembler {
             return section.sorted(SqlTraceEntryDto::timestamp);
         }
 
-        if (context.capabilities().provides(CorrelationTier.TIME_WINDOW)) {
+        if (context.self().timeWindowTier()) {
             for (int i = 0; i < records.size(); i++) {
                 if (decisions.get(i).outcome() != Outcome.UNDECIDED) {
                     continue;
@@ -294,7 +301,7 @@ public final class ExecutionProfileAssembler {
                 SqlTraceEntryDto entry = records.get(i);
                 Decision window = pick(
                         context,
-                        anchor -> anchor.contains(entry.timestamp()),
+                        anchor -> anchor.timeWindowTier() && anchor.contains(entry.timestamp()),
                         anchor -> true,
                         CorrelationTier.TIME_WINDOW);
                 if (window.outcome() == Outcome.OURS) {
@@ -322,9 +329,10 @@ public final class ExecutionProfileAssembler {
     // --- Exceptions ----------------------------------------------------------------------------------
 
     /**
-     * Exceptions match per occurrence: trace id first; otherwise the request method and path within the
-     * request window, pinned to the serving thread when the adapter identified it — an occurrence thrown on
-     * another thread then belongs to another request.
+     * Exceptions match per occurrence. An anchor with only the trace-id tier keeps every occurrence its
+     * trace id attaches. An HTTP anchor with heuristic tiers keeps today's gate — the occurrence's request
+     * method and path within the request window — and within it the trace id decides first, then the
+     * serving thread, whose owner an occurrence thrown on another thread cannot be, then the time window.
      */
     private static Section<RequestProfileExceptionDto> correlateExceptions(
             Context context, ProfileEvidence.Source<ExceptionDetailDto> source) {
@@ -351,50 +359,49 @@ public final class ExecutionProfileAssembler {
     private static Decision correlateOccurrence(Context context, ExceptionOccurrenceDto occurrence) {
         long timestamp = occurrence.timestamp();
         Decision decision = byTrace(context, occurrence.traceId(), timestamp);
-        if (decision.decided() || context.capabilities().traceIdOnlyAdapter()) {
+        ProfileAnchor self = context.self();
+        if (!self.hasHeuristicTier()) {
             return decision;
         }
-        ProfileAnchor self = context.self();
-        Predicate<ProfileAnchor> sameRequest = anchor -> httpMatches(anchor, occurrence) && anchor.covers(timestamp);
+        Predicate<ProfileAnchor> sameRequest =
+                anchor -> anchor.admitsRequestContext(occurrence.requestMethod(), occurrence.requestPath())
+                        && anchor.covers(timestamp);
+        if (!sameRequest.test(self)) {
+            return Decision.OTHER;
+        }
+        if (decision.decided()) {
+            return decision;
+        }
         String thread = occurrence.thread();
+        if (thread != null
+                && self.servingThread() != null
+                && !self.servingThread().equals(thread)) {
+            // The request's own thread is known and the occurrence was thrown on another one.
+            return Decision.OTHER;
+        }
         if (thread != null) {
             Decision byThread = pick(
                     context,
                     anchor -> sameRequest.test(anchor) && anchor.servedOn(thread, timestamp),
                     anchor -> anchor.servingStartMillis() <= timestamp && timestamp <= anchor.servingEndMillis(),
                     CorrelationTier.SERVING_THREAD);
-            if (byThread.decided() || byThread.outcome() == Outcome.AMBIGUOUS) {
+            if (byThread.outcome() != Outcome.UNDECIDED) {
                 return byThread;
             }
-            if (self.servingThread() != null) {
-                // The request's own thread is known and the occurrence was thrown on another one.
-                return decision.orElse(Decision.OTHER);
-            }
         }
-        if (decision.outcome() == Outcome.AMBIGUOUS || !context.capabilities().provides(CorrelationTier.TIME_WINDOW)) {
+        if (decision.outcome() == Outcome.AMBIGUOUS || !self.timeWindowTier()) {
             return decision;
         }
         // Requests known to have been served on another thread than the occurrence's cannot have thrown it.
         return pick(
                 context,
                 anchor -> sameRequest.test(anchor)
+                        && anchor.timeWindowTier()
                         && (thread == null
                                 || anchor.servingThread() == null
                                 || anchor.servingThread().equals(thread)),
                 anchor -> anchor.contains(timestamp),
                 CorrelationTier.TIME_WINDOW);
-    }
-
-    private static boolean httpMatches(ProfileAnchor anchor, ExceptionOccurrenceDto occurrence) {
-        if (anchor.path() == null || occurrence.requestPath() == null) {
-            return false;
-        }
-        if (!anchor.path().equalsIgnoreCase(occurrence.requestPath())) {
-            return false;
-        }
-        return anchor.method() == null
-                || occurrence.requestMethod() == null
-                || anchor.method().equalsIgnoreCase(occurrence.requestMethod());
     }
 
     private static void exceptionNotes(
@@ -439,11 +446,18 @@ public final class ExecutionProfileAssembler {
 
     private static Decision correlateSecurityEvent(Context context, SecurityLogEventDto event, long timestamp) {
         Decision decision = byTrace(context, event.traceId(), timestamp);
-        if (decision.decided() || !context.capabilities().provides(CorrelationTier.TIME_WINDOW)) {
+        ProfileAnchor self = context.self();
+        if (!self.hasHeuristicTier()) {
             return decision;
         }
         Predicate<ProfileAnchor> sameWindow =
-                anchor -> anchor.covers(timestamp) && principalCompatible(anchor.principal(), event.principal());
+                anchor -> anchor.covers(timestamp) && anchor.admitsPrincipal(event.principal());
+        if (!sameWindow.test(self)) {
+            return Decision.OTHER;
+        }
+        if (decision.decided()) {
+            return decision;
+        }
         ProfileCapabilities.SecurityThreadClassifier classifier =
                 context.capabilities().securityThreads();
         List<ProfileAnchor> onTheirThread = new ArrayList<>();
@@ -457,7 +471,7 @@ public final class ExecutionProfileAssembler {
                     : classify(classifier, anchor.servingThread(), event.type(), timestamp);
             if (match == ProfileCapabilities.ThreadMatch.OURS) {
                 onTheirThread.add(anchor);
-            } else if (match == ProfileCapabilities.ThreadMatch.UNKNOWN) {
+            } else if (match == ProfileCapabilities.ThreadMatch.UNKNOWN && anchor.timeWindowTier()) {
                 unknownThread.add(anchor);
             }
         }
@@ -468,7 +482,7 @@ public final class ExecutionProfileAssembler {
                     anchor -> anchor.contains(timestamp),
                     CorrelationTier.SERVING_THREAD);
         }
-        if (decision.outcome() == Outcome.AMBIGUOUS) {
+        if (decision.outcome() == Outcome.AMBIGUOUS || !self.timeWindowTier()) {
             return decision;
         }
         return pick(
@@ -553,14 +567,16 @@ public final class ExecutionProfileAssembler {
         return switch (match.status()) {
             case ATTACHED ->
                 match.anchor() == context.self() ? Decision.ours(CorrelationTier.TRACE_ID) : Decision.OTHER;
-            case AMBIGUOUS -> match.carriedBy(context.self()) ? Decision.AMBIGUOUS : Decision.OTHER;
-            case UNCLAIMED, OUTSIDE_WINDOW -> Decision.UNDECIDED;
+            case AMBIGUOUS -> match.claimedBy(context.self()) ? Decision.AMBIGUOUS : Decision.OTHER;
+            // Another execution's trace id: a weaker tier must not hand the child to this one.
+            case OUTSIDE_WINDOW -> match.carriedBy(context.self()) ? Decision.UNDECIDED : Decision.OTHER;
+            case UNCLAIMED -> Decision.UNDECIDED;
         };
     }
 
     /** Resolves a child by the serving thread of every anchor whose adapter identified one. */
     private static Decision byThread(Context context, String thread, long timestamp) {
-        if (thread == null || !context.capabilities().provides(CorrelationTier.SERVING_THREAD)) {
+        if (thread == null) {
             return Decision.UNDECIDED;
         }
         return pick(
@@ -617,6 +633,7 @@ public final class ExecutionProfileAssembler {
                 section.source().available(),
                 section.source().unavailableReason(),
                 section.tier() == null ? null : section.tier().name(),
+                bounded(section.childTiers()).stream().map(Enum::name).toList(),
                 total,
                 Math.max(0, total - maxChildrenPerSection),
                 section.ambiguous());
@@ -664,10 +681,6 @@ public final class ExecutionProfileAssembler {
 
     private static boolean principalMatches(String left, String right) {
         return left != null && right != null && left.equalsIgnoreCase(right);
-    }
-
-    private static boolean principalCompatible(String requestPrincipal, String eventPrincipal) {
-        return requestPrincipal == null || eventPrincipal == null || requestPrincipal.equalsIgnoreCase(eventPrincipal);
     }
 
     /** Parse an ISO-8601 instant to epoch millis, returning {@code 0} for null/blank/unparseable input. */
@@ -726,12 +739,12 @@ public final class ExecutionProfileAssembler {
         }
     }
 
-    /** One child section: the children correlated to the profiled anchor, and how. */
+    /** One child section: the children correlated to the profiled anchor, and the tier that matched each. */
     private static final class Section<T> {
 
         private final String type;
         private final ProfileEvidence.Source<?> source;
-        private final List<T> records = new ArrayList<>();
+        private final List<Attributed<T>> children = new ArrayList<>();
         private CorrelationTier tier;
         private final boolean[] tiersUsed = new boolean[CorrelationTier.values().length];
         private int ambiguous;
@@ -750,7 +763,11 @@ public final class ExecutionProfileAssembler {
         }
 
         List<T> records() {
-            return records;
+            return children.stream().map(Attributed::record).toList();
+        }
+
+        List<CorrelationTier> childTiers() {
+            return children.stream().map(Attributed::tier).toList();
         }
 
         CorrelationTier tier() {
@@ -770,7 +787,7 @@ public final class ExecutionProfileAssembler {
         }
 
         void add(T record, CorrelationTier matchedBy) {
-            records.add(record);
+            children.add(new Attributed<>(record, matchedBy));
             tiersUsed[matchedBy.ordinal()] = true;
             if (matchedBy.weakerThan(tier)) {
                 tier = matchedBy;
@@ -786,8 +803,10 @@ public final class ExecutionProfileAssembler {
         }
 
         Section<T> sorted(ToLongFunction<T> timestamp) {
-            records.sort(Comparator.comparingLong(timestamp));
+            children.sort(Comparator.comparingLong(child -> timestamp.applyAsLong(child.record())));
             return this;
         }
+
+        private record Attributed<T>(T record, CorrelationTier tier) {}
     }
 }

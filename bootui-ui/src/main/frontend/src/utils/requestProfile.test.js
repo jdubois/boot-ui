@@ -2,6 +2,7 @@ import {describe, expect, it} from 'vitest'
 
 import {
   cacheAccessSummary,
+  childTierLabel,
   profileSections,
   restCallSummary,
   tierLabel,
@@ -27,10 +28,27 @@ describe('requestProfile helpers', () => {
     })
 
     expect(sections.SQL.tierLabel).toBe('serving thread')
-    expect(sections.SQL.truncationText).toBe('Showing the first 200 of 250 statements.')
+    expect(sections.SQL.truncationText).toBe(
+      'Groups and timing count all 250 correlated statements; the profile lists the first 200.'
+    )
     expect(sections.CACHE.available).toBe(false)
     expect(sections.CACHE.tierLabel).toBe('')
     expect(sections.CACHE.truncationText).toBe('')
+  })
+
+  it('labels each child only when a section mixes tiers', () => {
+    const sections = profileSections({
+      sections: [
+        {type: 'REST_CLIENT', tier: 'SERVING_THREAD', childTiers: ['SERVING_THREAD', 'TRACE_ID'], total: 2},
+        {type: 'CACHE', tier: 'TRACE_ID', childTiers: ['TRACE_ID', 'TRACE_ID'], total: 2},
+        {type: 'SECURITY', tier: 'TIME_WINDOW', childTiers: ['TIME_WINDOW', 'TIME_WINDOW'], total: 3, truncated: 1}
+      ]
+    })
+
+    expect(childTierLabel(sections.REST_CLIENT, 1)).toBe('trace id')
+    expect(childTierLabel(sections.CACHE, 0)).toBe('')
+    expect(childTierLabel(undefined, 0)).toBe('')
+    expect(sections.SECURITY.truncationText).toBe('Showing the first 2 of 3 security events.')
   })
 
   it('degrades to no sections for a profile from an older server', () => {

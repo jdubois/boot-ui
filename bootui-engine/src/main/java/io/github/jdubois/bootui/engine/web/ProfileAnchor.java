@@ -13,13 +13,14 @@ import io.github.jdubois.bootui.engine.support.BlankStrings;
  * @param traceId the distributed-trace id the execution carried, or {@code null}
  * @param startMillis the recorded start of the execution, in epoch milliseconds
  * @param endMillis the recorded end of the execution, in epoch milliseconds
- * @param traceWindowBounded whether a trace-id match must also fall inside the anchor's window; an HTTP
- *     request's trace id claims work it caused even after the response completed, so a request's trace
+ * @param traceWindowBounded whether a trace-id match must also fall inside the anchor's exact window; an
+ *     HTTP request's trace id claims work it caused even after the response completed, so a request's trace
  *     window is open
  * @param servingThread the one thread that served the execution, or {@code null} when it is unknown or
  *     the adapter has no thread-per-execution model
  * @param servingStartMillis the start of the serving-thread window
  * @param servingEndMillis the end of the serving-thread window
+ * @param timeWindowTier whether the heuristic time-window tier may attach children to this anchor
  * @param method the HTTP method, or {@code null} for a non-HTTP anchor
  * @param path the HTTP path, or {@code null} for a non-HTTP anchor
  * @param principal the authenticated principal, or {@code null}
@@ -34,6 +35,7 @@ record ProfileAnchor(
         String servingThread,
         long servingStartMillis,
         long servingEndMillis,
+        boolean timeWindowTier,
         String method,
         String path,
         String principal) {
@@ -49,8 +51,13 @@ record ProfileAnchor(
         REQUEST
     }
 
-    /** An HTTP request anchor, refined by the serving thread the adapter resolved for it, if any. */
-    static ProfileAnchor request(HttpExchangeDto exchange, ProfileCapabilities.ServingThread served) {
+    /**
+     * An HTTP request anchor, refined by the serving thread the adapter resolved for it, if any.
+     *
+     * @param timeWindowTier whether the adapter can use the request's time window as a last-resort tier
+     */
+    static ProfileAnchor request(
+            HttpExchangeDto exchange, ProfileCapabilities.ServingThread served, boolean timeWindowTier) {
         long start = exchange.timestamp() == null ? 0L : exchange.timestamp().toEpochMilli();
         long end = exchange.durationMs() == null ? start : start + exchange.durationMs();
         String thread = served == null ? null : BlankStrings.blankToNull(served.thread());
@@ -64,6 +71,7 @@ record ProfileAnchor(
                 thread,
                 thread == null ? start : served.startMillis(),
                 thread == null ? end : served.endMillis(),
+                timeWindowTier,
                 exchange.method(),
                 exchange.path(),
                 exchange.principal());
@@ -81,7 +89,39 @@ record ProfileAnchor(
 
     /** Whether a child carrying this anchor's trace id at {@code timestamp} may attach by trace id. */
     boolean traceWindowAdmits(long timestamp) {
-        return !traceWindowBounded || covers(timestamp);
+        return !traceWindowBounded || contains(timestamp);
+    }
+
+    /** Whether a heuristic tier — the serving thread or the time window — can attach children to this anchor. */
+    boolean hasHeuristicTier() {
+        return servingThread != null || timeWindowTier;
+    }
+
+    /**
+     * Whether a security event for {@code eventPrincipal} could have come from this anchor by its time
+     * window. Only an HTTP request has a principal to compare: it admits an event whose principal is
+     * unknown or equal to its own. An anchor without a principal admits no security event by window.
+     */
+    boolean admitsPrincipal(String eventPrincipal) {
+        if (type != Type.REQUEST) {
+            return false;
+        }
+        return principal == null || eventPrincipal == null || principal.equalsIgnoreCase(eventPrincipal);
+    }
+
+    /**
+     * Whether a signal recorded with this request context could have come from this anchor. An HTTP anchor
+     * requires the same path and, when both are known, the same method; an anchor with no request context of
+     * its own has nothing to compare, so it admits any.
+     */
+    boolean admitsRequestContext(String requestMethod, String requestPath) {
+        if (type != Type.REQUEST) {
+            return true;
+        }
+        if (path == null || requestPath == null || !path.equalsIgnoreCase(requestPath)) {
+            return false;
+        }
+        return method == null || requestMethod == null || method.equalsIgnoreCase(requestMethod);
     }
 
     /** Whether a child recorded on {@code thread} at {@code timestamp} ran on this anchor's serving thread. */

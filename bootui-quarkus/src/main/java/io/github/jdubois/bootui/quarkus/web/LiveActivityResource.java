@@ -395,7 +395,7 @@ public class LiveActivityResource {
                 ? new ProfileEvidence(
                         requests,
                         sqlSource(),
-                        Source.of(allExceptionDetails()),
+                        exceptionSource(),
                         securitySource(),
                         restCallSource(),
                         Source.unavailable(CACHE_UNAVAILABLE),
@@ -407,11 +407,23 @@ public class LiveActivityResource {
     }
 
     private Source<SqlTraceEntryDto> sqlSource() {
+        if (!panelAvailability.isPanelEnabled(BootUiPanels.SQL_TRACE)) {
+            return Source.panelDisabled("SQL Trace");
+        }
         SqlSnapshot sql = sqlSnapshot();
         return sql.available() ? Source.of(sql.entries()) : Source.unavailable(sql.unavailableWarning());
     }
 
+    private Source<ExceptionDetailDto> exceptionSource() {
+        return panelAvailability.isPanelEnabled(BootUiPanels.EXCEPTIONS)
+                ? Source.of(allExceptionDetails())
+                : Source.panelDisabled("Exceptions");
+    }
+
     private Source<SecurityLogEventDto> securitySource() {
+        if (!panelAvailability.isPanelEnabled(BootUiPanels.SECURITY_LOGS)) {
+            return Source.panelDisabled("Security Logs");
+        }
         return panelAvailability.isPanelAvailable(BootUiPanels.SECURITY_LOGS)
                 ? Source.of(securityEvents(true))
                 : Source.notCapturing("Security Logs");

@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.ActivityPersistenceOptionDto;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchRequest;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchResult;
@@ -930,45 +931,105 @@ class ReactiveLiveActivityControllerTests {
 
     @Test
     void requestProfilesMaskedRestClientCallsAndHashedCacheAccessesByTraceIdOnly() {
+        // Built from parts so the raw values under test are real, unmasked strings in this fixture.
+        String rawQueryValue = "raw-query-" + 4242;
+        String rawHeaderValue = "Bearer raw-header-" + 4343;
+        String rawCacheKey = "customer-" + 4444;
+        for (ValueExposure exposure : List.of(ValueExposure.MASKED, ValueExposure.METADATA_ONLY)) {
+            BootUiProperties properties = new BootUiProperties();
+            properties.setExposeValues(exposure);
+            RestClientTraceRecorder restRecorder =
+                    new RestClientTraceRecorder(true, true, true, false, 10, 1_000, 2_000, 200, 5);
+            restRecorder.registerClientCustomization("WebClient");
+            restRecorder.setTraceIdProvider(() -> "trace-abc");
+            restRecorder.record(
+                    "GET",
+                    "https://api.example.com/orders?pass" + "word=" + rawQueryValue,
+                    "api.example.com",
+                    "/orders",
+                    200,
+                    12,
+                    true,
+                    null,
+                    "WebClient",
+                    Map.of("Authorization", rawHeaderValue),
+                    "reactor-http-nio-1");
+            restRecorder.setTraceIdProvider(() -> null);
+            restRecorder.record(
+                    "GET",
+                    "https://api.example.com/untraced",
+                    "api.example.com",
+                    "/untraced",
+                    200,
+                    3,
+                    true,
+                    null,
+                    "WebClient",
+                    Map.of(),
+                    "reactor-http-nio-1");
+            CacheActivityRecorder cacheRecorder = new CacheActivityRecorder(true, 10);
+            cacheRecorder.markInstrumentedManager();
+            cacheRecorder.setTraceIdProvider(() -> "trace-abc");
+            cacheRecorder.recordMiss("cacheManager", "products", rawCacheKey);
+
+            RequestProfileDto profile =
+                    profileController(properties, restRecorder, cacheRecorder).request("req-1");
+
+            assertThat(profile.restCalls()).as("%s", exposure).singleElement().satisfies(call -> {
+                assertThat(call.path()).isEqualTo("/orders");
+                assertThat(call.uri()).doesNotContain(rawQueryValue);
+                // Exactly as the REST Client panel shows it: the name kept and the value masked, or, under
+                // METADATA_ONLY, the whole query string dropped.
+                if (exposure == ValueExposure.MASKED) {
+                    assertThat(call.uri()).contains("pass" + "word=");
+                } else {
+                    assertThat(call.uri()).isEqualTo("https://api.example.com/orders");
+                }
+                assertThat(call.requestHeaders().values()).noneMatch(value -> value.contains(rawHeaderValue));
+            });
+            assertThat(profile.cacheAccesses()).singleElement().satisfies(access -> {
+                assertThat(access.operation()).isEqualTo("MISS");
+                assertThat(access.keyHash()).isNotBlank().doesNotContain(rawCacheKey);
+            });
+            assertThat(profile.sections())
+                    .filteredOn(section -> List.of("REST_CLIENT", "CACHE").contains(section.type()))
+                    .allSatisfy(section -> assertThat(section.tier()).isEqualTo("TRACE_ID"));
+            assertThat(profile.sections())
+                    .filteredOn(section -> "SQL".equals(section.type()))
+                    .singleElement()
+                    .satisfies(section -> assertThat(section.available()).isFalse());
+            assertThat(profile.correlationTiers())
+                    .filteredOn(tier -> !"TRACE_ID".equals(tier.tier()))
+                    .allSatisfy(tier -> assertThat(tier.available()).isFalse());
+        }
+    }
+
+    @Test
+    void requestReportsRestClientAndCacheUnavailableUntilAClientAndACacheManagerAreInstrumented() {
+        BootUiProperties properties = new BootUiProperties();
+        RestClientTraceRecorder restRecorder =
+                new RestClientTraceRecorder(true, true, false, false, 10, 1_000, 2_000, 200, 5);
+        CacheActivityRecorder cacheRecorder = new CacheActivityRecorder(true, 10);
+
+        RequestProfileDto profile =
+                profileController(properties, restRecorder, cacheRecorder).request("req-1");
+
+        assertThat(profile.sections())
+                .filteredOn(section -> List.of("REST_CLIENT", "CACHE").contains(section.type()))
+                .allSatisfy(section -> {
+                    assertThat(section.available()).isFalse();
+                    assertThat(section.unavailableReason()).isNotBlank();
+                });
+    }
+
+    private ReactiveLiveActivityController profileController(
+            BootUiProperties properties, RestClientTraceRecorder restRecorder, CacheActivityRecorder cacheRecorder) {
         HttpExchangesController httpExchanges = mock(HttpExchangesController.class);
         HttpExchangeDto tracedExchange = exchange("req-1", "GET", "/api/products", 200, "trace-abc");
         when(httpExchanges.exchanges(null, null, null, null, null))
                 .thenReturn(new HttpExchangesReport(
                         1, 1, 0, List.of(tracedExchange), new PageMetadata(0, 0, 0, 0, 0, false), null));
-        RestClientTraceRecorder restRecorder =
-                new RestClientTraceRecorder(true, true, false, false, 10, 1_000, 2_000, 200, 5);
-        restRecorder.setTraceIdProvider(() -> "trace-abc");
-        restRecorder.record(
-                "GET",
-                "https://api.example.com/orders?password=hunter2",
-                "api.example.com",
-                "/orders",
-                200,
-                12,
-                true,
-                null,
-                "WebClient",
-                Map.of(),
-                "reactor-http-nio-1");
-        restRecorder.setTraceIdProvider(() -> null);
-        restRecorder.record(
-                "GET",
-                "https://api.example.com/untraced",
-                "api.example.com",
-                "/untraced",
-                200,
-                3,
-                true,
-                null,
-                "WebClient",
-                Map.of(),
-                "reactor-http-nio-1");
-        CacheActivityRecorder cacheRecorder = new CacheActivityRecorder(true, 10);
-        cacheRecorder.setTraceIdProvider(() -> "trace-abc");
-        cacheRecorder.recordMiss("cacheManager", "products", "customer-secret-key");
-
-        BootUiProperties properties = new BootUiProperties();
-        ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
+        return new ReactiveLiveActivityController(
                 provider(httpExchanges),
                 empty(SqlTraceRecorder.class),
                 provider(restRecorder),
@@ -989,27 +1050,6 @@ class ReactiveLiveActivityControllerTests {
                 disabledSettings(),
                 properties,
                 new BootUiExposure(properties));
-
-        RequestProfileDto profile = controller.request("req-1");
-
-        assertThat(profile.restCalls()).singleElement().satisfies(call -> {
-            assertThat(call.path()).isEqualTo("/orders");
-            assertThat(call.uri()).doesNotContain("hunter2");
-        });
-        assertThat(profile.cacheAccesses()).singleElement().satisfies(access -> {
-            assertThat(access.operation()).isEqualTo("MISS");
-            assertThat(access.keyHash()).isNotBlank().doesNotContain("customer-secret-key");
-        });
-        assertThat(profile.sections())
-                .filteredOn(section -> List.of("REST_CLIENT", "CACHE").contains(section.type()))
-                .allSatisfy(section -> assertThat(section.tier()).isEqualTo("TRACE_ID"));
-        assertThat(profile.sections())
-                .filteredOn(section -> "SQL".equals(section.type()))
-                .singleElement()
-                .satisfies(section -> assertThat(section.available()).isFalse());
-        assertThat(profile.correlationTiers())
-                .filteredOn(tier -> !"TRACE_ID".equals(tier.tier()))
-                .allSatisfy(tier -> assertThat(tier.available()).isFalse());
     }
 
     private static HttpExchangeDto exchange(String id, String method, String path, int status, String traceId) {

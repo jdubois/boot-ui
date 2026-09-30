@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.autoconfigure.BootUiEngineConfiguration;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
+import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceControllerSupport;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
@@ -23,6 +24,7 @@ import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
+import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
@@ -364,20 +366,20 @@ public class ReactiveLiveActivityController {
                 : Source.unavailable(report.unavailableReason());
     }
 
+    /** Read through the REST Client panel's own report, so availability and masking match that panel. */
     private Source<RestClientTraceEntryDto> restCallSource() {
         if (!properties.isPanelEnabled(BootUiPanels.REST_CLIENT_TRACE)) {
             return Source.panelDisabled("REST Client");
         }
-        List<RestClientTraceEntryDto> entries = restClientTraceEntries();
-        return entries == null ? Source.notCapturing("REST Client") : Source.of(entries);
+        RestClientTraceReport report = RestClientTraceControllerSupport.trace(restClientTrace, exposure);
+        return report.available() ? Source.of(report.entries()) : Source.unavailable(report.unavailableReason());
     }
 
     private Source<CacheActivityEvent> cacheSource() {
         if (!properties.isPanelEnabled(BootUiPanels.CACHE)) {
             return Source.panelDisabled("Cache");
         }
-        List<CacheActivityEvent> events = cacheEvents();
-        return events == null ? Source.notCapturing("Cache access capture") : Source.of(events);
+        return Source.cacheAccesses(cacheActivity.getIfAvailable());
     }
 
     /**

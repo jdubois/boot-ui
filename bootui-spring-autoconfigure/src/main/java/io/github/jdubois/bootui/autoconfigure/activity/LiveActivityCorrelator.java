@@ -211,11 +211,7 @@ public class LiveActivityCorrelator {
         if (!properties.isPanelEnabled(BootUiPanels.CACHE)) {
             return Source.panelDisabled("Cache");
         }
-        CacheActivityRecorder recorder = cacheActivity == null ? null : cacheActivity.getIfAvailable();
-        if (recorder == null || !recorder.isEnabled()) {
-            return Source.notCapturing("Cache access capture");
-        }
-        return Source.of(recorder.recentEvents());
+        return Source.cacheAccesses(cacheActivity == null ? null : cacheActivity.getIfAvailable());
     }
 
     private TraceDetailDto trace(String traceId) {

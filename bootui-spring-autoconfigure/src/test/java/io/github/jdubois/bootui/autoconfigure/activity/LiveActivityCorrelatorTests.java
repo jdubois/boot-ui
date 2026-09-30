@@ -425,6 +425,7 @@ class LiveActivityCorrelatorTests {
         CacheActivityEvent captured = cache.recentEvents().get(0);
         CacheActivityRecorder recorder = mock(CacheActivityRecorder.class);
         when(recorder.isEnabled()).thenReturn(true);
+        when(recorder.hasInstrumentedManager()).thenReturn(true);
         when(recorder.recentEvents())
                 .thenReturn(List.of(
                         new CacheActivityEvent(
@@ -471,6 +472,55 @@ class LiveActivityCorrelatorTests {
         assertThat(profile.timing().restCallCount()).isEqualTo(1);
         assertThat(profile.correlationTiers())
                 .allSatisfy(tier -> assertThat(tier.available()).isTrue());
+    }
+
+    @Test
+    void reportsCacheAccessesUnavailableUntilACacheManagerIsInstrumented() {
+        CacheActivityRecorder cache = new CacheActivityRecorder(true, 10);
+        cache.recordHit("cacheManager", "orders", "key");
+        LiveActivityCorrelator correlator = outboundCorrelator(
+                requestsController(exchange("r1", BASE, "GET", "/a", 200, 100L)),
+                null,
+                cache,
+                null,
+                new BootUiProperties());
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.sections())
+                .filteredOn(section -> "CACHE".equals(section.type()))
+                .singleElement()
+                .satisfies(section -> {
+                    assertThat(section.available()).isFalse();
+                    assertThat(section.unavailableReason())
+                            .isEqualTo(
+                                    "No cache manager is instrumented for cache access capture on this application.");
+                });
+    }
+
+    @Test
+    void attributesExceptionsOfTwoCapturedConcurrentIdenticalRequestsToNeither() {
+        // Both requests are captured and overlap, so neither serving thread is unique and the
+        // method + path + window tier cannot tell which one threw: the occurrence is counted, not shown.
+        ExceptionsController exceptions = exceptionsControllerWithOccurrences(
+                "GET", "/a", new ExceptionOccurrenceDto(START + 50, "exec-1", "GET", "/a", "h", "web", null));
+        LiveActivityCorrelator correlator = correlator(
+                requestsController(
+                        exchange("r1", BASE, "GET", "/a", 500, 100L),
+                        exchange("r2", BASE.plusMillis(10), "GET", "/a", 500, 100L)),
+                null,
+                exceptions,
+                null,
+                new BootUiProperties());
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.exceptions()).isEmpty();
+        assertThat(profile.sections())
+                .filteredOn(section -> "EXCEPTION".equals(section.type()))
+                .singleElement()
+                .satisfies(section -> assertThat(section.ambiguous()).isEqualTo(1));
+        assertThat(profile.notes()).anyMatch(note -> note.contains("could equally belong to another captured request"));
     }
 
     @Test

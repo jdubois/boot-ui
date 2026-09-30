@@ -380,7 +380,7 @@ panel as available even though Reactive Messaging capture is not wired.
 
 :::
 
-::: details Why the per-request profiler (`GET /bootui/api/activity/{id}`) is trace-id-only on Quarkus
+::: details Why the per-request profiler (`GET /bootui/api/activity/request/{id}`) is trace-id-only on Quarkus
 
 Spring's `/activity/request/{id}` profiler is a Symfony-style join across SQL, exceptions, security audit events, REST
 client calls, cache accesses, the distributed trace, and timing for one request — not CPU/flame-graph sampling. Every

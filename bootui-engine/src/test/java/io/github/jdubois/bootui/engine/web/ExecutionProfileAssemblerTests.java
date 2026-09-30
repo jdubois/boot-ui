@@ -160,9 +160,11 @@ class ExecutionProfileAssemblerTests {
                     .containsExactly(new RequestProfileCacheAccessDto(
                             1_050L, "cacheManager", "orders", "MISS", "a1b2c3d4e5f60718", "reactor-http-nio-2"));
             assertThat(section(profile, "REST_CLIENT"))
-                    .isEqualTo(new RequestProfileSectionDto("REST_CLIENT", true, null, "TRACE_ID", 2, 0, 0));
+                    .isEqualTo(new RequestProfileSectionDto(
+                            "REST_CLIENT", true, null, "TRACE_ID", List.of("TRACE_ID", "TRACE_ID"), 2, 0, 0));
             assertThat(section(profile, "CACHE"))
-                    .isEqualTo(new RequestProfileSectionDto("CACHE", true, null, "TRACE_ID", 1, 0, 0));
+                    .isEqualTo(new RequestProfileSectionDto(
+                            "CACHE", true, null, "TRACE_ID", List.of("TRACE_ID"), 1, 0, 0));
             assertThat(profile.timing().restCallCount()).isEqualTo(2);
             assertThat(profile.timing().restCallMs()).isEqualTo(2 * 40L);
             assertThat(profile.notes())
@@ -316,14 +318,15 @@ class ExecutionProfileAssemblerTests {
             assertThat(profile.sections())
                     .containsExactly(
                             new RequestProfileSectionDto(
-                                    "SQL", false, "The SQL Trace panel is disabled.", null, 0, 0, 0),
-                            new RequestProfileSectionDto("EXCEPTION", true, null, null, 0, 0, 0),
-                            new RequestProfileSectionDto("SECURITY", true, null, null, 0, 0, 0),
+                                    "SQL", false, "The SQL Trace panel is disabled.", null, List.of(), 0, 0, 0),
+                            new RequestProfileSectionDto("EXCEPTION", true, null, null, List.of(), 0, 0, 0),
+                            new RequestProfileSectionDto("SECURITY", true, null, null, List.of(), 0, 0, 0),
                             new RequestProfileSectionDto(
                                     "REST_CLIENT",
                                     false,
                                     "REST Client is not capturing on this application.",
                                     null,
+                                    List.of(),
                                     0,
                                     0,
                                     0),
@@ -332,6 +335,7 @@ class ExecutionProfileAssemblerTests {
                                     false,
                                     "Cache access capture is not available on Quarkus.",
                                     null,
+                                    List.of(),
                                     0,
                                     0,
                                     0));
@@ -555,16 +559,83 @@ class ExecutionProfileAssemblerTests {
         }
 
         @Test
-        void prefersTheTraceIdForExceptionsWhenOneIsCaptured() {
-            HttpExchangeDto request = request("r1", "/a", "trace-a", null, START, 100L);
+        void labelsExceptionsInsideTheRequestGateByTraceId() {
+            HttpExchangeDto request = request("r1", "/orders", "trace-a", null, START, 100L);
             ProfileEvidence evidence = new Evidence(request)
-                    .exceptions(exceptionDetail("g-1", "trace-a", START + 9_000))
+                    .exceptions(exceptionDetail("g-1", "trace-a", START + 10))
                     .build();
 
             RequestProfileDto profile = assembler.requestProfile("r1", evidence, capabilities);
 
             assertThat(profile.exceptions()).hasSize(1);
             assertThat(section(profile, "EXCEPTION").tier()).isEqualTo("TRACE_ID");
+            assertThat(profile.approximate()).isFalse();
+        }
+
+        @Test
+        void keepsTheMethodPathAndWindowGateForExceptionsEvenWithAMatchingTraceId() {
+            // Spring MVC's exception policy is unchanged: an occurrence outside the request's method, path,
+            // and window is not this request's, whatever trace id it carries.
+            HttpExchangeDto request = request("r1", "/a", "trace-a", null, START, 100L);
+            ProfileEvidence evidence = new Evidence(request)
+                    .exceptions(
+                            exceptionDetail("g-1", "trace-a", START + 10),
+                            exceptionDetail("g-2", "trace-a", START + 9_000))
+                    .build();
+
+            assertThat(assembler.requestProfile("r1", evidence, capabilities).exceptions())
+                    .isEmpty();
+            assertThat(assembler
+                            .requestProfile("r1", evidence, ProfileCapabilities.traceIdOnly())
+                            .exceptions())
+                    .hasSize(2);
+        }
+
+        @Test
+        void fallsBackToTheWindowForAnExceptionOnTheServingThreadOutsideItsRecordedWindow() {
+            // The filter-recorded serving window can be narrower than the exchange window; an occurrence on
+            // the same thread just outside it still matches the request's method, path, and window.
+            registry.add(new ServingThread("exec-1", START + 30, START + 60));
+            HttpExchangeDto request = request("r1", "/a", null, null, START, 150L);
+            ProfileEvidence evidence = new Evidence(request)
+                    .exceptions(occurrences("ex", occurrence(START + 140, "exec-1", "GET", "/a")))
+                    .build();
+
+            RequestProfileDto profile = assembler.requestProfile("r1", evidence, capabilities);
+
+            assertThat(profile.exceptions()).hasSize(1);
+            assertThat(section(profile, "EXCEPTION").tier()).isEqualTo("TIME_WINDOW");
+        }
+
+        @Test
+        void attributesConcurrentIdenticalRequestExceptionsToNeither() {
+            HttpExchangeDto first = request("r1", "/a", null, null, START, 100L);
+            HttpExchangeDto second = request("r2", "/a", null, null, START + 10, 100L);
+            ProfileEvidence evidence = new Evidence(first, second)
+                    .exceptions(occurrences("ex", occurrence(START + 50, "exec-1", "GET", "/a")))
+                    .build();
+
+            RequestProfileDto profile = assembler.requestProfile("r1", evidence, capabilities);
+
+            assertThat(profile.exceptions()).isEmpty();
+            assertThat(section(profile, "EXCEPTION").ambiguous()).isEqualTo(1);
+            assertThat(profile.notes())
+                    .anyMatch(note -> note.startsWith("1 exception occurrence(s) could equally belong to another"));
+        }
+
+        @Test
+        void labelsEachChildWithTheTierThatMatchedIt() {
+            registry.add(new ServingThread("exec-1", START, START + 100));
+            HttpExchangeDto request = request("r1", "/a", "trace-a", null, START, 100L);
+            ProfileEvidence evidence = new Evidence(request)
+                    .restCalls(restCall(1, null, "exec-1", START + 10), restCall(2, "trace-a", "exec-9", START + 20))
+                    .build();
+
+            RequestProfileSectionDto rest =
+                    section(assembler.requestProfile("r1", evidence, capabilities), "REST_CLIENT");
+
+            assertThat(rest.childTiers()).containsExactly("SERVING_THREAD", "TRACE_ID");
+            assertThat(rest.tier()).isEqualTo("SERVING_THREAD");
         }
 
         @Test
@@ -630,31 +701,48 @@ class ExecutionProfileAssemblerTests {
                 (method, path, start, end) -> threads.get(path.charAt(1) - 'a'), null);
         List<SqlTraceEntryDto> sql = new ArrayList<>();
         List<RestClientTraceEntryDto> rest = new ArrayList<>();
+        List<CacheActivityEvent> cache = new ArrayList<>();
+        List<ExceptionOccurrenceDto> occurrences = new ArrayList<>();
+        List<SecurityLogEventDto> security = new ArrayList<>();
         for (int i = 0; i < 220; i += 7) {
             String trace = i % 3 == 0 ? "trace-1" : i % 3 == 1 ? "trace-2" : null;
             String thread = i % 2 == 0 ? "exec-1" : "exec-2";
+            String path = "/" + (char) ('a' + (i % 3));
             sql.add(sqlOnThread(i, trace, thread, START + i));
             rest.add(restCall(i, trace, thread, START + i));
+            cache.add(cache(i, trace, thread, START + i, CacheActivityOperation.HIT));
+            occurrences.add(new ExceptionOccurrenceDto(START + i, thread, "GET", path, "h", "web", trace));
+            security.add(security(i % 2 == 0 ? "alice" : null, "EVENT-" + i, trace, START + i));
         }
         ProfileEvidence evidence = new ProfileEvidence(
                 requests,
                 ProfileEvidence.Source.of(sql),
-                ProfileEvidence.Source.of(List.of()),
-                ProfileEvidence.Source.of(List.of()),
+                ProfileEvidence.Source.of(
+                        List.of(occurrences("ex", occurrences.toArray(ExceptionOccurrenceDto[]::new)))),
+                ProfileEvidence.Source.of(security),
                 ProfileEvidence.Source.of(rest),
-                ProfileEvidence.Source.of(List.of()),
+                ProfileEvidence.Source.of(cache),
                 null);
 
         List<Long> claimedSql = new ArrayList<>();
         List<Long> claimedRest = new ArrayList<>();
+        List<Long> claimedCache = new ArrayList<>();
+        List<Long> claimedExceptions = new ArrayList<>();
+        List<Long> claimedSecurity = new ArrayList<>();
         for (HttpExchangeDto request : requests) {
             RequestProfileDto profile = assembler.requestProfile(request.id(), evidence, capabilities);
             profile.sql().forEach(entry -> claimedSql.add(entry.id()));
             profile.restCalls().forEach(entry -> claimedRest.add(entry.id()));
+            profile.cacheAccesses().forEach(access -> claimedCache.add(access.timestamp()));
+            profile.exceptions().forEach(exception -> claimedExceptions.add(exception.timestamp()));
+            profile.security().forEach(event -> claimedSecurity.add(event.timestamp()));
         }
 
         assertThat(claimedSql).doesNotHaveDuplicates().isNotEmpty();
         assertThat(claimedRest).doesNotHaveDuplicates().isNotEmpty();
+        assertThat(claimedCache).doesNotHaveDuplicates().isNotEmpty();
+        assertThat(claimedExceptions).doesNotHaveDuplicates().isNotEmpty();
+        assertThat(claimedSecurity).doesNotHaveDuplicates().isNotEmpty();
     }
 
     @Test
@@ -685,6 +773,24 @@ class ExecutionProfileAssemblerTests {
         assertThat(profile.restCalls()).hasSize(2);
         assertThat(section(profile, "REST_CLIENT").truncated()).isEqualTo(1);
         assertThat(profile.timing().restCallCount()).isEqualTo(3);
+    }
+
+    @Test
+    void boundsTheSqlGroupsItReturnsAndSaysSo() {
+        ExecutionProfileAssembler bounded = new ExecutionProfileAssembler(5, 2);
+        HttpExchangeDto request = request("req-1", "/orders", "trace-a", null, 1_000L, 500L);
+        ProfileEvidence evidence = new Evidence(request)
+                .sql(
+                        sql(1, "select 1", "trace-a", 1L, 1_001L),
+                        sql(2, "select 2", "trace-a", 1L, 1_002L),
+                        sql(3, "select 3", "trace-a", 1L, 1_003L))
+                .build();
+
+        RequestProfileDto profile = bounded.requestProfile("req-1", evidence, ProfileCapabilities.traceIdOnly());
+
+        assertThat(profile.sqlGroups()).hasSize(2);
+        assertThat(profile.timing().sqlCount()).isEqualTo(3);
+        assertThat(profile.notes()).contains("Showing the 2 most repeated of 3 distinct SQL statements.");
     }
 
     @Test

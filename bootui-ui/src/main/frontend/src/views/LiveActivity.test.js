@@ -440,8 +440,19 @@ describe('LiveActivity', () => {
           available: true,
           unavailableReason: null,
           tier: 'SERVING_THREAD',
+          childTiers: ['SERVING_THREAD'],
           total: 3,
           truncated: 2,
+          ambiguous: 0
+        },
+        {
+          type: 'SECURITY',
+          available: true,
+          unavailableReason: null,
+          tier: 'TIME_WINDOW',
+          childTiers: ['SERVING_THREAD', 'TIME_WINDOW'],
+          total: 205,
+          truncated: 203,
           ambiguous: 0
         },
         {
@@ -458,6 +469,10 @@ describe('LiveActivity', () => {
         {tier: 'TRACE_ID', available: true, unavailableReason: null},
         {tier: 'SERVING_THREAD', available: true, unavailableReason: null},
         {tier: 'TIME_WINDOW', available: true, unavailableReason: null}
+      ],
+      security: [
+        {type: 'AUTHENTICATION_SUCCESS', principal: 'alice', timestamp: 1, principalMatched: true, threadMatched: true},
+        {type: 'LOGOUT_SUCCESS', principal: null, timestamp: 2, principalMatched: false, threadMatched: false}
       ],
       approximate: true,
       timing: {sqlCount: 6, sqlMs: 60, sqlPercent: 50, restCallCount: 3, restCallMs: 126},
@@ -491,6 +506,12 @@ describe('LiveActivity', () => {
     expect(sectionByHeading('SQL').get('.activity-tier').text()).toBe('serving thread')
     expect(drawer.text()).toContain('Parts of this profile are approximate')
     expect(drawer.text()).toContain('3 REST client call(s), 126 ms outbound')
+    const security = sectionByHeading('Security events')
+    expect(security.text()).toContain('Showing the first 2 of 205 security events.')
+    expect(security.findAll('.activity-child-tier').map((label) => label.text())).toEqual([
+      '· serving thread',
+      '· time window'
+    ])
   })
 
   it('explains unavailable sections and tiers instead of showing empty evidence', async () => {
@@ -570,6 +591,8 @@ describe('LiveActivity', () => {
     const report = writeText.mock.calls[0][0]
     expect(report).toContain('Correlation: approximate (some signals were matched by time window only)')
     expect(report).toContain('SQL (exact, serving thread):')
+    expect(report).toContain('  LOGOUT_SUCCESS [time window]')
+    expect(report).toContain('  … Showing the first 2 of 205 security events.')
     expect(report).toContain('REST client calls (serving thread):')
     expect(report).toContain('  GET inventory.example/items → failed · 42 ms')
     expect(report).toContain('    Connection refused')
