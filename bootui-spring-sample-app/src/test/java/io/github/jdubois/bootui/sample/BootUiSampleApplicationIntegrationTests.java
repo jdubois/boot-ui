@@ -562,6 +562,29 @@ class BootUiSampleApplicationIntegrationTests {
     }
 
     @Test
+    void productSearchSqlIsAttributedToTheSampleCallSite() {
+        ResponseEntity<List<Object>> search = client().get()
+                .uri("/api/sample/product-search?term=console")
+                .retrieve()
+                .toEntity(new ParameterizedTypeReference<>() {});
+        assertThat(search.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        var response = getMap("/bootui/api/sql-trace");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<?, ?> body = response.getBody();
+        assertThat(body).isNotNull();
+        // The sample app lives under io.github.jdubois.bootui.sample, which is application code rather than one
+        // of BootUI's own module packages, so the statement names the sample method that issued it.
+        assertThat((Iterable<?>) body.get("entries")).anySatisfy(entry -> {
+            Map<?, ?> dto = (Map<?, ?>) entry;
+            assertThat((String) dto.get("sql")).containsIgnoringCase("sample_products");
+            assertThat((String) dto.get("callSite"))
+                    .startsWith("io.github.jdubois.bootui.sample.catalog.SampleCatalog.searchProducts(");
+        });
+    }
+
+    @Test
     void transactionSamplesProduceRepresentativeBoundaries() {
         Map<?, ?> before = getMap("/bootui/api/transactions").getBody();
         assertThat(before).isNotNull();

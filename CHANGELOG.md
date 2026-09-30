@@ -14,6 +14,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **SQL Trace and REST Client show call sites for the sample apps.** BootUI skipped the whole
+  `io.github.jdubois.bootui` namespace when looking for the application frame that issued a statement or an
+  outbound call. Because the Spring MVC, Spring WebFlux, and Quarkus sample apps live under it, their call sites were
+  always empty, including in statement rankings, N+1 groups, and Live Activity. Only BootUI's own module packages are
+  now skipped, and a test fails if a new BootUI package is added without being classified.
+
 - **Live Activity durable persistence works on MySQL and Oracle.** On MySQL, every read used the SQL-standard
   `OFFSET … FETCH FIRST` row limit, which MySQL rejects, so the Live Activity panel and `GET /bootui/api/activity`
   failed once persistence was on, while rows kept piling up unread. On Oracle, the table could never be created,
@@ -23,6 +29,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   database that rejects the query is reported as a failed switch instead of breaking the panel. This applies to
   Spring MVC, Spring WebFlux, and Quarkus
   ([#1142](https://github.com/jdubois/boot-ui/issues/1142)).
+
 - **Spring MVC Log Tail streams no longer throw on a worker thread when a client disconnects or the application
   stops.** When the servlet container had already failed the async request, the stream worker still tried to
   complete the `SseEmitter`. Tomcat rejected that with an uncaught `IllegalStateException`, and the session could
