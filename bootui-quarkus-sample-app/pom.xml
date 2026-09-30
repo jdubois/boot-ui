@@ -20,12 +20,12 @@
         BootUI developer console (see docs/QUARKUS-SUPPORT.md §8).
 
         This module lives in the root pom's always-on <modules> list so that IDEs (e.g. IntelliJ) import it
-        as a Java/Maven module on any JDK. Its Hibernate ORM dependency cannot be augmented on JDKs newer
-        than the Quarkus 3.33 platform supports (17/21/25), so the `skip-quarkus-build-on-unsupported-jdk`
-        profile below disables ONLY the Quarkus augmentation (the quarkus-maven-plugin execution) on JDK 26+.
-        Plain compile (release 17) + jar still run there, and the module has no tests, so a build on an
-        unsupported JDK stays green. On a supported JDK the app builds and augments normally; run/demo it with
-        `./mvnw -pl bootui-quarkus-sample-app -am install` (or `quarkus:dev`) on a JDK 17/21/25.
+        as a Java/Maven module on any JDK. Its Hibernate ORM dependency cannot be augmented on JDKs whose
+        class files are newer than the platform's ByteBuddy recognizes (Java 27 for ByteBuddy 1.18.11), so the
+        `skip-quarkus-build-on-unsupported-jdk` profile below disables ONLY the Quarkus augmentation (the
+        quarkus-maven-plugin execution) on JDK 28+. Plain compile (release 17) + jar still run there, and the
+        module has no tests, so a build on an unsupported JDK stays green. On JDK 17 to 27 the app builds and
+        augments normally; run/demo it with `./mvnw -pl bootui-quarkus-sample-app -am install` (or `quarkus:dev`).
 
         The Quarkus platform comes from the shared Quarkus parent. The sample keeps only its additional
         LangChain4j BOM, whose 1.12.1 release targets the same Quarkus 3.33 LTS line.
@@ -242,10 +242,11 @@
             </dependencies>
         </profile>
         <!--
-            On a JDK newer than the Quarkus 3.33 platform supports (17/21/25), the build-time Hibernate ORM
+            On a JDK newer than the platform's ByteBuddy recognizes (ByteBuddy 1.18.11 recognizes up to Java 27;
+            Quarkus 3.33 LTS officially supports 17/21/25, and 26/27 are verified), the build-time Hibernate ORM
             ByteBuddy enhancement run by the quarkus-maven-plugin `build` goal cannot read the running JVM's
             class files and fails. This module is in the always-on reactor (so IDEs import it everywhere), so
-            we disable ONLY the Quarkus augmentation/codegen execution on JDK 26+ by unbinding it
+            we disable ONLY the Quarkus augmentation/codegen execution on JDK 28+ by unbinding it
             (`<phase>none</phase>`). Plain compile (release 17) + jar still succeed and the module has no tests,
             so `./mvnw install` stays green on an unsupported JDK; it simply does not produce a runnable Quarkus
             artifact there (you cannot run Quarkus on that JDK anyway). On a supported JDK this profile is
@@ -254,7 +255,7 @@
         <profile>
             <id>skip-quarkus-build-on-unsupported-jdk</id>
             <activation>
-                <jdk>[26,)</jdk>
+                <jdk>[28,)</jdk>
             </activation>
             <build>
                 <plugins>

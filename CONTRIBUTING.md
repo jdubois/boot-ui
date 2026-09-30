@@ -299,7 +299,7 @@ MySQL diagnostics require **real Oracle MySQL 8.4** evidence, not the existing M
 rows. The tested fixture image is `mysql:8.4.6`. Spring uses Connector/J 9.7.0 with HikariCP 7.0.2; Quarkus uses
 Connector/J 9.6.0 with Agroal 3.0.1.
 Docker (or a Testcontainers-compatible runtime) must be available. Use Java 17 for the delivery baseline:
-JDKs outside 17, 21, and 25 can silently skip Quarkus augmentation.
+JDK 28+ silently skips Quarkus augmentation.
 
 From the repository root, install the current reactor dependencies into one worktree-local repository before running
 the Spring live suites and Quarkus `mysql-live` profile:
@@ -384,7 +384,7 @@ UI, browser-facing API responses, or sample-app behavior:
 (cd bootui-spring-sample-app/e2e && npm test)
 (cd bootui-spring-sample-app/e2e && npm run test:webflux)
 
-# Quarkus (requires JDK 17, 21, or 25 and Docker/Podman for Dev Services)
+# Quarkus (requires JDK 17 to 27 and Docker/Podman for Dev Services)
 (cd bootui-quarkus-sample-app/e2e && npm ci && npx playwright install chromium)
 (cd bootui-quarkus-sample-app/e2e && npm test)
 ```
@@ -461,7 +461,7 @@ run its sample without `-am`:
 | Spring WebFlux | `./mvnw -pl bootui-spring-webflux-sample-app spring-boot:run` | <http://localhost:8081/bootui> |
 | Quarkus | `./mvnw -pl bootui-quarkus-sample-app quarkus:dev` | <http://localhost:8082/bootui> |
 
-The Quarkus sample requires JDK 17, 21, or 25 for augmentation and uses Dev
+The Quarkus sample requires JDK 17 to 27 for augmentation and uses Dev
 Services, so Docker or Podman must be available.
 
 ## Front-end development

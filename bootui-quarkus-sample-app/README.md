@@ -52,8 +52,10 @@ Ollama is optional: the chat endpoint returns a clear "AI unavailable" response 
 BootUI activates automatically under `quarkus:dev` (development launch mode). In a packaged production run
 (`java -jar`, NORMAL launch mode) the console stays dark by design — there is no runtime flag to force it on.
 
-> Run from source on **JDK 17, 21 or 25**: Hibernate ORM's ByteBuddy enhancement cannot augment JDK 26+
-> class files. The Docker image below sidesteps this by building inside JDK 21.
+> Run from source on **JDK 17 to 27**: Hibernate ORM's ByteBuddy enhancement cannot augment class files
+> newer than the platform's ByteBuddy recognizes (Java 27), so augmentation is skipped on JDK 28+. Quarkus 3.33
+> LTS officially supports JDK 17, 21 and 25; JDK 26 and 27 are verified to work. The Docker image below
+> sidesteps this by building inside JDK 21.
 
 When run from source this way, this app's spans are also exported over OTLP/HTTP to the Spring sample app's
 BootUI (`quarkus.otel.exporter.otlp.endpoint` in `application.properties`, defaulting to
@@ -96,27 +98,27 @@ The extension's real-MySQL HTTP integration test is separate from the ordinary D
   -Pmysql-live test -Dtest=BootUiQuarkusMySqlLiveTest
 ```
 
-Use JDK 17, 21, or 25 and a running Docker daemon. This explicit lane fails rather than silently skipping if Docker
+Use JDK 17 to 27 and a running Docker daemon. This explicit lane fails rather than silently skipping if Docker
 or the pinned server is unavailable. Install current reactor dependencies first when working from source.
 
 ## Importing into an IDE (IntelliJ IDEA)
 
 This module is part of the **always-on** Maven reactor, so IntelliJ imports it as a Java/Maven module on
-**any** JDK — including JDK 26+. Only the Quarkus build-time augmentation is skipped on a JDK newer than the
-Quarkus platform supports (the `skip-quarkus-build-on-unsupported-jdk` profile in this module's `pom.xml`); the
+**any** JDK — including JDK 28+. Only the Quarkus build-time augmentation is skipped on a JDK newer than the
+platform's ByteBuddy recognizes (the `skip-quarkus-build-on-unsupported-jdk` profile in this module's `pom.xml`); the
 sources still compile and resolve, so code intelligence works in the IDE regardless of the importer JDK.
 
 If you are on an older checkout (where the whole module sat behind a JDK-`[17,26)` profile) and IntelliJ shows
 it as *"not a Java/Maven project"*, point the Maven importer at a JDK the platform supports and reload:
 
 - **Settings → Build, Execution, Deployment → Build Tools → Maven → Importing → "JDK for importer"** → pick a
-  JDK 17 / 21 / 25.
+  JDK 17 to 27.
 - **File → Project Structure → Project → SDK** → set the project SDK to the same JDK.
 - Optionally, in the **Maven tool window → Profiles**, tick `quarkus-sample-app`, then **Reload All Maven
   Projects**.
 
-To actually run or augment the app from the IDE (`quarkus:dev`) you still need a JDK 17 / 21 / 25, for the same
-Hibernate ByteBuddy reason as above; on JDK 26+ the module imports and compiles but does not augment.
+To actually run or augment the app from the IDE (`quarkus:dev`) you still need a JDK 17 to 27, for the same
+Hibernate ByteBuddy reason as above; on JDK 28+ the module imports and compiles but does not augment.
 
 ## Docker image
 
