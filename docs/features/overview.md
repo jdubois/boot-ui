@@ -335,7 +335,8 @@ everywhere.
 
 What differs is **how signals correlate to a request**, because only the servlet model gives a request its own thread:
 
-- **Spring MVC** uses the full tiered join above: trace id, then serving thread, then time window.
+- **Spring MVC** uses the full tiered join above: trace id, then serving thread, then time window. SQL first matches
+  BootUI's own request id, so it nests exactly even when identical requests overlap.
 - **Spring WebFlux** and **Quarkus** correlate by **trace id only**. Reactor Netty and the Vert.x event loop have no
   thread-per-request model, so the thread-based and time-window tiers do not apply. Without a trace id the feed still
   shows every signal, just flat rather than nested, and the profiler drawer honestly reports itself unavailable rather
@@ -358,6 +359,10 @@ The request id travels on the request's Vert.x context to the worker or virtual 
 Activity nests a statement under the request whose id it carries before trying the trace id. Without OpenTelemetry,
 SQL therefore still nests under its request, including when identical requests overlap; other signals still need a
 trace id for now.
+
+Spring MVC stamps the same kind of request id on each exchange and each SQL statement. `RequestCorrelationFilter`
+generates it when the request starts and keeps it current on the servlet thread, including during an asynchronous
+redispatch of the same request. Work done during the container's `/error` dispatch carries no request id yet.
 
 :::
 

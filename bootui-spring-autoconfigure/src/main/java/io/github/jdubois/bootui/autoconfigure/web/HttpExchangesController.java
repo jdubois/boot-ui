@@ -207,8 +207,11 @@ public class HttpExchangesController implements BeanFactoryAware {
             retention = CaptureRetentionDto.applicationManaged(exchanges.size());
         }
         HttpExchangeTraceRegistry.Matcher traces = traceRegistry == null ? null : traceRegistry.matcher();
-        List<CapturedHttpExchange> captured =
-                exchanges.stream().map(exchange -> toCaptured(exchange, traces)).toList();
+        BootUiHttpExchangeRepository stamping =
+                exchangeRepository instanceof BootUiHttpExchangeRepository bootUiRepository ? bootUiRepository : null;
+        List<CapturedHttpExchange> captured = exchanges.stream()
+                .map(exchange -> toCaptured(exchange, traces, stamping))
+                .toList();
         return new Window(
                 captured,
                 retention,
@@ -240,7 +243,12 @@ public class HttpExchangesController implements BeanFactoryAware {
         return null;
     }
 
-    private CapturedHttpExchange toCaptured(HttpExchange exchange, HttpExchangeTraceRegistry.Matcher traces) {
+    /**
+     * @param stamping BootUI's own repository, which knows the request id of each exchange it recorded, or {@code null}
+     *     for an application-provided repository, whose exchanges carry none
+     */
+    private CapturedHttpExchange toCaptured(
+            HttpExchange exchange, HttpExchangeTraceRegistry.Matcher traces, BootUiHttpExchangeRepository stamping) {
         HttpExchange.Request request = exchange.getRequest();
         HttpExchange.Response response = exchange.getResponse();
         Long durationMs =
@@ -257,7 +265,8 @@ public class HttpExchangesController implements BeanFactoryAware {
                 request == null ? null : request.getHeaders(),
                 response == null ? null : response.getHeaders(),
                 capturedTraceId(traces, exchange, request, durationMs),
-                capturedRouteTemplate(traces, exchange, request, durationMs));
+                capturedRouteTemplate(traces, exchange, request, durationMs),
+                stamping == null ? null : stamping.requestId(exchange));
     }
 
     /**

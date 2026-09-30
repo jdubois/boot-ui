@@ -1,9 +1,13 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
 import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.WeakHashMap;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.boot.actuate.web.exchanges.HttpExchange;
 import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
@@ -24,10 +28,16 @@ import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
  * keeps its existing back-off. That is decided once, when the repository is created and before any request can be
  * recorded, from the registered bean definitions: the repository then behaves like the one it replaces (every
  * exchange kept, strictly oldest evicted first) and reports its retention as application-managed.</p>
+ *
+ * <p>Actuator calls {@link #add} on the request's own thread, after the rest of the chain, while
+ * {@code RequestCorrelationFilter}'s correlation scope is still open, so the repository records the request id current
+ * at that moment for each exchange ({@code docs/PLAN-v2.md} §5.1). {@code HttpExchange} is final and compared by
+ * identity, so the ids are kept in a weak identity map that forgets an exchange once the buffer evicts it.</p>
  */
 public final class BootUiHttpExchangeRepository implements HttpExchangeRepository {
 
     private final TieredCaptureBuffer<HttpExchange> buffer;
+    private final Map<HttpExchange, String> requestIds = Collections.synchronizedMap(new WeakHashMap<>());
     private final long slowThresholdMillis;
     private final boolean recordedByApplication;
 
@@ -73,6 +83,10 @@ public final class BootUiHttpExchangeRepository implements HttpExchangeRepositor
         if (exchange == null) {
             return;
         }
+        String requestId = BootUiCorrelation.current().requestId();
+        if (requestId != null) {
+            requestIds.put(exchange, requestId);
+        }
         HttpExchange.Response response = exchange.getResponse();
         int status = response == null ? 0 : response.getStatus();
         Long durationMs =
@@ -80,6 +94,11 @@ public final class BootUiHttpExchangeRepository implements HttpExchangeRepositor
         buffer.add(
                 exchange,
                 !recordedByApplication && RequestSlowThreshold.isFailedOrSlow(status, durationMs, slowThresholdMillis));
+    }
+
+    /** The BootUI request id current when {@code exchange} was added, or {@code null}. */
+    public String requestId(HttpExchange exchange) {
+        return exchange == null ? null : requestIds.get(exchange);
     }
 
     /** Whether BootUI owns both this repository and the filter recording into it. */

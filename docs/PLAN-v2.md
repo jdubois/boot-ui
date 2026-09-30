@@ -171,7 +171,7 @@ v1 foundation is delivered on `main` in its wave and merged into `v2`; v2 extend
 | v1 item and wave | Dependency | How v2 uses it |
 | --- | --- | --- |
 | §3.27 Log exposure policy, wave 0 ✅ | Hard, M2 | Journal `LOG` events reuse its read-time path (`LogTailReader` and the shared `MessageExposure` helper), and the journal follows the same read-time model (§8) |
-| §3.24a Failure-preserving retention, wave 1 | Hard, M1 | Exact exchange correlation stamps the context in its BootUI-owned Spring `HttpExchangeRepository`. There is no second repository decorator |
+| §3.24a Failure-preserving retention, wave 1 ✅ | Hard, M1 | Exact exchange correlation stamps the context in its BootUI-owned Spring `BootUiHttpExchangeRepository`, over the engine `TieredCaptureBuffer`. There is no second repository decorator |
 | §3.20a Shared profile assembler, wave 1 ✅ | Hard, M1 | v2 adds a `REQUEST_ID` tier ahead of the `TRACE_ID`, `SERVING_THREAD`, and `TIME_WINDOW` tiers of `ExecutionProfileAssembler` and `CorrelationTier` |
 | §3.22 Route performance rankings, wave 1 ✅ | Hard, M2 | Its `Percentiles` helper, `RouteTemplateResolver`, and `HttpRouteSummaryService` serve route comparison and every route-level observation |
 | §3.25 Agent-ready profiles, wave 2 | Hard, M3 | `get_request_profile` is the drill-down behind every exemplar request id |
@@ -196,7 +196,7 @@ Three design points change how v1 items are finished, without changing their v1 
 | Milestone | Delivers | Depends on | Effort (engineer-days, rough) | Status |
 | --- | --- | --- | --- | --- |
 | **M0 Readiness** | CI on `v2`, the correlation and overhead scenarios as baselines, and the propagation and restart spikes (§5.1, §5.8) | — | 5–8 | ✅ Delivered |
-| **M1 Exact correlation** (§5.1) | One correlation context on every event, with or without tracing, on all three stacks, and the request phase markers | M0; v1 wave 1 (§3.20a ✅, §3.24a) | 45–56 | 🚧 In progress |
+| **M1 Exact correlation** (§5.1) | One correlation context on every event, with or without tracing, on all three stacks, and the request phase markers | M0; v1 wave 1 (§3.20a ✅, §3.24a ✅) | 45–56 | 🚧 In progress |
 | **M2 Journal and Live Activity** (§5.2, §5.3, §5.11) | The in-memory journal, incremental aggregates, run summaries, resource correlation (scope readings, GC by id, CPU ledger, resource track), and Live Activity served from the journal with its unified timeline | M1; §3.22, §3.27 | 44–56 | 📋 Planned |
 | **M3 Runtime Insights** (§5.4–§5.6) | Projections, the runtime model, the panel, Live Activity entry points, twelve observations, agent tools, and the demo | M2; §3.25 | 52–65 | 📋 Planned |
 | **M4 Change loop and 2.0 readiness** (§5.7–§5.9, §5.12) | Change impact, run comparison and behavior diff, anonymous access, proxy bypass, external validation, and the release path | M3; §3.18 | 33–45 | 📋 Planned |
@@ -362,12 +362,12 @@ Delivery slices, each one pull request to `v2` with its own tests and documentat
 | --- | --- | --- | --- |
 | M1-1 | Engine correlation core: `CorrelationContext` and the `CorrelationContextProvider` SPI, the scope-based `BootUiCorrelation` holder that always restores the previous context, `ScopedCorrelationContextProvider` (which fills in the trace id from `TraceIdProvider`), `RequestIds`, and `RunIdentity`. No capture changes yet | — | ✅ Delivered |
 | M1-2 | Quarkus: `QuarkusHttpExchangeCaptureFilter` generates the request id, attaches its context to the request's Vert.x duplicated context (`QuarkusRequestCorrelation`), which Quarkus carries to worker and virtual threads, and opens a thread scope while the chain runs on the event loop. The exchange is stamped with it, and `HttpExchangeDto.requestId` becomes the exchange's id. A Quarkus `CorrelationContextProvider` bean reads it without OpenTelemetry | M1-1 | ✅ Delivered |
-| M1-3 | Spring MVC: request scope in `RequestCorrelationFilter` with async redispatch, phase markers, and the exchange stamped in §3.24a's BootUI-owned repository | M1-1, §3.24a | 📋 Planned |
-| M1-4 | Spring WebFlux: the Reactor-context bridge, the `spring.reactor.context-propagation=auto` default, and exchange stamping at `beforeCommit` | M1-1, §3.24a | 📋 Planned |
+| M1-3 | Spring MVC: `RequestCorrelationFilter` generates the request id and opens its scope around the chain, reopening it on an async redispatch without recording the request twice. §3.24a's BootUI-owned repository stamps each exchange with the id current when Actuator adds it, and Live Activity nests SQL by request id before its time-window tiers. The Spring coverage scenario enforces 100 % SQL nesting in every phase. Phase markers move to M1-6, and work in the `/error` dispatch stays unscoped | M1-1, §3.24a ✅ | ✅ Delivered |
+| M1-4 | Spring WebFlux: the Reactor-context bridge, the `spring.reactor.context-propagation=auto` default, and exchange stamping at `beforeCommit` | M1-1, §3.24a ✅ | 📋 Planned |
 | M1-5a | Request ids on SQL: `SqlTraceRecorder` stamps `CapturedStatement.requestId` from a `CorrelationContextProvider` (the Quarkus Vert.x context on Quarkus), `SqlTraceEntryDto.requestId`, and Live Activity nests a statement under the request whose id it carries before trying its trace id. The Quarkus coverage scenario without tracing enforces 100 % SQL nesting in every phase | M1-2 | ✅ Delivered |
 | M1-5b | Request ids on exceptions (as immutable occurrences), security events, REST client calls, cache accesses, email, and logs, nested the same way | M1-5a | 📋 Planned |
 | M1-5c | `REQUEST_ID` first in `ExecutionProfileAssembler`, so profiles need no trace id | M1-5b | 📋 Planned |
-| M1-6 | Messaging propagation, thread kinds, GraphQL operations, run ids in `/overview`, and the extended correlation scenario with its floors | M1-5 | 📋 Planned |
+| M1-6 | Messaging propagation, thread kinds, request phase markers, GraphQL operations, run ids in `/overview`, and the extended correlation scenario with its floors | M1-5 | 📋 Planned |
 
 ### 5.2 Runtime journal — Diagnostics 📋 Planned
 

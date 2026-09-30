@@ -816,7 +816,14 @@ public class LiveActivityService {
                 }
             }
             anchors.add(new RequestAnchor(
-                    exchange.id(), start, end, thread, exchange.traceId(), exchange.method(), exchange.path()));
+                    exchange.id(),
+                    start,
+                    end,
+                    thread,
+                    exchange.traceId(),
+                    exchange.method(),
+                    exchange.path(),
+                    exchange.requestId()));
         }
         return anchors;
     }
@@ -827,6 +834,10 @@ public class LiveActivityService {
      * request, so the entry stays top-level rather than being mis-attributed.
      */
     private static String matchSqlParent(SqlTraceEntryDto entry, List<RequestAnchor> anchors) {
+        String byRequestId = matchByRequestId(entry.requestId(), anchors);
+        if (byRequestId != null) {
+            return byRequestId;
+        }
         return matchByTraceThenThread(entry.traceId(), entry.thread(), entry.timestamp(), anchors);
     }
 
@@ -837,6 +848,23 @@ public class LiveActivityService {
      */
     private static String matchCacheParent(CacheActivityEvent event, List<RequestAnchor> anchors) {
         return matchByTraceThenThread(event.traceId(), event.thread(), event.timestampMillis(), anchors);
+    }
+
+    /**
+     * The request whose BootUI request id the child carries ({@code docs/PLAN-v2.md} §5.1): exact, with or without
+     * tracing, and whatever thread the child ran on. {@code null} when the child carries none or no retained request
+     * has it.
+     */
+    private static String matchByRequestId(String requestId, List<RequestAnchor> anchors) {
+        if (requestId == null || requestId.isBlank()) {
+            return null;
+        }
+        for (RequestAnchor anchor : anchors) {
+            if (requestId.equals(anchor.requestId())) {
+                return anchor.id();
+            }
+        }
+        return null;
     }
 
     private static String matchByTraceThenThread(
@@ -989,7 +1017,14 @@ public class LiveActivityService {
      * (possibly thread-refined) time window, the serving thread when known, and the trace id.
      */
     private record RequestAnchor(
-            String id, long start, long end, String thread, String traceId, String method, String path) {}
+            String id,
+            long start,
+            long end,
+            String thread,
+            String traceId,
+            String method,
+            String path,
+            String requestId) {}
 
     /**
      * Builds one {@link ScheduledTaskAnchor} per captured {@code @Scheduled} execution, so a correlated

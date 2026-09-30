@@ -4,7 +4,10 @@ import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationRegistr
 import io.github.jdubois.bootui.autoconfigure.web.BootUiMounts;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry.HttpExchangeTrace;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.correlation.RequestIds;
 import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -30,6 +33,12 @@ import org.springframework.web.util.UrlPathHelper;
  * BootUI's own endpoints are skipped (their requests are hidden from the activity feed anyway), and
  * async/error re-dispatches are skipped so each logical request is recorded exactly once on its main
  * dispatch.</p>
+ *
+ * <p>It also gives each request BootUI's own request id ({@code docs/PLAN-v2.md} §5.1) and makes its
+ * {@link CorrelationContext} current on the serving thread while the chain runs, so every event recorded for the
+ * request, including the exchange Actuator records on the same thread, carries that id with or without tracing. The
+ * context is kept as a request attribute and made current again on an async redispatch, which may run on another
+ * thread; the redispatch is not recorded again.</p>
  */
 public final class RequestCorrelationFilter extends OncePerRequestFilter {
 
@@ -63,8 +72,31 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
         this.requestSlowThresholdMs = requestSlowThresholdMs;
     }
 
+    /** The request attribute holding the request's {@link CorrelationContext}, for its async redispatches. */
+    public static final String CORRELATION_ATTRIBUTE = RequestCorrelationFilter.class.getName() + ".correlation";
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+            throws ServletException, IOException {
+        if (isAsyncDispatch(request)) {
+            try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(asyncContext(request))) {
+                chain.doFilter(request, response);
+            }
+            return;
+        }
+        CorrelationContext correlation = CorrelationContext.forRequest(RequestIds.next());
+        request.setAttribute(CORRELATION_ATTRIBUTE, correlation);
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(correlation)) {
+            recordAround(request, response, chain);
+        }
+    }
+
+    private static CorrelationContext asyncContext(HttpServletRequest request) {
+        Object attribute = request.getAttribute(CORRELATION_ATTRIBUTE);
+        return attribute instanceof CorrelationContext context ? context : CorrelationContext.NONE;
+    }
+
+    private void recordAround(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         long start = System.currentTimeMillis();
         String thread = Thread.currentThread().getName();
@@ -141,7 +173,7 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilterAsyncDispatch() {
-        return true;
+        return false;
     }
 
     @Override

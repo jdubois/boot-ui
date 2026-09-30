@@ -3,6 +3,8 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
@@ -27,6 +29,29 @@ class BootUiHttpExchangeRepositoryTests {
 
     private static String path(HttpExchange exchange) {
         return exchange.getRequest().getUri().getPath();
+    }
+
+    @Test
+    void remembersTheRequestIdCurrentWhenEachExchangeIsAdded() {
+        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(10, 25, 1_000L, false);
+        HttpExchange first = exchange("/orders", 200, 5);
+        HttpExchange second = exchange("/orders", 200, 5);
+        HttpExchange unowned = exchange("/orders", 200, 5);
+
+        try (BootUiCorrelation.Scope ignored =
+                BootUiCorrelation.open(CorrelationContext.forRequest("0123456789abcdef"))) {
+            repository.add(first);
+        }
+        try (BootUiCorrelation.Scope ignored =
+                BootUiCorrelation.open(CorrelationContext.forRequest("fedcba9876543210"))) {
+            repository.add(second);
+        }
+        repository.add(unowned);
+
+        assertThat(repository.requestId(first)).isEqualTo("0123456789abcdef");
+        assertThat(repository.requestId(second)).isEqualTo("fedcba9876543210");
+        assertThat(repository.requestId(unowned)).isNull();
+        assertThat(repository.requestId(null)).isNull();
     }
 
     @Test

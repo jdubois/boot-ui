@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.sample;
 
 import io.github.jdubois.bootui.conformance.AbstractCorrelationCoverageTest;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
@@ -10,7 +11,8 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 /**
  * Runs the {@code docs/PLAN-v2.md} §5.1 correlation coverage scenario against Spring MVC, in the Docker-free
  * {@code dev} profile. The routes cover SQL, an HTTP Basic secured request with SQL, a cached read, and a
- * request-thread exception. Buffers are raised so that no scenario request or child is evicted.
+ * request-thread exception. Buffers are raised so that no scenario request or child is evicted. SQL nests under its
+ * request in every phase through BootUI's request id, which the scenario enforces.
  */
 @SpringBootTest(
         classes = BootUiSampleApplication.class,
@@ -46,6 +48,12 @@ class SpringCorrelationCoverageTest extends AbstractCorrelationCoverageTest {
                 Traffic.basicAuth("/api/secure/products", "admin", "admin", 4),
                 Traffic.anonymous("/api/sample/products", 4),
                 Traffic.anonymous("/api/sample/boom", 4));
+    }
+
+    /** Since M1-3 and M1-5a, every request-thread statement carries its request id, in every phase. */
+    @Override
+    protected Map<String, Double> minimumNestedShares(Phase phase) {
+        return Map.of("SQL", 1.0);
     }
 
     @Override

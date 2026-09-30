@@ -1,9 +1,16 @@
 package io.github.jdubois.bootui.autoconfigure.activity;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationRegistry.RequestCorrelation;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import jakarta.servlet.DispatcherType;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -38,6 +45,58 @@ class RequestCorrelationFilterTests {
         assertThat(record.endMillis()).isGreaterThanOrEqualTo(record.startMillis());
         assertThat(traceRegistry.match(record.method(), record.path(), record.startMillis(), record.endMillis()))
                 .isEqualTo("server-created-trace");
+    }
+
+    @Test
+    void makesAFreshRequestIdCurrentWhileTheChainRunsAndRestoresTheThreadAfter() throws Exception {
+        RequestCorrelationFilter filter = new RequestCorrelationFilter(
+                new RequestCorrelationRegistry(10), new HttpExchangeTraceRegistry(10), "/bootui");
+        List<CorrelationContext> seen = new ArrayList<>();
+        FilterChain chain = (request, response) -> seen.add(BootUiCorrelation.current());
+
+        filter.doFilter(new MockHttpServletRequest("GET", "/api/orders"), new MockHttpServletResponse(), chain);
+        filter.doFilter(new MockHttpServletRequest("GET", "/api/orders"), new MockHttpServletResponse(), chain);
+
+        assertThat(seen)
+                .extracting(CorrelationContext::requestId)
+                .allSatisfy(id -> assertThat(id).matches("[0-9a-f]{16}"))
+                .doesNotHaveDuplicates();
+        assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
+    }
+
+    @Test
+    void restoresTheThreadWhenTheChainThrows() {
+        RequestCorrelationFilter filter = new RequestCorrelationFilter(
+                new RequestCorrelationRegistry(10), new HttpExchangeTraceRegistry(10), "/bootui");
+        FilterChain failing = (request, response) -> {
+            throw new ServletException("handler failed");
+        };
+
+        assertThatThrownBy(() -> filter.doFilter(
+                        new MockHttpServletRequest("GET", "/api/orders"), new MockHttpServletResponse(), failing))
+                .isInstanceOf(ServletException.class);
+
+        assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
+    }
+
+    @Test
+    void anAsyncRedispatchRunsUnderTheSameRequestIdWithoutBeingRecordedAgain() throws Exception {
+        RequestCorrelationRegistry registry = new RequestCorrelationRegistry(10);
+        RequestCorrelationFilter filter =
+                new RequestCorrelationFilter(registry, new HttpExchangeTraceRegistry(10), "/bootui");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/orders");
+        List<String> seen = new ArrayList<>();
+        FilterChain chain = (req, res) -> seen.add(BootUiCorrelation.current().requestId());
+
+        filter.doFilter(request, new MockHttpServletResponse(), chain);
+        request.setDispatcherType(DispatcherType.ASYNC);
+        request.removeAttribute(filter.getClass().getName() + ".FILTERED");
+        filter.doFilter(request, new MockHttpServletResponse(), chain);
+
+        assertThat(seen).hasSize(2);
+        assertThat(seen.get(1)).isEqualTo(seen.get(0)).isNotNull();
+        assertThat(registry.snapshot()).hasSize(1);
+        assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
     }
 
     @Test
