@@ -13,7 +13,8 @@ import java.util.List;
  * @param available whether HTTP exchanges are recorded and a summary could be computed
  * @param unavailableReason populated when {@code available} is {@code false}
  * @param window the bounded retained window every figure is computed over
- * @param routes the union of each ranking criterion's top routes, most requested first
+ * @param routes the union of each ranking criterion's top routes, most requested first, followed by the
+ *     route the request pinned when it is outside every top list
  * @param topPerCriterion how many routes each criterion contributes; re-sorting {@link #routes()} by any
  *     criterion and taking this many rows yields that criterion's exact top list
  * @param routesTruncated whether further routes exist beyond {@link #routes()}

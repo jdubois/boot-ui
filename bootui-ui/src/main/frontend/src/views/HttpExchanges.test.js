@@ -4,8 +4,11 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 import HttpExchanges from './HttpExchanges.vue'
 import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 
-const routeState = vi.hoisted(() => ({query: {}}))
-vi.mock('vue-router', () => ({useRoute: () => routeState}))
+import {reactive} from 'vue'
+
+const routeState = reactive({query: {}})
+const router = {replace: vi.fn(({query}) => Promise.resolve((routeState.query = query)))}
+vi.mock('vue-router', () => ({useRoute: () => routeState, useRouter: () => router}))
 
 const RouterLinkStub = {
   props: ['to'],
@@ -59,6 +62,7 @@ describe('HTTP Exchanges', () => {
     vi.unstubAllGlobals()
     vi.useRealTimers()
     routeState.query = {}
+    router.replace.mockClear()
   })
 
   it('renders recorded exchanges with masked details and auto-refresh controls', async () => {
@@ -238,7 +242,7 @@ describe('HTTP Exchanges', () => {
         p99DurationMs: 150,
         maxDurationMs: 150,
         shareOfRetainedTimePercent: 88,
-        topFor: ['REQUESTS', 'TOTAL_DURATION', 'ERROR_COUNT'],
+        topFor: ['REQUESTS', 'TOTAL_DURATION', 'P95_DURATION', 'MAX_DURATION', 'ERROR_COUNT'],
         ...overrides
       }
     }
@@ -274,7 +278,7 @@ describe('HTTP Exchanges', () => {
             p95DurationMs: 900,
             maxDurationMs: 900,
             shareOfRetainedTimePercent: 12,
-            topFor: ['REQUESTS', 'P95_DURATION', 'MAX_DURATION']
+            topFor: ['REQUESTS', 'TOTAL_DURATION', 'P95_DURATION', 'MAX_DURATION']
           })
         ],
         topPerCriterion: 25,
@@ -330,13 +334,58 @@ describe('HTTP Exchanges', () => {
     })
 
     it('states how many routes a bounded ranking leaves out', async () => {
-      stubFetch(routesReport({topPerCriterion: 1, routesTruncated: true, distinctRoutes: 40}))
+      stubFetch(
+        routesReport({
+          routes: [route(), route({id: 'GET /b', route: '/b', topFor: ['P95_DURATION']})],
+          topPerCriterion: 1,
+          routesTruncated: true,
+          distinctRoutes: 40
+        })
+      )
       const wrapper = mountExchanges()
       await flushPromises()
 
       expect(wrapper.findAll('.http-routes-table tbody tr')).toHaveLength(1)
-      expect(wrapper.find('.http-routes-truncation').text()).toContain('Showing 1 of 40 routes')
-      expect(wrapper.find('.http-routes-truncation').text()).toContain('39 more routes')
+      expect(wrapper.find('.http-routes-truncation').text()).toContain('Showing the top 1 of 40 retained routes')
+      expect(wrapper.find('.http-routes-truncation').text()).toContain('39 more routes are not shown')
+    })
+
+    it('says a route that scores zero is not ranked rather than cut off', async () => {
+      stubFetch()
+      const wrapper = mountExchanges()
+      await flushPromises()
+
+      await wrapper.find('#http-routes-metric').setValue('errorCount')
+      expect(wrapper.findAll('.http-routes-table tbody tr')).toHaveLength(1)
+      expect(wrapper.find('.http-routes-truncation').text()).toContain(
+        '1 of 2 retained routes record no errors in this window'
+      )
+    })
+
+    it('lists exactly the server top list for a criterion and breaks ties like Java does', async () => {
+      stubFetch(
+        routesReport({
+          routes: [
+            route({id: 'GET /a', route: '/a', requests: 3, topFor: ['REQUESTS']}),
+            route({id: 'GET /Z', route: '/Z', requests: 3, topFor: ['REQUESTS']}),
+            route({id: 'GET /{value}', route: '/{value}', requests: 3, topFor: ['REQUESTS']}),
+            // In the union for another criterion only, with a request count that ties the top list.
+            route({id: 'GET /B', route: '/B', requests: 3, topFor: ['P95_DURATION']})
+          ],
+          topPerCriterion: 3,
+          routesTruncated: true,
+          distinctRoutes: 4
+        })
+      )
+      const wrapper = mountExchanges()
+      await flushPromises()
+
+      // Java's String.compareTo puts uppercase before lowercase, and '{' after both.
+      expect(wrapper.findAll('.http-routes-table tbody tr').map((row) => row.attributes('data-route-id'))).toEqual([
+        'GET /Z',
+        'GET /a',
+        'GET /{value}'
+      ])
     })
 
     it('drills down from a route to exactly its exchanges and back', async () => {
@@ -351,6 +400,7 @@ describe('HTTP Exchanges', () => {
       await vi.advanceTimersByTimeAsync(300)
       await flushPromises()
 
+      expect(router.replace).toHaveBeenLastCalledWith({query: {route: 'GET /api/orders/{id}'}})
       expect(fetchMock).toHaveBeenLastCalledWith(
         'api/http-exchanges?route=GET+%2Fapi%2Forders%2F%7Bid%7D&offset=0&limit=200',
         expect.objectContaining({signal: expect.any(AbortSignal)})
@@ -363,18 +413,25 @@ describe('HTTP Exchanges', () => {
       await vi.advanceTimersByTimeAsync(300)
       await flushPromises()
 
+      expect(router.replace).toHaveBeenLastCalledWith({query: {}})
       expect(fetchMock).toHaveBeenLastCalledWith(
         'api/http-exchanges?offset=0&limit=200',
         expect.objectContaining({signal: expect.any(AbortSignal)})
       )
       expect(wrapper.find('.http-exchanges-route-filter').exists()).toBe(false)
+      expect(wrapper.find('.http-routes-row-active').exists()).toBe(false)
     })
 
-    it('opens on the route and ranking a Live Activity link names', async () => {
+    it('opens on the route and ranking a Live Activity link names, pinning its row', async () => {
       routeState.query = {route: 'GET /api/items/{value}', rank: 'maxDurationMs'}
       const fetchMock = stubFetch()
       const wrapper = mountExchanges()
       await flushPromises()
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'api/http-exchanges/routes?route=GET%20%2Fapi%2Fitems%2F%7Bvalue%7D',
+        expect.anything()
+      )
 
       expect(wrapper.find('#http-routes-metric').element.value).toBe('maxDurationMs')
       expect(wrapper.find('.http-routes-row-active').attributes('data-route-id')).toBe('GET /api/items/{value}')
@@ -406,6 +463,56 @@ describe('HTTP Exchanges', () => {
       expect(JSON.parse(link.attributes('data-to'))).toEqual({path: '/activity', query: {request: 'exchange-1'}})
       expect(link.attributes('aria-label')).toBe('Open the request profile of POST /api/orders/42')
       expect(wrapper.find('.http-exchanges-route').text()).toContain('/api/orders/{id}')
+    })
+
+    it('shows a linked route outside every top list after the ranking', async () => {
+      routeState.query = {route: 'GET /rare'}
+      stubFetch(
+        routesReport({
+          routes: [route(), route({id: 'GET /rare', route: '/rare', requests: 1, topFor: []})],
+          topPerCriterion: 1,
+          routesTruncated: true,
+          distinctRoutes: 30
+        })
+      )
+      const wrapper = mountExchanges()
+      await flushPromises()
+
+      const rows = wrapper.findAll('.http-routes-table tbody tr')
+      expect(rows.map((row) => row.attributes('data-route-id'))).toEqual(['GET /api/orders/{id}', 'GET /rare'])
+      expect(rows[1].attributes('aria-current')).toBe('true')
+      expect(rows[1].find('.http-routes-linked-note').text()).toContain('outside the top 1 by requests')
+    })
+
+    it('clears the drill-down when the panel is opened again without a route', async () => {
+      routeState.query = {route: 'GET /api/orders/{id}'}
+      stubFetch()
+      const wrapper = mountExchanges()
+      await flushPromises()
+      expect(wrapper.find('.http-exchanges-route-filter').exists()).toBe(true)
+
+      routeState.query = {}
+      await flushPromises()
+
+      expect(wrapper.find('.http-exchanges-route-filter').exists()).toBe(false)
+      expect(wrapper.find('.http-routes-row-active').exists()).toBe(false)
+    })
+
+    it('refreshes rankings at a slower cadence than the list unless asked', async () => {
+      vi.useFakeTimers()
+      const fetchMock = stubFetch()
+      const wrapper = mountExchanges()
+      await flushPromises()
+      const routeCalls = () => fetchMock.mock.calls.filter(([url]) => String(url).includes('/routes')).length
+      expect(routeCalls()).toBe(1)
+
+      await vi.advanceTimersByTimeAsync(10_000)
+      await flushPromises()
+      expect(routeCalls()).toBe(1)
+
+      await wrapper.find('button[title="Refresh"]').trigger('click')
+      await flushPromises()
+      expect(routeCalls()).toBe(2)
     })
 
     it('keeps the exchange list usable when route rankings cannot load', async () => {

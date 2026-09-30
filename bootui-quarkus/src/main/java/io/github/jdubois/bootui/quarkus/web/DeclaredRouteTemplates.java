@@ -1,9 +1,11 @@
 package io.github.jdubois.bootui.quarkus.web;
 
+import io.github.jdubois.bootui.core.dto.MappingDto;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.spi.MappingProvider;
 import jakarta.enterprise.inject.Instance;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * The application's declared JAX-RS routes, captured at build time for the Mappings panel. RESTEasy Reactive
@@ -21,12 +23,25 @@ final class DeclaredRouteTemplates {
         if (mappings == null) {
             return RouteTemplateResolver.empty();
         }
-        return RouteTemplateResolver.lazy(() -> {
-            if (!mappings.isResolvable()) {
-                return List.of();
-            }
-            MappingProvider provider = mappings.get();
-            return provider.available() ? provider.mappings() : List.of();
-        });
+        return RouteTemplateResolver.lazy(() -> mappings(mappings));
+    }
+
+    /**
+     * Resolvers that share one index of the declared routes, read once, the first time a path needs it. The
+     * build-time mappings never change at runtime, so a panel polled every few seconds indexes them once.
+     */
+    static Supplier<RouteTemplateResolver> caching(Instance<? extends MappingProvider> mappings) {
+        if (mappings == null) {
+            return RouteTemplateResolver::empty;
+        }
+        return RouteTemplateResolver.caching(() -> mappings(mappings));
+    }
+
+    private static List<MappingDto> mappings(Instance<? extends MappingProvider> mappings) {
+        if (!mappings.isResolvable()) {
+            return List.of();
+        }
+        MappingProvider provider = mappings.get();
+        return provider.available() ? provider.mappings() : List.of();
     }
 }

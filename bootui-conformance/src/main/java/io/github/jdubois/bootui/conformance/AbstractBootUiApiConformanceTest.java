@@ -1880,6 +1880,54 @@ public abstract class AbstractBootUiApiConformanceTest {
         }
     }
 
+    /**
+     * An application request is listed with its route, and that route's row — pinned, so it is returned
+     * whatever its rank — counts it. The exchange list and the route rankings must agree on every adapter,
+     * and the numeric path segment must never become part of a route.
+     */
+    @Test
+    void httpExchangeRoutesLinkToTheirRankingRow() {
+        assumeTrue(
+                isPanelUsableInLiveManifest("http-exchanges"),
+                "http-exchanges panel is not available in this environment");
+        String marker = "conformance-route-probe";
+        probe().get("/" + marker + "/4711");
+
+        Response list = probe().get(api("/http-exchanges?q=" + marker));
+        assertThat(list.status()).as("GET /http-exchanges?q= status").isEqualTo(200);
+        assumeTrue(
+                isNull(list.json().path("unavailableReason")), "HTTP exchanges are not recorded in this environment");
+        JsonNode exchange = list.json().path("exchanges").path(0);
+        assertThat(exchange.isObject()).as("the probe request is recorded").isTrue();
+        String route = exchange.path("route").asText("");
+        assertThat(route)
+                .as("exchange.route")
+                .startsWith("/")
+                .doesNotContain("4711")
+                .doesNotContain("?");
+        assertThat(exchange.path("routeSource").asText()).isIn("FRAMEWORK_TEMPLATE", "DECLARED_MAPPING", "MASKED_PATH");
+        String routeId = exchange.path("method").asText() + " " + route;
+        String encodedRouteId = URLEncoder.encode(routeId, StandardCharsets.UTF_8);
+
+        Response rankings = probe().get(api("/http-exchanges/routes?limit=1&route=" + encodedRouteId));
+        assertThat(rankings.status())
+                .as("GET /http-exchanges/routes?route= status")
+                .isEqualTo(200);
+        JsonNode row = null;
+        for (JsonNode candidate : rankings.json().path("routes")) {
+            if (routeId.equals(candidate.path("id").asText())) {
+                row = candidate;
+            }
+        }
+        assertThat(row).as("the pinned row for %s", routeId).isNotNull();
+        assertThat(row.path("requests").asLong()).isPositive();
+
+        Response filtered = probe().get(api("/http-exchanges?route=" + encodedRouteId));
+        assertThat(filtered.json().path("page").path("matched").asLong())
+                .as("the route filter lists exactly the exchanges the row counts")
+                .isEqualTo(row.path("requests").asLong());
+    }
+
     @Test
     void actionCatalogCoversEveryAvailableActionPanelForThisRuntime() {
         Map<String, JsonNode> livePanels = livePanelsById();

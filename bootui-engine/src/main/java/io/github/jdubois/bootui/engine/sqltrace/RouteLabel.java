@@ -10,13 +10,19 @@ import java.util.Locale;
  *
  * <ol>
  *   <li>{@link Source#FRAMEWORK_TEMPLATE} — the handler pattern the runtime itself matched, such as
- *       {@code /api/orders/{id}}. Spring MVC and Spring WebFlux publish it at request time.</li>
+ *       {@code /api/orders/{id}}. Spring MVC and Spring WebFlux publish it at request time. It is rendered
+ *       exactly as a declared template is (see {@link RouteTemplateResolver#canonical}), so the same route
+ *       gets the same label from either tier and on every adapter.</li>
  *   <li>{@link Source#DECLARED_MAPPING} — the single best declared route matching the path, from the
  *       application's own mappings (see {@link RouteTemplateResolver}). Quarkus relies on this tier, and the
  *       Spring stacks fall back to it when no framework template was recorded. Ambiguous declarations resolve
- *       to nothing.</li>
+ *       to no template.</li>
  *   <li>{@link Source#MASKED_PATH} — the concrete path with every segment that reads like a value replaced
- *       by {@code {value}} (see {@link RoutePathMasker}), so a path-parameter value never becomes a label.</li>
+ *       by {@code {value}} (see {@link RoutePathMasker}). Every position that any matching declaration says
+ *       is a parameter is masked too, so ambiguous declarations never let a word-shaped value through, and a
+ *       brace-delimited segment on a real request is treated as a value, not as template syntax. A path that
+ *       no declaration matches at all keeps segments that read like route words: without a declaration, a
+ *       word-shaped parameter cannot be told apart from a fixed route word.</li>
  * </ol>
  *
  * <p>A query string never reaches a route: the framework template and declared mappings carry none, and the
@@ -54,7 +60,7 @@ public record RouteLabel(String id, String method, String route, Source source) 
      */
     public static RouteLabel of(String method, String path, String frameworkTemplate, RouteTemplateResolver declared) {
         String normalizedMethod = normalizeMethod(method);
-        String reported = frameworkTemplate == null || frameworkTemplate.isBlank() ? null : frameworkTemplate.trim();
+        String reported = RouteTemplateResolver.canonical(frameworkTemplate);
         if (reported != null) {
             return new RouteLabel(
                     idOf(normalizedMethod, reported), normalizedMethod, reported, Source.FRAMEWORK_TEMPLATE);
@@ -64,7 +70,8 @@ public record RouteLabel(String id, String method, String route, Source source) 
             return new RouteLabel(
                     idOf(normalizedMethod, template), normalizedMethod, template, Source.DECLARED_MAPPING);
         }
-        String masked = RoutePathMasker.mask(path);
+        String masked = RoutePathMasker.maskObserved(
+                path, declared == null ? java.util.Set.of() : declared.parameterPositions(path));
         return new RouteLabel(idOf(normalizedMethod, masked), normalizedMethod, masked, Source.MASKED_PATH);
     }
 

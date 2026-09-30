@@ -1,8 +1,10 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import io.github.jdubois.bootui.core.dto.MappingDto;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.spi.MappingProvider;
 import java.util.List;
+import java.util.function.Supplier;
 import org.springframework.beans.factory.ObjectProvider;
 
 /**
@@ -23,9 +25,22 @@ public final class DeclaredRouteTemplates {
         if (mappingProvider == null) {
             return RouteTemplateResolver.empty();
         }
-        return RouteTemplateResolver.lazy(() -> {
-            MappingProvider provider = mappingProvider.getIfAvailable();
-            return provider == null || !provider.available() ? List.of() : provider.mappings();
-        });
+        return RouteTemplateResolver.lazy(() -> mappings(mappingProvider));
+    }
+
+    /**
+     * Resolvers that share one index of the declared routes, read once, the first time a path needs it. For a
+     * panel polled every few seconds, such as HTTP Exchanges and Live Activity.
+     */
+    public static Supplier<RouteTemplateResolver> caching(ObjectProvider<MappingProvider> mappingProvider) {
+        if (mappingProvider == null) {
+            return RouteTemplateResolver::empty;
+        }
+        return RouteTemplateResolver.caching(() -> mappings(mappingProvider));
+    }
+
+    private static List<MappingDto> mappings(ObjectProvider<MappingProvider> mappingProvider) {
+        MappingProvider provider = mappingProvider.getIfAvailable();
+        return provider == null || !provider.available() ? List.of() : provider.mappings();
     }
 }

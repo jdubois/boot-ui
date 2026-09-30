@@ -311,6 +311,47 @@ class HttpExchangesControllerTests {
     }
 
     @Test
+    void pinsALinkedRouteAndSaysWhenNoFrameworkTemplateWasRecorded() throws Exception {
+        HttpExchangesController controller = new HttpExchangesController(
+                providerOf(repositoryWith(
+                        exchange("GET", "http://localhost/a", 200),
+                        exchange("GET", "http://localhost/a", 200),
+                        exchange("GET", "http://localhost/b", 200))),
+                new BootUiProperties());
+        MockMvc mvc = standaloneSetup(controller).build();
+
+        mvc.perform(get("/bootui/api/http-exchanges/routes").param("limit", "1").param("route", "GET /b"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.routes.length()").value(2))
+                .andExpect(jsonPath("$.routes[1].id").value("GET /b"))
+                .andExpect(jsonPath("$.routes[1].topFor.length()").value(0))
+                .andExpect(jsonPath("$.notes[?(@ =~ /.*OpenTelemetry.*/)]").exists());
+
+        controller.setTraceRegistry(new HttpExchangeTraceRegistry(10));
+        assertThat(controller.routes(1).notes()).noneMatch(note -> note.contains("OpenTelemetry"));
+    }
+
+    @Test
+    void readsTheDeclaredMappingsOnceAcrossRequests() {
+        MappingProvider provider = mock(MappingProvider.class);
+        when(provider.available()).thenReturn(true);
+        when(provider.mappings()).thenReturn(List.of(new MappingDto("GET", "/api/orders/{id}", "h", null, null)));
+        @SuppressWarnings("unchecked")
+        ObjectProvider<MappingProvider> objectProvider = mock(ObjectProvider.class);
+        when(objectProvider.getIfAvailable()).thenReturn(provider);
+        HttpExchangesController controller = new HttpExchangesController(
+                providerOf(repositoryWith(exchange("GET", "http://localhost/api/orders/42", 200))),
+                new BootUiProperties());
+        controller.setMappingProvider(objectProvider);
+
+        controller.exchanges(null, null, null, null, null);
+        controller.routes(null);
+        controller.exchanges(null, null, null, null, null);
+
+        org.mockito.Mockito.verify(provider, org.mockito.Mockito.times(1)).mappings();
+    }
+
+    @Test
     void routeRankingsAreUnavailableWithoutARepository() {
         HttpRoutesReport report = new HttpExchangesController(emptyProvider(), new BootUiProperties()).routes(null);
 

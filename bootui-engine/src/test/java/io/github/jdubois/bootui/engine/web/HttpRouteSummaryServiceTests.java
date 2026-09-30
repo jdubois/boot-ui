@@ -219,6 +219,67 @@ class HttpRouteSummaryServiceTests {
     }
 
     @Test
+    void aPinnedRouteOutsideEveryTopListIsStillReturnedLastWithNoCriterion() {
+        List<CapturedHttpExchange> exchanges = new ArrayList<>();
+        for (int i = 0; i < 30; i++) {
+            // Identical single-request routes: every criterion keeps the first ten by route id.
+            exchanges.add(exchange(i, "GET", "/r" + (char) ('a' + i / 26) + (char) ('a' + i % 26), 200, 7L, null));
+        }
+
+        HttpRoutesReport report = service.summarize(
+                exchanges, SELF, DECLARED, HttpRouteSummaryService.ExchangeSource.unknown(), 10, " GET /rbd ");
+
+        assertThat(report.routes()).hasSize(11);
+        HttpRouteDto pinned = report.routes().get(10);
+        assertThat(pinned.id()).isEqualTo("GET /rbd");
+        assertThat(pinned.topFor()).isEmpty();
+        assertThat(pinned.maxDurationMs()).isEqualTo(7L);
+        assertThat(report.routesTruncated()).isTrue();
+
+        HttpRoutesReport alreadyRanked = service.summarize(
+                exchanges, SELF, DECLARED, HttpRouteSummaryService.ExchangeSource.unknown(), 10, "GET /raa");
+        assertThat(alreadyRanked.routes()).hasSize(10);
+
+        HttpRoutesReport unknown = service.summarize(
+                exchanges, SELF, DECLARED, HttpRouteSummaryService.ExchangeSource.unknown(), 10, "GET /nope");
+        assertThat(unknown.routes()).hasSize(10);
+    }
+
+    @Test
+    void declaredMappingsAreNotEnumeratedWhenEveryRequestCarriesAFrameworkTemplate() {
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        RouteTemplateResolver lazy = RouteTemplateResolver.lazy(() -> {
+            reads.incrementAndGet();
+            return List.of();
+        });
+
+        HttpRoutesReport report = service.summarize(
+                List.of(exchange(0, "GET", "/api/orders/1", 200, 3L, "/api/orders/{id}")),
+                SELF,
+                lazy,
+                HttpRouteSummaryService.ExchangeSource.unknown(),
+                null);
+
+        assertThat(reads).hasValue(0);
+        assertThat(report.notes()).noneMatch(note -> note.contains("No declared route mappings"));
+        assertThat(report.notes()).noneMatch(note -> note.contains("word-shaped"));
+    }
+
+    @Test
+    void statesAdapterLimitationsAndTheMaskedPathLimitation() {
+        HttpRoutesReport report = service.summarize(
+                List.of(exchange(0, "GET", "/users/alice", 200, 3L, null)),
+                SELF,
+                RouteTemplateResolver.empty(),
+                new HttpRouteSummaryService.ExchangeSource(null, null, List.of("No framework route template.")),
+                null);
+
+        assertThat(report.notes()).contains("No framework route template.");
+        assertThat(report.notes()).anyMatch(note -> note.contains("word-shaped path parameter"));
+        assertThat(report.notes()).anyMatch(note -> note.contains("No declared route mappings"));
+    }
+
+    @Test
     void limitIsDefaultedAndCapped() {
         assertThat(HttpRouteSummaryService.topPerCriterion(null))
                 .isEqualTo(HttpRouteSummaryService.DEFAULT_TOP_PER_CRITERION);
@@ -301,7 +362,8 @@ class HttpRouteSummaryServiceTests {
         assertThat(report.distinctRoutes()).isZero();
         assertThat(report.window().summarizedExchanges()).isZero();
         assertThat(report.window().oldestTimestamp()).isNull();
-        assertThat(report.notes()).anyMatch(note -> note.contains("No declared route mappings"));
+        // No path was masked, so the declared-mappings limitation has nothing to explain.
+        assertThat(report.notes()).noneMatch(note -> note.contains("No declared route mappings"));
     }
 
     @Test

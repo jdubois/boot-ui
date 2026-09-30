@@ -5,11 +5,13 @@ import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.HttpRoutesReport;
+import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
 import io.github.jdubois.bootui.engine.web.HttpExchangesService;
 import io.github.jdubois.bootui.engine.web.HttpRouteSummaryService;
 import io.github.jdubois.bootui.spi.MappingProvider;
 import java.util.List;
+import java.util.function.Supplier;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.BeanFactoryAware;
 import org.springframework.beans.factory.ObjectProvider;
@@ -36,6 +38,14 @@ public class HttpExchangesController implements BeanFactoryAware {
     private static final String UNAVAILABLE_REASON = "HTTP exchange repository not available";
 
     /**
+     * Spring MVC always installs the trace registry that carries the matched handler pattern; Spring WebFlux
+     * installs it with the OpenTelemetry integration only, which the reactive starter includes.
+     */
+    private static final String NO_TEMPLATE_NOTE = "No framework route template was recorded, because Spring "
+            + "WebFlux records the matched handler pattern only when the OpenTelemetry integration is present. "
+            + "Routes fall back to declared mappings when available, then to masked paths.";
+
+    /**
      * The bean names BootUI registers its fallback repository under on Spring MVC and Spring WebFlux. Only
      * that repository is sized from {@code bootui.http-exchanges.max-exchanges}; an application-provided
      * repository does not report its capacity, so the route summary leaves the buffer size unknown for it.
@@ -57,7 +67,7 @@ public class HttpExchangesController implements BeanFactoryAware {
 
     private HttpExchangeTraceRegistry traceRegistry;
 
-    private ObjectProvider<MappingProvider> mappingProvider;
+    private Supplier<RouteTemplateResolver> declaredRoutes = RouteTemplateResolver::empty;
 
     private BeanFactory beanFactory;
 
@@ -94,7 +104,7 @@ public class HttpExchangesController implements BeanFactoryAware {
      */
     @Autowired(required = false)
     public void setMappingProvider(ObjectProvider<MappingProvider> mappingProvider) {
-        this.mappingProvider = mappingProvider;
+        this.declaredRoutes = DeclaredRouteTemplates.caching(mappingProvider);
     }
 
     @Override
@@ -125,7 +135,7 @@ public class HttpExchangesController implements BeanFactoryAware {
                 selfPath(),
                 exposure.maskSecrets(),
                 exposure.valueExposure(),
-                DeclaredRouteTemplates.from(mappingProvider),
+                declaredRoutes.get(),
                 query,
                 method,
                 statusClass,
@@ -134,12 +144,20 @@ public class HttpExchangesController implements BeanFactoryAware {
                 limit);
     }
 
+    /** Route rankings without a pinned route, for programmatic callers such as MCP. */
+    public HttpRoutesReport routes(Integer limit) {
+        return routes(limit, null);
+    }
+
     /**
      * Route performance rankings over the retained exchanges ({@code GET .../http-exchanges/routes}).
-     * {@code limit} is the number of routes each ranking criterion contributes.
+     * {@code limit} is the number of routes each ranking criterion contributes, and {@code route} names a
+     * route whose row is included whatever its rank, so a link to it always finds it.
      */
     @GetMapping("/routes")
-    public HttpRoutesReport routes(@RequestParam(name = "limit", required = false) Integer limit) {
+    public HttpRoutesReport routes(
+            @RequestParam(name = "limit", required = false) Integer limit,
+            @RequestParam(name = "route", required = false) String route) {
         HttpExchangeRepository exchangeRepository = repository.getIfAvailable();
         if (exchangeRepository == null) {
             return HttpRoutesReport.unavailable(UNAVAILABLE_REASON);
@@ -147,10 +165,14 @@ public class HttpExchangesController implements BeanFactoryAware {
         return routeSummary.summarize(
                 captured(exchangeRepository),
                 selfPath(),
-                DeclaredRouteTemplates.from(mappingProvider),
+                declaredRoutes.get(),
                 // Actuator's repository API reports neither its capacity nor its evictions.
-                new HttpRouteSummaryService.ExchangeSource(bufferSize(exchangeRepository), null),
-                limit);
+                new HttpRouteSummaryService.ExchangeSource(
+                        bufferSize(exchangeRepository),
+                        null,
+                        traceRegistry == null ? List.of(NO_TEMPLATE_NOTE) : List.of()),
+                limit,
+                route);
     }
 
     private List<CapturedHttpExchange> captured(HttpExchangeRepository exchangeRepository) {

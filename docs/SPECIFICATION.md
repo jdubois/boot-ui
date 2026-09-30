@@ -1089,9 +1089,11 @@ Acceptance criteria:
 - The recorder is bounded by `bootui.http-exchanges.max-exchanges`, defaulting to 200.
 - Route counts and durations reconcile with the retained, visible exchanges; status classes add up to the request count,
   and percentiles are exact nearest-rank values over each route's timed exchanges.
-- Route rankings return the union of each criterion's top routes (25 by default, at most 100), state how many distinct
-  routes were retained, and break ties on the route id. Ambiguous declared mappings produce no template, and a route
-  never carries a query string or a path-parameter value.
+- Route rankings return the union of each criterion's top routes (25 by default, at most 100) with the criteria each
+  route leads, state how many distinct routes were retained, and break ties on the route id in plain character order.
+  `?route=<id>` always returns that route's row. Ambiguous declared mappings produce no template but still mask every
+  parameter position they declare, framework and declared templates render identically, and a route never carries a
+  query string.
 - A value the exchange source does not report, such as an application repository's capacity or either buffer's
   evictions, is `null` rather than guessed.
 - Secret-like headers and query parameters are masked unless value exposure is explicitly set to `FULL`. Sensitive

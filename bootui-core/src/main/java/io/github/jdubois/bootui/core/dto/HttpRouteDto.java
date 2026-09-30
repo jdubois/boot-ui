@@ -12,7 +12,7 @@ import java.util.List;
  *
  * <p>Every rankable metric travels on the row, and the report returns the union of each criterion's top
  * rows, so re-sorting client-side by any criterion is exact. {@link #topFor()} says which criteria earned
- * the row its place. Durations are whole milliseconds, as exchanges record them. Percentiles are
+ * the row its place; ties break on {@link #id()} in plain character order. Durations are whole milliseconds, as exchanges record them. Percentiles are
  * nearest-rank over the route's retained exchanges that carry a duration, never an estimate, and are
  * {@code null} when none does.</p>
  *
@@ -37,7 +37,8 @@ import java.util.List;
  * @param p99DurationMs 99th percentile duration, or {@code null} when none is timed
  * @param maxDurationMs slowest exchange, or {@code null} when none is timed
  * @param shareOfRetainedTimePercent this route's share of all retained, visible request time, 0-100
- * @param topFor ranking criteria this row is in the top group for, never empty
+ * @param topFor ranking criteria this row is in the top group for; empty only for a pinned route that is in no
+ *     top group
  */
 public record HttpRouteDto(
         String id,

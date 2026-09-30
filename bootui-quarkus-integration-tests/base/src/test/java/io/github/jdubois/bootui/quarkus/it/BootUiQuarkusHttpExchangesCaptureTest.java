@@ -151,8 +151,9 @@ class BootUiQuarkusHttpExchangesCaptureTest {
         JsonNode kpis = probe.get("/bootui/api/activity").json().path("kpis");
         String slowestRouteId = kpis.path("slowestEndpointRouteId").asText(null);
         assertThat(slowestRouteId).as("slowest request route id").isNotNull();
-        JsonNode rankings =
-                probe.get("/bootui/api/http-exchanges/routes?limit=100").json();
+        JsonNode rankings = probe.get("/bootui/api/http-exchanges/routes?limit=1&route="
+                        + java.net.URLEncoder.encode(slowestRouteId, java.nio.charset.StandardCharsets.UTF_8))
+                .json();
         JsonNode slowestRow = null;
         for (JsonNode route : rankings.path("routes")) {
             if (slowestRouteId.equals(route.path("id").asText())) {

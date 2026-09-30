@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.quarkus.web;
 
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.HttpRoutesReport;
+import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.engine.web.HttpExchangesService;
@@ -15,6 +16,7 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
+import java.util.function.Supplier;
 
 /**
  * JAX-RS resource for the HTTP Exchanges panel ({@code GET /bootui/api/http-exchanges}). The Quarkus
@@ -38,7 +40,7 @@ public class HttpExchangesResource {
     private final HttpExchangeBuffer buffer;
     private final QuarkusExposurePolicy exposure;
     private final SelfTelemetryClassifier selfClassifier;
-    private final Instance<MappingProvider> mappings;
+    private final Supplier<RouteTemplateResolver> declaredRoutes;
     private final HttpExchangesService service = new HttpExchangesService();
     private final HttpRouteSummaryService routeSummary = new HttpRouteSummaryService();
 
@@ -56,7 +58,7 @@ public class HttpExchangesResource {
         this.buffer = buffer;
         this.exposure = exposure;
         this.selfClassifier = selfClassifier;
-        this.mappings = mappings;
+        this.declaredRoutes = DeclaredRouteTemplates.caching(mappings);
     }
 
     /** The exchange list without a route filter, for programmatic callers such as MCP. */
@@ -79,7 +81,7 @@ public class HttpExchangesResource {
                 selfPath(),
                 exposure.maskSecrets(),
                 exposure.valueExposure(),
-                DeclaredRouteTemplates.from(mappings),
+                declaredRoutes.get(),
                 query,
                 method,
                 statusClass,
@@ -88,21 +90,28 @@ public class HttpExchangesResource {
                 limit);
     }
 
+    /** Route rankings without a pinned route, for programmatic callers such as MCP. */
+    public HttpRoutesReport routes(Integer limit) {
+        return routes(limit, null);
+    }
+
     /**
      * Route performance rankings over the retained exchanges ({@code GET .../http-exchanges/routes}).
-     * {@code limit} is the number of routes each ranking criterion contributes.
+     * {@code limit} is the number of routes each ranking criterion contributes, and {@code route} names a
+     * route whose row is included whatever its rank, so a link to it always finds it.
      */
     @GET
     @Path("/routes")
     @Produces(MediaType.APPLICATION_JSON)
-    public HttpRoutesReport routes(@QueryParam("limit") Integer limit) {
+    public HttpRoutesReport routes(@QueryParam("limit") Integer limit, @QueryParam("route") String route) {
         return routeSummary.summarize(
                 buffer.snapshot(),
                 selfPath(),
-                DeclaredRouteTemplates.from(mappings),
+                declaredRoutes.get(),
                 // The buffer reports its capacity but does not count evictions.
                 new HttpRouteSummaryService.ExchangeSource(buffer.capacity(), null),
-                limit);
+                limit,
+                route);
     }
 
     private HttpExchangesService.BootUiSelfPath selfPath() {

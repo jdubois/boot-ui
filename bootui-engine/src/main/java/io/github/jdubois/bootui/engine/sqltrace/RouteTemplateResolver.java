@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 /**
@@ -60,13 +62,53 @@ public final class RouteTemplateResolver {
      * nothing, like {@link #empty()}. Meant for one request's work: the first read is not synchronized.
      */
     public static RouteTemplateResolver lazy(Supplier<List<MappingDto>> mappings) {
-        return new RouteTemplateResolver(() -> {
-            try {
-                return index(mappings.get());
-            } catch (RuntimeException ex) {
-                return List.of();
+        return new RouteTemplateResolver(() -> load(mappings));
+    }
+
+    /**
+     * A source of lazy resolvers that share one index: the first resolver to need the mappings reads and
+     * indexes them, and every later resolver reuses that index instead of enumerating the application's routes
+     * again. An application's route declarations do not change after startup, so a panel polled every few
+     * seconds pays for the enumeration once. An empty or failed read is not cached, so a mappings source that
+     * becomes available later is still picked up.
+     */
+    public static Supplier<RouteTemplateResolver> caching(Supplier<List<MappingDto>> mappings) {
+        AtomicReference<List<String[]>> cache = new AtomicReference<>();
+        return () -> {
+            List<String[]> cached = cache.get();
+            if (cached != null) {
+                return new RouteTemplateResolver(cached);
             }
-        });
+            return new RouteTemplateResolver(() -> {
+                List<String[]> loaded = load(mappings);
+                if (!loaded.isEmpty()) {
+                    cache.set(loaded);
+                }
+                return loaded;
+            });
+        };
+    }
+
+    /**
+     * {@code template} rendered exactly as a declared template would be, so a handler pattern the framework
+     * reports and the same pattern resolved from the application's mappings produce one route. A parameter's
+     * regular expression is dropped, as in {@code {id:[0-9]+}} becoming {@code {id}}, and a wildcard segment
+     * becomes {@code {value}}, so no pattern is ever put on screen.
+     */
+    public static String canonical(String template) {
+        if (template == null || template.isBlank()) {
+            return null;
+        }
+        String[] segments = segments(template);
+        return segments.length == 0 ? "/" : render(segments);
+    }
+
+    private static List<String[]> load(Supplier<List<MappingDto>> mappings) {
+        try {
+            return index(mappings.get());
+        } catch (RuntimeException ex) {
+            return List.of();
+        }
     }
 
     private static List<String[]> index(List<MappingDto> mappings) {
@@ -134,6 +176,34 @@ public final class RouteTemplateResolver {
             }
         }
         return best == null || tied ? null : render(best);
+    }
+
+    /**
+     * The segment positions, counted from zero over the non-empty segments of {@code path}, that are a
+     * parameter in <em>any</em> declared template matching it. When {@link #resolve} finds no single best
+     * template because several declarations match equally well, these positions still hold values, so a masked
+     * fallback masks them even when they read like route words, such as a user name.
+     */
+    public Set<Integer> parameterPositions(String path) {
+        if (path == null || path.isBlank() || templates().isEmpty()) {
+            return Set.of();
+        }
+        String[] actual = segments(path);
+        if (actual.length == 0 || actual.length > MAX_SEGMENTS) {
+            return Set.of();
+        }
+        Set<Integer> positions = new TreeSet<>();
+        for (String[] candidate : templates()) {
+            if (candidate.length != actual.length || literalMatches(candidate, actual) < 0) {
+                continue;
+            }
+            for (int i = 0; i < candidate.length; i++) {
+                if (isParameter(candidate[i])) {
+                    positions.add(i);
+                }
+            }
+        }
+        return positions;
     }
 
     /**

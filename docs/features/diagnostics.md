@@ -164,9 +164,15 @@ three sources it came from:
 | `declared`    | The single best route the application declares in its mappings. Ties resolve to no template.    |
 | `masked path` | No template matched, so every path segment that reads like a value is replaced with `{value}`. |
 
-Quarkus has no runtime route template, so its routes come from the declared JAX-RS mappings. On Spring WebFlux, the
-framework template is recorded beside the trace id only when OpenTelemetry is present; otherwise declared mappings are
-used. Query strings and path-parameter values are never part of a route.
+A template is shown the same way whichever source produced it, so `{id:[0-9]+}` reads `{id}` and a route never splits
+into two rows. Quarkus has no runtime route template, so its routes come from the declared JAX-RS mappings. Spring
+WebFlux records the matched handler pattern with the OpenTelemetry integration, which the reactive starter includes;
+without it, WebFlux routes fall back to masked paths, and the panel says so. Query strings are never part of a route.
+
+A masked path also masks every segment that a matching declared route marks as a parameter, even when two declarations
+match equally well. Only a path that no declaration matches at all keeps segments that read like route words, so a
+word-shaped value such as a user name on an undeclared path is shown as captured, exactly as the exchange list shows
+it.
 
 ::: details How the figures are bounded
 
@@ -177,14 +183,19 @@ used. Query strings and path-parameter values are never part of a route.
   application-provided repository's capacity or the evictions of either buffer, reads as not reported.
 - Percentiles are exact nearest-rank values over each route's timed exchanges, computed by the same helper as SQL Trace
   and the Live Activity KPIs. A route whose exchanges carry no duration shows no timings rather than zeros.
-- The response returns the union of each criterion's top 25 routes, so re-ranking in the browser stays exact. When more
-  routes are retained, the panel says how many are not shown. Ties break on the route name, never on buffer order.
+- The response returns the union of each criterion's top 25 routes and marks which criteria each route leads, so the
+  browser shows exactly the server's list for every criterion. When more routes are retained, the panel says how many
+  are not shown. Ties break on the route name in plain character order, never on buffer order or browser locale.
+- A route that a link names, such as the Live Activity slowest request, is always returned and shown after the
+  ranking, even when it is outside every top list.
+- Rankings refresh every 30 seconds while the exchange list follows auto-refresh, because every refresh is itself a
+  request the Spring buffer records before hiding it. **Refresh** updates both at once.
 - BootUI's own exchanges stay out of the rankings while `bootui.monitoring.exclude-self` is on.
 
 :::
 
-`GET /bootui/api/http-exchanges/routes` serves the rankings, and `GET /bootui/api/http-exchanges?route=<id>` lists one
-route's exchanges. Agents read the same rankings with the `get_http_routes` MCP tool, and the command line with
+`GET /bootui/api/http-exchanges/routes` serves the rankings, `?route=<id>` pins one route's row, and
+`GET /bootui/api/http-exchanges?route=<id>` lists that route's exchanges. Agents read the same rankings with the `get_http_routes` MCP tool, and the command line with
 `bootui http routes`.
 
 ### Copy as cURL

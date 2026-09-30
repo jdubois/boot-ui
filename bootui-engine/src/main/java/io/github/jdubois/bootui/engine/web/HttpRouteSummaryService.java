@@ -58,8 +58,18 @@ public final class HttpRouteSummaryService {
      *
      * @param bufferSize the buffer capacity, or {@code null} when the source does not expose it
      * @param evicted exchanges evicted since startup, or {@code null} when the source does not count them
+     * @param notes adapter-specific limitations to state beside the summary, such as a runtime that records
+     *     no framework route template
      */
-    public record ExchangeSource(Integer bufferSize, Long evicted) {
+    public record ExchangeSource(Integer bufferSize, Long evicted, List<String> notes) {
+
+        public ExchangeSource {
+            notes = notes == null ? List.of() : List.copyOf(notes);
+        }
+
+        public ExchangeSource(Integer bufferSize, Long evicted) {
+            this(bufferSize, evicted, List.of());
+        }
 
         /** A source that reports neither its capacity nor its evictions. */
         public static ExchangeSource unknown() {
@@ -83,6 +93,24 @@ public final class HttpRouteSummaryService {
             RouteTemplateResolver templates,
             ExchangeSource source,
             Integer limit) {
+        return summarize(captured, selfFilter, templates, source, limit, null);
+    }
+
+    /**
+     * Summarizes {@code captured} by route, always including the route {@code pinnedRoute} names when the
+     * window holds it. A link to one route — the Live Activity slowest request, a bookmarked drill-down — then
+     * always finds its row, even when that route is outside every criterion's top list. A pinned row outside
+     * the top lists comes last, with an empty {@code topFor}.
+     *
+     * @param pinnedRoute a route id ({@code METHOD route}) to include whatever its rank, or {@code null}
+     */
+    public HttpRoutesReport summarize(
+            List<CapturedHttpExchange> captured,
+            HttpExchangesService.BootUiSelfPath selfFilter,
+            RouteTemplateResolver templates,
+            ExchangeSource source,
+            Integer limit,
+            String pinnedRoute) {
         List<CapturedHttpExchange> exchanges = captured == null ? List.of() : captured;
         RouteTemplateResolver declared = templates == null ? RouteTemplateResolver.empty() : templates;
         ExchangeSource window = source == null ? ExchangeSource.unknown() : source;
@@ -91,6 +119,7 @@ public final class HttpRouteSummaryService {
         Map<String, RouteAccumulator> routes = new LinkedHashMap<>();
         int hiddenSelf = 0;
         int summarized = 0;
+        boolean anyMasked = false;
         int timed = 0;
         long totalDurationMs = 0;
         Long oldest = null;
@@ -111,6 +140,7 @@ public final class HttpRouteSummaryService {
                 newest = newest == null ? at : Math.max(newest, at);
             }
             RouteLabel label = HttpRoutes.labelOf(exchange, declared);
+            anyMasked |= label.source() == RouteLabel.Source.MASKED_PATH;
             routes.computeIfAbsent(label.id(), id -> new RouteAccumulator(label))
                     .add(exchange, label.source());
         }
@@ -126,11 +156,15 @@ public final class HttpRouteSummaryService {
                             .add(criterion.name()));
         }
         long denominator = totalDurationMs;
-        List<HttpRouteDto> ranked = all.stream()
+        List<HttpRouteDto> ranked = new ArrayList<>(all.stream()
                 .filter(accumulator -> selected.containsKey(accumulator.id()))
                 .sorted(byMetric(Criterion.REQUESTS.metric))
                 .map(accumulator -> accumulator.toDto(List.copyOf(selected.get(accumulator.id())), denominator))
-                .toList();
+                .toList());
+        String pinned = pinnedRoute == null ? null : pinnedRoute.trim();
+        if (pinned != null && !selected.containsKey(pinned) && routes.containsKey(pinned)) {
+            ranked.add(routes.get(pinned).toDto(List.of(), denominator));
+        }
 
         HttpRouteWindowDto windowDto = new HttpRouteWindowDto(
                 exchanges.size(),
@@ -151,7 +185,7 @@ public final class HttpRouteSummaryService {
                 topPerCriterion,
                 truncated,
                 all.size(),
-                notes(windowDto, declared, truncated, topPerCriterion, all.size()));
+                notes(windowDto, anyMasked, declared, window.notes(), truncated, topPerCriterion, all.size()));
     }
 
     static int topPerCriterion(Integer limit) {
@@ -168,7 +202,9 @@ public final class HttpRouteSummaryService {
 
     private static List<String> notes(
             HttpRouteWindowDto window,
+            boolean anyMasked,
             RouteTemplateResolver templates,
+            List<String> adapterNotes,
             boolean truncated,
             int topPerCriterion,
             int distinctRoutes) {
@@ -178,11 +214,19 @@ public final class HttpRouteSummaryService {
                 + ". These are diagnostic evidence for this window, not lifetime or service-level metrics, and "
                 + "a route with few requests has few samples behind its percentiles.");
         notes.add("Routes use the template the framework matched, then the single best route the application "
-                + "declares, then the path with every value-like segment masked. Query strings and "
-                + "path-parameter values are never used.");
-        if (templates.isEmpty()) {
-            notes.add("No declared route mappings were available, so a request without a framework template is "
-                    + "grouped by its masked path.");
+                + "declares, then the path with every value-like segment masked. Query strings are never used, "
+                + "and every segment a declared route marks as a parameter is masked.");
+        notes.addAll(adapterNotes);
+        // Checked only when a path was masked, so a window whose requests all carry a framework template never
+        // enumerates the application's routes just to phrase a note.
+        if (anyMasked) {
+            notes.add("A masked path keeps a segment only when it reads like a fixed route word, so a word-shaped "
+                    + "path parameter that no declared route identifies, such as a user name, is shown as "
+                    + "captured.");
+            if (templates.isEmpty()) {
+                notes.add("No declared route mappings were available, so a request without a framework template "
+                        + "is grouped by its masked path.");
+            }
         }
         int untimed = window.summarizedExchanges() - window.timedExchanges();
         if (untimed > 0) {

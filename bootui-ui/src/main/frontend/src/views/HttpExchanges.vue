@@ -1,6 +1,6 @@
 <script setup>
 import {computed, nextTick, onMounted, ref, watch} from 'vue'
-import {useRoute} from 'vue-router'
+import {useRoute, useRouter} from 'vue-router'
 import {getJson} from '../api.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -23,13 +23,18 @@ const routesError = ref(null)
 const rankingMetric = ref('requests')
 const highlightedRoute = ref('')
 
+// Each metric maps to the server's ranking criterion, whose top routes carry it in topFor.
 const ROUTE_METRICS = [
-  {key: 'requests', label: 'Requests'},
-  {key: 'totalDurationMs', label: 'Total time'},
-  {key: 'p95DurationMs', label: 'p95 time'},
-  {key: 'maxDurationMs', label: 'Slowest request'},
-  {key: 'errorCount', label: 'Errors'}
+  {key: 'requests', label: 'Requests', criterion: 'REQUESTS'},
+  {key: 'totalDurationMs', label: 'Total time', criterion: 'TOTAL_DURATION'},
+  {key: 'p95DurationMs', label: 'p95 time', criterion: 'P95_DURATION'},
+  {key: 'maxDurationMs', label: 'Slowest request', criterion: 'MAX_DURATION'},
+  {key: 'errorCount', label: 'Errors', criterion: 'ERROR_COUNT'}
 ]
+
+// Every refresh is one more request in the exchange buffer, and Spring records BootUI's own requests there
+// before hiding them, so rankings follow the list at a slower cadence unless the user asks for them.
+const ROUTES_MIN_INTERVAL_MS = 30_000
 
 const ROUTE_SOURCES = {
   FRAMEWORK_TEMPLATE: {label: 'template', title: 'The route template the framework matched for these requests'},
@@ -73,9 +78,18 @@ const subtitle = computed(
   () => `${formatNumber(totalCount.value)} visible · ${formatNumber(recordedCount.value)} recorded`
 )
 
-async function loadRoutes() {
+let lastRoutesFetch = 0
+let forceNextRoutes = false
+
+async function loadRoutes(force = false) {
+  const now = Date.now()
+  if (!force && routesReport.value && now - lastRoutesFetch < ROUTES_MIN_INTERVAL_MS) return
+  lastRoutesFetch = now
+  // Pinning the linked route makes the server return its row even when it is outside every top list.
+  const pinned = highlightedRoute.value
+  const url = pinned ? `api/http-exchanges/routes?route=${encodeURIComponent(pinned)}` : 'api/http-exchanges/routes'
   try {
-    routesReport.value = await getJson('api/http-exchanges/routes')
+    routesReport.value = await getJson(url)
     routesError.value = null
   } catch (e) {
     routesReport.value = null
@@ -84,10 +98,18 @@ async function loadRoutes() {
 }
 
 async function refreshExchanges() {
-  await Promise.all([load(), loadRoutes()])
+  const force = forceNextRoutes
+  forceNextRoutes = false
+  await Promise.all([load(), loadRoutes(force)])
   if (!error.value) {
     lastFetched.value = Date.now()
   }
+}
+
+/** Pressing refresh is an explicit request for current evidence, so it bypasses the ranking cadence. */
+function refreshAll() {
+  forceNextRoutes = true
+  return refreshNow()
 }
 
 const routesAvailable = computed(() => Boolean(routesReport.value?.available && routesReport.value?.window))
@@ -95,33 +117,66 @@ const routeWindow = computed(() => routesReport.value?.window ?? null)
 const routeNotes = computed(() => routesReport.value?.notes ?? [])
 const allRoutes = computed(() => routesReport.value?.routes ?? [])
 
-// The server ships the union of each criterion's top routes, so re-sorting here and slicing to
-// topPerCriterion yields that criterion's exact top list without another round trip. A route scoring zero
-// on the criterion did not earn a place in that ranking, so it is left out unless nothing scores at all.
-const rankedRoutes = computed(() => {
-  const rows = allRoutes.value
-  const metric = rankingMetric.value
-  const limit = routesReport.value?.topPerCriterion || rows.length
-  const scored = rows.filter((row) => Number(row[metric]) > 0)
-  return (scored.length ? scored : [...rows])
-    .sort((a, b) => Number(b[metric] ?? 0) - Number(a[metric] ?? 0) || String(a.id).localeCompare(String(b.id)))
-    .slice(0, limit)
+const rankingMetricDef = computed(() => ROUTE_METRICS.find((metric) => metric.key === rankingMetric.value))
+const rankingMetricLabel = computed(() => rankingMetricDef.value?.label ?? '')
+
+// Plain UTF-16 code-unit order, exactly Java's String.compareTo, so ties order the same way here as in the
+// server's ranking, the MCP tool, and the CLI, whatever the browser's locale.
+function compareIds(a, b) {
+  const left = String(a)
+  const right = String(b)
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
+function byMetric(metric) {
+  return (a, b) => Number(b[metric] ?? 0) - Number(a[metric] ?? 0) || compareIds(a.id, b.id)
+}
+
+// The server marks each criterion's own top routes in topFor, so the list for a criterion is exactly the
+// server's, never a re-slice of the union that could drift from it on ties.
+const scoredRoutes = computed(() => {
+  const criterion = rankingMetricDef.value?.criterion
+  return allRoutes.value.filter((row) => row.topFor?.includes(criterion))
 })
 
-const rankingMetricLabel = computed(
-  () => ROUTE_METRICS.find((metric) => metric.key === rankingMetric.value)?.label ?? ''
+const rankingMetricUnmeasured = computed(() => allRoutes.value.length > 0 && scoredRoutes.value.length === 0)
+
+// When nothing scores on the criterion, such as errors in an error-free window, the routes are listed unranked
+// rather than as an empty table.
+const rankedRoutes = computed(() =>
+  [...(rankingMetricUnmeasured.value ? allRoutes.value.filter((row) => row.topFor?.length) : scoredRoutes.value)].sort(
+    byMetric(rankingMetric.value)
+  )
 )
 
-const rankingMetricUnmeasured = computed(
-  () => allRoutes.value.length > 0 && !allRoutes.value.some((row) => Number(row[rankingMetric.value]) > 0)
+// A route a link names comes back from the server even when it is outside every top list, and is shown
+// after the ranking, so the link always lands on its row.
+const linkedRoute = computed(() => {
+  if (!highlightedRoute.value || rankedRoutes.value.some((row) => row.id === highlightedRoute.value)) return null
+  return allRoutes.value.find((row) => row.id === highlightedRoute.value) ?? null
+})
+
+const displayedRoutes = computed(() =>
+  linkedRoute.value ? [...rankedRoutes.value, linkedRoute.value] : rankedRoutes.value
 )
 
-const hiddenRouteCount = computed(() =>
-  Math.max((routesReport.value?.distinctRoutes ?? allRoutes.value.length) - rankedRoutes.value.length, 0)
-)
+const distinctRoutes = computed(() => routesReport.value?.distinctRoutes ?? allRoutes.value.length)
 
-const highlightedRouteHidden = computed(
-  () => Boolean(highlightedRoute.value) && !rankedRoutes.value.some((row) => row.id === highlightedRoute.value)
+// Why routes are missing from this ranking: the per-criterion cap, or a zero score on the criterion.
+const rankingGap = computed(() => {
+  if (rankingMetricUnmeasured.value) return null
+  const shown = rankedRoutes.value.length
+  const missing = distinctRoutes.value - shown
+  if (missing <= 0) return null
+  const capped = routesReport.value?.routesTruncated && shown >= (routesReport.value?.topPerCriterion ?? Infinity)
+  return {capped, missing}
+})
+
+const highlightedRouteMissing = computed(
+  () =>
+    Boolean(highlightedRoute.value) &&
+    Boolean(routesReport.value) &&
+    !allRoutes.value.some((row) => row.id === highlightedRoute.value)
 )
 
 const windowSummary = computed(() => {
@@ -155,15 +210,34 @@ function formatShare(value) {
   return `${Number(value ?? 0).toFixed(1)}%`
 }
 
-async function showRouteExchanges(route) {
-  routeFilter.value = route.id
-  highlightedRoute.value = route.id
+const route = useRoute()
+const router = useRouter()
+
+// The drill-down lives in the URL, so it survives a reload, can be shared, and clears when the panel is opened
+// without one. Without a router, as in isolated component tests, it is applied locally.
+function setRouteQuery(routeId) {
+  const query = {...(route?.query ?? {})}
+  if (routeId) {
+    query.route = routeId
+  } else {
+    delete query.route
+    delete query.rank
+  }
+  if (router?.replace) {
+    return router.replace({query})
+  }
+  applyRouteQuery(query)
+  return Promise.resolve()
+}
+
+async function showRouteExchanges(routeRow) {
+  await setRouteQuery(routeRow.id)
   await nextTick()
   exchangesHeading.value?.focus?.()
 }
 
 function clearRouteFilter() {
-  routeFilter.value = ''
+  return setRouteQuery(null)
 }
 
 function profileLink(exchange) {
@@ -289,15 +363,11 @@ async function copyCurl(exchange) {
   copyFailureId.value = exchange.id
 }
 
-const route = useRoute()
-
 /** A link from Live Activity, or any other panel, can name a route and a ranking to open on. */
 function applyRouteQuery(query) {
-  const linkedRoute = query?.route
-  if (typeof linkedRoute === 'string' && linkedRoute) {
-    routeFilter.value = linkedRoute
-    highlightedRoute.value = linkedRoute
-  }
+  const linked = typeof query?.route === 'string' ? query.route : ''
+  routeFilter.value = linked
+  highlightedRoute.value = linked
   const rank = query?.rank
   if (typeof rank === 'string' && ROUTE_METRICS.some((metric) => metric.key === rank)) {
     rankingMetric.value = rank
@@ -311,8 +381,14 @@ applyRouteQuery(route?.query)
 watch([filter, method, statusClass, routeFilter], scheduleReload)
 
 watch(
-  () => route?.query?.route,
-  () => applyRouteQuery(route?.query)
+  () => [route?.query?.route, route?.query?.rank],
+  ([nextRoute], [previousRoute]) => {
+    applyRouteQuery(route?.query)
+    // A newly linked route may sit outside every top list, so ask the server to pin its row now.
+    if (nextRoute && nextRoute !== previousRoute && !allRoutes.value.some((row) => row.id === nextRoute)) {
+      loadRoutes(true)
+    }
+  }
 )
 
 onMounted(() => {
@@ -333,7 +409,7 @@ onMounted(() => {
       :error="error"
       :last-fetched="lastFetched"
       v-model:auto-refresh="autoRefresh"
-      @refresh="refreshNow"
+      @refresh="refreshAll"
     />
 
     <p aria-live="polite" class="visually-hidden http-exchanges-copy-status" role="status">{{ copyStatus }}</p>
@@ -399,7 +475,7 @@ onMounted(() => {
           </thead>
           <tbody>
             <tr
-              v-for="routeRow in rankedRoutes"
+              v-for="routeRow in displayedRoutes"
               :key="routeRow.id"
               :aria-current="routeRow.id === highlightedRoute ? 'true' : undefined"
               :class="{'table-active http-routes-row-active': routeRow.id === highlightedRoute}"
@@ -413,6 +489,13 @@ onMounted(() => {
                   class="badge text-bg-light border text-body-secondary ms-1 http-routes-source"
                 >
                   {{ routeSource(routeRow).label }}
+                </span>
+                <span
+                  v-if="linkedRoute && routeRow.id === linkedRoute.id"
+                  class="d-block small text-muted http-routes-linked-note"
+                >
+                  Linked route, outside the top {{ formatNumber(routesReport.topPerCriterion) }} by
+                  {{ rankingMetricLabel.toLowerCase() }}
                 </span>
               </td>
               <td class="text-end">
@@ -464,13 +547,20 @@ onMounted(() => {
         </table>
       </div>
 
-      <p v-if="hiddenRouteCount > 0" class="text-muted small mb-0 http-routes-truncation">
-        Showing {{ formatNumber(rankedRoutes.length) }} of {{ formatNumber(routesReport.distinctRoutes) }} routes;
-        {{ formatNumber(hiddenRouteCount) }} more {{ hiddenRouteCount === 1 ? 'route is' : 'routes are' }} retained but
-        not among the top {{ formatNumber(routesReport.topPerCriterion) }} by {{ rankingMetricLabel.toLowerCase() }}.
+      <p v-if="rankingGap" class="text-muted small mb-0 http-routes-truncation">
+        <template v-if="rankingGap.capped">
+          Showing the top {{ formatNumber(rankedRoutes.length) }} of {{ formatNumber(distinctRoutes) }} retained routes
+          by {{ rankingMetricLabel.toLowerCase() }}; {{ formatNumber(rankingGap.missing) }} more
+          {{ rankingGap.missing === 1 ? 'route is' : 'routes are' }} not shown.
+        </template>
+        <template v-else>
+          {{ formatNumber(rankingGap.missing) }} of {{ formatNumber(distinctRoutes) }} retained
+          {{ distinctRoutes === 1 ? 'route records' : 'routes record' }} no {{ rankingMetricLabel.toLowerCase() }} in
+          this window, so {{ rankingGap.missing === 1 ? 'it is' : 'they are' }} not ranked.
+        </template>
       </p>
-      <p v-if="highlightedRouteHidden" class="text-muted small mb-0 http-routes-linked-hidden">
-        The linked route <code>{{ highlightedRoute }}</code> is not among the routes shown for this ranking.
+      <p v-if="highlightedRouteMissing" class="text-muted small mb-0 http-routes-linked-hidden">
+        The linked route <code>{{ highlightedRoute }}</code> has no retained exchange in this window.
       </p>
     </section>
 

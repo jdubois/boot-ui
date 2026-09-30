@@ -36,6 +36,7 @@ import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.security.SecurityLogsService;
+import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.telemetry.TracesService;
@@ -67,6 +68,7 @@ import jakarta.ws.rs.sse.Sse;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import javax.sql.DataSource;
 
 /**
@@ -159,7 +161,7 @@ public class LiveActivityResource {
     private final SecurityLogsService securityLogs = new SecurityLogsService();
     private final AtomicInteger openStreams = new AtomicInteger();
     private volatile ActivityCapturePoller switchPoller;
-    private Instance<MappingProvider> mappings;
+    private Supplier<RouteTemplateResolver> declaredRoutes = RouteTemplateResolver::empty;
 
     @Inject
     public LiveActivityResource(
@@ -208,7 +210,7 @@ public class LiveActivityResource {
      */
     @Inject
     void setMappings(Instance<MappingProvider> mappings) {
-        this.mappings = mappings;
+        this.declaredRoutes = DeclaredRouteTemplates.caching(mappings);
     }
 
     /**
@@ -480,7 +482,7 @@ public class LiveActivityResource {
                 uri -> !selfClassifier.shouldInclude(selfClassifier.isBootUiPath(uri)),
                 exposure.maskSecrets(),
                 exposure.valueExposure(),
-                DeclaredRouteTemplates.from(mappings),
+                declaredRoutes.get(),
                 null,
                 null,
                 null,

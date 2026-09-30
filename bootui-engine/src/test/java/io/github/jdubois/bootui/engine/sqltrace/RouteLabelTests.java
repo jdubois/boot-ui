@@ -49,6 +49,39 @@ class RouteLabelTests {
     }
 
     @Test
+    void ambiguousDeclarationsStillMaskAWordShapedValueInTheirParameterPosition() {
+        RouteLabel label = RouteLabel.of("GET", "/api/items/alice", null, DECLARED);
+
+        assertThat(label.source()).isEqualTo(RouteLabel.Source.MASKED_PATH);
+        assertThat(label.route()).isEqualTo("/api/items/{value}");
+        assertThat(label.id()).doesNotContain("alice");
+    }
+
+    @Test
+    void aBraceDelimitedSegmentOnARealRequestIsAValueNotTemplateSyntax() {
+        RouteLabel label = RouteLabel.of("GET", "/users/{alice}/tokens", null, RouteTemplateResolver.empty());
+
+        assertThat(label.route()).isEqualTo("/users/{value}/tokens");
+    }
+
+    @Test
+    void aFrameworkTemplateIsRenderedExactlyAsTheSameDeclaredTemplate() {
+        RouteTemplateResolver constrained =
+                RouteTemplateResolver.of(List.of(mapping("GET", "/api/orders/{id:[0-9]+}")));
+
+        RouteLabel framework = RouteLabel.of("GET", "/api/orders/42", "/api/orders/{id:[0-9]+}", constrained);
+        RouteLabel declared = RouteLabel.of("GET", "/api/orders/43", null, constrained);
+
+        assertThat(framework.route()).isEqualTo("/api/orders/{id}");
+        assertThat(framework.id()).isEqualTo(declared.id());
+        assertThat(framework.source()).isEqualTo(RouteLabel.Source.FRAMEWORK_TEMPLATE);
+        assertThat(declared.source()).isEqualTo(RouteLabel.Source.DECLARED_MAPPING);
+        assertThat(RouteLabel.of("GET", "/css/site.css", "/**", DECLARED).route())
+                .isEqualTo("/" + RoutePathMasker.PLACEHOLDER);
+        assertThat(RouteLabel.of("GET", "/", "/", DECLARED).route()).isEqualTo("/");
+    }
+
+    @Test
     void maskedPathNeverExposesAPathParameterValueOrQueryString() {
         RouteLabel label = RouteLabel.of(
                 "DELETE",
