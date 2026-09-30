@@ -1,7 +1,9 @@
 package io.github.jdubois.bootui.engine.exceptions;
 
+import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
 import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
+import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -74,6 +76,7 @@ public final class ExceptionStore {
 
     private volatile List<String> applicationPackages = List.of();
     private volatile SpanEnricher spanEnricher = SpanEnricher.NO_OP;
+    private final CorrelationSource correlation = new CorrelationSource();
 
     public ExceptionStore(int maxGroups, int maxOccurrencesPerGroup, int maxStackFrames) {
         this(maxGroups, maxOccurrencesPerGroup, maxStackFrames, throwable -> false);
@@ -102,6 +105,16 @@ public final class ExceptionStore {
      */
     public void setSpanEnricher(SpanEnricher spanEnricher) {
         this.spanEnricher = spanEnricher == null ? SpanEnricher.NO_OP : spanEnricher;
+    }
+
+    /**
+     * Replaces the source of the request id stamped on each occurrence ({@code docs/PLAN-v2.md} §5.1). Defaults to
+     * the thread's correlation scope, which covers every capture path that runs on the request's own thread,
+     * including a log appender; the Quarkus adapter installs one that reads the request's Vert.x context. Passing
+     * {@code null} restores the default.
+     */
+    public void setCorrelationContextProvider(CorrelationContextProvider correlationProvider) {
+        correlation.set(correlationProvider);
     }
 
     /**
@@ -189,7 +202,8 @@ public final class ExceptionStore {
         String location = location(safeFrames);
         boolean applicationException = safeFrames.stream().anyMatch(Frame::applicationFrame);
         long now = System.currentTimeMillis();
-        Occurrence occurrence = new Occurrence(now, thread, method, path, handler, source, traceId);
+        Occurrence occurrence =
+                new Occurrence(now, thread, method, path, handler, source, traceId, correlation.requestId());
 
         synchronized (lock) {
             Group group = groups.get(fingerprint);
@@ -505,7 +519,21 @@ public final class ExceptionStore {
             String requestPath,
             String handler,
             String source,
-            String traceId) {}
+            String traceId,
+            String requestId) {
+
+        /** Without BootUI's request identity. */
+        public Occurrence(
+                long timestamp,
+                String thread,
+                String requestMethod,
+                String requestPath,
+                String handler,
+                String source,
+                String traceId) {
+            this(timestamp, thread, requestMethod, requestPath, handler, source, traceId, null);
+        }
+    }
 
     public record GroupSummary(
             String fingerprint,

@@ -216,6 +216,55 @@ class LiveActivityAssemblerTests {
     }
 
     @Test
+    void nestsAnExceptionGroupUnderTheRequestItsLastOccurrenceCarriesTheIdOf() {
+        HttpExchangesReport requests = requests(stamped("0123456789abcdef", null), stamped("fedcba9876543210", null));
+        ExceptionGroupDto base = exception("g-1", null, 1_020L);
+        ExceptionGroupDto group = new ExceptionGroupDto(
+                base.id(),
+                base.exceptionClassName(),
+                base.message(),
+                base.count(),
+                base.firstSeen(),
+                base.lastSeen(),
+                base.location(),
+                base.applicationException(),
+                base.lastThread(),
+                base.lastRequestMethod(),
+                base.lastRequestPath(),
+                base.lastHandler(),
+                base.lastSource(),
+                null,
+                base.status(),
+                base.regressionCount(),
+                null,
+                "fedcba9876543210");
+
+        LiveActivityReport report = assembler.report(
+                requests,
+                List.of(),
+                true,
+                null,
+                List.of(group),
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                "UP",
+                0,
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                false);
+
+        assertThat(onlyEntryOfType(report, "EXCEPTION").parentId()).isEqualTo("fedcba9876543210");
+    }
+
+    @Test
     void anUnknownRequestIdFallsBackToTheTraceId() {
         HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
         List<SqlTraceEntryDto> sql = List.of(stampedSql(10, "0000000000000000", "trace-a"));

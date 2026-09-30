@@ -209,7 +209,8 @@ A servlet request runs start-to-finish on one worker thread that serves only one
 thread is unambiguously its own. Spring WebFlux and Quarkus serve requests on shared event-loop and worker threads, so
 their profiles correlate by request id and trace id only and list the serving-thread and time-window tiers as
 unavailable rather than guessing. A request there is profileable when it carries either id, so it is profileable without
-tracing too. Every signal except exceptions carries the request id. For SQL, the time-window fallback applies only when
+tracing too. Every correlated signal carries the request id; each exception occurrence carries its own. For SQL, the
+time-window fallback applies only when
 no statement matched a request id, a trace id, or the serving thread. On Spring MVC, exceptions still match the
 request's method, path, and window; a trace id or the serving thread then settles which request threw them.
 
@@ -348,9 +349,9 @@ everywhere.
 
 What differs is **how signals correlate to a request**, because only the servlet model gives a request its own thread:
 
-- On every stack, SQL statements, security events, cache accesses, REST client calls, emails, and fault-tolerance
-  events first match **BootUI's own request id**, so they nest exactly, with or without tracing, even when identical
-  requests overlap. Exceptions do not carry it yet.
+- On every stack, SQL statements, exceptions, security events, cache accesses, REST client calls, emails, and
+  fault-tolerance events first match **BootUI's own request id**, so they nest exactly, with or without tracing, even
+  when identical requests overlap. An exception group nests under the request its latest occurrence came from.
 - **Spring MVC** then uses the full tiered join above: trace id, then serving thread, then time window.
 - **Spring WebFlux** and **Quarkus** then correlate by **trace id only**. Reactor Netty and the Vert.x event loop have
   no thread-per-request model, so the thread-based and time-window tiers do not apply. A signal with neither id shows
@@ -369,11 +370,11 @@ propagates across the event-loop-to-worker hop, so the same trace id is availabl
 or a security event from a CDI observer. Trace-id matching is exact, so the profiler reports
 `sqlCorrelationApproximate: false`.
 
-Quarkus also stamps BootUI's own request id on each exchange, SQL statement, security event, REST client call,
-email, and fault-tolerance event, with or without OpenTelemetry. The request id travels on the request's Vert.x context
-to the worker or virtual thread that continues it, and Live Activity nests a signal under the request whose id it
-carries before trying the trace id. Without OpenTelemetry those signals therefore still nest under their request,
-including when identical requests overlap; exceptions still need a trace id for now.
+Quarkus also stamps BootUI's own request id on each exchange, SQL statement, exception occurrence, security event,
+REST client call, email, and fault-tolerance event, with or without OpenTelemetry. The request id travels on the
+request's Vert.x context to the worker or virtual thread that continues it, and Live Activity nests a signal under the
+request whose id it carries before trying the trace id. Without OpenTelemetry those signals therefore still nest under
+their request, including when identical requests overlap.
 
 Spring MVC stamps the same kind of request id on each exchange and on the same signals, plus cache accesses. Actuator's
 audit events have no field for it, so BootUI keeps the id current when each event is published beside the event

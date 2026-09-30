@@ -53,4 +53,10 @@ class BootUiQuarkusCorrelationCoverageTest extends AbstractCorrelationCoverageTe
     protected Pattern requestThreadPattern() {
         return Pattern.compile("executor-thread-\\d+|vert\\.x-eventloop-thread-\\d+");
     }
+
+    /** SQL and exceptions nest under their request by request id, before the trace id, in every phase. */
+    @Override
+    protected Map<String, Double> minimumNestedShares(Phase phase) {
+        return Map.of("SQL", 1.0, "EXCEPTION", 1.0);
+    }
 }

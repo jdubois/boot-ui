@@ -922,10 +922,15 @@ public class LiveActivityService {
     }
 
     /**
-     * Resolves the request that an exception group belongs to by matching the last request method/path
-     * within the request window, disambiguating by serving thread when more than one request matches.
+     * Resolves the request that an exception group belongs to: the request whose BootUI request id its last
+     * occurrence carries, else the last request method/path within the request window, disambiguated by serving
+     * thread when more than one request matches.
      */
     private static String matchExceptionParent(ExceptionGroupDto group, List<RequestAnchor> anchors) {
+        String byRequestId = matchByRequestId(group.lastRequestId(), anchors);
+        if (byRequestId != null) {
+            return byRequestId;
+        }
         String method = group.lastRequestMethod();
         String path = group.lastRequestPath();
         if (method == null || path == null) {

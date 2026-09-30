@@ -138,9 +138,10 @@ class BootUiQuarkusLiveActivityProfileTest {
                 .as("the correlated exception must be the one /it/boom throws")
                 .isEqualTo("java.lang.IllegalStateException");
 
-        assertThat(anyNoteContains(profile, "Exceptions are correlated exactly by trace id"))
-                .as("the profile must explain the exception correlation is exact, not heuristic")
+        assertThat(anyNoteContains(profile, "Exception occurrences carrying this request's BootUI request id"))
+                .as("the profile must explain the exception correlation is exact, by request id before the trace id")
                 .isTrue();
+        assertThat(section(profile, "EXCEPTION").path("tier").asText()).isEqualTo("REQUEST_ID");
     }
 
     @Test

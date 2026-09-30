@@ -386,6 +386,10 @@ public final class ExecutionProfileAssembler {
 
     private static Decision correlateOccurrence(Context context, ExceptionOccurrenceDto occurrence) {
         long timestamp = occurrence.timestamp();
+        Decision byRequestId = byRequestId(context, occurrence.requestId());
+        if (byRequestId.decided()) {
+            return byRequestId;
+        }
         Decision decision = byTrace(context, occurrence.traceId(), timestamp);
         ProfileAnchor self = context.self();
         if (!self.hasHeuristicTier()) {
@@ -434,6 +438,9 @@ public final class ExecutionProfileAssembler {
 
     private static void exceptionNotes(
             Context context, Section<RequestProfileExceptionDto> section, List<String> notes) {
+        if (section.uses(CorrelationTier.REQUEST_ID)) {
+            notes.add(requestIdNote("Exception occurrences"));
+        }
         if (section.uses(CorrelationTier.TRACE_ID)) {
             notes.add("Exceptions are correlated exactly by trace id "
                     + context.self().traceId() + ".");

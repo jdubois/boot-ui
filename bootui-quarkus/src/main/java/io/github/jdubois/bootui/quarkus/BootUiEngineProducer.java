@@ -542,6 +542,7 @@ public class BootUiEngineProducer {
         if (spanEnricher.isResolvable()) {
             store.setSpanEnricher(spanEnricher.get());
         }
+        store.setCorrelationContextProvider(QuarkusRequestCorrelation::current);
         return store;
     }
 

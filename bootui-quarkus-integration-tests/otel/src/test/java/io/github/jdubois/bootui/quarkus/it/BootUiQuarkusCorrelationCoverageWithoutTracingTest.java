@@ -56,6 +56,6 @@ class BootUiQuarkusCorrelationCoverageWithoutTracingTest extends AbstractCorrela
 
     @Override
     protected Map<String, Double> minimumNestedShares(Phase phase) {
-        return Map.of("SQL", 1.0);
+        return Map.of("SQL", 1.0, "EXCEPTION", 1.0);
     }
 }

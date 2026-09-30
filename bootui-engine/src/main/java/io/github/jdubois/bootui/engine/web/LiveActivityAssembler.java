@@ -432,7 +432,7 @@ public final class LiveActivityAssembler {
         Long slowestQuery = slowestQueryMicros == null ? null : Math.round(slowestQueryMicros / 1_000.0);
 
         for (ExceptionGroupDto g : exceptions) {
-            String parentId = traceIndex.parentRequestId(g.lastTraceId());
+            String parentId = parentRequestId(stampedRequestIds, traceIndex, g.lastRequestId(), g.lastTraceId());
             if (parentId == null) {
                 // No owning HTTP request: fall back to attributing the exception to the background
                 // @Scheduled execution that produced it (serving-thread + time-window join — the same

@@ -413,14 +413,14 @@ the exact request that produced them.
 
 **Known, accepted residual limitations:**
 
-- Exceptions are still correlated by trace id only, exactly like Quarkus. Without a tracing span, SQL, security events,
-  cache accesses, REST client calls, emails, and fault-tolerance events still nest by BootUI's request id, but
-  exceptions show flat until they carry it too (`docs/PLAN-v2.md` M1-5d).
+- Without a tracing span, SQL, exceptions, security events, cache accesses, REST client calls, emails, and
+  fault-tolerance events still nest by BootUI's request id. The feed shows one entry per exception group, nested under
+  the request its latest occurrence came from; the profile attributes each occurrence to its own request.
 - `HttpExchangeTraceRegistry#match` (and its servlet sibling `RequestCorrelationRegistry`) deliberately requires a
   *unique* method+path+time-window candidate. Two genuinely concurrent identical requests (the same endpoint hit twice
   within roughly the same tens of milliseconds, with no other distinguishing signal) correlate to *neither* rather than
   risk attributing one request's trace id to the other. Both still show in the feed, each with its own SQL, cache,
-  REST client, and other stamped children nested by request id, but without a nested exception.
+  REST client, exception, and other stamped children nested by request id.
 - The servlet adapter's thread-based correlation (`LiveActivityCorrelator`) is not ported — it has no reactive
   equivalent.
 

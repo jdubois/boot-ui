@@ -46,10 +46,10 @@ class WebFluxCorrelationCoverageTest extends AbstractCorrelationCoverageTest {
                 Traffic.anonymous("/api/sample/boom", 4));
     }
 
-    /** Since M1-4 and M1-5, SQL and cache accesses carry their request id across Reactor scheduler hops, in every phase. */
+    /** Since M1-4 and M1-5, SQL, cache accesses, and exceptions carry their request id across Reactor scheduler hops, in every phase. */
     @Override
     protected Map<String, Double> minimumNestedShares(Phase phase) {
-        return Map.of("SQL", 1.0, "CACHE", 1.0);
+        return Map.of("SQL", 1.0, "CACHE", 1.0, "EXCEPTION", 1.0);
     }
 
     @Override

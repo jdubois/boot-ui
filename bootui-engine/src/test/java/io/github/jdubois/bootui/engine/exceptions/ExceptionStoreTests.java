@@ -2,6 +2,8 @@ package io.github.jdubois.bootui.engine.exceptions;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -19,6 +21,29 @@ class ExceptionStoreTests {
         assertThat(groups).hasSize(1);
         assertThat(groups.get(0).count()).isEqualTo(3);
         assertThat(store.totalExceptions()).isEqualTo(3);
+    }
+
+    @Test
+    void stampsEachOccurrenceWithTheRequestIdCurrentWhenItWasRecorded() {
+        ExceptionStore store = new ExceptionStore(100, 25, 50);
+        List<Throwable> failures = sameOrigin(3);
+
+        try (BootUiCorrelation.Scope ignored =
+                BootUiCorrelation.open(CorrelationContext.forRequest("0123456789abcdef"))) {
+            store.record(failures.get(0), "worker-1", "GET", "/orders", "Handler#x", "web");
+        }
+        store.setCorrelationContextProvider(() -> CorrelationContext.forRequest("fedcba9876543210"));
+        store.record(failures.get(1), "log-thread", null, null, null, "log");
+        store.setCorrelationContextProvider(() -> {
+            throw new IllegalStateException("no request context");
+        });
+        store.record(failures.get(2), "main", null, null, null, "log");
+
+        ExceptionStore.GroupDetail detail = store.find(store.groups().get(0).fingerprint());
+        assertThat(detail.occurrences())
+                .extracting(ExceptionStore.Occurrence::requestId)
+                .containsExactlyInAnyOrder("0123456789abcdef", "fedcba9876543210", null);
+        assertThat(store.groups().get(0).last().requestId()).isNull();
     }
 
     @Test

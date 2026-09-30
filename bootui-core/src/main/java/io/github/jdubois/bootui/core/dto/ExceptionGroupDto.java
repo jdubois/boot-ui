@@ -43,4 +43,46 @@ public record ExceptionGroupDto(
         String lastTraceId,
         String status,
         long regressionCount,
-        ErrorContractLinkDto errorContract) {}
+        ErrorContractLinkDto errorContract,
+        String lastRequestId) {
+
+    /** Without BootUI's request identity. */
+    public ExceptionGroupDto(
+            String id,
+            String exceptionClassName,
+            String message,
+            long count,
+            long firstSeen,
+            long lastSeen,
+            String location,
+            boolean applicationException,
+            String lastThread,
+            String lastRequestMethod,
+            String lastRequestPath,
+            String lastHandler,
+            String lastSource,
+            String lastTraceId,
+            String status,
+            long regressionCount,
+            ErrorContractLinkDto errorContract) {
+        this(
+                id,
+                exceptionClassName,
+                message,
+                count,
+                firstSeen,
+                lastSeen,
+                location,
+                applicationException,
+                lastThread,
+                lastRequestMethod,
+                lastRequestPath,
+                lastHandler,
+                lastSource,
+                lastTraceId,
+                status,
+                regressionCount,
+                errorContract,
+                null);
+    }
+}

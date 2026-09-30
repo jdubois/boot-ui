@@ -79,6 +79,8 @@ Grouping uses a stable fingerprint derived from the exception type and the top s
 collapses into a single row. That row shows the type, the latest message, first and last seen times, the originating
 location, and a total count. Opening a group shows the representative stack trace with application frames highlighted, the full cause chain
 with `… N more` common-frame folding, and the most recent occurrences with their thread, source, and request context.
+Each occurrence also carries the `requestId` of the request that threw it, when BootUI saw one, so the profiler can
+attribute it exactly with or without tracing.
 
 The list updates over Server-Sent Events: the browser subscribes to `/bootui/api/exceptions/stream` and re-fetches
 whenever an exception is captured or the store is cleared. You can filter by text, by capture source, or to

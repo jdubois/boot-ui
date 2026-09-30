@@ -20,4 +20,18 @@ public record ExceptionOccurrenceDto(
         String requestPath,
         String handler,
         String source,
-        String traceId) {}
+        String traceId,
+        String requestId) {
+
+    /** Without BootUI's request identity. */
+    public ExceptionOccurrenceDto(
+            long timestamp,
+            String thread,
+            String requestMethod,
+            String requestPath,
+            String handler,
+            String source,
+            String traceId) {
+        this(timestamp, thread, requestMethod, requestPath, handler, source, traceId, null);
+    }
+}

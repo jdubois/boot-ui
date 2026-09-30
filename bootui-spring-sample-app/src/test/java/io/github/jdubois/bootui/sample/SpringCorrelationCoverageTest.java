@@ -50,10 +50,10 @@ class SpringCorrelationCoverageTest extends AbstractCorrelationCoverageTest {
                 Traffic.anonymous("/api/sample/boom", 4));
     }
 
-    /** Since M1-3 and M1-5, request-thread SQL, security events, and cache accesses carry their request id, in every phase. */
+    /** Since M1-3 and M1-5, request-thread SQL, security events, cache accesses, and exceptions carry their request id, in every phase. */
     @Override
     protected Map<String, Double> minimumNestedShares(Phase phase) {
-        return Map.of("SQL", 1.0, "SECURITY", 1.0, "CACHE", 1.0);
+        return Map.of("SQL", 1.0, "SECURITY", 1.0, "CACHE", 1.0, "EXCEPTION", 1.0);
     }
 
     @Override

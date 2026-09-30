@@ -225,6 +225,30 @@ class ExecutionProfileAssemblerTests {
         }
 
         @Test
+        void attributesExceptionOccurrencesByRequestIdWithoutTracing() {
+            HttpExchangeDto request = stamped(request("0123456789abcdef", "/orders", null, null, 1_000L, 50L));
+            HttpExchangeDto twin = stamped(request("fedcba9876543210", "/orders", null, null, 1_000L, 50L));
+            ProfileEvidence evidence = new Evidence(request, twin)
+                    .exceptions(occurrences(
+                            "java.lang.IllegalStateException",
+                            new ExceptionOccurrenceDto(
+                                    1_010L, "worker-1", "GET", "/orders", "h", "web", null, "0123456789abcdef"),
+                            new ExceptionOccurrenceDto(
+                                    1_020L, "worker-2", "GET", "/orders", "h", "web", null, "fedcba9876543210")))
+                    .build();
+
+            RequestProfileDto profile = assembler.requestProfile("0123456789abcdef", evidence, capabilities);
+
+            assertThat(profile.exceptions())
+                    .extracting(RequestProfileExceptionDto::timestamp)
+                    .containsExactly(1_010L);
+            assertThat(section(profile, "EXCEPTION").tier()).isEqualTo("REQUEST_ID");
+            assertThat(profile.notes())
+                    .anyMatch(
+                            note -> note.startsWith("Exception occurrences carrying this request's BootUI request id"));
+        }
+
+        @Test
         void aRequestIdDecidesBeforeASharedTraceId() {
             HttpExchangeDto request = stamped(request("0123456789abcdef", "/orders", "trace-a", null, 1_000L, 50L));
             HttpExchangeDto other = stamped(request("fedcba9876543210", "/orders", "trace-a", null, 1_000L, 50L));
