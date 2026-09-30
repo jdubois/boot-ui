@@ -350,6 +350,12 @@ propagates across the event-loop-to-worker hop, so the same trace id is availabl
 or a security event from a CDI observer. Trace-id matching is exact, so the profiler reports
 `sqlCorrelationApproximate: false`.
 
+Quarkus also stamps BootUI's own request id on each exchange and each SQL statement, with or without OpenTelemetry.
+The request id travels on the request's Vert.x context to the worker or virtual thread that runs the SQL, and Live
+Activity nests a statement under the request whose id it carries before trying the trace id. Without OpenTelemetry,
+SQL therefore still nests under its request, including when identical requests overlap; other signals still need a
+trace id for now.
+
 :::
 
 Two further Quarkus differences: SQL trace contributes only when a JDBC datasource is configured (the recorder is gated

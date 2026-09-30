@@ -5,8 +5,11 @@ import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
 import io.github.jdubois.bootui.engine.activity.BootUiJdbcCaptureGuard;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.util.ArrayDeque;
@@ -83,10 +86,47 @@ public final class SqlTraceRecorder implements IdleReclaimable {
             String thread,
             String traceId,
             List<String> parameters,
-            String callSite) {
+            String callSite,
+            String requestId) {
 
         public CapturedStatement {
             parameters = parameters == null ? List.of() : List.copyOf(parameters);
+        }
+
+        /** A captured execution without BootUI's request identity. */
+        public CapturedStatement(
+                long id,
+                long timestamp,
+                String sql,
+                StatementType statementType,
+                Category category,
+                long durationMicros,
+                boolean success,
+                String errorMessage,
+                Long affectedRows,
+                int batchSize,
+                String connectionId,
+                String thread,
+                String traceId,
+                List<String> parameters,
+                String callSite) {
+            this(
+                    id,
+                    timestamp,
+                    sql,
+                    statementType,
+                    category,
+                    durationMicros,
+                    success,
+                    errorMessage,
+                    affectedRows,
+                    batchSize,
+                    connectionId,
+                    thread,
+                    traceId,
+                    parameters,
+                    callSite,
+                    null);
         }
 
         /** The exact duration rounded to whole milliseconds. */
@@ -115,6 +155,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
     private final Set<String> dataSourceNames = new ConcurrentSkipListSet<>();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
     private volatile TraceIdProvider traceIdProvider = SqlTraceRecorder::mdcTraceId;
+    private volatile CorrelationContextProvider correlationProvider = BootUiCorrelation::current;
     private volatile SpanEnricher spanEnricher = SpanEnricher.NO_OP;
 
     public SqlTraceRecorder(
@@ -175,6 +216,16 @@ public final class SqlTraceRecorder implements IdleReclaimable {
      */
     public void setTraceIdProvider(TraceIdProvider traceIdProvider) {
         this.traceIdProvider = traceIdProvider == null ? SqlTraceRecorder::mdcTraceId : traceIdProvider;
+    }
+
+    /**
+     * Replaces the source of the request id stamped on each captured statement ({@code docs/PLAN-v2.md} §5.1).
+     * Defaults to the thread's {@link BootUiCorrelation} scope. The Quarkus adapter installs a provider that also reads
+     * the request's Vert.x context, because blocking SQL runs on a worker thread. Passing {@code null} restores the
+     * default.
+     */
+    public void setCorrelationContextProvider(CorrelationContextProvider correlationProvider) {
+        this.correlationProvider = correlationProvider == null ? BootUiCorrelation::current : correlationProvider;
     }
 
     /**
@@ -254,7 +305,8 @@ public final class SqlTraceRecorder implements IdleReclaimable {
                 thread,
                 resolveTraceId(),
                 captureParameters ? List.copyOf(parameters == null ? List.of() : parameters) : List.of(),
-                captureCallSite ? currentCallSite() : null);
+                captureCallSite ? currentCallSite() : null,
+                resolveRequestId());
         synchronized (lock) {
             buffer.addLast(entry);
             while (buffer.size() > maxEntries) {
@@ -508,7 +560,8 @@ public final class SqlTraceRecorder implements IdleReclaimable {
                 isSlow(entry.durationMicros()),
                 exposeParameters ? entry.parameters() : List.of(),
                 entry.traceId(),
-                entry.callSite());
+                entry.callSite(),
+                entry.requestId());
     }
 
     private static String truncate(String value, int max) {
@@ -531,6 +584,19 @@ public final class SqlTraceRecorder implements IdleReclaimable {
         try {
             String traceId = traceIdProvider.currentTraceId();
             return traceId == null || traceId.isBlank() ? null : traceId;
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    /**
+     * The request id to stamp on the next captured statement, or {@code null} when no request owns it. Fully guarded so
+     * SQL execution is never disrupted.
+     */
+    private String resolveRequestId() {
+        try {
+            CorrelationContext context = correlationProvider.current();
+            return context == null ? null : context.requestId();
         } catch (RuntimeException ex) {
             return null;
         }

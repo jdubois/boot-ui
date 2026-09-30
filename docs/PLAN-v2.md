@@ -364,7 +364,9 @@ Delivery slices, each one pull request to `v2` with its own tests and documentat
 | M1-2 | Quarkus: `QuarkusHttpExchangeCaptureFilter` generates the request id, attaches its context to the request's Vert.x duplicated context (`QuarkusRequestCorrelation`), which Quarkus carries to worker and virtual threads, and opens a thread scope while the chain runs on the event loop. The exchange is stamped with it, and `HttpExchangeDto.requestId` becomes the exchange's id. A Quarkus `CorrelationContextProvider` bean reads it without OpenTelemetry | M1-1 | ✅ Delivered |
 | M1-3 | Spring MVC: request scope in `RequestCorrelationFilter` with async redispatch, phase markers, and the exchange stamped in §3.24a's BootUI-owned repository | M1-1, §3.24a | 📋 Planned |
 | M1-4 | Spring WebFlux: the Reactor-context bridge, the `spring.reactor.context-propagation=auto` default, and exchange stamping at `beforeCommit` | M1-1, §3.24a | 📋 Planned |
-| M1-5 | Request ids on SQL, transactions, exceptions (as occurrences), security, REST client, cache, and logs; `REQUEST_ID` first in `ExecutionProfileAssembler` | M1-2 to M1-4 | 📋 Planned |
+| M1-5a | Request ids on SQL: `SqlTraceRecorder` stamps `CapturedStatement.requestId` from a `CorrelationContextProvider` (the Quarkus Vert.x context on Quarkus), `SqlTraceEntryDto.requestId`, and Live Activity nests a statement under the request whose id it carries before trying its trace id. The Quarkus coverage scenario without tracing enforces 100 % SQL nesting in every phase | M1-2 | ✅ Delivered |
+| M1-5b | Request ids on exceptions (as immutable occurrences), security events, REST client calls, cache accesses, email, and logs, nested the same way | M1-5a | 📋 Planned |
+| M1-5c | `REQUEST_ID` first in `ExecutionProfileAssembler`, so profiles need no trace id | M1-5b | 📋 Planned |
 | M1-6 | Messaging propagation, thread kinds, GraphQL operations, run ids in `/overview`, and the extended correlation scenario with its floors | M1-5 | 📋 Planned |
 
 ### 5.2 Runtime journal — Diagnostics 📋 Planned

@@ -81,6 +81,96 @@ class LiveActivityAssemblerTests {
     }
 
     @Test
+    void nestsSqlUnderTheRequestWhoseRequestIdItCarriesWithoutTracing() {
+        HttpExchangesReport requests = requests(stamped("0123456789abcdef", null), stamped("fedcba9876543210", null));
+        List<SqlTraceEntryDto> sql =
+                List.of(stampedSql(10, "0123456789abcdef", null), stampedSql(11, "fedcba9876543210", null));
+
+        LiveActivityReport report = reportOf(requests, sql);
+
+        assertThat(entry(report, "sql-10").parentId()).isEqualTo("0123456789abcdef");
+        assertThat(entry(report, "sql-11").parentId()).isEqualTo("fedcba9876543210");
+    }
+
+    @Test
+    void aRequestIdNestsExactlyWhereASharedTraceIdCannot() {
+        HttpExchangesReport requests =
+                requests(stamped("0123456789abcdef", "trace-shared"), stamped("fedcba9876543210", "trace-shared"));
+        List<SqlTraceEntryDto> sql = List.of(
+                stampedSql(10, "fedcba9876543210", "trace-shared"), sql(11, "select 1", "trace-shared", 1_010L));
+
+        LiveActivityReport report = reportOf(requests, sql);
+
+        assertThat(entry(report, "sql-10").parentId()).isEqualTo("fedcba9876543210");
+        assertThat(entry(report, "sql-11").parentId())
+                .as("an ambiguous trace id still nests nothing")
+                .isNull();
+    }
+
+    @Test
+    void anUnknownRequestIdFallsBackToTheTraceId() {
+        HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
+        List<SqlTraceEntryDto> sql = List.of(stampedSql(10, "0000000000000000", "trace-a"));
+
+        LiveActivityReport report = reportOf(requests, sql);
+
+        assertThat(entry(report, "sql-10").parentId()).isEqualTo("req-1");
+    }
+
+    private LiveActivityReport reportOf(HttpExchangesReport requests, List<SqlTraceEntryDto> sql) {
+        return assembler.report(
+                requests, sql, true, null, List.of(), List.of(), false, List.of(), false, List.of(), "UP", 0, List.of(),
+                false, List.of(), false, List.of(), false, List.of(), false);
+    }
+
+    private static HttpExchangeDto stamped(String requestId, String traceId) {
+        HttpExchangeDto base = request(requestId, "/orders", traceId, 1_000L);
+        return new HttpExchangeDto(
+                base.id(),
+                base.timestamp(),
+                base.method(),
+                base.path(),
+                base.query(),
+                base.uri(),
+                base.status(),
+                base.statusFamily(),
+                base.durationMs(),
+                base.responseSizeBytes(),
+                base.remoteAddress(),
+                base.principal(),
+                base.sessionId(),
+                base.traceId(),
+                base.requestHeaders(),
+                base.responseHeaders(),
+                null,
+                null,
+                requestId);
+    }
+
+    private static SqlTraceEntryDto stampedSql(long id, String requestId, String traceId) {
+        SqlTraceEntryDto base = sql(id, "select 1", traceId, 1_010L);
+        return new SqlTraceEntryDto(
+                base.id(),
+                base.timestamp(),
+                base.sql(),
+                base.statementType(),
+                base.category(),
+                base.durationMicros(),
+                base.durationMillis(),
+                base.success(),
+                base.errorMessage(),
+                base.affectedRows(),
+                base.batchSize(),
+                base.connectionId(),
+                base.thread(),
+                base.slow(),
+                base.parameters(),
+                base.traceId(),
+                base.callSite(),
+                requestId);
+    }
+
+    @Test
     void labelsTheSlowestRequestKpiWithItsResolvedRoute() {
         HttpExchangesReport requests = requests(
                 RequestLatencyKpisTests.exchange(

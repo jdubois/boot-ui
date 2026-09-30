@@ -30,10 +30,12 @@ import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Framework-neutral assembly of the Live Activity merged stream + KPI summary from already-masked source
@@ -332,6 +334,16 @@ public final class LiveActivityAssembler {
         // than one request so an ambiguous (reused) trace never nests a child under the wrong request.
         TraceCorrelationIndex traceIndex = TraceCorrelationIndex.of(exchanges);
 
+        // Requests stamped with BootUI's own request id (docs/PLAN-v2.md §5.1) use it as their entry id, so a
+        // child carrying that id nests under it exactly, with or without tracing, and before any trace-id match.
+        Set<String> stampedRequestIds = new HashSet<>();
+        for (HttpExchangeDto exchange : exchanges) {
+            String stamped = BlankStrings.blankToNull(exchange.requestId());
+            if (stamped != null && stamped.equals(exchange.id())) {
+                stampedRequestIds.add(stamped);
+            }
+        }
+
         // One anchor per captured scheduled-task execution, used as the exception-correlation fallback
         // tier below when no HTTP request claims the exception (see matchScheduledTaskParent).
         List<ScheduledTaskAnchor> scheduledTaskAnchors = buildScheduledTaskAnchors(scheduled);
@@ -402,7 +414,7 @@ public final class LiveActivityAssembler {
             if (slowestQueryMicros == null || s.durationMicros() > slowestQueryMicros) {
                 slowestQueryMicros = s.durationMicros();
             }
-            entries.add(toSqlEntry(s, traceIndex.parentRequestId(s.traceId())));
+            entries.add(toSqlEntry(s, parentRequestId(stampedRequestIds, traceIndex, s.requestId(), s.traceId())));
         }
         Long slowestQuery = slowestQueryMicros == null ? null : Math.round(slowestQueryMicros / 1_000.0);
 
@@ -567,6 +579,19 @@ public final class LiveActivityAssembler {
      * short key hash is ever surfaced as {@code detail} (never the raw key), and a whole-cache
      * {@code CLEAR} carries no key at all.
      */
+    /**
+     * The REQUEST entry a child nests under: the request whose BootUI request id it carries, which is exact, else the
+     * single request sharing its trace id, else none.
+     */
+    private static String parentRequestId(
+            Set<String> stampedRequestIds, TraceCorrelationIndex traceIndex, String requestId, String traceId) {
+        String stamped = BlankStrings.blankToNull(requestId);
+        if (stamped != null && stampedRequestIds.contains(stamped)) {
+            return stamped;
+        }
+        return traceIndex.parentRequestId(traceId);
+    }
+
     private ActivityEntryDto toCacheEntry(CacheActivityEvent event, String parentId) {
         String severity = event.operation() == CacheActivityOperation.MISS ? SEVERITY_WARN : SEVERITY_OK;
         String summary = event.operation().name() + " " + event.cacheName();

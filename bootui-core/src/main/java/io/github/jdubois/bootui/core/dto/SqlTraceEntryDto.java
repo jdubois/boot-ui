@@ -35,6 +35,8 @@ import java.util.List;
  *     ClassName.methodName(File.java:42)}, or {@code null} when call-site capture is disabled or no
  *     application frame was found; never gated by value exposure since it names the application's own
  *     code, never a bound value
+ * @param requestId BootUI's own id of the request that ran the statement, stamped when it ran whether or not a tracer
+ *     was present, or {@code null} when no request owned it or the adapter does not stamp one yet
  */
 public record SqlTraceEntryDto(
         long id,
@@ -53,9 +55,50 @@ public record SqlTraceEntryDto(
         boolean slow,
         List<String> parameters,
         String traceId,
-        String callSite) {
+        String callSite,
+        String requestId) {
 
     public SqlTraceEntryDto {
         parameters = DtoCollections.immutableCopy(parameters);
+    }
+
+    /** A statement without BootUI's request identity. */
+    public SqlTraceEntryDto(
+            long id,
+            long timestamp,
+            String sql,
+            String statementType,
+            String category,
+            long durationMicros,
+            long durationMillis,
+            boolean success,
+            String errorMessage,
+            Long affectedRows,
+            int batchSize,
+            String connectionId,
+            String thread,
+            boolean slow,
+            List<String> parameters,
+            String traceId,
+            String callSite) {
+        this(
+                id,
+                timestamp,
+                sql,
+                statementType,
+                category,
+                durationMicros,
+                durationMillis,
+                success,
+                errorMessage,
+                affectedRows,
+                batchSize,
+                connectionId,
+                thread,
+                slow,
+                parameters,
+                traceId,
+                callSite,
+                null);
     }
 }

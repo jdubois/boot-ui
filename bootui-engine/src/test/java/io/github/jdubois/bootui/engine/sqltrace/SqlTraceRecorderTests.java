@@ -527,4 +527,50 @@ class SqlTraceRecorderTests {
             calls.add(nPlusOneSuspected != null && nPlusOneSuspected.getAsBoolean());
         }
     }
+
+    @Test
+    void stampsTheRequestIdOfTheOpenScope() {
+        SqlTraceRecorder recorder = new SqlTraceRecorder(true, true, false, false, 10, 100, 2000, 200, 5);
+
+        try (io.github.jdubois.bootui.engine.correlation.BootUiCorrelation.Scope ignored =
+                io.github.jdubois.bootui.engine.correlation.BootUiCorrelation.open(
+                        io.github.jdubois.bootui.spi.CorrelationContext.forRequest("0123456789abcdef"))) {
+            recorder.record(
+                    StatementType.PREPARED,
+                    Category.SELECT,
+                    "select 1",
+                    List.of(),
+                    10,
+                    true,
+                    null,
+                    null,
+                    0,
+                    "c1",
+                    "t1");
+        }
+        recorder.record(
+                StatementType.PREPARED, Category.SELECT, "select 2", List.of(), 10, true, null, null, 0, "c1", "t1");
+
+        assertThat(recorder.recent())
+                .extracting(SqlTraceRecorder.CapturedStatement::requestId)
+                .containsExactly(null, "0123456789abcdef");
+    }
+
+    @Test
+    void usesTheInstalledCorrelationProviderAndSurvivesItsFailure() {
+        SqlTraceRecorder recorder = new SqlTraceRecorder(true, true, false, false, 10, 100, 2000, 200, 5);
+        recorder.setCorrelationContextProvider(
+                () -> io.github.jdubois.bootui.spi.CorrelationContext.forRequest("fedcba9876543210"));
+        recorder.record(
+                StatementType.PREPARED, Category.SELECT, "select 1", List.of(), 10, true, null, null, 0, "c1", "t1");
+        recorder.setCorrelationContextProvider(() -> {
+            throw new IllegalStateException("broken");
+        });
+        recorder.record(
+                StatementType.PREPARED, Category.SELECT, "select 2", List.of(), 10, true, null, null, 0, "c1", "t1");
+
+        assertThat(recorder.recent())
+                .extracting(SqlTraceRecorder.CapturedStatement::requestId)
+                .containsExactly(null, "fedcba9876543210");
+    }
 }
