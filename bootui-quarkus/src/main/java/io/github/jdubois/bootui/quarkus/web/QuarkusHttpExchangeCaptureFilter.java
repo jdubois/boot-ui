@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.quarkus.web;
 
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
+import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.quarkus.QuarkusBootUiPaths;
@@ -71,13 +72,21 @@ public class QuarkusHttpExchangeCaptureFilter {
     private final HttpExchangeBuffer buffer;
     private final TraceIdProvider traceIdProvider;
     private final Config config;
+    private final RequestPhases phases;
 
-    @Inject
     public QuarkusHttpExchangeCaptureFilter(
             HttpExchangeBuffer buffer, Instance<TraceIdProvider> traceIdProvider, Config config) {
+        this(buffer, traceIdProvider, config, null);
+    }
+
+    /** @param phases the phase markers of recent requests, begun here for each request; {@code null} tracks none */
+    @Inject
+    public QuarkusHttpExchangeCaptureFilter(
+            HttpExchangeBuffer buffer, Instance<TraceIdProvider> traceIdProvider, Config config, RequestPhases phases) {
         this.buffer = buffer;
         this.traceIdProvider = traceIdProvider.isResolvable() ? traceIdProvider.get() : null;
         this.config = config;
+        this.phases = phases;
     }
 
     public void register(@Observes Filters filters) {
@@ -95,6 +104,9 @@ public class QuarkusHttpExchangeCaptureFilter {
         String requestId = RequestIds.next();
         CorrelationContext correlation = CorrelationContext.forRequest(requestId);
         QuarkusRequestCorrelation.attach(correlation);
+        if (phases != null) {
+            phases.begin(requestId);
+        }
         HttpServerRequest request = rc.request();
         Map<String, List<String>> requestHeaders = headers(request.headers());
         String traceId = currentTraceId();

@@ -979,12 +979,6 @@ public class BootUiAutoConfiguration {
         return registration;
     }
 
-    /** The phase markers of recent requests ({@code docs/PLAN-v2.md} §5.1). */
-    @Bean
-    public RequestPhases bootUiRequestPhases() {
-        return new RequestPhases();
-    }
-
     @Bean
     public RequestPhaseResponseBodyAdvice bootUiRequestPhaseResponseBodyAdvice(RequestPhases phases) {
         return new RequestPhaseResponseBodyAdvice(phases);

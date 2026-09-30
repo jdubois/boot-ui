@@ -55,6 +55,22 @@ public final class RequestPhases {
         }
     }
 
+    /**
+     * Adds an authentication interval to a tracked request, such as one Spring Security observed while authenticating
+     * it. A request authenticated more than once accumulates its intervals.
+     */
+    public void addAuthentication(String requestId, long micros) {
+        if (requestId == null || micros < 0) {
+            return;
+        }
+        synchronized (timelines) {
+            Timeline timeline = timelines.get(requestId);
+            if (timeline != null) {
+                timeline.authenticationMicros += micros;
+            }
+        }
+    }
+
     /** The phase the request is in, or {@code null} when it is not tracked. */
     public RequestPhase phaseOf(String requestId) {
         if (requestId == null) {
@@ -75,7 +91,12 @@ public final class RequestPhases {
             Timeline timeline = timelines.get(requestId);
             return timeline == null
                     ? null
-                    : new Markers(timeline.filtersAt, timeline.handlerAt, timeline.responseAt, timeline.current);
+                    : new Markers(
+                            timeline.filtersAt,
+                            timeline.handlerAt,
+                            timeline.responseAt,
+                            timeline.current,
+                            timeline.authenticationMicros);
         }
     }
 
@@ -88,8 +109,10 @@ public final class RequestPhases {
      * When a request first entered each phase, in epoch microseconds, {@code null} for a phase it has not entered.
      *
      * @param current the phase it is in now
+     * @param authenticationMicros time spent authenticating it, summed over its authentication intervals
      */
-    public record Markers(Long filtersAt, Long handlerAt, Long responseAt, RequestPhase current) {}
+    public record Markers(
+            Long filtersAt, Long handlerAt, Long responseAt, RequestPhase current, long authenticationMicros) {}
 
     private static final class Timeline {
 
@@ -97,6 +120,7 @@ public final class RequestPhases {
         private final Long filtersAt;
         private Long handlerAt;
         private Long responseAt;
+        private long authenticationMicros;
 
         private Timeline(long startedAt) {
             this.filtersAt = startedAt;

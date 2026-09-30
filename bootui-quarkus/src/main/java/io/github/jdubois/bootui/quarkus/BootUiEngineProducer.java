@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheService;
 import io.github.jdubois.bootui.engine.config.ConfigService;
+import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.correlation.ScopedCorrelationContextProvider;
 import io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorScanner;
 import io.github.jdubois.bootui.engine.datasource.ConnectionPoolService;
@@ -319,6 +320,13 @@ public class BootUiEngineProducer {
         }
         service.setCorrelationContextProvider(QuarkusRequestCorrelation::current);
         return service;
+    }
+
+    /** The phase markers of recent requests ({@code docs/PLAN-v2.md} §5.1), shared by the filters and recorders. */
+    @Produces
+    @Singleton
+    public RequestPhases requestPhases() {
+        return new RequestPhases();
     }
 
     /**

@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.autoconfigure;
 
+import io.github.jdubois.bootui.autoconfigure.activity.AuthenticationPhaseObservationHandler;
 import io.github.jdubois.bootui.autoconfigure.architecture.SpringBasePackageProvider;
 import io.github.jdubois.bootui.autoconfigure.beans.SpringBeanProvider;
 import io.github.jdubois.bootui.autoconfigure.cache.CacheActivityCacheManagerBeanPostProcessor;
@@ -49,6 +50,7 @@ import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.cache.CacheService;
 import io.github.jdubois.bootui.engine.config.ConfigService;
+import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.crac.CracReadinessScanner;
 import io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorScanner;
@@ -178,6 +180,34 @@ public class BootUiEngineConfiguration {
     @ConditionalOnMissingBean
     RunIdentity bootUiRunIdentity() {
         return RunIdentity.start();
+    }
+
+    /** The phase markers of recent requests ({@code docs/PLAN-v2.md} §5.1), shared by both web stacks. */
+    @Bean
+    RequestPhases bootUiRequestPhases() {
+        return new RequestPhases();
+    }
+
+    /**
+     * Adds Spring Security's authentication time to each request's phase markers, through the observation it emits
+     * when Spring Boot's observation registry is configured ({@code docs/PLAN-v2.md} §5.1). Gated on both types, so
+     * an application without Spring Security or Micrometer observation loads nothing here.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(
+            name = {
+                "org.springframework.security.authentication.AuthenticationObservationContext",
+                "org.springframework.boot.micrometer.observation.autoconfigure.ObservationRegistryCustomizer"
+            })
+    static class AuthenticationPhaseConfiguration {
+
+        @Bean
+        org.springframework.boot.micrometer.observation.autoconfigure.ObservationRegistryCustomizer<
+                        io.micrometer.observation.ObservationRegistry>
+                bootUiAuthenticationPhaseCustomizer(RequestPhases phases) {
+            return registry ->
+                    registry.observationConfig().observationHandler(new AuthenticationPhaseObservationHandler(phases));
+        }
     }
 
     @Bean

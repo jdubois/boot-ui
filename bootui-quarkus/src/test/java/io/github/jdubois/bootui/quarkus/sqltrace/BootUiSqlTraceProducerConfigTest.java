@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
@@ -33,7 +34,8 @@ class BootUiSqlTraceProducerConfigTest {
     private static SqlTraceRecorder recorder(Map<String, String> properties) {
         Instance<TraceIdProvider> traceIdProvider = unresolvable();
         Instance<SpanEnricher> spanEnricher = unresolvable();
-        return new BootUiSqlTraceProducer().sqlTraceRecorder(config(properties), traceIdProvider, spanEnricher);
+        return new BootUiSqlTraceProducer()
+                .sqlTraceRecorder(config(properties), traceIdProvider, spanEnricher, new RequestPhases());
     }
 
     @Test
