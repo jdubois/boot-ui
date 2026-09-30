@@ -402,6 +402,7 @@ exposes a tool is still what `bootui tools` says.
 | `bootui hibernate violations` | `get_hibernate_rule_violations` | `<id> --scan-id <scanId> [--offset N] [--limit N]` | read | all |
 | `bootui hibernate scan` | `hibernate_scan` | — | action | all |
 | `bootui http exchanges` | `get_http_exchanges` | `--limit` | read | all |
+| `bootui http routes` | `get_http_routes` | `--limit` | read | all |
 | `bootui http sessions` | `get_http_sessions` | — | read | Spring MVC |
 | `bootui jms` | `get_jms_activity` | — | read | Spring MVC, WebFlux |
 | `bootui jvm tuning` | `get_jvm_tuning` | — | read | all |

@@ -364,6 +364,10 @@ public class BootUiMcpTools {
                     "get_http_exchanges",
                     McpToolDescriptions.spring("get_http_exchanges"),
                     args -> httpExchangesBean.exchanges(null, null, null, null, args.limit())));
+            registry.add(tool(
+                    "get_http_routes",
+                    McpToolDescriptions.spring("get_http_routes"),
+                    args -> httpExchangesBean.routes(args.limit())));
         }
 
         // --- Core context read tools ---

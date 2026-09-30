@@ -8,6 +8,14 @@ vi.mock('../utils/useConfirm.js', () => ({
   useConfirm: () => ({confirm: () => Promise.resolve(true)})
 }))
 
+const routeState = vi.hoisted(() => ({query: {}}))
+vi.mock('vue-router', () => ({useRoute: () => routeState}))
+
+const RouterLinkStub = {
+  props: ['to'],
+  template: '<a class="router-link-stub" :data-to="JSON.stringify(to)"><slot /></a>'
+}
+
 function jsonResponse(body, ok = true, status = 200) {
   return {ok, status, json: () => Promise.resolve(body)}
 }
@@ -931,5 +939,81 @@ describe('LiveActivity', () => {
     const jdbcNode = wrapper.get('.flow-node--jdbc')
     expect(jdbcNode.attributes('aria-label')).toContain('jdbc:postgresql://localhost:5432/shop')
     expect(jdbcNode.attributes('aria-label')).toContain('configured, no recent evidence')
+  })
+
+  describe('route-aware latency KPIs', () => {
+    afterEach(() => {
+      routeState.query = {}
+    })
+
+    it('labels the slowest request with its route and links to that route summary row', async () => {
+      vi.stubGlobal(
+        'fetch',
+        stubFetch(
+          activityReport({
+            kpis: {
+              ...activityReport().kpis,
+              slowestEndpoint: '/api/orders/42',
+              slowestEndpointMs: 900,
+              latencySampleCount: 7,
+              slowestEndpointRoute: '/api/orders/{id}',
+              slowestEndpointRouteId: 'GET /api/orders/{id}',
+              slowestEndpointRouteSource: 'FRAMEWORK_TEMPLATE'
+            }
+          }),
+          requestProfile()
+        )
+      )
+
+      wrapper = mountLiveActivity({global: {stubs: {RouterLink: RouterLinkStub}}})
+      await flushPromises()
+
+      const card = wrapper.get('.activity-kpi-slowest')
+      expect(card.get('.activity-kpi-slowest-route').text()).toBe('GET /api/orders/{id}')
+      expect(JSON.parse(card.attributes('data-to'))).toEqual({
+        path: '/http-exchanges',
+        query: {route: 'GET /api/orders/{id}', rank: 'maxDurationMs'}
+      })
+      expect(card.attributes('title')).toBe(
+        'Open GET /api/orders/{id}, the route of the slowest request (/api/orders/42), in HTTP Exchanges'
+      )
+      expect(wrapper.get('.activity-kpi-latency-samples').text()).toBe('over 7 retained requests')
+    })
+
+    it('falls back to a path search when an older server sends no route', async () => {
+      vi.stubGlobal(
+        'fetch',
+        stubFetch(
+          activityReport({
+            kpis: {...activityReport().kpis, slowestEndpoint: '/api/orders/42', slowestEndpointMs: 900}
+          }),
+          requestProfile()
+        )
+      )
+
+      wrapper = mountLiveActivity({global: {stubs: {RouterLink: RouterLinkStub}}})
+      await flushPromises()
+
+      const card = wrapper.get('.activity-kpi-slowest')
+      expect(card.get('.activity-kpi-slowest-route').text()).toBe('/api/orders/42')
+      expect(JSON.parse(card.attributes('data-to'))).toEqual({
+        path: '/http-exchanges',
+        query: {q: '/api/orders/42'}
+      })
+      expect(wrapper.find('.activity-kpi-latency-samples').exists()).toBe(false)
+    })
+
+    it('opens the request profile an HTTP Exchanges link names', async () => {
+      routeState.query = {request: 'exchange-7'}
+      const fetchMock = stubFetch(activityReport(), requestProfile())
+      vi.stubGlobal('fetch', fetchMock)
+
+      wrapper = mountLiveActivity()
+      await flushPromises()
+
+      expect(fetchMock).toHaveBeenCalledWith('api/activity/request/exchange-7', expect.anything())
+      expect(wrapper.find('[aria-label="Request profile"]').exists()).toBe(true)
+      expect(wrapper.text()).toContain('select * from todo where id = ?')
+    })
   })
 })

@@ -35,6 +35,7 @@ import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.security.SecurityLogsService;
+import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.telemetry.TracesService;
@@ -48,6 +49,7 @@ import io.github.jdubois.bootui.engine.web.ProfileEvidence.Source;
 import io.github.jdubois.bootui.quarkus.BootUiEngineProducer;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
+import io.github.jdubois.bootui.spi.MappingProvider;
 import io.quarkus.runtime.ShutdownEvent;
 import io.smallrye.mutiny.Multi;
 import jakarta.enterprise.event.Observes;
@@ -68,6 +70,7 @@ import jakarta.ws.rs.sse.Sse;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import javax.sql.DataSource;
 
 /**
@@ -164,6 +167,7 @@ public class LiveActivityResource {
     private final SecurityLogsService securityLogs = new SecurityLogsService();
     private final AtomicInteger openStreams = new AtomicInteger();
     private volatile ActivityCapturePoller switchPoller;
+    private Supplier<RouteTemplateResolver> declaredRoutes = RouteTemplateResolver::empty;
 
     @Inject
     public LiveActivityResource(
@@ -203,6 +207,16 @@ public class LiveActivityResource {
         this.faultToleranceRecorder = faultToleranceRecorder;
         this.restClientTraceRecorder = restClientTraceRecorder;
         this.selfClassifier = selfClassifier;
+    }
+
+    /**
+     * The application's declared JAX-RS routes, so each REQUEST's exchange — and the slowest-request KPI — is
+     * labelled with the same route the HTTP Exchanges route summary uses. An initializer rather than a
+     * constructor parameter, because it is optional evidence: without it, routes fall back to masked paths.
+     */
+    @Inject
+    void setMappings(Instance<MappingProvider> mappings) {
+        this.declaredRoutes = DeclaredRouteTemplates.caching(mappings);
     }
 
     /**
@@ -505,6 +519,8 @@ public class LiveActivityResource {
                 uri -> !selfClassifier.shouldInclude(selfClassifier.isBootUiPath(uri)),
                 exposure.maskSecrets(),
                 exposure.valueExposure(),
+                declaredRoutes.get(),
+                null,
                 null,
                 null,
                 null,

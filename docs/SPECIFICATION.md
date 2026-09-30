@@ -1072,12 +1072,30 @@ Features:
 - Show request and response headers in row details.
 - Offer a client-side **Copy as cURL** action in row details that rebuilds a runnable command template from the retained
   exchange metadata, without capturing a body or replaying the request.
-- Provide server-side filtering by path/URL/trace id, method, and status class with bounded paging.
+- Provide server-side filtering by path/URL/trace id, method, status class, and route with bounded paging.
 - Hide BootUI self-requests by default through `bootui.monitoring.exclude-self`.
+- Label every exchange with its route and link it to its Live Activity request profile.
+- Rank routes over the retained window (`GET /bootui/api/http-exchanges/routes`): per method and route, the request
+  count; 2xx, 3xx, 4xx, and 5xx counts; average, p50, p95, p99, and maximum duration; and share of retained request
+  time, ranked by requests, total time, p95, maximum, or errors. Each route links to the exchange list filtered to it.
+- Resolve a route from the framework's handler template, then the single best declared mapping, then a masked path,
+  exactly as SQL Trace route attribution does, and report the source as `FRAMEWORK_TEMPLATE`, `DECLARED_MAPPING`, or
+  `MASKED_PATH`.
+- State the evidence window beside the rankings: retained exchanges, buffer size, evictions, the oldest retained
+  exchange, and hidden BootUI exchanges.
 
 Acceptance criteria:
 
 - The recorder is bounded by `bootui.http-exchanges.max-exchanges`, defaulting to 200.
+- Route counts and durations reconcile with the retained, visible exchanges; status classes add up to the request count,
+  and percentiles are exact nearest-rank values over each route's timed exchanges.
+- Route rankings return the union of each criterion's top routes (25 by default, at most 100) with the criteria each
+  route leads, state how many distinct routes were retained, and break ties on the route id in plain character order.
+  `?route=<id>` always returns that route's row. Ambiguous declared mappings produce no template but still mask every
+  parameter position they declare, framework and declared templates render identically, and a route never carries a
+  query string.
+- A value the exchange source does not report, such as an application repository's capacity or either buffer's
+  evictions, is `null` rather than guessed.
 - Secret-like headers and query parameters are masked unless value exposure is explicitly set to `FULL`. Sensitive
   parameter names are matched percent-decoded, so a URL-encoded name cannot evade masking, and the same masking applies
   to a query-shaped URI fragment.
@@ -1206,6 +1224,11 @@ Features:
   Quarkus) cache hit
   ratio — the percentage of captured cache reads (`HIT`/`MISS`) that were hits, deep-linked to the Cache panel — and a
   scheduled-task failure count linking into the Scheduled Tasks panel.
+- The p50/p95 latency and the slowest request are computed once, in the shared engine, over every retained request with a
+  duration (`latencySampleCount`), so they are identical on every adapter for the same evidence. The slowest request
+  carries its resolved route (`slowestEndpointRoute`, `slowestEndpointRouteId`, `slowestEndpointRouteSource`), links to
+  that route's row in the HTTP Exchanges route rankings, and a tie goes to the newest request.
+- `?request=<exchange id>` opens that request's profile, so each HTTP Exchanges row links to its profile.
 - Client-side filter chips by type and severity, collapsing of adjacent identical entries with an occurrence count,
   nesting of correlated children under their request (expanded by default; any active filter or free-text search
   flattens the feed so the query spans every signal), and a
@@ -2559,6 +2582,7 @@ Initial endpoints:
 | `/bootui/api/log-tail/stream`                    | GET    | Log stream over Server-Sent Events                                                     |
 | `/bootui/api/exceptions`                         | GET    | Bounded exception groups with status and occurrence summaries                         |
 | `/bootui/api/http-exchanges`                     | GET    | Recent application HTTP request/response metadata                                      |
+| `/bootui/api/http-exchanges/routes`              | GET    | Route performance rankings over the retained HTTP exchanges                            |
 | `/bootui/api/traces`                         | GET    | Recent local trace summaries                                                           |
 | `/bootui/api/traces/{traceId}`               | GET    | Trace waterfall detail                                                                 |
 | `/bootui/api/traces`                         | DELETE | Clear retained local traces when not read-only                                         |
@@ -2833,7 +2857,7 @@ Design rules:
     `get_database_advisor_report`, `get_memory_report`, `get_security_report`, `get_pentest_report`,
     `get_rest_api_report`, `get_graalvm_report`, `get_crac_report`, and `get_vulnerabilities_report`.
   - Diagnostics: `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
-    `get_sql_traces`, `get_transactions`, `get_traces`, `get_log_tail`, `get_http_exchanges`, and
+    `get_sql_traces`, `get_transactions`, `get_traces`, `get_log_tail`, `get_http_exchanges`, `get_http_routes`, and
     `get_rest_client_traces`.
   - Runtime and integration reads: `get_overview`, `get_health`, `get_config`, `get_beans`, `get_mappings`,
     `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`,

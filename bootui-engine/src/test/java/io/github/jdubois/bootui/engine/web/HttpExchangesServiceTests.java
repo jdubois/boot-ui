@@ -6,6 +6,8 @@ import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.HttpHeaderDto;
+import io.github.jdubois.bootui.core.dto.MappingDto;
+import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import java.net.URI;
 import java.time.Instant;
 import java.util.List;
@@ -200,5 +202,104 @@ class HttpExchangesServiceTests {
                 URI.create("https://api.example.com/orders?page=2&sort=asc#results"), true, ValueExposure.MASKED);
         assertThat(dto.uri()).isEqualTo("https://api.example.com/orders?page=2&sort=asc#results");
         assertThat(dto.path()).isEqualTo("/orders");
+    }
+
+    @Test
+    void labelsEachExchangeWithTheRouteTheSummaryGroupsItUnder() {
+        RouteTemplateResolver declared =
+                RouteTemplateResolver.of(List.of(new MappingDto("GET", "/api/orders/{id}", "handler", null, null)));
+        List<CapturedHttpExchange> captured = List.of(
+                routed("/api/customers/7", "/api/customers/{customerId}"),
+                routed("/api/orders/42", null),
+                routed("/files/3f2b8c1e-0a4d-4e8b-9c55-1d2e3f4a5b6c?token=abc", null));
+
+        HttpExchangesReport report = service.report(
+                captured, uri -> false, true, ValueExposure.MASKED, declared, null, null, null, null, null, null);
+
+        assertThat(report.exchanges())
+                .extracting(HttpExchangeDto::route, HttpExchangeDto::routeSource)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("/api/customers/{customerId}", "FRAMEWORK_TEMPLATE"),
+                        org.assertj.core.groups.Tuple.tuple("/api/orders/{id}", "DECLARED_MAPPING"),
+                        org.assertj.core.groups.Tuple.tuple("/files/{value}", "MASKED_PATH"));
+    }
+
+    @Test
+    void filtersToOneRouteWhileTheTotalStillDescribesTheWindow() {
+        RouteTemplateResolver declared =
+                RouteTemplateResolver.of(List.of(new MappingDto("GET", "/api/orders/{id}", "handler", null, null)));
+        List<CapturedHttpExchange> captured = List.of(
+                routed("/api/orders/1", null),
+                routed("/api/orders/2", null),
+                routed("/api/health", null),
+                routed("/bootui/api/activity", null));
+
+        HttpExchangesReport report = service.report(
+                captured,
+                uri -> uri.contains("/bootui/"),
+                true,
+                ValueExposure.MASKED,
+                declared,
+                null,
+                null,
+                null,
+                " GET /api/orders/{id} ",
+                null,
+                1);
+
+        assertThat(report.exchanges()).extracting(HttpExchangeDto::path).containsExactly("/api/orders/1");
+        assertThat(report.total()).isEqualTo(3);
+        assertThat(report.recorded()).isEqualTo(4);
+        assertThat(report.hiddenSelf()).isEqualTo(1);
+        assertThat(report.page().total()).isEqualTo(3);
+        assertThat(report.page().matched()).isEqualTo(2);
+        assertThat(report.page().hasMore()).isTrue();
+
+        HttpExchangesReport unknown = service.report(
+                captured,
+                uri -> false,
+                true,
+                ValueExposure.MASKED,
+                declared,
+                null,
+                null,
+                null,
+                "GET /nope",
+                null,
+                null);
+        assertThat(unknown.exchanges()).isEmpty();
+    }
+
+    @Test
+    void theCompatibilityOverloadStillLabelsRoutesWithoutDeclaredMappings() {
+        HttpExchangesReport report = service.report(
+                List.of(routed("/api/orders/42", null)),
+                uri -> false,
+                true,
+                ValueExposure.MASKED,
+                null,
+                null,
+                null,
+                null,
+                null);
+
+        assertThat(report.exchanges().get(0).route()).isEqualTo("/api/orders/{value}");
+        assertThat(report.exchanges().get(0).routeSource()).isEqualTo("MASKED_PATH");
+    }
+
+    private static CapturedHttpExchange routed(String path, String routeTemplate) {
+        return new CapturedHttpExchange(
+                Instant.parse("2024-01-01T00:00:00Z"),
+                "GET",
+                URI.create("http://localhost:8080" + path),
+                200,
+                5L,
+                null,
+                null,
+                null,
+                Map.of(),
+                Map.of(),
+                null,
+                routeTemplate);
     }
 }

@@ -239,7 +239,10 @@ the classpath) are simply not advertised.
   `limit`. They have the same stack/capability availability as their report, and remain usable in read-only mode.
 - **Diagnostics reads:** `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
   `get_sql_traces`, `get_transactions` (Spring MVC/WebFlux only), `get_traces`, `get_log_tail`, `get_http_exchanges`,
-  and `get_rest_client_traces`.
+  `get_http_routes`, and `get_rest_client_traces`.
+  `get_http_routes` returns the [HTTP Exchanges route rankings](features/diagnostics.md#route-rankings): per method and
+  route template, request and status-class counts, p50/p95/p99 and maximum duration, share of request time, and the
+  evidence window they cover; its optional `limit` is the number of routes each ranking criterion contributes.
   `get_live_activity` returns the correlated feed the [Live Activity panel](features/overview.md#live-activity) shows (HTTP requests, SQL
   statements, exceptions, and security events grouped by request/trace); `get_exception_detail` takes a required `id`
   (from `get_exceptions` or `get_live_activity`) and returns that exception group's full stack trace, causes, and

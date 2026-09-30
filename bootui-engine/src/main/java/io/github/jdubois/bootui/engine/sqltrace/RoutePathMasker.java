@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.sqltrace;
 
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * Derives a safe, low-cardinality route label from a concrete request path when no route template is
@@ -44,6 +45,21 @@ public final class RoutePathMasker {
      * with {@code /} and never contains a query string or fragment.
      */
     public static String mask(String path) {
+        return mask(path, true, Set.of());
+    }
+
+    /**
+     * Masks a path observed on a real request. Unlike {@link #mask(String)}, a brace-delimited segment is not
+     * trusted as template syntax — a request can carry a literal, percent-decoded {@code {alice}} — and every
+     * segment position in {@code valuePositions} is masked even when it reads like a route word, because a
+     * declared route says a parameter sits there. Positions count the non-empty segments from zero, as
+     * {@link RouteTemplateResolver#parameterPositions(String)} reports them.
+     */
+    public static String maskObserved(String path, Set<Integer> valuePositions) {
+        return mask(path, false, valuePositions == null ? Set.of() : valuePositions);
+    }
+
+    private static String mask(String path, boolean trustTemplateSegments, Set<Integer> valuePositions) {
         if (path == null || path.isBlank()) {
             return "/";
         }
@@ -62,7 +78,8 @@ public final class RoutePathMasker {
                 out.append("/…");
                 break;
             }
-            out.append('/').append(isRouteWord(segment) ? segment : PLACEHOLDER);
+            boolean keep = !valuePositions.contains(kept) && isRouteWord(segment, trustTemplateSegments);
+            out.append('/').append(keep ? segment : PLACEHOLDER);
             kept++;
         }
         return out.length() == 0 ? "/" : out.toString();
@@ -86,12 +103,12 @@ public final class RoutePathMasker {
      * underscores and a single dot-extension are allowed; digits, percent-encoding, {@code @}, and any
      * other character mean the segment carries data.
      */
-    private static boolean isRouteWord(String segment) {
+    private static boolean isRouteWord(String segment, boolean trustTemplateSegments) {
         if (segment.length() > MAX_SEGMENT_LENGTH) {
             return false;
         }
         // A template segment supplied verbatim by an adapter is already safe and must survive unchanged.
-        if (segment.startsWith("{") && segment.endsWith("}")) {
+        if (trustTemplateSegments && segment.startsWith("{") && segment.endsWith("}")) {
             return true;
         }
         boolean letterSeen = false;

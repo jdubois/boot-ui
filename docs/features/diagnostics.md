@@ -144,6 +144,65 @@ in the response body-end handler, where status, duration, and size are final, in
 same property. That filter is wired in dev and test only, never in production. Masking, trace-id extraction,
 self-exclusion, and paging run through the shared engine service, so the wire format is identical.
 
+Every exchange carries the route it belongs to, shown under its path when the two differ, and a **Profile** link that
+opens the request's profile in [Live Activity](overview.md#the-per-request-profiler). Stacks that correlate a profile
+by trace id alone explain in the profile when a request carried none.
+
+### Route rankings
+
+Above the exchange list, a route table summarizes the retained window: summary → exchanges → profile. Each row is one
+method and route, with its request count; 2xx, 3xx, 4xx, and 5xx counts; average, p50, p95, p99, and maximum duration;
+and share of retained request time. **Rank by** orders the table by requests, total time, p95, slowest request, or
+errors. **Exchanges** filters the list below to exactly that route's exchanges, and **Show every route** clears it.
+
+A route is resolved exactly as [SQL Trace](database.md#rankings) attributes database time, and each row says which of
+three sources it came from:
+
+| Source        | Meaning                                                                                         |
+| ------------- | ----------------------------------------------------------------------------------------------- |
+| `template`    | The handler pattern Spring MVC or Spring WebFlux matched, such as `/api/orders/{id}`.            |
+| `declared`    | The single best route the application declares in its mappings. Ties resolve to no template.    |
+| `masked path` | No template matched, so every path segment that reads like a value is replaced with `{value}`. |
+
+A template is shown the same way whichever source produced it, so `{id:[0-9]+}` reads `{id}` and a route never splits
+into two rows, while a catch-all such as `/**` is kept as declared, so it never merges with a masked path. Two
+handlers on the same method and path that differ only in their variable patterns, such as `{id:[0-9]+}` and
+`{id:[a-z]+}`, therefore share one row: a pattern is never shown. Quarkus has no runtime route template, so its routes come from the declared JAX-RS mappings, matched under
+`quarkus.http.root-path` and `quarkus.rest.path`; a prefix contributed only by `@ApplicationPath` is not known at
+runtime, so those routes fall back to masked paths. Spring
+WebFlux records the matched handler pattern with the OpenTelemetry integration, which the reactive starter includes;
+without it, WebFlux routes fall back to masked paths, and the panel says so. Query strings are never part of a route.
+
+A masked path also masks every segment that a matching declared route marks as a parameter, even when two declarations
+match equally well. Only a path that no declaration matches at all keeps segments that read like route words, so a
+word-shaped value such as a user name on an undeclared path is shown as captured, exactly as the exchange list shows
+it.
+
+::: details How the figures are bounded
+
+- Every figure covers only the retained, visible exchanges. They are diagnostic evidence for that window, not lifetime
+  or service-level metrics; the Metrics panel's `http.server.requests` meter covers the application's lifetime.
+- The line above the table states the evidence window: retained exchanges, the buffer size, evictions, the oldest
+  retained exchange, and how many BootUI exchanges were hidden. A value the exchange source does not report, such as an
+  application-provided repository's capacity or the evictions of either buffer, reads as not reported.
+- Percentiles are exact nearest-rank values over each route's timed exchanges, computed by the same helper as SQL Trace
+  and the Live Activity KPIs. A route whose exchanges carry no duration shows no timings rather than zeros.
+- The response returns the union of each criterion's top 25 routes and marks which criteria each route leads, so the
+  browser shows exactly the server's list for every criterion. When more routes are retained, the panel says how many
+  are not shown. Ties break on the route name in plain character order, never on buffer order or browser locale.
+- A route that a link names, such as the Live Activity slowest request, is always returned and shown after the
+  ranking, even when it is outside every top list.
+- Rankings refresh every 30 seconds while the exchange list follows auto-refresh, because every refresh is itself a
+  request the Spring buffer records before hiding it. The window line says when the rankings were computed, and
+  **Refresh** or opening a route's exchanges updates both at once.
+- BootUI's own exchanges stay out of the rankings while `bootui.monitoring.exclude-self` is on.
+
+:::
+
+`GET /bootui/api/http-exchanges/routes` serves the rankings, `?route=<id>` pins one route's row, and
+`GET /bootui/api/http-exchanges?route=<id>` lists that route's exchanges. Agents read the same rankings with the `get_http_routes` MCP tool, and the command line with
+`bootui http routes`.
+
 ### Copy as cURL
 
 Row details offer **Copy as cURL**, which turns the retained metadata into a command *template*. It is not a
