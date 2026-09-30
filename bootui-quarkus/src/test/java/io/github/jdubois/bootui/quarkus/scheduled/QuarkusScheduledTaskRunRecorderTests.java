@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
  * Verifies {@link QuarkusScheduledTaskRunRecorder} feeds the shared engine {@link ScheduledTaskRunStore}
  * from the CDI {@link SuccessfulExecution}/{@link FailedExecution} events the same way Spring's
  * {@code ScheduledTaskRunObservationHandler} feeds it from Micrometer's own {@code
- * ScheduledTaskObservationContext} — see {@code docs/PLAN.md} §3.4.
+ * ScheduledTaskObservationContext} — see {@code docs/features/overview.md}.
  */
 class QuarkusScheduledTaskRunRecorderTests {
 

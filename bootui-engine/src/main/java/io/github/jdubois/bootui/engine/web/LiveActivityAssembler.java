@@ -70,7 +70,7 @@ import java.util.Map;
  * {@link CacheActivityEvent}s captured by the shared engine {@code CacheActivityRecorder} (fed in turn by
  * decorating {@code CacheManager}/{@code Cache} beans — the same recorder the Spring servlet adapter's own
  * richer {@code LiveActivityService} uses). Quarkus has no comparable capture seam yet (see
- * {@code docs/PLAN.md} §3.4): {@code quarkus-cache}'s build-time-woven {@code @CacheResult}/
+ * {@code docs/QUARKUS-SUPPORT.md}): {@code quarkus-cache}'s build-time-woven {@code @CacheResult}/
  * {@code @CacheInvalidate} interceptors cast their resolved {@code Cache} to an internal, non-public type,
  * so a Spring-style decorator over the public {@code Cache} interface is not a viable interception seam
  * there. The Quarkus adapter therefore always passes {@code cacheAvailable=false}, and
@@ -89,7 +89,7 @@ import java.util.Map;
  * <p><strong>Kafka produce/consume outcomes (the {@code MESSAGING} entry type) render top-level, with no
  * request-parent correlation attempted</strong>, unlike SQL/exceptions/security/cache above: BootUI has no
  * trace id available on the producer/consumer thread today, so every {@link KafkaActivityEntries#toEntry}
- * mapping is flat by design (see {@code docs/PLAN.md} §3.4 for the nesting this can grow into once
+ * mapping is flat by design (see {@code docs/PLAN.md} §3.20 for the nesting this can grow into once
  * messaging spans carry a correlation id).</p>
  *
  * <p><strong>Outbound REST client calls (the {@code REST_CLIENT} entry type / {@code restCallErrorRatePercent}
@@ -153,13 +153,13 @@ public final class LiveActivityAssembler {
      * @param limit maximum merged entries to return, or {@code 0}/negative for no cap
      * @param kafkaMessages captured Kafka produce/consume outcomes (newest-first), or {@code null}; ignored
      *     unless {@code kafkaAvailable}. Rendered top-level (no request-parent correlation), since there is
-     *     no trace id available on the producer/consumer thread today — see {@code docs/PLAN.md} §3.4.
+     *     no trace id available on the producer/consumer thread today — see {@code docs/PLAN.md} §3.20.
      * @param kafkaAvailable whether the Kafka capture source is present and feeding ({@code KafkaTemplate}/
      *     {@code @KafkaListener} beans on Spring, SmallRye Reactive Messaging channels on Quarkus)
      * @param rabbitMessages captured AMQP publish/consume outcomes (newest-first), or {@code null}; ignored
      *     unless {@code rabbitAvailable}. Rendered top-level (no request-parent correlation), for the same
      *     reason as Kafka — no trace id is available on the publisher/consumer thread — see
-     *     {@code docs/PLAN.md} §3.4.
+     *     {@code docs/PLAN.md} §3.20.
      * @param rabbitAvailable whether the RabbitMQ capture source is present and feeding
      *     ({@code RabbitTemplate}/{@code @RabbitListener} beans on Spring, SmallRye Reactive
      *     Messaging RabbitMQ channels on Quarkus)
