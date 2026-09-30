@@ -738,9 +738,12 @@ Acceptance criteria:
 Slice §3.24a shipped failure-preserving retention (see [Delivered](#delivered) and
 [Failure-preserving retention](features/diagnostics.md#failure-preserving-retention)). Every BootUI-owned HTTP
 exchange, SQL Trace, and REST Client buffer now runs on the engine's `TieredCaptureBuffer`, which reserves a share of
-its capacity for failed and slow records. On Spring, BootUI's own `BootUiHttpExchangeRepository` drops BootUI's
-requests on `add` while `bootui.monitoring.exclude-self` is on, as Quarkus already did, and reports retention as
-application-managed when the application provides its own repository or recording filter. Each report carries a
+its capacity for failed and slow records. On Spring, BootUI's own `BootUiHttpExchangeRepository` replaces the
+in-memory fallback, BootUI's recording filter keeps BootUI's own requests out of it while
+`bootui.monitoring.exclude-self` is on, as Quarkus already did, and retention reads as application-managed when the
+application provides its own repository or recording filter. BootUI's own requests are dropped in its recording filter
+rather than on `add`, because only the request, not the recorded absolute URL, knows the path below the context
+path. Each report carries a
 `retention` object with the retained, reserved, and evicted counts, and `bootui.activity.request-slow-threshold-ms`
 classifies slow exchanges on every adapter.
 
@@ -766,8 +769,8 @@ Scope:
 Architecture:
 
 - Own the pattern matcher in the engine beside the self-path check, and consult it at the existing capture points:
-  `BootUiHttpExchangeRepository.add` on Spring, which already drops self paths there, and the Vert.x capture filter on
-  Quarkus.
+  BootUI's recording filters on Spring (`BootUiHttpExchangesFilter` and `BootUiHttpExchangesWebFilter`), which already
+  drop self paths below the context path, and the Vert.x capture filter on Quarkus.
 - Record the correlation evidence of ignored requests in a bounded engine buffer that SQL Trace route attribution
   reads beside the retained exchanges.
 

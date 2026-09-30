@@ -70,6 +70,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.core.SpringProperties;
 import org.springframework.mock.env.MockEnvironment;
+import org.springframework.mock.web.MockFilterChain;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -650,12 +653,15 @@ class BootUiAutoConfigurationTests {
                 .run(context -> {
                     HttpExchangeRepository repository = context.getBean(HttpExchangeRepository.class);
                     assertThat(repository).isInstanceOf(BootUiHttpExchangeRepository.class);
-                    assertThat(context).hasBean("bootUiHttpExchangesFilter");
+                    HttpExchangesFilter filter =
+                            context.getBean("bootUiHttpExchangesFilter", HttpExchangesFilter.class);
+                    assertThat(filter).isInstanceOf(BootUiHttpExchangesFilter.class);
 
-                    repository.add(exchange("/one"));
-                    repository.add(exchange("/two"));
-                    for (int i = 0; i < 5; i++) {
-                        repository.add(exchange("/bootui/api/http-exchanges"));
+                    for (String path : List.of("/one", "/bootui/api/http-exchanges", "/two", "/bootui/index.html")) {
+                        filter.doFilter(
+                                new MockHttpServletRequest("GET", path),
+                                new MockHttpServletResponse(),
+                                new MockFilterChain());
                     }
 
                     assertThat(repository.findAll())
@@ -666,6 +672,10 @@ class BootUiAutoConfigurationTests {
                             context.getBean(HttpExchangesController.class).exchanges(null, null, null, null, null);
                     assertThat(report.hiddenSelf()).isZero();
                     assertThat(report.retention()).isEqualTo(new CaptureRetentionDto(false, 2, 1, 2, 0, 0L, 250L));
+                    assertThat(context.getBean(HttpExchangeTraceRegistry.class))
+                            .extracting("buffer")
+                            .extracting("capacity", "reservedCapacity")
+                            .containsExactly(4, 2);
                 });
     }
 

@@ -5,9 +5,11 @@ import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry.HttpExchangeTrace;
 import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
+import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.core.Ordered;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.web.ErrorResponse;
 import org.springframework.web.reactive.HandlerMapping;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilterChain;
@@ -71,22 +73,27 @@ public final class ReactiveHttpExchangeTraceFilter extends AbstractReactiveBootU
         long start = System.currentTimeMillis();
         String method = request.getMethod() == null ? null : request.getMethod().name();
         String path = request.getURI() == null ? null : request.getURI().getPath();
-        return chain.filter(exchange).doFinally(signal -> {
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        return chain.filter(exchange).doOnError(failure::set).doFinally(signal -> {
             long end = System.currentTimeMillis();
             String traceId = safeCurrentTraceId();
             registry.record(
                     new HttpExchangeTrace(start, end, method, path, traceId, routeTemplate(exchange)),
-                    RequestSlowThreshold.isFailedOrSlow(status(exchange, signal), end - start, requestSlowThresholdMs));
+                    RequestSlowThreshold.isFailedOrSlow(
+                            status(exchange, signal, failure.get()), end - start, requestSlowThresholdMs));
         });
     }
 
     /**
-     * The response status known when the chain completes. An error still propagating becomes a {@code 5xx} once
-     * WebFlux's exception handlers render it, so it is classified as one. Fully guarded.
+     * The response status known when the chain completes. WebFlux's exception handlers render an error still
+     * propagating after the filters unwind, so its status comes from the error itself: the status an
+     * {@link ErrorResponse} such as {@code ResponseStatusException} declares, otherwise {@code 500}. Fully guarded.
      */
-    private static int status(ServerWebExchange exchange, SignalType signal) {
+    private static int status(ServerWebExchange exchange, SignalType signal, Throwable failure) {
         if (signal == SignalType.ON_ERROR) {
-            return 500;
+            return failure instanceof ErrorResponse errorResponse
+                    ? errorResponse.getStatusCode().value()
+                    : 500;
         }
         try {
             HttpStatusCode status = exchange.getResponse().getStatusCode();

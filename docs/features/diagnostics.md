@@ -133,8 +133,9 @@ response size when a `Content-Length` header is present, and trace identifiers f
 Expanding a row shows the request and response headers, with secret-like headers and query parameters masked unless
 `bootui.expose-values=FULL` is configured.
 
-BootUI's own requests are dropped before they are recorded while `bootui.monitoring.exclude-self` is on, which is the
-default, so console polling never takes a slot from application traffic. The buffer retains 200 exchanges by default;
+BootUI's own requests are not recorded while `bootui.monitoring.exclude-self` is on, which is the default, so console
+polling never takes a slot from application traffic. The check uses the request path below the servlet context path or
+WebFlux base path, never the query string, so an application request whose query mentions `/bootui` is still recorded. The buffer retains 200 exchanges by default;
 change it with `bootui.http-exchanges.max-exchanges`, which takes effect on the next restart.
 
 On Spring Boot, BootUI contributes its own bounded `HttpExchangeRepository`, and the Actuator filter that records into

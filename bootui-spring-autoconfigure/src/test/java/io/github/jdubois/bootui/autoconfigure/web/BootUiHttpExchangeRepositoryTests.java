@@ -2,21 +2,18 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
-import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.actuate.web.exchanges.HttpExchange;
 import org.springframework.boot.servlet.actuate.web.exchanges.HttpExchangesFilter;
 
 class BootUiHttpExchangeRepositoryTests {
-
-    private static final BootUiSelfDataFilter EXCLUDE_SELF = BootUiSelfDataFilter.defaults();
 
     private static HttpExchange exchange(String path, int status, long durationMs) {
         return new HttpExchange(
@@ -34,7 +31,7 @@ class BootUiHttpExchangeRepositoryTests {
 
     @Test
     void floodOfSuccessesKeepsRecentServerErrorsAndSlowExchangesUpToTheReservedShare() {
-        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(6, 50, 1_000L, EXCLUDE_SELF);
+        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(6, 50, 1_000L, false);
         repository.add(exchange("/server-error", 500, 5));
         repository.add(exchange("/slow", 200, 1_000));
         repository.add(exchange("/not-found", 404, 5));
@@ -53,7 +50,7 @@ class BootUiHttpExchangeRepositoryTests {
 
     @Test
     void zeroSlowThresholdReservesOnlyServerErrors() {
-        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(3, 50, 0L, EXCLUDE_SELF);
+        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(3, 50, 0L, false);
         repository.add(exchange("/server-error", 500, 5));
         repository.add(exchange("/very-slow", 200, 60_000));
         repository.add(exchange("/ok-1", 200, 1));
@@ -68,7 +65,7 @@ class BootUiHttpExchangeRepositoryTests {
 
     @Test
     void capacityOfOneKeepsTheNewestExchange() {
-        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(1, 50, 1_000L, EXCLUDE_SELF);
+        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(1, 50, 1_000L, false);
         repository.add(exchange("/server-error", 500, 5));
         repository.add(exchange("/ok", 200, 5));
 
@@ -80,36 +77,19 @@ class BootUiHttpExchangeRepositoryTests {
     }
 
     @Test
-    void dropsBootUiRequestsOnAddWhileExcludeSelfIsOn() {
-        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(2, 0, 1_000L, EXCLUDE_SELF);
+    void keepsEveryExchangeItIsGivenBecauseTheRecordingFilterDecidesWhatIsSelf() {
+        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(5, 0, 1_000L, false);
         repository.add(exchange("/api/orders", 200, 5));
-        for (int i = 0; i < 10; i++) {
-            repository.add(exchange("/bootui/api/http-exchanges", 200, 5));
-            repository.add(exchange("/bootui/index.html", 200, 5));
-        }
+        repository.add(exchange("/api/orders?next=/bootui", 500, 5));
 
         assertThat(repository.findAll())
-                .extracting(BootUiHttpExchangeRepositoryTests::path)
-                .containsExactly("/api/orders");
-        assertThat(repository.retention(repository.snapshot()).evicted()).isZero();
+                .extracting(exchange -> exchange.getRequest().getUri().toString())
+                .containsExactly("http://localhost:8080/api/orders?next=/bootui", "http://localhost:8080/api/orders");
     }
 
     @Test
-    void keepsBootUiRequestsWhenExcludeSelfIsOff() {
-        BootUiHttpExchangeRepository repository =
-                new BootUiHttpExchangeRepository(5, 0, 1_000L, BootUiSelfDataFilter.disabled());
-        repository.add(exchange("/api/orders", 200, 5));
-        repository.add(exchange("/bootui/api/http-exchanges", 200, 5));
-
-        assertThat(repository.findAll())
-                .extracting(BootUiHttpExchangeRepositoryTests::path)
-                .containsExactly("/bootui/api/http-exchanges", "/api/orders");
-    }
-
-    @Test
-    void applicationRecordingRestoresPlainOldestFirstRetentionAndReportsItAsApplicationManaged() {
-        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(2, 50, 1_000L, EXCLUDE_SELF);
-        repository.markRecordedByApplication();
+    void applicationRecordingKeepsPlainOldestFirstRetentionAndReportsItAsApplicationManaged() {
+        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(2, 50, 1_000L, true);
         repository.add(exchange("/server-error", 500, 5));
         repository.add(exchange("/bootui/api/panels", 200, 5));
         repository.add(exchange("/ok", 200, 5));
@@ -122,25 +102,25 @@ class BootUiHttpExchangeRepositoryTests {
     }
 
     @Test
-    void detectsAnApplicationRecordingFilterOnlyWhenItIsNotBootUis() {
-        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(2, 50, 1_000L, EXCLUDE_SELF);
+    void detectsAnApplicationRecordingFilterFromBeanDefinitionsOnly() {
         DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
-        beanFactory.registerSingleton("bootUiHttpExchangeRepository", repository);
-        beanFactory.registerSingleton("bootUiHttpExchangesFilter", new HttpExchangesFilter(repository, Set.of()));
+        beanFactory.registerBeanDefinition(
+                "bootUiHttpExchangesFilter", new RootBeanDefinition(BootUiHttpExchangesFilter.class));
+        assertThat(BootUiHttpExchangeRepository.isRecordedByApplication(
+                        beanFactory, HttpExchangesFilter.class, "bootUiHttpExchangesFilter"))
+                .isFalse();
 
-        BootUiHttpExchangeRepository.detectApplicationRecording(
-                beanFactory, HttpExchangesFilter.class, "bootUiHttpExchangesFilter");
-        assertThat(repository.ownsRetention()).isTrue();
-
-        beanFactory.registerSingleton("applicationHttpExchangesFilter", new HttpExchangesFilter(repository, Set.of()));
-        BootUiHttpExchangeRepository.detectApplicationRecording(
-                beanFactory, HttpExchangesFilter.class, "bootUiHttpExchangesFilter");
-        assertThat(repository.ownsRetention()).isFalse();
+        beanFactory.registerBeanDefinition(
+                "applicationHttpExchangesFilter", new RootBeanDefinition(HttpExchangesFilter.class));
+        assertThat(BootUiHttpExchangeRepository.isRecordedByApplication(
+                        beanFactory, HttpExchangesFilter.class, "bootUiHttpExchangesFilter"))
+                .isTrue();
+        assertThat(beanFactory.getSingletonCount()).isZero();
     }
 
     @Test
     void ignoresNullExchanges() {
-        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(2, 50, 1_000L, EXCLUDE_SELF);
+        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(2, 50, 1_000L, false);
         repository.add(null);
 
         assertThat(repository.findAll()).isEmpty();

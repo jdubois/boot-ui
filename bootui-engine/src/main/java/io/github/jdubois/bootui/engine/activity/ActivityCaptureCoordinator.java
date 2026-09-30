@@ -23,8 +23,11 @@ import java.util.Set;
  * timestamp-based watermark: entry timestamps from four different sources can tie, and a pure
  * timestamp cursor cannot reliably tell two same-millisecond entries apart. An id still present in the
  * current view is never evicted from that set, so a record the source buffers keep for a long time — such as
- * a failure held in a failure-preserving buffer's reserved share — is captured exactly once; the set stays
- * bounded by the configured window plus the size of the view, which the source buffers bound. The trade-off
+ * a failure held in a failure-preserving buffer's reserved share — is captured exactly once while it stays
+ * visible. Entries whose severity is not {@code OK} are also remembered in a second window of the same size,
+ * which routine traffic never evicts, so such a failure is still recognized when newer routine entries hide it
+ * from a capped view and it later reappears. Both sets stay bounded by the configured window plus the size of
+ * the view. The trade-off
  * is deliberately simple and documented: if more distinct new entries appear between two polls than the
  * configured window can hold, the oldest ones may be evicted from the "seen" set and — if also no
  * longer present in the next poll's bounded merged view — never captured. Lowering the poll interval or
@@ -36,6 +39,7 @@ public final class ActivityCaptureCoordinator {
     private final ActivitySequencer sequencer;
     private final int seenCapacity;
     private final Set<String> seenIds = new LinkedHashSet<>();
+    private final Set<String> seenNotableIds = new LinkedHashSet<>();
     private final Object lock = new Object();
 
     public ActivityCaptureCoordinator(ActivityStore store, ActivitySequencer sequencer, int seenCapacity) {
@@ -66,23 +70,27 @@ public final class ActivityCaptureCoordinator {
             for (int i = latestNewestFirst.size() - 1; i >= 0; i--) {
                 ActivityEntryDto entry = latestNewestFirst.get(i);
                 String id = entry.id();
-                if (id == null || seenIds.contains(id)) {
+                if (id == null || seenIds.contains(id) || seenNotableIds.contains(id)) {
                     continue;
                 }
                 toCapture.add(sequencer.stamp(entry));
                 seenIds.add(id);
+                if (entry.severity() != null && !"OK".equals(entry.severity())) {
+                    seenNotableIds.add(id);
+                }
             }
-            trimSeen(present);
+            trim(seenIds, present);
+            trim(seenNotableIds, present);
         }
         if (!toCapture.isEmpty()) {
             store.appendBatch(toCapture);
         }
     }
 
-    /** Evicts the oldest seen ids beyond the capacity, keeping every id still present in the current view. */
-    private void trimSeen(Set<String> present) {
-        Iterator<String> oldest = seenIds.iterator();
-        while (seenIds.size() > seenCapacity && oldest.hasNext()) {
+    /** Evicts the oldest ids beyond the capacity, keeping every id still present in the current view. */
+    private void trim(Set<String> seen, Set<String> present) {
+        Iterator<String> oldest = seen.iterator();
+        while (seen.size() > seenCapacity && oldest.hasNext()) {
             if (!present.contains(oldest.next())) {
                 oldest.remove();
             }

@@ -1075,7 +1075,8 @@ Features:
   exchange metadata, without capturing a body or replaying the request.
 - Provide server-side filtering by path/URL/trace id, method, and status class with bounded paging.
 - Hide BootUI self-requests by default through `bootui.monitoring.exclude-self`. Where BootUI owns recording they are
-  dropped before they are recorded, so console polling never displaces application exchanges.
+  never recorded, judged from the decoded path below the context path and never the query string, so console polling
+  never displaces application exchanges.
 - State the retained window above the list: exchanges kept of the capacity, the reserved share and how much of it holds
   failed or slow exchanges, and evictions since startup.
 

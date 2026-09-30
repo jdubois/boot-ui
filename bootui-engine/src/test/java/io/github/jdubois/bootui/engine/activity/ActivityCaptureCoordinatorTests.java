@@ -128,4 +128,29 @@ class ActivityCaptureCoordinatorTests {
                 .hasSize(1);
         assertThat(store.allAppended).hasSize(1 + 5 * 20);
     }
+
+    @Test
+    void neverReCapturesAFailureThatNewerRoutineEntriesHidFromACappedView() {
+        RecordingStore store = new RecordingStore();
+        ActivityCaptureCoordinator coordinator =
+                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 1);
+        ActivityEntryDto failure = entry("failure", "REQUEST", 1, "ERROR", "boom");
+
+        coordinator.ingest(List.of(failure));
+        for (int poll = 0; poll < 5; poll++) {
+            List<ActivityEntryDto> view = new ArrayList<>();
+            for (int i = 0; i < 20; i++) {
+                int id = poll * 20 + i;
+                view.add(0, entry("sql-" + id, "SQL", id + 2, "OK", "select"));
+            }
+            // The capped view no longer reaches the failure, which its source still retains.
+            coordinator.ingest(view);
+        }
+        // The newer entries are cleared, so the retained failure is visible again.
+        coordinator.ingest(List.of(failure));
+
+        assertThat(store.allAppended.stream()
+                        .filter(e -> "failure".equals(e.entry().id())))
+                .hasSize(1);
+    }
 }

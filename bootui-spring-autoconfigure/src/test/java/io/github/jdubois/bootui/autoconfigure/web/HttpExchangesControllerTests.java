@@ -9,7 +9,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
-import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
@@ -136,8 +135,7 @@ class HttpExchangesControllerTests {
 
     @Test
     void reportsBootUiRetentionFromTheSameSnapshotAsTheExchanges() {
-        BootUiHttpExchangeRepository repository =
-                new BootUiHttpExchangeRepository(3, 34, 1_000L, BootUiSelfDataFilter.defaults());
+        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(3, 34, 1_000L, false);
         repository.add(exchange("GET", "http://localhost/api/failing", 500));
         for (int i = 0; i < 4; i++) {
             repository.add(exchange("GET", "http://localhost/api/ok-" + i, 200));

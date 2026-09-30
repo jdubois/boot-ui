@@ -18,6 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.web.reactive.HandlerMapping;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.server.WebFilterChain;
 import org.springframework.web.util.pattern.PathPatternParser;
 import reactor.core.publisher.Mono;
@@ -138,6 +139,12 @@ class ReactiveHttpExchangeTraceFilterTests {
                 .block(Duration.ofSeconds(5));
         filter.filter(exchange("GET", "/api/failing"), serverExchange -> Mono.error(new IllegalStateException("boom")))
                 .onErrorResume(IllegalStateException.class, ex -> Mono.empty())
+                .block(Duration.ofSeconds(5));
+        // A ResponseStatusException is rendered with its own status after the filters unwind: a 404 is routine.
+        filter.filter(
+                        exchange("GET", "/api/missing"),
+                        serverExchange -> Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND)))
+                .onErrorResume(ResponseStatusException.class, ex -> Mono.empty())
                 .block(Duration.ofSeconds(5));
         for (int i = 0; i < 5; i++) {
             filter.filter(exchange("GET", "/api/ok-" + i), OK_CHAIN).block(Duration.ofSeconds(5));

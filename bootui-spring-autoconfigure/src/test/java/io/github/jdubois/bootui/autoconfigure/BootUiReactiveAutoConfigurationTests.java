@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.autoconfigure.crac.CracController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.memory.MemoryController;
 import io.github.jdubois.bootui.autoconfigure.pentesting.PentestingController;
+import io.github.jdubois.bootui.autoconfigure.reactive.BootUiHttpExchangesWebFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiExceptionHandler;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiHandlerAdapter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveBootUiIndexController;
@@ -662,6 +663,8 @@ class BootUiReactiveAutoConfigurationTests {
                     assertThat(repository.ownsRetention()).isTrue();
                     assertThat(repository.retention(repository.snapshot()))
                             .isEqualTo(new CaptureRetentionDto(false, 40, 4, 0, 0, 0L, 250L));
+                    assertThat(context.getBean("bootUiHttpExchangesWebFilter"))
+                            .isInstanceOf(BootUiHttpExchangesWebFilter.class);
                 });
     }
 

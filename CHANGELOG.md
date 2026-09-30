@@ -28,8 +28,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fixed 500 ms, so by default an entry that took 500–999 ms is no longer flagged `SLOW` there. A value of `0` now
   disables slow classification on every stack; Spring MVC previously flagged every request as slow at `0`.
 - **BootUI's own requests no longer take Spring HTTP exchange slots.** While `bootui.monitoring.exclude-self` is on,
-  BootUI's Spring `HttpExchangeRepository` drops BootUI's own requests when they are recorded instead of hiding them
-  when the panel is read, as Quarkus already did. Console polling no longer evicts application exchanges, `hiddenSelf`
+  BootUI's Spring recording filter no longer records BootUI's own requests into BootUI's repository, instead of
+  recording them and hiding them when the panel is read, as Quarkus already did. The check uses the decoded path below
+  the servlet context path or WebFlux base path and never the query string. Console polling no longer evicts application exchanges, `hiddenSelf`
   now reads `0` on Spring as on Quarkus, and Actuator's `httpexchanges` endpoint, when backed by BootUI's repository,
   no longer lists them.
 - **Quarkus 3.33.3.3.** The Quarkus extension, integration tests, and sample app move to Quarkus 3.33.3.3, the

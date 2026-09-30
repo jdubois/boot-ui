@@ -235,7 +235,7 @@ assets still target a JVM process and Spring's checkpoint lifecycle; they do not
 
 | Panel          | Reactive binding                                                                                          |
 | -------------- | ---------------------------------------------------------------------------------------------------------- |
-| HTTP Exchanges | `ReactiveHttpExchangeRepositoryConfiguration` supplies BootUI's failure-preserving `BootUiHttpExchangeRepository` and Actuator's reactive `HttpExchangesWebFilter` instead of the servlet filter — same DTO, same UI, same capture semantics, including dropping BootUI's own requests on add and the shared `bootui.activity.request-slow-threshold-ms` |
+| HTTP Exchanges | `ReactiveHttpExchangeRepositoryConfiguration` supplies BootUI's failure-preserving `BootUiHttpExchangeRepository` and `BootUiHttpExchangesWebFilter`, a subclass of Actuator's reactive `HttpExchangesWebFilter`, instead of the servlet filter — same DTO, same UI, same capture semantics, including skipping BootUI's own requests below the WebFlux base path and the shared `bootui.activity.request-slow-threshold-ms` |
 | MCP Server     | `ReactiveBootUiMcpController` — same `BootUiMcpService`, `McpServerState`, and `McpProtocol` as the servlet `BootUiMcpController`; only the transport differs (`DataBuffer` payload assembly with the same `bootui.mcp.max-payload-bytes` limit, and tool execution offloaded to `Schedulers.boundedElastic()`) |
 | Command Line   | `ReactiveBootUiCliController` — same `CliService` and the same `/bootui/api/cli` contract and statuses as the servlet `BootUiCliController`, with tool invocation offloaded to `Schedulers.boundedElastic()` because BootUI's tools call blocking diagnostics |
 

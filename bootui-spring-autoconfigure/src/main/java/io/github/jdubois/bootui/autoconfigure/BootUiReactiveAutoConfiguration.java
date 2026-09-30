@@ -27,6 +27,7 @@ import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
 import io.github.jdubois.bootui.autoconfigure.pentesting.PentestingController;
 import io.github.jdubois.bootui.autoconfigure.postgres.PostgresqlController;
 import io.github.jdubois.bootui.autoconfigure.rabbit.RabbitController;
+import io.github.jdubois.bootui.autoconfigure.reactive.BootUiHttpExchangesWebFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.BootUiJsonWebFluxConfigurer;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveActivitySignalFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveAgentSessionController;
@@ -953,26 +954,21 @@ public class BootUiReactiveAutoConfiguration {
 
         private static final String BOOTUI_HTTP_EXCHANGES_WEB_FILTER_BEAN = "bootUiHttpExchangesWebFilter";
 
+        /**
+         * Reactive sibling of {@code BootUiAutoConfiguration.HttpExchangeRepositoryConfiguration
+         * #bootUiHttpExchangeRepository}: an application-provided {@link HttpExchangesWebFilter} keeps BootUI's
+         * back-off and makes the retention of BootUI's repository read as application-managed.
+         */
         @Bean(BOOTUI_HTTP_EXCHANGE_REPOSITORY_BEAN)
         @ConditionalOnMissingBean(HttpExchangeRepository.class)
         HttpExchangeRepository bootUiReactiveHttpExchangeRepository(
-                BootUiProperties properties, ObjectProvider<BootUiSelfDataFilter> selfDataFilter) {
+                BootUiProperties properties, ListableBeanFactory beanFactory) {
             return new BootUiHttpExchangeRepository(
                     properties.getHttpExchanges().getMaxExchanges(),
                     properties.getHttpExchanges().getReservedSharePercent(),
                     properties.getActivity().getRequestSlowThresholdMs(),
-                    selfDataFilter.getIfAvailable(() -> new BootUiSelfDataFilter(properties)));
-        }
-
-        /**
-         * Reactive sibling of {@code BootUiAutoConfiguration.HttpExchangeRepositoryConfiguration
-         * #bootUiHttpExchangeRecorderOwnership}: an application-provided {@link HttpExchangesWebFilter} keeps BootUI's
-         * back-off and makes the retention of BootUI's repository read as application-managed.
-         */
-        @Bean
-        static SmartInitializingSingleton bootUiReactiveHttpExchangeRecorderOwnership(ListableBeanFactory beanFactory) {
-            return () -> BootUiHttpExchangeRepository.detectApplicationRecording(
-                    beanFactory, HttpExchangesWebFilter.class, BOOTUI_HTTP_EXCHANGES_WEB_FILTER_BEAN);
+                    BootUiHttpExchangeRepository.isRecordedByApplication(
+                            beanFactory, HttpExchangesWebFilter.class, BOOTUI_HTTP_EXCHANGES_WEB_FILTER_BEAN));
         }
 
         /**
@@ -1008,9 +1004,15 @@ public class BootUiReactiveAutoConfiguration {
                 havingValue = "true",
                 matchIfMissing = true)
         HttpExchangesWebFilter bootUiHttpExchangesWebFilter(
-                HttpExchangeRepository repository, HttpExchangesProperties properties) {
-            return new HttpExchangesWebFilter(
-                    repository, properties.getRecording().getInclude());
+                HttpExchangeRepository repository,
+                HttpExchangesProperties properties,
+                BootUiProperties bootUiProperties,
+                ObjectProvider<BootUiSelfDataFilter> selfDataFilter) {
+            return new BootUiHttpExchangesWebFilter(
+                    repository,
+                    properties.getRecording().getInclude(),
+                    bootUiProperties,
+                    selfDataFilter.getIfAvailable(() -> new BootUiSelfDataFilter(bootUiProperties)));
         }
     }
 
@@ -1046,7 +1048,7 @@ public class BootUiReactiveAutoConfiguration {
 
         @Bean
         HttpExchangeTraceRegistry bootUiHttpExchangeTraceRegistry(BootUiProperties properties) {
-            return new HttpExchangeTraceRegistry(
+            return HttpExchangeTraceRegistry.forExchangeRepository(
                     properties.getHttpExchanges().getMaxExchanges(),
                     properties.getHttpExchanges().getReservedSharePercent());
         }
