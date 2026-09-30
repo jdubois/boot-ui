@@ -5,7 +5,6 @@ import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
-import java.util.regex.MatchResult;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -50,7 +49,7 @@ public final class MessageExposure {
      * The opening of a multi-valued header, as in {@code Authorization=[Bearer ...]}, or of a JSON array, which a
      * pretty-printer may space or break across lines.
      */
-    private static final String OPENING_BRACKET = "(?:\\[\\s*+" + QUOTE + ")?+";
+    private static final String BRACKET = "\\[\\s*+" + QUOTE;
 
     /**
      * Authorization schemes whose name stays visible before a masked credential: the IANA HTTP Authentication Scheme
@@ -59,61 +58,72 @@ public final class MessageExposure {
     private static final String AUTHORIZATION_SCHEME = "(?:aws4-hmac-sha256|basic|bearer|concealed|digest|dpop|gnap|"
             + "hoba|mutual|negotiate|ntlm|oauth|privatetoken|scram-sha-1|scram-sha-256|token|vapid)";
 
-    /** A scheme, the whitespace after it, and an optional opening quote around its credential. */
-    private static final String SCHEME = AUTHORIZATION_SCHEME + "[ \\t]++[\"']?";
+    /** A scheme, the whitespace after it, and an optional opening quote, also escaped, around its credential. */
+    private static final String SCHEME = AUTHORIZATION_SCHEME + "[ \\t]++" + QUOTE;
 
     /**
      * One {@code name=value} or {@code name="value"} parameter of a Digest, OAuth, or AWS-style credential. A quoted
-     * value honours backslash escapes and runs to the end of the line when its closing quote is missing, and a value
-     * opened by an escaped quote runs to the next unescaped quote, so a malformed value is over-masked, never cut short.
-     * An RFC 8187 extended value, as in {@code username*=UTF-8''J%C3%A4s}, is covered too. An unquoted value is never a scheme followed by its own credential, as in {@code X-Token=Bearer ...}, which is
-     * left for its own match.
+     * value honors backslash escapes and runs to the end of the line when its closing quote is missing, so a malformed
+     * value is over-masked, never cut short. A value quoted with escaped quotes, as inside a JSON string, closes at the
+     * next escaped quote that is not itself escaped. An RFC 8187 extended value, as in
+     * {@code username*=UTF-8''J%C3%A4s}, is covered too. An unquoted value is never a scheme followed by its own
+     * credential, as in {@code X-Token=Bearer ...}, which is left for its own match.
      */
     private static final String AUTH_PARAM = "[A-Za-z0-9_.~+*-]++[ \\t]*+=[ \\t]*+"
-            + "(?:\"(?:[^\"\\\\\\r\\n]|\\\\.)*+\"?|\\\\\"(?:[^\"\\\\\\r\\n]|\\\\.)*+"
+            + "(?:\"(?:[^\"\\\\\\r\\n]|\\\\.)*+\"?|\\\\\"(?:[^\"\\\\\\r\\n]|\\\\\\\\\\\\.|\\\\[^\"\\r\\n])*+(?:\\\\\")?"
             + "|[A-Za-z0-9!#$&+.^_`|~-]*+'[A-Za-z0-9-]*+'[^\\s,\"'\\\\)\\]}]++"
             + "|(?!" + AUTHORIZATION_SCHEME + "[ \\t])[^\\s,\"'\\\\)\\]}]++)";
 
     /**
      * The credential after a scheme: a comma-separated parameter list, which may wrap after a comma, or else one token.
      * The token is never a secret-like key and its separator, as in {@code X-Api-Key: ...}, or a scheme followed by
-     * its own credential, which would otherwise be left outside the mask. Possessive quantifiers keep the match linear and iterative, with no limit on
-     * the number of parameters.
+     * its own credential, which would otherwise be left outside the mask. Possessive quantifiers keep the match linear
+     * and iterative, with no limit on the number of parameters.
      */
     private static final String CREDENTIAL = "(?:" + AUTH_PARAM + "(?:[ \\t]*+,\\s*+" + AUTH_PARAM + ")*+"
-            + "|(?![^\\s=:]{0,64}?" + SECRET_KEY_NAME + QUOTE + "\\s*[=:]|" + AUTHORIZATION_SCHEME + "[ \\t])"
+            + "|(?![^\\s=:]{0,64}?(?<![A-Za-z0-9+/])" + SECRET_KEY_NAME + QUOTE + "\\s*(?::|=(?![=\\s]|$))|"
+            + AUTHORIZATION_SCHEME + "[ \\t])"
             + "[^\\s\"',;&)\\]}\\\\]++)";
 
-    /** The separator between two values of a multi-valued header, as in {@code [Basic ..., Basic ...]}. */
-    private static final String LIST_SEPARATOR = "[\"']?[ \\t]*+,\\s*+" + QUOTE;
+    /** An authorization scheme BootUI does not recognize, which starts with a letter, and the whitespace after it. */
+    private static final String CUSTOM_SCHEME = "[A-Za-z][^\\s\"',;&)\\]}\\\\]*+[ \\t]++" + QUOTE;
+
+    /** A value of a multi-valued header with no scheme, which is never the key of a following assignment. */
+    private static final String LIST_TOKEN =
+            "(?![^\\s\"',;&)\\]}\\\\:=]++(?:\\\\?[\"']\\s*+[:=]|\\s*+:))" + "[^\\s\"',;&)\\]}\\\\]++";
 
     /**
-     * Group 1 keeps an {@code authorization} key and a recognized scheme, and the credential after it is masked; group
-     * 2 holds any further values of a multi-valued header, each masked the same way. Group 3 keeps an
-     * {@code authorization} key, and an unrecognized scheme word, which starts with a letter, is masked with its
-     * credential, because a custom scheme cannot be told apart from a bare credential followed by more text. Group 4 keeps any other secret-like
-     * key, and a value that starts with a scheme is masked with its credential, so a password that happens to be a
-     * scheme name is never shown. Group 5 keeps any other secret-like key, and the first whitespace-free value token is
-     * masked, exactly as before schemes were recognized.
+     * Groups 1, 3, and 5 keep an {@code authorization} key, and groups 2, 4, and 6 hold the bracket that opens a
+     * multi-valued header after it. Group 1 also keeps a recognized scheme, and the credential after it is masked.
+     * After group 3, an unrecognized scheme is masked with its credential, because a custom scheme cannot be told apart
+     * from a bare credential followed by more text. After group 5, the first value of a list is masked. Group 7 keeps
+     * any other secret-like key, and a value that starts with a scheme is masked with its credential, so a password
+     * that happens to be a scheme name is never shown. Group 8 keeps any other secret-like key, and the first
+     * whitespace-free value token is masked, exactly as before schemes were recognized.
      */
     private static final Pattern SECRET_ASSIGNMENT = Pattern.compile("(?i)"
-            + "(" + AUTHORIZATION_HEADER_KEY + OPENING_BRACKET + SCHEME + ")" + CREDENTIAL
-            + "((?:" + LIST_SEPARATOR + SCHEME + CREDENTIAL + ")*+)"
-            + "|(" + AUTHORIZATION_KEY + OPENING_BRACKET + ")[A-Za-z][^\\s\"',;&)\\]}\\\\]*+[ \\t]++[\"']?" + CREDENTIAL
+            + "(" + AUTHORIZATION_HEADER_KEY + "(" + BRACKET + ")?+" + SCHEME + ")" + CREDENTIAL
+            + "|(" + AUTHORIZATION_KEY + "(" + BRACKET + ")?+)" + CUSTOM_SCHEME + CREDENTIAL
+            + "|(" + AUTHORIZATION_KEY + "(" + BRACKET + "))" + LIST_TOKEN
             + "|(" + SECRET_KEY + ")" + SCHEME + CREDENTIAL
             + "|(" + SECRET_KEY + ")[^\\s\"',;&)]+");
 
-    /** One further value of a multi-valued header, matched back to back from the start of group 2. */
-    private static final Pattern LIST_VALUE = Pattern.compile("(?i)\\G(" + LIST_SEPARATOR + SCHEME + ")" + CREDENTIAL);
+    /**
+     * One further value of an authorization header after a comma. Group 1 is the separator, with the quote that
+     * closes the previous value in group 2 and the quote that opens this one in group 3, and group 4 keeps a recognized
+     * scheme.
+     */
+    private static final Pattern FURTHER_VALUE = Pattern.compile("(?i)((\\\\?[\"'])?[ \\t]*+,\\s*+(\\\\?[\"'])?)"
+            + "(?:(" + SCHEME + ")" + CREDENTIAL + "|" + CUSTOM_SCHEME + CREDENTIAL + "|" + LIST_TOKEN + ")");
 
     /**
      * A credential after {@code Bearer}, {@code Basic}, {@code Negotiate}, or {@code NTLM} with no key before it, as
      * in {@code sending Bearer eyJ...}. Whether it is masked depends on its shape, see
-     * {@link #isBareCredential(String, String)}. Other schemes are only recognized after a secret-like key, because
+     * {@link #bareCredentialLength(String, String)}. Other schemes are only recognized after a secret-like key, because
      * their names are common words.
      */
-    private static final Pattern BARE_CREDENTIAL =
-            Pattern.compile("(?i)(?<![A-Za-z0-9_-])(bearer|basic|negotiate|ntlm)[ \\t]++([A-Za-z0-9._~+/-]++=*+)");
+    private static final Pattern BARE_CREDENTIAL = Pattern.compile(
+            "(?i)(?<![A-Za-z0-9_-])(bearer|basic|negotiate|ntlm)[ \\t]++(?:\\\\?[\"'])?" + "([A-Za-z0-9._~+/-]++=*+)");
 
     private static final MessageExposure OMIT = new MessageExposure(true, false);
 
@@ -187,22 +197,54 @@ public final class MessageExposure {
         if (text == null || text.isEmpty()) {
             return text;
         }
-        return maskBareCredentials(SECRET_ASSIGNMENT.matcher(text).replaceAll(MessageExposure::maskAssignment));
+        return maskBareCredentials(maskAssignments(text));
     }
 
-    private static String maskAssignment(MatchResult result) {
-        if (result.group(1) == null) {
-            String kept = result.group(3) != null
-                    ? result.group(3)
-                    : result.group(4) != null ? result.group(4) : result.group(5);
-            return Matcher.quoteReplacement(kept + SecretMasker.MASKED_VALUE);
+    private static String maskAssignments(String text) {
+        Matcher assignment = SECRET_ASSIGNMENT.matcher(text);
+        Matcher further = null;
+        StringBuilder masked = null;
+        int copied = 0;
+        int from = 0;
+        while (from < text.length() && assignment.find(from)) {
+            if (masked == null) {
+                masked = new StringBuilder(text.length());
+            }
+            masked.append(text, copied, assignment.start())
+                    .append(kept(assignment))
+                    .append(SecretMasker.MASKED_VALUE);
+            int end = assignment.end();
+            if (assignment.group(1) != null || assignment.group(3) != null || assignment.group(5) != null) {
+                // Further values are masked only in a list: after a bracket, or between quoted values.
+                boolean list =
+                        assignment.group(2) != null || assignment.group(4) != null || assignment.group(6) != null;
+                if (further == null) {
+                    further = FURTHER_VALUE.matcher(text).useTransparentBounds(true);
+                }
+                while (end < text.length()
+                        && further.region(end, text.length()).lookingAt()
+                        && (list || (further.group(2) != null && further.group(3) != null))) {
+                    masked.append(further.group(1))
+                            .append(further.group(4) != null ? further.group(4) : "")
+                            .append(SecretMasker.MASKED_VALUE);
+                    end = further.end();
+                }
+            }
+            copied = end;
+            from = end;
         }
-        String furtherValues = result.group(2).isEmpty()
-                ? ""
-                : LIST_VALUE
-                        .matcher(result.group(2))
-                        .replaceAll(value -> Matcher.quoteReplacement(value.group(1) + SecretMasker.MASKED_VALUE));
-        return Matcher.quoteReplacement(result.group(1) + SecretMasker.MASKED_VALUE + furtherValues);
+        return masked == null
+                ? text
+                : masked.append(text, copied, text.length()).toString();
+    }
+
+    private static String kept(Matcher assignment) {
+        for (int group : new int[] {1, 3, 5, 7}) {
+            if (assignment.group(group) != null) {
+                return assignment.group(group);
+            }
+        }
+        return assignment.group(8);
     }
 
     private static String maskBareCredentials(String text) {
@@ -211,13 +253,14 @@ public final class MessageExposure {
         int copied = 0;
         int from = 0;
         while (from < text.length() && matcher.find(from)) {
-            if (isBareCredential(matcher.group(1), matcher.group(2))) {
+            int length = bareCredentialLength(matcher.group(1), matcher.group(2));
+            if (length > 0) {
                 if (masked == null) {
                     masked = new StringBuilder(text.length());
                 }
                 masked.append(text, copied, matcher.start(2)).append(SecretMasker.MASKED_VALUE);
-                copied = matcher.end();
-                from = matcher.end();
+                copied = matcher.start(2) + length;
+                from = copied;
             } else {
                 // Resume after the scheme, so a rejected candidate cannot hide a scheme inside it.
                 from = matcher.end(1);
@@ -229,24 +272,61 @@ public final class MessageExposure {
     }
 
     /**
-     * Whether {@code candidate} after a scheme with no key before it is unambiguously a credential. A {@code Basic}
-     * credential must decode from Base64 to printable {@code user:password} text. Any other is token-shaped: at least
-     * twenty characters, or at least eight including a digit, so prose such as {@code missing Bearer token} or
-     * {@code Basic auth is enabled} is left alone.
+     * How much of {@code candidate}, after a scheme with no key before it, is unambiguously a credential, or {@code 0}
+     * when it is not one, so prose such as {@code missing Bearer token}, {@code Basic auth is enabled}, or
+     * {@code unable to negotiate TLS_AES_128_GCM_SHA256} is left alone. A {@code Bearer} credential is token-shaped: at
+     * least twenty characters, or at least eight including a digit. Any other is its leading Base64 text, so trailing
+     * punctuation stays visible, and must decode to what the scheme carries: printable {@code user:password} text for
+     * {@code Basic}, an NTLM message for {@code NTLM}, and an NTLM message or a SPNEGO token for {@code Negotiate}.
      */
-    static boolean isBareCredential(String scheme, String candidate) {
-        if (!"basic".equalsIgnoreCase(scheme)) {
-            return candidate.length() >= 20
+    static int bareCredentialLength(String scheme, String candidate) {
+        if ("bearer".equalsIgnoreCase(scheme)) {
+            boolean tokenShaped = candidate.length() >= 20
                     || (candidate.length() >= 8 && candidate.chars().anyMatch(Character::isDigit));
+            return tokenShaped ? candidate.length() : 0;
         }
-        byte[] decoded;
+        int base64End = 0;
+        while (base64End < candidate.length() && isBase64(candidate.charAt(base64End))) {
+            base64End++;
+        }
+        int end = base64End;
+        while (end < candidate.length() && candidate.charAt(end) == '=') {
+            end++;
+        }
+        String base64 = candidate.substring(0, base64End).replace('-', '+').replace('_', '/');
+        if ("basic".equalsIgnoreCase(scheme)) {
+            String credentials = decode(base64);
+            boolean userAndPassword = credentials != null
+                    && credentials.indexOf(':') > 0
+                    && credentials.chars().noneMatch(c -> c == '\uFFFD' || Character.isISOControl(c));
+            return userAndPassword ? end : 0;
+        }
+        // Only the first 12 bytes are checked, so a truncated or oddly padded token is still recognized.
+        if (base64.length() < 16) {
+            return 0;
+        }
+        byte[] head = Base64.getDecoder().decode(base64.substring(0, 16));
+        boolean ntlmMessage = new String(head, 0, 8, StandardCharsets.ISO_8859_1).equals("NTLMSSP\0");
+        boolean spnegoToken =
+                "negotiate".equalsIgnoreCase(scheme) && (head[0] == (byte) 0x60 || head[0] == (byte) 0xA1);
+        return ntlmMessage || spnegoToken ? end : 0;
+    }
+
+    private static String decode(String base64) {
         try {
-            decoded = Base64.getDecoder().decode(candidate.replace('-', '+').replace('_', '/'));
+            return new String(Base64.getDecoder().decode(base64), StandardCharsets.UTF_8);
         } catch (IllegalArgumentException ex) {
-            return false;
+            return null;
         }
-        String credentials = new String(decoded, StandardCharsets.UTF_8);
-        return credentials.indexOf(':') > 0
-                && credentials.chars().noneMatch(c -> c == '\uFFFD' || Character.isISOControl(c));
+    }
+
+    private static boolean isBase64(char c) {
+        return (c >= 'A' && c <= 'Z')
+                || (c >= 'a' && c <= 'z')
+                || (c >= '0' && c <= '9')
+                || c == '+'
+                || c == '/'
+                || c == '-'
+                || c == '_';
     }
 }

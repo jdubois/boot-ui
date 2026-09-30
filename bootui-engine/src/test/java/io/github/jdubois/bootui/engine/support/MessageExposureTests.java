@@ -218,6 +218,10 @@ class MessageExposureTests {
                 arguments("Authorization: Bearer \"tok-1\"", "Authorization: Bearer \"******\"", "tok-1"),
                 arguments("Authorization: Basic 'dXNlcjpwYXNz'", "Authorization: Basic '******'", "dXNlcjpwYXNz"),
                 arguments(
+                        "{\"message\":\"Authorization: Basic \\\"dXNlcjpwYXNz\\\"\"}",
+                        "{\"message\":\"Authorization: Basic \\\"******\\\"\"}",
+                        "dXNlcjpwYXNz"),
+                arguments(
                         "{\"authorization\": [\n  \"Basic dXNlcjpwYXNz\"\n]}",
                         "{\"authorization\": [\n  \"Basic ******\"\n]}",
                         "dXNlcjpwYXNz"),
@@ -243,9 +247,11 @@ class MessageExposureTests {
         return Stream.of(
                 arguments(
                         "Authorization: Digest username=\"Mufasa\", realm=\"http-auth@example.org\", "
-                                + "uri=\"/dir/index.html\", algorithm=SHA-256, nonce=\"7ypf/xlj9XXwfDPEoM4URrv/xwf94Bc\", "
+                                + "uri=\"/dir/index.html\", algorithm=SHA-256, "
+                                + "nonce=\"7ypf/xlj9XXwfDPEoM4URrv/xwf94Bc\", "
                                 + "nc=00000001, cnonce=\"f2/wE4q74E6zIJEtWaHKaf5wv/H5Qzzp\", qop=auth, "
-                                + "response=\"6629fae49393a05397450978507c4ef1\", opaque=\"FQhe/qaU925kfnzjCev0ciny7QMk\" "
+                                + "response=\"6629fae49393a05397450978507c4ef1\", "
+                                + "opaque=\"FQhe/qaU925kfnzjCev0ciny7QMk\" "
                                 + "for GET /dir/index.html",
                         "Authorization: Digest ****** for GET /dir/index.html"),
                 arguments(
@@ -289,7 +295,11 @@ class MessageExposureTests {
                         "Authorization: Digest \"username=\"Mufasa\", response=\"6629fae4\"\"",
                         "Authorization: Digest \"******\""),
                 arguments(
-                        "{\n  \"authorization\" : [\n    \"Digest username=\\\"Mufasa\\\", response=\\\"6629fae4\\\"\"\n  ]\n}",
+                        "Authorization: Digest username=\\\"Mufasa\\\", response=\\\"6629fae4\\\" -> 401 for /api",
+                        "Authorization: Digest ****** -> 401 for /api"),
+                arguments(
+                        "{\n  \"authorization\" : [\n    \"Digest username=\\\"Mufasa\\\", "
+                                + "response=\\\"6629fae4\\\"\"\n  ]\n}",
                         "{\n  \"authorization\" : [\n    \"Digest ******\"\n  ]\n}"));
     }
 
@@ -325,6 +335,50 @@ class MessageExposureTests {
     }
 
     @ParameterizedTest
+    @MethodSource("multiValuedHeaders")
+    void masksEveryValueOfAMultiValuedAuthorizationHeader(String text, String expected, String secret) {
+        assertThat(MessageExposure.maskSecretAssignments(text))
+                .isEqualTo(expected)
+                .doesNotContain(secret);
+    }
+
+    static Stream<Arguments> multiValuedHeaders() {
+        return Stream.of(
+                arguments(
+                        "{Authorization=[Bearer tok-1, SSWS 00QCjAl4MlV]}",
+                        "{Authorization=[Bearer ******, ******]}",
+                        "00QCjAl4MlV"),
+                arguments(
+                        "{Authorization=[SSWS 00QCjAl4MlV, SSWS 11QCjAl4MlV]}",
+                        "{Authorization=[******, ******]}",
+                        "11QCjAl4MlV"),
+                arguments("{authorization=[raw-1, raw-2]}", "{authorization=[******, ******]}", "raw-2"),
+                arguments(
+                        "[Authorization:\"SSWS 00QCjAl4MlV\", \"SSWS 11QCjAl4MlV\"]",
+                        "[Authorization:\"******\", \"******\"]",
+                        "11QCjAl4MlV"),
+                arguments(
+                        "{\"authorization\": [\"Basic dXNlcjpwYXNz\", \"ApiKey ak-2\"]}",
+                        "{\"authorization\": [\"Basic ******\", \"******\"]}",
+                        "ak-2"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "{\"authorization\": \"Bearer ******\", \"accept\": \"application/json\"}",
+                "{'Authorization': 'Basic ******', 'Host': 'api.example.com'}",
+                "[Authorization:\"Bearer ******\", Accept:\"*/*\"]",
+                "{Authorization=[Bearer ******], Accept=[*/*]}",
+                "Authorization: Bearer ******, retrying the request"
+            })
+    void leavesTextAfterTheLastAuthorizationValueAlone(String masked) {
+        String original = masked.replace("******", "tok-1");
+
+        assertThat(MessageExposure.maskSecretAssignments(original)).isEqualTo(masked);
+    }
+
+    @ParameterizedTest
     @MethodSource("schemesAfterOtherSecretKeys")
     void masksASchemeTogetherWithItsCredentialAfterAnyOtherSecretKey(String text, String expected) {
         // The scheme is masked too, so a password that happens to be a scheme name is never shown.
@@ -339,6 +393,14 @@ class MessageExposureTests {
                 arguments("secret: oauth rotation failed", "secret: ****** failed"),
                 arguments("api_key: Digest this later please", "api_key: ****** later please"),
                 arguments("{\"apiKey\": \"Token ak-1\"}", "{\"apiKey\": \"******\"}"));
+    }
+
+    @Test
+    void masksAPaddedCredentialThatEndsLikeASecretKey() {
+        assertThat(MessageExposure.maskSecretAssignments("Authorization: Bearer c2VjcmV0cwd="))
+                .isEqualTo("Authorization: Bearer ******");
+        assertThat(MessageExposure.maskSecretAssignments("Authorization: Basic dXNlcjpwYXNzd29yZA=="))
+                .isEqualTo("Authorization: Basic ******");
     }
 
     @Test
@@ -366,6 +428,7 @@ class MessageExposureTests {
     static Stream<Arguments> bareSchemeCredentials() {
         return Stream.of(
                 arguments("sent Basic dXNlcjpwYXNzd29yZA== upstream", "sent Basic ****** upstream", "dXNlcjpwYXNz"),
+                arguments("upstream rejected Basic dXNlcjpwYXNz.", "upstream rejected Basic ******.", "dXNlcjpwYXNz"),
                 arguments(
                         "Authorization: is Basic dXNlcjpwYXNzd29yZA==",
                         "Authorization: ****** Basic ******",
@@ -387,6 +450,7 @@ class MessageExposureTests {
                         "sending Bearer ****** to api",
                         "eyJhbGci"),
                 arguments("retry with bearer 0123abcd", "retry with bearer ******", "0123abcd"),
+                arguments("sending Bearer \"eyJhbGciOiJIUzI1NiJ9.e30.c2ln\"", "sending Bearer \"******\"", "eyJhbGci"),
                 arguments("BEARER abcdefghijklmnopqrst", "BEARER ******", "abcdefghijklmnopqrst"),
                 arguments(
                         "Bearer ghp_16C7e42F292c6912E7710c838347Ae178B4a, attempt 2",
@@ -413,7 +477,10 @@ class MessageExposureTests {
                 "Basic settings",
                 "Basic YWJjZA== is not a user:password pair",
                 "NTLM authentication failed",
-                "Negotiate failed for user alice"
+                "Negotiate failed for user alice",
+                "unable to negotiate TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 with peer",
+                "failed to negotiate 10.0.0.12:5432",
+                "NTLM dXNlcjpwYXNzd29yZGRkZGRkZA== is not an NTLM message"
             })
     void leavesProseAboutAuthorizationSchemesAlone(String text) {
         assertThat(MessageExposure.maskSecretAssignments(text)).isSameAs(text);
