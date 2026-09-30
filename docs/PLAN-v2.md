@@ -118,6 +118,9 @@ Spring WebFlux, and Quarkus, readable by humans and agents alike**.
 | Check a change | Remember numbers, or nothing | Per-route and per-statement deltas against the previous run, after a hot reload | §5.8 |
 | Prepare a refactoring | Beans graph without traffic | Beans, routes, and tables a change can reach, with observed traffic and unexercised routes | §5.7 |
 | Review data access | Security and SQL Trace, separately | Anonymous writes, and anonymous reach of tables otherwise used only by protected routes | §5.9 |
+| Catch a hidden failure | A 200 in HTTP Exchanges, an exception in another panel | Routes that answered 2xx while an exception or error log was recorded in the same request | §5.5 `swallowed-error-2xx` |
+| Keep reactive code non-blocking | Invisible until production stalls | Blocking SQL, REST, or sleeps observed on event-loop threads, per route and call site | §5.5 `event-loop-blocking` |
+| Control LLM spend | Token counts per span, one at a time | Tokens, model, latency, and errors per route or job, and their change since the last run | §5.5 `llm-cost-by-route` |
 | Give an agent runtime ground truth | The last few seconds of `get_live_activity` | Compact observations with exemplar request ids, and targeted impact and comparison tools | §5.6 |
 
 ### 2.2 How success is measured
@@ -191,12 +194,12 @@ Three design points change how v1 items are finished, without changing their v1 
 | Milestone | Delivers | Depends on | Effort (engineer-days, rough) | Status |
 | --- | --- | --- | --- | --- |
 | **M0 Readiness** | CI on `v2`, the correlation and overhead scenarios as baselines, and the propagation and restart spikes (§5.1, §5.8) | — | 5–8 | ✅ Delivered |
-| **M1 Exact correlation** (§5.1) | One correlation context on every event, with or without tracing, on all three stacks | M0; v1 wave 1 (§3.20a, §3.24a) | 40–50 | 📋 Planned |
-| **M2 Journal and Live Activity** (§5.2, §5.3) | The in-memory journal, incremental aggregates, run summaries, and Live Activity served from the journal with its unified timeline | M1; §3.22, §3.27 | 30–40 | 📋 Planned |
-| **M3 Runtime Insights** (§5.4–§5.6) | Projections, the panel, Live Activity entry points, five observations, agent tools, and the demo | M2; §3.25 | 35–45 | 📋 Planned |
+| **M1 Exact correlation** (§5.1) | One correlation context on every event, with or without tracing, on all three stacks | M0; v1 wave 1 (§3.20a, §3.24a) | 42–52 | 📋 Planned |
+| **M2 Journal and Live Activity** (§5.2, §5.3) | The in-memory journal, incremental aggregates, run summaries, and Live Activity served from the journal with its unified timeline | M1; §3.22, §3.27 | 33–43 | 📋 Planned |
+| **M3 Runtime Insights** (§5.4–§5.6) | Projections, the panel, Live Activity entry points, ten observations, agent tools, and the demo | M2; §3.25 | 45–57 | 📋 Planned |
 | **M4 Change loop and 2.0 readiness** (§5.7–§5.9) | Change impact, run comparison, anonymous data reach, external validation, and the release path | M3; §3.18 | 25–35 | 📋 Planned |
 
-M0–M4 total about **135–180 engineer-days**, roughly five to seven months with two developers who also maintain 1.x.
+M0–M4 total about **150–195 engineer-days**, roughly six to eight months with two developers who also maintain 1.x.
 The v1 foundations are estimated in their own plan. Before v1 wave 1 lands, `v2` works on M0 and the spikes.
 
 M0 is split into four items:
@@ -285,6 +288,8 @@ Scope:
   inside the same JVM, and publish `instanceId` and `runId` in `/overview` metadata.
 - Add nullable, additive `requestId` fields (and `spanId`, `transactionId`, `dataSource`, `thread` where missing) to
   the affected DTOs, each with a secondary constructor matching today's canonical one.
+- Record the **thread kind** of every event (request worker, virtual thread, Reactor Netty or Vert.x event loop, Reactor
+  scheduler, or other), classified by the adapter that owns the thread rather than guessed from its name later.
 - Keep the port in Live Activity REST client summaries, so two local services on different ports stay distinct.
 
 Architecture:
@@ -367,7 +372,12 @@ Scope:
   MySQL, and Database Advisor reads.
 - A journal status block (events, bytes, drops per source, evictions, oldest retained event) in Live Activity's
   persistence disclosure, and a confirmation-gated **Clear recording** action that read-only policy blocks.
-- Properties under `bootui.runtime-journal.*`: `enabled`, `max-events`, `max-bytes`, `queue-capacity`, and `sources`.
+- **Per-request CPU time and allocated bytes**, read through `com.sun.management.ThreadMXBean` when a request starts
+  and ends on the same platform thread. The JVM reports neither for virtual threads (it returns `-1`, verified on JDK
+  26), nor across thread hops, so those requests record them as unavailable, with the reason, rather than zero. The
+  four reads cost about 2.5 µs per request, measured by the overhead scenario.
+- Properties under `bootui.runtime-journal.*`: `enabled`, `max-events`, `max-bytes`, `queue-capacity`, `sources`, and
+  `request-cpu` (on by default).
 
 Architecture:
 
@@ -501,12 +511,18 @@ Scope:
 | `exception-hotspots` | Exception groups per route, marked new when absent from the previous run | ≥ 1 occurrence; "new" needs a previous run | All three |
 | `transaction-hold` | A transaction open during a REST client or AI call, or open for mostly time without observed SQL | Transaction ≥ 20 ms; ≥ 3 per method | Spring MVC and WebFlux (blocking transactions) |
 | `unowned-work` | Work with no request, by thread family, with overlapping routes as candidates only | ≥ 5 events per family; startup, scheduled, and BootUI threads excluded | All three |
+| `swallowed-error-2xx` | A route that answered 2xx while an exception occurrence or an `ERROR` log was recorded in the same request, grouped by exception group | ≥ 1 request; exact `REQUEST_ID` tier only. Worded "verify that this fallback is intentional" | All three |
+| `event-loop-blocking` | Blocking work on an event-loop thread: JDBC, blocking REST client calls, or waits, per route and call site, with the share of request time spent there | ≥ 3 requests; thread kind from the owning adapter (§5.1), never a name guess | Spring WebFlux and Quarkus. Spring MVC has no event loop and reports not applicable |
+| `retry-amplification` | One request multiplying downstream work through retries: attempts × calls per remote host or AI model, with failures and timeouts | ≥ 1 request with retry events | All three, where Fault Tolerance capture exists |
+| `llm-cost-by-route` | Tokens (input and output), model, latency, and errors of AI calls per route or job, and the change since the previous run | ≥ 3 AI calls per route, or one above `ai-token-threshold` | All three, where AI calls are recognized from GenAI spans |
+| `cpu-or-waiting` | Whether a route's time is CPU, allocation, or waiting: per-route CPU share and allocated bytes per request. With `route-time-breakdown`, it separates "hashing a password" from "waiting on a pool" | ≥ 5 requests measured on platform threads | All three on platform, worker, and event-loop threads. Unavailable on virtual threads, as the JVM reports no per-thread CPU there |
 
 - Entry points where developers already look:
   - the Live Activity request profile's **why this route is slow** section (§5.3);
   - a link from Live Activity's slowest-request KPI to its route's observation;
   - the **No request** filter linking to `unowned-work`;
-  - command-palette keywords: *why slow*, *slow*, *what changed*, *impact*, *new exceptions*.
+  - command-palette keywords: *why slow*, *slow*, *what changed*, *impact*, *new exceptions*, *blocking*, *retries*,
+    *tokens*, *CPU*.
 - The UI, following `DESIGN.md`:
   - the header states the window and **What this run did that no single panel shows.**, with **Export** offering JSON
     and **Copy for AI** (Markdown through §3.25's helper), and no observation count;
@@ -664,7 +680,14 @@ Acceptance criteria:
 | Item | Status | Reason |
 | --- | --- | --- |
 | `sql-outside-database` | 💤 Deferred | Needs two explicit database snapshots with aligned interval deltas, reset detection, and datasource identity; cumulative server-wide statistics include other clients |
-| `cache-shielding` | 💤 Deferred | Spring-only; the unified timeline already shows a miss followed by SQL |
+| `cache-shielding` | 💤 Deferred | Spring-only; the unified timeline already shows a miss followed by SQL. After 2.0, as per-route cache effectiveness (hit ratio and the SQL each miss caused) |
+| `pool-pressure-by-route` | 💤 Deferred | High value: which route can starve the connection pool, from checkout wait, hold time, concurrency, and pool size. Needs connection checkout and release timestamps from the JDBC proxy, and low dev concurrency makes it a capacity estimate, not a finding |
+| `unbounded-result-ramp` | 💤 Deferred | High value: queries without a limit whose row counts or response sizes grow over the run. Needs result-set row counts and response sizes |
+| `sensitive-runtime-egress` | 💤 Deferred | High value: counts of secret-like values in logs, outbound headers and URLs, and AI prompts, by category, never the values. Builds on §3.27's shared masking helper |
+| Slow-versus-fast cohort comparison | 💤 Deferred | "What distinguishes the slow requests of a route?" over curated attributes (cache miss, statement set, exception, thread kind, principal group), as Honeycomb BubbleUp does. Curated dimensions first; an optional embedded analytics engine only if users ask for ad-hoc slicing |
+| Bounded path queries | 💤 Deferred | Variable-length flows such as request → message → consumer → table → other routes, through named templates with depth ≤ 5 and an edge allowlist, never a free-form query language |
+| Log and exception text search | 💤 Deferred | An optional in-memory Lucene index over retained, already-masked rows, rebuilt when the exposure policy changes, if users ask for it |
+| `consecutive-outbound-waterfall`, `osiv-lazy-sql-after-handler`, `read-only-transaction-writes`, `scheduled-overlap-drift`, `message-consumer-backpressure` | 💤 Deferred | Useful but narrower; revisit with the external-validation results (§2.2) |
 | JDBC event journal | 💤 Deferred | A storage product in its own right (idempotent retries, three dialects, disk bounds); revisit on demand |
 | GraphML export | 💤 Deferred | Only once users ask for graph exploration beyond the JSON export |
 | CI budgets on observations | 💤 Deferred | Once run comparison is proven |
@@ -674,7 +697,7 @@ Acceptance criteria:
 | `journeys` | ❌ Cut | In development, the journey is the developer's own clicks |
 | `messaging-flows` as an observation | ❌ Cut | Exact nesting under the request (§5.1, §5.3) is the feature |
 | Neo4j CSV and OCEL 2.0 exports | ❌ Cut | Niche audiences, with documentation, conformance, and native-hint costs |
-| Embedded graph store | ❌ Cut | No demand signal |
+| Embedded graph database | ❌ Cut | The storage research (Appendix A) found no insight that needs one at BootUI's volumes: bounded traversals over the PoC graph run in under a millisecond. Graph databases remain export targets, and none fits embedding (Neo4j is GPLv3, Kuzu is archived, ArcadeDB is heavy for a starter) |
 
 ## 6. Architecture
 
@@ -729,6 +752,9 @@ Quarkus, or JSON dependency.
 | `change-impact` | Bean graph | Bean graph | ArC injection edges |
 | Run comparison across reloads | DevTools restart | DevTools restart | Live reload |
 | `anonymous-data-reach` | With Spring Security | With Spring Security | Where security capture proves authentication |
+| `swallowed-error-2xx`, `retry-amplification`, `llm-cost-by-route` | ✓ | ✓ | ✓ |
+| `event-loop-blocking` | Not applicable: no event loop | Reactor Netty event loops | Vert.x event loops |
+| `cpu-or-waiting` | Platform threads; unavailable with virtual threads | Event loops and schedulers; unavailable across thread hops | Worker and event-loop threads; unavailable across thread hops |
 
 Each unavailable cell is returned as availability with a reason and documented in `docs/QUARKUS-SUPPORT.md` and
 `docs/WEBFLUX-SUPPORT.md`.
@@ -757,6 +783,7 @@ live exposure policy at read time, and never write to disk anything less masked 
 | Application thread: snapshot, envelope, and `offer` | < 2 µs p99 on a reference machine; never blocks |
 | Sample-app throughput, journal on versus off | Within 5 % |
 | Retained rows | ≤ the smaller of 32 MB and 5 % of the maximum heap, evictions counted |
+| Per-request CPU and allocation reads | About 2.5 µs per request (four `ThreadMXBean` reads), included in the overhead scenario; `request-cpu=false` removes them |
 | Dispatcher | Sustains at least 20,000 events per second on a reference machine (the PoC produced 88), measured by the overhead scenario |
 | Projection read | ≤ 250 ms, then `PARTIAL` |
 
@@ -820,6 +847,8 @@ lands on `v2` and before 2.0.0:
 | D11 | How are percentiles computed? | An engine log-linear histogram within 6.25 %, mergeable across runs (§5.2) |
 | D12 | What may reach disk? | Nothing less masked than `MASKED`; the baseline file holds metadata only (§8) |
 | D13 | How many previous runs are kept? | The 5 most recent, each ≤ 256 KB (§5.2) |
+| D14 | Which new insights join 2.0? | **Maintainer decision:** `swallowed-error-2xx`, `event-loop-blocking`, `retry-amplification`, `llm-cost-by-route`, and `cpu-or-waiting`; the other researched insights come after 2.0 (§5.10) |
+| D15 | Graph database or search engine? | Neither in 2.0. A graph database adds no insight at BootUI's volumes; curated cohort comparison and bounded path templates come first, with optional Lucene or embedded analytics only on demand |
 
 ## Appendix A. Review log
 
@@ -827,6 +856,8 @@ The first draft was audited independently by three models, each with a primary l
 business value: Claude Opus 5.5 (product strategy, **S**), GPT-6.1 Sol (technical feasibility, **F**), and Grok 4.7
 (adoption and agent value, **A**). The draft was then reconciled with the reordered v1 plan (commit `be7762ab1`). A
 later design review of storage and algorithms (**Design review**) settled the journal's storage decisions before M2.
+Two research reviews then assessed new insights (**Insights research**) and graph or search storage (**Storage
+research**).
 
 | Proposal | By | Outcome |
 | --- | --- | --- |
@@ -866,6 +897,9 @@ later design review of storage and algorithms (**Design review**) settled the jo
 | Settle the histogram, byte accounting, cardinality caps, drop priority, run-summary retention, and the two report windows before M2 | Design review | Adopted (§5.2) |
 | `bootui_activity` persists summaries, paths, and principals, contradicting "metadata only on disk" | Design review | Fixed: never less masked than `MASKED`, principal pseudonymized, live policy re-applied on read (§8) |
 | Name a dispatcher throughput budget, since a single thread can become the bottleneck | Design review | Adopted (§8) |
+| Add high-value insights from runtime-analysis prior art (Sentry, Digma, BlockHound, Resilience4j, Honeycomb, pganalyze): event-loop blocking, retry amplification, LLM cost by route, swallowed 2xx errors, CPU versus waiting, pool pressure, unbounded result ramps, sensitive egress | Insights research | Five adopted for 2.0 (D14, §5.5); three deferred (§5.10) |
+| Per-thread CPU and allocation for `cpu-or-waiting` | Insights research | Adopted, with a verified limit: the JVM returns `-1` on virtual threads, reported as unavailable (§5.2) |
+| Store events in a graph database or a search engine for richer insights | Storage research | Rejected for 2.0 (D15): no insight needs a graph database at these volumes; cohort comparison, bounded path templates, and optional Lucene deferred (§5.10) |
 
 ## Appendix B. Proof-of-concept evidence
 
