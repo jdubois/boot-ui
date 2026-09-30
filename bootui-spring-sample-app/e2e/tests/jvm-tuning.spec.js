@@ -63,6 +63,12 @@ test.describe('JVM Tuning view', () => {
     const actuatorToggle = kubernetesCard.locator('#kubernetesActuatorEnabled')
 
     await expect(kubernetesCard).toBeVisible()
+    // The default calculator total is capped at 2048 MiB, while the burstable request follows the JVM's
+    // committed memory. After a long suite a JVM on a large-RAM machine can commit more than that cap,
+    // so pin a limit comfortably above any e2e snapshot before asserting that burstable lowers the request.
+    await page.locator('#jvm-target-memory').fill('32768')
+    await page.locator('#jvm-target-memory').blur()
+    await expect(yamlBlock).toContainText('memory: "32768Mi"')
     const equalRequestYaml = await yamlBlock.innerText()
     const equalRequest = equalRequestYaml.match(/requests:\s+memory: "([^"]+)"/)?.[1]
     expect(equalRequest).toBeTruthy()

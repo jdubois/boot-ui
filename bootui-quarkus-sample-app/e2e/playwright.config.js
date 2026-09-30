@@ -11,7 +11,7 @@ import {defineConfig, devices} from '@playwright/test'
  *
  * By default Playwright boots the sample app for you via `./mvnw quarkus:dev` (requires a prior
  * `./mvnw install` so the `bootui-quarkus` extension is in the local Maven repository, plus a
- * supported JDK — the sample is wired into the reactor only on JDK 17/21). Quarkus Dev Services
+ * JDK from 17 to 27 — Hibernate augmentation is skipped on JDK 28+). Quarkus Dev Services
  * starts a throwaway PostgreSQL container, so **Docker (or Podman) must be running**. Fixture-backed
  * runs always start their own app process so the deterministic OSV configuration cannot be bypassed.
  */

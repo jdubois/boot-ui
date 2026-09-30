@@ -16,6 +16,9 @@ applyTo: "pom.xml,bootui-quarkus-parent/**,bootui-quarkus/**,bootui-quarkus-depl
 - Optional APIs must never be linked in an application without their capability. Gate build steps, compile optional APIs as provided where appropriate, and exclude importing runtime classes by string name when absent.
 - Prefer build-time Jandex capture plus recorder/synthetic-bean wiring when Quarkus has no reliable runtime discovery API.
 - Update `QuarkusPanelAvailability` and `docs/QUARKUS-SUPPORT.md` whenever panel support changes. Distinguish unavailable, not-yet-supported, and not-applicable states honestly.
-- The sample app's Quarkus/Hibernate augmentation supports JDK 17, 21, and 25. Preserve the JDK 26+ skip profile and keep integration tests gated to supported JDKs.
+- The sample app's Quarkus/Hibernate augmentation is bounded by the class-file versions the platform-managed ByteBuddy
+  recognizes (currently JDK 17 to 27; Quarkus 3.33 LTS officially supports 17, 21, and 25). Preserve the JDK 28+ skip
+  profile and the Hibernate integration-test gate, and raise both bounds together only after verifying augmentation on
+  the new JDK.
 - Focused extension validation:
   `./mvnw -B -ntp -pl bootui-quarkus,bootui-quarkus-deployment,bootui-quarkus-integration-tests -am install`.
