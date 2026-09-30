@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.hibernate;
 
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
+import io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto;
 import io.github.jdubois.bootui.core.dto.HibernateDiagnosticDto;
 import io.github.jdubois.bootui.core.dto.HibernateReport;
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
@@ -9,17 +10,20 @@ import io.github.jdubois.bootui.core.dto.HibernateScanStatusDto;
 import io.github.jdubois.bootui.core.dto.HibernateSeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorLocations;
 import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
@@ -59,6 +63,9 @@ public final class HibernateScanner {
     private final Clock clock;
     private final HibernateAdvisorObservationSource observationSource;
     private final List<HibernateRule> rules;
+    private volatile BiFunction<
+                    HibernateAdvisorObservation, Collection<AdvisorViolationLocationDto>, AdvisorLocations.Resolution>
+            sourceLocations = HibernateSourceLocations::resolve;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
     private final AdvisorScanState<HibernateReport> violationState =
             new AdvisorScanState<>(HibernateReport::withViolationDetails);
@@ -152,6 +159,16 @@ public final class HibernateScanner {
 
     public void setViolationRetentionLimit(IntSupplier limit) {
         violationState.setRetentionLimit(limit);
+    }
+
+    /** Test seam: replaces the scan-time source-location resolution. */
+    void setSourceLocations(
+            BiFunction<
+                            HibernateAdvisorObservation,
+                            Collection<AdvisorViolationLocationDto>,
+                            AdvisorLocations.Resolution>
+                    sourceLocations) {
+        this.sourceLocations = java.util.Objects.requireNonNull(sourceLocations);
     }
 
     private HibernateReport doScan(AdvisorViolationCollector collector) {
@@ -281,6 +298,13 @@ public final class HibernateScanner {
                                 ? "; and " + (notes.size() - MAX_COVERAGE_NOTE_UNITS) + " more units"
                                 : "")
                         + ".")));
+        // Source paths are resolved once, here, during the explicit scan only; detail reads never touch the disk.
+        List<HibernateRuleResultDto> located = AdvisorLocations.complete(
+                collector,
+                List.copyOf(violations.values()),
+                HibernateRuleResultDto::sampleLocations,
+                HibernateRuleResultDto::withSampleLocations,
+                locations -> sourceLocations.apply(observation, locations));
         List<HibernateDiagnosticDto> discovery = discoveryDiagnostics(observation);
         diagnostics.addAll(0, discovery);
         int totalDiagnostics = diagnostics.size();
@@ -298,7 +322,7 @@ public final class HibernateScanner {
                 entityPackages(entities),
                 entities.size(),
                 rules.size(),
-                List.copyOf(violations.values()),
+                located,
                 retained,
                 new AdvisorEvidenceDto(
                         usable,
@@ -412,11 +436,18 @@ public final class HibernateScanner {
     private static void mergeViolation(
             Map<String, HibernateRuleResultDto> results, HibernateRuleResultDto result, String label) {
         HibernateRuleResultDto previous = results.get(result.id());
+        // Samples arrive unit-labelled from the retained records; texts and locations are merged index-for-index.
         List<String> samples = new ArrayList<>();
-        if (previous != null) samples.addAll(previous.sampleViolations());
-        for (String sample : result.sampleViolations()) {
-            if (samples.size() == 10) break;
-            samples.add(HibernateRuleSupport.detail("[" + label + "] " + sample));
+        List<AdvisorViolationLocationDto> locations = new ArrayList<>();
+        if (previous != null) {
+            samples.addAll(previous.sampleViolations());
+            locations.addAll(aligned(previous));
+        }
+        List<AdvisorViolationLocationDto> resultLocations = aligned(result);
+        for (int index = 0; index < result.sampleViolations().size(); index++) {
+            if (samples.size() == HibernateRuleSupport.MAX_SAMPLE_VIOLATIONS) break;
+            samples.add(result.sampleViolations().get(index));
+            locations.add(resultLocations.get(index));
         }
         String severity =
                 previous != null && SeverityOrder.rank(previous.severity()) < SeverityOrder.rank(result.severity())
@@ -434,7 +465,15 @@ public final class HibernateScanner {
                         result.violationCount() + (previous == null ? 0 : previous.violationCount()),
                         samples,
                         result.recommendation(),
-                        result.learnMoreUrl()));
+                        result.learnMoreUrl(),
+                        false,
+                        null,
+                        locations));
+    }
+
+    private static List<AdvisorViolationLocationDto> aligned(HibernateRuleResultDto result) {
+        if (!result.sampleLocations().isEmpty()) return result.sampleLocations();
+        return java.util.Collections.nCopies(result.sampleViolations().size(), null);
     }
 
     private HibernateAdvisorObservation safeObservation() {

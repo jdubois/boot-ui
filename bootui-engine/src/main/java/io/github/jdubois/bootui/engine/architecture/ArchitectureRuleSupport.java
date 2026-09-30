@@ -8,6 +8,8 @@ import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.EvaluationResult;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolation;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitViolations;
 import io.github.jdubois.bootui.engine.archunit.KotlinBytecode;
 import io.github.jdubois.bootui.engine.support.DetailText;
 import java.util.List;
@@ -80,13 +82,17 @@ final class ArchitectureRuleSupport {
         if (!evaluation.hasViolation()) {
             return pass(definition);
         }
-        List<String> details = evaluation.getFailureReport().getDetails();
-        context.violationCollector().record(definition.id(), details.size(), details, ArchitectureRuleSupport::detail);
-        List<String> samples = details.stream()
-                .limit(MAX_SAMPLE_VIOLATIONS)
-                .map(ArchitectureRuleSupport::detail)
-                .toList();
-        return result(definition, VIOLATION, details.size(), samples);
+        List<AdvisorViolation> violations = ArchUnitViolations.of(evaluation);
+        // Samples are cut from the records the collector retains, so a sample and its detail never differ.
+        List<AdvisorViolation> samples = context.violationCollector()
+                .record(
+                        definition.id(),
+                        violations.size(),
+                        violations,
+                        ArchitectureRuleSupport::detail,
+                        MAX_SAMPLE_VIOLATIONS);
+        return result(definition, VIOLATION, violations.size(), AdvisorViolation.texts(samples))
+                .withSampleLocations(AdvisorViolation.locations(samples));
     }
 
     static String detail(String value) {

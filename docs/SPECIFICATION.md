@@ -2478,19 +2478,26 @@ stacks. The `spring` root remains the Quarkus application advisor on Quarkus; th
 
 Reports retain their existing `violationCount` and `sampleViolations` previews (normally ten per rule, twenty for the
 Quarkus application and Security advisors), plus `violationDetails: {scanId, total, retained, retentionLimit,
-truncated}`. The snapshot ID is null before a completed scan. Totals and retention are before dismissal and describe
+truncated, locationNotes}`. The snapshot ID is null before a completed scan. Totals and retention are before dismissal and describe
 retrieval completeness, not evidence coverage or score eligibility. The latest completed report and sanitized detail
 index are published together; reads during another scan serve the previous snapshot. Dismiss/restore preserves its
 identity and retained entries. Only the latest snapshot is kept.
 
 Detail reads require the report's nonblank `scanId`; offset defaults to zero and limit to 100, capped at 1000.
 Malformed/fractional/overflowing inputs, negative offsets, and nonpositive limits are rejected. Responses contain
-`scanId`, `ruleId`, full `violationCount`, `retainedCount`, `truncated`, `violations`, and
-`page: {total, matched, offset, limit, returned, hasMore}`. Page totals count retained entries; a terminal page does not
-prove complete retention. Offsets at/beyond the retained end return an empty terminal page. Unknown/non-finding
+`scanId`, `ruleId`, full `violationCount`, `retainedCount`, `truncated`, `violations`,
+`page: {total, matched, offset, limit, returned, hasMore}`, and `locations`. Page totals count retained entries; a
+terminal page does not prove complete retention. Offsets at/beyond the retained end return an empty terminal page. Unknown/non-finding
 rules return 404; missing or stale snapshots return 409 with cached-report refresh guidance. Dismissed findings are
 retrievable. Reads obey panel availability, enabled and safety policy, but are allowed in read-only mode, and never
 rescan or collect new observations.
+
+Architecture, REST API, and Hibernate results add `sampleLocations`, aligned index-for-index with `sampleViolations`,
+and their pages fill `locations`, aligned with `violations`. Each non-null entry is an
+`AdvisorViolationLocationDto {className, memberName, kind, sourceFile, line, sourcePath, precision}` for the one code
+element the finding names; an empty list means no listed violation has one, which is always the case for the other
+advisors. Locations are captured from scan evidence and completed with a local source path only during an explicit
+scan; detail reads never resolve them again. See [violation locations](features/advisors.md#violation-locations).
 
 The UI offers **View violations** only on demand when more findings exist, then bounded inline Previous/Next and
 **Back to samples**. It retains samples/the last page through loading or failure, provides Retry or an explicit

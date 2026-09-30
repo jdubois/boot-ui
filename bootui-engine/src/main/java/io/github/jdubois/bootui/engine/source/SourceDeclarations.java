@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.engine.architecture;
+package io.github.jdubois.bootui.engine.source;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -9,17 +9,18 @@ import java.util.Set;
 /**
  * Conservative ownership reader, not a Java/Kotlin parser. Only package and top-level type names
  * are needed; comments, literals and nested declarations must never establish source ownership.
+ * Shared by the Architecture advisor's generated-source provenance and the {@link SourceLocator}.
  */
-record GeneratedSourceDeclarations(String packageName, Set<String> typeNames) {
-    GeneratedSourceDeclarations {
+public record SourceDeclarations(String packageName, Set<String> typeNames) {
+    public SourceDeclarations {
         typeNames = Set.copyOf(typeNames);
     }
 
-    static GeneratedSourceDeclarations read(String source) throws IOException {
+    public static SourceDeclarations read(String source) throws IOException {
         return read(source, false);
     }
 
-    static GeneratedSourceDeclarations read(String source, boolean kotlin) throws IOException {
+    public static SourceDeclarations read(String source, boolean kotlin) throws IOException {
         if (!kotlin) source = translateJavaUnicode(source);
         List<String> tokens = tokens(source, kotlin);
         String packageName = "";
@@ -69,7 +70,7 @@ record GeneratedSourceDeclarations(String packageName, Set<String> typeNames) {
             if (braces < 0 || parentheses < 0 || brackets < 0) throw unsupported();
         }
         if (braces != 0 || parentheses != 0 || brackets != 0) throw unsupported();
-        return new GeneratedSourceDeclarations(packageName, types);
+        return new SourceDeclarations(packageName, types);
     }
 
     private static int adjacentToken(List<String> tokens, int position, int direction) {

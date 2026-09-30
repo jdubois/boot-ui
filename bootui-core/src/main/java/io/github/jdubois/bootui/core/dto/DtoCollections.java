@@ -63,6 +63,23 @@ final class DtoCollections {
     }
 
     /**
+     * Returns an immutable copy of {@code locations} aligned index-for-index with {@code texts}, or an empty
+     * list when no entry carries a location. A {@code null} element means that one text has no location.
+     *
+     * @throws IllegalArgumentException when a non-empty location list does not match the text list's size
+     */
+    static <T> List<T> alignedCopy(List<?> texts, List<T> locations) {
+        List<T> copy = immutableCopy(locations);
+        if (copy.isEmpty() || copy.stream().allMatch(java.util.Objects::isNull)) {
+            return List.of();
+        }
+        if (copy.size() != (texts == null ? 0 : texts.size())) {
+            throw new IllegalArgumentException("Locations must align index-for-index with their violations.");
+        }
+        return copy;
+    }
+
+    /**
      * Returns an unmodifiable copy of {@code values}, preserving iteration order.
      *
      * @param values the caller-owned map, possibly {@code null}

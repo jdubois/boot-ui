@@ -30,6 +30,43 @@ import org.junit.jupiter.params.provider.ValueSource;
 class AdvisorScanStateTests {
 
     @Test
+    void everyPageCarriesLocationsAlignedWithItsViolationsAndTheMetadataCarriesTheNotes() {
+        AdvisorScanState<Report> state = state();
+        AdvisorViolationCollector collector = state.collector();
+        List<AdvisorViolation> findings = new ArrayList<>();
+        for (int index = 0; index < 7; index++) {
+            findings.add(
+                    index % 3 == 1
+                            ? AdvisorViolation.of("finding-" + index)
+                            : new AdvisorViolation(
+                                    "finding-" + index,
+                                    new io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto(
+                                            "a.Type" + index, null, null, "Type" + index + ".java", index + 1, null)));
+        }
+        collector.record("rule", 7, findings, UnaryOperator.identity(), 0);
+        collector.record("plain", 2, List.of("x", "y"), UnaryOperator.identity());
+        collector.addLocationNotes(List.of("2 class(es) were loaded from an archive."));
+        Report published = state.publish(new Report("scan", 1, null), collector);
+        String scanId = published.violationDetails().scanId();
+        assertThat(published.violationDetails().locationNotes())
+                .containsExactly("2 class(es) were loaded from an archive.");
+
+        for (int offset = 0; offset < 7; offset += 3) {
+            AdvisorRuleViolationsDto page = state.ruleViolations("rule", scanId, offset, 3);
+            assertThat(page.locations()).hasSameSizeAs(page.violations());
+            for (int index = 0; index < page.violations().size(); index++) {
+                int number = offset + index;
+                assertThat(page.violations().get(index)).isEqualTo("finding-" + number);
+                if (number % 3 == 1) assertThat(page.locations().get(index)).isNull();
+                else assertThat(page.locations().get(index).className()).isEqualTo("a.Type" + number);
+            }
+        }
+        // A page on which no violation is located carries no location data at all.
+        assertThat(state.ruleViolations("rule", scanId, 1, 1).locations()).isEmpty();
+        assertThat(state.ruleViolations("plain", scanId, 0, 10).locations()).isEmpty();
+    }
+
+    @Test
     void initialReportIsStableAndDoesNotEstablishADetailSnapshot() {
         AdvisorScanState<Report> state = state();
         AtomicInteger reads = new AtomicInteger();

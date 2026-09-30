@@ -130,4 +130,18 @@ class TextRendererTests {
 
         assertThat(text).doesNotContain("\u001B").isEqualTo("a [2Jb: 1");
     }
+
+    @Test
+    void advisorViolationLocationsStayReadableBesideTheirViolations() {
+        String text = render("{\"violations\":[\"Method <a.B.place()> calls System.out\",\"Cycle a -> b\"],"
+                + "\"locations\":[{\"className\":\"a.B\",\"memberName\":\"place\",\"kind\":\"METHOD\","
+                + "\"sourceFile\":\"B.java\",\"line\":42,\"sourcePath\":\"/work/B.java\",\"precision\":\"LINE\"},"
+                + "null]}");
+
+        assertThat(text)
+                .contains("violations (2)", "- Method <a.B.place()> calls System.out", "- Cycle a -> b")
+                .contains("locations (2)", "className: a.B", "memberName: place", "line: 42")
+                .contains("sourcePath: /work/B.java", "precision: LINE")
+                .contains("  - -");
+    }
 }

@@ -209,6 +209,12 @@ The seven MCP tools are `get_architecture_rule_violations`, `get_hibernate_rule_
 `id` and `scanId`, optional integer `offset` (default zero, nonnegative) and `limit` (default 100, positive,
 capped at `min(1000, transport max-results)`). Obtain `scanId` from `get_<advisor>_report` first.
 
+Architecture, REST API, and Hibernate reports and pages also carry structured locations: `sampleLocations` aligned
+with `sampleViolations`, and `locations` aligned with `violations` (a `null` entry has no location). Each gives
+`className`, `memberName`, `kind`, `sourceFile`, `line`, `sourcePath`, and `precision` (`LINE`, `MEMBER`, `CLASS`).
+Open `sourcePath` at `line` to go straight to the code; `violationDetails.locationNotes` explains a missing path.
+Never parse a location out of the violation text.
+
 Keep the rule and scan ID fixed, advance the offset by `page.returned`, and stop when `page.hasMore` is false.
 `page.total` and `page.matched` count retained entries, not the full `violationCount`. Inspect rule/report
 `truncated`: retention overflow means even a terminal page is incomplete. Report `violationDetails` contains

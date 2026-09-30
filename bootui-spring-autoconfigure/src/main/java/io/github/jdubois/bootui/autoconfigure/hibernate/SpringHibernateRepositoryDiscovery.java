@@ -160,7 +160,8 @@ final class SpringHibernateRepositoryDiscovery {
                 modifying.isPresent() && modifying.getBoolean("clearAutomatically"),
                 modifying.isPresent() && modifying.getBoolean("flushAutomatically"),
                 Arrays.asList(method.getParameterTypes()),
-                evidence);
+                evidence,
+                method.getDeclaringClass());
     }
 
     private static List<String> collectionParameterBindings(Object metadata, Method method) {

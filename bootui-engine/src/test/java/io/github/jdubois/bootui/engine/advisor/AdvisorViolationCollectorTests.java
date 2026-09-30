@@ -206,4 +206,62 @@ class AdvisorViolationCollectorTests {
         assertThat(collector.snapshot().total()).isEqualTo(Integer.MAX_VALUE);
         assertThat(collector.snapshot().rules().keySet()).containsExactly("rule");
     }
+
+    @Test
+    void samplesAreCutFromTheRetainedRecordsAndKeepTheirLocationsWhateverTheBudget() {
+        io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto first =
+                new io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto(
+                        "a.First", "m", "METHOD", "First.java", 3, null);
+        io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto third =
+                new io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto(
+                        "a.Third", null, null, "Third.java", null, null);
+        List<AdvisorViolation> findings = List.of(
+                new AdvisorViolation("first", first),
+                AdvisorViolation.of("second"),
+                new AdvisorViolation("third", third));
+        AdvisorViolationCollector collector = new AdvisorViolationCollector(2);
+
+        List<AdvisorViolation> samples = collector.record("rule", 3, findings, String::toUpperCase, 10);
+
+        assertThat(samples)
+                .containsExactly(
+                        new AdvisorViolation("FIRST", first),
+                        new AdvisorViolation("SECOND", null),
+                        new AdvisorViolation("THIRD", third));
+        AdvisorViolationCollector.Rule rule = collector.snapshot().rules().get("rule");
+        assertThat(rule.violations()).containsExactlyElementsOf(samples.subList(0, 2));
+        assertThat(AdvisorViolation.locations(rule.violations())).containsExactly(first, null);
+        assertThat(AdvisorViolation.locations(List.of(AdvisorViolation.of("x"))))
+                .isEmpty();
+
+        assertThat(collector.record("exhausted", 1, List.of(new AdvisorViolation("late", first)), s -> s, 1))
+                .containsExactly(new AdvisorViolation("late", first));
+        assertThat(collector.snapshot().rules().get("exhausted").violations()).isEmpty();
+    }
+
+    @Test
+    void locationCompletionChangesOnlyLocationsAndNotesTravelWithTheSnapshot() {
+        io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto located =
+                new io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto(
+                        "a.B", "m", "METHOD", "B.java", 9, null);
+        AdvisorViolationCollector collector = new AdvisorViolationCollector(10);
+        collector.record(
+                "rule", 2, List.of(new AdvisorViolation("one", located), AdvisorViolation.of("two")), s -> s, 0);
+        List<io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto> seen = new ArrayList<>();
+        collector.forEachLocation(seen::add);
+        assertThat(seen).containsExactly(located);
+
+        collector.mapLocations(location -> location.withSourcePath("/work/B.java"));
+        collector.addLocationNotes(List.of("One class kept no path."));
+
+        AdvisorViolationCollector.Snapshot snapshot = collector.snapshot();
+        assertThat(snapshot.rules().get("rule").details()).containsExactly("one", "two");
+        assertThat(snapshot.rules().get("rule").violations().get(0).location().sourcePath())
+                .isEqualTo("/work/B.java");
+        assertThat(snapshot.rules().get("rule").violations().get(1).location()).isNull();
+        assertThat(snapshot.total()).isEqualTo(2);
+        assertThat(snapshot.locationNotes()).containsExactly("One class kept no path.");
+        assertThatThrownBy(() -> collector.record("rule", 1, List.of(AdvisorViolation.of("x")), s -> s, -1))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }
