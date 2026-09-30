@@ -63,8 +63,8 @@ jobs:
           -am test
 
       - name: Exercise Quarkus sample app augmentation
-        # Ensures Quarkus build-time augmentation runs on supported JDKs (17/21/25) and
-        # catches ByteBuddy/build-plugin regressions without running browser tests. On JDK 26+
+        # Ensures Quarkus build-time augmentation runs on JDK 17 to 27 and catches
+        # ByteBuddy/build-plugin regressions without running browser tests. On JDK 28+
         # the module's own skip profile unbinds augmentation, so this only proves plain
         # compile + jar there.
         run: ./mvnw -T 1C -B -ntp -pl bootui-quarkus-sample-app -am -DskipTests install
