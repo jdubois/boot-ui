@@ -700,6 +700,19 @@ class BootUiAutoConfigurationTests {
     }
 
     @Test
+    void slowClassificationIsOffWhenTimeTakenIsNotRecorded() {
+        runner.withPropertyValues(
+                        "bootui.enabled=ON",
+                        "management.httpexchanges.recording.include=request-headers,response-headers")
+                .run(context -> {
+                    BootUiHttpExchangeRepository repository =
+                            (BootUiHttpExchangeRepository) context.getBean(HttpExchangeRepository.class);
+                    assertThat(repository.retention(repository.snapshot()).slowThresholdMillis())
+                            .isZero();
+                });
+    }
+
+    @Test
     void disabledRecordingKeepsBootUiRetention() {
         runner.withPropertyValues("bootui.enabled=ON", "management.httpexchanges.recording.enabled=false")
                 .run(context -> assertThat(

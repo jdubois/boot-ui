@@ -18,7 +18,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   panels state how many records they keep, how many sit in the reserved share, and how many were evicted, and their
   reports, MCP tools, and CLI commands gain an additive `retention` object with the same counts. On Spring, an
   application-provided `HttpExchangeRepository` or recording filter is never replaced and its retention is reported
-  as application-managed ([PLAN §3.24a](docs/PLAN.md#_3-24-failure-preserving-retention-and-ignore-rules-diagnostics-planned)).
+  as application-managed ([Failure-preserving retention](docs/features/diagnostics.md#failure-preserving-retention)).
 
 ### Changed
 

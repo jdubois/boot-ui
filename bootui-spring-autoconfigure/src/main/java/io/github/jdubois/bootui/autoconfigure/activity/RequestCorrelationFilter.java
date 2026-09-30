@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.activity;
 
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationRegistry.RequestCorrelation;
+import io.github.jdubois.bootui.autoconfigure.web.BootUiMounts;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry.HttpExchangeTrace;
 import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
@@ -13,6 +14,7 @@ import java.net.URI;
 import org.slf4j.MDC;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.servlet.HandlerMapping;
+import org.springframework.web.util.UrlPathHelper;
 
 /**
  * Records, for every application request, which worker thread served it, its wall-clock window, and the
@@ -33,26 +35,31 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
 
     private final RequestCorrelationRegistry registry;
     private final HttpExchangeTraceRegistry traceRegistry;
-    private final String bootUiPathPrefix;
+    private final String bootUiPath;
+    private final String bootUiApiPath;
     private final long requestSlowThresholdMs;
 
     public RequestCorrelationFilter(
-            RequestCorrelationRegistry registry, HttpExchangeTraceRegistry traceRegistry, String bootUiPathPrefix) {
-        this(registry, traceRegistry, bootUiPathPrefix, RequestSlowThreshold.DEFAULT_MILLIS);
+            RequestCorrelationRegistry registry, HttpExchangeTraceRegistry traceRegistry, String bootUiPath) {
+        this(registry, traceRegistry, bootUiPath, null, RequestSlowThreshold.DEFAULT_MILLIS);
     }
 
     /**
+     * @param bootUiPath {@code bootui.path}
+     * @param bootUiApiPath {@code bootui.api-path}
      * @param requestSlowThresholdMs {@code bootui.activity.request-slow-threshold-ms}, so a slow request's trace
      *     record is retained as long as its exchange
      */
     public RequestCorrelationFilter(
             RequestCorrelationRegistry registry,
             HttpExchangeTraceRegistry traceRegistry,
-            String bootUiPathPrefix,
+            String bootUiPath,
+            String bootUiApiPath,
             long requestSlowThresholdMs) {
         this.registry = registry;
         this.traceRegistry = traceRegistry;
-        this.bootUiPathPrefix = bootUiPathPrefix;
+        this.bootUiPath = bootUiPath;
+        this.bootUiApiPath = bootUiApiPath;
         this.requestSlowThresholdMs = requestSlowThresholdMs;
     }
 
@@ -120,10 +127,14 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
         }
     }
 
+    /**
+     * Skips BootUI's own requests, matched on the decoded path below the context path exactly as BootUI's recording
+     * filter matches them, so this filter's trace records and the recorded exchanges cover the same requests.
+     */
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        String uri = request.getRequestURI();
-        return uri != null && bootUiPathPrefix != null && uri.startsWith(bootUiPathPrefix);
+        return BootUiMounts.contains(
+                UrlPathHelper.defaultInstance.getPathWithinApplication(request), bootUiPath, bootUiApiPath);
     }
 
     @Override

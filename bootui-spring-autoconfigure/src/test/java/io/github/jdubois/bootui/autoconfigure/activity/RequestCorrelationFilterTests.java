@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationRegistry.RequestCorrelation;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry;
+import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
@@ -102,7 +103,8 @@ class RequestCorrelationFilterTests {
     void reservesTraceRecordsOfFailedThrowingAndSlowRequests() throws Exception {
         RequestCorrelationRegistry registry = new RequestCorrelationRegistry(10);
         HttpExchangeTraceRegistry traceRegistry = new HttpExchangeTraceRegistry(4, 75);
-        RequestCorrelationFilter filter = new RequestCorrelationFilter(registry, traceRegistry, "/bootui", 1L);
+        RequestCorrelationFilter filter =
+                new RequestCorrelationFilter(registry, traceRegistry, "/bootui", "/bootui/api", 1L);
         MockHttpServletResponse serverError = new MockHttpServletResponse();
         serverError.setStatus(503);
         filter.doFilter(new MockHttpServletRequest("GET", "/api/failing"), serverError, new MockFilterChain());
@@ -124,7 +126,8 @@ class RequestCorrelationFilterTests {
                         Thread.currentThread().interrupt();
                     }
                 });
-        RequestCorrelationFilter routineFilter = new RequestCorrelationFilter(registry, traceRegistry, "/bootui", 0L);
+        RequestCorrelationFilter routineFilter =
+                new RequestCorrelationFilter(registry, traceRegistry, "/bootui", "/bootui/api", 0L);
         for (int i = 0; i < 10; i++) {
             routineFilter.doFilter(
                     new MockHttpServletRequest("GET", "/api/ok-" + i),
@@ -140,8 +143,8 @@ class RequestCorrelationFilterTests {
     @Test
     void classifiesAnyEscapingExceptionAsAServerErrorAsActuatorRecordsIt() throws Exception {
         HttpExchangeTraceRegistry traceRegistry = new HttpExchangeTraceRegistry(2, 50);
-        RequestCorrelationFilter filter =
-                new RequestCorrelationFilter(new RequestCorrelationRegistry(10), traceRegistry, "/bootui", 0L);
+        RequestCorrelationFilter filter = new RequestCorrelationFilter(
+                new RequestCorrelationRegistry(10), traceRegistry, "/bootui", "/bootui/api", 0L);
         try {
             filter.doFilter(
                     new MockHttpServletRequest("GET", "/api/missing"),
@@ -163,5 +166,25 @@ class RequestCorrelationFilterTests {
         assertThat(traceRegistry.recent())
                 .extracting(HttpExchangeTraceRegistry.HttpExchangeTrace::path)
                 .containsExactly("/api/missing", "/api/ok-4");
+    }
+
+    @Test
+    void skipsBootUiRequestsBelowTheContextPathAndOnASeparateApiMount() throws Exception {
+        RequestCorrelationRegistry registry = new RequestCorrelationRegistry(10);
+        HttpExchangeTraceRegistry traceRegistry = new HttpExchangeTraceRegistry(10);
+        RequestCorrelationFilter filter =
+                new RequestCorrelationFilter(registry, traceRegistry, "/console", "/internal/console-api", 1_000L);
+
+        for (String path : List.of("/console/index.html", "/internal/console-api/activity", "/api/orders")) {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/host" + path);
+            request.setContextPath("/host");
+            request.setQueryString("next=/console");
+            filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+        }
+
+        assertThat(registry.snapshot()).extracting(RequestCorrelation::path).containsExactly("/host/api/orders");
+        assertThat(traceRegistry.recent())
+                .extracting(HttpExchangeTraceRegistry.HttpExchangeTrace::path)
+                .containsExactly("/host/api/orders");
     }
 }

@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.reactive;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.web.BootUiHttpExchangeRepository;
+import io.github.jdubois.bootui.autoconfigure.web.BootUiMounts;
 import java.util.Set;
 import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
 import org.springframework.boot.actuate.web.exchanges.Include;
@@ -48,12 +49,6 @@ public class BootUiHttpExchangesWebFilter extends HttpExchangesWebFilter {
     }
 
     private boolean isBootUiPath(String requestPath) {
-        return isSameOrChild(requestPath, path) || isSameOrChild(requestPath, apiPath);
-    }
-
-    private static boolean isSameOrChild(String requestPath, String mount) {
-        return requestPath != null
-                && mount != null
-                && (requestPath.equals(mount) || requestPath.startsWith(mount + "/"));
+        return BootUiMounts.contains(requestPath, path, apiPath);
     }
 }

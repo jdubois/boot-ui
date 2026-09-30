@@ -82,10 +82,16 @@ public final class HttpExchangesService {
                 visible.size(), captured.size(), hiddenSelf, page.items(), page.page(), null, retention);
     }
 
+    /**
+     * Whether an exchange is BootUI's own traffic, judged on its path only: a query string that merely mentions a
+     * BootUI path, such as {@code ?next=/bootui}, never hides an application request.
+     */
     private boolean isSelfExchange(CapturedHttpExchange exchange, BootUiSelfPath selfFilter) {
-        return exchange.uri() != null
-                && selfFilter != null
-                && selfFilter.isBootUiPath(exchange.uri().toString());
+        if (exchange.uri() == null || selfFilter == null) {
+            return false;
+        }
+        String path = exchange.uri().getRawPath();
+        return selfFilter.isBootUiPath(path == null ? exchange.uri().toString() : path);
     }
 
     private HttpExchangeDto toDto(CapturedHttpExchange exchange, boolean maskSecrets, ValueExposure exposure) {

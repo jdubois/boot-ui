@@ -962,11 +962,15 @@ public class BootUiReactiveAutoConfiguration {
         @Bean(BOOTUI_HTTP_EXCHANGE_REPOSITORY_BEAN)
         @ConditionalOnMissingBean(HttpExchangeRepository.class)
         HttpExchangeRepository bootUiReactiveHttpExchangeRepository(
-                BootUiProperties properties, ListableBeanFactory beanFactory) {
+                BootUiProperties properties,
+                HttpExchangesProperties exchangesProperties,
+                ListableBeanFactory beanFactory) {
             return new BootUiHttpExchangeRepository(
                     properties.getHttpExchanges().getMaxExchanges(),
                     properties.getHttpExchanges().getReservedSharePercent(),
-                    properties.getActivity().getRequestSlowThresholdMs(),
+                    BootUiHttpExchangeRepository.slowThresholdMillis(
+                            properties.getActivity().getRequestSlowThresholdMs(),
+                            exchangesProperties.getRecording().getInclude()),
                     BootUiHttpExchangeRepository.isRecordedByApplication(
                             beanFactory, HttpExchangesWebFilter.class, BOOTUI_HTTP_EXCHANGES_WEB_FILTER_BEAN));
         }

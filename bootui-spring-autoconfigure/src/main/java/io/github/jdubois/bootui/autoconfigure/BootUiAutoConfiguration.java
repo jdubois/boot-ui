@@ -306,11 +306,15 @@ public class BootUiAutoConfiguration {
         @Bean
         @ConditionalOnMissingBean(HttpExchangeRepository.class)
         HttpExchangeRepository bootUiHttpExchangeRepository(
-                BootUiProperties properties, ListableBeanFactory beanFactory) {
+                BootUiProperties properties,
+                HttpExchangesProperties exchangesProperties,
+                ListableBeanFactory beanFactory) {
             return new BootUiHttpExchangeRepository(
                     properties.getHttpExchanges().getMaxExchanges(),
                     properties.getHttpExchanges().getReservedSharePercent(),
-                    properties.getActivity().getRequestSlowThresholdMs(),
+                    BootUiHttpExchangeRepository.slowThresholdMillis(
+                            properties.getActivity().getRequestSlowThresholdMs(),
+                            exchangesProperties.getRecording().getInclude()),
                     BootUiHttpExchangeRepository.isRecordedByApplication(
                             beanFactory, HttpExchangesFilter.class, BOOTUI_HTTP_EXCHANGES_FILTER_BEAN));
         }
@@ -969,6 +973,7 @@ public class BootUiAutoConfiguration {
                         registry,
                         traceRegistry,
                         properties.getPath(),
+                        properties.getApiPath(),
                         properties.getActivity().getRequestSlowThresholdMs()));
         registration.addUrlPatterns("/*");
         registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE + 100);

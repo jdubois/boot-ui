@@ -4,9 +4,11 @@ import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
 import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import java.util.List;
+import java.util.Set;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.boot.actuate.web.exchanges.HttpExchange;
 import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
+import org.springframework.boot.actuate.web.exchanges.Include;
 
 /**
  * BootUI's fallback {@link HttpExchangeRepository}, registered only when the application defines none.
@@ -61,6 +63,15 @@ public final class BootUiHttpExchangeRepository implements HttpExchangeRepositor
             }
         }
         return false;
+    }
+
+    /**
+     * The slow threshold the repository can honestly apply: {@code requestSlowThresholdMs}, or {@code 0} (slow
+     * classification off, only {@code 5xx} reserved) when {@code management.httpexchanges.recording.include} omits
+     * {@code time-taken}, because the recorded exchanges then carry no duration.
+     */
+    public static long slowThresholdMillis(long requestSlowThresholdMs, Set<Include> includes) {
+        return includes != null && includes.contains(Include.TIME_TAKEN) ? requestSlowThresholdMs : 0L;
     }
 
     @Override

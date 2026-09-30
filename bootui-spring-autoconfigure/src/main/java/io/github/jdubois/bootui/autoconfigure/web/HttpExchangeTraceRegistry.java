@@ -91,25 +91,45 @@ public final class HttpExchangeTraceRegistry {
      * than one candidate (see {@code RequestCorrelationRegistry#match} for why uniqueness is required).
      */
     public String match(String method, String path, long start, long end) {
-        if (method == null || path == null) {
-            return null;
+        return matcher().match(method, path, start, end);
+    }
+
+    /** A matcher over one snapshot of the retained records, for a caller that matches many exchanges at once. */
+    public Matcher matcher() {
+        return new Matcher(buffer.newestFirst());
+    }
+
+    /** Matches exchanges against one snapshot of the retained records. */
+    public static final class Matcher {
+
+        private final List<HttpExchangeTrace> traces;
+
+        private Matcher(List<HttpExchangeTrace> traces) {
+            this.traces = traces;
         }
-        long slack = 50L;
-        HttpExchangeTrace found = null;
-        // Uniqueness, not order, decides the match, so the newest-first snapshot is read as is.
-        for (HttpExchangeTrace candidate : buffer.newestFirst()) {
-            if (!method.equalsIgnoreCase(candidate.method()) || !path.equals(candidate.path())) {
-                continue;
-            }
-            if (candidate.startMillis() > end + slack || candidate.endMillis() < start - slack) {
-                continue;
-            }
-            if (found != null) {
+
+        /** See {@link HttpExchangeTraceRegistry#match}. */
+        public String match(String method, String path, long start, long end) {
+            if (method == null || path == null) {
                 return null;
             }
-            found = candidate;
+            long slack = 50L;
+            HttpExchangeTrace found = null;
+            // Uniqueness, not order, decides the match, so the newest-first snapshot is read as is.
+            for (HttpExchangeTrace candidate : traces) {
+                if (!method.equalsIgnoreCase(candidate.method()) || !path.equals(candidate.path())) {
+                    continue;
+                }
+                if (candidate.startMillis() > end + slack || candidate.endMillis() < start - slack) {
+                    continue;
+                }
+                if (found != null) {
+                    return null;
+                }
+                found = candidate;
+            }
+            return found == null || found.traceId() == null || found.traceId().isBlank() ? null : found.traceId();
         }
-        return found == null || found.traceId() == null || found.traceId().isBlank() ? null : found.traceId();
     }
 
     /**

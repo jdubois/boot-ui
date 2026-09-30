@@ -153,4 +153,23 @@ class ActivityCaptureCoordinatorTests {
                         .filter(e -> "failure".equals(e.entry().id())))
                 .hasSize(1);
     }
+
+    @Test
+    void routineWarningsDoNotEvictAReservedFailureFromTheReservedWindow() {
+        RecordingStore store = new RecordingStore();
+        ActivityCaptureCoordinator coordinator =
+                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 1);
+        ActivityEntryDto failure = entry("failure", "REQUEST", 1, "ERROR", "boom");
+
+        coordinator.ingest(List.of(failure));
+        for (int i = 0; i < 40; i++) {
+            // 4xx exchanges are WARN in the stream but routine in the exchange buffer.
+            coordinator.ingest(List.of(entry("not-found-" + i, "REQUEST", i + 2, "WARN", "404")));
+        }
+        coordinator.ingest(List.of(failure));
+
+        assertThat(store.allAppended.stream()
+                        .filter(e -> "failure".equals(e.entry().id())))
+                .hasSize(1);
+    }
 }

@@ -44,12 +44,6 @@ public class BootUiHttpExchangesFilter extends HttpExchangesFilter {
     }
 
     private boolean isBootUiPath(String requestPath) {
-        return isSameOrChild(requestPath, path) || isSameOrChild(requestPath, apiPath);
-    }
-
-    private static boolean isSameOrChild(String requestPath, String mount) {
-        return requestPath != null
-                && mount != null
-                && (requestPath.equals(mount) || requestPath.startsWith(mount + "/"));
+        return BootUiMounts.contains(requestPath, path, apiPath);
     }
 }

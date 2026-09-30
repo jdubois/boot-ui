@@ -91,8 +91,9 @@ public class HttpExchangesController {
             exchanges = exchangeRepository.findAll();
             retention = CaptureRetentionDto.applicationManaged(exchanges.size());
         }
+        HttpExchangeTraceRegistry.Matcher traces = traceRegistry == null ? null : traceRegistry.matcher();
         List<CapturedHttpExchange> captured =
-                exchanges.stream().map(this::toCaptured).toList();
+                exchanges.stream().map(exchange -> toCaptured(exchange, traces)).toList();
         return service.report(
                 captured,
                 uri -> !selfDataFilter.shouldInclude(selfDataFilter.isBootUiPath(uri)),
@@ -106,7 +107,7 @@ public class HttpExchangesController {
                 retention);
     }
 
-    private CapturedHttpExchange toCaptured(HttpExchange exchange) {
+    private CapturedHttpExchange toCaptured(HttpExchange exchange, HttpExchangeTraceRegistry.Matcher traces) {
         HttpExchange.Request request = exchange.getRequest();
         HttpExchange.Response response = exchange.getResponse();
         Long durationMs =
@@ -122,7 +123,7 @@ public class HttpExchangesController {
                 exchange.getSession() == null ? null : exchange.getSession().getId(),
                 request == null ? null : request.getHeaders(),
                 response == null ? null : response.getHeaders(),
-                capturedTraceId(exchange, request, durationMs));
+                capturedTraceId(traces, exchange, request, durationMs));
     }
 
     /**
@@ -131,12 +132,16 @@ public class HttpExchangesController {
      * registry is installed (or OpenTelemetry is absent on the reactive adapter) so callers fall back to
      * header-derived extraction unchanged.
      */
-    private String capturedTraceId(HttpExchange exchange, HttpExchange.Request request, Long durationMs) {
-        if (traceRegistry == null || request == null || exchange.getTimestamp() == null) {
+    private static String capturedTraceId(
+            HttpExchangeTraceRegistry.Matcher traces,
+            HttpExchange exchange,
+            HttpExchange.Request request,
+            Long durationMs) {
+        if (traces == null || request == null || exchange.getTimestamp() == null) {
             return null;
         }
         long start = exchange.getTimestamp().toEpochMilli();
         long end = durationMs == null ? start : start + durationMs;
-        return traceRegistry.match(request.getMethod(), request.getUri().getPath(), start, end);
+        return traces.match(request.getMethod(), request.getUri().getPath(), start, end);
     }
 }

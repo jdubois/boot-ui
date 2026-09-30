@@ -651,7 +651,7 @@ buffering/flush, merge-for-reads, re-queue-on-failure, the flush guard, and mult
 | -------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------- |
 | `bootui.panels.http-exchanges.enabled`       | `true`  | Show recent inbound HTTP exchanges and create a bounded in-memory recorder when none exists.    |
 | `bootui.http-exchanges.max-exchanges`        | `200`   | Maximum recent HTTP exchanges retained in memory. Requires restart because it sizes the buffer. |
-| `bootui.http-exchanges.reserved-share-percent` | `25`  | Percentage of `max-exchanges` reserved for the most recent `5xx` and slow exchanges (at or above `bootui.activity.request-slow-threshold-ms`), so routine requests are evicted first. `0` evicts strictly oldest first. Applies only while BootUI owns the recorder. Requires restart. |
+| `bootui.http-exchanges.reserved-share-percent` | `25`  | Percentage of `max-exchanges` reserved for the most recent `5xx` and slow exchanges (at or above `bootui.activity.request-slow-threshold-ms`), so routine requests are evicted first. `0` evicts strictly oldest first. Applies only while BootUI owns the recorder. On Spring, slow exchanges are reserved only while `management.httpexchanges.recording.include` records `time-taken`, which it does by default. Requires restart. |
 | `management.httpexchanges.recording.enabled` | `true`  | Spring Boot recorder switch. Set to `false` to disable capture while leaving the panel visible. |
 
 ### HTTP Probe

@@ -24,10 +24,11 @@ import java.util.Set;
  * timestamp cursor cannot reliably tell two same-millisecond entries apart. An id still present in the
  * current view is never evicted from that set, so a record the source buffers keep for a long time — such as
  * a failure held in a failure-preserving buffer's reserved share — is captured exactly once while it stays
- * visible. Entries whose severity is not {@code OK} are also remembered in a second window of the same size,
- * which routine traffic never evicts, so such a failure is still recognized when newer routine entries hide it
- * from a capped view and it later reappears. Both sets stay bounded by the configured window plus the size of
- * the view. The trade-off
+ * visible. The entries a failure-preserving buffer reserves — {@code ERROR} and {@code SLOW} entries, and
+ * {@code WARN} error responses of outbound REST calls — are also remembered in a second window of the same size,
+ * which other traffic never evicts, so such a record is still recognized when newer entries hide it from a
+ * capped view and it later reappears, unless more reserved entries than that window holds arrived meanwhile.
+ * Both sets stay bounded by the configured window plus the size of the view. The trade-off
  * is deliberately simple and documented: if more distinct new entries appear between two polls than the
  * configured window can hold, the oldest ones may be evicted from the "seen" set and — if also no
  * longer present in the next poll's bounded merged view — never captured. Lowering the poll interval or
@@ -75,7 +76,7 @@ public final class ActivityCaptureCoordinator {
                 }
                 toCapture.add(sequencer.stamp(entry));
                 seenIds.add(id);
-                if (entry.severity() != null && !"OK".equals(entry.severity())) {
+                if (isReservedClass(entry)) {
                     seenNotableIds.add(id);
                 }
             }
@@ -85,6 +86,14 @@ public final class ActivityCaptureCoordinator {
         if (!toCapture.isEmpty()) {
             store.appendBatch(toCapture);
         }
+    }
+
+    /** Whether a failure-preserving capture buffer reserves the record behind this entry. */
+    private static boolean isReservedClass(ActivityEntryDto entry) {
+        String severity = entry.severity();
+        return "ERROR".equals(severity)
+                || "SLOW".equals(severity)
+                || ("WARN".equals(severity) && "REST_CLIENT".equals(entry.type()));
     }
 
     /** Evicts the oldest ids beyond the capacity, keeping every id still present in the current view. */

@@ -114,7 +114,8 @@ public final class SqlTraceInsightsService {
             if (recorder.getReservedCapacity() > 0) {
                 notes.add("Failed and slow executions are kept longer than routine ones (up to "
                         + recorder.getReservedCapacity() + " of the buffer), so the window can over-represent "
-                        + "them relative to the traffic that produced them.");
+                        + "them relative to the traffic that produced them, and an older one can land in "
+                        + "Unattributed once the request that issued it has aged out.");
             }
         }
         if (!recorder.isRecording()) {
