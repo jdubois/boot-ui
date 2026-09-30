@@ -1,5 +1,8 @@
 package io.github.jdubois.bootui.engine.jms;
 
+import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -40,7 +43,68 @@ public final class JmsActivityRecorder {
             boolean success,
             String failureType,
             String subscriptionName,
-            String listenerId) {}
+            String listenerId,
+
+            String requestId,
+
+            String executionId) {
+
+        /** Without BootUI's execution identity. */
+        public CapturedMessage(
+                long id,
+                long timestamp,
+                Direction direction,
+                String destination,
+                String messageId,
+                Long durationMillis,
+                boolean success,
+                String failureType,
+                String subscriptionName,
+                String listenerId,
+                String requestId) {
+
+            this(
+                    id,
+                    timestamp,
+                    direction,
+                    destination,
+                    messageId,
+                    durationMillis,
+                    success,
+                    failureType,
+                    subscriptionName,
+                    listenerId,
+                    requestId,
+                    null);
+        }
+
+        /** Without BootUI's execution identity. */
+        public CapturedMessage(
+                long id,
+                long timestamp,
+                Direction direction,
+                String destination,
+                String messageId,
+                Long durationMillis,
+                boolean success,
+                String failureType,
+                String subscriptionName,
+                String listenerId) {
+
+            this(
+                    id,
+                    timestamp,
+                    direction,
+                    destination,
+                    messageId,
+                    durationMillis,
+                    success,
+                    failureType,
+                    subscriptionName,
+                    listenerId,
+                    null);
+        }
+    }
 
     private final boolean enabled;
     private final boolean captureMessageId;
@@ -49,6 +113,7 @@ public final class JmsActivityRecorder {
 
     private final Deque<CapturedMessage> buffer = new ArrayDeque<>();
     private final Object lock = new Object();
+    private final CorrelationSource correlation = new CorrelationSource();
     private final AtomicLong sequence = new AtomicLong();
     private final AtomicLong totalCaptured = new AtomicLong();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
@@ -76,9 +141,27 @@ public final class JmsActivityRecorder {
         return maxMessageIdLength;
     }
 
+    /**
+     * Replaces the source of the correlation stamped on each message ({@code docs/PLAN-v2.md} §5.1): the sender's
+     * request or execution for an outgoing message, and the listener's own execution for a consumed one. Defaults to
+     * the thread's correlation scope; passing {@code null} restores it.
+     */
+    public void setCorrelationContextProvider(CorrelationContextProvider correlationProvider) {
+        correlation.set(correlationProvider);
+    }
+
     public void recordProduce(
             String destination, String messageId, Long durationMillis, boolean success, String failureType) {
-        record(Direction.PRODUCE, destination, messageId, durationMillis, success, failureType, null, null);
+        record(
+                Direction.PRODUCE,
+                destination,
+                messageId,
+                durationMillis,
+                success,
+                failureType,
+                null,
+                null,
+                correlation.current());
     }
 
     public void recordConsume(
@@ -97,7 +180,8 @@ public final class JmsActivityRecorder {
                 success,
                 failureType,
                 subscriptionName,
-                listenerId);
+                listenerId,
+                correlation.current());
     }
 
     private void record(
@@ -108,7 +192,8 @@ public final class JmsActivityRecorder {
             boolean success,
             String failureType,
             String subscriptionName,
-            String listenerId) {
+            String listenerId,
+            CorrelationContext context) {
         if (!enabled) {
             return;
         }
@@ -122,7 +207,9 @@ public final class JmsActivityRecorder {
                 success,
                 success ? null : truncate(failureType),
                 truncate(subscriptionName),
-                truncate(listenerId));
+                truncate(listenerId),
+                context.requestId(),
+                context.executionId());
         synchronized (lock) {
             buffer.addLast(entry);
             if (buffer.size() > maxEntries) {

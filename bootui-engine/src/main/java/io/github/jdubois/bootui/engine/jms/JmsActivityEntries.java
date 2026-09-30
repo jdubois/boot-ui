@@ -12,7 +12,21 @@ public final class JmsActivityEntries {
 
     private JmsActivityEntries() {}
 
+    /** The Live Activity entry id of {@code message}. */
+    public static String entryId(CapturedMessage message) {
+        return "jms-" + message.id();
+    }
+
+    /** The entry of {@code message}, top-level. */
     public static ActivityEntryDto toEntry(CapturedMessage message) {
+        return toEntry(message, null);
+    }
+
+    /**
+     * The entry of {@code message}, nested under {@code parentId}: an outgoing message under the request or
+     * execution that sent it ({@code docs/PLAN-v2.md} §5.1).
+     */
+    public static ActivityEntryDto toEntry(CapturedMessage message, String parentId) {
         String severity = message.success() ? SEVERITY_OK : SEVERITY_ERROR;
         String arrow = message.direction() == JmsActivityRecorder.Direction.PRODUCE ? "→" : "←";
         String destination = message.destination();
@@ -31,7 +45,7 @@ public final class JmsActivityEntries {
         }
 
         return new ActivityEntryDto(
-                "jms-" + message.id(),
+                entryId(message),
                 TYPE_MESSAGING,
                 message.timestamp(),
                 severity,
@@ -44,7 +58,7 @@ public final class JmsActivityEntries {
                 null,
                 null,
                 false,
-                null,
+                parentId,
                 null,
                 false);
     }

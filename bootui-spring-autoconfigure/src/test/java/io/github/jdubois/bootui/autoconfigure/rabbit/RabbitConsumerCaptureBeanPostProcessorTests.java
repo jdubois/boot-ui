@@ -52,6 +52,35 @@ class RabbitConsumerCaptureBeanPostProcessorTests {
     }
 
     @Test
+    void theListenerRunsAsAnExecutionThatItsBatchOutcomesShare() throws Throwable {
+        RabbitActivityRecorder recorder = new RabbitActivityRecorder(true, false, 10, 16);
+        SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
+        new RabbitConsumerCaptureBeanPostProcessor(provider(recorder))
+                .postProcessAfterInitialization(factory, "rabbitListenerContainerFactory");
+        MethodInvocation invocation = mock(MethodInvocation.class);
+        when(invocation.getArguments()).thenReturn(new Object[] {
+            mock(com.rabbitmq.client.Channel.class),
+            java.util.List.of(message("orders", "created"), message("orders", "updated"))
+        });
+        java.util.concurrent.atomic.AtomicReference<String> seen = new java.util.concurrent.atomic.AtomicReference<>();
+        when(invocation.proceed()).thenAnswer(ignored -> {
+            seen.set(io.github.jdubois.bootui.engine.correlation.BootUiCorrelation.current()
+                    .executionId());
+            return null;
+        });
+
+        ((MethodInterceptor) factory.getAdviceChain()[0]).invoke(invocation);
+
+        assertThat(seen.get()).matches("[0-9a-f]{16}");
+        assertThat(recorder.recent())
+                .extracting(RabbitActivityRecorder.CapturedMessage::executionId)
+                .containsExactly(seen.get(), seen.get());
+        assertThat(io.github.jdubois.bootui.engine.correlation.BootUiCorrelation.current()
+                        .isEmpty())
+                .isTrue();
+    }
+
+    @Test
     void capturesEveryMessageInABatchInvocation() throws Throwable {
         RabbitActivityRecorder recorder = new RabbitActivityRecorder(true, false, 10, 16);
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();

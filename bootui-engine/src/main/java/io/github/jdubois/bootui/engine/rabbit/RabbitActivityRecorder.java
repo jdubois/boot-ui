@@ -1,5 +1,8 @@
 package io.github.jdubois.bootui.engine.rabbit;
 
+import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -56,7 +59,63 @@ public final class RabbitActivityRecorder {
             Long durationMillis,
             boolean success,
             String errorMessage,
-            String correlationId) {}
+            String correlationId,
+            String requestId,
+            String executionId) {
+        /** Without BootUI's execution identity. */
+        public CapturedMessage(
+                long id,
+                long timestamp,
+                Direction direction,
+                String exchange,
+                String routingKey,
+                String queue,
+                Long durationMillis,
+                boolean success,
+                String errorMessage,
+                String correlationId,
+                String requestId) {
+            this(
+                    id,
+                    timestamp,
+                    direction,
+                    exchange,
+                    routingKey,
+                    queue,
+                    durationMillis,
+                    success,
+                    errorMessage,
+                    correlationId,
+                    requestId,
+                    null);
+        }
+
+        /** Without BootUI's execution identity. */
+        public CapturedMessage(
+                long id,
+                long timestamp,
+                Direction direction,
+                String exchange,
+                String routingKey,
+                String queue,
+                Long durationMillis,
+                boolean success,
+                String errorMessage,
+                String correlationId) {
+            this(
+                    id,
+                    timestamp,
+                    direction,
+                    exchange,
+                    routingKey,
+                    queue,
+                    durationMillis,
+                    success,
+                    errorMessage,
+                    correlationId,
+                    null);
+        }
+    }
 
     private final boolean enabled;
     private final boolean captureCorrelationId;
@@ -65,6 +124,7 @@ public final class RabbitActivityRecorder {
 
     private final Deque<CapturedMessage> buffer = new ArrayDeque<>();
     private final Object lock = new Object();
+    private final CorrelationSource correlation = new CorrelationSource();
     private final AtomicLong sequence = new AtomicLong();
     private final AtomicLong totalCaptured = new AtomicLong();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
@@ -90,6 +150,15 @@ public final class RabbitActivityRecorder {
     }
 
     /**
+     * Replaces the source of the correlation stamped on each message ({@code docs/PLAN-v2.md} §5.1): the sender's
+     * request or execution for an outgoing message, and the listener's own execution for a consumed one. Defaults to
+     * the thread's correlation scope; passing {@code null} restores it.
+     */
+    public void setCorrelationContextProvider(CorrelationContextProvider correlationProvider) {
+        correlation.set(correlationProvider);
+    }
+
+    /**
      * Records a completed (or attempted) publish. {@code durationMillis} is {@code null} when
      * unknown — the Spring AMQP {@code MessagePostProcessor.postProcessMessage} hook runs just
      * before the actual {@code basicPublish} with no post-send callback available (without
@@ -104,7 +173,16 @@ public final class RabbitActivityRecorder {
             boolean success,
             String errorMessage,
             String correlationId) {
-        record(Direction.PUBLISH, exchange, routingKey, null, durationMillis, success, errorMessage, correlationId);
+        record(
+                Direction.PUBLISH,
+                exchange,
+                routingKey,
+                null,
+                durationMillis,
+                success,
+                errorMessage,
+                correlationId,
+                correlation.current());
     }
 
     /** Records a completed (successful or failed) {@code @RabbitListener} message delivery. */
@@ -116,7 +194,16 @@ public final class RabbitActivityRecorder {
             boolean success,
             String errorMessage,
             String correlationId) {
-        record(Direction.CONSUME, exchange, routingKey, queue, durationMillis, success, errorMessage, correlationId);
+        record(
+                Direction.CONSUME,
+                exchange,
+                routingKey,
+                queue,
+                durationMillis,
+                success,
+                errorMessage,
+                correlationId,
+                correlation.current());
     }
 
     private void record(
@@ -127,7 +214,8 @@ public final class RabbitActivityRecorder {
             Long durationMillis,
             boolean success,
             String errorMessage,
-            String correlationId) {
+            String correlationId,
+            CorrelationContext context) {
         if (!enabled) {
             return;
         }
@@ -141,7 +229,9 @@ public final class RabbitActivityRecorder {
                 durationMillis == null ? null : Math.max(0, durationMillis),
                 success,
                 success ? null : FAILURE_MESSAGE,
-                captureCorrelationId ? hashCorrelationId(correlationId, maxCorrelationIdLength) : null);
+                captureCorrelationId ? hashCorrelationId(correlationId, maxCorrelationIdLength) : null,
+                context.requestId(),
+                context.executionId());
         synchronized (lock) {
             buffer.addLast(entry);
             // At most one entry is ever added per record() call and maxEntries is fixed at construction,

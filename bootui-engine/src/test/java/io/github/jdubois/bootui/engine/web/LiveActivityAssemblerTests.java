@@ -14,14 +14,17 @@ import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
 import io.github.jdubois.bootui.engine.cache.CacheActivityOperation;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceVocabulary;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityEntries;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.Direction;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -365,6 +368,86 @@ class LiveActivityAssemblerTests {
         assertThat(onlyEntryOfType(report, "EXCEPTION").parentId())
                 .as("an exception thrown on another thread still nests by execution id")
                 .isEqualTo(runEntry);
+    }
+
+    @Test
+    void aConsumedMessageAnchorsItsListenersSignalsAndAMessageNestsUnderItsSender() {
+        KafkaActivityRecorder kafka = new KafkaActivityRecorder(true, false, 10, 16);
+        try (BootUiCorrelation.Scope ignored =
+                BootUiCorrelation.open(CorrelationContext.forRequest("0123456789abcdef"))) {
+            kafka.recordProduce("orders", 0, null, null, true, null);
+        }
+        try (BootUiCorrelation.Scope ignored =
+                BootUiCorrelation.open(CorrelationContext.forExecution("00112233aabbccdd"))) {
+            kafka.recordConsume("orders", 0, 1L, null, 5L, true, null, "group", "factory");
+            kafka.recordProduce("shipments", 0, null, null, true, null);
+        }
+        List<KafkaActivityRecorder.CapturedMessage> messages = kafka.recent();
+        String produce = entryIdOf(messages, KafkaActivityRecorder.Direction.PRODUCE, "orders");
+        String consume = entryIdOf(messages, KafkaActivityRecorder.Direction.CONSUME, "orders");
+        String forward = entryIdOf(messages, KafkaActivityRecorder.Direction.PRODUCE, "shipments");
+        SqlTraceEntryDto base = sql(10, "insert into shipments", null, 1_010L);
+        SqlTraceEntryDto listenerSql = new SqlTraceEntryDto(
+                base.id(),
+                base.timestamp(),
+                base.sql(),
+                base.statementType(),
+                base.category(),
+                base.durationMicros(),
+                base.durationMillis(),
+                base.success(),
+                base.errorMessage(),
+                base.affectedRows(),
+                base.batchSize(),
+                base.connectionId(),
+                "consumer-1",
+                base.slow(),
+                base.parameters(),
+                null,
+                null,
+                null,
+                "00112233aabbccdd");
+
+        LiveActivityReport report = assembler.report(
+                requests(stamped("0123456789abcdef", null)),
+                List.of(listenerSql),
+                true,
+                null,
+                List.of(),
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                "UP",
+                0,
+                messages,
+                true,
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                false);
+
+        assertThat(entry(report, produce).parentId()).isEqualTo("0123456789abcdef");
+        assertThat(entry(report, consume).parentId())
+                .as("a consumed message is an anchor")
+                .isNull();
+        assertThat(entry(report, "sql-10").parentId()).isEqualTo(consume);
+        assertThat(entry(report, forward).parentId()).isEqualTo(consume);
+    }
+
+    private static String entryIdOf(
+            List<KafkaActivityRecorder.CapturedMessage> messages,
+            KafkaActivityRecorder.Direction direction,
+            String topic) {
+        return KafkaActivityEntries.entryId(messages.stream()
+                .filter(message -> message.direction() == direction && topic.equals(message.topic()))
+                .findFirst()
+                .orElseThrow());
     }
 
     @Test

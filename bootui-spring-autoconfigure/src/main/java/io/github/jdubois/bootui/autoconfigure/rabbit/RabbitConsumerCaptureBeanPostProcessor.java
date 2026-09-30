@@ -1,6 +1,9 @@
 package io.github.jdubois.bootui.autoconfigure.rabbit;
 
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.correlation.RequestIds;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.util.ArrayList;
 import java.util.List;
 import org.aopalliance.aop.Advice;
@@ -98,13 +101,18 @@ public final class RabbitConsumerCaptureBeanPostProcessor implements BeanPostPro
         public Object invoke(MethodInvocation invocation) throws Throwable {
             long startNanos = System.nanoTime();
             List<Message> messages = extractMessages(invocation);
-            try {
-                Object result = invocation.proceed();
-                recordOutcomes(messages, startNanos, true, null);
-                return result;
-            } catch (Throwable ex) {
-                recordOutcomes(messages, startNanos, false, ex.getMessage());
-                throw ex;
+            // Each delivery, or batch, is an execution of its own (docs/PLAN-v2.md §5.1): the listener's SQL,
+            // exceptions, and REST client calls, and its outcome records, carry its execution id.
+            try (BootUiCorrelation.Scope ignored =
+                    BootUiCorrelation.open(CorrelationContext.forExecution(RequestIds.next()))) {
+                try {
+                    Object result = invocation.proceed();
+                    recordOutcomes(messages, startNanos, true, null);
+                    return result;
+                } catch (Throwable ex) {
+                    recordOutcomes(messages, startNanos, false, ex.getMessage());
+                    throw ex;
+                }
             }
         }
 

@@ -5,9 +5,13 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.Direction;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import java.util.ArrayList;
+import java.util.List;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerGroupMetadata;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -78,6 +82,35 @@ class KafkaConsumerCaptureBeanPostProcessorTests {
         verify(existing).intercept(record, consumer);
         verify(existing).success(record, consumer);
         verify(existing).afterRecord(record, consumer);
+    }
+
+    @Test
+    void eachDeliveryIsAnExecutionOfItsOwnFromInterceptToAfterRecord() {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 16);
+        KafkaConsumerCaptureBeanPostProcessor postProcessor =
+                new KafkaConsumerCaptureBeanPostProcessor(provider(recorder));
+        ConcurrentKafkaListenerContainerFactory<Object, Object> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        postProcessor.postProcessAfterInitialization(factory, "myListenerFactory");
+        RecordInterceptor<Object, Object> interceptor = currentInterceptor(factory);
+        Consumer<Object, Object> consumer = mock(Consumer.class);
+        List<String> seen = new ArrayList<>();
+
+        for (long offset = 1; offset <= 2; offset++) {
+            ConsumerRecord<Object, Object> record = new ConsumerRecord<>("orders", 0, offset, "k", "v");
+            interceptor.intercept(record, consumer);
+            seen.add(BootUiCorrelation.current().executionId());
+            interceptor.success(record, consumer);
+            interceptor.afterRecord(record, consumer);
+            assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
+        }
+
+        assertThat(seen)
+                .allSatisfy(id -> assertThat(id).matches("[0-9a-f]{16}"))
+                .doesNotHaveDuplicates();
+        assertThat(recorder.recent())
+                .extracting(CapturedMessage::executionId)
+                .containsExactlyInAnyOrderElementsOf(seen);
     }
 
     @Test

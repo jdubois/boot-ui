@@ -1,6 +1,9 @@
 package io.github.jdubois.bootui.autoconfigure.kafka;
 
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.correlation.RequestIds;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
@@ -75,6 +78,7 @@ public final class KafkaConsumerCaptureBeanPostProcessor implements BeanPostProc
         private final KafkaActivityRecorder recorder;
         private final String listenerId;
         private final ThreadLocal<Long> startNanos = new ThreadLocal<>();
+        private final ThreadLocal<BootUiCorrelation.Scope> executionScope = new ThreadLocal<>();
 
         private CapturingRecordInterceptor(
                 RecordInterceptor<Object, Object> delegate, KafkaActivityRecorder recorder, String listenerId) {
@@ -90,6 +94,7 @@ public final class KafkaConsumerCaptureBeanPostProcessor implements BeanPostProc
         public ConsumerRecord<Object, Object> intercept(
                 ConsumerRecord<Object, Object> record, Consumer<Object, Object> consumer) {
             startNanos.set(System.nanoTime());
+            openExecution();
             return delegate == null ? record : delegate.intercept(record, consumer);
         }
 
@@ -113,6 +118,7 @@ public final class KafkaConsumerCaptureBeanPostProcessor implements BeanPostProc
         @Override
         public void afterRecord(ConsumerRecord<Object, Object> record, Consumer<Object, Object> consumer) {
             startNanos.remove();
+            closeExecution();
             if (delegate != null) {
                 delegate.afterRecord(record, consumer);
             }
@@ -144,6 +150,25 @@ public final class KafkaConsumerCaptureBeanPostProcessor implements BeanPostProc
                         listenerId);
             } catch (RuntimeException ex) {
                 log.warn("BootUI could not capture an incoming Kafka message; leaving it untouched", ex);
+            }
+        }
+
+        /**
+         * Makes this delivery an execution of its own ({@code docs/PLAN-v2.md} §5.1) on the consumer thread, from
+         * {@code intercept} to {@code afterRecord}, which Spring Kafka calls around the listener on that thread, so
+         * the SQL, exceptions, REST client calls, and messages the listener produces nest under it. A scope left open
+         * by a delivery whose {@code afterRecord} never came is closed first.
+         */
+        private void openExecution() {
+            closeExecution();
+            executionScope.set(BootUiCorrelation.open(CorrelationContext.forExecution(RequestIds.next())));
+        }
+
+        private void closeExecution() {
+            BootUiCorrelation.Scope scope = executionScope.get();
+            executionScope.remove();
+            if (scope != null) {
+                scope.close();
             }
         }
 

@@ -1,6 +1,9 @@
 package io.github.jdubois.bootui.autoconfigure.jms;
 
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.correlation.RequestIds;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import jakarta.jms.JMSException;
 import jakarta.jms.Message;
 import jakarta.jms.Session;
@@ -200,12 +203,16 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
         @Override
         public void onMessage(Message message) {
             long start = System.nanoTime();
-            try {
-                delegate.onMessage(message);
-                safeRecord(message, start, true, null);
-            } catch (Throwable ex) {
-                safeRecord(message, start, false, JmsCaptureMetadata.failureType(ex));
-                throw ex;
+            // Each delivery is an execution of its own (docs/PLAN-v2.md §5.1).
+            try (BootUiCorrelation.Scope ignored =
+                    BootUiCorrelation.open(CorrelationContext.forExecution(RequestIds.next()))) {
+                try {
+                    delegate.onMessage(message);
+                    safeRecord(message, start, true, null);
+                } catch (Throwable ex) {
+                    safeRecord(message, start, false, JmsCaptureMetadata.failureType(ex));
+                    throw ex;
+                }
             }
         }
 
@@ -235,19 +242,22 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
         @Override
         public void onMessage(Message message, @Nullable Session session) throws JMSException {
             long start = System.nanoTime();
-            try {
-                delegate.onMessage(message, session);
-                record(recorder, subscriptionName, listenerId, message, start, true, null);
-            } catch (JMSException | RuntimeException | Error ex) {
-                record(
-                        recorder,
-                        subscriptionName,
-                        listenerId,
-                        message,
-                        start,
-                        false,
-                        JmsCaptureMetadata.failureType(ex));
-                throw ex;
+            try (BootUiCorrelation.Scope ignored =
+                    BootUiCorrelation.open(CorrelationContext.forExecution(RequestIds.next()))) {
+                try {
+                    delegate.onMessage(message, session);
+                    record(recorder, subscriptionName, listenerId, message, start, true, null);
+                } catch (JMSException | RuntimeException | Error ex) {
+                    record(
+                            recorder,
+                            subscriptionName,
+                            listenerId,
+                            message,
+                            start,
+                            false,
+                            JmsCaptureMetadata.failureType(ex));
+                    throw ex;
+                }
             }
         }
     }

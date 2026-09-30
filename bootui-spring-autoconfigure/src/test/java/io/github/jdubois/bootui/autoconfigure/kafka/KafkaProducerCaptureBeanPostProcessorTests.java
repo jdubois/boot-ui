@@ -1,17 +1,22 @@
 package io.github.jdubois.bootui.autoconfigure.kafka;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.Direction;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import org.apache.kafka.clients.producer.ProducerInterceptor;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.TopicPartition;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.DirectFieldAccessor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.core.ProducerFactory;
@@ -70,6 +75,37 @@ class KafkaProducerCaptureBeanPostProcessorTests {
         assertThat(message.key()).isEqualTo(hashedKey("k1"));
         assertThat(message.success()).isTrue();
         verify(existing).onSuccess(record, metadata);
+    }
+
+    @Test
+    void recordsTheSendersRequestEvenThoughKafkaReportsOnItsOwnThread() throws Exception {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 16);
+        KafkaProducerCaptureBeanPostProcessor postProcessor =
+                new KafkaProducerCaptureBeanPostProcessor(provider(recorder));
+        KafkaTemplate<Object, Object> template = new KafkaTemplate<>(producerFactory);
+        @SuppressWarnings("unchecked")
+        ProducerInterceptor<Object, Object> existing = mock(ProducerInterceptor.class);
+        ProducerRecord<Object, Object> record = new ProducerRecord<>("orders", "k1", "v1");
+        when(existing.onSend(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        template.setProducerInterceptor(existing);
+        postProcessor.postProcessAfterInitialization(template, "kafkaTemplate");
+        @SuppressWarnings("unchecked")
+        ProducerInterceptor<Object, Object> interceptor = (ProducerInterceptor<Object, Object>)
+                new DirectFieldAccessor(template).getPropertyValue("producerInterceptor");
+
+        try (BootUiCorrelation.Scope ignored =
+                BootUiCorrelation.open(CorrelationContext.forRequest("0123456789abcdef"))) {
+            assertThat(interceptor.onSend(record)).isSameAs(record);
+        }
+        Thread ioThread = new Thread(() -> currentListener(template).onSuccess(record, metadataFor(record)));
+        ioThread.start();
+        ioThread.join();
+
+        verify(existing).onSend(record);
+        assertThat(recorder.recent()).singleElement().satisfies(message -> {
+            assertThat(message.requestId()).isEqualTo("0123456789abcdef");
+            assertThat(message.executionId()).isNull();
+        });
     }
 
     @Test

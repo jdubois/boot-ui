@@ -25,7 +25,21 @@ public final class KafkaActivityEntries {
     private KafkaActivityEntries() {}
 
     /** Maps a single captured Kafka message to its {@code MESSAGING} activity entry. */
+    /** The Live Activity entry id of {@code message}. */
+    public static String entryId(CapturedMessage message) {
+        return "kafka-" + message.id();
+    }
+
+    /** The entry of {@code message}, top-level. */
     public static ActivityEntryDto toEntry(CapturedMessage message) {
+        return toEntry(message, null);
+    }
+
+    /**
+     * The entry of {@code message}, nested under {@code parentId}: an outgoing message under the request or
+     * execution that sent it ({@code docs/PLAN-v2.md} §5.1).
+     */
+    public static ActivityEntryDto toEntry(CapturedMessage message, String parentId) {
         String severity = message.success() ? SEVERITY_OK : SEVERITY_ERROR;
         String arrow = message.direction() == KafkaActivityRecorder.Direction.PRODUCE ? "→" : "←";
         String summary = arrow + " " + message.topic();
@@ -52,7 +66,7 @@ public final class KafkaActivityEntries {
         // timestamp); passed through as-is here.
         Long durationMs = message.durationMillis();
         return new ActivityEntryDto(
-                "kafka-" + message.id(),
+                entryId(message),
                 TYPE_MESSAGING,
                 message.timestamp(),
                 severity,
@@ -65,7 +79,7 @@ public final class KafkaActivityEntries {
                 null,
                 null,
                 false,
-                null,
+                parentId,
                 null,
                 false);
     }

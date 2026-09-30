@@ -27,7 +27,21 @@ public final class RabbitActivityEntries {
     private RabbitActivityEntries() {}
 
     /** Maps a single captured AMQP message to its {@code MESSAGING} activity entry. */
+    /** The Live Activity entry id of {@code message}. */
+    public static String entryId(CapturedMessage message) {
+        return "rabbit-" + message.id();
+    }
+
+    /** The entry of {@code message}, top-level. */
     public static ActivityEntryDto toEntry(CapturedMessage message) {
+        return toEntry(message, null);
+    }
+
+    /**
+     * The entry of {@code message}, nested under {@code parentId}: an outgoing message under the request or
+     * execution that sent it ({@code docs/PLAN-v2.md} §5.1).
+     */
+    public static ActivityEntryDto toEntry(CapturedMessage message, String parentId) {
         String severity = message.success() ? SEVERITY_OK : SEVERITY_ERROR;
         String arrow = message.direction() == RabbitActivityRecorder.Direction.PUBLISH ? "→" : "←";
 
@@ -78,7 +92,7 @@ public final class RabbitActivityEntries {
         // timestamp without publisher confirms); passed through as-is here.
         Long durationMs = message.durationMillis();
         return new ActivityEntryDto(
-                "rabbit-" + message.id(),
+                entryId(message),
                 TYPE_MESSAGING,
                 message.timestamp(),
                 severity,
@@ -91,7 +105,7 @@ public final class RabbitActivityEntries {
                 null,
                 null,
                 false,
-                null,
+                parentId,
                 null,
                 false);
     }

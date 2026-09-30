@@ -17,6 +17,7 @@ import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorde
 import io.github.jdubois.bootui.engine.jms.JmsActivityEntries;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityEntries;
+import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityEntries;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
@@ -88,11 +89,10 @@ import java.util.Set;
  * {@code EXCEPTION} child. {@code scheduledTaskFailureCount} counts failed runs currently retained
  * regardless of correlation.</p>
  *
- * <p><strong>Kafka produce/consume outcomes (the {@code MESSAGING} entry type) render top-level, with no
- * request-parent correlation attempted</strong>, unlike SQL/exceptions/security/cache above: BootUI has no
- * trace id available on the producer/consumer thread today, so every {@link KafkaActivityEntries#toEntry}
- * mapping is flat by design (see {@code docs/PLAN.md} §3.20 for the nesting this can grow into once
- * messaging spans carry a correlation id).</p>
+ * <p><strong>Kafka, RabbitMQ, and JMS messages (the {@code MESSAGING} entry type) correlate by BootUI's own ids
+ * only</strong> ({@code docs/PLAN-v2.md} §5.1): a consumed message is an execution of its own, so the signals its
+ * listener produced nest under it by execution id, and an outgoing message nests under the request, scheduled run,
+ * or consumed message that sent it. A message carrying neither id stays top-level.</p>
  *
  * <p><strong>Outbound REST client calls (the {@code REST_CLIENT} entry type / {@code restCallErrorRatePercent}
  * and {@code restCallP95LatencyMs} KPIs) follow that same trace-id-only correlation rule</strong>: the
@@ -364,11 +364,27 @@ public final class LiveActivityAssembler {
         // Scheduled runs stamped with BootUI's execution id (docs/PLAN-v2.md §5.1): a child carrying that id nests
         // under
         // the run exactly, after the request-id tier and before any trace-id match.
-        Map<String, String> scheduledEntryByExecutionId = new HashMap<>();
+        Map<String, String> executionEntryById = new HashMap<>();
         for (ScheduledTaskRunStore.Run run : scheduled) {
             String executionId = BlankStrings.blankToNull(run.executionId());
             if (executionId != null) {
-                scheduledEntryByExecutionId.putIfAbsent(executionId, scheduledEntryId(run));
+                executionEntryById.putIfAbsent(executionId, scheduledEntryId(run));
+            }
+        }
+        // A consumed message is an execution of its own, anchoring the signals its listener produced.
+        for (CapturedMessage message : kafka) {
+            if (message.direction() == KafkaActivityRecorder.Direction.CONSUME) {
+                putExecution(executionEntryById, message.executionId(), KafkaActivityEntries.entryId(message));
+            }
+        }
+        for (JmsActivityRecorder.CapturedMessage message : jms) {
+            if (message.direction() == JmsActivityRecorder.Direction.CONSUME) {
+                putExecution(executionEntryById, message.executionId(), JmsActivityEntries.entryId(message));
+            }
+        }
+        for (RabbitActivityRecorder.CapturedMessage message : rabbit) {
+            if (message.direction() == RabbitActivityRecorder.Direction.CONSUME) {
+                putExecution(executionEntryById, message.executionId(), RabbitActivityEntries.entryId(message));
             }
         }
 
@@ -442,7 +458,7 @@ public final class LiveActivityAssembler {
                     s,
                     parentOf(
                             stampedRequestIds,
-                            scheduledEntryByExecutionId,
+                            executionEntryById,
                             traceIndex,
                             s.requestId(),
                             s.executionId(),
@@ -453,7 +469,7 @@ public final class LiveActivityAssembler {
         for (ExceptionGroupDto g : exceptions) {
             String parentId = parentOf(
                     stampedRequestIds,
-                    scheduledEntryByExecutionId,
+                    executionEntryById,
                     traceIndex,
                     g.lastRequestId(),
                     g.lastExecutionId(),
@@ -483,15 +499,30 @@ public final class LiveActivityAssembler {
         }
 
         for (CapturedMessage message : kafka) {
-            entries.add(KafkaActivityEntries.toEntry(message));
+            boolean sent = message.direction() == KafkaActivityRecorder.Direction.PRODUCE;
+            entries.add(KafkaActivityEntries.toEntry(
+                    message,
+                    sent
+                            ? ownerOf(stampedRequestIds, executionEntryById, message.requestId(), message.executionId())
+                            : null));
         }
 
         for (JmsActivityRecorder.CapturedMessage message : jms) {
-            entries.add(JmsActivityEntries.toEntry(message));
+            boolean sent = message.direction() == JmsActivityRecorder.Direction.PRODUCE;
+            entries.add(JmsActivityEntries.toEntry(
+                    message,
+                    sent
+                            ? ownerOf(stampedRequestIds, executionEntryById, message.requestId(), message.executionId())
+                            : null));
         }
 
         for (RabbitActivityRecorder.CapturedMessage message : rabbit) {
-            entries.add(RabbitActivityEntries.toEntry(message));
+            boolean sent = message.direction() == RabbitActivityRecorder.Direction.PUBLISH;
+            entries.add(RabbitActivityEntries.toEntry(
+                    message,
+                    sent
+                            ? ownerOf(stampedRequestIds, executionEntryById, message.requestId(), message.executionId())
+                            : null));
         }
 
         for (EmailMessageDto message : emails) {
@@ -504,7 +535,7 @@ public final class LiveActivityAssembler {
                     entry,
                     parentOf(
                             stampedRequestIds,
-                            scheduledEntryByExecutionId,
+                            executionEntryById,
                             traceIndex,
                             entry.requestId(),
                             entry.executionId(),
@@ -669,13 +700,34 @@ public final class LiveActivityAssembler {
                 entry.sqlNPlusOneSuspected());
     }
 
+    private static void putExecution(Map<String, String> byExecutionId, String executionId, String entryId) {
+        String execution = BlankStrings.blankToNull(executionId);
+        if (execution != null) {
+            byExecutionId.putIfAbsent(execution, entryId);
+        }
+    }
+
+    /** The entry that owns a signal by BootUI's ids alone: its request, else its execution, else none. */
+    private static String ownerOf(
+            Set<String> stampedRequestIds,
+            Map<String, String> executionEntryById,
+            String requestId,
+            String executionId) {
+        String stamped = BlankStrings.blankToNull(requestId);
+        if (stamped != null && stampedRequestIds.contains(stamped)) {
+            return stamped;
+        }
+        String execution = BlankStrings.blankToNull(executionId);
+        return execution == null ? null : executionEntryById.get(execution);
+    }
+
     /**
-     * The entry a child nests under: the request whose BootUI request id it carries, else the scheduled run whose
-     * execution id it carries, else the single request sharing its trace id, else none.
+     * The entry a child nests under: the request whose BootUI request id it carries, else the scheduled run or
+     * consumed message whose execution id it carries, else the single request sharing its trace id, else none.
      */
     private static String parentOf(
             Set<String> stampedRequestIds,
-            Map<String, String> scheduledEntryByExecutionId,
+            Map<String, String> executionEntryById,
             TraceCorrelationIndex traceIndex,
             String requestId,
             String executionId,
@@ -685,7 +737,7 @@ public final class LiveActivityAssembler {
             return stamped;
         }
         String execution = BlankStrings.blankToNull(executionId);
-        String scheduledEntry = execution == null ? null : scheduledEntryByExecutionId.get(execution);
+        String scheduledEntry = execution == null ? null : executionEntryById.get(execution);
         return scheduledEntry != null ? scheduledEntry : traceIndex.parentRequestId(traceId);
     }
 

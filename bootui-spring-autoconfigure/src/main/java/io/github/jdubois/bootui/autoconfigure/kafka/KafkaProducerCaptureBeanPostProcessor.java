@@ -1,6 +1,11 @@
 package io.github.jdubois.bootui.autoconfigure.kafka;
 
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Map;
+import org.apache.kafka.clients.producer.ProducerInterceptor;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.slf4j.Logger;
@@ -53,8 +58,13 @@ public final class KafkaProducerCaptureBeanPostProcessor implements BeanPostProc
             ProducerListener<Object, Object> existing = (ProducerListener<Object, Object>)
                     new DirectFieldAccessor(template).getPropertyValue("producerListener");
             @SuppressWarnings("unchecked")
+            ProducerInterceptor<Object, Object> existingInterceptor = (ProducerInterceptor<Object, Object>)
+                    new DirectFieldAccessor(template).getPropertyValue("producerInterceptor");
+            @SuppressWarnings("unchecked")
             KafkaTemplate<Object, Object> untyped = (KafkaTemplate<Object, Object>) template;
-            untyped.setProducerListener(new CapturingProducerListener(existing, recorder));
+            SenderCorrelations senders = new SenderCorrelations();
+            untyped.setProducerInterceptor(new SenderSnapshotInterceptor(existingInterceptor, recorder, senders));
+            untyped.setProducerListener(new CapturingProducerListener(existing, recorder, senders));
         } catch (RuntimeException ex) {
             log.warn(
                     "BootUI could not enable Kafka producer capture for KafkaTemplate bean '{}'; leaving it "
@@ -73,10 +83,13 @@ public final class KafkaProducerCaptureBeanPostProcessor implements BeanPostProc
 
         private final ProducerListener<Object, Object> delegate;
         private final KafkaActivityRecorder recorder;
+        private final SenderCorrelations senders;
 
-        private CapturingProducerListener(ProducerListener<Object, Object> delegate, KafkaActivityRecorder recorder) {
+        private CapturingProducerListener(
+                ProducerListener<Object, Object> delegate, KafkaActivityRecorder recorder, SenderCorrelations senders) {
             this.delegate = delegate;
             this.recorder = recorder;
+            this.senders = senders;
         }
 
         @Override
@@ -95,7 +108,8 @@ public final class KafkaProducerCaptureBeanPostProcessor implements BeanPostProc
                         keyOf(producerRecord),
                         null, // ProducerListener carries no send-start timestamp, so duration is never known here
                         true,
-                        null);
+                        null,
+                        senders.take(producerRecord));
             } catch (RuntimeException ex) {
                 log.warn("BootUI could not capture an outgoing Kafka message; leaving it untouched", ex);
             }
@@ -114,7 +128,8 @@ public final class KafkaProducerCaptureBeanPostProcessor implements BeanPostProc
                         keyOf(producerRecord),
                         null, // see onSuccess: no send-start timestamp is available to compute a duration
                         false,
-                        exception == null ? null : exception.getMessage());
+                        exception == null ? null : exception.getMessage(),
+                        senders.take(producerRecord));
             } catch (RuntimeException ex) {
                 log.warn("BootUI could not capture an outgoing Kafka message; leaving it untouched", ex);
             }
@@ -126,6 +141,90 @@ public final class KafkaProducerCaptureBeanPostProcessor implements BeanPostProc
         private static String keyOf(ProducerRecord<Object, Object> producerRecord) {
             Object key = producerRecord.key();
             return key == null ? null : String.valueOf(key);
+        }
+    }
+
+    /**
+     * Snapshots the sender's BootUI correlation on the sending thread ({@code docs/PLAN-v2.md} §5.1), because Kafka
+     * reports the outcome to {@link CapturingProducerListener} on its own I/O thread. {@code KafkaTemplate} passes the
+     * record this returns to that callback, so the snapshot is keyed by the record's identity. Delegates to the
+     * application's own interceptor first, and never changes the record.
+     */
+    private static final class SenderSnapshotInterceptor implements ProducerInterceptor<Object, Object> {
+
+        private final ProducerInterceptor<Object, Object> delegate;
+        private final KafkaActivityRecorder recorder;
+        private final SenderCorrelations senders;
+
+        private SenderSnapshotInterceptor(
+                ProducerInterceptor<Object, Object> delegate,
+                KafkaActivityRecorder recorder,
+                SenderCorrelations senders) {
+            this.delegate = delegate;
+            this.recorder = recorder;
+            this.senders = senders;
+        }
+
+        @Override
+        public ProducerRecord<Object, Object> onSend(ProducerRecord<Object, Object> record) {
+            ProducerRecord<Object, Object> sent = delegate == null ? record : delegate.onSend(record);
+            try {
+                senders.put(sent, recorder.currentCorrelation());
+            } catch (RuntimeException ex) {
+                // A missing snapshot only leaves the message top-level; the send itself is never disturbed.
+            }
+            return sent;
+        }
+
+        @Override
+        public void onAcknowledgement(RecordMetadata metadata, Exception exception) {
+            if (delegate != null) {
+                delegate.onAcknowledgement(metadata, exception);
+            }
+        }
+
+        @Override
+        public void close() {
+            if (delegate != null) {
+                delegate.close();
+            }
+        }
+
+        @Override
+        public void configure(Map<String, ?> configs) {
+            if (delegate != null) {
+                delegate.configure(configs);
+            }
+        }
+    }
+
+    /**
+     * Sender correlations of in-flight records, by record identity ({@link ProducerRecord} overrides {@code equals}).
+     * Each entry is taken when its outcome is reported. Bounded, so records whose outcome never arrives cannot grow
+     * it: past the bound it is cleared, and those messages simply stay top-level.
+     */
+    static final class SenderCorrelations {
+
+        static final int MAX_IN_FLIGHT = 10_000;
+
+        private final Map<ProducerRecord<?, ?>, CorrelationContext> inFlight =
+                Collections.synchronizedMap(new IdentityHashMap<>());
+
+        void put(ProducerRecord<?, ?> record, CorrelationContext sender) {
+            if (record == null || sender == null || sender.isEmpty()) {
+                return;
+            }
+            synchronized (inFlight) {
+                if (inFlight.size() >= MAX_IN_FLIGHT) {
+                    inFlight.clear();
+                }
+                inFlight.put(record, sender);
+            }
+        }
+
+        CorrelationContext take(ProducerRecord<?, ?> record) {
+            CorrelationContext sender = record == null ? null : inFlight.remove(record);
+            return sender == null ? CorrelationContext.NONE : sender;
         }
     }
 }

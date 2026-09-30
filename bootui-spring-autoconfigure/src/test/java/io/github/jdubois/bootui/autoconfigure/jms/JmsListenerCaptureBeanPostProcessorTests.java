@@ -79,6 +79,26 @@ class JmsListenerCaptureBeanPostProcessorTests {
     }
 
     @Test
+    void eachDeliveryRunsAsAnExecutionOfItsOwnAndIsRecordedWithIt() throws Exception {
+        JmsActivityRecorder recorder = new JmsActivityRecorder(true, true, 10, 50);
+        java.util.List<String> seen = new java.util.ArrayList<>();
+        jakarta.jms.MessageListener delegate =
+                ignored -> seen.add(io.github.jdubois.bootui.engine.correlation.BootUiCorrelation.current()
+                        .executionId());
+        CapturingMessageListener adapter = new CapturingMessageListener(delegate, recorder, null, "myFactory");
+
+        adapter.onMessage(messageWithQueueDestination("orders"));
+        adapter.onMessage(messageWithQueueDestination("orders"));
+
+        assertThat(seen)
+                .allSatisfy(id -> assertThat(id).matches("[0-9a-f]{16}"))
+                .doesNotHaveDuplicates();
+        assertThat(recorder.recent())
+                .extracting(CapturedMessage::executionId)
+                .containsExactlyInAnyOrderElementsOf(seen);
+    }
+
+    @Test
     void capturesSuccessfulDeliveryViaSessionAwareListener() throws Exception {
         JmsActivityRecorder recorder = new JmsActivityRecorder(true, true, 10, 50);
         Message message = messageWithQueueDestination("orders");

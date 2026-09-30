@@ -166,6 +166,8 @@ public class LiveActivityService {
             anchorsById.put(anchor.id(), anchor);
         }
         List<ScheduledTaskAnchor> scheduledAnchors = buildScheduledTaskAnchors(scheduledRuns);
+        Map<String, String> executionEntryById =
+                executionEntries(scheduledAnchors, kafkaMessages, jmsMessages, rabbitMessages);
         SecurityEventCorrelationRegistry securityRegistry =
                 securityCorrelations == null ? null : securityCorrelations.getIfAvailable();
 
@@ -178,7 +180,7 @@ public class LiveActivityService {
         Map<String, List<SqlTraceEntryDto>> sqlByRequestId = new HashMap<>();
         if (sql != null) {
             for (SqlTraceEntryDto entry : sql.entries()) {
-                String parentId = matchSqlParent(entry, anchors, scheduledAnchors);
+                String parentId = matchSqlParent(entry, anchors, executionEntryById);
                 all.add(toSqlEntry(entry, parentId));
                 if (parentId != null) {
                     sqlByRequestId
@@ -193,14 +195,14 @@ public class LiveActivityService {
         // "chatty call" group is only surfaced inside the REST Client panel itself.
         if (rest != null) {
             for (RestClientTraceEntryDto entry : rest.entries()) {
-                all.add(toRestEntry(entry, matchRestParent(entry, anchors, scheduledAnchors)));
+                all.add(toRestEntry(entry, matchRestParent(entry, anchors, executionEntryById)));
             }
         }
         if (exceptionsReport != null) {
             for (ExceptionGroupDto group : exceptionsReport.groups()) {
                 String parentId = matchExceptionParent(group, anchors);
                 if (parentId == null) {
-                    parentId = matchByExecutionId(group.lastExecutionId(), scheduledAnchors);
+                    parentId = matchByExecutionId(group.lastExecutionId(), executionEntryById);
                 }
                 if (parentId == null) {
                     // No owning HTTP request: fall back to attributing the exception to the background
@@ -236,13 +238,25 @@ public class LiveActivityService {
             }
         }
         for (CapturedMessage message : kafkaMessages) {
-            all.add(toKafkaEntry(message));
+            all.add(KafkaActivityEntries.toEntry(
+                    message,
+                    message.direction() == KafkaActivityRecorder.Direction.PRODUCE
+                            ? senderOf(message.requestId(), message.executionId(), anchors, executionEntryById)
+                            : null));
         }
         for (JmsActivityRecorder.CapturedMessage message : jmsMessages) {
-            all.add(JmsActivityEntries.toEntry(message));
+            all.add(JmsActivityEntries.toEntry(
+                    message,
+                    message.direction() == JmsActivityRecorder.Direction.PRODUCE
+                            ? senderOf(message.requestId(), message.executionId(), anchors, executionEntryById)
+                            : null));
         }
         for (RabbitActivityRecorder.CapturedMessage message : rabbitMessages) {
-            all.add(toRabbitEntry(message));
+            all.add(io.github.jdubois.bootui.engine.rabbit.RabbitActivityEntries.toEntry(
+                    message,
+                    message.direction() == RabbitActivityRecorder.Direction.PUBLISH
+                            ? senderOf(message.requestId(), message.executionId(), anchors, executionEntryById)
+                            : null));
         }
         if (!faultToleranceEvents.isEmpty()) {
             Map<String, String> requestIdByTraceId = uniqueRequestIdsByTraceId(anchors);
@@ -657,28 +671,6 @@ public class LiveActivityService {
                 false);
     }
 
-    /**
-     * Maps a captured Kafka message to a flat {@code MESSAGING} entry, delegating to the shared,
-     * framework-neutral {@link KafkaActivityEntries#toEntry(CapturedMessage)} so the Quarkus adapter
-     * renders every Kafka entry byte-for-byte identically. Unlike {@code SQL}/{@code EXCEPTION}/{@code
-     * SECURITY}, no request-parent correlation is attempted yet (BootUI has no trace id on the
-     * producer/consumer thread today), so every entry is top-level; see {@code docs/PLAN.md} §3.20 for
-     * the nesting this can grow into once messaging spans carry a correlation id. Duration is only known
-     * for consumed messages (the producer callback carries no send-start timestamp).
-     */
-    private ActivityEntryDto toKafkaEntry(CapturedMessage message) {
-        return KafkaActivityEntries.toEntry(message);
-    }
-
-    /**
-     * Maps a captured RabbitMQ message to a flat {@code MESSAGING} entry, delegating to the shared,
-     * framework-neutral {@link io.github.jdubois.bootui.engine.rabbit.RabbitActivityEntries#toEntry} so
-     * the Quarkus adapter renders every RabbitMQ entry byte-for-byte identically.
-     */
-    private ActivityEntryDto toRabbitEntry(RabbitActivityRecorder.CapturedMessage message) {
-        return io.github.jdubois.bootui.engine.rabbit.RabbitActivityEntries.toEntry(message);
-    }
-
     private ActivityEntryDto toSecurityEntry(SecurityLogEventDto event, String parentId) {
         long timestamp = ActivitySql.parseEpochMillis(event.timestamp());
         String type = event.type() == null ? "" : event.type();
@@ -840,12 +832,12 @@ public class LiveActivityService {
      * request, so the entry stays top-level rather than being mis-attributed.
      */
     private static String matchSqlParent(
-            SqlTraceEntryDto entry, List<RequestAnchor> anchors, List<ScheduledTaskAnchor> scheduledAnchors) {
+            SqlTraceEntryDto entry, List<RequestAnchor> anchors, Map<String, String> executionEntryById) {
         String byRequestId = matchByRequestId(entry.requestId(), anchors);
         if (byRequestId != null) {
             return byRequestId;
         }
-        String byExecutionId = matchByExecutionId(entry.executionId(), scheduledAnchors);
+        String byExecutionId = matchByExecutionId(entry.executionId(), executionEntryById);
         if (byExecutionId != null) {
             return byExecutionId;
         }
@@ -856,16 +848,58 @@ public class LiveActivityService {
      * The scheduled run whose BootUI execution id the child carries ({@code docs/PLAN-v2.md} §5.1): exact, whatever
      * thread the child ran on. {@code null} when it carries none or no retained run has it.
      */
-    private static String matchByExecutionId(String executionId, List<ScheduledTaskAnchor> anchors) {
+    private static String matchByExecutionId(String executionId, Map<String, String> executionEntryById) {
         if (executionId == null || executionId.isBlank()) {
             return null;
         }
-        for (ScheduledTaskAnchor anchor : anchors) {
-            if (executionId.equals(anchor.executionId())) {
-                return anchor.id();
+        return executionEntryById.get(executionId);
+    }
+
+    /**
+     * The entry of every execution BootUI can anchor signals to by execution id: each scheduled run and each consumed
+     * message ({@code docs/PLAN-v2.md} §5.1).
+     */
+    private static Map<String, String> executionEntries(
+            List<ScheduledTaskAnchor> scheduledAnchors,
+            List<CapturedMessage> kafkaMessages,
+            List<JmsActivityRecorder.CapturedMessage> jmsMessages,
+            List<RabbitActivityRecorder.CapturedMessage> rabbitMessages) {
+        Map<String, String> byExecutionId = new HashMap<>();
+        for (ScheduledTaskAnchor anchor : scheduledAnchors) {
+            putExecution(byExecutionId, anchor.executionId(), anchor.id());
+        }
+        for (CapturedMessage message : kafkaMessages) {
+            if (message.direction() == KafkaActivityRecorder.Direction.CONSUME) {
+                putExecution(byExecutionId, message.executionId(), KafkaActivityEntries.entryId(message));
             }
         }
-        return null;
+        for (JmsActivityRecorder.CapturedMessage message : jmsMessages) {
+            if (message.direction() == JmsActivityRecorder.Direction.CONSUME) {
+                putExecution(byExecutionId, message.executionId(), JmsActivityEntries.entryId(message));
+            }
+        }
+        for (RabbitActivityRecorder.CapturedMessage message : rabbitMessages) {
+            if (message.direction() == RabbitActivityRecorder.Direction.CONSUME) {
+                putExecution(
+                        byExecutionId,
+                        message.executionId(),
+                        io.github.jdubois.bootui.engine.rabbit.RabbitActivityEntries.entryId(message));
+            }
+        }
+        return byExecutionId;
+    }
+
+    private static void putExecution(Map<String, String> byExecutionId, String executionId, String entryId) {
+        if (executionId != null && !executionId.isBlank()) {
+            byExecutionId.putIfAbsent(executionId, entryId);
+        }
+    }
+
+    /** The entry that sent an outgoing message: its request, else its execution, else none. */
+    private static String senderOf(
+            String requestId, String executionId, List<RequestAnchor> anchors, Map<String, String> executionEntryById) {
+        String byRequestId = matchByRequestId(requestId, anchors);
+        return byRequestId != null ? byRequestId : matchByExecutionId(executionId, executionEntryById);
     }
 
     /** The request whose id the child carries, else {@link #matchByTraceThenThread}'s tiers. */
@@ -944,12 +978,12 @@ public class LiveActivityService {
      * thread as the request that triggered them.
      */
     private static String matchRestParent(
-            RestClientTraceEntryDto entry, List<RequestAnchor> anchors, List<ScheduledTaskAnchor> scheduledAnchors) {
+            RestClientTraceEntryDto entry, List<RequestAnchor> anchors, Map<String, String> executionEntryById) {
         String byRequestId = matchByRequestId(entry.requestId(), anchors);
         if (byRequestId != null) {
             return byRequestId;
         }
-        String byExecutionId = matchByExecutionId(entry.executionId(), scheduledAnchors);
+        String byExecutionId = matchByExecutionId(entry.executionId(), executionEntryById);
         if (byExecutionId != null) {
             return byExecutionId;
         }

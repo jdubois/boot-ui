@@ -1,5 +1,8 @@
 package io.github.jdubois.bootui.engine.kafka;
 
+import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -55,7 +58,71 @@ public final class KafkaActivityRecorder {
             boolean success,
             String errorMessage,
             String groupId,
-            String listenerId) {}
+            String listenerId,
+            String requestId,
+            String executionId) {
+        /** Without BootUI's execution identity. */
+        public CapturedMessage(
+                long id,
+                long timestamp,
+                Direction direction,
+                String topic,
+                Integer partition,
+                Long offset,
+                String key,
+                Long durationMillis,
+                boolean success,
+                String errorMessage,
+                String groupId,
+                String listenerId,
+                String requestId) {
+            this(
+                    id,
+                    timestamp,
+                    direction,
+                    topic,
+                    partition,
+                    offset,
+                    key,
+                    durationMillis,
+                    success,
+                    errorMessage,
+                    groupId,
+                    listenerId,
+                    requestId,
+                    null);
+        }
+
+        /** Without BootUI's execution identity. */
+        public CapturedMessage(
+                long id,
+                long timestamp,
+                Direction direction,
+                String topic,
+                Integer partition,
+                Long offset,
+                String key,
+                Long durationMillis,
+                boolean success,
+                String errorMessage,
+                String groupId,
+                String listenerId) {
+            this(
+                    id,
+                    timestamp,
+                    direction,
+                    topic,
+                    partition,
+                    offset,
+                    key,
+                    durationMillis,
+                    success,
+                    errorMessage,
+                    groupId,
+                    listenerId,
+                    null);
+        }
+    }
 
     private final boolean enabled;
     private final boolean captureKey;
@@ -64,6 +131,7 @@ public final class KafkaActivityRecorder {
 
     private final Deque<CapturedMessage> buffer = new ArrayDeque<>();
     private final Object lock = new Object();
+    private final CorrelationSource correlation = new CorrelationSource();
     private final AtomicLong sequence = new AtomicLong();
     private final AtomicLong totalCaptured = new AtomicLong();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
@@ -88,6 +156,15 @@ public final class KafkaActivityRecorder {
     }
 
     /**
+     * Replaces the source of the correlation stamped on each message ({@code docs/PLAN-v2.md} §5.1): the sender's
+     * request or execution for an outgoing message, and the listener's own execution for a consumed one. Defaults to
+     * the thread's correlation scope; passing {@code null} restores it.
+     */
+    public void setCorrelationContextProvider(CorrelationContextProvider correlationProvider) {
+        correlation.set(correlationProvider);
+    }
+
+    /**
      * Records a completed (successful or failed) producer send. {@code durationMillis} is {@code
      * null} when unknown — {@code ProducerListener} carries no send-start timestamp, so producer sends
      * currently always pass {@code null} here; the parameter stays explicit so a future timing source
@@ -95,7 +172,49 @@ public final class KafkaActivityRecorder {
      */
     public void recordProduce(
             String topic, Integer partition, String key, Long durationMillis, boolean success, String errorMessage) {
-        record(Direction.PRODUCE, topic, partition, null, key, durationMillis, success, errorMessage, null, null);
+        record(
+                Direction.PRODUCE,
+                topic,
+                partition,
+                null,
+                key,
+                durationMillis,
+                success,
+                errorMessage,
+                null,
+                null,
+                correlation.current());
+    }
+
+    /**
+     * Records a completed producer send with the correlation of the code that sent it, snapshotted on the sender's
+     * thread by {@link #currentCorrelation()}, because Kafka reports the outcome on its own I/O thread.
+     */
+    public void recordProduce(
+            String topic,
+            Integer partition,
+            String key,
+            Long durationMillis,
+            boolean success,
+            String errorMessage,
+            CorrelationContext sender) {
+        record(
+                Direction.PRODUCE,
+                topic,
+                partition,
+                null,
+                key,
+                durationMillis,
+                success,
+                errorMessage,
+                null,
+                null,
+                sender == null ? CorrelationContext.NONE : sender);
+    }
+
+    /** The correlation of the work on this thread, for an adapter to snapshot when a record is sent. */
+    public CorrelationContext currentCorrelation() {
+        return correlation.current();
     }
 
     /** Records a completed (successful or failed) {@code @KafkaListener} record delivery. */
@@ -119,7 +238,8 @@ public final class KafkaActivityRecorder {
                 success,
                 errorMessage,
                 groupId,
-                listenerId);
+                listenerId,
+                correlation.current());
     }
 
     private void record(
@@ -132,7 +252,8 @@ public final class KafkaActivityRecorder {
             boolean success,
             String errorMessage,
             String groupId,
-            String listenerId) {
+            String listenerId,
+            CorrelationContext context) {
         if (!enabled) {
             return;
         }
@@ -148,7 +269,9 @@ public final class KafkaActivityRecorder {
                 success,
                 success ? null : FAILURE_MESSAGE,
                 groupId,
-                listenerId);
+                listenerId,
+                context.requestId(),
+                context.executionId());
         synchronized (lock) {
             buffer.addLast(entry);
             // At most one entry is ever added per record() call and maxEntries is fixed at construction,
