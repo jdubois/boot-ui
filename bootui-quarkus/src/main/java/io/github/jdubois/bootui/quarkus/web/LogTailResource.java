@@ -2,6 +2,8 @@ package io.github.jdubois.bootui.quarkus.web;
 
 import io.github.jdubois.bootui.core.dto.LogLineDto;
 import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
+import io.github.jdubois.bootui.engine.logtail.LogTailReader;
+import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.smallrye.mutiny.Multi;
 import io.smallrye.mutiny.subscription.BackPressureStrategy;
 import jakarta.inject.Inject;
@@ -20,7 +22,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  * {@code GET /bootui/api/log-tail/stream}). The Quarkus analogue of the Spring adapter's
  * {@code LogTailController}: a thin transport over the shared engine {@link LogTailBuffer}, fed on this
  * platform by {@code QuarkusLogTailHandler}. Both adapters serve the identical wire (an {@code "log"}
- * event carrying a {@code LogLineDto}) so the shared Vue panel renders the same.
+ * event carrying a {@code LogLineDto}) so the shared Vue panel renders the same. Snapshots and streamed
+ * lines are read through the engine {@link LogTailReader}, which applies the live value-exposure policy
+ * to each message as it is emitted.
  */
 @Path("/bootui/api/log-tail")
 public class LogTailResource {
@@ -28,19 +32,19 @@ public class LogTailResource {
     /** Upper bound on simultaneous log-tail streams; this is a local dev tool, not a fan-out hub. */
     static final int MAX_CONCURRENT_STREAMS = 20;
 
-    private final LogTailBuffer buffer;
+    private final LogTailReader reader;
     private final AtomicInteger openStreams = new AtomicInteger();
 
     @Inject
-    public LogTailResource(LogTailBuffer buffer) {
-        this.buffer = buffer;
+    public LogTailResource(LogTailBuffer buffer, QuarkusExposurePolicy exposure) {
+        this.reader = new LogTailReader(buffer, exposure);
     }
 
     @GET
     @Path("/recent")
     @Produces(MediaType.APPLICATION_JSON)
     public List<LogLineDto> recent() {
-        return buffer.recent();
+        return reader.recent();
     }
 
     @GET
@@ -61,7 +65,7 @@ public class LogTailResource {
                             // BUFFER (a multi-producer queue with a single serialised drain) is required for
                             // thread-safe emission — and, unlike the tick streams, log lines must not be
                             // dropped, which BUFFER also guarantees.
-                            LogTailBuffer.Subscription subscription = buffer.subscribeWithReplay(line -> {
+                            LogTailBuffer.Subscription subscription = reader.subscribeWithReplay(line -> {
                                 if (!emitter.isCancelled()) {
                                     emitter.emit(event(sse, line));
                                 }
@@ -80,11 +84,11 @@ public class LogTailResource {
                         BackPressureStrategy.BUFFER);
     }
 
-    private static OutboundSseEvent event(Sse sse, LogLineDto line) {
+    private OutboundSseEvent event(Sse sse, LogLineDto line) {
         return sse.newEventBuilder()
                 .name("log")
                 .mediaType(MediaType.APPLICATION_JSON_TYPE)
-                .data(line)
+                .data(reader.expose(line))
                 .build();
     }
 }

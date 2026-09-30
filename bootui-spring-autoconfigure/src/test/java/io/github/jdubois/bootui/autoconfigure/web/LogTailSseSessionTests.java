@@ -3,6 +3,8 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.core.dto.LogLineDto;
 import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
 import java.io.IOException;
@@ -18,6 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 class LogTailSseSessionTests {
@@ -260,6 +263,62 @@ class LogTailSseSessionTests {
             assertThat(emitter.completedError.get()).isNull();
         } finally {
             releaseSend.countDown();
+            controller.shutdown();
+        }
+    }
+
+    @Test
+    void streamsBacklogAndLiveLinesUnderTheExposurePolicyInForceWhenEachIsSent() throws Exception {
+        LogTailBuffer buffer = new LogTailBuffer();
+        buffer.add(line("backlog password=hunter2"));
+        BootUiLogAppender appender = freshAppender(buffer);
+        TestEmitter emitter = new TestEmitter();
+        MockEnvironment environment = new MockEnvironment();
+        List<LogLineDto> sent = new CopyOnWriteArrayList<>();
+        LogTailController controller = new LogTailController(
+                appender,
+                new BootUiExposure(environment, new BootUiProperties()),
+                () -> emitter,
+                8,
+                (ignored, line) -> sent.add(line));
+
+        try {
+            controller.stream();
+            await().atMost(Duration.ofSeconds(2))
+                    .untilAsserted(() -> assertThat(sent).singleElement().satisfies(line -> {
+                        assertThat(line.message()).isEqualTo("backlog password=******");
+                        assertThat(line.messageOmitted()).isFalse();
+                    }));
+
+            buffer.add(line("live token: tok-1\nsecond line api_key=ak-2"));
+            await().atMost(Duration.ofSeconds(2))
+                    .untilAsserted(() -> assertThat(sent).hasSize(2));
+            assertThat(sent.get(1).message()).isEqualTo("live token: ******\nsecond line api_key=******");
+
+            environment.setProperty("bootui.expose-values", "METADATA_ONLY");
+            buffer.add(line("omitted password=hunter2"));
+            await().atMost(Duration.ofSeconds(2))
+                    .untilAsserted(() -> assertThat(sent).hasSize(3));
+            assertThat(sent.get(2)).isEqualTo(new LogLineDto(0L, "INFO", "test", null, "publisher", true));
+
+            environment.setProperty("bootui.expose-values", "FULL");
+            buffer.add(line("verbatim password=hunter2"));
+            await().atMost(Duration.ofSeconds(2))
+                    .untilAsserted(() -> assertThat(sent).hasSize(4));
+            assertThat(sent.get(3).message()).isEqualTo("verbatim password=hunter2");
+
+            environment.setProperty("bootui.expose-values", "MASKED");
+            environment.setProperty("bootui.mask-secrets", "false");
+            buffer.add(line("unmasked password=hunter2"));
+            await().atMost(Duration.ofSeconds(2))
+                    .untilAsserted(() -> assertThat(sent).hasSize(5));
+            assertThat(sent.get(4).message()).isEqualTo("unmasked password=hunter2");
+            assertThat(buffer.recent())
+                    .as("the buffer keeps captured lines; exposure happens on read")
+                    .extracting(LogLineDto::message)
+                    .contains("backlog password=hunter2", "omitted password=hunter2");
+        } finally {
+            emitter.fireCompletion();
             controller.shutdown();
         }
     }

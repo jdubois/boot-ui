@@ -17,6 +17,7 @@ import java.io.UncheckedIOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -493,6 +494,24 @@ public abstract class AbstractBootUiApiConformanceTest {
                 .as("download must have one attachment disposition")
                 .containsExactly("attachment; filename=\"thread-dump.txt\"");
         assertSecurityHeaders(download, NO_STORE, true);
+    }
+
+    @Test
+    void logTailMasksSecretAssignmentsInTheSnapshotAndTheStream() {
+        LogTailExposureContract snapshot = new LogTailExposureContract().log();
+        Response recent = probe().get(api("/log-tail/recent"));
+        assertThat(recent.status()).as("GET log-tail recent status").isEqualTo(200);
+        snapshot.assertMaskedIn(recent.json(), "GET /log-tail/recent");
+
+        LogTailExposureContract backlog = new LogTailExposureContract().log();
+        String replayed =
+                probe().readStreamUntil(api("/log-tail/stream"), () -> {}, backlog.marker, Duration.ofSeconds(10));
+        backlog.assertMaskedInStream(replayed, "the log-tail SSE backlog");
+
+        LogTailExposureContract live = new LogTailExposureContract();
+        String streamed =
+                probe().readStreamUntil(api("/log-tail/stream"), live::log, live.marker, Duration.ofSeconds(10));
+        live.assertMaskedInStream(streamed, "the log-tail SSE stream");
     }
 
     @Test

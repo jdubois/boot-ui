@@ -382,6 +382,26 @@ public abstract class AbstractMcpConformanceTest {
     }
 
     @Test
+    void testMcpLogTailToolMasksSecretAssignments() {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            LogTailExposureContract contract = new LogTailExposureContract().log();
+            Response response = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of("Content-Type", "application/json"),
+                            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
+                                    + "\"params\":{\"name\":\"get_log_tail\"}}");
+            assertThat(response.status()).isEqualTo(200);
+            JsonNode result = response.json().path("result");
+            assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
+            JsonNode payload = LogTailExposureContract.json(
+                    result.path("content").get(0).path("text").asText());
+            contract.assertMaskedIn(payload.path("entries"), "MCP get_log_tail");
+        }
+    }
+
+    @Test
     void testMcpUnknownToolRetainsSafeActionableError() {
         assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
         try {

@@ -1,8 +1,11 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.core.dto.LogLineDto;
 import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
+import io.github.jdubois.bootui.engine.logtail.LogTailReader;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -22,6 +25,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+/**
+ * Spring MVC transport for the Log Tail panel. Snapshots and streamed lines are read through the engine
+ * {@link LogTailReader}, which applies the live value-exposure policy to each message at read time.
+ */
 @RestController
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/log-tail")
 @ConditionalOnClass(name = "ch.qos.logback.classic.LoggerContext")
@@ -30,7 +37,7 @@ public class LogTailController {
     private static final AtomicLong THREAD_SEQUENCE = new AtomicLong();
 
     private final BootUiLogAppender appender;
-    private final LogTailBuffer buffer;
+    private final LogTailReader reader;
     private final Supplier<SseEmitter> emitterFactory;
     private final int pendingEventCapacity;
     private final LogTailSseSession.EventSender eventSender;
@@ -47,10 +54,11 @@ public class LogTailController {
     static final int MAX_PENDING_EVENTS = LogTailBuffer.DEFAULT_MAX_LINES * 2;
 
     @Autowired
-    public LogTailController(BootUiProperties properties) {
+    public LogTailController(BootUiProperties properties, BootUiExposure exposure) {
         this(
                 BootUiLogAppender.install(new LogTailBuffer(
                         LogTailBuffer.DEFAULT_MAX_LINES, properties.getLogTail().getMaxBytes())),
+                exposure,
                 () -> new SseEmitter(0L),
                 MAX_PENDING_EVENTS,
                 LogTailController::sendLog,
@@ -62,17 +70,27 @@ public class LogTailController {
             Supplier<SseEmitter> emitterFactory,
             int pendingEventCapacity,
             LogTailSseSession.EventSender eventSender) {
-        this(appender, emitterFactory, pendingEventCapacity, eventSender, createStreamExecutor());
+        this(appender, new BootUiExposure(new BootUiProperties()), emitterFactory, pendingEventCapacity, eventSender);
+    }
+
+    LogTailController(
+            BootUiLogAppender appender,
+            ExposurePolicy exposure,
+            Supplier<SseEmitter> emitterFactory,
+            int pendingEventCapacity,
+            LogTailSseSession.EventSender eventSender) {
+        this(appender, exposure, emitterFactory, pendingEventCapacity, eventSender, createStreamExecutor());
     }
 
     private LogTailController(
             BootUiLogAppender appender,
+            ExposurePolicy exposure,
             Supplier<SseEmitter> emitterFactory,
             int pendingEventCapacity,
             LogTailSseSession.EventSender eventSender,
             ExecutorService streamExecutor) {
         this.appender = appender;
-        this.buffer = appender.buffer();
+        this.reader = new LogTailReader(appender.buffer(), exposure);
         this.emitterFactory = emitterFactory;
         this.pendingEventCapacity = pendingEventCapacity;
         this.eventSender = eventSender;
@@ -81,14 +99,14 @@ public class LogTailController {
 
     @GetMapping("/recent")
     public List<LogLineDto> recent() {
-        return buffer.recent();
+        return reader.recent();
     }
 
     @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream() {
         SseEmitter emitter = emitterFactory.get();
         LogTailSseSession session = new LogTailSseSession(
-                emitter, pendingEventCapacity, streamExecutor, eventSender, () -> removeSession(emitter));
+                emitter, reader, pendingEventCapacity, streamExecutor, eventSender, () -> removeSession(emitter));
         synchronized (sessions) {
             if (sessions.size() >= MAX_CONCURRENT_STREAMS) {
                 emitter.completeWithError(new IllegalStateException("Too many concurrent BootUI log-tail streams"));
@@ -100,7 +118,7 @@ public class LogTailController {
         emitter.onCompletion(session::close);
         emitter.onTimeout(session::close);
         emitter.onError(error -> session.close());
-        session.start(buffer);
+        session.start();
         return emitter;
     }
 

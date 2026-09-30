@@ -40,4 +40,45 @@ test.describe('Log Tail view (Quarkus)', () => {
     const options = await select.locator('option').allInnerTexts()
     expect(options).toEqual(['All', 'Info+', 'Warn+', 'Error'])
   })
+
+  test('marks messages omitted by the value-exposure policy instead of showing empty lines', async ({
+    openView,
+    page
+  }) => {
+    const lines = [
+      {
+        timestamp: Date.now(),
+        level: 'WARN',
+        logger: 'com.example.Db',
+        message: null,
+        thread: 'main',
+        messageOmitted: true
+      },
+      {
+        timestamp: Date.now(),
+        level: 'INFO',
+        logger: 'com.example.Api',
+        message: 'login password=******',
+        thread: 'main',
+        messageOmitted: false
+      }
+    ]
+    await page.route(
+      (url) => url.pathname.endsWith('/api/log-tail/stream'),
+      (route) =>
+        route.fulfill({
+          contentType: 'text/event-stream',
+          body: 'retry: 600000\n\n' + lines.map((line) => `event: log\ndata: ${JSON.stringify(line)}\n\n`).join('')
+        })
+    )
+
+    await openView('log-tail', 'Log Tail')
+
+    const pane = page.getByRole('log', {name: 'Live application logs'})
+    await expect(pane).toContainText('com.example.Db - message omitted by policy')
+    await expect(pane).toContainText('login password=******')
+    await expect(page.getByRole('note')).toContainText(
+      'Log messages are omitted because bootui.expose-values is METADATA_ONLY.'
+    )
+  })
 })

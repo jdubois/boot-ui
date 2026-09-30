@@ -14,6 +14,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Log Tail and Dev Services container logs follow the value-exposure policy.** Log messages were returned exactly
+  as captured on every surface, and Spring's Dev Services container logs verbatim, so a logged password assignment was
+  shown in full under the default `MASKED` mode. Both now apply the rule exception messages already follow, through
+  one shared engine helper: secret-like `key=value` and `key: value` assignments are masked under `MASKED`, text is
+  omitted under `METADATA_ONLY`, and it is verbatim only under `FULL` or with `bootui.mask-secrets=false`. Log Tail
+  applies it when a line is read, so the recent snapshot, the SSE stream and its replayed backlog, `get_log_tail`, and
+  `bootui logs tail` are covered on Spring MVC, Spring WebFlux, and Quarkus, and a runtime exposure change applies to
+  retained lines and open streams without a restart. Container logs are masked before the tail is cut and are not read
+  at all under `METADATA_ONLY`. `LogLineDto.message` and `DevServiceLogReport.logs` are now nullable, and the additive
+  `messageOmitted` and `logsOmitted` flags let the Log Tail and Dev Services panels say a message was omitted by policy
+  instead of showing an empty line. An invalid runtime `bootui.expose-values` or `bootui.mask-secrets` value on Spring
+  is now reported once rather than on every read. Exception messages are unchanged.
 - **Spring MVC Log Tail streams no longer throw on a worker thread when a client disconnects or the application
   stops.** When the servlet container had already failed the async request, the stream worker still tried to
   complete the `SseEmitter`. Tomcat rejected that with an uncaught `IllegalStateException`, and the session could

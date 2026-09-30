@@ -46,7 +46,6 @@ have shipped. Each row is one pull request.
 
 | Wave | Item                                            | Panels                                                | Depends on            |
 | ---- | ----------------------------------------------- | ----------------------------------------------------- | --------------------- |
-| 0    | §3.27 Log exposure policy                       | Log Tail, Dev Services                                | —                     |
 | 1    | §3.24a Failure-preserving retention             | HTTP Exchanges, SQL Trace, REST Client                | —                     |
 | 1    | §3.20a Shared profile assembler                 | Live Activity                                         | —                     |
 | 1    | §3.22 Route performance rankings                | HTTP Exchanges, Live Activity                         | —                     |
@@ -63,8 +62,9 @@ have shipped. Each row is one pull request.
 | 4    | §3.6 Declarative HTTP client registry           | New panel (Services)                                  | —                     |
 | 4    | §3.8 gRPC                                       | New panel (Services)                                  | —                     |
 
-- **Wave 0** closes a safety gap: log text is the one captured application text that bypasses the value-exposure
-  policy. Safety is the first priority, so it ships before anything else.
+- **Wave 0**, §3.27 Log exposure policy, has shipped ([delivered](#delivered)). It closed the one gap where captured
+  application text bypassed the value-exposure policy, ahead of everything else because safety is the first priority.
+  §3.21 still lists it as a dependency, now satisfied, because it builds on §3.27's read path.
 - **Wave 1** builds the shared pieces that later items reuse: the tiered capture buffer, the generalized profile
   assembler, one percentile helper and slowest-request KPI, and the violation location model with its source locator.
 - **Wave 2** builds directly on wave 1 or improves existing evidence independently. §3.14 lands before §3.21 so log
@@ -77,7 +77,7 @@ have shipped. Each row is one pull request.
 
 ```mermaid
 graph LR
-  S27["3.27 Log exposure"] --> S21["3.21 Log correlation"]
+  S27["3.27 Log exposure ✅"] --> S21["3.21 Log correlation"]
   S20a["3.20a Shared assembler"] --> S20b["3.20b Scheduled runs"]
   S20a --> S20c["3.20c Consumed messages"]
   S20a --> S25["3.25 Agent export"]
@@ -92,20 +92,22 @@ graph LR
   S26 -.-> S25
 ```
 
-Dashed edges are optional: the later item ships without the earlier one and gains a capability once it lands.
+Dashed edges are optional: the later item ships without the earlier one and gains a capability once it lands. ✅ marks
+a delivered prerequisite.
 
 ### Delivered
 
-| §    | Item                                                        | Release | Documentation                                                           |
-| ---- | ----------------------------------------------------------- | ------- | ----------------------------------------------------------------------- |
-| 3.7  | Fault Tolerance panel                                       | 1.15.0  | [Fault Tolerance](features/services.md#fault-tolerance)                 |
-| 3.10 | WebSockets panel                                            | 1.15.0  | [WebSockets](features/services.md#websockets)                           |
-| 3.11 | Error-contract catalogue in REST API and Exceptions         | 1.15.0  | [Declared error contract](features/advisors.md#declared-error-contract) |
-| 3.12 | Slow-SQL ranking and route attribution in SQL Trace         | 1.15.0  | [SQL Trace rankings](features/database.md#rankings)                     |
-| 3.15 | Meter provenance and explanation in Metrics                 | 1.15.0  | [Metrics](features/runtime.md#metrics)                                  |
-| 3.16 | Cache tiering and hit ratios                                | 1.15.0  | [Tiering and hit ratios](features/services.md#tiering-and-hit-ratios)   |
-| —    | Command-line endpoint, `bootui` CLI, and Command Line panel | 1.16.0  | [Command Line](features/developer-tools.md#command-line), [CLI](CLI.md) |
-| 3.17 | MySQL operational view, tested on Oracle MySQL 8.4 LTS      | 1.18.0  | [MySQL](features/database.md#mysql)                                     |
+| §    | Item                                                        | Release    | Documentation                                                           |
+| ---- | ----------------------------------------------------------- | ---------- | ----------------------------------------------------------------------- |
+| 3.7  | Fault Tolerance panel                                       | 1.15.0     | [Fault Tolerance](features/services.md#fault-tolerance)                 |
+| 3.10 | WebSockets panel                                            | 1.15.0     | [WebSockets](features/services.md#websockets)                           |
+| 3.11 | Error-contract catalogue in REST API and Exceptions         | 1.15.0     | [Declared error contract](features/advisors.md#declared-error-contract) |
+| 3.12 | Slow-SQL ranking and route attribution in SQL Trace         | 1.15.0     | [SQL Trace rankings](features/database.md#rankings)                     |
+| 3.15 | Meter provenance and explanation in Metrics                 | 1.15.0     | [Metrics](features/runtime.md#metrics)                                  |
+| 3.16 | Cache tiering and hit ratios                                | 1.15.0     | [Tiering and hit ratios](features/services.md#tiering-and-hit-ratios)   |
+| —    | Command-line endpoint, `bootui` CLI, and Command Line panel | 1.16.0     | [Command Line](features/developer-tools.md#command-line), [CLI](CLI.md) |
+| 3.17 | MySQL operational view, tested on Oracle MySQL 8.4 LTS      | 1.18.0     | [MySQL](features/database.md#mysql)                                     |
+| 3.27 | Log exposure policy for Log Tail and Dev Services           | Unreleased | [Log message exposure](features/diagnostics.md#log-message-exposure)    |
 
 Earlier deliveries were removed from this plan when they shipped; `CHANGELOG.md` records every release. MariaDB support
 in the MySQL panel remains an unsupported follow-up outside this roadmap.
@@ -569,11 +571,11 @@ Delivery slices, each one pull request with its own tests and documentation:
 
 Log Tail captures log lines through `BootUiLogAppender`, a Logback appender, on Spring and through
 `QuarkusLogTailHandler`, a root `java.util.logging` handler, on Quarkus, both into the shared `LogTailBuffer`. Each
-`LogLineDto` carries only a timestamp, level, logger, message, and thread. A log line therefore cannot be tied to the
-request or execution that wrote it, and a warning never appears in Live Activity next to the SQL and exceptions it
-explains. This enhancement stamps log lines with correlation evidence at capture time and surfaces warnings and errors
-as a Live Activity signal. It builds on §3.27, which applies the exposure policy to log messages, and on §3.20's
-execution anchors.
+`LogLineDto` carries only a timestamp, level, logger, thread, and a message that §3.27's read path masks or omits. A
+log line therefore cannot be tied to the request or execution that wrote it, and a warning never appears in Live
+Activity next to the SQL and exceptions it explains. This enhancement stamps log lines with correlation evidence at
+capture time and surfaces warnings and errors as a Live Activity signal. It builds on the delivered §3.27, which
+applies the exposure policy to log messages through `LogTailReader`, and on §3.20's execution anchors.
 
 Scope:
 
@@ -920,54 +922,6 @@ Acceptance criteria:
   classes, and availability on all three adapters. Masking fixtures cover Java text blocks and unicode escapes, and
   Kotlin raw strings, string templates, and nested block comments.
 
-### 3.27 Log exposure policy — Log Tail and Dev Services 📋 Planned
-
-Log text is the one captured application text that bypasses BootUI's value-exposure policy. The Exceptions panel scrubs
-secret-like `key=value` assignments from exception messages under the default `MASKED` mode, omits them under
-`METADATA_ONLY`, and shows them verbatim only under `FULL`. Log Tail returns `LogLineDto.message` exactly as captured on
-every surface — `GET /bootui/api/log-tail/recent`, the SSE stream, `get_log_tail`, and `bootui logs tail` — so a line
-that logs a password assignment is shown in full under the default mode. Spring's Dev Services container logs
-(`GET /bootui/api/dev-services/{id}/logs`) are returned the same way. This item closes the gap on its own, ahead of the
-rest of the plan, and §3.21 builds on it.
-
-Scope:
-
-- Apply the exception-message exposure rule to Log Tail messages on every surface: the recent snapshot, the SSE stream
-  including its replayed backlog, `get_log_tail`, and the CLI. `MASKED` scrubs secret-like assignments, `METADATA_ONLY`
-  omits the message while keeping timestamp, level, logger, and thread, and `FULL` shows it verbatim.
-- Apply the same rule to Dev Services container log text on Spring MVC and Spring WebFlux. Quarkus serves no container
-  logs and keeps its current `409` response.
-- Evaluate the policy at read time, so a live exposure change applies to retained lines and open streams without a
-  restart, and capture cost stays unchanged.
-- Show in the Log Tail panel when messages are omitted by policy, so an omitted message never reads as an empty line.
-
-Architecture:
-
-- Move the secret-assignment pattern out of `ExceptionsService` into one engine helper shared by Exceptions, Log Tail,
-  and Dev Services, so the three surfaces mask identically and a pattern fix reaches all of them.
-- Keep `LogTailBuffer` as raw bounded storage. Map each line through the helper in one engine read path that Spring
-  MVC's `LogTailController`, WebFlux's `ReactiveLogTailController`, and Quarkus's `LogTailResource` call for snapshots
-  and streamed lines alike. The MCP tools and the CLI already read through those adapters, so they inherit the rule.
-- `LogLineDto.message` becomes nullable, as exception messages already are. The Vue panel's rendering and severity
-  filter handle a missing message.
-
-Out of scope for the first release:
-
-- Detecting secrets beyond the shared assignment pattern, such as bare tokens or credentials embedded in connection
-  strings. Improvements belong in the shared helper and reach every surface at once.
-- Masking at capture time, or changing what the Logback appender and the Quarkus log handler capture.
-- MDC values, structured arguments, and correlation, which §3.21 owns.
-
-Acceptance criteria:
-
-- Under `MASKED`, no password, token, or API-key assignment in a logged message reaches any Log Tail or Dev Services
-  response on Spring MVC, Spring WebFlux, or Quarkus, including the SSE backlog, `get_log_tail`, and `bootui logs tail`.
-- Under `METADATA_ONLY`, no message text is returned and the panel says why. Under `FULL`, messages are verbatim.
-- Changing `bootui.expose-values` at runtime changes the next snapshot and the next streamed line without a restart.
-- Exceptions output is unchanged after the pattern moves into the shared helper.
-- Tests cover every exposure mode, `bootui.mask-secrets=false`, null and multi-line messages, the SSE backlog and live
-  lines, MCP and CLI output, and all three adapters.
-
 ## 4. Cross-cutting work
 
 Most planned items extend existing panels; only §3.6 and §3.8 add panels. Consistency tests enforce much of the
@@ -1031,7 +985,6 @@ In addition:
 | -------------------------------------------------------------------------------------- | ---------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Optional Actuator endpoints, libraries, beans, or servers missing                      | all              | Medium | Internal bridges, classpath/bean gating, stable empty DTOs, and clear unavailable reasons per panel.                                                                                      |
 | Scope creep beyond each item's first release                                           | all              | High   | Treat each item's out-of-scope list as binding, and move new ideas to a later plan revision.                                                                                              |
-| Log Tail or container logs show secrets under the default `MASKED` mode                | 3.27             | High   | One read-time rule shared with Exceptions, message omission under `METADATA_ONLY`, and tests on every surface and adapter.                                                                |
 | Client discovery instantiates lazy clients, mutates builders, or resolves hosts        | 3.6              | High   | Read registrations and bean definitions only, never request a lazy bean, add no interceptor, and perform no DNS lookup.                                                                   |
 | Base URLs or proxy settings leak credentials                                           | 3.6              | High   | Always strip user-info and secret query values, and never serialize TLS or proxy secrets, in every exposure mode.                                                                         |
 | gRPC discovery creates channels, enables reflection, or loads absent `io.grpc` classes | 3.8              | High   | Read existing registries and metrics only, and gate providers on classpath, beans, and Quarkus capabilities.                                                                              |

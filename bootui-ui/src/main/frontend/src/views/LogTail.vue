@@ -34,15 +34,26 @@ const visibleLines = computed(() => {
   const threshold = levelThreshold[levelFilter.value] ?? -1
 
   return lines.value.filter((line) => {
-    const rank = levelRank[line.level] ?? -1
-    const logger = (line.logger || '').toLowerCase()
-    const message = (line.message || '').toLowerCase()
+    const rank = levelRank[line?.level] ?? -1
+    const logger = (line?.logger || '').toLowerCase()
+    const message = typeof line?.message === 'string' ? line.message.toLowerCase() : ''
     const matchesLevel = threshold < 0 || rank >= threshold
     const matchesText = !filter || logger.startsWith(filter) || message.includes(filter)
 
     return matchesLevel && matchesText
   })
 })
+
+// The server omits message text under bootui.expose-values=METADATA_ONLY and flags each such line, so an omitted
+// message is never shown as an empty line.
+const hasOmittedMessages = computed(() => visibleLines.value.some((line) => line.messageOmitted === true))
+
+function messagePlaceholder(line) {
+  if (line.messageOmitted === true) {
+    return 'message omitted by policy'
+  }
+  return typeof line.message === 'string' ? null : 'no message'
+}
 
 const statusClass = computed(
   () =>
@@ -172,6 +183,12 @@ onBeforeUnmount(() => disconnect(false))
       </div>
     </div>
 
+    <div v-if="hasOmittedMessages" class="alert alert-info py-2 small" role="note">
+      <i aria-hidden="true" class="bi bi-eye-slash me-1"></i>
+      Log messages are omitted because <code>bootui.expose-values</code> is <code>METADATA_ONLY</code>. Timestamps,
+      levels, and loggers are still shown, and filtering matches logger names only.
+    </div>
+
     <pre
       ref="pane"
       aria-label="Live application logs"
@@ -185,7 +202,8 @@ onBeforeUnmount(() => disconnect(false))
       class="d-block"
     ><span class="text-secondary">[{{ formatClockTime(line.timestamp) }}]</span> <span
       :class="levelClass(line.level)">{{ line.level }}</span> <span class="text-info-emphasis">{{ line.logger }}</span> <span
-      class="text-secondary">-</span> <span class="text-light">{{ line.message }}</span></span></code><span v-else
+      class="text-secondary">-</span> <span v-if="messagePlaceholder(line)" class="log-placeholder text-secondary">{{ messagePlaceholder(line) }}</span><span
+      v-else class="text-light">{{ line.message }}</span></span></code><span v-else
                                                                                                             class="text-secondary">No log lines to display.</span></pre>
   </div>
 </template>
@@ -201,5 +219,11 @@ onBeforeUnmount(() => disconnect(false))
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* BootUI's own placeholder text is sans serif, so it never reads as captured log output. */
+.log-placeholder {
+  font-family: var(--bs-body-font-family);
+  font-style: italic;
 }
 </style>

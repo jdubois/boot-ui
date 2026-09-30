@@ -1,9 +1,11 @@
 package io.github.jdubois.bootui.autoconfigure.reactive;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.web.BootUiLogAppender;
 import io.github.jdubois.bootui.core.dto.LogLineDto;
 import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
+import io.github.jdubois.bootui.engine.logtail.LogTailReader;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -21,7 +23,9 @@ import reactor.core.publisher.Flux;
  * buffer fed by the shared Logback appender, streamed as {@code Flux<ServerSentEvent<LogLineDto>>}
  * instead of a servlet {@code SseEmitter}. Unlike the coalesced tick used by
  * {@link ReactiveBootUiChangeStream}-backed panels, each element here carries an actual captured
- * log line - the browser has no other endpoint to re-fetch full log content from.
+ * log line - the browser has no other endpoint to re-fetch full log content from. Snapshots and
+ * streamed lines are read through the engine {@link LogTailReader}, which applies the live
+ * value-exposure policy to each message as it is emitted.
  */
 @RestController
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/log-tail")
@@ -32,18 +36,18 @@ public class ReactiveLogTailController {
     static final int MAX_CONCURRENT_STREAMS = 20;
 
     private final BootUiLogAppender appender;
-    private final LogTailBuffer buffer;
+    private final LogTailReader reader;
     private final AtomicInteger subscriberCount = new AtomicInteger();
 
-    public ReactiveLogTailController(BootUiProperties properties) {
+    public ReactiveLogTailController(BootUiProperties properties, BootUiExposure exposure) {
         this.appender = BootUiLogAppender.install(new LogTailBuffer(
                 LogTailBuffer.DEFAULT_MAX_LINES, properties.getLogTail().getMaxBytes()));
-        this.buffer = appender.buffer();
+        this.reader = new LogTailReader(appender.buffer(), exposure);
     }
 
     @GetMapping("/recent")
     public List<LogLineDto> recent() {
-        return buffer.recent();
+        return reader.recent();
     }
 
     /**
@@ -62,7 +66,7 @@ public class ReactiveLogTailController {
                                 new IllegalStateException("Too many concurrent BootUI log-tail streams"));
                     }
                     return Flux.<LogLineDto>create(sink -> {
-                                LogTailBuffer.Subscription subscription = buffer.subscribeWithReplay(sink::next);
+                                LogTailBuffer.Subscription subscription = reader.subscribeWithReplay(sink::next);
                                 Runnable unsubscribe = subscription.unsubscribe();
                                 sink.onDispose(unsubscribe::run);
                                 for (LogLineDto line : subscription.backlog()) {
@@ -71,8 +75,9 @@ public class ReactiveLogTailController {
                             })
                             .doFinally(signalType -> subscriberCount.decrementAndGet());
                 })
-                .map(line ->
-                        ServerSentEvent.<LogLineDto>builder(line).event("log").build());
+                .map(line -> ServerSentEvent.<LogLineDto>builder(reader.expose(line))
+                        .event("log")
+                        .build());
     }
 
     /**

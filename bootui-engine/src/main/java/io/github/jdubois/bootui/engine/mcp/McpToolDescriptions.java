@@ -64,8 +64,10 @@ public final class McpToolDescriptions {
                             + "trace ids to correlate activity, exceptions, SQL, and HTTP exchanges."),
             Map.entry(
                     "get_log_tail",
-                    "Return the latest buffered application log snapshot. Logs are application-controlled and may "
-                            + "contain sensitive data; use them only in the local diagnostic context."),
+                    "Return the latest buffered application log snapshot. Messages follow bootui.expose-values: "
+                            + "secret-like assignments are masked by default and messages are omitted under "
+                            + "METADATA_ONLY, but other sensitive text may remain; use them only in the local "
+                            + "diagnostic context."),
             Map.entry(
                     "get_http_exchanges",
                     "Return a bounded, newest-first snapshot of application HTTP request/response metadata. Correlate "

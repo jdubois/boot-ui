@@ -148,6 +148,16 @@ public abstract class AbstractCliConformanceTest {
     }
 
     @Test
+    void testCliLogTailToolMasksSecretAssignments() {
+        LogTailExposureContract contract = new LogTailExposureContract().log();
+
+        Response response = invoke("get_log_tail", "{}");
+
+        assertThat(response.status()).isEqualTo(200);
+        contract.assertMaskedIn(response.json().path("entries"), "bootui logs tail");
+    }
+
+    @Test
     void testCliReadToolAcceptsAnEmptyBody() {
         Response response = probe().request("POST", CLI + "/tools/get_overview", Map.of(), null);
 
