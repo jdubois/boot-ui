@@ -47,12 +47,11 @@ have shipped. Each row is one pull request.
 | Wave | Item                                            | Panels                                                | Depends on            |
 | ---- | ----------------------------------------------- | ----------------------------------------------------- | --------------------- |
 | 0    | §3.27 Log exposure policy                       | Log Tail, Dev Services                                | —                     |
-| 1    | §3.20a Shared profile assembler                 | Live Activity                                         | —                     |
 | 1    | §3.22 Route performance rankings                | HTTP Exchanges, Live Activity                         | —                     |
 | 1    | §3.19 Structured violation locations            | Architecture, REST API, Hibernate                     | —                     |
 | 2    | §3.20b Scheduled-run profiles                   | Live Activity                                         | §3.20a                |
 | 2    | §3.20c Consumed-message profiles                | Live Activity                                         | §3.20a                |
-| 2    | §3.24b Capture ignore rules                     | HTTP Exchanges, Live Activity, SQL Trace, REST Client | —                     |
+| 2    | §3.24b Capture ignore rules                     | HTTP Exchanges, Live Activity, SQL Trace, REST Client | §3.24a                |
 | 2    | §3.26 Source context for application frames     | Exceptions                                            | §3.19                 |
 | 2    | §3.25 Agent-ready profiles and exception export | Live Activity, Exceptions                             | §3.20a                |
 | 2    | §3.14 Correlation-ID filtering                  | Live Activity, HTTP Exchanges                         | —                     |
@@ -64,9 +63,10 @@ have shipped. Each row is one pull request.
 
 - **Wave 0** closes a safety gap: log text is the one captured application text that bypasses the value-exposure
   policy. Safety is the first priority, so it ships before anything else.
-- **Wave 1** builds the shared pieces that later items reuse: the generalized profile assembler, one percentile helper
-  and slowest-request KPI, and the violation location model with its source locator. The tiered capture buffer that
-  §3.24b builds on shipped with §3.24a.
+- **Wave 1** builds the shared pieces that later items reuse: the tiered capture buffer, the generalized profile
+  assembler, one percentile helper and slowest-request KPI, and the violation location model with its source locator.
+  The tiered capture buffer has shipped as §3.24a and the generalized profile assembler as §3.20a, so §3.24b, §3.20b,
+  §3.20c, and §3.25 can start.
 - **Wave 2** builds directly on wave 1 or improves existing evidence independently. §3.14 lands before §3.21 so log
   correlation can match configured correlation identifiers from the start. §3.25's `get_execution_profile` tool
   follows §3.20b, and its source excerpts follow §3.26, as small follow-up pull requests.
@@ -78,21 +78,22 @@ have shipped. Each row is one pull request.
 ```mermaid
 graph LR
   S27["3.27 Log exposure"] --> S21["3.21 Log correlation"]
-  S20a["3.20a Shared assembler"] --> S20b["3.20b Scheduled runs"]
+  S20a["3.20a Shared assembler ✅"] --> S20b["3.20b Scheduled runs"]
   S20a --> S20c["3.20c Consumed messages"]
   S20a --> S25["3.25 Agent export"]
   S20b --> S21
   S20c --> S21
   S20b --> S23["3.23 Run history"]
   S22["3.22 Route rankings"] --> S23
-  S24b["3.24b Ignore rules"]
+  S24a["3.24a Retention ✅"] --> S24b["3.24b Ignore rules"]
   S19["3.19 Violation locations"] --> S26["3.26 Source context"]
   S14["3.14 Correlation IDs"] -.-> S21
   S20b -.-> S25
   S26 -.-> S25
 ```
 
-Dashed edges are optional: the later item ships without the earlier one and gains a capability once it lands.
+Dashed edges are optional: the later item ships without the earlier one and gains a capability once it lands. A ✅
+node has shipped and stays in the graph while items that depend on it remain planned.
 
 ### Delivered
 
@@ -107,6 +108,7 @@ Dashed edges are optional: the later item ships without the earlier one and gain
 | —    | Command-line endpoint, `bootui` CLI, and Command Line panel | 1.16.0  | [Command Line](features/developer-tools.md#command-line), [CLI](CLI.md) |
 | 3.17 | MySQL operational view, tested on Oracle MySQL 8.4 LTS      | 1.18.0  | [MySQL](features/database.md#mysql)                                     |
 | 3.24a | Failure-preserving retention in HTTP Exchanges, SQL Trace, and REST Client | Unreleased | [Failure-preserving retention](features/diagnostics.md#failure-preserving-retention) |
+| 3.20a | Shared profile assembler with REST client and cache evidence | Unreleased | [Per-request profiler](features/overview.md#the-per-request-profiler) |
 
 Earlier deliveries were removed from this plan when they shipped; `CHANGELOG.md` records every release. MariaDB support
 in the MySQL panel remains an unsupported follow-up outside this roadmap.
@@ -484,8 +486,8 @@ Acceptance criteria:
 The per-request profiler (`GET /bootui/api/activity/request/{id}`, `RequestProfileDto`) explains what one HTTP request
 did, but work that starts anywhere else has no equivalent. A `SCHEDULED` entry is top-level, and only an unowned
 exception nests under it, through a serving-thread and time-window join. Consumed Kafka, RabbitMQ, and JMS entries are
-always top-level. The profiler itself still omits REST client calls, cache accesses, and scheduled runs, even though the
-SQL, REST client, cache, and exception recorders already retain a thread and trace id per record.
+always top-level. The profiler itself still omits scheduled runs; REST client calls and cache accesses joined it in
+§3.20a.
 `ScheduledTaskRunStore` retains the executing thread but no trace id, and consumed-message records retain neither a
 thread, a start time, nor a trace id. This enhancement treats a scheduled execution and a consumed-message listener
 invocation as execution contexts in their own right, with the same drill-down as a request and the same honesty about
@@ -498,7 +500,8 @@ Scope:
 - Add `GET /bootui/api/activity/execution/{id}` beside the request profiler. It returns the anchor summary plus
   correlated SQL, SQL groups with N+1 flags and call sites, exceptions, REST client calls, cache accesses, message
   sends, the distributed trace when one matched, a timing breakdown, and notes.
-- Add REST client, cache, and nested scheduled-run evidence to the request profile and to **Copy profile**.
+- Add nested scheduled-run evidence to the request profile and to **Copy profile**, beside the REST client and cache
+  evidence §3.20a added.
 - Nest correlated children under a `SCHEDULED` or consumed `MESSAGING` anchor through the existing `parentId`. Work that
   cannot be placed precisely stays top-level.
 - Record, at the existing capture points only, the trace id active during a scheduled execution, and the start time,
@@ -509,14 +512,20 @@ Scope:
 Architecture:
 
 - Put anchor selection, tiered correlation, child ordering, timing, N+1 reuse, and notes in one framework-neutral engine
-  assembler that generalizes `RequestProfileAssembler`, instead of growing Spring's `LiveActivityCorrelator` separately.
-  HTTP anchors keep today's request-profile policy unchanged.
+  assembler instead of growing Spring's `LiveActivityCorrelator` separately. §3.20a shipped it as
+  `ExecutionProfileAssembler`, which every adapter now uses for request profiles: a later anchor type adds a
+  `ProfileAnchor.Type`, its window, and a DTO projection, and reuses the tiers, bounds, and notes. HTTP anchors keep
+  today's tiers and keys, including Spring MVC's method, path, and window gate for exceptions; the at-most-one rule now
+  applies to them too, so a signal two captured requests could equally claim is counted in the notes instead of
+  appearing in both profiles.
 - Correlate by trace id first on every adapter. A trace id attaches a child only when exactly one anchor of any type
   carries that trace and its window contains the child, extending `TraceCorrelationIndex`'s uniqueness guard across
-  anchor types, because a request and the message or execution it triggers can share one trace. For blocking scheduled
-  methods and listener invocations that run to completion on one thread, allow serving-thread correlation within the
-  recorded window, under the unique-candidate rule SQL route attribution already uses. Allow time-window correlation
-  only as a labelled last resort.
+  anchor types, because a request and the message or execution it triggers can share one trace. §3.20a shipped this
+  guard; an HTTP request's trace window stays open, as it always was, so a request still claims traced work it caused
+  after its response completed, while `SCHEDULED` and `MESSAGING` anchors bound it to their recorded window. For
+  blocking scheduled methods and listener invocations that run to completion on one thread, allow serving-thread
+  correlation within the recorded window, under the unique-candidate rule SQL route attribution already uses. Allow
+  time-window correlation only as a labelled last resort.
 - Extend `ScheduledTaskRunStore.Run` and the Kafka, RabbitMQ, and JMS consumed-record shapes with nullable trace-id,
   thread, and start fields, supplied by `ScheduledTaskRunObservationHandler`, `QuarkusScheduledTaskRunRecorder`, and the
   existing consumer capture hooks. Add no interceptor, proxy, or executor wrapper.
@@ -557,9 +566,10 @@ Acceptance criteria:
 
 Delivery slices, each one pull request with its own tests and documentation:
 
-- **§3.20a Shared profile assembler.** Generalize `RequestProfileAssembler` into the shared engine assembler with the
-  cross-anchor trace-uniqueness guard, and add REST client and cache evidence to request profiles and **Copy profile**.
-  It adds no anchor, and HTTP profiles keep today's correlation policy.
+- ✅ **§3.20a Shared profile assembler.** Delivered: `ExecutionProfileAssembler` replaced `RequestProfileAssembler`
+  and the tiering inside Spring MVC's `LiveActivityCorrelator`, with the cross-anchor trace-uniqueness guard, per-section
+  tier labels, bounds, and ambiguity counts, and REST client and cache evidence in request profiles and **Copy
+  profile**. It added no anchor. See [the per-request profiler](features/overview.md#the-per-request-profiler).
 - **§3.20b Scheduled-run profiles.** Add the trace-id field to `ScheduledTaskRunStore.Run`, serve
   `GET /bootui/api/activity/execution/{id}` for `SCHEDULED` anchors, nest their children, add nested scheduled-run
   evidence to request profiles, and report Quarkus fire-time windows as approximate.

@@ -61,9 +61,8 @@ import java.util.Map;
  * Quarkus's security layer directly authenticated it) — see {@link #report}. {@code profileable} is set by
  * the Quarkus adapter itself as a thin post-processing step over this assembler's output (not by this class),
  * once a REQUEST entry's exchange carries a resolvable trace id — that same trace id is what
- * {@link RequestProfileAssembler} uses to serve the reduced, trace-id-only per-request profile drill-down at
- * {@code GET /bootui/api/activity/request/{id}} on Quarkus (Spring's fuller, thread/time-window-heuristic
- * profiler stays out of scope for that port).</p>
+ * {@link ExecutionProfileAssembler} correlates on to serve the per-request profile drill-down at
+ * {@code GET /bootui/api/activity/request/{id}} on every adapter.</p>
  *
  * <p><strong>Cache access (the {@code CACHE} entry type / {@code cacheHitRatioPercent} KPI) is
  * trace-id-correlated too</strong>, same as SQL/exceptions/security: the Spring WebFlux adapter feeds

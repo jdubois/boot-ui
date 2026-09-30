@@ -1227,15 +1227,22 @@ Features:
   flattens the feed so the query spans every signal), and a
   pause/resume control over a live feed pushed by **Server-Sent Events** (`GET /bootui/api/activity/stream`): the server
   emits a tiny coalesced tick whenever any source changes and the browser re-fetches, rather than polling on a timer.
-- A per-request profiler (`GET /bootui/api/activity/request/{id}`) that correlates one request's signals with a tiered
-  join: trace id (distributed trace), HTTP anchor (exceptions by method/path/time window, further disambiguated by the
-  request's serving thread when it is uniquely known), serving thread within the
-  request window (SQL, which carries no trace id but runs on the request's worker thread), and time window plus principal
-  (Spring Security audit events, further pinned to the request's serving thread when BootUI captured the audit event on
-  it, so a concurrent request sharing the principal cannot trade events). SQL is matched exactly by trace id when
-  present, otherwise exactly by the request's
-  serving thread; it falls back to an approximate time-window match only when the serving thread cannot be uniquely
-  identified (concurrent identical requests or async execution). Repeated identical `SELECT`s above
+- A per-request profiler (`GET /bootui/api/activity/request/{id}`) that correlates one request's SQL, exceptions,
+  security audit events, REST client calls, and cache accesses, served on every adapter by one shared engine assembler
+  (`ExecutionProfileAssembler`). Correlation is tiered, strongest first: trace id (a trace id exactly one captured
+  request carries, on every adapter), serving thread (the request's servlet worker thread within its window, Spring MVC
+  only), and time window (Spring MVC only, labelled approximate). Exceptions add the request method and path to the
+  thread and window tiers; security events add the principal and are pinned to the serving thread when BootUI captured
+  the audit event on it, so a concurrent request sharing the principal cannot trade events. SQL is matched exactly by
+  trace id when present, otherwise exactly by the request's serving thread; it falls back to an approximate time-window
+  match only when neither matched any statement (concurrent identical requests or async execution). On Spring MVC,
+  exceptions keep their method, path, and window gate, within which a trace id or the serving thread decides first.
+  REST client calls and cache accesses attach by trace id or serving thread only, like the stream. A signal attaches to
+  at most one request: a trace id, thread, or window two captured requests could equally claim attaches the signal to
+  neither and is counted in the notes. Each section reports its availability, the weakest tier it used, the tier of
+  each shown child, and its total, truncated (above 200 entries), and ambiguous counts; `correlationTiers` lists the tiers the adapter can provide, with a reason
+  for each one it cannot; and `approximate` flags a profile that used the time window. Every new field is additive.
+  Repeated identical `SELECT`s above
   `bootui.activity.n-plus-one-threshold` are surfaced as a potential N+1, together with the distinct application call
   site(s) that issued them (from SQL Trace's call-site capture, `bootui.sql-trace.capture-call-site`, on by default) so a
   flagged group names exactly where in the code to look.
@@ -1249,7 +1256,10 @@ Features:
     same one the SQL Trace panel may already be tracing) or a small dedicated, non-pooled connection configured
     through `bootui.activity.persistence.dedicated-*`. The backing table (`bootui.activity.persistence.table-name`,
     default `bootui_activity`) is created automatically on first use with a probe-then-create check that is safe when
-    several instances start concurrently against the same schema.
+    several instances start concurrently against the same schema. The SQL is portable except for two differences
+    detected once per store from the JDBC driver's reported product name: 64-bit columns are `NUMBER(19)` on Oracle,
+    which has no `BIGINT`, and pages are capped with `LIMIT` on MySQL and MariaDB instead of the SQL-standard
+    `OFFSET … FETCH FIRST`. The store is tested against live PostgreSQL, MySQL, MariaDB, and Oracle servers.
   A `BufferedActivityStore` decorator wraps the JDBC store and provides, uniformly for any future `ActivityStore`
   implementation:
   - Write-behind buffering with a scheduled flush every `bootui.activity.persistence.flush-interval` (default 5s).
@@ -1291,9 +1301,10 @@ Features:
   mirroring the confirmation UX of other state-changing actions such as Flyway migrate/clean or Cache clear) that
   atomically swaps the running instance's `ActivityStore` — behind a `SwitchableActivityStore` indirection — from
   `InMemoryActivityStore` to a `BufferedActivityStore`/`JdbcActivityStore` pair: it verifies/creates the backing table
-  against the current `DataSource` and starts the same capture-poller/flush cycle a startup-enabled instance would have,
-  with no restart and no dropped entries. If no `DataSource` is present, the disclosure instead links to setup
-  documentation for configuring one (or a dedicated one) and enabling persistence at startup. The switch is
+  against the current `DataSource`, checks that the store's paged read runs there, and starts the same
+  capture-poller/flush cycle a startup-enabled instance would have, with no restart and no dropped entries. If no
+  `DataSource` is present, the disclosure instead links to setup documentation for configuring one (or a dedicated
+  one) and enabling persistence at startup. The switch is
   **runtime-only**: it does not write configuration, so a later restart reverts to the in-memory default unless
   persistence is also turned on via `bootui.activity.persistence.enabled=true`. Identical on both adapters (Spring's
   `LiveActivityController` and Quarkus's `LiveActivityResource` share the same engine-level `ActivitySwitchService`).
@@ -2643,7 +2654,7 @@ Initial endpoints:
 | `/bootui/api/transactions`                   | GET    | Current bounded transaction-boundary snapshot and aggregate statistics                 |
 | `/bootui/api/activity`                       | GET    | Merged Live Activity stream and KPI summary (params: `type`, `severity`, `since`, `limit`, plus `q`, `until`, `cursor`, `pageSize` when persistence is enabled) |
 | `/bootui/api/activity/stream`                | GET    | Live Activity change notifications over Server-Sent Events (re-fetch trigger)           |
-| `/bootui/api/activity/request/{id}`          | GET    | Per-request profile correlating SQL, exceptions, trace, and auth for one HTTP exchange   |
+| `/bootui/api/activity/request/{id}`          | GET    | Per-request profile correlating SQL, exceptions, auth, REST client calls, cache accesses, and trace for one HTTP exchange |
 | `/bootui/api/activity/use-existing-datasource` | POST | Hot-switch Live Activity from in-memory to the existing `DataSource` (confirmation-gated) |
 | `/bootui/api/email`                          | GET    | Captured outgoing email summaries and content-policy status                             |
 | `/bootui/api/kafka`                          | GET    | Bounded Kafka producer and consumer activity                                            |
