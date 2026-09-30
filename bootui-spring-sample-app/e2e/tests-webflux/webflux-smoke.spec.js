@@ -152,6 +152,39 @@ test.describe('BootUI on Spring WebFlux', () => {
     await expect(page.locator('.activity-table')).toBeVisible()
   })
 
+  test('profiles a traced request with trace-id-only tiers on the reactive stack', async ({page, request, baseURL}) => {
+    // The reactive sample runs no tracer, so an inbound W3C traceparent is what gives the exchange the
+    // trace id the reactive profiler correlates on. The serving-thread and time-window tiers stay
+    // unavailable on an event loop, and the drawer says so instead of guessing.
+    const traceId = `4bf92f3577b34da6a3ce929d${Date.now().toString(16).slice(-8).padStart(8, '0')}`
+    const traced = await request.get(`${baseURL}/api/greetings/Grace`, {
+      headers: {traceparent: `00-${traceId}-00f067aa0ba902b7-01`}
+    })
+    expect(traced.ok()).toBeTruthy()
+
+    const activity = await request.get(`${baseURL}/bootui/api/activity`)
+    const entry = (await activity.json()).entries.find(
+      (candidate) => candidate.type === 'REQUEST' && candidate.correlationId === traceId
+    )
+    expect(entry?.profileable).toBe(true)
+
+    await page.goto('/bootui/#/activity')
+    const row = page.locator('.activity-table tbody tr', {hasText: '/api/greetings/Grace'}).first()
+    await expect(row).toBeVisible({timeout: 15_000})
+    await row.getByRole('button', {name: /Profile/}).click()
+
+    const drawer = page.locator('.activity-drawer')
+    await expect(drawer).toBeVisible()
+    await expect(drawer).toContainText('reduced, trace-id-only profile')
+    await expect(drawer.getByRole('heading', {name: /^REST client calls/})).toBeVisible()
+    await expect(drawer.getByRole('heading', {name: /^Cache accesses/})).toBeVisible()
+    await expect(drawer).toContainText('Serving thread and time window correlation are unavailable on this adapter')
+    await expect(drawer.getByRole('button', {name: /Copy profile/})).toBeVisible()
+
+    await page.keyboard.press('Escape')
+    await expect(drawer).toHaveCount(0)
+  })
+
   test('raw Spring Security panel exposes reactive chains and mappings without blocking', async ({
     page,
     request,

@@ -313,9 +313,9 @@ class SqlTraceRecorderTests {
     void neverThrowsAndStillRecordsWhenCallSiteCaptureIsEnabled() {
         SqlTraceRecorder recorder = recorder(true, false, true, 10, 100);
         record(recorder, Category.SELECT, "select 1", 0);
-        // Best-effort: within this test suite's own call stack every frame belongs to BootUI, the JDK,
-        // JUnit, or the build tool (see StackFramePrefixes), so no application frame is ever found here and
-        // the call site is null. The important guarantee under test is that enabling capture never throws
+        // Best-effort: within this test suite's own call stack every frame belongs to a BootUI module package,
+        // the JDK, JUnit, or the build tool (see StackFramePrefixes), so no application frame is ever found here
+        // and the call site is null. The important guarantee under test is that enabling capture never throws
         // or disrupts recording; the frame-selection algorithm itself (with a synthetic application frame)
         // is covered in isolation by the selectCallSite* tests below.
         assertThat(recorder.recent()).hasSize(1);
@@ -342,6 +342,26 @@ class SqlTraceRecorderTests {
         String result = SqlTraceRecorder.selectCallSite(Stream.of(bootui, hibernate, app));
 
         assertThat(result).isEqualTo("com.example.app.OrderRepository.findAll(OrderRepository.java:42)");
+    }
+
+    @Test
+    void selectCallSiteTreatsTheSampleApplicationsAsApplicationCode() {
+        StackWalker.StackFrame bootui = frame(
+                "io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder", "record", "SqlTraceRecorder.java", 200);
+        StackWalker.StackFrame quarkus = frame(
+                "io.github.jdubois.bootui.quarkus.sqltrace.BootUiHibernateStatementInspector",
+                "inspect",
+                "BootUiHibernateStatementInspector.java",
+                40);
+        StackWalker.StackFrame hibernate = frame("org.hibernate.engine.spi.SessionImpl", "list", "SessionImpl.java", 5);
+        StackWalker.StackFrame sample = frame(
+                "io.github.jdubois.bootui.sample.catalog.SampleCatalog", "searchProducts", "SampleCatalog.java", 34);
+
+        String result = SqlTraceRecorder.selectCallSite(Stream.of(bootui, quarkus, hibernate, sample));
+
+        assertThat(result)
+                .isEqualTo(
+                        "io.github.jdubois.bootui.sample.catalog.SampleCatalog.searchProducts(SampleCatalog.java:34)");
     }
 
     @Test

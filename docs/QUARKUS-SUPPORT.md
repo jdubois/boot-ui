@@ -380,13 +380,15 @@ panel as available even though Reactive Messaging capture is not wired.
 
 :::
 
-::: details Why the per-request profiler (`GET /bootui/api/activity/{id}`) is trace-id-only on Quarkus
+::: details Why the per-request profiler (`GET /bootui/api/activity/request/{id}`) is trace-id-only on Quarkus
 
-Spring's `/activity/request/{id}` profiler is a Symfony-style join across SQL, exceptions, security audit events, the
-distributed trace, and timing for one request (`LiveActivityCorrelator`) — not CPU/flame-graph sampling. Its richness
-comes from a **tiered** correlation strategy: (1) OpenTelemetry trace id (the strongest, most precise signal), then, for
-requests without one, (2) HTTP method+path+time-window+thread heuristics for exceptions, (3) serving-thread correlation
-for SQL, and (4) time-window+principal for security events.
+Spring's `/activity/request/{id}` profiler is a Symfony-style join across SQL, exceptions, security audit events, REST
+client calls, cache accesses, the distributed trace, and timing for one request — not CPU/flame-graph sampling. Every
+adapter builds it with the shared engine `ExecutionProfileAssembler`; on Spring MVC, `LiveActivityCorrelator` adds the
+servlet-only evidence behind a **tiered** correlation strategy: (1) a trace id (the strongest, most precise signal),
+then, for signals without a unique one, (2) HTTP method+path+time-window+thread heuristics for exceptions, (3)
+serving-thread correlation for SQL, REST client calls, and cache accesses, and (4) time-window+principal for security
+events.
 
 Tiers 2-4 key on **serving-thread identity**. A servlet request runs start-to-finish on one worker thread that serves
 only one request at a time, so SQL, exceptions, and security events observed on that thread within its time window
@@ -397,14 +399,17 @@ one or more worker threads. Tiers 2-4 therefore have nothing to key on and are *
 ruled out as infeasible; see the PR that shipped this trace-id-only profiler).
 
 Tier 1, however, **is** portable and **is now implemented**. The same trace-id stamping that powers the
-`LiveActivityAssembler` nesting above is reused by a dedicated engine class, `RequestProfileAssembler`, to answer the
-endpoint directly. When the requested exchange carries a trace id, the endpoint gathers every SQL/exception/security
-entry sharing that exact trace id and returns `available: true` with `sqlCorrelationApproximate: false` (trace-id
+`LiveActivityAssembler` nesting above feeds the shared engine `ExecutionProfileAssembler` — the same class that serves
+the profile on Spring MVC and Spring WebFlux — with trace-id-only capabilities. When the requested exchange carries a
+trace id, the endpoint gathers every SQL/exception/security entry and REST Client Reactive call sharing that exact
+trace id and returns `available: true` with `sqlCorrelationApproximate: false` and `approximate: false` (trace-id
 matching is exact, unlike Spring's time-window heuristics) plus a `notes` entry disclosing that this is a reduced,
-trace-id-only profile. `threadMatched` always reports `false` (Quarkus has no thread-identity concept), while
+trace-id-only profile. `correlationTiers` reports the serving-thread and time-window tiers unavailable, and the cache
+section reports that Quarkus has no cache-access capture seam. `threadMatched` always reports `false` (Quarkus has no thread-identity concept), while
 `principalMatched` on `RequestProfileSecurityDto` **is** honestly computed by comparing principals. Ambiguous trace ids
-(shared by more than one in-flight request) render an `available: true` profile with empty correlated lists plus an
-explanatory note, never a hard failure or cross-request leak. When the exchange has no trace id at all — OpenTelemetry
+(shared by more than one captured request, such as an application calling its own endpoint through a REST client)
+render an `available: true` profile with empty correlated lists plus notes counting the signals left unattributed,
+never a hard failure or cross-request leak. When the exchange has no trace id at all — OpenTelemetry
 absent, or the request predates `quarkus-opentelemetry` — the endpoint honestly returns `available: false` with a clear
 reason (`RequestProfileDto.unavailable(...)`) rather than fabricating a partial result. In the main feed,
 `ActivityEntryDto.profileable` is computed adapter-side in `LiveActivityResource`: `true` for request entries with a

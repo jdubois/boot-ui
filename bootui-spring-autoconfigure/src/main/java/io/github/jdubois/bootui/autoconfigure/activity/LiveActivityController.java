@@ -139,9 +139,11 @@ public class LiveActivityController {
         this.correlator = new LiveActivityCorrelator(
                 httpExchanges,
                 sqlTrace,
+                restClientTrace,
                 exceptions,
                 securityLogs,
                 traces,
+                cacheActivity,
                 requestCorrelations,
                 securityCorrelations,
                 properties);

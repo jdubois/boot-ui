@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.autoconfigure.BootUiEngineConfiguration;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
+import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceControllerSupport;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
@@ -23,6 +24,7 @@ import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
+import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
@@ -49,8 +51,11 @@ import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.engine.web.ExecutionProfileAssembler;
 import io.github.jdubois.bootui.engine.web.LiveActivityAssembler;
-import io.github.jdubois.bootui.engine.web.RequestProfileAssembler;
+import io.github.jdubois.bootui.engine.web.ProfileCapabilities;
+import io.github.jdubois.bootui.engine.web.ProfileEvidence;
+import io.github.jdubois.bootui.engine.web.ProfileEvidence.Source;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -76,10 +81,11 @@ import reactor.core.publisher.Flux;
  * Reactive (WebFlux) sibling of {@code LiveActivityController}. Unlike the servlet controller (which
  * correlates signals to a request using thread-per-request heuristics — serving thread, time window —
  * that have no equivalent on Reactor Netty's event-loop model), this controller reuses the
- * framework-neutral {@link LiveActivityAssembler}/{@link RequestProfileAssembler} pair the Quarkus adapter
- * already validated for exactly this constraint: correlation is driven purely by a shared distributed
- * trace id (see {@code TraceIdProvider}), and a request with no trace id simply renders flat/unprofileable
- * rather than guessing.
+ * framework-neutral {@link LiveActivityAssembler} the Quarkus adapter already validated for exactly this
+ * constraint, and serves the per-request profile through the shared {@link ExecutionProfileAssembler} with
+ * {@link ProfileCapabilities#traceIdOnly() trace-id-only capabilities}: correlation is driven purely by a
+ * shared distributed trace id (see {@code TraceIdProvider}), and a request with no trace id simply renders
+ * flat/unprofileable rather than guessing.
  *
  * <p>All nine signal sources are read directly from the already-reactive, already-masked/self-filtered
  * beans this adapter wires for their own panels — {@link HttpExchangesController} (HTTP requests, shared
@@ -136,7 +142,7 @@ public class ReactiveLiveActivityController {
     private final SwitchableActivityStore activityStore;
     private final ActivityPersistenceSettings persistenceSettings;
     private final LiveActivityAssembler assembler = new LiveActivityAssembler();
-    private final RequestProfileAssembler profileAssembler = new RequestProfileAssembler();
+    private final ExecutionProfileAssembler profileAssembler = new ExecutionProfileAssembler();
     private final List<Runnable> unsubscribers = Collections.synchronizedList(new ArrayList<>());
 
     public ReactiveLiveActivityController(
@@ -307,29 +313,73 @@ public class ReactiveLiveActivityController {
     }
 
     /**
-     * The reduced, trace-id-only per-request profile drill-down — see {@link RequestProfileAssembler}
-     * for why Spring's fuller time-window/serving-thread heuristic tiers aren't ported to this reactive
-     * stack (no request served on the event loop has a stable owning thread to correlate on).
+     * The trace-id-only per-request profile drill-down, served by the shared
+     * {@link ExecutionProfileAssembler}. The serving-thread and time-window tiers are reported unavailable:
+     * no request served on the event loop has a stable owning thread to correlate on. Every source is read
+     * through the same masked, self-filtered bean its own panel uses, and only when that panel is enabled.
      */
     @GetMapping("/request/{id}")
     public RequestProfileDto request(@PathVariable("id") String id) {
-        HttpExchangesReport requests = requestsReport();
-        HttpExchangeDto request = requests.exchanges().stream()
-                .filter(exchange -> id.equals(exchange.id()))
-                .findFirst()
-                .orElse(null);
-        String traceId = request == null ? null : request.traceId();
-        TraceDetailDto trace = correlateTrace(traceId);
-        boolean securityAvailable = properties.isPanelEnabled(BootUiPanels.SECURITY_LOGS);
+        List<HttpExchangeDto> requests = requestsReport().exchanges();
+        boolean found = requests.stream().anyMatch(exchange -> id.equals(exchange.id()));
+        ProfileEvidence evidence = found
+                ? new ProfileEvidence(
+                        requests,
+                        sqlSource(),
+                        exceptionSource(),
+                        securitySource(),
+                        restCallSource(),
+                        cacheSource(),
+                        this::correlateTrace)
+                : new ProfileEvidence(requests, null, null, null, null, null, null);
+        return profileAssembler.requestProfile(id, evidence, ProfileCapabilities.traceIdOnly());
+    }
 
-        return profileAssembler.profile(
-                id,
-                request,
-                requests.exchanges(),
-                sqlSnapshot().entries(),
-                allExceptionDetails(),
-                securityEvents(securityAvailable),
-                trace);
+    private Source<SqlTraceEntryDto> sqlSource() {
+        if (!properties.isPanelEnabled(BootUiPanels.SQL_TRACE)) {
+            return Source.panelDisabled("SQL Trace");
+        }
+        SqlSnapshot sql = sqlSnapshot();
+        return sql.available() ? Source.of(sql.entries()) : Source.unavailable(sql.unavailableWarning());
+    }
+
+    private Source<ExceptionDetailDto> exceptionSource() {
+        if (!properties.isPanelEnabled(BootUiPanels.EXCEPTIONS)) {
+            return Source.panelDisabled("Exceptions");
+        }
+        return exceptionStoreProvider.getIfAvailable() == null
+                ? Source.notCapturing("Exceptions")
+                : Source.of(allExceptionDetails());
+    }
+
+    private Source<SecurityLogEventDto> securitySource() {
+        if (!properties.isPanelEnabled(BootUiPanels.SECURITY_LOGS)) {
+            return Source.panelDisabled("Security Logs");
+        }
+        ReactiveSecurityLogsController controller = securityLogs.getIfAvailable();
+        if (controller == null) {
+            return Source.notCapturing("Security Logs");
+        }
+        SecurityLogsReport report = controller.logs(null, null, null, null, null);
+        return report.auditEventsPresent()
+                ? Source.of(report.events())
+                : Source.unavailable(report.unavailableReason());
+    }
+
+    /** Read through the REST Client panel's own report, so availability and masking match that panel. */
+    private Source<RestClientTraceEntryDto> restCallSource() {
+        if (!properties.isPanelEnabled(BootUiPanels.REST_CLIENT_TRACE)) {
+            return Source.panelDisabled("REST Client");
+        }
+        RestClientTraceReport report = RestClientTraceControllerSupport.trace(restClientTrace, exposure);
+        return report.available() ? Source.of(report.entries()) : Source.unavailable(report.unavailableReason());
+    }
+
+    private Source<CacheActivityEvent> cacheSource() {
+        if (!properties.isPanelEnabled(BootUiPanels.CACHE)) {
+            return Source.panelDisabled("Cache");
+        }
+        return Source.cacheAccesses(cacheActivity.getIfAvailable());
     }
 
     /**

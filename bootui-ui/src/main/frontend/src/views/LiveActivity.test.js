@@ -391,6 +391,237 @@ describe('LiveActivity', () => {
     expect(report).toContain('at com.example.TodoRepository.findById(TodoRepository.java:42)')
   })
 
+  function profileWithOutboundEvidence(overrides = {}) {
+    return requestProfile({
+      restCalls: [
+        {
+          id: 7,
+          timestamp: 1700000000010,
+          method: 'GET',
+          uri: 'https://inventory.example/items?token=******',
+          host: 'inventory.example',
+          path: '/items',
+          status: null,
+          durationMillis: 42,
+          success: false,
+          errorMessage: 'Connection refused',
+          slow: false,
+          clientType: 'RestClient',
+          requestHeaders: {},
+          traceId: null,
+          thread: 'http-nio-1',
+          callSite: 'com.example.InventoryClient.items(InventoryClient.java:12)'
+        }
+      ],
+      cacheAccesses: [
+        {
+          timestamp: 1700000000020,
+          managerName: 'cacheManager',
+          cacheName: 'todos',
+          operation: 'HIT',
+          keyHash: 'a1b2c3d4e5f60718',
+          thread: 'http-nio-1'
+        }
+      ],
+      sections: [
+        {
+          type: 'SQL',
+          available: true,
+          unavailableReason: null,
+          tier: 'SERVING_THREAD',
+          total: 6,
+          truncated: 0,
+          ambiguous: 0
+        },
+        {type: 'EXCEPTION', available: true, unavailableReason: null, tier: null, total: 0, truncated: 0, ambiguous: 0},
+        {type: 'SECURITY', available: true, unavailableReason: null, tier: null, total: 0, truncated: 0, ambiguous: 0},
+        {
+          type: 'REST_CLIENT',
+          available: true,
+          unavailableReason: null,
+          tier: 'SERVING_THREAD',
+          childTiers: ['SERVING_THREAD'],
+          total: 3,
+          truncated: 2,
+          ambiguous: 0
+        },
+        {
+          type: 'SECURITY',
+          available: true,
+          unavailableReason: null,
+          tier: 'TIME_WINDOW',
+          childTiers: ['SERVING_THREAD', 'TIME_WINDOW'],
+          total: 205,
+          truncated: 203,
+          ambiguous: 0
+        },
+        {
+          type: 'CACHE',
+          available: true,
+          unavailableReason: null,
+          tier: 'TIME_WINDOW',
+          total: 1,
+          truncated: 0,
+          ambiguous: 0
+        }
+      ],
+      correlationTiers: [
+        {tier: 'TRACE_ID', available: true, unavailableReason: null},
+        {tier: 'SERVING_THREAD', available: true, unavailableReason: null},
+        {tier: 'TIME_WINDOW', available: true, unavailableReason: null}
+      ],
+      security: [
+        {type: 'AUTHENTICATION_SUCCESS', principal: 'alice', timestamp: 1, principalMatched: true, threadMatched: true},
+        {type: 'LOGOUT_SUCCESS', principal: null, timestamp: 2, principalMatched: false, threadMatched: false}
+      ],
+      approximate: true,
+      timing: {sqlCount: 6, sqlMs: 60, sqlPercent: 50, restCallCount: 3, restCallMs: 126},
+      ...overrides
+    })
+  }
+
+  it('shows correlated REST client calls and cache accesses with their tier and truncation', async () => {
+    vi.stubGlobal('fetch', stubFetch(activityReport(), profileWithOutboundEvidence()))
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+
+    const drawer = wrapper.get('.activity-drawer')
+    const sectionByHeading = (heading) =>
+      drawer
+        .findAll('section')
+        .find((section) => section.find('h3').exists() && section.get('h3').text().startsWith(heading))
+    const rest = sectionByHeading('REST client calls')
+    expect(rest.get('.activity-tier').text()).toBe('serving thread')
+    expect(rest.text()).toContain('GET inventory.example/items → failed')
+    expect(rest.text()).toContain('Connection refused')
+    expect(rest.text()).toContain('at com.example.InventoryClient.items(InventoryClient.java:12)')
+    expect(rest.text()).toContain('Showing the first 1 of 3 REST client calls.')
+    const cache = sectionByHeading('Cache accesses')
+    expect(cache.get('.activity-tier').text()).toBe('time window')
+    expect(cache.text()).toContain('HIT todos')
+    expect(cache.text()).toContain('key a1b2c3d4e5f60718')
+    expect(sectionByHeading('SQL').get('.activity-tier').text()).toBe('serving thread')
+    expect(drawer.text()).toContain('Parts of this profile are approximate')
+    expect(drawer.text()).toContain('3 REST client call(s), 126 ms outbound')
+    const security = sectionByHeading('Security events')
+    expect(security.text()).toContain('Showing the first 2 of 205 security events.')
+    expect(security.findAll('.activity-child-tier').map((label) => label.text())).toEqual([
+      '· serving thread',
+      '· time window'
+    ])
+  })
+
+  it('explains unavailable sections and tiers instead of showing empty evidence', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch(
+        activityReport(),
+        profileWithOutboundEvidence({
+          restCalls: [],
+          cacheAccesses: [],
+          approximate: false,
+          sections: [
+            {type: 'SQL', available: true, tier: 'TRACE_ID', total: 6, truncated: 0, ambiguous: 0},
+            {type: 'REST_CLIENT', available: true, tier: null, total: 0, truncated: 0, ambiguous: 0},
+            {
+              type: 'EXCEPTION',
+              available: false,
+              unavailableReason: 'The Exceptions panel is disabled.',
+              tier: null,
+              total: 0,
+              truncated: 0,
+              ambiguous: 0
+            },
+            {
+              type: 'SECURITY',
+              available: false,
+              unavailableReason: 'Security Logs is not capturing on this application.',
+              tier: null,
+              total: 0,
+              truncated: 0,
+              ambiguous: 0
+            },
+            {
+              type: 'CACHE',
+              available: false,
+              unavailableReason: 'Cache access capture is not available on Quarkus.',
+              tier: null,
+              total: 0,
+              truncated: 0,
+              ambiguous: 0
+            }
+          ],
+          correlationTiers: [
+            {tier: 'TRACE_ID', available: true, unavailableReason: null},
+            {tier: 'SERVING_THREAD', available: false, unavailableReason: 'Event loop.'},
+            {tier: 'TIME_WINDOW', available: false, unavailableReason: 'Event loop.'}
+          ]
+        })
+      )
+    )
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+
+    const drawer = wrapper.get('.activity-drawer')
+    expect(drawer.text()).toContain('No REST client calls correlated to this request.')
+    expect(drawer.text()).toContain('Cache access capture is not available on Quarkus.')
+    expect(drawer.text()).toContain('The Exceptions panel is disabled.')
+    expect(drawer.text()).toContain('Security Logs is not capturing on this application.')
+    expect(drawer.text()).toContain(
+      'Serving thread and time window correlation are unavailable on this adapter: Event loop.'
+    )
+    expect(drawer.text()).not.toContain('Parts of this profile are approximate')
+  })
+
+  it('renders an older server profile without the added sections', async () => {
+    vi.stubGlobal('fetch', stubFetch(activityReport(), requestProfile()))
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+
+    const drawer = wrapper.get('.activity-drawer')
+    expect(drawer.text()).not.toContain('REST client calls')
+    expect(drawer.text()).not.toContain('Cache accesses')
+    expect(drawer.find('.activity-tier').exists()).toBe(false)
+  })
+
+  it('copies REST client calls, cache accesses, tiers, and truncation into the profile report', async () => {
+    const writeText = vi.fn().mockResolvedValue()
+    vi.stubGlobal('navigator', {clipboard: {writeText}})
+    vi.stubGlobal('fetch', stubFetch(activityReport(), profileWithOutboundEvidence()))
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Copy profile'))
+      .trigger('click')
+    await flushPromises()
+
+    const report = writeText.mock.calls[0][0]
+    expect(report).toContain('Correlation: approximate (some signals were matched by time window only)')
+    expect(report).toContain('SQL (exact, serving thread):')
+    expect(report).toContain('  LOGOUT_SUCCESS [time window]')
+    expect(report).toContain('  … Showing the first 2 of 205 security events.')
+    expect(report).toContain('REST client calls (serving thread):')
+    expect(report).toContain('  GET inventory.example/items → failed · 42 ms')
+    expect(report).toContain('    Connection refused')
+    expect(report).toContain('  … Showing the first 1 of 3 REST client calls.')
+    expect(report).toContain('Cache accesses (time window):')
+    expect(report).toContain('  HIT todos · key a1b2c3d4e5f60718')
+    expect(report).not.toContain('token=')
+  })
+
   it('renders the outbound REST KPI tile', async () => {
     vi.stubGlobal('fetch', stubFetch(activityReport(), requestProfile()))
 
