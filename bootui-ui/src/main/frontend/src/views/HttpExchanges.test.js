@@ -458,7 +458,28 @@ describe('HTTP Exchanges', () => {
       await wrapper.find('#http-routes-metric').setValue('errorCount')
       expect(wrapper.findAll('.http-routes-table tbody tr')).toHaveLength(1)
       expect(wrapper.find('.http-routes-truncation').text()).toContain(
-        '1 of 2 retained routes record no errors in this window'
+        '1 more retained route records no errors in this window, so it is not shown'
+      )
+    })
+
+    it('does not count a pinned zero-scoring route among the routes it says are not shown', async () => {
+      routeState.query = {route: 'GET /quiet', rank: 'errorCount'}
+      stubFetch(
+        routesReport({
+          routes: [
+            route(),
+            route({id: 'GET /quiet', route: '/quiet', errorCount: 0, status4xx: 0, status5xx: 0, topFor: []})
+          ],
+          topPerCriterion: 25,
+          distinctRoutes: 3
+        })
+      )
+      const wrapper = mountExchanges()
+      await flushPromises()
+
+      expect(wrapper.findAll('.http-routes-table tbody tr')).toHaveLength(2)
+      expect(wrapper.find('.http-routes-truncation').text()).toContain(
+        '1 more retained route records no errors in this window, so it is not shown'
       )
     })
 

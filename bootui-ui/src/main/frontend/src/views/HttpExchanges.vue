@@ -586,9 +586,10 @@ onMounted(() => {
           shown.
         </template>
         <template v-else>
-          {{ formatNumber(rankingGap.missing) }} of {{ formatNumber(distinctRoutes) }} retained
-          {{ distinctRoutes === 1 ? 'route records' : 'routes record' }} no {{ rankingMetricLabel.toLowerCase() }} in
-          this window, so {{ rankingGap.missing === 1 ? 'it is' : 'they are' }} not ranked.
+          {{ formatNumber(rankingGap.missing) }} more retained
+          {{ rankingGap.missing === 1 ? 'route records' : 'routes record' }} no
+          {{ rankingMetricLabel.toLowerCase() }} in this window, so
+          {{ rankingGap.missing === 1 ? 'it is' : 'they are' }} not shown.
         </template>
       </p>
       <p v-if="highlightedRouteMissing" class="text-muted small mb-0 http-routes-linked-hidden">
