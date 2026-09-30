@@ -18,6 +18,35 @@ class RouteTemplateResolverTests {
     }
 
     @Test
+    void aLazyResolverReadsTheMappingsOnlyWhenAPathNeedsResolvingAndOnlyOnce() {
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        RouteTemplateResolver resolver = RouteTemplateResolver.lazy(() -> {
+            reads.incrementAndGet();
+            return List.of(new MappingDto("GET", "/api/orders/{id}", "handler", null, null));
+        });
+
+        assertThat(RouteLabel.of("GET", "/api/orders/1", "/api/orders/{id}", resolver)
+                        .source())
+                .isEqualTo(RouteLabel.Source.FRAMEWORK_TEMPLATE);
+        assertThat(reads).hasValue(0);
+
+        assertThat(resolver.resolve("/api/orders/1")).isEqualTo("/api/orders/{id}");
+        assertThat(resolver.resolve("/api/orders/2")).isEqualTo("/api/orders/{id}");
+        assertThat(resolver.isEmpty()).isFalse();
+        assertThat(reads).hasValue(1);
+    }
+
+    @Test
+    void aLazyResolverWhoseMappingsFailResolvesNothing() {
+        RouteTemplateResolver resolver = RouteTemplateResolver.lazy(() -> {
+            throw new IllegalStateException("mappings endpoint unavailable");
+        });
+
+        assertThat(resolver.resolve("/api/orders/1")).isNull();
+        assertThat(resolver.isEmpty()).isTrue();
+    }
+
+    @Test
     void resolvesAWordShapedPathParameterThatMaskingAloneWouldKeepVerbatim() {
         RouteTemplateResolver resolver = resolver("/api/users/{name}", "/api/users");
 

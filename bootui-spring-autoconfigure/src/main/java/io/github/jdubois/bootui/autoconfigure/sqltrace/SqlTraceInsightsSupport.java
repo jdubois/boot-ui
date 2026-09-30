@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.sqltrace;
 
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationRegistry;
+import io.github.jdubois.bootui.autoconfigure.web.DeclaredRouteTemplates;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry;
 import io.github.jdubois.bootui.core.dto.SqlTraceInsightsReport;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
@@ -94,15 +95,7 @@ public final class SqlTraceInsightsSupport {
      * provider simply means no templates.
      */
     static RouteTemplateResolver routeTemplates(ObjectProvider<MappingProvider> mappingProvider) {
-        MappingProvider provider = mappingProvider == null ? null : mappingProvider.getIfAvailable();
-        if (provider == null || !provider.available()) {
-            return RouteTemplateResolver.empty();
-        }
-        try {
-            return RouteTemplateResolver.of(provider.mappings());
-        } catch (RuntimeException ex) {
-            return RouteTemplateResolver.empty();
-        }
+        return DeclaredRouteTemplates.from(mappingProvider);
     }
 
     static List<SqlRequestEvidence> servletEvidence(RequestCorrelationRegistry registry) {

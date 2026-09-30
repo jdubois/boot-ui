@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Resolves a concrete request path to the route template the application declared for it, using the route
@@ -30,10 +31,17 @@ public final class RouteTemplateResolver {
     /** Segments compared, matching the masker's own depth bound. */
     private static final int MAX_SEGMENTS = 12;
 
-    private final List<String[]> templates;
+    private final Supplier<List<String[]>> loader;
+
+    private List<String[]> templates;
 
     private RouteTemplateResolver(List<String[]> templates) {
         this.templates = templates;
+        this.loader = null;
+    }
+
+    private RouteTemplateResolver(Supplier<List<String[]>> loader) {
+        this.loader = loader;
     }
 
     /** An empty resolver, which never resolves anything. */
@@ -43,8 +51,27 @@ public final class RouteTemplateResolver {
 
     /** Indexes the declared patterns of {@code mappings}, ignoring the HTTP method. */
     public static RouteTemplateResolver of(List<MappingDto> mappings) {
+        return new RouteTemplateResolver(index(mappings));
+    }
+
+    /**
+     * A resolver that reads {@code mappings} only when a path first needs resolving, so a caller whose requests
+     * all carry a framework template never enumerates the application's routes. A supplier that fails resolves
+     * nothing, like {@link #empty()}. Meant for one request's work: the first read is not synchronized.
+     */
+    public static RouteTemplateResolver lazy(Supplier<List<MappingDto>> mappings) {
+        return new RouteTemplateResolver(() -> {
+            try {
+                return index(mappings.get());
+            } catch (RuntimeException ex) {
+                return List.of();
+            }
+        });
+    }
+
+    private static List<String[]> index(List<MappingDto> mappings) {
         if (mappings == null || mappings.isEmpty()) {
-            return empty();
+            return List.of();
         }
         Set<String> patterns = new LinkedHashSet<>();
         for (MappingDto mapping : mappings) {
@@ -60,12 +87,19 @@ public final class RouteTemplateResolver {
                 indexed.add(segments);
             }
         }
-        return new RouteTemplateResolver(List.copyOf(indexed));
+        return List.copyOf(indexed);
+    }
+
+    private List<String[]> templates() {
+        if (templates == null) {
+            templates = loader.get();
+        }
+        return templates;
     }
 
     /** Whether any template was indexed, so callers can report the tier honestly. */
     public boolean isEmpty() {
-        return templates.isEmpty();
+        return templates().isEmpty();
     }
 
     /**
@@ -73,7 +107,7 @@ public final class RouteTemplateResolver {
      * well.
      */
     public String resolve(String path) {
-        if (templates.isEmpty() || path == null || path.isBlank()) {
+        if (path == null || path.isBlank() || templates().isEmpty()) {
             return null;
         }
         String[] actual = segments(path);
@@ -83,7 +117,7 @@ public final class RouteTemplateResolver {
         String[] best = null;
         int bestLiterals = -1;
         boolean tied = false;
-        for (String[] candidate : templates) {
+        for (String[] candidate : templates()) {
             if (candidate.length != actual.length) {
                 continue;
             }

@@ -144,6 +144,49 @@ in the response body-end handler, where status, duration, and size are final, in
 same property. That filter is wired in dev and test only, never in production. Masking, trace-id extraction,
 self-exclusion, and paging run through the shared engine service, so the wire format is identical.
 
+Every exchange carries the route it belongs to, shown under its path when the two differ, and a **Profile** link that
+opens the request's profile in [Live Activity](overview.md#the-per-request-profiler). Stacks that correlate a profile
+by trace id alone explain in the profile when a request carried none.
+
+### Route rankings
+
+Above the exchange list, a route table summarizes the retained window: summary → exchanges → profile. Each row is one
+method and route, with its request count; 2xx, 3xx, 4xx, and 5xx counts; average, p50, p95, p99, and maximum duration;
+and share of retained request time. **Rank by** orders the table by requests, total time, p95, slowest request, or
+errors. **Exchanges** filters the list below to exactly that route's exchanges, and **Show every route** clears it.
+
+A route is resolved exactly as [SQL Trace](database.md#rankings) attributes database time, and each row says which of
+three sources it came from:
+
+| Source        | Meaning                                                                                         |
+| ------------- | ----------------------------------------------------------------------------------------------- |
+| `template`    | The handler pattern Spring MVC or Spring WebFlux matched, such as `/api/orders/{id}`.            |
+| `declared`    | The single best route the application declares in its mappings. Ties resolve to no template.    |
+| `masked path` | No template matched, so every path segment that reads like a value is replaced with `{value}`. |
+
+Quarkus has no runtime route template, so its routes come from the declared JAX-RS mappings. On Spring WebFlux, the
+framework template is recorded beside the trace id only when OpenTelemetry is present; otherwise declared mappings are
+used. Query strings and path-parameter values are never part of a route.
+
+::: details How the figures are bounded
+
+- Every figure covers only the retained, visible exchanges. They are diagnostic evidence for that window, not lifetime
+  or service-level metrics; the Metrics panel's `http.server.requests` meter covers the application's lifetime.
+- The line above the table states the evidence window: retained exchanges, the buffer size, evictions, the oldest
+  retained exchange, and how many BootUI exchanges were hidden. A value the exchange source does not report, such as an
+  application-provided repository's capacity or the evictions of either buffer, reads as not reported.
+- Percentiles are exact nearest-rank values over each route's timed exchanges, computed by the same helper as SQL Trace
+  and the Live Activity KPIs. A route whose exchanges carry no duration shows no timings rather than zeros.
+- The response returns the union of each criterion's top 25 routes, so re-ranking in the browser stays exact. When more
+  routes are retained, the panel says how many are not shown. Ties break on the route name, never on buffer order.
+- BootUI's own exchanges stay out of the rankings while `bootui.monitoring.exclude-self` is on.
+
+:::
+
+`GET /bootui/api/http-exchanges/routes` serves the rankings, and `GET /bootui/api/http-exchanges?route=<id>` lists one
+route's exchanges. Agents read the same rankings with the `get_http_routes` MCP tool, and the command line with
+`bootui http routes`.
+
 ### Copy as cURL
 
 Row details offer **Copy as cURL**, which turns the retained metadata into a command *template*. It is not a

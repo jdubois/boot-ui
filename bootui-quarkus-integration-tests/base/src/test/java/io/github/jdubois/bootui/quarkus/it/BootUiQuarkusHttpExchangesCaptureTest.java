@@ -90,4 +90,79 @@ class BootUiQuarkusHttpExchangesCaptureTest {
                 .as("the stale 'not yet captured on Quarkus' copy is gone")
                 .doesNotContain("not yet captured");
     }
+
+    /**
+     * Quarkus has no framework route template at capture time, so routes resolve from the application's
+     * declared JAX-RS mappings, then a masked path, exactly as SQL Trace attributes them on this adapter.
+     */
+    @Test
+    void routeRankingsResolveDeclaredJaxRsRoutesAndMaskEverythingElse() {
+        BootUiHttpProbe probe = probe();
+        probe.get("/widgets");
+        probe.get("/widgets");
+        probe.get("/no-such-route/3f2b8c1e-0a4d-4e8b-9c55-1d2e3f4a5b6c?token=secret");
+
+        Response response = probe.get("/bootui/api/http-exchanges/routes");
+        assertThat(response.status()).as("routes status").isEqualTo(200);
+        assertThat(response.isJson()).isTrue();
+        JsonNode report = response.json();
+        assertThat(report.path("available").asBoolean()).isTrue();
+        assertThat(report.path("topPerCriterion").asInt()).isPositive();
+
+        JsonNode window = report.path("window");
+        assertThat(window.path("bufferSize").asInt())
+                .as("the Quarkus buffer reports its capacity")
+                .isPositive();
+        assertThat(window.path("evicted").isNull() || window.path("evicted").isMissingNode())
+                .as("the buffer does not count evictions")
+                .isTrue();
+        assertThat(window.path("summarizedExchanges").asInt()).isGreaterThanOrEqualTo(3);
+
+        JsonNode widgets = null;
+        JsonNode masked = null;
+        for (JsonNode route : report.path("routes")) {
+            assertThat(route.path("route").asText()).doesNotStartWith("/bootui").doesNotContain("?");
+            assertThat(route.path("id").asText()).doesNotContain("3f2b8c1e").doesNotContain("secret");
+            if ("GET /widgets".equals(route.path("id").asText())) {
+                widgets = route;
+            }
+            if ("GET /no-such-route/{value}".equals(route.path("id").asText())) {
+                masked = route;
+            }
+        }
+        assertThat(widgets).as("declared JAX-RS route").isNotNull();
+        assertThat(widgets.path("routeSource").asText()).isEqualTo("DECLARED_MAPPING");
+        assertThat(widgets.path("requests").asInt()).isGreaterThanOrEqualTo(2);
+        assertThat(masked).as("undeclared path grouped by its masked form").isNotNull();
+        assertThat(masked.path("routeSource").asText()).isEqualTo("MASKED_PATH");
+        assertThat(masked.path("status4xx").asInt()).isGreaterThanOrEqualTo(1);
+
+        Response filtered = probe.get("/bootui/api/http-exchanges?route=GET%20/widgets");
+        assertThat(filtered.status()).isEqualTo(200);
+        assertThat(filtered.json().path("exchanges").size())
+                .isEqualTo(widgets.path("requests").asInt());
+        for (JsonNode exchange : filtered.json().path("exchanges")) {
+            assertThat(exchange.path("route").asText()).isEqualTo("/widgets");
+            assertThat(exchange.path("routeSource").asText()).isEqualTo("DECLARED_MAPPING");
+        }
+
+        // Live Activity resolves the slowest request's route with the same declared mappings, so its label and
+        // source match the route summary row it links to.
+        JsonNode kpis = probe.get("/bootui/api/activity").json().path("kpis");
+        String slowestRouteId = kpis.path("slowestEndpointRouteId").asText(null);
+        assertThat(slowestRouteId).as("slowest request route id").isNotNull();
+        JsonNode rankings =
+                probe.get("/bootui/api/http-exchanges/routes?limit=100").json();
+        JsonNode slowestRow = null;
+        for (JsonNode route : rankings.path("routes")) {
+            if (slowestRouteId.equals(route.path("id").asText())) {
+                slowestRow = route;
+            }
+        }
+        assertThat(slowestRow).as("route summary row for %s", slowestRouteId).isNotNull();
+        assertThat(kpis.path("slowestEndpointRouteSource").asText())
+                .isEqualTo(slowestRow.path("routeSource").asText());
+        assertThat(kpis.path("slowestEndpointMs").asLong())
+                .isEqualTo(slowestRow.path("maxDurationMs").asLong());
+    }
 }

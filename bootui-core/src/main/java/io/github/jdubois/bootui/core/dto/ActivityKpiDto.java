@@ -11,7 +11,7 @@ package io.github.jdubois.bootui.core.dto;
  * @param errorRatePercent percentage of recent requests that returned a 4xx/5xx status
  * @param p50LatencyMs median request latency in milliseconds, or {@code null}
  * @param p95LatencyMs 95th-percentile request latency in milliseconds, or {@code null}
- * @param slowestEndpoint path of the slowest recent request, or {@code null}
+ * @param slowestEndpoint path of the slowest recent request, or {@code null}; ties go to the newest request
  * @param slowestEndpointMs latency of the slowest recent request in milliseconds, or {@code null}
  * @param activeExceptionCount number of distinct exception groups currently retained
  * @param sqlPerMinute recent SQL execution throughput estimate
@@ -24,6 +24,14 @@ package io.github.jdubois.bootui.core.dto;
  * @param scheduledTaskFailureCount number of failed scheduled-task executions currently retained
  * @param restCallErrorRatePercent percentage of recent outbound REST calls that failed or returned a 4xx/5xx status, or {@code null}
  * @param restCallP95LatencyMs 95th-percentile outbound REST call latency in milliseconds, or {@code null}
+ * @param latencySampleCount retained requests with a recorded duration, the sample {@code p50LatencyMs},
+ *     {@code p95LatencyMs} and the slowest request are computed over
+ * @param slowestEndpointRoute resolved route of the slowest recent request, such as {@code /api/orders/{id}},
+ *     or {@code null}
+ * @param slowestEndpointRouteId route-summary row id of the slowest recent request ({@code METHOD route}), so
+ *     the KPI can link to that row, or {@code null}
+ * @param slowestEndpointRouteSource how {@code slowestEndpointRoute} was resolved: {@code FRAMEWORK_TEMPLATE},
+ *     {@code DECLARED_MAPPING} or {@code MASKED_PATH}, or {@code null}
  */
 public record ActivityKpiDto(
         double requestsPerMinute,
@@ -41,4 +49,8 @@ public record ActivityKpiDto(
         Double cacheHitRatioPercent,
         int scheduledTaskFailureCount,
         Double restCallErrorRatePercent,
-        Long restCallP95LatencyMs) {}
+        Long restCallP95LatencyMs,
+        int latencySampleCount,
+        String slowestEndpointRoute,
+        String slowestEndpointRouteId,
+        String slowestEndpointRouteSource) {}

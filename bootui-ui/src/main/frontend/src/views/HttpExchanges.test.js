@@ -4,7 +4,17 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 import HttpExchanges from './HttpExchanges.vue'
 import AutoRefreshToggle from './components/AutoRefreshToggle.vue'
 
-vi.mock('vue-router', () => ({useRoute: () => ({query: {}})}))
+const routeState = vi.hoisted(() => ({query: {}}))
+vi.mock('vue-router', () => ({useRoute: () => routeState}))
+
+const RouterLinkStub = {
+  props: ['to'],
+  template: '<a class="router-link-stub" :data-to="JSON.stringify(to)"><slot /></a>'
+}
+
+function mountExchanges() {
+  return mount(HttpExchanges, {global: {stubs: {RouterLink: RouterLinkStub}}})
+}
 
 function jsonResponse(body, ok = true, status = 200) {
   return {ok, status, json: () => Promise.resolve(body)}
@@ -48,12 +58,13 @@ describe('HTTP Exchanges', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.useRealTimers()
+    routeState.query = {}
   })
 
   it('renders recorded exchanges with masked details and auto-refresh controls', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(report())))
 
-    const wrapper = mount(HttpExchanges)
+    const wrapper = mountExchanges()
     await flushPromises()
 
     expect(fetch).toHaveBeenCalledWith(
@@ -91,7 +102,7 @@ describe('HTTP Exchanges', () => {
       .fn()
       .mockResolvedValue(jsonResponse(report({exchanges: [], total: 0, recorded: 0, hiddenSelf: 0})))
     vi.stubGlobal('fetch', fetchMock)
-    const wrapper = mount(HttpExchanges)
+    const wrapper = mountExchanges()
     await flushPromises()
 
     await wrapper.find('select').setValue('POST')
@@ -107,7 +118,7 @@ describe('HTTP Exchanges', () => {
 
   async function openDetails(overrides) {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(report(overrides))))
-    const wrapper = mount(HttpExchanges)
+    const wrapper = mountExchanges()
     await flushPromises()
     await wrapper.find('.http-exchanges-detail-toggle').trigger('click')
     return wrapper
@@ -135,8 +146,8 @@ describe('HTTP Exchanges', () => {
     )
     expect(command).not.toContain('Authorization')
     expect(command).not.toContain('******')
-    // Only the initial list load happened: copying never calls the backend.
-    expect(fetch).toHaveBeenCalledTimes(1)
+    // Only the initial list and route loads happened: copying never calls the backend.
+    expect(fetch).toHaveBeenCalledTimes(2)
 
     expect(wrapper.find('.http-exchanges-curl-copy').text()).toContain('Copied')
     expect(wrapper.find('.http-exchanges-curl-command').text()).toBe(command)
@@ -203,5 +214,224 @@ describe('HTTP Exchanges', () => {
     expect(writeText).not.toHaveBeenCalled()
     expect(wrapper.find('.http-exchanges-curl [role="alert"]').exists()).toBe(false)
     expect(wrapper.find('.http-exchanges-copy-status').text()).toContain('no recorded absolute http(s) request URL')
+  })
+
+  describe('route rankings', () => {
+    function route(overrides = {}) {
+      return {
+        id: 'GET /api/orders/{id}',
+        method: 'GET',
+        route: '/api/orders/{id}',
+        routeSource: 'FRAMEWORK_TEMPLATE',
+        requests: 12,
+        status2xx: 10,
+        status3xx: 0,
+        status4xx: 1,
+        status5xx: 1,
+        statusOther: 0,
+        errorCount: 2,
+        timedRequests: 11,
+        totalDurationMs: 440,
+        avgDurationMs: 40,
+        p50DurationMs: 30,
+        p95DurationMs: 120,
+        p99DurationMs: 150,
+        maxDurationMs: 150,
+        shareOfRetainedTimePercent: 88,
+        topFor: ['REQUESTS', 'TOTAL_DURATION', 'ERROR_COUNT'],
+        ...overrides
+      }
+    }
+
+    function routesReport(overrides = {}) {
+      return {
+        available: true,
+        unavailableReason: null,
+        window: {
+          retainedExchanges: 16,
+          bufferSize: 200,
+          evicted: null,
+          hiddenSelfExchanges: 2,
+          summarizedExchanges: 14,
+          timedExchanges: 13,
+          oldestTimestamp: 1780000000000,
+          newestTimestamp: 1780000060000,
+          totalDurationMs: 500
+        },
+        routes: [
+          route(),
+          route({
+            id: 'GET /api/items/{value}',
+            route: '/api/items/{value}',
+            routeSource: 'MASKED_PATH',
+            requests: 2,
+            status2xx: 2,
+            status4xx: 0,
+            status5xx: 0,
+            errorCount: 0,
+            timedRequests: 2,
+            totalDurationMs: 60,
+            p95DurationMs: 900,
+            maxDurationMs: 900,
+            shareOfRetainedTimePercent: 12,
+            topFor: ['REQUESTS', 'P95_DURATION', 'MAX_DURATION']
+          })
+        ],
+        topPerCriterion: 25,
+        routesTruncated: false,
+        distinctRoutes: 2,
+        notes: ['Every figure covers only the 14 retained, visible exchanges.'],
+        ...overrides
+      }
+    }
+
+    function stubFetch(routes = routesReport(), exchanges = report()) {
+      const fetchMock = vi.fn((url) =>
+        Promise.resolve(jsonResponse(String(url).startsWith('api/http-exchanges/routes') ? routes : exchanges))
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      return fetchMock
+    }
+
+    it('ranks routes over the stated window and labels how each route was resolved', async () => {
+      stubFetch()
+      const wrapper = mountExchanges()
+      await flushPromises()
+
+      expect(fetch).toHaveBeenCalledWith('api/http-exchanges/routes', expect.anything())
+      const windowText = wrapper.find('.http-routes-window').text()
+      expect(windowText).toContain('14 retained exchanges')
+      expect(windowText).toContain('buffer 200')
+      expect(windowText).toContain('evictions not reported')
+      expect(windowText).toContain('2 BootUI exchanges hidden')
+
+      const rows = wrapper.findAll('.http-routes-table tbody tr')
+      expect(rows.map((row) => row.attributes('data-route-id'))).toEqual([
+        'GET /api/orders/{id}',
+        'GET /api/items/{value}'
+      ])
+      expect(rows[0].text()).toContain('template')
+      expect(rows[0].text()).toContain('11 timed')
+      expect(rows[0].text()).toContain('40.0 ms')
+      expect(rows[0].text()).toContain('88.0%')
+      expect(rows[1].text()).toContain('masked path')
+      expect(wrapper.find('.http-routes-notes').text()).toContain('14 retained, visible exchanges')
+
+      await wrapper.find('#http-routes-metric').setValue('p95DurationMs')
+      expect(wrapper.findAll('.http-routes-table tbody tr').map((row) => row.attributes('data-route-id'))).toEqual([
+        'GET /api/items/{value}',
+        'GET /api/orders/{id}'
+      ])
+
+      await wrapper.find('#http-routes-metric').setValue('errorCount')
+      expect(wrapper.findAll('.http-routes-table tbody tr').map((row) => row.attributes('data-route-id'))).toEqual([
+        'GET /api/orders/{id}'
+      ])
+    })
+
+    it('states how many routes a bounded ranking leaves out', async () => {
+      stubFetch(routesReport({topPerCriterion: 1, routesTruncated: true, distinctRoutes: 40}))
+      const wrapper = mountExchanges()
+      await flushPromises()
+
+      expect(wrapper.findAll('.http-routes-table tbody tr')).toHaveLength(1)
+      expect(wrapper.find('.http-routes-truncation').text()).toContain('Showing 1 of 40 routes')
+      expect(wrapper.find('.http-routes-truncation').text()).toContain('39 more routes')
+    })
+
+    it('drills down from a route to exactly its exchanges and back', async () => {
+      vi.useFakeTimers()
+      const fetchMock = stubFetch()
+      const wrapper = mountExchanges()
+      await flushPromises()
+
+      const button = wrapper.find('.http-routes-exchanges-link')
+      expect(button.attributes('aria-pressed')).toBe('false')
+      await button.trigger('click')
+      await vi.advanceTimersByTimeAsync(300)
+      await flushPromises()
+
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        'api/http-exchanges?route=GET+%2Fapi%2Forders%2F%7Bid%7D&offset=0&limit=200',
+        expect.objectContaining({signal: expect.any(AbortSignal)})
+      )
+      expect(wrapper.find('.http-exchanges-route-filter').text()).toContain('GET /api/orders/{id}')
+      expect(wrapper.find('.http-routes-exchanges-link').attributes('aria-pressed')).toBe('true')
+      expect(wrapper.find('.http-routes-row-active').attributes('data-route-id')).toBe('GET /api/orders/{id}')
+
+      await wrapper.find('.http-exchanges-route-filter button').trigger('click')
+      await vi.advanceTimersByTimeAsync(300)
+      await flushPromises()
+
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        'api/http-exchanges?offset=0&limit=200',
+        expect.objectContaining({signal: expect.any(AbortSignal)})
+      )
+      expect(wrapper.find('.http-exchanges-route-filter').exists()).toBe(false)
+    })
+
+    it('opens on the route and ranking a Live Activity link names', async () => {
+      routeState.query = {route: 'GET /api/items/{value}', rank: 'maxDurationMs'}
+      const fetchMock = stubFetch()
+      const wrapper = mountExchanges()
+      await flushPromises()
+
+      expect(wrapper.find('#http-routes-metric').element.value).toBe('maxDurationMs')
+      expect(wrapper.find('.http-routes-row-active').attributes('data-route-id')).toBe('GET /api/items/{value}')
+      expect(wrapper.find('.http-routes-row-active').attributes('aria-current')).toBe('true')
+      expect(fetchMock).toHaveBeenCalledWith(
+        'api/http-exchanges?route=GET+%2Fapi%2Fitems%2F%7Bvalue%7D&offset=0&limit=200',
+        expect.anything()
+      )
+    })
+
+    it('links every exchange to its request profile and shows its route', async () => {
+      stubFetch(
+        routesReport(),
+        report({
+          exchanges: [
+            {
+              ...report().exchanges[0],
+              path: '/api/orders/42',
+              route: '/api/orders/{id}',
+              routeSource: 'FRAMEWORK_TEMPLATE'
+            }
+          ]
+        })
+      )
+      const wrapper = mountExchanges()
+      await flushPromises()
+
+      const link = wrapper.find('.http-exchanges-profile-link')
+      expect(JSON.parse(link.attributes('data-to'))).toEqual({path: '/activity', query: {request: 'exchange-1'}})
+      expect(link.attributes('aria-label')).toBe('Open the request profile of POST /api/orders/42')
+      expect(wrapper.find('.http-exchanges-route').text()).toContain('/api/orders/{id}')
+    })
+
+    it('keeps the exchange list usable when route rankings cannot load', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url) =>
+          Promise.resolve(
+            String(url).startsWith('api/http-exchanges/routes') ? jsonResponse({}, false, 500) : jsonResponse(report())
+          )
+        )
+      )
+      const wrapper = mountExchanges()
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('Could not load route rankings')
+      expect(wrapper.find('.http-routes').exists()).toBe(false)
+      expect(wrapper.find('.http-exchanges-table').text()).toContain('/api/orders')
+    })
+
+    it('says so when no application request is retained yet', async () => {
+      stubFetch(routesReport({routes: [], distinctRoutes: 0}))
+      const wrapper = mountExchanges()
+      await flushPromises()
+
+      expect(wrapper.find('.http-routes').text()).toContain('no route to rank')
+      expect(wrapper.find('.http-routes-table').exists()).toBe(false)
+    })
   })
 })

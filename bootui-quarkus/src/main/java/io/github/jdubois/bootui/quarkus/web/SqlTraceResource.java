@@ -127,15 +127,7 @@ public class SqlTraceResource {
      * provider — production, or a build without the mappings build step — simply means no templates.
      */
     private RouteTemplateResolver routeTemplates() {
-        if (!mappings.isResolvable()) {
-            return RouteTemplateResolver.empty();
-        }
-        try {
-            MappingProvider provider = mappings.get();
-            return provider.available() ? RouteTemplateResolver.of(provider.mappings()) : RouteTemplateResolver.empty();
-        } catch (RuntimeException ex) {
-            return RouteTemplateResolver.empty();
-        }
+        return DeclaredRouteTemplates.from(mappings);
     }
 
     private static SqlRequestEvidence toEvidence(CapturedHttpExchange exchange, int ordinal) {

@@ -1792,6 +1792,94 @@ public abstract class AbstractBootUiApiConformanceTest {
         }
     }
 
+    /**
+     * HTTP route rankings must present the same bounded, self-describing shape on Spring MVC, Spring WebFlux
+     * and Quarkus: every route declares how it was resolved, never carries a query string, reconciles its
+     * status classes with its request count, and the response states the retained window it summarizes with
+     * BootUI's own traffic kept out of it.
+     */
+    @Test
+    void httpRouteRankingsAreBoundedAndStateTheirWindow() {
+        assumeTrue(
+                isPanelUsableInLiveManifest("http-exchanges"),
+                "http-exchanges panel is not available in this environment");
+
+        Response response = probe().get(api("/http-exchanges/routes?limit=3"));
+        assertThat(response.status()).as("GET /http-exchanges/routes status").isEqualTo(200);
+        assertThat(response.isJson())
+                .as("GET /http-exchanges/routes content-type (%s)", response.contentType())
+                .isTrue();
+
+        JsonNode root = response.json();
+        assertThat(root.path("available").isBoolean()).as("routes.available").isTrue();
+        assertThat(root.path("notes").isArray()).as("routes.notes").isTrue();
+        assumeTrue(root.path("available").asBoolean(false), "HTTP exchanges are not recorded in this environment");
+        assertThat(root.path("topPerCriterion").asInt(-1))
+                .as("routes.topPerCriterion")
+                .isEqualTo(3);
+        assertThat(root.path("routesTruncated").isBoolean())
+                .as("routes.routesTruncated")
+                .isTrue();
+        assertThat(root.path("distinctRoutes").isInt())
+                .as("routes.distinctRoutes")
+                .isTrue();
+
+        JsonNode window = root.path("window");
+        for (String field : List.of(
+                "retainedExchanges",
+                "hiddenSelfExchanges",
+                "summarizedExchanges",
+                "timedExchanges",
+                "totalDurationMs")) {
+            assertThat(window.path(field).isNumber())
+                    .as("routes.window.%s must be numeric", field)
+                    .isTrue();
+        }
+        for (String field : List.of("bufferSize", "evicted", "oldestTimestamp", "newestTimestamp")) {
+            assertThat(window.path(field).isNumber() || isNull(window.path(field)))
+                    .as("routes.window.%s must be a number or null", field)
+                    .isTrue();
+        }
+        assertThat(window.path("summarizedExchanges").asInt()
+                        + window.path("hiddenSelfExchanges").asInt())
+                .as("summarized and hidden BootUI exchanges reconcile with the retained window")
+                .isEqualTo(window.path("retainedExchanges").asInt());
+
+        JsonNode routes = root.path("routes");
+        assertThat(routes.isArray()).as("routes.routes").isTrue();
+        assertThat(routes.size())
+                .as("ranked routes stay bounded by the five ranking criteria")
+                .isLessThanOrEqualTo(5 * 3);
+        for (JsonNode route : routes) {
+            assertThat(route.path("routeSource").asText())
+                    .as("a route must declare how it was resolved")
+                    .isIn("FRAMEWORK_TEMPLATE", "DECLARED_MAPPING", "MASKED_PATH");
+            assertThat(route.path("route").asText())
+                    .as("a route never carries a query string")
+                    .doesNotContain("?");
+            assertThat(route.path("id").asText())
+                    .isEqualTo(route.path("method").asText() + " "
+                            + route.path("route").asText());
+            long statuses = 0;
+            for (String field : List.of("status2xx", "status3xx", "status4xx", "status5xx", "statusOther")) {
+                statuses += route.path(field).asLong();
+            }
+            assertThat(statuses)
+                    .as("status classes reconcile with requests")
+                    .isEqualTo(route.path("requests").asLong());
+            for (String field : List.of("p50DurationMs", "p95DurationMs", "p99DurationMs", "maxDurationMs")) {
+                assertThat(route.path(field).isNumber() || isNull(route.path(field)))
+                        .as("route.%s", field)
+                        .isTrue();
+            }
+            assertThat(route.path("shareOfRetainedTimePercent").isNumber()).isTrue();
+            route.path("topFor")
+                    .forEach(criterion -> assertThat(criterion.asText())
+                            .as("ranking criterion")
+                            .isIn("REQUESTS", "TOTAL_DURATION", "P95_DURATION", "MAX_DURATION", "ERROR_COUNT"));
+        }
+    }
+
     @Test
     void actionCatalogCoversEveryAvailableActionPanelForThisRuntime() {
         Map<String, JsonNode> livePanels = livePanelsById();

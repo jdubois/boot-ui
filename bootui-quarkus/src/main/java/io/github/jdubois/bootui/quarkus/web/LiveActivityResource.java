@@ -46,6 +46,7 @@ import io.github.jdubois.bootui.engine.web.RequestProfileAssembler;
 import io.github.jdubois.bootui.quarkus.BootUiEngineProducer;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
+import io.github.jdubois.bootui.spi.MappingProvider;
 import io.quarkus.runtime.ShutdownEvent;
 import io.smallrye.mutiny.Multi;
 import jakarta.enterprise.event.Observes;
@@ -158,6 +159,7 @@ public class LiveActivityResource {
     private final SecurityLogsService securityLogs = new SecurityLogsService();
     private final AtomicInteger openStreams = new AtomicInteger();
     private volatile ActivityCapturePoller switchPoller;
+    private Instance<MappingProvider> mappings;
 
     @Inject
     public LiveActivityResource(
@@ -197,6 +199,16 @@ public class LiveActivityResource {
         this.faultToleranceRecorder = faultToleranceRecorder;
         this.restClientTraceRecorder = restClientTraceRecorder;
         this.selfClassifier = selfClassifier;
+    }
+
+    /**
+     * The application's declared JAX-RS routes, so each REQUEST's exchange — and the slowest-request KPI — is
+     * labelled with the same route the HTTP Exchanges route summary uses. An initializer rather than a
+     * constructor parameter, because it is optional evidence: without it, routes fall back to masked paths.
+     */
+    @Inject
+    void setMappings(Instance<MappingProvider> mappings) {
+        this.mappings = mappings;
     }
 
     /**
@@ -468,6 +480,8 @@ public class LiveActivityResource {
                 uri -> !selfClassifier.shouldInclude(selfClassifier.isBootUiPath(uri)),
                 exposure.maskSecrets(),
                 exposure.valueExposure(),
+                DeclaredRouteTemplates.from(mappings),
+                null,
                 null,
                 null,
                 null,

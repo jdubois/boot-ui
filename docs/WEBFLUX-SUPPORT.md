@@ -235,7 +235,7 @@ assets still target a JVM process and Spring's checkpoint lifecycle; they do not
 
 | Panel          | Reactive binding                                                                                          |
 | -------------- | ---------------------------------------------------------------------------------------------------------- |
-| HTTP Exchanges | `ReactiveHttpExchangeRepositoryConfiguration` supplies Actuator's reactive `HttpExchangeRepository` bean instead of the servlet one — same DTO, same UI, same capture semantics |
+| HTTP Exchanges | `ReactiveHttpExchangeRepositoryConfiguration` supplies Actuator's reactive `HttpExchangeRepository` bean instead of the servlet one — same DTO, same UI, same capture semantics. Route rankings take the WebFlux handler pattern from `HttpExchangeTraceRegistry`, which `ReactiveHttpExchangeTraceFilter` fills only when OpenTelemetry is present; otherwise routes resolve from declared mappings, then a masked path |
 | MCP Server     | `ReactiveBootUiMcpController` — same `BootUiMcpService`, `McpServerState`, and `McpProtocol` as the servlet `BootUiMcpController`; only the transport differs (`DataBuffer` payload assembly with the same `bootui.mcp.max-payload-bytes` limit, and tool execution offloaded to `Schedulers.boundedElastic()`) |
 | Command Line   | `ReactiveBootUiCliController` — same `CliService` and the same `/bootui/api/cli` contract and statuses as the servlet `BootUiCliController`, with tool invocation offloaded to `Schedulers.boundedElastic()` because BootUI's tools call blocking diagnostics |
 

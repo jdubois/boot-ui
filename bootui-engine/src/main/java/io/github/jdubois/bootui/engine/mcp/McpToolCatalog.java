@@ -193,6 +193,7 @@ public final class McpToolCatalog {
             entry("clear_traces", McpToolSchema.NONE, BootUiPanels.TRACES, true, ALL_STACKS),
             entry("get_log_tail", McpToolSchema.NONE, BootUiPanels.LOG_TAIL, false, ALL_STACKS),
             entry("get_http_exchanges", McpToolSchema.LIMIT, BootUiPanels.HTTP_EXCHANGES, false, ALL_STACKS),
+            entry("get_http_routes", McpToolSchema.LIMIT, BootUiPanels.HTTP_EXCHANGES, false, ALL_STACKS),
             entry("get_overview", McpToolSchema.NONE, BootUiPanels.OVERVIEW, false, ALL_STACKS),
             entry("get_health", McpToolSchema.NONE, BootUiPanels.HEALTH, false, ALL_STACKS),
             entry("get_config", McpToolSchema.QUERY_LIMIT, BootUiPanels.CONFIG, false, ALL_STACKS),
