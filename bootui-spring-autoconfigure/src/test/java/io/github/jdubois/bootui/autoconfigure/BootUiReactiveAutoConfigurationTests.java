@@ -867,16 +867,21 @@ class BootUiReactiveAutoConfigurationTests {
                             .expectBody(String.class)
                             .value(body -> assertThat(body)
                                     .contains("IllegalStateException")
-                                    .contains("synthetic failure for exception-capture test"));
+                                    .contains("synthetic failure for exception-capture test")
+                                    .contains("Authorization: Bearer ******")
+                                    .doesNotContain(ThrowingTestController.TOKEN));
                 });
     }
 
     @RestController
     static class ThrowingTestController {
 
+        static final String TOKEN = "eyJhbGciOiJIUzI1NiJ9.e30.c2ln";
+
         @GetMapping("/bootui-test/boom")
         public String boom() {
-            throw new IllegalStateException("synthetic failure for exception-capture test");
+            throw new IllegalStateException(
+                    "synthetic failure for exception-capture test with Authorization: Bearer " + TOKEN);
         }
     }
 

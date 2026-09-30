@@ -546,9 +546,11 @@ class DevServicesControllerTests {
 
     static class SecretLogsTestcontainer {
 
-        static final String LOGS = "database system is ready\nPOSTGRES_PASSWORD=pg-secret\napi_key: ak-1\n";
+        static final String LOGS = "database system is ready\nPOSTGRES_PASSWORD=pg-secret\napi_key: ak-1\n"
+                + "proxy Authorization: Basic dXNlcjpwYXNz\n";
 
-        static final String MASKED = "database system is ready\nPOSTGRES_PASSWORD=******\napi_key: ******\n";
+        static final String MASKED = "database system is ready\nPOSTGRES_PASSWORD=******\napi_key: ******\n"
+                + "proxy Authorization: Basic ******\n";
 
         static final AtomicInteger reads = new AtomicInteger();
 

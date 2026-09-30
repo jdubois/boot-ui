@@ -62,8 +62,8 @@ class BootUiQuarkusExceptionsResourceTest {
         assertThat(group.path("count").asInt()).as("repeated failures grouped").isEqualTo(2);
         assertThat(group.path("message").asText())
                 .as("secret masked")
-                .contains("password=")
-                .doesNotContain("hunter2");
+                .contains("password=", "Authorization: Bearer ******")
+                .doesNotContain("hunter2", "eyJhbGciOiJIUzI1NiJ9");
     }
 
     @Test
@@ -167,6 +167,7 @@ class BootUiQuarkusExceptionsResourceTest {
     }
 
     private static IllegalStateException makeException() {
-        return new IllegalStateException("checkout failed password=hunter2");
+        return new IllegalStateException(
+                "checkout failed password=hunter2 with Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.e30.c2ln");
     }
 }

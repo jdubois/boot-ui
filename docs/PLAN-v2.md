@@ -173,8 +173,10 @@ Nothing is published before 2.0.0 (§4.3), so feedback comes from outside the re
 
 ## 3. Relationship to the v1 plan
 
-The v1 plan's diagnostics workstream (PLAN.md §2, waves 0–3) shapes evidence BootUI already captures. Items marked ✅
-are delivered on `main` and merged into `v2`. v2 builds exact
+The v1 plan's diagnostics workstream (PLAN.md §2) shapes evidence BootUI already captures. BootUI 1.x is in maintenance
+since 2026-09-30: its foundations (✅) are delivered on `main` and merged into `v2`, only §3.25 and §3.18 remain planned
+there, and the rest of its roadmap was dropped. Where v2 relied on a dropped item, v2 now builds what it needs itself,
+as the last column states. v2 builds exact
 keys, the journal, and observations on top of it. **Each shared capability has one implementation and one owner.** A
 v1 foundation is delivered on `main` in its wave and merged into `v2`; v2 extends it instead of duplicating it.
 
@@ -185,16 +187,15 @@ v1 foundation is delivered on `main` in its wave and merged into `v2`; v2 extend
 | §3.20a Shared profile assembler, wave 1 ✅ | Hard, M1 | v2 adds a `REQUEST_ID` tier ahead of the `TRACE_ID`, `SERVING_THREAD`, and `TIME_WINDOW` tiers of `ExecutionProfileAssembler` and `CorrelationTier` |
 | §3.22 Route performance rankings, wave 1 ✅ | Hard, M2 | Its `Percentiles` helper, `RouteTemplateResolver`, and `HttpRouteSummaryService` serve route comparison and every route-level observation |
 | §3.25 Agent-ready profiles, wave 2 | Hard, M3 | `get_request_profile` is the drill-down behind every exemplar request id |
-| §3.20b and §3.20c execution profiles, wave 2 | Soft | Scheduled and consumed-message anchors become journal anchors with their own execution ids |
-| §3.14 Correlation-ID filtering, wave 2 | Soft | `CorrelationContext` carries its keyed lookup identity |
 | §3.18 Data access map, wave 2 | Hard, M4 | `anonymous-data-reach` joins its table extraction and access classification with request authentication |
-| §3.21 Log correlation, wave 3 | Soft | Log lines gain a request id beside its trace id |
-| §3.23 Scheduled task run history, wave 3 | Soft | Scheduled runs take part in run comparison |
+| §3.20b and §3.20c execution profiles ❌ dropped in 1.x | None | v2 owns it: M1-6 gives scheduled runs and consumed messages their own `executionId`, which the journal records as execution anchors (§5.2) |
+| §3.14 Correlation-ID filtering ❌ dropped in 1.x | None | Not rebuilt. `CorrelationContext` carries no keyed lookup identity; principals are still pseudonymized under a per-process key (§8) |
+| §3.21 Log correlation ❌ dropped in 1.x | None | v2 owns it: journal `LOG` events carry the full correlation context at capture (§5.2) |
+| §3.23 Scheduled task run history ❌ dropped in 1.x | None | v2 owns it: journal scheduled-run events feed run comparison (§5.2, §5.8) |
 
-Three design points change how v1 items are finished, without changing their v1 scope:
+Three design points shape how v2 reuses v1 foundations:
 
-- §3.20's tiers stay as fallbacks once `REQUEST_ID` exists; §3.20b, §3.20c, and §3.21 use `REQUEST_ID` first when they
-  land after M1 is merged.
+- §3.20's tiers stay as fallbacks once `REQUEST_ID` exists.
 - The journal follows §3.24's reservation for evidence rows only. Route and statement statistics come from aggregates
   counted before eviction, so retention never biases percentiles (§5.2).
 - v2 CLI commands follow §3.25's naming rule: unique paths, never a prefix of another path.
@@ -311,7 +312,7 @@ Scope:
 
 - Add `CorrelationContext` to the engine: a BootUI-generated `requestId`, `traceId`, `spanId`, `routeTemplate`,
   `handler`, the innermost BootUI `transactionId`, the current statement's `dataSource`, an `executionId` for scheduled
-  and consumed-message anchors, and §3.14's keyed lookup identity when present.
+  and consumed-message anchors.
 - Add a `CorrelationContextProvider` SPI that replaces `TraceIdProvider`, and a scope-based holder that always restores
   the previous context. 1.x adapters keep `TraceIdProvider` as a fallback until 2.0.0 removes it.
 - Stamp the context at the existing capture points of exchanges, SQL, transactions, exceptions, security events, REST
@@ -361,7 +362,7 @@ Architecture:
 
 Out of scope:
 
-- Generating, replacing, or propagating correlation headers on behalf of the application, as in §3.14.
+- Generating, replacing, or propagating correlation headers on behalf of the application.
 - `@Async`, `CompletableFuture`, and executor instrumentation. Work on unwrapped executors stays visible as unowned work
   (§5.5), with the `TaskDecorator` the application can add. The optional BootUI agent propagates the context through
   executors (§5.13).
@@ -402,7 +403,11 @@ Delivery slices, each one pull request to `v2` with its own tests and documentat
 | M1-5b | Request ids on security events, REST client calls, cache accesses, email, and fault-tolerance events. The engine's `CorrelationSource` gives every recorder the same guarded, replaceable provider (the thread scope, or the Vert.x context on Quarkus), and `RequestIdStamps` keeps the id beside framework objects BootUI cannot extend: Actuator's `HttpExchange` and `AuditEvent`. Live Activity nests each signal by request id before its other tiers on all three stacks, and the N+1 flag and secured-principal badge use the same join. The Spring coverage scenarios enforce 100 % security and cache nesting in every phase, and Quarkus integration tests prove the REST client and security stamps | M1-5a | ✅ Delivered |
 | M1-5c | `REQUEST_ID` is the first `CorrelationTier` in `ExecutionProfileAssembler`, available on every adapter: SQL, security events, REST client calls, and cache accesses carrying a request's id join its profile exactly, before the trace id, and a signal carrying another captured request's id is never claimed. A Spring WebFlux or Quarkus request carrying either id is profileable through the engine's shared `LiveActivityAssembler.withExactProfiles`, so a reduced profile no longer needs a trace id; the Quarkus integration test without OpenTelemetry now proves an available profile | M1-5b | ✅ Delivered |
 | M1-5d | Request ids on exceptions: `ExceptionStore` stamps each immutable occurrence through the shared `CorrelationSource`, which also covers the Logback appender path that had no id at all. `ExceptionOccurrenceDto.requestId` and `ExceptionGroupDto.lastRequestId` are additive. Profiles attribute each occurrence by request id first, and Live Activity nests a group under the request its latest occurrence came from. All four coverage runners enforce 100 % exception nesting. Per-occurrence feed events and request ids on log events move to the §5.2 journal, whose `LOG` and exception-occurrence events carry the full context at capture | M1-5b | ✅ Delivered |
-| M1-6 | Messaging propagation, thread kinds, request phase markers, GraphQL operations, run ids in `/overview`, and the extended correlation scenario with its floors | M1-5 | 📋 Planned |
+| M1-6a | Run identity: `instanceId` and `runId` in `/overview` metadata, a new run per application-context start (a DevTools restart or a Quarkus live reload) | M1-1 | 📋 Planned |
+| M1-6b | Execution ids: each scheduled run and each consumed message opens its own `CorrelationContext` with an `executionId`, so the SQL, exceptions, and other signals it produces nest under it; a message send snapshots the sender's context, and a consume opens a child context from `traceparent` when present. Replaces the dropped §3.20b and §3.20c | M1-5 | 📋 Planned |
+| M1-6c | Thread kinds recorded by the adapter that owns the thread (request worker, virtual thread, event loop, Reactor scheduler, other), for the thread an operation started on | M1-5 | 📋 Planned |
+| M1-6d | Request phase markers (handler dispatch and return, response writing, view rendering, the Spring Security authentication interval), and the Spring MVC `/error` dispatch reopening the request's scope | M1-5 | 📋 Planned |
+| M1-6e | Spring for GraphQL operation type and name from its `graphql.request` observation, and the port kept in REST client summaries | M1-5 | 📋 Planned |
 
 ### 5.2 Runtime journal — Diagnostics 📋 Planned
 
@@ -1397,7 +1402,7 @@ live exposure policy at read time, and never write to disk anything less masked 
 | Read-time exposure | Journal rows, observations, evidence, exports, and MCP output pass through `SecretMasker` and the live `ExposurePolicy` when read, so a change from `FULL` to `MASKED` applies at once |
 | Cached projections | Keyed by exposure generation, and discarded when the policy changes |
 | Source-panel policy | Evidence from a disabled panel's source is omitted, with the reason |
-| Principals and sessions | Pseudonymized with a keyed hash under a per-process random key, never a plain hash, as §3.14 requires. Run summaries and the baseline file hold only counts of anonymous and authenticated requests, never principals |
+| Principals and sessions | Pseudonymized with a keyed hash under a per-process random key, never a plain hash. Run summaries and the baseline file hold only counts of anonymous and authenticated requests, never principals |
 | On disk: baseline file | Metadata only: route templates, statement fingerprints, exception-group ids, counts, histograms, and comparability facts |
 | On disk: `bootui_activity` rows | Opt-in Live Activity persistence keeps its 1.x columns, including summaries, paths, and the principal. The journal subscriber writes them as rendered under `MASKED` even when the live policy is `FULL`, pseudonymizes the principal, and re-applies the live policy when rows are read, so `METADATA_ONLY` omits summaries and details. This is a 2.0 behavior change, noted in `CHANGELOG.md` |
 | Page load | Reads project aggregates within a time budget; nothing captures, scans, reads a database, or calls a network |

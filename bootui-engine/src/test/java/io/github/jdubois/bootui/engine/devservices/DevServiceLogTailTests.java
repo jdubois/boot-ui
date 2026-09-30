@@ -27,6 +27,19 @@ class DevServiceLogTailTests {
     }
 
     @Test
+    void masksTheCredentialAfterAnAuthorizationSchemeBeforeTheTailIsCut() {
+        String logs = "starting\nproxy sent Authorization: Basic dXNlcjpwYXNzd29yZA==\nready\n";
+
+        DevServiceLogReport report =
+                DevServiceLogTail.report("proxy", () -> logs, 39, policy(ValueExposure.MASKED, true));
+
+        assertThat(report.logs())
+                .isEqualTo("sent Authorization: Basic ******\nready\n")
+                .doesNotContain("dXNlcjpwYXNz");
+        assertThat(report.truncated()).isTrue();
+    }
+
+    @Test
     void omitsLogsUnderMetadataOnlyWithoutReadingTheContainer() {
         AtomicInteger reads = new AtomicInteger();
 
