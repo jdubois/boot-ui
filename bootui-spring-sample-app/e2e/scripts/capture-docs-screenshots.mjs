@@ -3227,7 +3227,16 @@ const restClientTrace = {
       callSites: ['SamplePaymentClient.charge(SamplePaymentClient.java:51)']
     }
   ],
-  warnings: []
+  warnings: [],
+  retention: {
+    applicationManaged: false,
+    capacity: 500,
+    reservedCapacity: 125,
+    retained: restClientTraceEntries.length,
+    reserved: 2,
+    evicted: 0,
+    slowThresholdMillis: 1000
+  }
 }
 
 const copilotSessionId = 'session-bootui-2026-001'
@@ -3723,7 +3732,16 @@ const sqlTrace = {
     sqlTraceEntry(2, 90, sqlSelectProductsActive, 'SELECT', 18, true, null, 'conn-1', 2, null, callSiteProductsActive),
     sqlTraceEntry(1, 96, sqlSelectProductById, 'SELECT', 6, true, null, 'conn-1', 2, null, callSiteProductById)
   ],
-  warnings: []
+  warnings: [],
+  retention: {
+    applicationManaged: false,
+    capacity: 200,
+    reservedCapacity: 50,
+    retained: 14,
+    reserved: 2,
+    evicted: 0,
+    slowThresholdMillis: 100
+  }
 }
 
 const sqlStatementRanking = (
@@ -6667,7 +6685,16 @@ async function handleApiRoute(route) {
       route,
       pagedReport('exchanges', httpExchanges, url, {
         recorded: httpExchanges.length,
-        unavailableReason: null
+        unavailableReason: null,
+        retention: {
+          applicationManaged: false,
+          capacity: 200,
+          reservedCapacity: 50,
+          retained: httpExchanges.length,
+          reserved: 0,
+          evicted: 0,
+          slowThresholdMillis: 1000
+        }
       })
     )
   if (endpoint === 'email') return fulfillJson(route, email)
