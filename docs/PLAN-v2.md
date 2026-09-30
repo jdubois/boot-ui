@@ -83,6 +83,9 @@ The five v1 priorities stay in force: safety and local-only operation, easy inst
 a polished but simple UI, and testable architecture. In addition:
 
 - **No new infrastructure.** No graph database, external process, or new heavy dependency.
+- **Instrumentation stays optional.** Every capability in §5.1–§5.12 works from framework hooks alone. The BootUI Java
+  agent (§5.13) is a separate artifact the developer attaches on purpose; it deepens the same evidence and never
+  becomes a prerequisite.
 - **A runtime view, not an advisor.** Observations carry no severity, no score, and no effect on Overview, like the
   PostgreSQL and MySQL panels. They do say what to check.
 - **Nothing expensive on page load.** Observations are projections over aggregates the journal maintains as events
@@ -98,7 +101,8 @@ a polished but simple UI, and testable architecture. In addition:
 | Category | Examples | What they answer | BootUI v2's edge |
 | --- | --- | --- | --- |
 | Local telemetry viewers | Sentry Spotlight, the .NET Aspire dashboard | Errors, traces, and logs from a local run, some with MCP access | Nothing to run beside the application; route, principal, security decision, transaction, bean, and table joined at capture |
-| Runtime-aware code intelligence | Digma, including its MCP server | Issues and change impact derived from OpenTelemetry traces | No agent, collector, or backend; framework structure (mappings, beans, security, transactions) joined with traffic |
+| Runtime-aware code intelligence | Digma, including its MCP server | Issues and change impact derived from OpenTelemetry traces | No collector or backend, and no agent required; framework structure (mappings, beans, security, transactions) joined with traffic |
+| Diagnostic and coverage agents | Arthas, Glowroot, Lightrun, BlockHound, JaCoCo, Azul Code Inventory | One method, one trace, one test failure, or one coverage report at a time, each in its own tool | The optional BootUI agent (§5.13) feeds the same request ids, journal, runtime model, and observations, so method timings, executed code, and side effects join routes, transactions, and runs |
 | Framework tooling | Quarkus Dev UI, Spring Boot Admin, IDE Spring debuggers | State at a breakpoint, or one source at a time | Aggregates over every request of a run, and across runs |
 | Production APM | Datadog, Dynatrace, New Relic, Elastic | Sampled production behavior in a remote backend | Development-time, complete within bounds, and zero setup |
 | Static software intelligence | CAST Imaging | What the code could do | What the code did in this run, with counts and timings |
@@ -123,6 +127,12 @@ Spring WebFlux, and Quarkus, readable by humans and agents alike**.
 | Prepare a refactoring | Beans graph without traffic | Routes a change reaches, through beans or shared tables and hosts, with observed traffic and unexercised routes | §5.7 |
 | Review anonymous access | Security and SQL Trace, separately | Anonymous writes, and anonymous 2xx on routes declared protected | §5.9 |
 | Give an agent runtime ground truth | The last few seconds of `get_live_activity` | Compact observations with exemplar request ids, and targeted impact and comparison tools | §5.6 |
+| Know the edited code ran | Nothing: route traffic, never the method | With the agent, changed methods since the previous run, and whether any request or test executed them | §5.15, §5.17 `changed-code-not-executed` |
+| Explain the handler phase | A duration between SQL and REST calls | With the agent, the application methods a route spends its handler time in, and which bean calls which | §5.14 |
+| Follow work onto executors | Unowned statements on `pool-N-thread-N` | With the agent, executor work nested under its request, and work still running after the response | §5.13, §5.17 `work-after-response` |
+| See everything the application touches | Only what hooked clients capture | With the agent, hosts, files, processes, environment variables, threads, thread locals, and leaked streams, per route | §5.16 |
+| Find hidden failures and risky sinks | Exceptions that reach a handler | With the agent, exceptions caught and dropped in application code, and request input pasted unchanged into SQL or a command | §5.17 `exceptions-caught-in-code`, `request-input-in-sink` |
+| Triage vulnerable dependencies | Every declared advisory, loaded or not | With the agent, whether the affected dependency's classes were ever loaded in this run | §5.15 |
 
 ### 2.2 How success is measured
 
@@ -200,9 +210,12 @@ Three design points change how v1 items are finished, without changing their v1 
 | **M2 Journal and Live Activity** (§5.2, §5.3, §5.11) | The in-memory journal, incremental aggregates, run summaries, resource correlation (scope readings, GC by id, CPU ledger, resource track), and Live Activity served from the journal with its unified timeline | M1; §3.22, §3.27 | 44–56 | 📋 Planned |
 | **M3 Runtime Insights** (§5.4–§5.6) | Projections, the runtime model, the panel, Live Activity entry points, twelve observations, agent tools, and the demo | M2; §3.25 | 52–65 | 📋 Planned |
 | **M4 Change loop and 2.0 readiness** (§5.7–§5.9, §5.12) | Change impact, run comparison and behavior diff, anonymous access, proxy bypass, external validation, and the release path | M3; §3.18 | 33–45 | 📋 Planned |
+| **M5 BootUI Java agent** (§5.13–§5.17) | The optional agent, executor propagation, Code Paths, Code Inventory, Side Effects, and agent evidence in observations, comparison, and tools | M3 for observations; M4 for the change-loop upgrades | 90–116 | 📋 Planned |
 
 M0–M4 total about **179–230 engineer-days**, roughly seven to nine months with two developers who also maintain 1.x.
 Opt-in JFR attribution (§5.11) is not included; it adds 6–9 engineer-days if D17 brings it into 2.0.
+M5 is estimated separately and **does not gate 2.0.0** (D20): its slices land on `v2` as they are ready, what is merged
+when M4 meets its gates ships in 2.0.0, and the rest follows in 2.x.
 The v1 foundations are estimated in their own plan. Before v1 wave 1 lands, `v2` works on M0 and the spikes.
 
 M0 is split into four items:
@@ -213,6 +226,23 @@ M0 is split into four items:
 | M0-2 | The correlation coverage scenario on Spring MVC, Spring WebFlux, and Quarkus, recording the baseline in §1.1 | ✅ Delivered |
 | M0-3 | The capture overhead scenario, recording the baseline for the §2.2 overhead target | ✅ Delivered |
 | M0-4 | The WebFlux propagation spike (§5.1) and the DevTools restart and Quarkus live-reload spike (§5.8) | ✅ Delivered |
+
+M5 is split into slices ordered by business value, each one pull request to `v2`. The spike comes first; each later
+slice depends on M5-1, and on the milestone named:
+
+| Item | Delivers | Depends on | Effort (engineer-days) | Status |
+| --- | --- | --- | --- | --- |
+| M5-0 | Spike: one bridge class across DevTools restarts and Quarkus live reloads, retransformation cost, coexistence with the OpenTelemetry agent, JaCoCo, IntelliJ's debugger agent, and Mockito, and executor-propagation overhead (§5.13) | M1 | 5–7 | 📋 Planned |
+| M5-1 | The `bootui-agent` and `bootui-agent-bridge` artifacts, claim and release, the transport ring, the **Java Agent** panel with setup snippets, and opt-in self-attach | M5-0, M2 | 12–15 | 📋 Planned |
+| M5-2 | Executor propagation, the `PROPAGATED` tier, and **after response** work | M5-1 | 6–8 | 📋 Planned |
+| M5-3 | Executed and changed methods, dependency use, and `changed-code-not-executed` (§5.15, §5.17) | M5-1, M3 | 8–10 | 📋 Planned |
+| M5-4 | Component-boundary timing, route trees, the **Code Paths** panel, and the handler split of `route-time-breakdown` (§5.14) | M5-1, M3 | 12–15 | 📋 Planned |
+| M5-5 | The **Side Effects** panel's network, files, processes, environment, threads, thread-local, resource, and blocking sensors, with their observations (§5.16, §5.17) | M5-1, M3 | 14–18 | 📋 Planned |
+| M5-6 | Caught exceptions and security sinks, with `exceptions-caught-in-code` and `request-input-in-sink` | M5-5 | 8–10 | 📋 Planned |
+| M5-7 | Change impact by method and run comparison led by code changes (§5.17) | M5-3, M5-4, M4 | 6–8 | 📋 Planned |
+| M5-8 | Method probes, in the UI and as agent tools (§5.14, §5.17) | M5-4 | 8–10 | 📋 Planned |
+| M5-9 | Vulnerable code reach and dynamic access recording with its reachability-metadata export (§5.15) | M5-3 | 6–8 | 📋 Planned |
+| M5-10 | The remaining agent tools, the `verify_after_change` and `diagnose_runtime_issue` updates, the agent benchmark investigation, and documentation | M5-3, M5-4, M5-5 | 5–7 | 📋 Planned |
 
 ```mermaid
 graph LR
@@ -227,6 +257,9 @@ graph LR
   M3 --> M4["M4 Change loop"]
   W2b["v1 3.18 Data access map"] --> M4
   M4 --> R["2.0.0"]
+  M3 --> M5["M5 BootUI Java agent"]
+  M4 -.change loop upgrades.-> M5
+  M5 -.slices ready by then.-> R
 ```
 
 ### 4.2 Branch strategy
@@ -330,7 +363,8 @@ Out of scope:
 
 - Generating, replacing, or propagating correlation headers on behalf of the application, as in §3.14.
 - `@Async`, `CompletableFuture`, and executor instrumentation. Work on unwrapped executors stays visible as unowned work
-  (§5.5), with the `TaskDecorator` the application can add.
+  (§5.5), with the `TaskDecorator` the application can add. The optional BootUI agent propagates the context through
+  executors (§5.13).
 
 Baseline (M0-2). `AbstractCorrelationCoverageTest` in `bootui-conformance` runs on all three stacks. It reads only
 the public Live Activity feed and writes its report to `target/correlation-coverage/`. Besides the table in §1.1, it
@@ -788,6 +822,16 @@ Acceptance criteria:
 | JDBC event journal | 💤 Deferred | A storage product in its own right (idempotent retries, three dialects, disk bounds); revisit on demand |
 | CI budgets on observations | 💤 Deferred | Once run comparison is proven |
 | Quarkus Dev UI card | 💤 Deferred | Would meet Quarkus developers where they already look; Dev MCP registration joins M3 (§5.6) |
+| Test impact mapping | 💤 Deferred | With the agent (§5.15), which tests executed a changed method, as Teamscale's test impact analysis does. Needs a JUnit extension marking test boundaries inside a shared test context |
+| Configuration reads by key | 💤 Deferred | Which properties the application reads, where, and on which routes. Needs no agent on Spring, where a property-source wrapper sees every read; the agent's `environment` sensor covers raw `System` reads (§5.16) |
+| Exception replay | 💤 Deferred | Argument shapes at the throw site of an exception group, as Datadog Exception Replay does, reusing method probes (§5.14) on the group's top application frame; after probes prove their bounds |
+| Fault injection | 💤 Deferred | Byteman-style delays or exceptions at a chosen method, to exercise fallback paths in development. A mutation of application behavior, so it needs its own safety review |
+| Deprecated and removal-bound API use at runtime | 💤 Deferred | Calls into `@Deprecated(forRemoval = true)` APIs that actually executed, by route; JFR's `jdk.DeprecatedInvocation` covers JDK methods on recent JDKs |
+| Live class patching and structural hot reload | ❌ Cut | JRebel, DCEVM, and Arthas's `redefine`: DevTools and Quarkus live reload own this loop, and redefinition cannot change a class's shape on a stock JVM |
+| Full taint tracking (IAST) | ❌ Cut | Contrast-style propagation through every string operation costs too much for an always-on development tool. `request-input-in-sink` checks verbatim matches at sinks instead (§5.16) |
+| Time-tunnel replay and local-variable capture | ❌ Cut | Arthas's `tt` and Lightrun snapshots retain object graphs, which pins memory and holds data the exposure policy cannot mask reliably. Probes record shapes only (§5.14) |
+| Native sampling profiler | ❌ Cut | async-profiler needs a native library and platform permissions; opt-in JFR attribution (§5.11) covers hot frames by route |
+| Decompiling loaded classes | ❌ Cut | Arthas's `jad`: developers have the source in their IDE |
 | `noisy-neighbours` | ❌ Cut | Measures laptop contention (IDE, GC, local models), not the application |
 | `runtime-modules` (Louvain), community detection, and centrality | ❌ Cut | Architecture curiosities, not inner-loop answers; declared Spring Modulith modules are actionable where detected communities are not |
 | `journeys` | ❌ Cut | In development, the journey is the developer's own clicks |
@@ -904,6 +948,364 @@ Acceptance criteria:
 - The sample app's seeded self-invocation of a `@Transactional` method is found, while calls through the bean are not.
 - Quarkus reports not applicable, because ArC intercepts self-invocation by design.
 
+### 5.13 BootUI Java agent — Developer tools 📋 Planned
+
+Everything in §5.1–§5.12 comes from framework hooks: filters, observations, `DataSource` proxies, listeners, and JDK
+management beans. They see what the framework sees, and stop there. Four questions stay out of reach, and the research
+behind this item (Appendix A, **Agent research**) found each answered by a Java agent elsewhere:
+
+- **What ran inside the handler?** §5.5's `handler` phase is a black box between SQL and REST calls. Glowroot, Pinpoint,
+  and Arthas's `trace` time application methods; Digma turns OpenTelemetry-agent spans into code-level insights.
+- **Did the code I just changed run?** Change impact (§5.7) proves route traffic, never that a request went through the
+  changed bean. JaCoCo and Azul Code Inventory record which methods executed; Azul Vulnerability Detection uses the same
+  evidence to say whether a vulnerable class was ever loaded.
+- **What did the application touch that no panel captures?** Sockets opened by SDKs, files, processes, environment
+  variables, threads, and executors that bypass Spring and Quarkus hooks. The OpenTelemetry agent instruments over 100
+  libraries, BlockHound instruments blocking JDK methods, and Kohsuke's file-leak-detector records who opened a file.
+- **Where did the request go after it left the thread?** §5.1 leaves `@Async`, `CompletableFuture`, and executors out of
+  scope, and the PoC found 90 of 425 statements on `pool-N-thread-N` with no owner. Every APM agent propagates context
+  through executors by instrumenting them.
+
+This item adds an **optional** agent, `bootui-agent`, that feeds the same correlation context, journal, runtime model,
+and observations as the rest of v2. Without it, BootUI behaves exactly as §5.1–§5.12 specify. With it, the new panels in
+§5.14–§5.16 become available and existing observations gain evidence (§5.17). It is not an APM agent: it is local,
+development-only, dormant until BootUI claims it, and it never exports anything.
+
+Scope:
+
+- A new published artifact, `bootui-agent`: a `-javaagent` jar with `Premain-Class`, `Agent-Class`, and
+  `Can-Retransform-Classes`, compiled for Java 17, with Byte Buddy relocated under
+  `io.github.jdubois.bootui.agent.shaded`. It has no Spring, Quarkus, or BootUI engine dependency, and it is **never** a
+  dependency of the starters or the Quarkus extension, so the "no new heavy dependency" rule (§1.3) holds for every
+  application that does not opt in.
+- A tiny `bootui-agent-bridge` module of JDK-typed classes only, the contract between the agent and the engine. The
+  agent appends it to the bootstrap class loader search, so JDK classes, library classes, and application classes all
+  see one copy. The engine depends on it too: without the agent, it loads from the classpath and reports "not attached".
+  Like §5.8's `bootui-run-holder`, it holds only strings, numbers, arrays, JDK collections, and JDK functional
+  interfaces, never an application, framework, or engine class that would pin a discarded class loader.
+- **Dormant until claimed.** `premain` stores the `Instrumentation` instance and installs nothing. Only when BootUI
+  activates under its existing rules (Spring activation, Quarkus dev and test launch modes) does the engine **claim**
+  the agent, passing the enabled sensors, the application's package prefixes, and its bean classes. The agent then
+  installs its transformers and retransforms the matching classes already loaded. A production JVM that keeps the flag
+  by mistake, a JVM without BootUI, or a run with BootUI disabled pays for `premain` only. A DevTools restart or Quarkus
+  live reload releases the claim, which switches every sensor off through one volatile flag, and the next run claims it
+  again; its reloaded application classes are transformed as they load.
+- The agent and engine versions must match exactly. A mismatch leaves the agent dormant, with both versions in the
+  status.
+- **Transport.** Advice writes fixed-size records of longs and interned string ids into per-thread buffers, published to
+  a bounded multi-producer ring in the bridge. The §5.2 dispatcher drains that ring as one more journal source. The ring
+  never blocks: on overflow a record is dropped and counted per sensor, exactly like the journal queue. Advice never
+  calls engine code on the application thread, except the correlation reads below.
+- **Correlation.** The engine installs, in the bridge, a `Supplier` that returns the current `CorrelationContext`
+  snapshot through the engine's `CorrelationSource` (the thread scope, or the Vert.x context on Quarkus), and a thread
+  kind flag that §5.1's adapters already classify. Advice reads them at most once per flushed record, not per
+  instrumented call.
+- **Context propagation through executors**, the first sensor and the one that closes §5.1's largest gap. Advice on
+  `ThreadPoolExecutor.execute`, `ScheduledThreadPoolExecutor.schedule*`, `ForkJoinPool.execute` and `submit`, and
+  `Thread.start` for a thread created with a `Runnable` wraps the task with the submitting thread's context snapshot and
+  reopens it, as a child execution, around the task. Work handed to an executor now carries its request id and its own
+  `executionId`, and the event records that it ran on another thread. Spring's `ContextPropagatingTaskDecorator`,
+  Reactor schedulers, and Vert.x, which already propagate, are detected and never wrapped twice. Work still running
+  after its request's response was committed is marked **after response**.
+- A new `CorrelationTier`, `PROPAGATED`, after `REQUEST_ID` in `ExecutionProfileAssembler`, so a profile says which of
+  its children reached it through an executor handoff.
+- **Self-protection.** Every advice suppresses its own exceptions; a class that fails to transform is skipped, counted,
+  and named in the status; BootUI, the agent, Byte Buddy, JDK internals, Spring CGLIB and AOT proxies, ArC's generated
+  `_Subclass`, `_ClientProxy`, and `_Bean` classes, and Hibernate's enhanced proxies are never instrumented. Advice only
+  inlines code at method entry, exit, and exception handlers, and never changes a class's shape, so retransformation
+  always succeeds and releasing the claim needs no reverse transformation.
+- **Adaptive exclusion.** An instrumented method called more than 50,000 times a second with a mean under 2 µs is
+  switched off in its advice and listed as excluded, as Glowroot and Kieker do, so a getter loop never dominates.
+- **Activation.** The recommended path is an explicit `-javaagent:` flag, which JEP 451 never restricts. The **Java
+  Agent** panel shows the resolved path of the jar and a copy-paste line for the Spring Boot Maven plugin's `agents`
+  parameter, Gradle's `bootRun` JVM arguments, Quarkus dev mode's `-Djvm.args`, the Surefire and Failsafe `argLine`
+  (appended to `@{argLine}`, so JaCoCo keeps working), and IDE run configurations. An opt-in `bootui.agent.self-attach`
+  attaches at startup through the Attach API. On JDK 21 and later that prints JEP 451's warning unless the JVM runs with
+  `-XX:+EnableDynamicAgentLoading`, and a future JDK may refuse it, which the panel says; it is never the default.
+- Properties under `bootui.agent.*`: `enabled` (claim the agent when present, default `true`), `sensors` (an allowlist,
+  like `bootui.runtime-journal.sources`), `packages` (application package prefixes, detected by default from
+  `@SpringBootApplication` or the Quarkus application artifact), `excluded-classes`, `ring-capacity`, and `self-attach`.
+
+Surfaces:
+
+- A new panel, `java-agent`, titled **Java Agent**, in the Developer tools group. It is always available, because its
+  first job is to explain how to attach the agent:
+  - status: not attached, attached and dormant, active for this run, or failed, with the reason; agent and BootUI
+    versions; JDK; and whether it was loaded by `-javaagent` or self-attach;
+  - sensors, each with its state, instrumented classes and methods, adaptively excluded methods, records, drops, and
+    transformation errors;
+  - the claim's cost: retransformed classes and the time retransformation took;
+  - the setup snippets above, for the build tool BootUI detects, with **Copy**.
+- The `route-time-breakdown` observation, Live Activity, and the request profile show handoffs as child executions,
+  with an **after response** badge.
+
+Architecture:
+
+- New modules `bootui-agent-bridge` (JDK only) and `bootui-agent` (the jar), and a new engine package `agent`:
+  `AgentClaim`, `AgentJournalSource`, `AgentStatus`, and one reader per sensor. Adapters only contribute their bean
+  classes and application packages at claim, and the Quarkus extension declares the bridge a parent-first artifact so
+  its class loaders never define a second copy.
+- Journal payloads for agent records are additive `RuntimeEvent` types (§5.17). Nothing in §5.1–§5.12 depends on them.
+- An M5-0 spike proves, before any sensor is built: one bridge class across Spring DevTools restarts and Quarkus live
+  reloads; retransformation cost on the sample apps and Spring PetClinic; coexistence with the OpenTelemetry Java agent,
+  JaCoCo, IntelliJ's debugger agent, and Mockito's inline mock maker; and the overhead of executor propagation.
+
+Out of scope:
+
+- GraalVM native executables and Quarkus native mode, where no agent can run. Their panels report the agent unavailable.
+- Structural hot reload or live patching (JRebel, DCEVM, Arthas's `redefine`): DevTools and Quarkus already own reload.
+- Remote attach to another JVM, and any control channel other than the application's own BootUI API.
+
+Acceptance criteria:
+
+- With the agent attached and BootUI disabled, or in a Quarkus production build, no transformer is installed.
+- The correlation scenario gains an executor route: with the agent, 100 % of its statements carry their request id and
+  the `PROPAGATED` tier; without it, they stay unowned, as today.
+- Ten DevTools restarts and ten Quarkus live reloads with the agent claimed leave no previous application class loader
+  reachable, proven by a heap-walk test like M0-4's.
+- The sample apps start and pass their browser suites with the agent attached, beside the OpenTelemetry Java agent and
+  JaCoCo, on Java 17, 21, and the newest JDK the build supports.
+- The overhead scenario (§2.2) with the agent's default sensors claimed stays within 10 % of the same scenario without
+  the agent, on top of the BootUI-on baseline.
+
+### 5.14 Code Paths — Diagnostics 📋 Planned
+
+Business value: the handler is where developers spend their time, and today BootUI can only say how long it took. Code
+Paths names the application methods a route spends that time in, across all its warm requests, and shows which bean
+calls which at runtime. It turns "handler 80 ms" into "`PricingService.quote` 55 ms, 40 of them in `TaxClient.rate`",
+without tracing, spans, or a profiler session, and it gives change impact (§5.7) its missing proof.
+
+Scope:
+
+- **Component-boundary timing.** With the `code-paths` sensor, the agent instruments the public and protected methods
+  of application bean classes (Spring beans and ArC beans in the application packages, passed at claim), and the
+  methods of application classes that SQL, REST client, and cache events already name as call sites (§5.2). It does not
+  instrument every method: a JDK, framework, or library method appears only as the time of its caller.
+- A per-thread shadow stack of `System.nanoTime()` enter and exit marks builds a **per-request call tree** merged by
+  `(parent, method)`, capped at 512 nodes and depth 32, with an **Other** node. It is flushed once, when the request's
+  scope closes, and stamped with its correlation context. Children reached through an executor (§5.13) attach to the
+  submitting node, and overlapping children are unioned (§5.4) so self time is never negative.
+- SQL, REST client, cache, and AI events attach to the **innermost instrumented method open on their thread** when they
+  run, an exact join by stack, not by time.
+- The dispatcher merges request trees into a **route tree** per route and run (count, total, self time, and a latency
+  histogram per node), capped at 2,000 nodes per route with an **Other** bucket, and records an observed
+  `bean → bean` **invokes** edge per call pair in the runtime model.
+- **Method probes** (user-triggered, bounded). From a Code Paths node, an exception frame, or a bean, the developer
+  starts a probe on `class#method` (with its descriptor for overloads). The agent retransforms that one method and
+  records the next 20 invocations, or 60 seconds, whichever comes first: duration, thread kind, request id, outcome
+  (return or the exception's type), and the calling frame. Under `FULL` exposure only, a probe may also record argument
+  and return **shapes**: types, nullness, collection sizes, and `SecretMasker`-masked `toString()` truncated to 200
+  characters. At most five probes run at once. Probes are actions: read-only policy blocks them, and they end with the
+  run. This is the useful core of Arthas's `watch` and Lightrun's snapshots, without a shell, expression language, or
+  variable capture.
+- `GET {api}/code-paths` returns the routes with a tree; `GET {api}/code-paths/routes/{route}` returns one route tree,
+  paged by depth; `GET {api}/code-paths/probes` lists probes; and `POST {api}/code-paths/probes` starts one.
+
+The UI:
+
+- A route list ranked by warm p50, then the selected route's tree as an indented table (method, calls per request,
+  total, self, share of the handler), with SQL, REST, cache, and AI children shown under the method that ran them.
+  Selecting a method shows its callers, the routes that reach it, and **Probe this method**.
+- A **Beans at runtime** tab: the observed `invokes` edges with call counts, beside the Beans panel's declared
+  dependencies, with a filter for declared dependencies never called in this run.
+
+Architecture:
+
+- The tree merge, the interval union, and the adaptive exclusion are engine code with property-based tests; the agent
+  only writes marks. The Spring and Quarkus adapters contribute bean classes at claim, and a thin controller or
+  resource.
+- `route-time-breakdown` (§5.5) splits its `handler` phase into the route tree's top methods by self time when the agent
+  is active, with the rest shown as **other handler time**.
+
+Acceptance criteria:
+
+- On the sample apps, the seeded slow route names its slowest application method, and the tree's times reconcile with
+  the handler phase within 5 %, overlap shown apart.
+- A probe never outlives its bound, is blocked by read-only policy, and never returns argument shapes below `FULL`.
+- Without the agent, the panel is unavailable with the `-javaagent` line as its remedy.
+
+### 5.15 Code Inventory — Diagnostics 📋 Planned
+
+Business value: this is the answer an AI agent needs most after an edit, and the one no BootUI signal gives today: **did
+the code I changed actually run, and on which routes?** The same evidence says which application code a run or a test
+suite never exercised, which dependencies were never loaded, and whether a vulnerable dependency's classes were ever
+loaded at all, which Azul reports cuts vulnerability noise by orders of magnitude.
+
+Scope:
+
+- **Executed methods.** With the `inventory` sensor, every method of every application class carries a one-time hit
+  flag, as JaCoCo's probes do but at method granularity: after the first call it costs one static field read. The first
+  hit records the method, its first request id and route, and the time. Each run keeps a bitset of executed methods.
+  Line and branch coverage stay JaCoCo's job, and both agents run together.
+- **Changed methods, without git.** The transformer already sees every application class's bytes as it loads, so it
+  hashes each method's instructions (excluding line numbers and other debug attributes) and each class's method set.
+  After a DevTools restart or a Quarkus live reload, comparing those hashes with the previous run's gives the exact set
+  of **changed, added, and removed methods**, even for changes an IDE compiled without a commit. The previous run's
+  hashes are kept as a `long[]` of `(method key, code hash)` pairs in the `bootui-run-holder` (§5.8), about 16 bytes per
+  method and at most 1 MB, outside the 256 KB run summary.
+- For each changed or added method: executed in this run or not, requests and routes that executed it (through §5.14's
+  route trees when the method is a component boundary), and its callers. Removed methods are a count.
+- **Dependency use.** The agent records the code source of every loaded class, so each dependency jar gets: classes
+  loaded, loaded during startup or later, and the first route whose request loaded one. Jars with no class loaded in
+  the run are listed as **not loaded in this run**, never as unused, with the run's traffic as the caveat.
+- **Vulnerable code reach.** The Vulnerabilities panel gains a **Runtime reach** column and filter when the agent is
+  active: `NOT_LOADED`, `LOADED` (with the class count and first route), or, where an OSV advisory names affected
+  classes or methods, `AFFECTED_CLASS_LOADED`. Reach never changes a finding's severity, score, or Overview penalty:
+  a class not loaded in this run may load in another.
+- **Dynamic access recording** (user-triggered, bounded session). While recording, the agent records reflection
+  (`Class.forName`, `getDeclared*`, `Method.invoke`, `Constructor.newInstance`, and field access), `Proxy` creation,
+  resource lookups, and deserialized classes, keeping only those whose calling frame is in the application or its
+  dependencies, not in the JDK. The GraalVM panel shows those not already covered by the application's Spring AOT hints
+  or reachability metadata, and exports them as a `reachability-metadata.json` fragment. This is what GraalVM's tracing
+  agent does, on any JDK, filtered to what the developer has to act on.
+- `GET {api}/code-inventory` returns the run's summary; `GET {api}/code-inventory/changes`, `/methods`, and
+  `/dependencies` return paged lists; recording is an action under the GraalVM panel.
+
+The UI:
+
+- A header stating the run and **N of M application methods executed**, then three tabs: **Changed since the previous
+  run** (first, when there is a previous run), **Application code** (packages and classes with executed and never
+  executed counts, filterable to *never executed*), and **Dependencies**.
+
+Architecture:
+
+- Hashes, bitsets, and diffs are engine code over JDK types, so the run holder never pins a class loader. The agent only
+  sets flags and emits load and first-hit records.
+
+Acceptance criteria:
+
+- Editing one method of the sample app and letting DevTools restart lists exactly that method as changed, executed or
+  not executed according to the requests sent, with no git repository present.
+- A seeded never-called service method is listed as never executed, and a jar the sample app declares but never loads is
+  listed as not loaded in this run.
+- The Vulnerabilities panel's scores are identical with the agent on and off.
+
+### 5.16 Side Effects — Diagnostics 📋 Planned
+
+Business value: what an application touches is a design, security, and deployment question at once: which hosts it
+calls, which files it reads and writes, which processes it starts, which environment variables it needs, and which
+threads and thread locals it leaves behind. BootUI sees only what goes through the clients it hooks. Side Effects shows
+the rest, per route and call site, with the request that did it, and finds a class of bugs no framework hook can:
+blocking calls on event loops beyond JDBC, thread locals leaking data between requests, streams never closed, and
+request input pasted into SQL or a command.
+
+Scope, one agent sensor per row, each aggregated per `(route or thread family, kind, target, call site)` with counts
+before it reaches the journal:
+
+| Sensor | Instruments | Records | Never records |
+| --- | --- | --- | --- |
+| `network` | `Socket.connect`, `SocketChannel.connect`, `DatagramChannel` and `DatagramSocket` sends, `InetAddress` lookups | Host, port, DNS resolution time, connect time, and the client recognized from the calling frames (JDBC driver, Lettuce, MongoDB, Kafka, JDK `HttpClient`, an SDK). A connection matched by no REST client, SQL, messaging, or mail event is marked **not captured by any panel** | Payloads, bytes read or written |
+| `files` | `FileInputStream`, `FileOutputStream`, and `RandomAccessFile` constructors, `Files.newByteChannel`, `newInputStream`, `newOutputStream`, `delete`, `move`, and `copy`, and `FileChannel.open` | Normalized path pattern (`~`, `$TMPDIR`, `{n}` for digits), read or write, and whether the path is inside the working directory, the temporary directory, or elsewhere. Class loading, JDK, and logging-appender access are grouped apart | File contents |
+| `processes` | `ProcessBuilder.start` and `Runtime.exec` | The command's file name, exit status, and duration | Arguments and environment, which can hold secrets |
+| `environment` | `System.getenv` and `System.getProperty` | Names read, and whether at startup or during a request | Values |
+| `threads` | `Thread.start`, `ThreadPoolExecutor` construction and `shutdown`, `Executors` factories | Threads started and executors created per route; executors never shut down; threads a request started that are still alive when it ends | Thread-local contents |
+| `thread-locals` | `ThreadLocal.set` and `remove`, and `ThreadLocal` construction sites | Thread locals set during a request on a pooled platform thread and still set when the request's scope closes, grouped by where each `ThreadLocal` was created, excluding known per-thread caches | Their values |
+| `resources` | Streams, channels, and sockets opened by the sensors above | Resources opened during a request and still open when it ends, and those reclaimed by the garbage collector without `close()` (a `Cleaner` registered only for resources opened in a request) | Contents |
+| `blocking` | `Thread.sleep`, `Object.wait`, `LockSupport.park`, and the `network` and `files` operations above | Any of them **started** on an adapter-identified event-loop thread, with the frames, as BlockHound's method list does, but reported, never thrown | — |
+| `security-sinks` | `Statement.execute*`, `Connection.prepareStatement`, the `processes` and `files` operations, `URL` and `URI` connections, `ObjectInputStream.readObject`, `MessageDigest.getInstance`, `Cipher.getInstance`, `SSLContext.init`, and `HttpsURLConnection.setDefault*` | (a) A query parameter, path variable, or form parameter value of the current request, at least 4 characters long, appearing **verbatim** in SQL text, a command, a file path, or an outbound URL; (b) deserialization without an `ObjectInputFilter`, with the classes read; (c) MD5, SHA-1, DES, or ECB requested by application frames; (d) a trust manager or hostname verifier installed by application code | The matched value; the sink's text is shown masked, as SQL Trace shows it |
+
+- Request parameter values for (a) are held in the correlation context only while the request runs, compared only when
+  a sink is reached, and never stored, logged, or displayed. Bodies and headers are never read.
+- `GET {api}/side-effects` returns the counts per sensor; `GET {api}/side-effects/{sensor}` returns its paged rows.
+- The runtime model (§5.4) gains **host**, **file pattern**, **process**, and **environment variable** nodes, and
+  **opens**, **spawns**, and **reads** edges from routes, jobs, and application methods.
+
+The UI:
+
+- One tab per sensor group: **Network**, **Files and processes**, **Environment**, **Threads and leaks**, **Blocking**,
+  and **Security sinks**, each a table by route or thread family, target, and call site, with counts, the exemplar
+  request id, and links to Live Activity. Security sinks are worded as facts ("the value of `name` appeared in this SQL
+  text"), never as vulnerabilities.
+
+Architecture:
+
+- Target normalization, recognition of clients from frames, and every aggregation are engine code; advice only records
+  the operation, target, call-site id, and outcome.
+
+Acceptance criteria:
+
+- The sample apps seed one case per sensor and a counterexample for each: an SDK call to a local host no panel captures;
+  a report written outside the temporary directory; a `ThreadLocal` left set after a request (and a `ThreadLocal`
+  cleared in `finally`, which must not appear); a `FileInputStream` never closed; a `Thread.sleep` on an event loop; and
+  a search route concatenating its parameter into SQL (and a parameterized one, which must not appear).
+- Sensor values never appear in any mode: no payload, file content, argument, environment value, or matched parameter.
+
+### 5.17 Agent evidence in the journal, Runtime Insights, and agent tools — Cross-cutting 📋 Planned
+
+The agent is only worth its setup if its evidence joins everything else by request id. This item wires §5.13–§5.16 into
+the v2 core, so the same observations, comparisons, and agent tools become more exact when the agent is present, and
+stay exactly as specified when it is not.
+
+Journal (§5.2):
+
+- New `RuntimeEvent` types, each with the standard envelope and a small interned payload: `CODE_PATH` (one per request,
+  the compact call tree), `ASYNC_HANDOFF` (a child execution's start and end), `SIDE_EFFECT` (one aggregated row per
+  request and target), `THREAD_LOCAL_LEFTOVER`, `RESOURCE_LEAK`, `BLOCKING_CALL`, `SINK_MATCH`, `CAUGHT_EXCEPTION`,
+  `PROBE_HIT`, and a per-run `CODE_CHANGE` summary.
+- `CAUGHT_EXCEPTION` comes from exception-handler entry in application classes, instrumented by the agent: the caught
+  type, the catch site, and whether the handler rethrew, logged at `WARN` or above, or did neither. Only application
+  code is instrumented, so the cost is paid on the exception path only.
+- `bootui.runtime-journal.sources` accepts `agent.<sensor>`. Agent records count against the same evidence budget, the
+  same cardinality caps, and the same per-source drop counters, and are pre-aggregated per request so a loop of
+  identical operations is one row with a count.
+
+Runtime model (§5.4):
+
+- Node types **method** (component boundaries and changed methods only, capped at 5,000), **dependency**, **file
+  pattern**, **process**, and **environment variable**; edge types **invokes**, **executes**, **opens**, **spawns**,
+  **reads**, and **hands off to**. Agent edges carry the provenance "observed in an owned execution", like other
+  observed edges, with the agent named as their source.
+
+Change impact (§5.7) and run comparison (§5.8):
+
+- Change impact accepts a method as well as a bean or class. With the agent, **observed routes** become routes whose
+  requests executed the changed code, from the route trees and `invokes` edges, instead of routes merely reachable
+  through the bean graph; structural reach stays a separate count.
+- Run comparison leads with **code changes** when the agent is active: changed, added, and removed methods, which of
+  them executed, and on which routes. Its behavior rows gain new hosts, file patterns, processes, and environment
+  variables, and bean-boundary methods executed in the previous run but not in this one, reported only for routes
+  exercised in both runs.
+
+Observations (§5.5), each `NOT_APPLICABLE` with the reason "requires the BootUI agent" when it is absent:
+
+| Id | Observation | Minimums |
+| --- | --- | --- |
+| `changed-code-not-executed` | Methods changed since the previous run that no request or job executed in this run, with the routes that reach them. Worded "your change has not run yet" | ≥ 1 changed method; a previous run in the holder |
+| `exceptions-caught-in-code` | Exceptions caught in application code during a request without being rethrown or logged, per route, type, and catch site. Also becomes evidence (e) of `errors-behind-2xx` | ≥ 3 requests, or ≥ 1 for `SQLException`, `IOException`, and `DataAccessException` |
+| `work-after-response` | Executor work a request started that was still running when its response was committed, with what it did (SQL, REST, messaging) and whether it failed after the response | ≥ 1 request |
+| `hidden-outbound-calls` | Hosts a route connected to that no BootUI panel captured, with the recognized client and call site | ≥ 1 connection |
+| `thread-local-left-set` | Thread locals left set when a request ended on a pooled platform thread, by creation site: memory held across requests, and data visible to the next request on that thread | ≥ 3 requests |
+| `resource-not-closed` | Streams, channels, or sockets opened by a route and reclaimed by the garbage collector without `close()` | ≥ 1 resource |
+| `threads-per-request` | Threads started or executors created while serving requests, per route | ≥ 3 requests |
+| `request-input-in-sink` | A request parameter's value appearing verbatim in SQL text, a command, a file path, or an outbound URL. Worded "request input reached this text unchanged; check that it is bound or validated", never as a vulnerability | ≥ 1 request |
+
+- `event-loop-blocking` extends from JDBC to every blocking operation of the `blocking` sensor when the agent is active.
+- `route-time-breakdown` gains the handler split of §5.14, and `repeated-selects` names the application method that
+  issued the repeats.
+
+Agent tools (§5.6), on existing schemas only, each moving in lockstep as PLAN.md §4 requires:
+
+| Tool | Schema | CLI command | Returns |
+| --- | --- | --- | --- |
+| `get_agent_status` | `NONE` | `bootui agent status` | Attached, dormant, active, or failed, with the reason and the `-javaagent` line to add |
+| `get_code_paths` | `QUERY_LIMIT` | `bootui code paths` | For a route, the top methods by self time; for a method, its callers and routes; at most `limit` rows |
+| `get_code_inventory` | `QUERY_LIMIT` | `bootui code inventory` | `query` is `changed` (the default), `never-executed`, `dependencies`, or a package or class: counts first, then at most `limit` rows |
+| `get_side_effects` | `QUERY_LIMIT` | `bootui side-effects` | `query` is a sensor or a route: counts first, then at most `limit` rows |
+| `start_method_probe` | `ID` | `bootui probe start <id>` | An action on `class#method`, blocked by read-only policy. Returns the probe id |
+| `get_method_probe` | `ID` | `bootui probe show <id>` | Invocations, durations, outcomes, and request ids. Argument shapes are **never** returned to MCP or the CLI, in any exposure mode |
+
+- The `verify_after_change` prompt (§5.6) starts with `get_code_inventory` and `changed` when the agent is active: an
+  agent that finds its edited method not executed runs the test that reaches it, or says so, before reading any latency.
+- `diagnose_runtime_issue` suggests `get_code_paths` on the exemplar's route after `get_request_profile`.
+
+Acceptance criteria:
+
+- Every observation above has a seeded case and a counterexample in the sample apps, and is `NOT_APPLICABLE` with the
+  reason, never empty, without the agent.
+- A scripted agent investigation, "did my change to `OrderService` run?", is answered correctly from tool output alone,
+  and joins the benchmark in §2.2.
+- With the agent detached, every §5.1–§5.12 acceptance criterion still passes unchanged.
+
 ## 6. Architecture
 
 ```mermaid
@@ -913,6 +1315,10 @@ flowchart TB
     FLUX[WebFlux context bridge]
     QK[Quarkus Vert.x capture filter]
     HOOKS[Existing capture hooks]
+  end
+  subgraph Agent[Optional bootui-agent, dormant until claimed]
+    ADV[Advice: executors, methods, I/O, sinks]
+    BR[bootui-agent-bridge ring, JDK types only]
   end
   subgraph Engine[bootui-engine]
     CC[correlation]
@@ -935,11 +1341,15 @@ flowchart TB
   J --> LA[Live Activity feed, profile, persistence subscriber]
   P --> API[REST, UI, MCP, and CLI]
   P --> LA
+  CC -.context supplier.-> BR
+  ADV --> BR --> DISP
 ```
 
-New engine packages: `correlation`, `journal`, `resources`, and `runtimeinsights`, plus the `CorrelationContextProvider`
-SPI. The dependency direction `bootui-core <- bootui-engine <- adapters` is unchanged, and no shared module gains a
-Spring, Quarkus, or JSON dependency.
+New engine packages: `correlation`, `journal`, `resources`, `runtimeinsights`, and `agent`, plus the
+`CorrelationContextProvider` SPI. The optional agent adds two modules outside the engine: `bootui-agent-bridge`, which
+depends only on the JDK and which the engine depends on, and the `bootui-agent` jar, which no starter or extension
+depends on. The dependency direction `bootui-core <- bootui-engine <- adapters` is unchanged, and no shared module gains
+a Spring, Quarkus, or JSON dependency.
 
 ## 7. Cross-stack availability
 
@@ -965,6 +1375,13 @@ Spring, Quarkus, or JSON dependency.
 | CPU and allocation in `route-time-breakdown` | Platform threads, summed across hops; virtual threads through opt-in JFR | Event loops and schedulers, summed across hops | Worker and event-loop threads, summed across hops |
 | GC by id, CPU ledger, and resource track | ✓ | ✓ | ✓ |
 | JFR attribution | Where the runtime ships JFR | Same | Same |
+| BootUI Java agent (§5.13) | JVM mode, `-javaagent` or opt-in self-attach | Same | JVM dev and test modes; unavailable in native mode |
+| Executor propagation | Platform executors and `Thread.start`; Spring's task decorators detected | Same; Reactor schedulers already propagate | Same; Vert.x and Mutiny hops already propagate |
+| Code Paths and component-boundary timing | Spring beans | Spring beans | ArC beans, excluding generated subclasses and client proxies |
+| Code Inventory, changed methods | Across DevTools restarts | Across DevTools restarts | Across live reloads |
+| Side Effects sensors | ✓ | ✓; `blocking` on Reactor Netty event loops | ✓; `blocking` on Vert.x event loops |
+| `thread-local-left-set` | Pooled request threads | Not applicable to event loops; pooled `boundedElastic` workers | Worker threads |
+| `request-input-in-sink` | Query, path, and form parameters | Query and path parameters; form parameters where already decoded | Query, path, and form parameters |
 
 Each unavailable cell is returned as availability with a reason and documented in `docs/QUARKUS-SUPPORT.md` and
 `docs/WEBFLUX-SUPPORT.md`.
@@ -987,6 +1404,9 @@ live exposure policy at read time, and never write to disk anything less masked 
 | Production | Quarkus registers nothing in `LaunchMode.NORMAL`; Spring activation rules are unchanged |
 | Self-exclusion | BootUI's threads, paths, and JDBC never enter the journal |
 | Clear recording | Confirmation-gated, blocked by read-only policy |
+| Agent activation | The agent installs nothing until BootUI claims it under its existing activation rules; Quarkus `LaunchMode.NORMAL` and a disabled BootUI never claim it. Self-attach is opt-in and never the default |
+| Agent evidence | Operation names, targets as normalized patterns, call sites, and counts only: never payloads, file contents, process arguments, environment values, thread-local values, or the request values `request-input-in-sink` compares |
+| Method probes | Actions, blocked by read-only policy, bounded to 20 invocations or 60 seconds and five at once; argument shapes only under `FULL`, masked, and never returned to MCP or the CLI |
 
 | Path | Budget |
 | --- | --- |
@@ -998,6 +1418,10 @@ live exposure policy at read time, and never write to disk anything less masked 
 | JFR attribution (§5.11) | About 330 ms and 42 MB to start; opt-in, user-triggered, and bounded by `jfr.max-duration` |
 | Dispatcher | Sustains at least 20,000 events per second on a reference machine (the PoC produced 88), measured by the overhead scenario |
 | Projection read | ≤ 250 ms, then `PARTIAL` |
+| Agent, attached but not claimed | `premain` only: no transformer installed |
+| Agent claim (§5.13) | Retransformation of already-loaded matching classes within 1 second on Spring PetClinic, measured by M5-0 |
+| Agent, default sensors claimed | Sample-app throughput within 10 % of the same scenario without the agent; an executed-method flag costs one static field read after its first hit; methods above 50,000 calls a second under 2 µs are excluded adaptively |
+| Agent transport | Advice never blocks; the bridge ring drops and counts per sensor on overflow |
 
 ## 9. Cross-cutting work
 
@@ -1028,6 +1452,13 @@ Every v2 item follows PLAN.md §4, "Every item", and the Runtime Insights panel 
 | A 1.x patch cannot be released after 2.0.0 | §4.3 | High | The release workflow change in M4, with the integrity guard in lockstep |
 | Estimates slip, especially M1 and M2 | §4.1 | Medium | Spikes first, the gates in §2.3, and the binding out-of-scope lists |
 | Scope creep toward APM | all | Medium | Development-only, no production mode, no hosted service, and no query language |
+| The agent breaks application startup or class verification | §5.13 | High | Shape-preserving advice only, suppressed advice exceptions, skipped and counted failing classes, `bootui.agent.enabled=false` and a `sensors` allowlist, and a startup matrix on Java 17, 21, and the newest JDK |
+| The agent conflicts with another agent (OpenTelemetry, JaCoCo, IntelliJ's debugger agent, Mockito's inline mock maker) | §5.13 | Medium | The M5-0 coexistence spike, then those agents in the sample apps' CI matrix |
+| The agent's bridge pins a discarded class loader across restarts | §5.13 | Medium | JDK types only in the bridge, as in `bootui-run-holder`, proven by a heap-walk test over ten reloads |
+| A future JDK refuses dynamic attach (JEP 451) | §5.13 | Low | `-javaagent` is the documented path; self-attach is opt-in and reports its restriction |
+| Byte Buddy lags a new class-file version | §5.13 | Medium | Unsupported class versions are skipped and reported; track the JDK's Class-File API (JEP 484) once the Java baseline allows it |
+| Agent overhead distorts the timings it explains | §5.14 | Medium | Component boundaries only, adaptive exclusion, the overhead budget in §8, and the agent's own cost shown in the Java Agent panel |
+| Agent findings read as verdicts: dead code, vulnerabilities, or injections | §5.15–§5.17 | High | "In this run" wording, reach that never changes a severity, verbatim-match facts worded as checks, and counterexample fixtures |
 
 ## 11. Validation checklist
 
@@ -1042,6 +1473,8 @@ lands on `v2` and before 2.0.0:
 - [ ] Nothing captures, scans, reads a database, or calls a network on page load.
 - [ ] Every exposure mode, and a live change between them, holds in the journal, observations, exports, and MCP output.
 - [ ] Every observation passes its counterexample fixtures.
+- [ ] With the BootUI agent detached, every panel and observation behaves as without M5; with it attached, the sample
+      apps' browser suites pass, and nothing is instrumented when BootUI does not claim it.
 - [ ] Before 2.0.0: the external-validation report, the agent benchmark, and the release-path change are done.
 
 ## 12. Decisions
@@ -1067,6 +1500,12 @@ lands on `v2` and before 2.0.0:
 | D17 | Is JFR attribution in 2.0? | Open. Recommendation: yes, as an opt-in M4 item, because it is the only way to measure CPU on virtual threads, which the sample apps and many Spring Boot 4 applications enable |
 | D18 | Is heap growth after GC a Runtime Insights observation, or a Memory advisor rule? | Open. Recommendation: an observation, fed by the resource track, with the Memory advisor linking to it |
 | D19 | Does the resource track survive application-context restarts, like run summaries? | Open. Recommendation: no, only its per-run totals, which join the run summary (§5.8) |
+| D20 | Does the BootUI Java agent gate 2.0.0? | Open. Recommendation: no. M5 starts after M3; slices merged when M4 meets its gates ship in 2.0.0, the rest in 2.x. M5-0 to M5-3 carry most of the value and should come first |
+| D21 | Which agent sensors are on by default once the agent is attached and claimed? | Open. Recommendation: executor propagation, `inventory`, `code-paths`, and every Side Effects sensor; probes and dynamic access recording stay user-triggered sessions |
+| D22 | Byte Buddy or plain ASM for the agent? | Open. Recommendation: Byte Buddy, relocated. Its inlined advice and retransformation support are what the OpenTelemetry, Elastic, Datadog, and BlockHound agents rely on; the jar's size only affects developers who attach it |
+| D23 | How is the agent jar obtained? | Open. Recommendation: published to Maven Central as `bootui-agent`, fetched into `target/` or `build/` by a documented `maven-dependency-plugin` or Gradle snippet, which the Java Agent panel prints with the resolved path. Never a transitive dependency |
+| D24 | May AI agents start method probes? | Open. Recommendation: yes, through `start_method_probe`, blocked by read-only policy, with metadata only in every exposure mode |
+| D25 | Should Quarkus apply the same instrumentation at build time instead of through the agent? | Open. Recommendation: not in M5. Quarkus's bytecode transformer build items could instrument application and dependency classes without an agent, but not JDK classes, so the agent stays the one mechanism; revisit after M5-4 |
 
 ## Appendix A. Review log
 
@@ -1077,7 +1516,8 @@ later design review of storage and algorithms (**Design review**) settled the jo
 Two research reviews then assessed new insights (**Insights research**) and graph or search storage (**Storage
 research**). Three insight audits followed, again one per model: GPT-6.1 Sol (evidence and false positives, **E**),
 Claude Opus 5.5 (developer value, **V**), and Grok 4.7 (agents, security, and a contrarian view, **G**). At the
-maintainer's request, each also challenged the "no graph database" decision.
+maintainer's request, each also challenged the "no graph database" decision. A later survey of Java agents (**Agent
+research**) shaped the optional agent of §5.13–§5.17.
 
 | Proposal | By | Outcome |
 | --- | --- | --- |
@@ -1127,6 +1567,7 @@ maintainer's request, each also challenged the "no graph database" decision.
 | Challenge "no graph database" | E, V, G | Kept for the database; a typed runtime model and named path templates adopted (D15, §5.4, §5.10) |
 | Link CPU, allocation, and GC to runtime events by identity: scope readings, GC by id, a CPU ledger, a resource track, and opt-in JFR attribution | Resource-correlation research (user-directed) | Adopted as §5.11 in M2, with D16–D19 open |
 | Store events in a graph database or a search engine for richer insights | Storage research | Rejected for 2.0 (D15): no insight needs a graph database at these volumes; cohort comparison, bounded path templates, and optional Lucene deferred (§5.10) |
+| Add an optional Java agent, after surveying APM agents (OpenTelemetry, Glowroot, SkyWalking, Pinpoint, Elastic, Datadog, New Relic, Dynatrace, Sentry, inspectIT Ocelot, Kieker), diagnostic agents (Arthas, BTrace, Byteman, Lightrun, Rookout, Digma), profilers (async-profiler, JFR, Pyroscope, YourKit, JProfiler), coverage and inventory tools (JaCoCo, Azul Code Inventory and Vulnerability Detection, Contrast), hot-reload agents (JRebel, HotswapAgent), leak and concurrency tools (BlockHound, file-leak-detector), GraalVM's tracing agent, and JEP 451 and JEP 484 | Agent research | Adopted as M5, not gating 2.0.0 (D20): executor propagation, Code Paths with method probes, Code Inventory with changed methods and vulnerable reach, Side Effects, and eight agent observations (§5.13–§5.17). Exception replay, fault injection, test impact, and configuration reads deferred; live patching, full taint tracking, time-tunnel replay, a native profiler, and decompilation cut (§5.10) |
 
 ## Appendix B. Proof-of-concept evidence
 
