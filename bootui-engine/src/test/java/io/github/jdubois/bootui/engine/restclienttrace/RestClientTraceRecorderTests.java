@@ -353,9 +353,9 @@ class RestClientTraceRecorderTests {
     void neverThrowsAndStillRecordsWhenCallSiteCaptureIsEnabled() {
         RestClientTraceRecorder recorder = recorder(true, false, true, 10, 100);
         record(recorder, "/orders");
-        // Best-effort: within this test suite's own call stack every frame belongs to BootUI, the JDK,
-        // JUnit, or the build tool (see StackFramePrefixes), so no application frame is ever found here and
-        // the call site is null. The important guarantee under test is that enabling capture never throws
+        // Best-effort: within this test suite's own call stack every frame belongs to a BootUI module package,
+        // the JDK, JUnit, or the build tool (see StackFramePrefixes), so no application frame is ever found here
+        // and the call site is null. The important guarantee under test is that enabling capture never throws
         // or disrupts recording; the frame-selection algorithm itself (with a synthetic application frame)
         // is covered in isolation by the selectCallSite* tests below.
         assertThat(recorder.recent()).hasSize(1);
@@ -386,6 +386,33 @@ class RestClientTraceRecorderTests {
         String result = RestClientTraceRecorder.selectCallSite(Stream.of(bootui, spring, app));
 
         assertThat(result).isEqualTo("com.example.app.OrderClient.findAll(OrderClient.java:42)");
+    }
+
+    @Test
+    void selectCallSiteTreatsTheSampleApplicationsAsApplicationCode() {
+        StackWalker.StackFrame bootui = frame(
+                "io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder",
+                "record",
+                "RestClientTraceRecorder.java",
+                200);
+        StackWalker.StackFrame adapter = frame(
+                "io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceInterceptor",
+                "intercept",
+                "RestClientTraceInterceptor.java",
+                60);
+        StackWalker.StackFrame spring =
+                frame("org.springframework.web.client.RestClient", "execute", "RestClient.java", 5);
+        StackWalker.StackFrame sample = frame(
+                "io.github.jdubois.bootui.sample.catalog.SampleController",
+                "quarkusSecureProducts",
+                "SampleController.java",
+                251);
+
+        String result = RestClientTraceRecorder.selectCallSite(Stream.of(bootui, adapter, spring, sample));
+
+        assertThat(result)
+                .isEqualTo(
+                        "io.github.jdubois.bootui.sample.catalog.SampleController.quarkusSecureProducts(SampleController.java:251)");
     }
 
     @Test
