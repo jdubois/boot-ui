@@ -56,6 +56,7 @@ import io.github.jdubois.bootui.engine.web.LiveActivityAssembler;
 import io.github.jdubois.bootui.engine.web.ProfileCapabilities;
 import io.github.jdubois.bootui.engine.web.ProfileEvidence;
 import io.github.jdubois.bootui.engine.web.ProfileEvidence.Source;
+import io.github.jdubois.bootui.engine.web.ReservedActivityEntries;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -142,6 +143,7 @@ public class ReactiveLiveActivityController {
     private final SwitchableActivityStore activityStore;
     private final ActivityPersistenceSettings persistenceSettings;
     private final LiveActivityAssembler assembler;
+    private final ReservedActivityEntries reservedEntries;
     private final ExecutionProfileAssembler profileAssembler = new ExecutionProfileAssembler();
     private final List<Runnable> unsubscribers = Collections.synchronizedList(new ArrayList<>());
 
@@ -187,6 +189,9 @@ public class ReactiveLiveActivityController {
         this.properties = properties;
         this.exposure = exposure;
         this.assembler = new LiveActivityAssembler(properties.getActivity().getRequestSlowThresholdMs());
+        // The threshold the exchange repository classifies with; see LiveActivityController for why this is exact.
+        this.reservedEntries =
+                new ReservedActivityEntries(properties.getActivity().getRequestSlowThresholdMs());
         this.exceptionsService = new ExceptionsService(exposure);
         this.changeStream = new ReactiveBootUiChangeStream("activity");
         SqlTraceRecorder recorder = sqlTraceRecorder.getIfAvailable();
@@ -230,13 +235,20 @@ public class ReactiveLiveActivityController {
             unsubscribers.add(emailCapture.subscribe(changeStream::signal));
         }
         if (persistenceSettings.enabled()) {
-            // Capture side of the persistence option: poll the same merged feed the panel itself reads,
-            // stamping and appending whatever has not already been captured. See LiveActivityController's
-            // matching constructor logic for why this reuses mergedReport rather than re-reading sources.
-            ActivityCapturePoller poller = ActivityCaptureFactory.start(
-                    activityStore, persistenceSettings, () -> mergedReport(0).entries());
-            unsubscribers.add(poller::close);
+            startCapture(persistenceSettings);
         }
+    }
+
+    /**
+     * Capture side of the persistence option: polls the same merged feed the panel itself reads, stamping and
+     * appending whatever has not already been captured. See {@code LiveActivityController#startCapture} for why this
+     * reuses {@link #mergedReport} rather than re-reading sources. The poller stops with this controller.
+     */
+    ActivityCapturePoller startCapture(ActivityPersistenceSettings settings) {
+        ActivityCapturePoller poller = ActivityCaptureFactory.start(
+                activityStore, settings, reservedEntries, () -> mergedReport(0).entries());
+        unsubscribers.add(poller::close);
+        return poller;
     }
 
     /**
@@ -306,9 +318,7 @@ public class ReactiveLiveActivityController {
         ActivitySwitchResponse response = new ActivitySwitchService()
                 .useExistingDataSource(activityStore, persistenceSettings, dataSource, request);
         if (response.newSettings() != null) {
-            ActivityCapturePoller poller = ActivityCaptureFactory.start(
-                    activityStore, response.newSettings(), () -> mergedReport(0).entries());
-            unsubscribers.add(poller::close);
+            startCapture(response.newSettings());
         }
         return ResponseEntity.status(HttpStatus.valueOf(response.status())).body(response.body());
     }
