@@ -92,14 +92,15 @@ public final class RouteTemplateResolver {
     /**
      * {@code template} rendered exactly as a declared template would be, so a handler pattern the framework
      * reports and the same pattern resolved from the application's mappings produce one route. A parameter's
-     * regular expression is dropped, as in {@code {id:[0-9]+}} becoming {@code {id}}, and a wildcard segment
-     * becomes {@code {value}}, so no pattern is ever put on screen.
+     * regular expression is dropped, as in {@code {id:[0-9]+?}} becoming {@code {id}}, so no pattern is ever
+     * put on screen. A wildcard segment such as {@code **} is kept as declared: it is part of the application's
+     * own route, and rendering it as {@code {value}} would merge a catch-all route with unrelated masked paths.
      */
     public static String canonical(String template) {
         if (template == null || template.isBlank()) {
             return null;
         }
-        String[] segments = segments(template);
+        String[] segments = templateSegments(template);
         return segments.length == 0 ? "/" : render(segments);
     }
 
@@ -124,7 +125,7 @@ public final class RouteTemplateResolver {
         }
         List<String[]> indexed = new ArrayList<>(patterns.size());
         for (String pattern : patterns) {
-            String[] segments = segments(pattern);
+            String[] segments = templateSegments(pattern);
             if (segments.length > 0 && segments.length <= MAX_SEGMENTS) {
                 indexed.add(segments);
             }
@@ -230,31 +231,89 @@ public final class RouteTemplateResolver {
     }
 
     /**
-     * The template as a display string, with every parameter segment rewritten to a plain {@code {value}}
-     * placeholder when it carries a regular expression, so a declaration such as
-     * {@code {id:[0-9]+}} never puts a pattern on screen.
+     * The template as a display string, with every brace-delimited variable rewritten to its bare name, so a
+     * declaration such as {@code {id:[0-9]+}} or {@code report-{id:[0-9]+}.csv} never puts a pattern on screen.
+     * Wildcards outside braces are kept as declared.
      */
     private static String render(String[] template) {
         StringBuilder out = new StringBuilder();
         for (String segment : template) {
-            out.append('/');
-            if (isParameter(segment)) {
-                out.append(simplifyParameter(segment));
-            } else {
-                out.append(segment);
-            }
+            out.append('/').append(stripVariablePatterns(segment));
         }
         return out.toString();
     }
 
-    private static String simplifyParameter(String segment) {
-        if (!segment.startsWith("{") || !segment.endsWith("}")) {
-            return RoutePathMasker.PLACEHOLDER;
+    /** Rewrites every top-level {@code {name:regex}} in {@code segment} to {@code {name}}. */
+    private static String stripVariablePatterns(String segment) {
+        StringBuilder out = new StringBuilder(segment.length());
+        int depth = 0;
+        StringBuilder variable = null;
+        for (int i = 0; i < segment.length(); i++) {
+            char c = segment.charAt(i);
+            if (c == '{') {
+                if (depth == 0) {
+                    variable = new StringBuilder();
+                } else {
+                    variable.append(c);
+                }
+                depth++;
+            } else if (c == '}' && depth > 0) {
+                depth--;
+                if (depth == 0) {
+                    out.append(variableName(variable.toString()));
+                    variable = null;
+                } else {
+                    variable.append(c);
+                }
+            } else if (depth > 0) {
+                variable.append(c);
+            } else {
+                out.append(c);
+            }
         }
-        String inner = segment.substring(1, segment.length() - 1);
+        if (variable != null) {
+            // An unbalanced brace is not a variable; keep what was declared rather than invent one.
+            out.append('{').append(variable);
+        }
+        return out.toString();
+    }
+
+    private static String variableName(String inner) {
         int colon = inner.indexOf(':');
-        String name = colon < 0 ? inner : inner.substring(0, colon);
-        return name.isBlank() ? RoutePathMasker.PLACEHOLDER : "{" + name.trim() + "}";
+        String name = (colon < 0 ? inner : inner.substring(0, colon)).trim();
+        return name.isEmpty() ? RoutePathMasker.PLACEHOLDER : "{" + name + "}";
+    }
+
+    /**
+     * Splits a declared route pattern into its non-empty segments. Unlike an observed path, a pattern carries
+     * no query string or fragment, and a variable's regular expression may itself contain {@code ?}, {@code #}
+     * or {@code /}, so only a {@code /} outside braces separates segments.
+     */
+    private static String[] templateSegments(String template) {
+        List<String> segments = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        int depth = 0;
+        String trimmed = template.trim();
+        for (int i = 0; i < trimmed.length(); i++) {
+            char c = trimmed.charAt(i);
+            if (c == '{') {
+                depth++;
+            } else if (c == '}' && depth > 0) {
+                depth--;
+            }
+            if (c == '/' && depth == 0) {
+                if (current.length() > 0) {
+                    segments.add(current.toString());
+                    current.setLength(0);
+                }
+            } else {
+                current.append(c);
+            }
+        }
+        if (current.length() > 0) {
+            segments.add(current.toString());
+        }
+        return segments.toArray(new String[0]);
     }
 
     private static String[] segments(String path) {

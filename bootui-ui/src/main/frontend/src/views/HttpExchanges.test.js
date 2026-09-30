@@ -305,6 +305,7 @@ describe('HTTP Exchanges', () => {
       expect(fetch).toHaveBeenCalledWith('api/http-exchanges/routes', expect.anything())
       const windowText = wrapper.find('.http-routes-window').text()
       expect(windowText).toContain('14 retained exchanges')
+      expect(windowText).toContain('ranked ')
       expect(windowText).toContain('buffer 200')
       expect(windowText).toContain('evictions not reported')
       expect(windowText).toContain('2 BootUI exchanges hidden')
@@ -348,6 +349,39 @@ describe('HTTP Exchanges', () => {
       expect(wrapper.findAll('.http-routes-table tbody tr')).toHaveLength(1)
       expect(wrapper.find('.http-routes-truncation').text()).toContain('Showing the top 1 of 40 retained routes')
       expect(wrapper.find('.http-routes-truncation').text()).toContain('39 more routes are not shown')
+    })
+
+    it('says a criterion list is capped even when every route is in the union through another criterion', async () => {
+      stubFetch(
+        routesReport({
+          routes: [
+            route({id: 'GET /a', route: '/a', topFor: ['REQUESTS', 'P95_DURATION']}),
+            route({id: 'GET /b', route: '/b', topFor: ['P95_DURATION']})
+          ],
+          topPerCriterion: 1,
+          routesTruncated: false,
+          distinctRoutes: 2
+        })
+      )
+      const wrapper = mountExchanges()
+      await flushPromises()
+
+      expect(wrapper.find('.http-routes-truncation').text()).toContain('Showing the top 1 of 2 retained routes')
+      expect(wrapper.find('.http-routes-truncation').text()).not.toContain('record no')
+    })
+
+    it('keeps the chosen ranking in the URL so a drill-down never snaps it back', async () => {
+      routeState.query = {route: 'GET /api/orders/{id}', rank: 'maxDurationMs'}
+      stubFetch()
+      const wrapper = mountExchanges()
+      await flushPromises()
+      expect(wrapper.find('#http-routes-metric').element.value).toBe('maxDurationMs')
+
+      await wrapper.find('#http-routes-metric').setValue('errorCount')
+      await flushPromises()
+
+      expect(router.replace).toHaveBeenLastCalledWith({query: {route: 'GET /api/orders/{id}', rank: 'errorCount'}})
+      expect(wrapper.find('#http-routes-metric').element.value).toBe('errorCount')
     })
 
     it('says a route that scores zero is not ranked rather than cut off', async () => {
@@ -400,10 +434,15 @@ describe('HTTP Exchanges', () => {
       await vi.advanceTimersByTimeAsync(300)
       await flushPromises()
 
-      expect(router.replace).toHaveBeenLastCalledWith({query: {route: 'GET /api/orders/{id}'}})
-      expect(fetchMock).toHaveBeenLastCalledWith(
+      expect(router.replace).toHaveBeenLastCalledWith({query: {route: 'GET /api/orders/{id}', rank: 'requests'}})
+      expect(fetchMock).toHaveBeenCalledWith(
         'api/http-exchanges?route=GET+%2Fapi%2Forders%2F%7Bid%7D&offset=0&limit=200',
         expect.objectContaining({signal: expect.any(AbortSignal)})
+      )
+      // The drill-down refreshes the pinned rankings so the row and the list describe the same moment.
+      expect(fetchMock).toHaveBeenCalledWith(
+        'api/http-exchanges/routes?route=GET%20%2Fapi%2Forders%2F%7Bid%7D',
+        expect.anything()
       )
       expect(wrapper.find('.http-exchanges-route-filter').text()).toContain('GET /api/orders/{id}')
       expect(wrapper.find('.http-routes-exchanges-link').attributes('aria-pressed')).toBe('true')
@@ -414,7 +453,7 @@ describe('HTTP Exchanges', () => {
       await flushPromises()
 
       expect(router.replace).toHaveBeenLastCalledWith({query: {}})
-      expect(fetchMock).toHaveBeenLastCalledWith(
+      expect(fetchMock).toHaveBeenCalledWith(
         'api/http-exchanges?offset=0&limit=200',
         expect.objectContaining({signal: expect.any(AbortSignal)})
       )

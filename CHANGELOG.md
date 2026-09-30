@@ -28,8 +28,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   newest `bootui.activity.max-entries`, and Spring WebFlux and Quarkus now report a 0 ms slowest request instead of
   none. SQL Trace, Live Activity, and route rankings share one percentile helper; no existing SQL Trace figure changes.
 - **Route labels are the same whichever source resolved them.** SQL Trace route attribution now renders a Spring
-  framework template the way it renders a declared one, so `/orders/{id:[0-9]+}` reads `/orders/{id}` and a wildcard
-  segment reads `{value}`. When declared mappings are ambiguous, a masked path now also masks every segment they mark
+  framework template the way it renders a declared one, so `/orders/{id:[0-9]+}` reads `/orders/{id}`, while a wildcard
+  such as `/**` is kept as declared. A variable's pattern may now contain `?` or `/` without truncating the route. When declared mappings are ambiguous, a masked path now also masks every segment they mark
   as a parameter, and a brace-delimited segment on a real request is masked rather than trusted as template syntax.
 - **Quarkus 3.33.3.3.** The Quarkus extension, integration tests, and sample app move to Quarkus 3.33.3.3, the
   newest micro release of the 3.33 LTS stream.

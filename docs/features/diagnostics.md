@@ -165,7 +165,7 @@ three sources it came from:
 | `masked path` | No template matched, so every path segment that reads like a value is replaced with `{value}`. |
 
 A template is shown the same way whichever source produced it, so `{id:[0-9]+}` reads `{id}` and a route never splits
-into two rows. Quarkus has no runtime route template, so its routes come from the declared JAX-RS mappings. Spring
+into two rows, while a catch-all such as `/**` is kept as declared, so it never merges with a masked path. Quarkus has no runtime route template, so its routes come from the declared JAX-RS mappings. Spring
 WebFlux records the matched handler pattern with the OpenTelemetry integration, which the reactive starter includes;
 without it, WebFlux routes fall back to masked paths, and the panel says so. Query strings are never part of a route.
 
@@ -189,7 +189,8 @@ it.
 - A route that a link names, such as the Live Activity slowest request, is always returned and shown after the
   ranking, even when it is outside every top list.
 - Rankings refresh every 30 seconds while the exchange list follows auto-refresh, because every refresh is itself a
-  request the Spring buffer records before hiding it. **Refresh** updates both at once.
+  request the Spring buffer records before hiding it. The window line says when the rankings were computed, and
+  **Refresh** or opening a route's exchanges updates both at once.
 - BootUI's own exchanges stay out of the rankings while `bootui.monitoring.exclude-self` is on.
 
 :::

@@ -80,6 +80,7 @@ const subtitle = computed(
 
 let lastRoutesFetch = 0
 let forceNextRoutes = false
+const routesFetchedAt = ref(null)
 
 async function loadRoutes(force = false) {
   const now = Date.now()
@@ -91,6 +92,7 @@ async function loadRoutes(force = false) {
   try {
     routesReport.value = await getJson(url)
     routesError.value = null
+    routesFetchedAt.value = Date.now()
   } catch (e) {
     routesReport.value = null
     routesError.value = e?.message ? `Could not load route rankings: ${e.message}` : 'Could not load route rankings.'
@@ -168,7 +170,9 @@ const rankingGap = computed(() => {
   const shown = rankedRoutes.value.length
   const missing = distinctRoutes.value - shown
   if (missing <= 0) return null
-  const capped = routesReport.value?.routesTruncated && shown >= (routesReport.value?.topPerCriterion ?? Infinity)
+  // The server lists at most topPerCriterion routes for a criterion, taken from those that score on it. A
+  // shorter list therefore already holds every scoring route, and the rest record nothing for this criterion.
+  const capped = shown >= (routesReport.value?.topPerCriterion ?? Infinity)
   return {capped, missing}
 })
 
@@ -189,6 +193,9 @@ const windowSummary = computed(() => {
     parts.push(`oldest ${formatTimestamp(w.oldestTimestamp)}`)
   }
   parts.push(`${formatNumber(w.hiddenSelfExchanges)} BootUI ${plural(w.hiddenSelfExchanges, 'exchange')} hidden`)
+  if (routesFetchedAt.value != null) {
+    parts.push(`ranked ${new Date(routesFetchedAt.value).toLocaleTimeString()}`)
+  }
   return parts.join(' · ')
 })
 
@@ -219,6 +226,7 @@ function setRouteQuery(routeId) {
   const query = {...(route?.query ?? {})}
   if (routeId) {
     query.route = routeId
+    query.rank = rankingMetric.value
   } else {
     delete query.route
     delete query.rank
@@ -232,6 +240,8 @@ function setRouteQuery(routeId) {
 
 async function showRouteExchanges(routeRow) {
   await setRouteQuery(routeRow.id)
+  // The list below is fetched now, so bring the row's counts up to the same moment.
+  loadRoutes(true)
   await nextTick()
   exchangesHeading.value?.focus?.()
 }
@@ -369,10 +379,19 @@ function applyRouteQuery(query) {
   routeFilter.value = linked
   highlightedRoute.value = linked
   const rank = query?.rank
-  if (typeof rank === 'string' && ROUTE_METRICS.some((metric) => metric.key === rank)) {
+  if (typeof rank === 'string' && rank !== rankingMetric.value && ROUTE_METRICS.some((metric) => metric.key === rank)) {
     rankingMetric.value = rank
   }
 }
+
+// While a drill-down is in the URL, the chosen ranking travels with it, so a reload or a later URL change
+// never snaps the select back to the ranking a link opened on.
+watch(rankingMetric, (metric) => {
+  const query = route?.query ?? {}
+  if (query.route && query.rank !== metric && router?.replace) {
+    router.replace({query: {...query, rank: metric}})
+  }
+})
 
 // Applied before the first load and before the filter watcher exists, so a linked route is the first
 // list the panel requests rather than a second one.

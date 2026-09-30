@@ -76,9 +76,38 @@ class RouteLabelTests {
         assertThat(framework.id()).isEqualTo(declared.id());
         assertThat(framework.source()).isEqualTo(RouteLabel.Source.FRAMEWORK_TEMPLATE);
         assertThat(declared.source()).isEqualTo(RouteLabel.Source.DECLARED_MAPPING);
-        assertThat(RouteLabel.of("GET", "/css/site.css", "/**", DECLARED).route())
-                .isEqualTo("/" + RoutePathMasker.PLACEHOLDER);
         assertThat(RouteLabel.of("GET", "/", "/", DECLARED).route()).isEqualTo("/");
+    }
+
+    @Test
+    void aCatchAllRouteNeverMergesWithAMaskedPath() {
+        RouteLabel catchAll = RouteLabel.of("GET", "/css/site.css", "/**", DECLARED);
+        RouteLabel masked = RouteLabel.of("GET", "/12345", null, RouteTemplateResolver.empty());
+
+        assertThat(catchAll.route()).isEqualTo("/**");
+        assertThat(masked.route()).isEqualTo("/" + RoutePathMasker.PLACEHOLDER);
+        assertThat(catchAll.id()).isNotEqualTo(masked.id());
+        assertThat(RouteLabel.of("GET", "/files/a/b", "/files/{*path}", DECLARED)
+                        .route())
+                .isEqualTo("/files/{*path}");
+    }
+
+    @Test
+    void aVariablePatternWithAQuestionMarkOrSlashStaysOneSegmentOnBothTiers() {
+        RouteTemplateResolver lazyNames = RouteTemplateResolver.of(List.of(
+                mapping("GET", "/users/{name:[a-z]+?}"),
+                mapping("GET", "/other/{name:[a-z]+}"),
+                mapping("GET", "/reports/report-{id:[0-9]+}.csv")));
+
+        RouteLabel framework = RouteLabel.of("GET", "/users/alice", "/users/{name:[a-z]+?}", lazyNames);
+        RouteLabel declared = RouteLabel.of("GET", "/users/bob", null, lazyNames);
+
+        assertThat(framework.route()).isEqualTo("/users/{name}");
+        assertThat(declared.route()).isEqualTo("/users/{name}");
+        assertThat(declared.source()).isEqualTo(RouteLabel.Source.DECLARED_MAPPING);
+        assertThat(RouteTemplateResolver.canonical("/files/{path:.+/.+}")).isEqualTo("/files/{path}");
+        assertThat(RouteTemplateResolver.canonical("/reports/report-{id:[0-9]+}.csv"))
+                .isEqualTo("/reports/report-{id}.csv");
     }
 
     @Test
