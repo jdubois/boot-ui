@@ -2,9 +2,9 @@ name: Build (Java 17 baseline)
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, v2 ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, v2 ]
   workflow_dispatch:
 
 concurrency:
