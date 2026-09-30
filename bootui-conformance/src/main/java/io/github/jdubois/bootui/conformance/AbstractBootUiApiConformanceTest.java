@@ -1420,6 +1420,37 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void requestProfileKeepsOneBackwardCompatibleShapeForAnUnknownRequest() {
+        // The profile drill-down is a detail read of Live Activity, so the root-read sweep never reaches it.
+        // An id that was never captured must answer 200 with the canonical unavailable profile, and every
+        // later, additive section must be present and empty rather than missing, on every adapter.
+        assumeTrue(isPanelUsableInLiveManifest("activity"), "activity panel is not available in this environment");
+        ReadContract contract = BootUiApiContractCatalog.requestProfile();
+
+        Response response = probe().get(api(contract.relativePath()));
+
+        assertThat(response.status())
+                .as("GET %s status", contract.relativePath())
+                .isEqualTo(200);
+        assertThat(response.isJson())
+                .as("GET %s content-type", contract.relativePath())
+                .isTrue();
+        List<String> failures = new ArrayList<>();
+        assertJsonContract("activity request profile", contract, response.json(), failures);
+        assertThat(failures).as("request profile contract").isEmpty();
+        JsonNode profile = response.json();
+        assertThat(profile.path("available").asBoolean(true)).isFalse();
+        assertThat(profile.path("unavailableReason").asText())
+                .isEqualTo("Request conformance-unknown-request is no longer in the buffer");
+        for (String section : List.of("sql", "restCalls", "cacheAccesses", "sections", "correlationTiers")) {
+            assertThat(profile.path(section).size())
+                    .as("$.%s of an unavailable profile", section)
+                    .isZero();
+        }
+        assertThat(profile.path("approximate").asBoolean(true)).isFalse();
+    }
+
+    @Test
     void confirmationGatedActionsReturn400WhenConfirmMissing() {
         // Flyway and Liquibase expose mutating actions that require an explicit {"confirm":true} in the
         // request body. Omitting confirm (empty body or {"confirm":false}) must return HTTP 400 with a

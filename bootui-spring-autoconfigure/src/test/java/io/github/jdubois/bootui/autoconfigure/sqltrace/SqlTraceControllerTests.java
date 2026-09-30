@@ -156,10 +156,10 @@ class SqlTraceControllerTests {
         SqlTraceController controller = controller(recorder, mock(DataSource.class), ValueExposure.MASKED);
 
         SqlTraceReport report = controller.trace();
-        // Enabling bootui.sql-trace.capture-call-site never disrupts recording. Within this test suite's
-        // own call stack no application frame is ever reachable (see SqlTraceRecorderTests'
-        // selectCallSite* tests for the frame-selection algorithm itself), so the call site is null here —
-        // what matters is that the field flows through the report unharmed.
+        // Enabling bootui.sql-trace.capture-call-site never disrupts recording. This test suite's own call stack
+        // holds only BootUI module packages, the JDK, JUnit, and the build tool, so no application frame is
+        // reachable and the call site is null here (SqlTraceRecorderTests' selectCallSite* tests cover the
+        // frame-selection algorithm itself). What matters is that the field flows through the report unharmed.
         assertThat(report.entries()).hasSize(1);
         assertThat(report.entries().get(0).callSite()).isNull();
         assertThat(report.topStatements().get(0).callSites()).isEmpty();

@@ -18,14 +18,45 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   exhausted budgets keep no path and say why in `violationDetails.locationNotes`. Kotlin lines inlined from another
   file are dropped rather than shown wrong. The panels show each location with a **Copy location** action and an
   opt-in, per-browser **Open in** preference for VS Code or IntelliJ IDEA. Violation text, counts, severities,
-  dismissals, evidence, and scores are unchanged, and findings that span several elements carry no location.
+  dismissals, evidence, and scores are unchanged, and findings that span several elements carry no location
+  (docs/PLAN.md §3.19).
+- **Request profiles show the REST client calls and cache accesses a request made.** The Live Activity profile drawer
+  and **Copy profile** gain REST client calls, masked exactly as the REST Client panel shows them, and cache accesses,
+  which carry only the hashed key, on Spring MVC, Spring WebFlux, and Quarkus (cache on Spring only, since Quarkus has no
+  cache-access capture seam). Every section is labelled with the tier that correlated it — trace id, serving thread, or
+  time window — the profile is flagged approximate whenever a time window was used, a tier an adapter cannot provide is
+  listed as unavailable, and each section shows at most 200 entries with a count of the rest. The
+  `GET /bootui/api/activity/request/{id}` response only gains fields (docs/PLAN.md §3.20a).
 
 ### Changed
 
+- **Every adapter builds request profiles with one shared engine assembler.** Spring MVC, Spring WebFlux, and Quarkus
+  now serve the profile through `ExecutionProfileAssembler`, so identical evidence produces an identical profile. Each
+  signal attaches to at most one request: a trace id shared by two captured requests, or a serving thread or time
+  window two requests could equally claim, now leaves the signal out of both profiles and counts it in the notes,
+  instead of showing it in both. On Spring MVC, exceptions keep their method, path, and window match, within which a
+  trace id now settles which request threw them; on Quarkus, a disabled SQL Trace, Exceptions, or Security Logs panel
+  no longer contributes to request profiles, as on Spring.
 - **Quarkus 3.33.3.3.** The Quarkus extension, integration tests, and sample app move to Quarkus 3.33.3.3, the
   newest micro release of the 3.33 LTS stream.
 
 ### Fixed
+
+- **SQL Trace and REST Client show call sites for the sample apps.** BootUI skipped the whole
+  `io.github.jdubois.bootui` namespace when looking for the application frame that issued a statement or an
+  outbound call. Because the Spring MVC, Spring WebFlux, and Quarkus sample apps live under it, their call sites were
+  always empty, including in statement rankings, N+1 groups, and Live Activity. Only BootUI's own module packages are
+  now skipped, and a test fails if a new BootUI package is added without being classified.
+
+- **Live Activity durable persistence works on MySQL and Oracle.** On MySQL, every read used the SQL-standard
+  `OFFSET … FETCH FIRST` row limit, which MySQL rejects, so the Live Activity panel and `GET /bootui/api/activity`
+  failed once persistence was on, while rows kept piling up unread. On Oracle, the table could never be created,
+  because Oracle has no `BIGINT` type. The store now detects the database once and uses `LIMIT` on MySQL and MariaDB
+  and `NUMBER(19)` columns on Oracle. Other databases keep the same SQL, so existing tables need no migration. The
+  **Use the existing datasource** switch now also checks that the table can be read before it switches, so a
+  database that rejects the query is reported as a failed switch instead of breaking the panel. This applies to
+  Spring MVC, Spring WebFlux, and Quarkus
+  ([#1142](https://github.com/jdubois/boot-ui/issues/1142)).
 
 - **Spring MVC Log Tail streams no longer throw on a worker thread when a client disconnects or the application
   stops.** When the servlet container had already failed the async request, the stream worker still tried to

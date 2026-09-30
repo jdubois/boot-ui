@@ -12,9 +12,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import javax.sql.DataSource;
 
 /**
- * Direct-JDBC {@link ActivityStore} implementation: a portable schema (no dialect-specific DDL), one
- * table shared by every BootUI instance pointed at the same database (the {@code instance_id} column is
- * the multi-tenant partition key), and auto-creation on first use.
+ * Direct-JDBC {@link ActivityStore} implementation: a near-portable schema, one table shared by every BootUI
+ * instance pointed at the same database (the {@code instance_id} column is the multi-tenant partition key), and
+ * auto-creation on first use.
  *
  * <p>Every JDBC call this class makes runs inside {@link BootUiJdbcCaptureGuard#runSuppressed}, so it
  * can safely run over a {@code DataSource} that {@code SqlTraceRecorder} is also wrapping without
@@ -28,9 +28,12 @@ import javax.sql.DataSource;
  * on the JDBC driver alone to give up in time.</p>
  *
  * <p>The primary key is the client-assigned pair {@code (instance_id, seq)} rather than a database
- * identity/auto-increment column, so the same DDL works unmodified across H2, PostgreSQL, MySQL, Oracle
- * and SQL Server. Pagination is keyset-based on {@code (occurred_at, seq)}, not {@code OFFSET}, so it
- * stays stable and fast on a table that is continuously appended to.</p>
+ * identity/auto-increment column, and pagination is keyset-based on {@code (occurred_at, seq)}, not {@code OFFSET},
+ * so it stays stable and fast on a table that is continuously appended to. Only two things differ by database, and
+ * {@link ActivitySqlDialect} picks them once per store from the driver-reported product name: the 64-bit column type
+ * ({@code NUMBER(19)} on Oracle, which has no {@code BIGINT}) and the row-limit clause ({@code LIMIT} on MySQL and
+ * MariaDB, the SQL-standard {@code OFFSET ... FETCH FIRST} elsewhere). The store is tested against H2 and against
+ * live PostgreSQL, MySQL, MariaDB and Oracle servers; SQL Server uses the standard forms but is not tested live.</p>
  */
 public final class JdbcActivityStore implements ActivityStore {
 
@@ -40,9 +43,16 @@ public final class JdbcActivityStore implements ActivityStore {
      */
     private static final int QUERY_TIMEOUT_SECONDS = 10;
 
+    /**
+     * The one-row page read {@link #verifySchema()} runs to prove this database accepts the store's read statement.
+     * It asks for an instance id no BootUI instance uses, and its result is discarded either way.
+     */
+    private static final ActivityQuery READ_PROBE = new ActivityQuery("", null, null, null, null, null, null, 1);
+
     private final DataSource dataSource;
     private final String tableName;
     private final AtomicBoolean schemaReady = new AtomicBoolean(false);
+    private volatile ActivitySqlDialect dialect;
 
     public JdbcActivityStore(DataSource dataSource, String tableName) {
         this.dataSource = dataSource;
@@ -78,21 +88,23 @@ public final class JdbcActivityStore implements ActivityStore {
     }
 
     /**
-     * Eagerly probes for and creates this store's table (if missing), for callers that want to fail
-     * fast with a clear error before committing to this store — used by the Live Activity "use existing
-     * datasource" runtime switch (see {@code ActivityStoreFactory#createAndVerifyDurable}) so an
-     * unreachable or misconfigured database surfaces immediately as a rejected switch attempt, rather
-     * than silently on the first background flush. Idempotent, like every other schema-touching call
-     * here: safe to call even when the schema is already known-ready.
+     * Eagerly probes for and creates this store's table (if missing), then runs one bounded, read-only page query
+     * of the exact shape reads use, for callers that want to fail fast with a clear error before committing to this
+     * store — used by the Live Activity "use existing datasource" runtime switch (see {@code
+     * ActivityStoreFactory#createAndVerifyDurable}) so an unreachable or misconfigured database, or one that
+     * rejects the store's read statement, surfaces immediately as a rejected switch attempt rather than silently on
+     * the first background flush or as a broken panel. Idempotent, like every other schema-touching call here: safe
+     * to call even when the schema is already known-ready.
      */
     public void verifySchema() {
         try {
             BootUiJdbcCaptureGuard.runSuppressed(() -> {
                 ensureSchema();
+                runQuery(READ_PROBE);
                 return null;
             });
         } catch (Exception ex) {
-            throw new ActivityStoreException("Failed to verify/create the activity table", ex);
+            throw new ActivityStoreException("Failed to verify/create or read the activity table", ex);
         }
     }
 
@@ -128,7 +140,7 @@ public final class JdbcActivityStore implements ActivityStore {
             }
             try (Statement statement = connection.createStatement()) {
                 statement.setQueryTimeout(QUERY_TIMEOUT_SECONDS);
-                statement.executeUpdate(createTableSql());
+                statement.executeUpdate(createTableSql(dialect(connection).bigIntType()));
             } catch (SQLException createFailed) {
                 // Another instance may have created the table concurrently (multi-tenant startup race).
                 // Re-probe before giving up: the desired end state (table exists) is what matters, not
@@ -160,18 +172,31 @@ public final class JdbcActivityStore implements ActivityStore {
         }
     }
 
-    private String createTableSql() {
+    /**
+     * This store's database dialect, detected from the first connection that needs it and cached: a store is bound
+     * to one {@code DataSource}, so the answer never changes. Concurrent first calls may each detect it; they agree.
+     */
+    private ActivitySqlDialect dialect(Connection connection) throws SQLException {
+        ActivitySqlDialect detected = dialect;
+        if (detected == null) {
+            detected = ActivitySqlDialect.detect(connection.getMetaData().getDatabaseProductName());
+            dialect = detected;
+        }
+        return detected;
+    }
+
+    private String createTableSql(String bigInt) {
         return "CREATE TABLE "
                 + tableName
                 + " (" + "instance_id VARCHAR(64) NOT NULL, "
-                + "seq BIGINT NOT NULL, "
+                + "seq " + bigInt + " NOT NULL, "
                 + "entry_id VARCHAR(128) NOT NULL, "
                 + "entry_type VARCHAR(16) NOT NULL, "
-                + "occurred_at BIGINT NOT NULL, "
+                + "occurred_at " + bigInt + " NOT NULL, "
                 + "severity VARCHAR(16), "
                 + "summary VARCHAR(1000), "
                 + "detail VARCHAR(2000), "
-                + "duration_ms BIGINT, "
+                + "duration_ms " + bigInt + ", "
                 + "correlation_id VARCHAR(64), "
                 + "http_method VARCHAR(10), "
                 + "path VARCHAR(512), "
@@ -264,13 +289,14 @@ public final class JdbcActivityStore implements ActivityStore {
             params.add(cursor.timestamp());
             params.add(cursor.seq());
         }
-        sql.append(" ORDER BY occurred_at DESC, seq DESC OFFSET 0 ROWS FETCH FIRST ? ROWS ONLY");
+        sql.append(" ORDER BY occurred_at DESC, seq DESC");
         int limit = query.pageSize() + 1;
         params.add(limit);
 
         List<StoredActivityEntry> matches = new ArrayList<>();
         try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql.toString())) {
+                PreparedStatement statement =
+                        connection.prepareStatement(sql + dialect(connection).rowLimitClause())) {
             statement.setQueryTimeout(QUERY_TIMEOUT_SECONDS);
             for (int i = 0; i < params.size(); i++) {
                 statement.setObject(i + 1, params.get(i));
