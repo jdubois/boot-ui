@@ -179,9 +179,15 @@ exception count, health status, heap usage, and scheduled-task failure count. On
 outbound REST-call error rate and p95 latency, plus the cache hit ratio. All are computed from the same buffers, and
 sub-millisecond SQL is shown as `<1 ms`.
 
-Several cards are launchpads: outbound-errors opens **REST Client**, slowest-endpoint opens **HTTP Exchanges**
-pre-filtered to that endpoint, and the active-exceptions, health, heap-usage, cache-hit-ratio, and scheduled-failures
-cards jump to **Exceptions**, **Health**, **Heap Dump**, **Cache**, and **Scheduled Tasks**.
+The p50/p95 latency and the slowest request are computed once, in the shared engine, over every retained request with a
+duration, so Spring MVC, Spring WebFlux, and Quarkus report the same figures for the same traffic; the latency card
+states how many requests they cover. The slowest request is labelled with its resolved route, such as
+`GET /api/orders/{id}`, and a tie goes to the newest request.
+
+Several cards are launchpads: outbound-errors opens **REST Client**, slowest-endpoint opens that route's row in the
+[HTTP Exchanges route rankings](diagnostics.md#route-rankings) with its exchanges listed, and the active-exceptions,
+health, heap-usage, cache-hit-ratio, and scheduled-failures cards jump to **Exceptions**, **Health**, **Heap Dump**,
+**Cache**, and **Scheduled Tasks**.
 
 :::
 
@@ -232,7 +238,8 @@ The drawer also shows the request's timing breakdown (SQL and outbound REST call
 context, and the trace span list. **Escape** dismisses it, focus is trapped while it is open, and **Copy profile**
 exports the already-masked correlated timeline — including REST client calls, cache accesses, tiers, and truncation — as
 plain text to paste into a bug report. Opening a profile only reads evidence BootUI already captured: it captures
-nothing new, calls no network service, and changes no state.
+nothing new, calls no network service, and changes no state. Opening Live Activity with `?request=<exchange id>`, as
+each HTTP Exchanges row's **Profile** link does, opens that request's profile directly.
 
 Scheduled-task runs nest correctly in the stream but are **not yet** part of the profiler's correlated timeline or
 **Copy profile** export. The REST Client panel keeps its own "chatty" badge for now.

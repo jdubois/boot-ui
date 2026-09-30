@@ -47,7 +47,6 @@ have shipped. Each row is one pull request.
 | Wave | Item                                            | Panels                                                | Depends on            |
 | ---- | ----------------------------------------------- | ----------------------------------------------------- | --------------------- |
 | 1    | §3.24a Failure-preserving retention             | HTTP Exchanges, SQL Trace, REST Client                | —                     |
-| 1    | §3.22 Route performance rankings                | HTTP Exchanges, Live Activity                         | —                     |
 | 2    | §3.20b Scheduled-run profiles                   | Live Activity                                         | §3.20a                |
 | 2    | §3.20c Consumed-message profiles                | Live Activity                                         | §3.20a                |
 | 2    | §3.24b Capture ignore rules                     | HTTP Exchanges, Live Activity, SQL Trace, REST Client | §3.24a                |
@@ -65,7 +64,8 @@ have shipped. Each row is one pull request.
   §3.21 still lists it as a dependency, now satisfied, because it builds on §3.27's read path.
 - **Wave 1** builds the shared pieces that later items reuse: the tiered capture buffer, the generalized profile
   assembler, one percentile helper and slowest-request KPI, and the violation location model with its source locator.
-  The generalized profile assembler has shipped as §3.20a, so §3.20b, §3.20c, and §3.25 can start.
+  The generalized profile assembler has shipped as §3.20a, so §3.20b, §3.20c, and §3.25 can start, and the percentile
+  helper and slowest-request KPI have shipped as §3.22.
 - **Wave 2** builds directly on wave 1 or improves existing evidence independently. §3.14 lands before §3.21 so log
   correlation can match configured correlation identifiers from the start. §3.25's `get_execution_profile` tool
   follows §3.20b, and its source excerpts follow §3.26, as small follow-up pull requests.
@@ -83,7 +83,7 @@ graph LR
   S20b --> S21
   S20c --> S21
   S20b --> S23["3.23 Run history"]
-  S22["3.22 Route rankings"] --> S23
+  S22["3.22 Route rankings ✅"] --> S23
   S24a["3.24a Retention"] --> S24b["3.24b Ignore rules"]
   S19["3.19 Violation locations ✅"] --> S26["3.26 Source context"]
   S14["3.14 Correlation IDs"] -.-> S21
@@ -108,6 +108,7 @@ node has shipped and stays in the graph while items that depend on it remain pla
 | 3.17  | MySQL operational view, tested on Oracle MySQL 8.4 LTS       | 1.18.0     | [MySQL](features/database.md#mysql)                                     |
 | 3.19  | Structured violation locations in advisor findings           | Unreleased | [Violation locations](features/advisors.md#violation-locations)         |
 | 3.20a | Shared profile assembler with REST client and cache evidence | Unreleased | [Per-request profiler](features/overview.md#the-per-request-profiler)   |
+| 3.22  | Route performance rankings in HTTP Exchanges                 | Unreleased | [Route rankings](features/diagnostics.md#route-rankings)                |
 | 3.27  | Log exposure policy for Log Tail and Dev Services            | Unreleased | [Log message exposure](features/diagnostics.md#log-message-exposure)    |
 
 Earlier deliveries were removed from this plan when they shipped; `CHANGELOG.md` records every release. MariaDB support
@@ -561,59 +562,6 @@ Acceptance criteria:
 - Fixtures cover present and absent MDC, WebFlux context hops, Quarkus OpenTelemetry, every exposure mode, oversized
   values, allowlist rejection, de-duplication, filters, and all three adapters.
 
-### 3.22 Route performance rankings — HTTP Exchanges 📋 Planned
-
-SQL Trace ranks statements and database time by request route, but HTTP Exchanges is a flat list of recent requests,
-and `HttpExchangesReport` carries no aggregates. Live Activity's KPI strip computes p50 and p95 latency and names the
-single slowest retained request by its raw path, with no route context. This enhancement gives inbound traffic the same
-summary → runs → profile structure: a per-route table over the retained window, a drill-down to that route's
-exchanges, and a link from each exchange to its request profile.
-
-Scope:
-
-- Add a route summary to HTTP Exchanges: per method and route template, the request count; 2xx, 3xx, 4xx, and 5xx
-  counts; average, p50, p95, p99, and maximum duration; and share of retained request time. Rank by count, p95,
-  maximum, error count, or cumulative duration.
-- Link each route row to the exchange list filtered to that route, and each exchange to its request profile.
-- Resolve templates exactly as SQL route attribution does — framework template, then the application's declared
-  mappings, then a masked path — and report which source was used.
-- Label Live Activity's slowest-request KPI with its resolved route template, and link it to that route's summary row.
-  Spring MVC computes this KPI in `LiveActivityService`, while Spring WebFlux and Quarkus compute it in the engine
-  `LiveActivityAssembler`; compute it once, in the engine, for all three stacks.
-- State the evidence window inline: retained exchanges, buffer size, evictions, oldest retained exchange, and hidden
-  BootUI exchanges.
-- Add a read-only `get_http_routes` MCP tool, on the existing `LIMIT` schema, and a `bootui http routes` CLI command.
-
-Architecture:
-
-- Put grouping, ranking, percentiles, bounds, and window reporting in a framework-neutral engine service over existing
-  exchange evidence. Reuse `RouteTemplateResolver` and `RoutePathMasker`, and extract the percentile logic that
-  `SqlStatementAggregate`, `LiveActivityAssembler`, and Spring MVC's `LiveActivityService` each implement into one
-  shared helper, beside the shared slowest-request KPI.
-- On Spring, take the framework template from the existing `HttpExchangeTraceRegistry`, which `RequestCorrelationFilter`
-  and `ReactiveHttpExchangeTraceFilter` already populate. On Quarkus, resolve it from declared JAX-RS mappings through
-  `QuarkusMappingProvider`, as SQL Trace does.
-- Add no request filter, and never group by query string or path-parameter value.
-
-Out of scope for the first release:
-
-- Lifetime or time-series metrics beyond the retained window. The Metrics panel already exposes Micrometer's
-  `http.server.requests`.
-- Latency targets, alerts, or health claims.
-- Grouping by user, client, or remote address.
-
-Acceptance criteria:
-
-- Route counts and durations reconcile with the retained, visible exchanges in the window.
-- Equivalent exchanges produce the same route summary on all three adapters, with the route source reported.
-- The slowest-request KPI, its p50 and p95, and its route label are identical on all three adapters for equivalent
-  evidence.
-- Ambiguous declared mappings produce no template, and a masked path never exposes a path-parameter value.
-- High-cardinality routes are bounded with a visible truncation count and deterministic tie ordering.
-- BootUI's own exchanges stay out of the summary while `bootui.monitoring.exclude-self` is on.
-- Fixtures cover templated and untemplated routes, ties, status classes, masked paths, eviction, self traffic, and all
-  three adapters.
-
 ### 3.23 Scheduled task run history — Scheduled Tasks 📋 Planned
 
 The Scheduled Tasks panel lists task definitions only (`ScheduledTaskDto`: runnable, trigger type, expression, initial
@@ -924,7 +872,6 @@ In addition:
 | Correlation over-claims which request or execution caused a record                     | 3.20, 3.21       | Medium | Tiered, labelled correlation with a unique-candidate rule; ambiguous work stays top-level.                                                                                                |
 | MDC values, exports, or source excerpts leak secrets                                   | 3.21, 3.25, 3.26 | High   | Explicitly configured MDC keys, §3.27's read-time rule, omission under `METADATA_ONLY`, literal and comment stripping for source under `MASKED`, and exports built only from masked DTOs. |
 | New capture fields slow application hot paths                                          | 3.20, 3.21, 3.24 | Medium | Copy only data already at hand at existing hooks, with bounded copies and fail-open capture.                                                                                              |
-| Route percentiles over a small or evicted window read as service-level metrics         | 3.22             | Medium | Show the sample count and evidence window beside every percentile, and compute only over retained exchanges.                                                                              |
 | Runs whose identifier differs from their definition's are dropped or misattributed     | 3.23             | Medium | An explicit **Unmatched runs** group, and identifier fixtures on every adapter.                                                                                                           |
 | Unified slow thresholds change existing `SLOW` severities                              | 3.23, 3.24       | Low    | One documented default per threshold, recorded in `CHANGELOG.md` as a behavior change.                                                                                                    |
 | Reserved retention hides recent routine traffic                                        | 3.24             | Low    | Reserve a bounded share of existing capacity and report retained, reserved, and evicted counts.                                                                                           |

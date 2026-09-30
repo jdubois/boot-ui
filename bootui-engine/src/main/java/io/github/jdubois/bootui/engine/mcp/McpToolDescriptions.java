@@ -73,6 +73,13 @@ public final class McpToolDescriptions {
                     "Return a bounded, newest-first snapshot of application HTTP request/response metadata. Correlate "
                             + "paths, statuses, and timings with live activity and traces."),
             Map.entry(
+                    "get_http_routes",
+                    "Return route performance rankings over the retained HTTP exchanges: per method and route "
+                            + "template, request and status-class counts, average, p50, p95, p99 and maximum "
+                            + "duration, and share of request time, plus the evidence window. limit is the number "
+                            + "of routes per ranking criterion. Figures cover the retained window only, not "
+                            + "service-level metrics."),
+            Map.entry(
                     "get_overview",
                     "Return stable application identity and runtime context, including versions, active profiles, and "
                             + "BootUI status. Use this before interpreting other results."),

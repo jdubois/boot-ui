@@ -17,6 +17,12 @@ import java.util.Map;
  * the service would otherwise parse from inbound propagation headers, so signal-to-request correlation
  * works for same-origin local requests that carry no {@code traceparent}. Pass {@code null} to keep the
  * header-derived behavior (the Spring adapter does).
+ *
+ * <p>{@code routeTemplate} is the handler pattern the framework matched, such as {@code /api/orders/{id}},
+ * when the adapter recorded one. Spring MVC and Spring WebFlux read it back from
+ * {@code HttpExchangeTraceRegistry}; Quarkus has no runtime equivalent and passes {@code null}, so the
+ * engine resolves the route from the application's declared mappings instead (see
+ * {@link io.github.jdubois.bootui.engine.sqltrace.RouteLabel}).</p>
  */
 public record CapturedHttpExchange(
         Instant timestamp,
@@ -29,10 +35,39 @@ public record CapturedHttpExchange(
         String sessionId,
         Map<String, List<String>> requestHeaders,
         Map<String, List<String>> responseHeaders,
-        String traceId) {
+        String traceId,
+        String routeTemplate) {
 
     public CapturedHttpExchange {
         requestHeaders = requestHeaders == null ? Map.of() : requestHeaders;
         responseHeaders = responseHeaders == null ? Map.of() : responseHeaders;
+    }
+
+    /** A captured exchange with no framework route template, for adapters that cannot record one. */
+    public CapturedHttpExchange(
+            Instant timestamp,
+            String method,
+            java.net.URI uri,
+            int status,
+            Long durationMs,
+            String remoteAddress,
+            String principal,
+            String sessionId,
+            Map<String, List<String>> requestHeaders,
+            Map<String, List<String>> responseHeaders,
+            String traceId) {
+        this(
+                timestamp,
+                method,
+                uri,
+                status,
+                durationMs,
+                remoteAddress,
+                principal,
+                sessionId,
+                requestHeaders,
+                responseHeaders,
+                traceId,
+                null);
     }
 }

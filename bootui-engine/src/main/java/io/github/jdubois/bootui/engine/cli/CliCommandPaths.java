@@ -63,6 +63,7 @@ public final class CliCommandPaths {
             Map.entry("get_hibernate_report", "hibernate report"),
             Map.entry("get_hibernate_rule_violations", "hibernate violations"),
             Map.entry("get_http_exchanges", "http exchanges"),
+            Map.entry("get_http_routes", "http routes"),
             Map.entry("get_http_sessions", "http sessions"),
             Map.entry("get_jms_activity", "jms"),
             Map.entry("get_jvm_tuning", "jvm tuning"),

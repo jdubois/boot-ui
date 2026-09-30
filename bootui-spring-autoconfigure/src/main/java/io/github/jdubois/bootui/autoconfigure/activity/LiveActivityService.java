@@ -39,6 +39,8 @@ import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import io.github.jdubois.bootui.engine.support.BlankStrings;
+import io.github.jdubois.bootui.engine.support.Percentiles;
+import io.github.jdubois.bootui.engine.web.RequestLatencyKpis;
 import io.github.jdubois.bootui.engine.web.SecurityActivityIds;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
@@ -301,7 +303,10 @@ public class LiveActivityService {
         if (controller == null) {
             return null;
         }
-        HttpExchangesReport report = controller.exchanges(null, null, null, 0, effectiveLimit(0));
+        // Every retained, visible exchange, exactly as the WebFlux and Quarkus adapters read them, so the
+        // shared request-latency KPIs cover the same window on all three stacks. The merged feed is capped
+        // separately, after sorting.
+        HttpExchangesReport report = controller.exchanges(null, null, null, null, null);
         if (report.unavailableReason() != null) {
             warnings.add("Requests: " + report.unavailableReason());
             return null;
@@ -1015,10 +1020,10 @@ public class LiveActivityService {
             RestClientTraceReport rest) {
         double requestsPerMinute = 0;
         double errorRate = 0;
-        Long p50 = null;
-        Long p95 = null;
-        String slowestEndpoint = null;
-        Long slowestEndpointMs = null;
+        // Computed by the shared engine helper the WebFlux and Quarkus assembler also uses, so all three
+        // stacks report the same latency KPIs and the same slowest request for the same retained exchanges.
+        RequestLatencyKpis latency =
+                requests == null ? RequestLatencyKpis.empty() : RequestLatencyKpis.of(requests.exchanges());
         if (requests != null && !requests.exchanges().isEmpty()) {
             List<HttpExchangeDto> list = requests.exchanges();
             requestsPerMinute = perMinute(list.stream()
@@ -1028,21 +1033,6 @@ public class LiveActivityService {
                     .toList());
             long errors = list.stream().filter(e -> e.status() >= 400).count();
             errorRate = 100.0 * errors / list.size();
-            List<Long> durations = list.stream()
-                    .map(HttpExchangeDto::durationMs)
-                    .filter(Objects::nonNull)
-                    .sorted()
-                    .toList();
-            p50 = percentile(durations, 50);
-            p95 = percentile(durations, 95);
-            HttpExchangeDto slowest = list.stream()
-                    .filter(e -> e.durationMs() != null)
-                    .max(Comparator.comparingLong(HttpExchangeDto::durationMs))
-                    .orElse(null);
-            if (slowest != null) {
-                slowestEndpoint = slowest.path();
-                slowestEndpointMs = slowest.durationMs();
-            }
         }
 
         double sqlPerMinute = 0;
@@ -1064,11 +1054,8 @@ public class LiveActivityService {
                     .filter(entry -> !entry.success() || (entry.status() != null && entry.status() >= 400))
                     .count();
             restCallErrorRate = 100.0 * errors / list.size();
-            List<Long> durations = list.stream()
-                    .map(RestClientTraceEntryDto::durationMillis)
-                    .sorted()
-                    .toList();
-            restCallP95 = percentile(durations, 95);
+            restCallP95 = Percentiles.of(
+                    list.stream().map(RestClientTraceEntryDto::durationMillis).toList(), 95);
         }
 
         int activeExceptions = exceptions == null ? 0 : exceptions.groups().size();
@@ -1104,10 +1091,10 @@ public class LiveActivityService {
         return new ActivityKpiDto(
                 round(requestsPerMinute),
                 round(errorRate),
-                p50,
-                p95,
-                slowestEndpoint,
-                slowestEndpointMs,
+                latency.p50Ms(),
+                latency.p95Ms(),
+                latency.slowestPath(),
+                latency.slowestMs(),
                 activeExceptions,
                 round(sqlPerMinute),
                 slowestQueryMs,
@@ -1117,7 +1104,11 @@ public class LiveActivityService {
                 cacheHitRatioPercent,
                 scheduledTaskFailureCount,
                 restCallErrorRate == null ? null : round(restCallErrorRate),
-                restCallP95);
+                restCallP95,
+                latency.sampleCount(),
+                latency.slowestRoute(),
+                latency.slowestRouteId(),
+                latency.slowestRouteSource());
     }
 
     private String currentHealthStatus() {
@@ -1152,15 +1143,6 @@ public class LiveActivityService {
         }
         double minutes = spanMs / 60_000.0;
         return timestamps.size() / Math.max(minutes, 1.0 / 60);
-    }
-
-    private static Long percentile(List<Long> sortedAscending, int percentile) {
-        if (sortedAscending.isEmpty()) {
-            return null;
-        }
-        int index = (int) Math.ceil(percentile / 100.0 * sortedAscending.size()) - 1;
-        index = Math.max(0, Math.min(index, sortedAscending.size() - 1));
-        return sortedAscending.get(index);
     }
 
     private static double round(double value) {

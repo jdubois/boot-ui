@@ -81,6 +81,28 @@ class LiveActivityAssemblerTests {
     }
 
     @Test
+    void labelsTheSlowestRequestKpiWithItsResolvedRoute() {
+        HttpExchangesReport requests = requests(
+                RequestLatencyKpisTests.exchange(
+                        "req-1", 1, "GET", "/api/orders/42", 240L, "/api/orders/{id}", "DECLARED_MAPPING"),
+                RequestLatencyKpisTests.exchange("req-2", 2, "GET", "/api/health", 4L, "/api/health", "MASKED_PATH"),
+                RequestLatencyKpisTests.exchange("req-3", 3, "GET", "/api/health", 6L, "/api/health", "MASKED_PATH"));
+
+        LiveActivityReport report = assembler.report(
+                requests, List.of(), false, null, List.of(), List.of(), false, List.of(), false, List.of(), "UP", 0,
+                List.of(), false, List.of(), false, List.of(), false, List.of(), false);
+
+        assertThat(report.kpis().latencySampleCount()).isEqualTo(3);
+        assertThat(report.kpis().p50LatencyMs()).isEqualTo(6L);
+        assertThat(report.kpis().p95LatencyMs()).isEqualTo(240L);
+        assertThat(report.kpis().slowestEndpoint()).isEqualTo("/api/orders/42");
+        assertThat(report.kpis().slowestEndpointMs()).isEqualTo(240L);
+        assertThat(report.kpis().slowestEndpointRoute()).isEqualTo("/api/orders/{id}");
+        assertThat(report.kpis().slowestEndpointRouteId()).isEqualTo("GET /api/orders/{id}");
+        assertThat(report.kpis().slowestEndpointRouteSource()).isEqualTo("DECLARED_MAPPING");
+    }
+
+    @Test
     void leavesSignalsFlatWhenNoTraceIdIsStamped() {
         HttpExchangesReport requests = requests(request("req-1", "/orders", null, 1_000L));
         List<SqlTraceEntryDto> sql = List.of(sql(10, "select 1", null, 1_010L));

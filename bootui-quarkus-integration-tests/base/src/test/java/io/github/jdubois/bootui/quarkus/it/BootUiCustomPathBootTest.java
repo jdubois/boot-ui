@@ -54,6 +54,11 @@ class BootUiCustomPathBootTest extends AbstractBootUiApiConformanceTest {
     }
 
     @Override
+    protected String applicationPath() {
+        return "/host";
+    }
+
+    @Override
     protected String uiPath() {
         return "/host/dev-console";
     }

@@ -411,7 +411,8 @@ When BootUI MCP tools are available:
 
 1. Call core reads such as `get_overview` and `get_health` first.
 2. Use targeted diagnostic reads such as `get_live_activity`, `get_exceptions`, `get_exception_detail`,
-   `get_sql_traces`, `get_traces`, `get_log_tail`, and `get_http_exchanges`.
+   `get_sql_traces`, `get_traces`, `get_log_tail`, `get_http_exchanges`, and `get_http_routes` (per-route request
+   counts, status classes, and p50/p95/p99 latency over the retained window).
 3. Run only the advisor relevant to the task, such as `architecture_scan`, `spring_scan`, `hibernate_scan`,
    `memory_scan`, `security_scan`, `pentest_scan`, or `rest_api_scan`.
 4. Use identifiers returned by summary tools to request detail rather than repeatedly fetching broad result sets.

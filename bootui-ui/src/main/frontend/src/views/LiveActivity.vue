@@ -1,5 +1,6 @@
 <script setup>
 import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {useRoute} from 'vue-router'
 import {apiFetch} from '../api.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -55,6 +56,7 @@ const FLOW_COLLAPSED_STORAGE_KEY = 'bootui.activity.flowCollapsed'
 const PERSISTENCE_DOCS_URL = 'https://www.julien-dubois.com/boot-ui/properties#live-activity-durable-persistence'
 
 const props = defineProps(panelProps)
+const route = useRoute()
 const {readOnly, readOnlyReason, manifestAvailable, manifestUnavailableReason} = usePanelState(props)
 const {confirm} = useConfirm()
 const {message: banner, flash, clear: clearBanner} = useFlashMessage()
@@ -238,6 +240,25 @@ const combinedEntries = computed(() => mergeActivityPages(report.value?.entries,
 
 const available = computed(() => report.value?.available ?? false)
 const kpis = computed(() => report.value?.kpis ?? null)
+
+// The slowest request links to its route's row in the HTTP Exchanges route summary, ranked by slowest
+// request so the row is on screen. A server that predates route summaries sends no route id, so the link
+// falls back to a path search.
+const slowestEndpointLink = computed(() => {
+  const k = kpis.value
+  if (!k?.slowestEndpoint) return undefined
+  return k.slowestEndpointRouteId
+    ? {path: '/http-exchanges', query: {route: k.slowestEndpointRouteId, rank: 'maxDurationMs'}}
+    : {path: '/http-exchanges', query: {q: k.slowestEndpoint}}
+})
+
+const slowestEndpointTitle = computed(() => {
+  const k = kpis.value
+  if (!k?.slowestEndpoint) return null
+  return k.slowestEndpointRouteId
+    ? `Open ${k.slowestEndpointRouteId}, the route of the slowest request (${k.slowestEndpoint}), in HTTP Exchanges`
+    : `Open ${k.slowestEndpoint} in HTTP Exchanges`
+})
 const sources = computed(() => report.value?.sources ?? [])
 const warnings = computed(() => report.value?.warnings ?? [])
 
@@ -424,16 +445,20 @@ async function openProfile(
   opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
 ) {
   if (!entry.profileable) return
+  await loadProfile(entry.id, opener)
+}
+
+async function loadProfile(id, opener) {
   profileOpenerEl.value =
     opener?.matches?.('button, a, input, select, textarea, [tabindex]:not([tabindex="-1"])') === true
       ? opener
       : opener?.querySelector?.('.bootui-keyboard-target') || null
-  profileRequestId.value = entry.id
+  profileRequestId.value = id
   profileLoading.value = true
   profileError.value = null
   profile.value = null
   try {
-    const response = await apiFetch(`api/activity/request/${encodeURIComponent(entry.id)}`)
+    const response = await apiFetch(`api/activity/request/${encodeURIComponent(id)}`)
     if (!response.ok) {
       throw new Error(`Request failed with status ${response.status}`)
     }
@@ -657,7 +682,15 @@ watch([typeFilter, severityFilter, textFilter, errorsOnly], () => {
   filterReloadTimer = setTimeout(refreshNow, 300)
 })
 
-onMounted(() => window.addEventListener('keydown', onKeydown))
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  // HTTP Exchanges links each exchange here with ?request=<exchange id>. The profile endpoint answers
+  // honestly for any id, including one that is no longer retained or carries no trace id.
+  const linkedRequest = route?.query?.request
+  if (typeof linkedRequest === 'string' && linkedRequest) {
+    loadProfile(linkedRequest, null)
+  }
+})
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   if (filterReloadTimer) clearTimeout(filterReloadTimer)
@@ -790,6 +823,10 @@ function toggleFlow() {
             <div class="card-body py-2">
               <div class="text-muted small">Latency p50 / p95</div>
               <div class="fs-5">{{ kpis.p50LatencyMs ?? '—' }} / {{ kpis.p95LatencyMs ?? '—' }} ms</div>
+              <div v-if="kpis.latencySampleCount != null" class="text-muted small activity-kpi-latency-samples">
+                over {{ formatNumber(kpis.latencySampleCount) }} retained
+                {{ kpis.latencySampleCount === 1 ? 'request' : 'requests' }}
+              </div>
             </div>
           </div>
         </div>
@@ -821,10 +858,10 @@ function toggleFlow() {
         <div class="col-6 col-lg-3">
           <component
             :is="kpis.slowestEndpoint ? 'router-link' : 'div'"
-            class="card h-100 text-reset text-decoration-none"
+            class="card h-100 text-reset text-decoration-none activity-kpi-slowest"
             :class="{'activity-kpi-link': kpis.slowestEndpoint}"
-            :to="kpis.slowestEndpoint ? {path: '/http-exchanges', query: {q: kpis.slowestEndpoint}} : undefined"
-            :title="kpis.slowestEndpoint ? `Open ${kpis.slowestEndpoint} in HTTP Exchanges` : null"
+            :to="kpis.slowestEndpoint ? slowestEndpointLink : undefined"
+            :title="kpis.slowestEndpoint ? slowestEndpointTitle : null"
           >
             <div class="card-body py-2">
               <div class="text-muted small">
@@ -834,7 +871,9 @@ function toggleFlow() {
               <div class="fs-5 text-truncate">
                 <template v-if="kpis.slowestEndpoint">
                   {{ kpis.slowestEndpointMs ?? '—' }} ms
-                  <span class="text-muted small d-block text-truncate">{{ kpis.slowestEndpoint }}</span>
+                  <span class="text-muted small d-block text-truncate activity-kpi-slowest-route">
+                    {{ kpis.slowestEndpointRouteId ?? kpis.slowestEndpoint }}
+                  </span>
                 </template>
                 <template v-else>—</template>
               </div>
