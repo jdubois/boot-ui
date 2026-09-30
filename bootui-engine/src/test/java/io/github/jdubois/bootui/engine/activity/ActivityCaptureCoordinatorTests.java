@@ -103,4 +103,29 @@ class ActivityCaptureCoordinatorTests {
                 .count();
         assertThat(firstCaptureCount).isEqualTo(2);
     }
+
+    @Test
+    void neverReCapturesAnEntryThatStaysInTheViewWhileNewerEntriesFlood() {
+        RecordingStore store = new RecordingStore();
+        ActivityCaptureCoordinator coordinator =
+                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 1);
+        // A failure held in a failure-preserving buffer's reserved share outlives many routine entries.
+        ActivityEntryDto failure = entry("failure", "REQUEST", 1, "ERROR", "boom");
+
+        coordinator.ingest(List.of(failure));
+        for (int poll = 0; poll < 5; poll++) {
+            List<ActivityEntryDto> view = new ArrayList<>();
+            for (int i = 0; i < 20; i++) {
+                int id = poll * 20 + i;
+                view.add(0, entry("ok-" + id, "REQUEST", id + 2, "OK", "ok"));
+            }
+            view.add(failure);
+            coordinator.ingest(view);
+        }
+
+        assertThat(store.allAppended.stream()
+                        .filter(e -> "failure".equals(e.entry().id())))
+                .hasSize(1);
+        assertThat(store.allAppended).hasSize(1 + 5 * 20);
+    }
 }

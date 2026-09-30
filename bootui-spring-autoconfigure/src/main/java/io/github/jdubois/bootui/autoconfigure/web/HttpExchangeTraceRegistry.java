@@ -85,7 +85,8 @@ public final class HttpExchangeTraceRegistry {
         }
         long slack = 50L;
         HttpExchangeTrace found = null;
-        for (HttpExchangeTrace candidate : buffer.oldestFirst()) {
+        // Uniqueness, not order, decides the match, so the newest-first snapshot is read as is.
+        for (HttpExchangeTrace candidate : buffer.newestFirst()) {
             if (!method.equalsIgnoreCase(candidate.method()) || !path.equals(candidate.path())) {
                 continue;
             }

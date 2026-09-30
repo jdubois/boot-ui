@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.activity;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -20,8 +21,11 @@ import java.util.Set;
  *
  * <p>"Not seen yet" is tracked by a bounded set of already-captured entry ids rather than a
  * timestamp-based watermark: entry timestamps from four different sources can tie, and a pure
- * timestamp cursor cannot reliably tell two same-millisecond entries apart. The trade-off is
- * deliberately simple and documented: if more distinct new entries appear between two polls than the
+ * timestamp cursor cannot reliably tell two same-millisecond entries apart. An id still present in the
+ * current view is never evicted from that set, so a record the source buffers keep for a long time — such as
+ * a failure held in a failure-preserving buffer's reserved share — is captured exactly once; the set stays
+ * bounded by the configured window plus the size of the view, which the source buffers bound. The trade-off
+ * is deliberately simple and documented: if more distinct new entries appear between two polls than the
  * configured window can hold, the oldest ones may be evicted from the "seen" set and — if also no
  * longer present in the next poll's bounded merged view — never captured. Lowering the poll interval or
  * raising {@code bootui.activity.max-entries} widens the window and mitigates this.</p>
@@ -52,6 +56,12 @@ public final class ActivityCaptureCoordinator {
             return;
         }
         List<StoredActivityEntry> toCapture = new ArrayList<>();
+        Set<String> present = new HashSet<>();
+        for (ActivityEntryDto entry : latestNewestFirst) {
+            if (entry.id() != null) {
+                present.add(entry.id());
+            }
+        }
         synchronized (lock) {
             for (int i = latestNewestFirst.size() - 1; i >= 0; i--) {
                 ActivityEntryDto entry = latestNewestFirst.get(i);
@@ -60,20 +70,22 @@ public final class ActivityCaptureCoordinator {
                     continue;
                 }
                 toCapture.add(sequencer.stamp(entry));
-                markSeen(id);
+                seenIds.add(id);
             }
+            trimSeen(present);
         }
         if (!toCapture.isEmpty()) {
             store.appendBatch(toCapture);
         }
     }
 
-    private void markSeen(String id) {
-        seenIds.add(id);
-        while (seenIds.size() > seenCapacity) {
-            Iterator<String> oldest = seenIds.iterator();
-            oldest.next();
-            oldest.remove();
+    /** Evicts the oldest seen ids beyond the capacity, keeping every id still present in the current view. */
+    private void trimSeen(Set<String> present) {
+        Iterator<String> oldest = seenIds.iterator();
+        while (seenIds.size() > seenCapacity && oldest.hasNext()) {
+            if (!present.contains(oldest.next())) {
+                oldest.remove();
+            }
         }
     }
 }
