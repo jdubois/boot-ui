@@ -81,7 +81,9 @@ npm run test:custom-path
 
 Playwright starts the MVC app on port 8083 and WebFlux app on port 8084. Set `BOOTUI_CUSTOM_MVC_PORT` or
 `BOOTUI_CUSTOM_WEBFLUX_PORT` to change those ports. `BOOTUI_MAVEN_REPO_LOCAL` applies to every suite's auto-started Maven
-server and can point them at an isolated repository (for example, `.m2` from the repository root).
+server, including the servers `read-only.spec.js` starts, and can point them at an isolated repository. Use an absolute
+path: the suites start Maven from this `e2e` directory, so a relative `.m2` resolves to an empty `e2e/.m2`. For example,
+run `export BOOTUI_MAVEN_REPO_LOCAL="$PWD/.m2"` from the repository root.
 
 ## Prerequisites
 
@@ -143,7 +145,8 @@ BOOTUI_SCREENSHOT_ONLY=overview,github,http-sessions npm run screenshots
 - `BOOTUI_BASE_URL` — override the base URL (default `http://localhost:8080`).
 - `BOOTUI_SAMPLE_PORT` — override the port used to build the default base URL.
 - `BOOTUI_CUSTOM_MVC_PORT` / `BOOTUI_CUSTOM_WEBFLUX_PORT` — ports for the two custom-path test servers.
-- `BOOTUI_MAVEN_REPO_LOCAL` — optional Maven local-repository path passed to every auto-started sample server.
+- `BOOTUI_MAVEN_REPO_LOCAL` — optional absolute Maven local-repository path passed to every auto-started sample
+  server (for example, `"$(cd ../.. && pwd)/.m2"` from this directory).
 - `BOOTUI_SCREENSHOT_BASE_URL` — reuse an existing Vite server when generating
   documentation screenshots.
 - `BOOTUI_SCREENSHOT_PORT` — Vite port for the screenshot generator when it starts
