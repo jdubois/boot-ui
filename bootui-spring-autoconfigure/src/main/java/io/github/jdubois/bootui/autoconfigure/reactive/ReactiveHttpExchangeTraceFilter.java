@@ -90,7 +90,15 @@ public final class ReactiveHttpExchangeTraceFilter extends AbstractReactiveBootU
             long end = System.currentTimeMillis();
             String traceId = safeCurrentTraceId();
             registry.record(
-                    new HttpExchangeTrace(start, end, method, path, traceId, routeTemplate(exchange)),
+                    new HttpExchangeTrace(
+                            start,
+                            end,
+                            method,
+                            path,
+                            traceId,
+                            routeTemplate(exchange),
+                            ReactiveRequestCorrelationFilter.correlation(exchange)
+                                    .requestId()),
                     RequestSlowThreshold.isFailedOrSlow(
                             status(exchange, signal, failure.get()), end - start, requestSlowThresholdMs));
         });

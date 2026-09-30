@@ -11,7 +11,8 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 /**
  * Runs the {@code docs/PLAN-v2.md} §5.1 correlation coverage scenario against Spring WebFlux, in the {@code dev}
  * profile. The routes cover blocking JDBC offloaded to a Reactor scheduler, a cached read, and a failing request.
- * The sample secures no application route, so the scenario has no security traffic on this stack.
+ * The sample secures no application route, so the scenario has no security traffic on this stack. WebFlux enforces
+ * the same floors as the other stacks, though §2.2 only asks it to report its coverage.
  */
 @SpringBootTest(
         classes = BootUiWebfluxSampleApplication.class,
@@ -36,6 +37,12 @@ class WebFluxCorrelationCoverageTest extends AbstractCorrelationCoverageTest {
     @Override
     protected String runtimeLabel() {
         return "spring-webflux";
+    }
+
+    /** Each exchange's trace id is read from its own request's record, found by request id. */
+    @Override
+    protected Tracing tracing() {
+        return Tracing.ON;
     }
 
     @Override

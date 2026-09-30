@@ -108,7 +108,7 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
             phases.begin(correlation.requestId());
         }
         try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(correlation)) {
-            recordAround(request, response, chain);
+            recordAround(request, response, chain, correlation.requestId());
         }
     }
 
@@ -117,7 +117,8 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
         return attribute instanceof CorrelationContext context ? context : CorrelationContext.NONE;
     }
 
-    private void recordAround(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+    private void recordAround(
+            HttpServletRequest request, HttpServletResponse response, FilterChain chain, String requestId)
             throws ServletException, IOException {
         long start = System.currentTimeMillis();
         String thread = Thread.currentThread().getName();
@@ -136,7 +137,7 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
             // chain throws, so the trace record and the exchange agree on whether it is reserved.
             int status = threw ? 500 : response.getStatus();
             traceRegistry.record(
-                    new HttpExchangeTrace(start, end, method, decodedPath(path), traceId, routeTemplate),
+                    new HttpExchangeTrace(start, end, method, decodedPath(path), traceId, routeTemplate, requestId),
                     RequestSlowThreshold.isFailedOrSlow(status, end - start, requestSlowThresholdMs));
         }
     }

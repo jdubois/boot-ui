@@ -375,7 +375,10 @@ What differs is **how signals correlate to a request**, because only the servlet
 
 Both Spring adapters stamp the server-created trace id onto Actuator's trace-id-less HTTP exchange model through the
 same bounded `HttpExchangeTraceRegistry`. MVC reads the SLF4J MDC value its SQL, cache, and REST capture already use;
-WebFlux reads the active OpenTelemetry span across Reactor hops.
+WebFlux reads the active OpenTelemetry span across Reactor hops. Each record carries the request's BootUI request id,
+so an exchange BootUI's own repository recorded finds its own record and keeps its trace id and route template even
+when identical requests overlap. An exchange from an application-provided repository has no request id, so it is
+matched by method, path, and overlapping time, and reads no trace id when two identical requests overlap.
 
 On Quarkus, `quarkus-opentelemetry` stamps the active server span's trace id at each capture point — the HTTP filter,
 REST Client recorder, SQL recorder, exception store, and CDI security-event observer. The OpenTelemetry context

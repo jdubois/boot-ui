@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.conformance.CorrelationCoverage.Report;
 import io.github.jdubois.bootui.conformance.CorrelationCoverage.TypeCoverage;
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -18,8 +19,11 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.EnumMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -48,14 +52,25 @@ import org.junit.jupiter.api.Test;
  * its request ({@link CorrelationCoverage}). The Markdown report is written to
  * {@code target/correlation-coverage/<runtime>.md}, beside the raw feed it was computed from.</p>
  *
- * <p>In milestone M0 the scenario records a baseline and enforces only the floors a runner declares in
- * {@link #minimumNestedShares()}. Milestone M1 raises those floors to its acceptance targets.</p>
+ * <p>In every phase the scenario enforces the floors a runner declares in {@link #minimumNestedShares(Phase)}, and
+ * that no child is nested under a request that was not running when it happened, the signature of a context leaked
+ * from an earlier request. It reads the profile of one request per route that nested request-thread work, and
+ * requires it not to be approximate. A runner that declares {@link #unownedThreadPattern()} calls a route whose work
+ * runs on an executor the application did not wrap: that work must be reported, and never nested under a request.
+ * A runner that declares its {@link #tracing()} requires either that every request carries its own trace id, however
+ * close identical requests are, or that none does, so that its floors prove correlation without tracing.</p>
  */
 public abstract class AbstractCorrelationCoverageTest {
 
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
 
     private static final int MAX_FEED_READS = 10;
+
+    /**
+     * Pause after each phase before the next one starts. Children reported shortly after their request returned, such
+     * as an acknowledged message send, still count in their request's phase.
+     */
+    private static final long SETTLE_MILLIS = 250;
 
     /** One application route the scenario calls. */
     public record Traffic(String path, Map<String, String> headers, int concurrency) {
@@ -114,6 +129,28 @@ public abstract class AbstractCorrelationCoverageTest {
         return Map.of();
     }
 
+    /**
+     * Thread names of the executor one route hands its work to without propagating any context, or {@code null} when
+     * no route does. That work must be reported, and never nested under a request.
+     */
+    protected Pattern unownedThreadPattern() {
+        return null;
+    }
+
+    /** Whether the runner's application traces its requests, which the scenario then checks on every request. */
+    public enum Tracing {
+        /** Not checked. */
+        UNCHECKED,
+        /** Every request carries a trace id. */
+        ON,
+        /** No request carries a trace id. */
+        OFF
+    }
+
+    protected Tracing tracing() {
+        return Tracing.UNCHECKED;
+    }
+
     @Test
     void measuresRequestCorrelationCoverage() throws Exception {
         HttpClient client = HttpClient.newBuilder()
@@ -128,10 +165,19 @@ public abstract class AbstractCorrelationCoverageTest {
         for (Traffic route : traffic) {
             send(client, route);
         }
+        Thread.sleep(SETTLE_MILLIS);
 
         Map<Phase, long[]> windows = new EnumMap<>(Phase.class);
+        long previousEnd = -1;
+        Phase previous = null;
         for (Phase phase : Phase.values()) {
+            if (previous != null) {
+                Thread.sleep(SETTLE_MILLIS);
+            }
             long start = nextMillisecond();
+            if (previous != null) {
+                windows.put(previous, new long[] {windows.get(previous)[0], previousEnd, start});
+            }
             for (int round = 0; round < rounds(); round++) {
                 for (Traffic route : traffic) {
                     if (phase == Phase.SIMULTANEOUS) {
@@ -146,7 +192,9 @@ public abstract class AbstractCorrelationCoverageTest {
                     }
                 }
             }
-            windows.put(phase, new long[] {start, nextMillisecond()});
+            previousEnd = nextMillisecond();
+            previous = phase;
+            windows.put(phase, new long[] {start, previousEnd, previousEnd + SETTLE_MILLIS});
         }
 
         FeedRead feed = readFeed(windows.get(Phase.PACED)[0], Phase.values().length * perPhase);
@@ -155,9 +203,23 @@ public abstract class AbstractCorrelationCoverageTest {
         Map<Phase, Report> reports = new EnumMap<>(Phase.class);
         for (Phase phase : Phase.values()) {
             long[] window = windows.get(phase);
-            Report report = CorrelationCoverage.measure(feed.entries(), window[0], window[1], requestThreadPattern());
+            Report report = CorrelationCoverage.measure(
+                    feed.entries(), window[0], window[1], window[2], requestThreadPattern(), unownedThreadPattern());
             reports.put(phase, report);
             markdown.append("\n## ").append(phase.title).append("\n\n").append(report.toMarkdown());
+        }
+        Map<Phase, List<ProfileRead>> profiles = new EnumMap<>(Phase.class);
+        for (Phase phase : Phase.values()) {
+            long[] window = windows.get(phase);
+            List<ProfileRead> read = readProfiles(feed.entries(), window[0], window[1]);
+            profiles.put(phase, read);
+            markdown.append("\n")
+                    .append(phase.title)
+                    .append(": ")
+                    .append(read.size())
+                    .append(" profiles read, ")
+                    .append(read.stream().filter(ProfileRead::approximate).count())
+                    .append(" approximate.\n");
         }
         writeFile(runtimeLabel() + "-feed.json", feed.body());
         writeFile(runtimeLabel() + ".md", markdown.toString());
@@ -165,6 +227,22 @@ public abstract class AbstractCorrelationCoverageTest {
 
         for (Phase phase : Phase.values()) {
             assertPhase(phase, reports.get(phase), perPhase);
+            assertProfiles(phase, profiles.get(phase));
+        }
+    }
+
+    private void assertProfiles(Phase phase, List<ProfileRead> read) {
+        assertThat(read)
+                .as(phase + ": the scenario reads the profile of requests that nested request-thread work")
+                .isNotEmpty();
+        for (ProfileRead profile : read) {
+            assertThat(profile.available())
+                    .as(phase + ": profile of " + profile.summary())
+                    .isTrue();
+            assertThat(profile.approximate())
+                    .as(phase + ": request-thread work is correlated exactly, so the profile of " + profile.summary()
+                            + " is not approximate")
+                    .isFalse();
         }
     }
 
@@ -178,6 +256,29 @@ public abstract class AbstractCorrelationCoverageTest {
         assertThat(report.requestsSharingAnId())
                 .as(phase + ": every request carries its own BootUI request id, so no two requests share an id")
                 .isZero();
+        if (tracing() == Tracing.OFF) {
+            assertThat(report.requestsWithTraceId())
+                    .as(phase + ": tracing is off, so no request carries a trace id")
+                    .isZero();
+        } else if (tracing() == Tracing.ON) {
+            assertThat(report.requestsWithTraceId())
+                    .as(phase + ": every request keeps its own trace id, however close identical requests are")
+                    .isEqualTo(report.requests());
+        }
+        for (TypeCoverage coverage : report.children().values()) {
+            assertThat(coverage.misattributed())
+                    .as(phase + ": " + coverage.type()
+                            + " nested under a request that was not running when it happened")
+                    .isZero();
+        }
+        if (unownedThreadPattern() != null) {
+            assertThat(report.child("SQL").unowned())
+                    .as(phase + ": the raw-executor route must run SQL on the executor's threads")
+                    .isPositive();
+            assertThat(report.child("SQL").unownedNested())
+                    .as(phase + ": work on an executor the application did not wrap is never guessed into a request")
+                    .isZero();
+        }
         for (Map.Entry<String, Double> floor : minimumNestedShares(phase).entrySet()) {
             TypeCoverage coverage = report.child(floor.getKey());
             if (coverage.observed() > 0) {
@@ -229,6 +330,47 @@ public abstract class AbstractCorrelationCoverageTest {
     }
 
     private record FeedRead(List<Entry> entries, String body) {}
+
+    private record ProfileRead(String summary, boolean available, boolean approximate) {}
+
+    /**
+     * Reads the profile of the first request of each route, in the window, that has request-thread work nested under
+     * it. A route whose work all runs elsewhere, such as the raw-executor route, has none, so it is not read.
+     */
+    private List<ProfileRead> readProfiles(List<Entry> entries, long windowStart, long windowEnd) {
+        Pattern requestThread = requestThreadPattern();
+        Set<String> withRequestThreadWork = new HashSet<>();
+        for (Entry entry : entries) {
+            if (entry.parentId() != null
+                    && entry.thread() != null
+                    && requestThread.matcher(entry.thread()).matches()) {
+                withRequestThreadWork.add(entry.parentId());
+            }
+        }
+        Map<String, Entry> firstPerRoute = new LinkedHashMap<>();
+        for (Entry entry : entries) {
+            if ("REQUEST".equals(entry.type())
+                    && entry.timestamp() >= windowStart
+                    && entry.timestamp() < windowEnd
+                    && withRequestThreadWork.contains(entry.id())) {
+                firstPerRoute.putIfAbsent(String.valueOf(entry.summary()), entry);
+            }
+        }
+        BootUiHttpProbe probe = new BootUiHttpProbe(baseUrl());
+        List<ProfileRead> read = new ArrayList<>();
+        for (Entry request : firstPerRoute.values()) {
+            BootUiHttpProbe.Response response = probe.get(
+                    "/bootui/api/activity/request/" + URLEncoder.encode(request.id(), StandardCharsets.UTF_8));
+            assertThat(response.status()).as("profile of " + request.summary()).isEqualTo(200);
+            JsonNode profile = response.json();
+            read.add(new ProfileRead(
+                    request.summary(),
+                    profile.path("available").asBoolean(false),
+                    profile.path("approximate").asBoolean(true)
+                            || profile.path("sqlCorrelationApproximate").asBoolean(true)));
+        }
+        return read;
+    }
 
     /**
      * Reads the feed until it holds every scenario request. Reads are few and spaced out, because on some stacks

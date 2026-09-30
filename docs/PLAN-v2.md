@@ -52,6 +52,18 @@ On Spring, any two identical requests within ±50 ms of each other lose their li
 parallel calls do all the time. Quarkus is exact because BootUI owns its exchange capture and stamps the trace id
 directly, which is the design §5.1 extends to every stack.
 
+After M1 (M1-6f), the extended scenario, which adds a Kafka send, a raw executor, and runners with tracing off, measures:
+
+| Stack | Paced | Back-to-back | Simultaneous |
+| --- | --- | --- | --- |
+| Spring MVC, tracing on and off: SQL, security, cache, exceptions, and Kafka sends nested under their request | 100 % | 100 % | 100 % |
+| Spring WebFlux, tracing on: SQL, cache, and exceptions nested under their request | 100 % | 100 % | 100 % |
+| Quarkus, tracing on and off: SQL and exceptions nested under their request | 100 % | 100 % | 100 % |
+| Every stack with tracing on: requests carrying their own trace id | 100 % | 100 % | 100 % |
+
+No child is nested under a request that was not running when it happened, work on the raw executor is reported and
+never nested, and no request-thread profile is approximate. The scenario enforces all of it in CI.
+
 Once the PoC joined the same events exactly, it surfaced findings no single panel shows:
 
 - secured routes spending 94 % of their time before the controller, in HTTP Basic password hashing;
@@ -411,7 +423,8 @@ Delivery slices, each one pull request to `v2` with its own tests and documentat
 | M1-6d | Request phase markers on Spring MVC: an engine `RequestPhases` registry keyed by request id, readable from any thread, begun by `RequestCorrelationFilter` and advanced by a `HandlerInterceptor` (handler entry, and return before a view renders) and a `ResponseBodyAdvice` (body serialization). SQL statements record the phase they ran in, `FILTERS`, `HANDLER`, or `RESPONSE`. The container's `/error` dispatch reopens the request's scope | M1-5 | ✅ Delivered |
 | M1-6d2 | Request phase markers on Quarkus: a JAX-RS `@Provider` whose request filter runs last, just before the resource method, and whose response filter runs first, just after it, so entity writing runs in `RESPONSE`. Spring Security's authentication time is summed into each request's markers from its authentication observation, on both Spring stacks. Spring WebFlux has no hook between an annotated handler and its result writing short of replacing its `RequestMappingHandlerAdapter`, so its statements carry no phase; the §5.3 timeline falls back to handler-less intervals there | M1-6d | ✅ Delivered |
 | M1-6e | Spring for GraphQL (an optional dependency) names each request's operation from its `graphql.request` observation, reading the operation graphql-java parsed, and the operation becomes part of the route, such as `/graphql (query ProductList)`, in the exchange list, route rankings, and route filter. REST client summaries keep the port their URI states, in both assemblers and the profile drawer | M1-5 | ✅ Delivered |
-| M1-6f | The extended correlation scenario: tracing-off, Kafka-send, and raw-executor routes, the §2.2 floors enforced on Spring MVC and Quarkus in every phase and WebFlux's measured coverage reported, a no-leak guard across reused platform threads, virtual threads, Reactor schedulers, and Vert.x workers, including after async timeouts and cancellations, and profiles that no longer mark request-thread work approximate | M1-6e | 📋 Planned |
+| M1-6f | The extended correlation scenario (§1.1). Spring MVC and Quarkus run it with tracing on and off. A route hands its query to a raw executor, and on Spring MVC a route sends to Kafka on an in-JVM broker. Every phase enforces 100 % nesting on every stack, WebFlux included, and every request carrying its own trace id when tracing is on. The scenario also checks that no child is nested under a request that was not running when it happened, that raw-executor work is reported and never nested, and, by reading one profile per route, that no request-thread profile is approximate. Spring exchanges now find their trace id and route template through their request id, so identical overlapping requests keep them. On Quarkus, Kafka and RabbitMQ sends need a container broker, so their sender nesting stays covered by `QuarkusKafkaCaptureTests` and the RabbitMQ integration test | M1-6e | ✅ Delivered |
+| M1-6g | The no-leak guard: engine tests reusing platform threads, virtual threads, and Reactor schedulers, adapter tests after async timeouts, errors, and cancellations on Spring MVC and WebFlux, and Vert.x worker hops on Quarkus, a JUnit extension that fails any engine or adapter test leaving a correlation scope open, and a new `runId` on a DevTools restart and a Quarkus live reload | M1-6f | 📋 Planned |
 
 ### 5.2 Runtime journal — Diagnostics 📋 Planned
 

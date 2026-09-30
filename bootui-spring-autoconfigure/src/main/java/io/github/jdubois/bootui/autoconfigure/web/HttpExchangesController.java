@@ -256,6 +256,8 @@ public class HttpExchangesController implements BeanFactoryAware {
         HttpExchange.Response response = exchange.getResponse();
         Long durationMs =
                 exchange.getTimeTaken() == null ? null : exchange.getTimeTaken().toMillis();
+        String requestId = stamping == null ? null : stamping.requestId(exchange);
+        HttpExchangeTraceRegistry.HttpExchangeTrace own = traces == null ? null : traces.byRequestId(requestId);
         return new CapturedHttpExchange(
                 exchange.getTimestamp(),
                 request == null ? null : request.getMethod(),
@@ -267,10 +269,12 @@ public class HttpExchangesController implements BeanFactoryAware {
                 exchange.getSession() == null ? null : exchange.getSession().getId(),
                 request == null ? null : request.getHeaders(),
                 response == null ? null : response.getHeaders(),
-                capturedTraceId(traces, exchange, request, durationMs),
-                capturedRouteTemplate(traces, exchange, request, durationMs),
-                stamping == null ? null : stamping.requestId(exchange),
-                operationOf(stamping == null ? null : stamping.requestId(exchange)));
+                own != null ? blankToNull(own.traceId()) : capturedTraceId(traces, exchange, request, durationMs),
+                own != null
+                        ? blankToNull(own.routeTemplate())
+                        : capturedRouteTemplate(traces, exchange, request, durationMs),
+                requestId,
+                operationOf(requestId));
     }
 
     /**
@@ -280,6 +284,10 @@ public class HttpExchangesController implements BeanFactoryAware {
     @Autowired(required = false)
     public void setRequestPhases(RequestPhases requestPhases) {
         this.requestPhases = requestPhases;
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private String operationOf(String requestId) {

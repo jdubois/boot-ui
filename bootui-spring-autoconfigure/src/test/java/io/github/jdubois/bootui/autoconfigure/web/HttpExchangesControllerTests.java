@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -17,6 +18,8 @@ import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.HttpHeaderDto;
 import io.github.jdubois.bootui.core.dto.HttpRoutesReport;
 import io.github.jdubois.bootui.core.dto.MappingDto;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.MappingProvider;
 import java.net.URI;
 import java.time.Duration;
@@ -255,6 +258,62 @@ class HttpExchangesControllerTests {
                 controller.exchanges(null, null, null, null, null).exchanges().get(0);
 
         assertThat(dto.traceId()).isEqualTo("trace-registry-abc");
+    }
+
+    @Test
+    void overlappingIdenticalRequestsEachKeepTheirOwnTraceIdAndTemplateThroughTheirRequestId() {
+        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(10, 0, 0, false);
+        HttpExchange first = exchange("GET", "http://localhost/api/orders/42", 200);
+        HttpExchange second = exchange("GET", "http://localhost/api/orders/42", 200);
+        try (BootUiCorrelation.Scope ignored =
+                BootUiCorrelation.open(CorrelationContext.forRequest("0123456789abcdef"))) {
+            repository.add(first);
+        }
+        try (BootUiCorrelation.Scope ignored =
+                BootUiCorrelation.open(CorrelationContext.forRequest("fedcba9876543210"))) {
+            repository.add(second);
+        }
+        HttpExchangeTraceRegistry registry = new HttpExchangeTraceRegistry(10);
+        long start = START.toEpochMilli();
+        registry.record(new HttpExchangeTraceRegistry.HttpExchangeTrace(
+                start, start + 37, "GET", "/api/orders/42", "trace-first", "/api/orders/{id}", "0123456789abcdef"));
+        registry.record(new HttpExchangeTraceRegistry.HttpExchangeTrace(
+                start, start + 37, "GET", "/api/orders/42", "trace-second", "/api/orders/{id}", "fedcba9876543210"));
+        HttpExchangesController controller =
+                new HttpExchangesController(providerOf(repository), new BootUiProperties());
+        controller.setTraceRegistry(registry);
+
+        List<HttpExchangeDto> exchanges =
+                controller.exchanges(null, null, null, null, null).exchanges();
+
+        assertThat(exchanges)
+                .extracting(HttpExchangeDto::requestId, HttpExchangeDto::traceId, HttpExchangeDto::routeSource)
+                .containsExactlyInAnyOrder(
+                        tuple("0123456789abcdef", "trace-first", "FRAMEWORK_TEMPLATE"),
+                        tuple("fedcba9876543210", "trace-second", "FRAMEWORK_TEMPLATE"));
+    }
+
+    @Test
+    void anExchangeWhoseRequestHadNoTraceIdReadsNoneEvenWhenAnOverlappingTwinHasOne() {
+        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(10, 0, 0, false);
+        try (BootUiCorrelation.Scope ignored =
+                BootUiCorrelation.open(CorrelationContext.forRequest("0123456789abcdef"))) {
+            repository.add(exchange("GET", "http://localhost/api/notes", 200));
+        }
+        HttpExchangeTraceRegistry registry = new HttpExchangeTraceRegistry(10);
+        long start = START.toEpochMilli();
+        registry.record(new HttpExchangeTraceRegistry.HttpExchangeTrace(
+                start, start + 37, "GET", "/api/notes", null, null, "0123456789abcdef"));
+        registry.record(new HttpExchangeTraceRegistry.HttpExchangeTrace(
+                start, start + 37, "GET", "/api/other-twin", "trace-twin", null, "fedcba9876543210"));
+        HttpExchangesController controller =
+                new HttpExchangesController(providerOf(repository), new BootUiProperties());
+        controller.setTraceRegistry(registry);
+
+        HttpExchangeDto dto =
+                controller.exchanges(null, null, null, null, null).exchanges().get(0);
+
+        assertThat(dto.traceId()).isNull();
     }
 
     @Test

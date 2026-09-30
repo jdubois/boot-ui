@@ -273,13 +273,16 @@ installing the reactor dependencies, run the affected conformance class:
 
 The correlation coverage scenario (`AbstractCorrelationCoverageTest`, [PLAN-v2.md](docs/PLAN-v2.md) §5.1) measures
 how much request-thread work Live Activity nests under its request when identical requests are paced, sent
-back-to-back, or sent simultaneously. Each runner writes its report and the raw feed to
+back-to-back, or sent simultaneously. It fails when a floor is missed, when a child is nested under a request that was
+not running when it happened, when work on an executor the application did not wrap is nested under a request, or
+when a request-thread profile reads as approximate. The Spring MVC and Quarkus runners also run with tracing off, and
+the Spring MVC runners send Kafka messages to an in-JVM broker. Each runner writes its report and the raw feed to
 `target/correlation-coverage/`:
 
 ```bash
-./mvnw -B -ntp -pl bootui-spring-sample-app test -Dtest=SpringCorrelationCoverageTest
+./mvnw -B -ntp -pl bootui-spring-sample-app test -Dtest='SpringCorrelationCoverage*'
 ./mvnw -B -ntp -pl bootui-spring-webflux-sample-app test -Dtest=WebFluxCorrelationCoverageTest
-./mvnw -B -ntp -pl bootui-quarkus-integration-tests/otel test -Dtest=BootUiQuarkusCorrelationCoverageTest
+./mvnw -B -ntp -pl bootui-quarkus-integration-tests/otel test -Dtest='BootUiQuarkusCorrelationCoverage*'
 ```
 
 The capture overhead benchmark (`CaptureOverheadBenchmarkTest`) compares the Spring MVC sample app's throughput and

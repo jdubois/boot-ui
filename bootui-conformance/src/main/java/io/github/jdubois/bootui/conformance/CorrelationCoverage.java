@@ -3,12 +3,10 @@ package io.github.jdubois.bootui.conformance;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -22,13 +20,23 @@ import java.util.regex.Pattern;
  * <p>Only entries inside the measured window count. A child entry counts as request-thread work when its thread
  * matches the runner's request-serving thread pattern. Entries without a thread cannot be classified that way:
  * they are counted separately and included, because a scenario runs no background traffic of its own. A child is
- * <em>nested</em> when its {@code parentId} names a {@code REQUEST} entry of the window.</p>
+ * <em>nested</em> when its {@code parentId} names a {@code REQUEST} entry of the window. A consumed message
+ * ({@code MESSAGING} whose summary starts with {@code ←}) anchors its own execution, so it is not request work and is
+ * left out.</p>
+ *
+ * <p>A child is <em>misattributed</em> when it carries a thread and is nested under a request whose interval, widened
+ * by {@link #INTERVAL_SLACK_MILLIS} for millisecond rounding, does not contain it: the signature of a context that
+ * leaked from an earlier request. Children that report without a thread, such as a message send acknowledged later on
+ * the broker client's I/O thread, are not checked, because their timestamp is the acknowledgement's.</p>
  */
 public final class CorrelationCoverage {
 
     /** Child types whose request-thread entries a request should own, in report order. */
     public static final List<String> CHILD_TYPES =
             List.of("SQL", "SECURITY", "EXCEPTION", "CACHE", "REST_CLIENT", "MESSAGING", "MAIL", "FAULT_TOLERANCE");
+
+    /** Widening of a request's interval when checking a nested child's timestamp, for millisecond rounding. */
+    static final long INTERVAL_SLACK_MILLIS = 5;
 
     private CorrelationCoverage() {}
 
@@ -40,10 +48,24 @@ public final class CorrelationCoverage {
             String correlationId,
             String thread,
             String parentId,
-            Integer status) {
+            Integer status,
+            String summary,
+            Long durationMs) {
+
+        public Entry(
+                String id,
+                String type,
+                long timestamp,
+                String correlationId,
+                String thread,
+                String parentId,
+                Integer status) {
+            this(id, type, timestamp, correlationId, thread, parentId, status, null, null);
+        }
 
         public static Entry fromJson(JsonNode node) {
             JsonNode status = node.get("status");
+            JsonNode duration = node.get("durationMs");
             return new Entry(
                     text(node, "id"),
                     text(node, "type"),
@@ -51,7 +73,17 @@ public final class CorrelationCoverage {
                     text(node, "correlationId"),
                     text(node, "thread"),
                     text(node, "parentId"),
-                    status == null || status.isNull() ? null : status.asInt());
+                    status == null || status.isNull() ? null : status.asInt(),
+                    text(node, "summary"),
+                    duration == null || duration.isNull() ? null : duration.asLong());
+        }
+
+        boolean consumedMessage() {
+            return "MESSAGING".equals(type) && summary != null && summary.startsWith("←");
+        }
+
+        boolean hasThread() {
+            return thread != null && !thread.isBlank();
         }
 
         private static String text(JsonNode node, String field) {
@@ -68,8 +100,24 @@ public final class CorrelationCoverage {
      * @param withoutThread entries among {@code observed} that carry no thread name
      * @param otherThreads entries of this type in the window on threads that do not serve requests, which the
      *     measurement excludes
+     * @param misattributed nested entries of this type, on any thread, whose request's interval does not contain them
+     * @param unowned entries among {@code otherThreads} on the scenario's unowned threads, such as a raw executor the
+     *     application did not wrap
+     * @param unownedNested entries among {@code unowned} that are nested under a request of the window
      */
-    public record TypeCoverage(String type, int observed, int nested, int withoutThread, int otherThreads) {
+    public record TypeCoverage(
+            String type,
+            int observed,
+            int nested,
+            int withoutThread,
+            int otherThreads,
+            int misattributed,
+            int unowned,
+            int unownedNested) {
+
+        public TypeCoverage(String type, int observed, int nested, int withoutThread, int otherThreads) {
+            this(type, observed, nested, withoutThread, otherThreads, 0, 0, 0);
+        }
 
         /** Nested share in {@code [0, 1]}, or {@code null} when nothing was observed. */
         public Double nestedShare() {
@@ -106,15 +154,15 @@ public final class CorrelationCoverage {
         /** A Markdown table, for the scenario's report file and test output. */
         public String toMarkdown() {
             StringBuilder out = new StringBuilder();
-            out.append("| Measure | Observed | Linked | Share | Without thread | Other threads |\n");
-            out.append("| --- | ---: | ---: | ---: | ---: | ---: |\n");
+            out.append("| Measure | Observed | Linked | Share | Without thread | Other threads | Misattributed |\n");
+            out.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n");
             out.append("| Requests carrying a trace id | ")
                     .append(requests)
                     .append(" | ")
                     .append(requestsWithTraceId)
                     .append(" | ")
                     .append(percent(requestTraceIdShare()))
-                    .append(" | — | — |\n");
+                    .append(" | — | — | — |\n");
             for (TypeCoverage coverage : children.values()) {
                 out.append("| ")
                         .append(coverage.type())
@@ -128,7 +176,20 @@ public final class CorrelationCoverage {
                         .append(coverage.withoutThread())
                         .append(" | ")
                         .append(coverage.otherThreads())
+                        .append(" | ")
+                        .append(coverage.misattributed())
                         .append(" |\n");
+            }
+            for (TypeCoverage coverage : children.values()) {
+                if (coverage.unowned() > 0) {
+                    out.append("\n")
+                            .append(coverage.type())
+                            .append(" on unowned threads: ")
+                            .append(coverage.unowned())
+                            .append(", of which nested under a request: ")
+                            .append(coverage.unownedNested())
+                            .append('.');
+                }
             }
             out.append("\nRequests sharing an id with another request: ")
                     .append(requestsSharingAnId)
@@ -150,13 +211,38 @@ public final class CorrelationCoverage {
      *     {@code http-nio-…-exec-N}
      */
     public static Report measure(List<Entry> entries, long windowStart, long windowEnd, Pattern requestThread) {
+        return measure(entries, windowStart, windowEnd, windowEnd, requestThread, null);
+    }
+
+    /**
+     * Measures coverage over the requests whose timestamp falls in {@code [windowStart, windowEnd)} and the children
+     * whose timestamp falls in {@code [windowStart, childrenEnd)}, so that a child reported shortly after its request
+     * returned, such as an acknowledged message send, still counts in its request's window.
+     *
+     * @param requestThread the runtime's request-serving thread names
+     * @param unownedThread the scenario's unowned threads, such as a raw executor's, or {@code null} when it has none
+     */
+    public static Report measure(
+            List<Entry> entries,
+            long windowStart,
+            long windowEnd,
+            long childrenEnd,
+            Pattern requestThread,
+            Pattern unownedThread) {
         List<Entry> window = new ArrayList<>();
+        List<Entry> childWindow = new ArrayList<>();
         for (Entry entry : entries) {
             if (entry.timestamp() >= windowStart && entry.timestamp() < windowEnd) {
                 window.add(entry);
             }
+            if (entry.timestamp() >= windowStart
+                    && entry.timestamp() < Math.max(windowEnd, childrenEnd)
+                    && !"REQUEST".equals(entry.type())
+                    && !entry.consumedMessage()) {
+                childWindow.add(entry);
+            }
         }
-        Set<String> requestIds = new HashSet<>();
+        Map<String, Entry> requestsById = new HashMap<>();
         Map<String, Integer> requestIdUses = new HashMap<>();
         int requests = 0;
         int requestsWithTraceId = 0;
@@ -166,7 +252,7 @@ public final class CorrelationCoverage {
                 continue;
             }
             requests++;
-            requestIds.add(entry.id());
+            requestsById.put(entry.id(), entry);
             requestIdUses.merge(entry.id(), 1, Integer::sum);
             if (entry.correlationId() != null && !entry.correlationId().isBlank()) {
                 requestsWithTraceId++;
@@ -187,25 +273,57 @@ public final class CorrelationCoverage {
             int nested = 0;
             int withoutThread = 0;
             int otherThreads = 0;
-            for (Entry entry : window) {
+            int misattributed = 0;
+            int unowned = 0;
+            int unownedNested = 0;
+            for (Entry entry : childWindow) {
                 if (!type.equals(entry.type())) {
                     continue;
                 }
-                boolean noThread = entry.thread() == null || entry.thread().isBlank();
-                if (!noThread && !requestThread.matcher(entry.thread()).matches()) {
+                Entry parent = entry.parentId() == null ? null : requestsById.get(entry.parentId());
+                if (parent != null && entry.hasThread() && outsideInterval(entry, parent)) {
+                    misattributed++;
+                }
+                if (entry.hasThread() && !requestThread.matcher(entry.thread()).matches()) {
                     otherThreads++;
+                    if (unownedThread != null
+                            && unownedThread.matcher(entry.thread()).matches()) {
+                        unowned++;
+                        if (parent != null) {
+                            unownedNested++;
+                        }
+                    }
                     continue;
                 }
                 observed++;
-                if (noThread) {
+                if (!entry.hasThread()) {
                     withoutThread++;
                 }
-                if (entry.parentId() != null && requestIds.contains(entry.parentId())) {
+                if (parent != null) {
                     nested++;
                 }
             }
-            children.put(type, new TypeCoverage(type, observed, nested, withoutThread, otherThreads));
+            children.put(
+                    type,
+                    new TypeCoverage(
+                            type,
+                            observed,
+                            nested,
+                            withoutThread,
+                            otherThreads,
+                            misattributed,
+                            unowned,
+                            unownedNested));
         }
         return new Report(requests, requestsWithTraceId, requestsSharingAnId, failedRequests, children);
+    }
+
+    private static boolean outsideInterval(Entry child, Entry request) {
+        if (request.durationMs() == null) {
+            return false;
+        }
+        long start = request.timestamp() - INTERVAL_SLACK_MILLIS;
+        long end = request.timestamp() + request.durationMs() + INTERVAL_SLACK_MILLIS;
+        return child.timestamp() < start || child.timestamp() > end;
     }
 }

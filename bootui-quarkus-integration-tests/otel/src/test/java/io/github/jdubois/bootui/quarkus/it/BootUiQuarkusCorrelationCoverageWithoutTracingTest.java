@@ -46,12 +46,25 @@ class BootUiQuarkusCorrelationCoverageWithoutTracingTest extends AbstractCorrela
 
     @Override
     protected List<Traffic> traffic() {
-        return List.of(Traffic.anonymous("/it/sql", 8), Traffic.anonymous("/it/boom", 4));
+        return List.of(
+                Traffic.anonymous("/it/sql", 8),
+                Traffic.anonymous("/it/boom", 4),
+                Traffic.anonymous("/it/raw-executor-sql", 2));
     }
 
     @Override
     protected Pattern requestThreadPattern() {
         return Pattern.compile("executor-thread-\\d+|vert\\.x-eventloop-thread-\\d+");
+    }
+
+    @Override
+    protected Pattern unownedThreadPattern() {
+        return Pattern.compile(RawExecutorProbeResource.RAW_EXECUTOR_THREADS);
+    }
+
+    @Override
+    protected Tracing tracing() {
+        return Tracing.OFF;
     }
 
     @Override

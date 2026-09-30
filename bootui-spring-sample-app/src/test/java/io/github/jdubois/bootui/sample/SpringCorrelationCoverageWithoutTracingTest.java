@@ -7,9 +7,10 @@ import org.springframework.context.annotation.Import;
 import org.springframework.kafka.test.context.EmbeddedKafka;
 
 /**
- * Runs the {@code docs/PLAN-v2.md} §5.1 correlation coverage scenario against Spring MVC with tracing, in the
- * Docker-free {@code dev} profile, with Kafka sending to an in-JVM broker. Buffers are raised so that no scenario
- * request or child is evicted.
+ * Runs the {@code docs/PLAN-v2.md} §5.1 correlation coverage scenario against Spring MVC with tracing off, so that the
+ * floors prove BootUI's own request id carries correlation. {@code management.tracing.enabled=false} does not stop
+ * Spring Boot 4 from creating spans in a test, so the OpenTelemetry tracer's auto-configuration is excluded, which
+ * leaves Micrometer's no-op tracer.
  */
 @SpringBootTest(
         classes = BootUiSampleApplication.class,
@@ -17,12 +18,14 @@ import org.springframework.kafka.test.context.EmbeddedKafka;
         properties = {
             "spring.profiles.active=dev",
             "spring.docker.compose.enabled=false",
-            "spring.autoconfigure.exclude=" + AbstractSpringCorrelationScenario.DEV_EXCLUSIONS_WITHOUT_KAFKA,
-            "spring.kafka.consumer.group-id=correlation-scenario",
+            "spring.autoconfigure.exclude=" + AbstractSpringCorrelationScenario.DEV_EXCLUSIONS_WITHOUT_KAFKA
+                    + ",org.springframework.boot.micrometer.tracing.opentelemetry.autoconfigure"
+                    + ".OpenTelemetryTracingAutoConfiguration",
+            "spring.kafka.consumer.group-id=correlation-scenario-without-tracing",
             "spring.kafka.consumer.auto-offset-reset=earliest",
-            "spring.datasource.url=jdbc:h2:mem:bootui_correlation;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false",
+            "spring.datasource.url=jdbc:h2:mem:bootui_correlation_untraced;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false",
             "bootui.show-banner=false",
-            "bootui.overrides-file=target/correlation-coverage/application-bootui.properties",
+            "bootui.overrides-file=target/correlation-coverage/application-bootui-untraced.properties",
             "bootui.http-exchanges.max-exchanges=1000",
             "bootui.activity.max-entries=2000"
         })
@@ -31,15 +34,15 @@ import org.springframework.kafka.test.context.EmbeddedKafka;
         topics = AbstractSpringCorrelationScenario.ORDERS_TOPIC,
         bootstrapServersProperty = "spring.kafka.bootstrap-servers")
 @Import(CorrelationScenarioRoutes.class)
-class SpringCorrelationCoverageTest extends AbstractSpringCorrelationScenario {
+class SpringCorrelationCoverageWithoutTracingTest extends AbstractSpringCorrelationScenario {
 
     @Override
     protected String runtimeLabel() {
-        return "spring-mvc";
+        return "spring-mvc-without-tracing";
     }
 
     @Override
     protected Tracing tracing() {
-        return Tracing.ON;
+        return Tracing.OFF;
     }
 }

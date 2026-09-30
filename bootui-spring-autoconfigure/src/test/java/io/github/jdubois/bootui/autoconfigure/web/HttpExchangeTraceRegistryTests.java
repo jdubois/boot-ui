@@ -175,4 +175,20 @@ class HttpExchangeTraceRegistryTests {
         assertThat(registry.matchRouteTemplate("GET", "/static/app.js", 3000, 3100))
                 .isNull();
     }
+
+    @Test
+    void findsARequestsOwnRecordByItsRequestIdWhereTheTimeMatchIsAmbiguous() {
+        HttpExchangeTraceRegistry registry = new HttpExchangeTraceRegistry(10);
+        registry.record(new HttpExchangeTrace(1000, 1100, "GET", "/a", "trace-1", "/a", "request-1"));
+        registry.record(new HttpExchangeTrace(1000, 1100, "GET", "/a", "trace-2", "/a", "request-2"));
+        registry.record(new HttpExchangeTrace(1000, 1100, "GET", "/a", "trace-3"));
+
+        HttpExchangeTraceRegistry.Matcher matcher = registry.matcher();
+
+        assertThat(matcher.match("GET", "/a", 1000, 1100)).isNull();
+        assertThat(matcher.byRequestId("request-2").traceId()).isEqualTo("trace-2");
+        assertThat(matcher.byRequestId("request-1").traceId()).isEqualTo("trace-1");
+        assertThat(matcher.byRequestId("evicted")).isNull();
+        assertThat(matcher.byRequestId(null)).isNull();
+    }
 }
