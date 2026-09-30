@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.engine.email;
 
+import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
+import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -30,7 +32,20 @@ public final class EmailStore {
     public static final int DEFAULT_MAX_BODY_LENGTH = 200_000;
 
     /** One captured email, stamped with a stable id, capture timestamp, trace id, and thread. */
-    public record Entry(String id, long timestamp, CapturedEmail email, boolean sent, String traceId, String thread) {}
+    public record Entry(
+            String id,
+            long timestamp,
+            CapturedEmail email,
+            boolean sent,
+            String traceId,
+            String thread,
+            String requestId) {
+
+        /** Without BootUI's request identity. */
+        public Entry(String id, long timestamp, CapturedEmail email, boolean sent, String traceId, String thread) {
+            this(id, timestamp, email, sent, traceId, thread, null);
+        }
+    }
 
     private final int maxEntries;
     private final int maxBodyLength;
@@ -39,6 +54,7 @@ public final class EmailStore {
     private final Object lock = new Object();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
     private volatile TraceIdProvider traceIdProvider = EmailStore::mdcTraceId;
+    private final CorrelationSource correlation = new CorrelationSource();
 
     public EmailStore(int maxEntries) {
         this(maxEntries, DEFAULT_MAX_BODY_LENGTH);
@@ -63,6 +79,15 @@ public final class EmailStore {
     }
 
     /**
+     * Replaces the source of the request id stamped on each capture ({@code docs/PLAN-v2.md} §5.1). Defaults to the
+     * thread's correlation scope; the Quarkus adapter installs one that reads the request's Vert.x context. Passing
+     * {@code null} restores the default.
+     */
+    public void setCorrelationContextProvider(CorrelationContextProvider correlationProvider) {
+        correlation.set(correlationProvider);
+    }
+
+    /**
      * Captures one email, assigning it a stable id and the current timestamp.
      *
      * @param email the raw captured email
@@ -76,7 +101,8 @@ public final class EmailStore {
                 boundBodies(email),
                 sent,
                 resolveTraceId(),
-                Thread.currentThread().getName());
+                Thread.currentThread().getName(),
+                correlation.requestId());
         synchronized (lock) {
             entries.addFirst(entry);
             while (entries.size() > maxEntries) {

@@ -40,7 +40,8 @@ public final class QuarkusRestClientTraceFilter implements ClientRequestFilter, 
     public void filter(ClientRequestContext requestContext) {
         try {
             requestContext.setProperty(
-                    CAPTURE_PROPERTY, new RequestCapture(System.nanoTime(), recorder.currentTraceId()));
+                    CAPTURE_PROPERTY,
+                    new RequestCapture(System.nanoTime(), recorder.currentTraceId(), recorder.currentRequestId()));
         } catch (RuntimeException failure) {
             logCaptureFailure(failure);
         }
@@ -68,7 +69,8 @@ public final class QuarkusRestClientTraceFilter implements ClientRequestFilter, 
                     CLIENT_TYPE,
                     Map.of(),
                     Thread.currentThread().getName(),
-                    capture.traceId());
+                    capture.traceId(),
+                    capture.requestId());
         } catch (RuntimeException failure) {
             // Capture must not change the response observed by the application.
             logCaptureFailure(failure);
@@ -78,7 +80,7 @@ public final class QuarkusRestClientTraceFilter implements ClientRequestFilter, 
     private static RequestCapture requestCapture(Object capture) {
         return capture instanceof RequestCapture requestCapture
                 ? requestCapture
-                : new RequestCapture(System.nanoTime(), null);
+                : new RequestCapture(System.nanoTime(), null, null);
     }
 
     private static long elapsedMillis(RequestCapture capture) {
@@ -190,5 +192,5 @@ public final class QuarkusRestClientTraceFilter implements ClientRequestFilter, 
 
     record CapturedUri(String value, String host, String path) {}
 
-    private record RequestCapture(long startNanos, String traceId) {}
+    private record RequestCapture(long startNanos, String traceId, String requestId) {}
 }

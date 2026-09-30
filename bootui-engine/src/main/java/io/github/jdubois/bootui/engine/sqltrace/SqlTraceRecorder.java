@@ -7,10 +7,10 @@ import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
 import io.github.jdubois.bootui.engine.activity.BootUiJdbcCaptureGuard;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
 import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
 import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
-import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
@@ -156,7 +156,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
     private final Set<String> dataSourceNames = new ConcurrentSkipListSet<>();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
     private volatile TraceIdProvider traceIdProvider = SqlTraceRecorder::mdcTraceId;
-    private volatile CorrelationContextProvider correlationProvider = BootUiCorrelation::current;
+    private final CorrelationSource correlation = new CorrelationSource();
     private volatile SpanEnricher spanEnricher = SpanEnricher.NO_OP;
 
     /** A recorder reserving the default share of its buffer for failed and slow executions. */
@@ -256,7 +256,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
      * default.
      */
     public void setCorrelationContextProvider(CorrelationContextProvider correlationProvider) {
-        this.correlationProvider = correlationProvider == null ? BootUiCorrelation::current : correlationProvider;
+        correlation.set(correlationProvider);
     }
 
     /**
@@ -343,7 +343,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
                 resolveTraceId(),
                 captureParameters ? List.copyOf(parameters == null ? List.of() : parameters) : List.of(),
                 captureCallSite ? currentCallSite() : null,
-                resolveRequestId());
+                correlation.requestId());
         buffer.add(entry, !entry.success() || isSlow(entry.durationMicros()));
         totalCaptured.incrementAndGet();
         notifyListeners();
@@ -627,19 +627,6 @@ public final class SqlTraceRecorder implements IdleReclaimable {
         try {
             String traceId = traceIdProvider.currentTraceId();
             return traceId == null || traceId.isBlank() ? null : traceId;
-        } catch (RuntimeException ex) {
-            return null;
-        }
-    }
-
-    /**
-     * The request id to stamp on the next captured statement, or {@code null} when no request owns it. Fully guarded so
-     * SQL execution is never disrupted.
-     */
-    private String resolveRequestId() {
-        try {
-            CorrelationContext context = correlationProvider.current();
-            return context == null ? null : context.requestId();
         } catch (RuntimeException ex) {
             return null;
         }

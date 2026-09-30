@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.reactive;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
+import io.github.jdubois.bootui.engine.correlation.RequestIdStamps;
 import io.github.jdubois.bootui.engine.security.CapturedSecurityEvent;
 import io.github.jdubois.bootui.engine.security.SecurityLogsService;
 import io.github.jdubois.bootui.engine.support.BlankStrings;
@@ -45,6 +46,12 @@ import reactor.core.publisher.Flux;
 @ConditionalOnClass(AuditEventRepository.class)
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/security-logs")
 public class ReactiveSecurityLogsController implements ApplicationListener<AuditApplicationEvent> {
+
+    /**
+     * The BootUI request id current when each audit event was published ({@code docs/PLAN-v2.md} §5.1). Actuator's
+     * {@code AuditEvent} has no field for it and uses identity equality, so the stamp is kept beside it.
+     */
+    private final RequestIdStamps<AuditEvent> requestIds = new RequestIdStamps<>();
 
     private final ObjectProvider<AuditEventRepository> auditEventRepositoryProvider;
 
@@ -127,7 +134,12 @@ public class ReactiveSecurityLogsController implements ApplicationListener<Audit
 
     private CapturedSecurityEvent toCaptured(AuditEvent event) {
         return new CapturedSecurityEvent(
-                event.getTimestamp(), event.getPrincipal(), event.getType(), event.getData(), capturedTraceId(event));
+                event.getTimestamp(),
+                event.getPrincipal(),
+                event.getType(),
+                event.getData(),
+                capturedTraceId(event),
+                requestIds.requestId(event));
     }
 
     /**
@@ -155,6 +167,7 @@ public class ReactiveSecurityLogsController implements ApplicationListener<Audit
 
     @Override
     public void onApplicationEvent(AuditApplicationEvent event) {
+        requestIds.stamp(event.getAuditEvent());
         recordTraceId(event.getAuditEvent());
         changeStream.signal();
     }

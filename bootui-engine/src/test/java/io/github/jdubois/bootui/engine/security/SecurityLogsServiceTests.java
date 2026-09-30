@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
@@ -16,6 +17,27 @@ class SecurityLogsServiceTests {
 
     private static CapturedSecurityEvent event(String principal, String type, String iso) {
         return new CapturedSecurityEvent(Instant.parse(iso), principal, type, Map.of(), null);
+    }
+
+    @Test
+    void carriesTheRequestIdEachEventWasPublishedUnder() {
+        List<CapturedSecurityEvent> events = List.of(
+                new CapturedSecurityEvent(
+                        Instant.parse("2026-09-30T10:00:00Z"),
+                        "alice",
+                        "AUTHENTICATION_SUCCESS",
+                        Map.of(),
+                        null,
+                        "0123456789abcdef"),
+                new CapturedSecurityEvent(
+                        Instant.parse("2026-09-30T10:00:01Z"), "bob", "AUTHENTICATION_FAILURE", Map.of(), null));
+
+        SecurityLogsReport report =
+                service.report(events, 500, true, ValueExposure.MASKED, null, null, null, null, null);
+
+        assertThat(report.events())
+                .extracting(SecurityLogEventDto::principal, SecurityLogEventDto::requestId)
+                .containsExactly(tuple("bob", null), tuple("alice", "0123456789abcdef"));
     }
 
     @Test

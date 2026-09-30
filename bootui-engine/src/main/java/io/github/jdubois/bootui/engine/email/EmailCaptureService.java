@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.EmailMessageDto;
 import io.github.jdubois.bootui.core.dto.EmailsReport;
+import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.util.List;
@@ -58,6 +59,11 @@ public final class EmailCaptureService {
     /** Installs the trace-id provider used when stamping captured messages. */
     public void setTraceIdProvider(TraceIdProvider traceIdProvider) {
         this.store.setTraceIdProvider(traceIdProvider);
+    }
+
+    /** Replaces the source of the request id stamped on each captured email; see {@link EmailStore}. */
+    public void setCorrelationContextProvider(CorrelationContextProvider correlationProvider) {
+        this.store.setCorrelationContextProvider(correlationProvider);
     }
 
     /** Registers a listener notified whenever the captured-message store changes. */
@@ -117,7 +123,8 @@ public final class EmailCaptureService {
                 email.attachments().stream().map(CapturedAttachment::toDto).toList(),
                 entry.sent(),
                 entry.traceId(),
-                entry.thread());
+                entry.thread(),
+                entry.requestId());
     }
 
     private static List<String> maskEach(List<String> addresses) {

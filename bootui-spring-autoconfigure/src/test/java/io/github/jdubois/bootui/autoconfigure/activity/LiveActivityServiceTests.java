@@ -448,6 +448,79 @@ class LiveActivityServiceTests {
     }
 
     @Test
+    void nestsEveryChildUnderTheRequestWhoseRequestIdItCarriesWhenIdenticalRequestsOverlap() {
+        String first = "0123456789abcdef";
+        String second = "fedcba9876543210";
+        long during = BASE.plusMillis(1010).toEpochMilli();
+        io.github.jdubois.bootui.engine.cache.CacheActivityRecorder cache =
+                new io.github.jdubois.bootui.engine.cache.CacheActivityRecorder(true, 10);
+        cache.setCorrelationContextProvider(() -> io.github.jdubois.bootui.spi.CorrelationContext.forRequest(second));
+        cache.recordHit("cacheManager", "orders", "key");
+        long cacheSeq = cache.recentEvents().get(0).seq();
+        SqlTraceEntryDto statement = sqlEntryOn(1, during, "worker-1", null);
+        RestClientTraceEntryDto call = restEntryOn(2, during, "worker-1", null);
+        EmailMessageDto mail = email("email-3", during, null, "worker-1");
+        SecurityLogEventDto login = securityEvent("AUTHENTICATION_SUCCESS", "alice", during);
+
+        LiveActivityService service = service(
+                requests(stampedExchange(first), stampedExchange(second)),
+                sql(withRequestId(statement, second)),
+                rest(new RestClientTraceEntryDto(
+                        call.id(),
+                        call.timestamp(),
+                        call.method(),
+                        call.uri(),
+                        call.host(),
+                        call.path(),
+                        call.status(),
+                        call.durationMillis(),
+                        call.success(),
+                        call.errorMessage(),
+                        call.slow(),
+                        call.clientType(),
+                        call.requestHeaders(),
+                        null,
+                        call.thread(),
+                        null,
+                        first)),
+                null,
+                security(new SecurityLogEventDto(
+                        login.timestamp(), login.principal(), login.type(), List.of(), null, first)),
+                null,
+                email(new EmailMessageDto(
+                        mail.id(),
+                        mail.timestamp(),
+                        mail.from(),
+                        mail.to(),
+                        mail.cc(),
+                        mail.bcc(),
+                        mail.subject(),
+                        mail.textBody(),
+                        mail.htmlBody(),
+                        mail.attachments(),
+                        mail.sent(),
+                        null,
+                        mail.thread(),
+                        second)),
+                null,
+                null,
+                cache,
+                null,
+                null,
+                new BootUiProperties());
+
+        LiveActivityReport report = service.report(null, null, 0, 0);
+
+        assertThat(parentOf(report, "sql-1")).isEqualTo(second);
+        assertThat(parentOf(report, "rest-2")).isEqualTo(first);
+        assertThat(parentOf(report, "email-3")).isEqualTo(second);
+        assertThat(parentOf(report, "cache-" + cacheSeq)).isEqualTo(second);
+        assertThat(parentOfSecurityEntry(report)).isEqualTo(first);
+        assertThat(securedPrincipalOf(report, first)).isEqualTo("alice");
+        assertThat(securedPrincipalOf(report, second)).isNull();
+    }
+
+    @Test
     void nestsSqlUnderRequestByServingThread() {
         RequestCorrelationRegistry requestCorrelations = new RequestCorrelationRegistry(10);
         requestCorrelations.record(new RequestCorrelationRegistry.RequestCorrelation(
@@ -1417,6 +1490,53 @@ class LiveActivityServiceTests {
                 List.of(),
                 null,
                 null);
+    }
+
+    /** An exchange stamped with BootUI's request id, which is then its id, and carrying no trace id. */
+    private static HttpExchangeDto stampedExchange(String requestId) {
+        HttpExchangeDto base = exchange(requestId, BASE.plusMillis(1000), "GET", "/orders", 200, 30L);
+        return new HttpExchangeDto(
+                base.id(),
+                base.timestamp(),
+                base.method(),
+                base.path(),
+                base.query(),
+                base.uri(),
+                base.status(),
+                base.statusFamily(),
+                base.durationMs(),
+                base.responseSizeBytes(),
+                base.remoteAddress(),
+                base.principal(),
+                base.sessionId(),
+                null,
+                base.requestHeaders(),
+                base.responseHeaders(),
+                null,
+                null,
+                requestId);
+    }
+
+    private static SqlTraceEntryDto withRequestId(SqlTraceEntryDto entry, String requestId) {
+        return new SqlTraceEntryDto(
+                entry.id(),
+                entry.timestamp(),
+                entry.sql(),
+                entry.statementType(),
+                entry.category(),
+                entry.durationMicros(),
+                entry.durationMillis(),
+                entry.success(),
+                entry.errorMessage(),
+                entry.affectedRows(),
+                entry.batchSize(),
+                entry.connectionId(),
+                entry.thread(),
+                entry.slow(),
+                entry.parameters(),
+                entry.traceId(),
+                entry.callSite(),
+                requestId);
     }
 
     private static SqlTraceEntryDto sqlEntryOn(long id, long timestamp, String thread, String traceId) {

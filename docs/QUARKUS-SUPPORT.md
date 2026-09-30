@@ -329,10 +329,11 @@ including into the CDI security-event observer. A security event whose trace id 
 that request's `securedPrincipal` (falling back only when the request's own captured principal is null), so the
 "authenticated" badge lights up from either signal. An ambiguous trace id (shared by more than one in-flight request) is
 never nested and never stamps a principal — the same guard already used for SQL/exceptions. With OpenTelemetry absent,
-trace ids stay null. SQL still nests, through BootUI's own request id: `QuarkusHttpExchangeCaptureFilter` generates it
-per request and attaches it to the request's Vert.x duplicated context, which reaches the worker thread blocking JDBC
-runs on, and the SQL recorder stamps it on each statement. The other signals render flat without OpenTelemetry until
-they are stamped the same way (`docs/PLAN-v2.md` §5.1).
+trace ids stay null. SQL, security events, REST client calls, emails, and fault-tolerance events still nest, through
+BootUI's own request id: `QuarkusHttpExchangeCaptureFilter` generates it per request and attaches it to the request's
+Vert.x duplicated context, which reaches the worker thread blocking work runs on, and each recorder stamps it. The REST
+client filter reads it when the call starts. A security event's request id also stamps the request's `securedPrincipal`.
+Exceptions still render flat without OpenTelemetry until they are stamped the same way (`docs/PLAN-v2.md` §5.1).
 
 **N+1.** Any request whose correlated SQL trips the N+1 threshold carries a list-level `sqlNPlusOneSuspected` flag,
 rendered as a red **N+1** badge directly in the main stream row, not just the drawer. It is computed by the shared engine

@@ -18,11 +18,20 @@ import java.util.Map;
  * exceptions. Spring has no source for it here (its Live Activity correlation is thread-based, not
  * trace-id-based, and lives entirely in its own {@code LiveActivityService}), so its call site always
  * passes {@code null}; only the Quarkus adapter stamps a real value.
+ *
+ * <p>{@code requestId} is BootUI's own request identity ({@code docs/PLAN-v2.md} §5.1), stamped by every adapter
+ * when the event is published during a request, with or without tracing.
  */
 public record CapturedSecurityEvent(
-        Instant timestamp, String principal, String type, Map<String, Object> data, String traceId) {
+        Instant timestamp, String principal, String type, Map<String, Object> data, String traceId, String requestId) {
 
     public CapturedSecurityEvent {
         data = data == null ? Map.of() : new LinkedHashMap<>(data);
+    }
+
+    /** Without BootUI's request identity. */
+    public CapturedSecurityEvent(
+            Instant timestamp, String principal, String type, Map<String, Object> data, String traceId) {
+        this(timestamp, principal, type, data, traceId, null);
     }
 }

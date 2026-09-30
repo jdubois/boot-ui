@@ -63,7 +63,7 @@ class BootUiQuarkusRestClientTraceCaptureTest {
         assertThat(scan.json().path("controllersAnalyzed").asInt())
                 .as("only PingResource is an inbound JAX-RS resource; PingClient is outbound")
                 .isEqualTo(1);
-        assertThat(scan.json().path("handlersAnalyzed").asInt()).isEqualTo(4);
+        assertThat(scan.json().path("handlersAnalyzed").asInt()).isEqualTo(5);
     }
 
     @Test
@@ -86,6 +86,39 @@ class BootUiQuarkusRestClientTraceCaptureTest {
         JsonNode filteredEntry = report().path("entries").get(0);
         assertThat(filteredEntry.path("status").asInt()).isEqualTo(418);
         assertThat(filteredEntry.path("success").asBoolean(false)).isTrue();
+    }
+
+    @Test
+    void aCallMadeWhileServingARequestCarriesThatRequestsIdAndNestsUnderIt() {
+        resetRecorder();
+
+        Response relay = probe().get("/api/ping/relay");
+        assertThat(relay.status()).isEqualTo(200);
+
+        String requestId = null;
+        for (JsonNode exchange :
+                probe().get("/bootui/api/http-exchanges").json().path("exchanges")) {
+            if ("/api/ping/relay".equals(exchange.path("path").asText())) {
+                requestId = exchange.path("requestId").asText(null);
+                assertThat(exchange.path("id").asText()).isEqualTo(requestId);
+            }
+        }
+        assertThat(requestId)
+                .as("the relay exchange carries BootUI's request id")
+                .isNotBlank();
+        JsonNode call = report().path("entries").get(0);
+        assertThat(call.path("path").asText()).isEqualTo("/api/ping");
+        assertThat(call.path("requestId").asText()).isEqualTo(requestId);
+        boolean nested = false;
+        for (JsonNode entry : probe().get("/bootui/api/activity").json().path("entries")) {
+            if ("REST_CLIENT".equals(entry.path("type").asText())
+                    && requestId.equals(entry.path("parentId").asText())) {
+                nested = true;
+            }
+        }
+        assertThat(nested)
+                .as("Live Activity nests the call under the relay request")
+                .isTrue();
     }
 
     @Test

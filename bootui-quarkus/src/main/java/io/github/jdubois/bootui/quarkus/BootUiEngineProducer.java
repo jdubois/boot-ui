@@ -316,6 +316,7 @@ public class BootUiEngineProducer {
         if (traceIdProvider.isResolvable()) {
             service.setTraceIdProvider(traceIdProvider.get());
         }
+        service.setCorrelationContextProvider(QuarkusRequestCorrelation::current);
         return service;
     }
 
@@ -1179,6 +1180,7 @@ public class BootUiEngineProducer {
         if (traceIdProvider.isResolvable()) {
             recorder.setTraceIdProvider(traceIdProvider.get());
         }
+        recorder.setCorrelationContextProvider(QuarkusRequestCorrelation::current);
         return recorder;
     }
 
@@ -1322,6 +1324,7 @@ public class BootUiEngineProducer {
         if (traceIdProvider.isResolvable()) {
             recorder.setTraceIdProvider(traceIdProvider.get());
         }
+        recorder.setCorrelationContextProvider(QuarkusRequestCorrelation::current);
         return recorder;
     }
 }

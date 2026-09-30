@@ -1,11 +1,15 @@
 package io.github.jdubois.bootui.autoconfigure.reactive;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.time.Instant;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -94,6 +98,28 @@ class ReactiveSecurityLogsControllerTests {
         SecurityLogsReport report = controller.logs(null, null, null, null, null);
 
         assertThat(report.events().get(0).traceId()).isEqualTo("trace-xyz");
+    }
+
+    @Test
+    void anEventPublishedDuringARequestCarriesItsRequestIdWithoutTracing() {
+        InMemoryAuditEventRepository repository = new InMemoryAuditEventRepository();
+        AuditEvent during = event("alice", "AUTHENTICATION_SUCCESS", "2026-06-03T08:00:00Z");
+        AuditEvent outside = event("bob", "AUTHENTICATION_FAILURE", "2026-06-03T08:01:00Z");
+        repository.add(during);
+        repository.add(outside);
+        ReactiveSecurityLogsController controller =
+                new ReactiveSecurityLogsController(providerOf(repository), new BootUiProperties());
+
+        try (BootUiCorrelation.Scope ignored =
+                BootUiCorrelation.open(CorrelationContext.forRequest("0123456789abcdef"))) {
+            controller.onApplicationEvent(new AuditApplicationEvent(during));
+        }
+        controller.onApplicationEvent(new AuditApplicationEvent(outside));
+        SecurityLogsReport report = controller.logs(null, null, null, null, null);
+
+        assertThat(report.events())
+                .extracting(SecurityLogEventDto::principal, SecurityLogEventDto::requestId)
+                .containsExactly(tuple("bob", null), tuple("alice", "0123456789abcdef"));
     }
 
     @Test

@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.engine.cache;
 
+import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
+import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -36,6 +38,7 @@ public final class CacheActivityRecorder {
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
 
     private volatile TraceIdProvider traceIdProvider = CacheActivityRecorder::mdcTraceId;
+    private final CorrelationSource correlation = new CorrelationSource();
     private volatile boolean instrumentedManager;
 
     public CacheActivityRecorder(boolean enabled, int maxEntries) {
@@ -65,6 +68,15 @@ public final class CacheActivityRecorder {
      */
     public void setTraceIdProvider(TraceIdProvider traceIdProvider) {
         this.traceIdProvider = traceIdProvider == null ? CacheActivityRecorder::mdcTraceId : traceIdProvider;
+    }
+
+    /**
+     * Replaces the source of the request id stamped on each capture ({@code docs/PLAN-v2.md} §5.1). Defaults to the
+     * thread's correlation scope; the Quarkus adapter installs one that reads the request's Vert.x context. Passing
+     * {@code null} restores the default.
+     */
+    public void setCorrelationContextProvider(CorrelationContextProvider correlationProvider) {
+        correlation.set(correlationProvider);
     }
 
     /** Records a cache read that found a value. */
@@ -105,7 +117,8 @@ public final class CacheActivityRecorder {
                     operation,
                     key == null ? null : hashKey(key),
                     resolveTraceId(),
-                    Thread.currentThread().getName());
+                    Thread.currentThread().getName(),
+                    correlation.requestId());
             synchronized (lock) {
                 events.addLast(event);
                 while (events.size() > maxEntries) {

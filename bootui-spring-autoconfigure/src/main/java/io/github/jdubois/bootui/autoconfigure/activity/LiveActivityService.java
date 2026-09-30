@@ -244,8 +244,11 @@ public class LiveActivityService {
         if (!faultToleranceEvents.isEmpty()) {
             Map<String, String> requestIdByTraceId = uniqueRequestIdsByTraceId(anchors);
             for (FaultToleranceEventRecorder.CapturedEvent event : faultToleranceEvents) {
-                all.add(FaultToleranceActivityEntries.toEntry(
-                        event, event.traceId() == null ? null : requestIdByTraceId.get(event.traceId())));
+                String parentId = matchByRequestId(event.requestId(), anchors);
+                if (parentId == null && event.traceId() != null) {
+                    parentId = requestIdByTraceId.get(event.traceId());
+                }
+                all.add(FaultToleranceActivityEntries.toEntry(event, parentId));
             }
         }
         if (requests != null) {
@@ -834,11 +837,18 @@ public class LiveActivityService {
      * request, so the entry stays top-level rather than being mis-attributed.
      */
     private static String matchSqlParent(SqlTraceEntryDto entry, List<RequestAnchor> anchors) {
-        String byRequestId = matchByRequestId(entry.requestId(), anchors);
+        return matchByRequestIdThenTraceThenThread(
+                entry.requestId(), entry.traceId(), entry.thread(), entry.timestamp(), anchors);
+    }
+
+    /** The request whose id the child carries, else {@link #matchByTraceThenThread}'s tiers. */
+    private static String matchByRequestIdThenTraceThenThread(
+            String requestId, String traceId, String thread, long timestamp, List<RequestAnchor> anchors) {
+        String byRequestId = matchByRequestId(requestId, anchors);
         if (byRequestId != null) {
             return byRequestId;
         }
-        return matchByTraceThenThread(entry.traceId(), entry.thread(), entry.timestamp(), anchors);
+        return matchByTraceThenThread(traceId, thread, timestamp, anchors);
     }
 
     /**
@@ -847,7 +857,8 @@ public class LiveActivityService {
      * application thread as the request that triggered them.
      */
     private static String matchCacheParent(CacheActivityEvent event, List<RequestAnchor> anchors) {
-        return matchByTraceThenThread(event.traceId(), event.thread(), event.timestampMillis(), anchors);
+        return matchByRequestIdThenTraceThenThread(
+                event.requestId(), event.traceId(), event.thread(), event.timestampMillis(), anchors);
     }
 
     /**
@@ -896,7 +907,8 @@ public class LiveActivityService {
      * application thread as the request that triggered them.
      */
     private static String matchMailParent(EmailMessageDto message, List<RequestAnchor> anchors) {
-        return matchByTraceThenThread(message.traceId(), message.thread(), message.timestamp(), anchors);
+        return matchByRequestIdThenTraceThenThread(
+                message.requestId(), message.traceId(), message.thread(), message.timestamp(), anchors);
     }
 
     /**
@@ -905,7 +917,8 @@ public class LiveActivityService {
      * thread as the request that triggered them.
      */
     private static String matchRestParent(RestClientTraceEntryDto entry, List<RequestAnchor> anchors) {
-        return matchByTraceThenThread(entry.traceId(), entry.thread(), entry.timestamp(), anchors);
+        return matchByRequestIdThenTraceThenThread(
+                entry.requestId(), entry.traceId(), entry.thread(), entry.timestamp(), anchors);
     }
 
     /**
@@ -960,11 +973,16 @@ public class LiveActivityService {
     }
 
     /**
-     * Resolves the request that a security audit event belongs to using the serving-thread classifier:
-     * the event is attributed to a request only when it was emitted on that request's serving thread.
+     * Resolves the request that a security audit event belongs to: the request whose BootUI request id it carries,
+     * else the serving-thread classifier, which attributes it only when it was emitted on that request's serving
+     * thread.
      */
     private static String matchSecurityParent(
             SecurityLogEventDto event, List<RequestAnchor> anchors, SecurityEventCorrelationRegistry registry) {
+        String byRequestId = matchByRequestId(event.requestId(), anchors);
+        if (byRequestId != null) {
+            return byRequestId;
+        }
         if (registry == null) {
             return null;
         }

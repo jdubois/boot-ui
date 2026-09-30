@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.stream.BootUiChangeStream;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
+import io.github.jdubois.bootui.engine.correlation.RequestIdStamps;
 import io.github.jdubois.bootui.engine.security.CapturedSecurityEvent;
 import io.github.jdubois.bootui.engine.security.SecurityLogsService;
 import io.github.jdubois.bootui.engine.support.BlankStrings;
@@ -33,6 +34,12 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @ConditionalOnClass(AuditEventRepository.class)
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/security-logs")
 public class SecurityLogsController implements ApplicationListener<AuditApplicationEvent> {
+
+    /**
+     * The BootUI request id current when each audit event was published ({@code docs/PLAN-v2.md} §5.1). Actuator's
+     * {@code AuditEvent} has no field for it and uses identity equality, so the stamp is kept beside it.
+     */
+    private final RequestIdStamps<AuditEvent> requestIds = new RequestIdStamps<>();
 
     private final ObjectProvider<AuditEventRepository> auditEventRepositoryProvider;
 
@@ -78,7 +85,7 @@ public class SecurityLogsController implements ApplicationListener<AuditApplicat
                         BlankStrings.parseInstant(after),
                         BlankStrings.blankToNullTrimmed(type))
                 .stream()
-                .map(SecurityLogsController::toCaptured)
+                .map(this::toCaptured)
                 .toList();
         return securityLogsService.report(
                 events,
@@ -92,11 +99,16 @@ public class SecurityLogsController implements ApplicationListener<AuditApplicat
                 limit);
     }
 
-    private static CapturedSecurityEvent toCaptured(AuditEvent event) {
-        // Spring's Live Activity correlation is thread-based (see LiveActivityService), not trace-id-based,
-        // so there is no trace id to stamp here; only the Quarkus adapter populates it.
+    private CapturedSecurityEvent toCaptured(AuditEvent event) {
+        // Spring MVC's trace-id correlation for security events is thread-based (see LiveActivityService), so no
+        // trace id is stamped here; the BootUI request id stamped when the event was published is.
         return new CapturedSecurityEvent(
-                event.getTimestamp(), event.getPrincipal(), event.getType(), event.getData(), null);
+                event.getTimestamp(),
+                event.getPrincipal(),
+                event.getType(),
+                event.getData(),
+                null,
+                requestIds.requestId(event));
     }
 
     /**
@@ -111,6 +123,7 @@ public class SecurityLogsController implements ApplicationListener<AuditApplicat
 
     @Override
     public void onApplicationEvent(AuditApplicationEvent event) {
+        requestIds.stamp(event.getAuditEvent());
         changeStream.signal();
     }
 

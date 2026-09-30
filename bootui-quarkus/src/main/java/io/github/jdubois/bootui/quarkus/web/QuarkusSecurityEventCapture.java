@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.quarkus.web;
 
 import io.github.jdubois.bootui.engine.security.CapturedSecurityEvent;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
+import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.quarkus.security.identity.SecurityIdentity;
 import io.quarkus.security.spi.runtime.AuthorizationSuccessEvent;
@@ -56,7 +57,8 @@ public class QuarkusSecurityEventCapture {
                 principal(event.getSecurityIdentity()),
                 event.getClass().getSimpleName(),
                 data(event),
-                currentTraceId()));
+                currentTraceId(),
+                QuarkusRequestCorrelation.current().requestId()));
     }
 
     /**

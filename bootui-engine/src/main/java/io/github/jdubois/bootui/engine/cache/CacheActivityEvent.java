@@ -23,4 +23,19 @@ public record CacheActivityEvent(
         CacheActivityOperation operation,
         String keyHash,
         String traceId,
-        String thread) {}
+        String thread,
+        String requestId) {
+
+    /** Without BootUI's request identity. */
+    public CacheActivityEvent(
+            long seq,
+            long timestampMillis,
+            String managerName,
+            String cacheName,
+            CacheActivityOperation operation,
+            String keyHash,
+            String traceId,
+            String thread) {
+        this(seq, timestampMillis, managerName, cacheName, operation, keyHash, traceId, thread, null);
+    }
+}

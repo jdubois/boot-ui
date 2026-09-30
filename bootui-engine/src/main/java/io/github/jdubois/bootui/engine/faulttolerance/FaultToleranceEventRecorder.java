@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.engine.faulttolerance;
 
 import io.github.jdubois.bootui.core.dto.FaultToleranceEventDto;
+import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
+import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -47,7 +49,39 @@ public final class FaultToleranceEventRecorder {
             Long durationMillis,
             String failureCategory,
             String state,
-            String traceId) {}
+            String traceId,
+            String requestId) {
+
+        /** Without BootUI's request identity. */
+        public CapturedEvent(
+                long id,
+                long timestamp,
+                String policyName,
+                String policyType,
+                String provider,
+                String target,
+                String outcome,
+                Integer attempt,
+                Long durationMillis,
+                String failureCategory,
+                String state,
+                String traceId) {
+            this(
+                    id,
+                    timestamp,
+                    policyName,
+                    policyType,
+                    provider,
+                    target,
+                    outcome,
+                    attempt,
+                    durationMillis,
+                    failureCategory,
+                    state,
+                    traceId,
+                    null);
+        }
+    }
 
     private final boolean enabled;
     private final int maxEntries;
@@ -59,6 +93,7 @@ public final class FaultToleranceEventRecorder {
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
 
     private volatile TraceIdProvider traceIdProvider = FaultToleranceEventRecorder::mdcTraceId;
+    private final CorrelationSource correlation = new CorrelationSource();
 
     public FaultToleranceEventRecorder(boolean enabled, int maxEntries) {
         this.enabled = enabled;
@@ -80,6 +115,15 @@ public final class FaultToleranceEventRecorder {
      */
     public void setTraceIdProvider(TraceIdProvider traceIdProvider) {
         this.traceIdProvider = traceIdProvider == null ? FaultToleranceEventRecorder::mdcTraceId : traceIdProvider;
+    }
+
+    /**
+     * Replaces the source of the request id stamped on each capture ({@code docs/PLAN-v2.md} §5.1). Defaults to the
+     * thread's correlation scope; the Quarkus adapter installs one that reads the request's Vert.x context. Passing
+     * {@code null} restores the default.
+     */
+    public void setCorrelationContextProvider(CorrelationContextProvider correlationProvider) {
+        correlation.set(correlationProvider);
     }
 
     /**
@@ -145,7 +189,8 @@ public final class FaultToleranceEventRecorder {
                     durationMillis == null ? null : Math.max(0L, durationMillis),
                     truncate(failureCategory),
                     truncate(state),
-                    currentTraceId());
+                    currentTraceId(),
+                    correlation.requestId());
             synchronized (lock) {
                 buffer.addLast(event);
                 if (buffer.size() > maxEntries) {

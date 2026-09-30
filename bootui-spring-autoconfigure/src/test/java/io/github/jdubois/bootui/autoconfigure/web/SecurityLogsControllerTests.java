@@ -9,6 +9,8 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.time.Instant;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -16,6 +18,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.actuate.audit.AuditEvent;
 import org.springframework.boot.actuate.audit.AuditEventRepository;
 import org.springframework.boot.actuate.audit.InMemoryAuditEventRepository;
+import org.springframework.boot.actuate.audit.listener.AuditApplicationEvent;
 import org.springframework.test.web.servlet.MockMvc;
 
 class SecurityLogsControllerTests {
@@ -50,6 +53,33 @@ class SecurityLogsControllerTests {
                 .andExpect(jsonPath("$.events.length()").value(2))
                 .andExpect(jsonPath("$.events[0].principal").value("carol"))
                 .andExpect(jsonPath("$.events[1].principal").value("bob"));
+    }
+
+    @Test
+    void anEventPublishedDuringARequestCarriesItsRequestId() throws Exception {
+        InMemoryAuditEventRepository repository = new InMemoryAuditEventRepository();
+        AuditEvent during = event("alice", "AUTHENTICATION_SUCCESS", "2026-06-03T08:00:00Z");
+        AuditEvent outside = event("bob", "AUTHENTICATION_FAILURE", "2026-06-03T08:01:00Z");
+        repository.add(during);
+        repository.add(outside);
+        ObjectProvider<AuditEventRepository> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(repository);
+        SecurityLogsController controller = new SecurityLogsController(provider, new BootUiProperties());
+
+        try (BootUiCorrelation.Scope ignored =
+                BootUiCorrelation.open(CorrelationContext.forRequest("0123456789abcdef"))) {
+            controller.onApplicationEvent(new AuditApplicationEvent(during));
+        }
+        controller.onApplicationEvent(new AuditApplicationEvent(outside));
+
+        standaloneSetup(controller)
+                .build()
+                .perform(get("/bootui/api/security-logs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.events[0].principal").value("bob"))
+                .andExpect(jsonPath("$.events[0].requestId").doesNotExist())
+                .andExpect(jsonPath("$.events[1].principal").value("alice"))
+                .andExpect(jsonPath("$.events[1].requestId").value("0123456789abcdef"));
     }
 
     @Test

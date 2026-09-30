@@ -46,12 +46,31 @@ public record EmailMessageDto(
         List<EmailAttachmentDto> attachments,
         boolean sent,
         String traceId,
-        String thread) {
+        String thread,
+        String requestId) {
 
     public EmailMessageDto {
         to = DtoCollections.immutableCopy(to);
         cc = DtoCollections.immutableCopy(cc);
         bcc = DtoCollections.immutableCopy(bcc);
         attachments = DtoCollections.immutableCopy(attachments);
+    }
+
+    /** Without BootUI's request identity. */
+    public EmailMessageDto(
+            String id,
+            long timestamp,
+            String from,
+            List<String> to,
+            List<String> cc,
+            List<String> bcc,
+            String subject,
+            String textBody,
+            String htmlBody,
+            List<EmailAttachmentDto> attachments,
+            boolean sent,
+            String traceId,
+            String thread) {
+        this(id, timestamp, from, to, cc, bcc, subject, textBody, htmlBody, attachments, sent, traceId, thread, null);
     }
 }

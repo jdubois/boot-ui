@@ -406,19 +406,21 @@ overridable default (the same "library default, host always wins" pattern used f
 exception handlers and the response commit as well as the filter chain. It writes the id into the Reactor context, and
 `BootUiCorrelationThreadLocalAccessor` exposes it to Micrometer context propagation, so the same `auto` mode restores it
 on every scheduler hop. As a WebFilter it also keeps it on the `ServerWebExchange`. BootUI's exchange repository stamps
-each exchange with it when `HttpExchangesWebFilter` records it in `beforeCommit`, which makes the id the exchange's `id`,
-and `SqlTraceRecorder` stamps each statement, so Live Activity nests SQL under the exact request that ran it.
+each exchange with it when `HttpExchangesWebFilter` records it in `beforeCommit`, which makes the id the exchange's `id`.
+The SQL, cache, REST client, email, and fault-tolerance recorders stamp it on each capture, and
+`ReactiveSecurityLogsController` stamps each audit event when it is published, so Live Activity nests those signals under
+the exact request that produced them.
 
 **Known, accepted residual limitations:**
 
-- Correlation is still trace-id-primary for every signal except SQL, exactly like Quarkus. Without a tracing span,
-  SQL still nests by BootUI's request id, but exceptions, security events, cache accesses, and REST client calls show
-  flat until they carry the request id too (`docs/PLAN-v2.md` M1-5b).
+- Exceptions are still correlated by trace id only, exactly like Quarkus. Without a tracing span, SQL, security events,
+  cache accesses, REST client calls, emails, and fault-tolerance events still nest by BootUI's request id, but
+  exceptions show flat until they carry it too (`docs/PLAN-v2.md` M1-5d).
 - `HttpExchangeTraceRegistry#match` (and its servlet sibling `RequestCorrelationRegistry`) deliberately requires a
   *unique* method+path+time-window candidate. Two genuinely concurrent identical requests (the same endpoint hit twice
   within roughly the same tens of milliseconds, with no other distinguishing signal) correlate to *neither* rather than
-  risk attributing one request's trace id to the other. Both still show in the feed, each with its own SQL nested by
-  request id, but without other nested children until those carry the request id too.
+  risk attributing one request's trace id to the other. Both still show in the feed, each with its own SQL, cache,
+  REST client, and other stamped children nested by request id, but without a nested exception.
 - The servlet adapter's thread-based correlation (`LiveActivityCorrelator`) is not ported — it has no reactive
   equivalent.
 

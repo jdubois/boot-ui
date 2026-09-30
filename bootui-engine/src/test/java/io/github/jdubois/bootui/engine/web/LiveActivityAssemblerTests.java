@@ -21,7 +21,9 @@ import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.Direction;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -105,6 +107,95 @@ class LiveActivityAssemblerTests {
         assertThat(entry(report, "sql-11").parentId())
                 .as("an ambiguous trace id still nests nothing")
                 .isNull();
+    }
+
+    @Test
+    void nestsEveryChildTypeUnderTheRequestWhoseRequestIdItCarriesWithoutTracing() {
+        String first = "0123456789abcdef";
+        String second = "fedcba9876543210";
+        HttpExchangesReport requests = requests(stamped(first, null), stamped(second, null));
+        List<SqlTraceEntryDto> sql = new ArrayList<>();
+        for (int i = 0; i < SqlTraceGrouping.DEFAULT_N_PLUS_ONE_THRESHOLD; i++) {
+            sql.add(stampedSql(20 + i, second, null));
+        }
+        SecurityLogEventDto login = new SecurityLogEventDto(
+                Instant.ofEpochMilli(1_005L).toString(), "alice", "AUTHENTICATION_SUCCESS", List.of(), null, first);
+        CacheActivityEvent cacheHit = new CacheActivityEvent(
+                7L, 1_006L, "cacheManager", "orders", CacheActivityOperation.HIT, "h", null, "worker-9", second);
+        EmailMessageDto mail = new EmailMessageDto(
+                "email-3",
+                1_007L,
+                "noreply@example.com",
+                List.of("user@example.com"),
+                List.of(),
+                List.of(),
+                "Welcome",
+                "Hello",
+                null,
+                List.of(),
+                true,
+                null,
+                "worker-9",
+                first);
+        RestClientTraceEntryDto call = new RestClientTraceEntryDto(
+                4L,
+                1_008L,
+                "GET",
+                "https://api.example.com/rates",
+                "api.example.com",
+                "/rates",
+                200,
+                3L,
+                true,
+                null,
+                false,
+                "RestClient",
+                Map.of(),
+                null,
+                "worker-9",
+                null,
+                second);
+        FaultToleranceEventRecorder.CapturedEvent retry = new FaultToleranceEventRecorder.CapturedEvent(
+                5L, 1_009L, "rates", "RETRY", "Resilience4j", "rates", "RETRY", 2, 3L, null, null, null, first);
+
+        LiveActivityReport report = assembler.report(
+                requests,
+                sql,
+                true,
+                null,
+                List.of(),
+                List.of(login),
+                true,
+                List.of(cacheHit),
+                true,
+                List.of(),
+                "UP",
+                0,
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(mail),
+                true,
+                List.of(call),
+                true,
+                List.of(retry),
+                true);
+
+        assertThat(onlyEntryOfType(report, "SECURITY").parentId()).isEqualTo(first);
+        assertThat(entry(report, "cache-7").parentId()).isEqualTo(second);
+        assertThat(onlyEntryOfType(report, "MAIL").parentId()).isEqualTo(first);
+        assertThat(entry(report, "rest-4").parentId()).isEqualTo(second);
+        assertThat(entry(report, "fault-tolerance-5").parentId()).isEqualTo(first);
+        assertThat(entry(report, first).securedPrincipal())
+                .as("a security event's principal marks the request it carries the id of")
+                .isEqualTo("alice");
+        assertThat(entry(report, second).sqlNPlusOneSuspected())
+                .as("repeated SQL nested by request id flags its request")
+                .isTrue();
+        assertThat(entry(report, first).sqlNPlusOneSuspected()).isFalse();
     }
 
     @Test
@@ -1388,6 +1479,14 @@ class LiveActivityAssemblerTests {
         assertThat(report.sources()).doesNotContain("rest-client");
         assertThat(report.kpis().restCallErrorRatePercent()).isNull();
         assertThat(report.kpis().restCallP95LatencyMs()).isNull();
+    }
+
+    private static ActivityEntryDto onlyEntryOfType(LiveActivityReport report, String type) {
+        List<ActivityEntryDto> ofType = report.entries().stream()
+                .filter(candidate -> type.equals(candidate.type()))
+                .toList();
+        assertThat(ofType).hasSize(1);
+        return ofType.get(0);
     }
 
     private static ActivityEntryDto entry(LiveActivityReport report, String id) {

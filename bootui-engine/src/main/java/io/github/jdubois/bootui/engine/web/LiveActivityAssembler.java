@@ -369,7 +369,7 @@ public final class LiveActivityAssembler {
         // unauthenticated request.
         Map<String, String> securedPrincipalByRequestId = new HashMap<>();
         for (SecurityLogEventDto event : security) {
-            String requestId = traceIndex.parentRequestId(event.traceId());
+            String requestId = parentRequestId(stampedRequestIds, traceIndex, event.requestId(), event.traceId());
             String principal = BlankStrings.blankToNull(event.principal());
             if (requestId != null && principal != null) {
                 securedPrincipalByRequestId.putIfAbsent(requestId, principal);
@@ -382,7 +382,7 @@ public final class LiveActivityAssembler {
         // request.
         Map<String, List<SqlTraceEntryDto>> sqlByRequestId = new HashMap<>();
         for (SqlTraceEntryDto entry : sql) {
-            String requestId = traceIndex.parentRequestId(entry.traceId());
+            String requestId = parentRequestId(stampedRequestIds, traceIndex, entry.requestId(), entry.traceId());
             if (requestId != null) {
                 sqlByRequestId
                         .computeIfAbsent(requestId, id -> new ArrayList<>())
@@ -444,11 +444,13 @@ public final class LiveActivityAssembler {
         }
 
         for (SecurityLogEventDto event : security) {
-            entries.add(toSecurityEntry(event, traceIndex.parentRequestId(event.traceId())));
+            entries.add(toSecurityEntry(
+                    event, parentRequestId(stampedRequestIds, traceIndex, event.requestId(), event.traceId())));
         }
 
         for (CacheActivityEvent event : cache) {
-            entries.add(toCacheEntry(event, traceIndex.parentRequestId(event.traceId())));
+            entries.add(toCacheEntry(
+                    event, parentRequestId(stampedRequestIds, traceIndex, event.requestId(), event.traceId())));
         }
 
         for (ScheduledTaskRunStore.Run run : scheduled) {
@@ -468,15 +470,18 @@ public final class LiveActivityAssembler {
         }
 
         for (EmailMessageDto message : emails) {
-            entries.add(toEmailEntry(message, traceIndex.parentRequestId(message.traceId())));
+            entries.add(toEmailEntry(
+                    message, parentRequestId(stampedRequestIds, traceIndex, message.requestId(), message.traceId())));
         }
 
         for (RestClientTraceEntryDto entry : rest) {
-            entries.add(toRestEntry(entry, traceIndex.parentRequestId(entry.traceId())));
+            entries.add(toRestEntry(
+                    entry, parentRequestId(stampedRequestIds, traceIndex, entry.requestId(), entry.traceId())));
         }
 
         for (FaultToleranceEventRecorder.CapturedEvent event : faultTolerance) {
-            entries.add(FaultToleranceActivityEntries.toEntry(event, traceIndex.parentRequestId(event.traceId())));
+            entries.add(FaultToleranceActivityEntries.toEntry(
+                    event, parentRequestId(stampedRequestIds, traceIndex, event.requestId(), event.traceId())));
         }
 
         entries.sort((a, b) -> Long.compare(b.timestamp(), a.timestamp()));
@@ -586,13 +591,6 @@ public final class LiveActivityAssembler {
     }
 
     /**
-     * Build a {@code CACHE} entry for a captured cache access. Mirrors the Spring servlet
-     * {@code LiveActivityService.toCacheEntry} mapping: a {@code MISS} is a {@code WARN} (worth a glance),
-     * every other operation ({@code HIT}/{@code PUT}/{@code EVICT}/{@code CLEAR}) is {@code OK}. Only a
-     * short key hash is ever surfaced as {@code detail} (never the raw key), and a whole-cache
-     * {@code CLEAR} carries no key at all.
-     */
-    /**
      * The REQUEST entry a child nests under: the request whose BootUI request id it carries, which is exact, else the
      * single request sharing its trace id, else none.
      */
@@ -605,6 +603,13 @@ public final class LiveActivityAssembler {
         return traceIndex.parentRequestId(traceId);
     }
 
+    /**
+     * Build a {@code CACHE} entry for a captured cache access. Mirrors the Spring servlet
+     * {@code LiveActivityService.toCacheEntry} mapping: a {@code MISS} is a {@code WARN} (worth a glance),
+     * every other operation ({@code HIT}/{@code PUT}/{@code EVICT}/{@code CLEAR}) is {@code OK}. Only a
+     * short key hash is ever surfaced as {@code detail} (never the raw key), and a whole-cache
+     * {@code CLEAR} carries no key at all.
+     */
     private ActivityEntryDto toCacheEntry(CacheActivityEvent event, String parentId) {
         String severity = event.operation() == CacheActivityOperation.MISS ? SEVERITY_WARN : SEVERITY_OK;
         String summary = event.operation().name() + " " + event.cacheName();

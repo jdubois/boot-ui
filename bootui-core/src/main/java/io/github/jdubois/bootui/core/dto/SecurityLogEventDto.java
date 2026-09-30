@@ -13,9 +13,20 @@ import java.util.List;
  *     instead (see {@code ActivityEntryDto.parentId}).
  */
 public record SecurityLogEventDto(
-        String timestamp, String principal, String type, List<SecurityLogDataDto> data, String traceId) {
+        String timestamp,
+        String principal,
+        String type,
+        List<SecurityLogDataDto> data,
+        String traceId,
+        String requestId) {
 
     public SecurityLogEventDto {
         data = DtoCollections.immutableCopy(data);
+    }
+
+    /** Without BootUI's request identity. */
+    public SecurityLogEventDto(
+            String timestamp, String principal, String type, List<SecurityLogDataDto> data, String traceId) {
+        this(timestamp, principal, type, data, traceId, null);
     }
 }

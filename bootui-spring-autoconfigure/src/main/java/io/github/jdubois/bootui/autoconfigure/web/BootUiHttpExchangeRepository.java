@@ -1,13 +1,10 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
-import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.correlation.RequestIdStamps;
 import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
 import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
-import java.util.Collections;
 import java.util.List;
-import java.util.Map;
-import java.util.WeakHashMap;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.boot.actuate.web.exchanges.HttpExchange;
 import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
@@ -37,7 +34,7 @@ import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
 public final class BootUiHttpExchangeRepository implements HttpExchangeRepository {
 
     private final TieredCaptureBuffer<HttpExchange> buffer;
-    private final Map<HttpExchange, String> requestIds = Collections.synchronizedMap(new WeakHashMap<>());
+    private final RequestIdStamps<HttpExchange> requestIds = new RequestIdStamps<>();
     private final long slowThresholdMillis;
     private final boolean recordedByApplication;
 
@@ -83,10 +80,7 @@ public final class BootUiHttpExchangeRepository implements HttpExchangeRepositor
         if (exchange == null) {
             return;
         }
-        String requestId = BootUiCorrelation.current().requestId();
-        if (requestId != null) {
-            requestIds.put(exchange, requestId);
-        }
+        requestIds.stamp(exchange);
         HttpExchange.Response response = exchange.getResponse();
         int status = response == null ? 0 : response.getStatus();
         Long durationMs =
@@ -98,7 +92,7 @@ public final class BootUiHttpExchangeRepository implements HttpExchangeRepositor
 
     /** The BootUI request id current when {@code exchange} was added, or {@code null}. */
     public String requestId(HttpExchange exchange) {
-        return exchange == null ? null : requestIds.get(exchange);
+        return requestIds.requestId(exchange);
     }
 
     /** Whether BootUI owns both this repository and the filter recording into it. */
