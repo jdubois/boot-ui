@@ -241,8 +241,8 @@ plain text to paste into a bug report. Opening a profile only reads evidence Boo
 nothing new, calls no network service, and changes no state. Opening Live Activity with `?request=<exchange id>`, as
 each HTTP Exchanges row's **Profile** link does, opens that request's profile directly.
 
-Scheduled-task runs nest correctly in the stream but are **not yet** part of the profiler's correlated timeline or
-**Copy profile** export. The REST Client panel keeps its own "chatty" badge for now.
+Scheduled-task runs nest correctly in the stream but are not part of the profiler's correlated timeline or **Copy
+profile** export. The REST Client panel keeps its own "chatty" badge for now.
 
 ### Messaging capture
 
