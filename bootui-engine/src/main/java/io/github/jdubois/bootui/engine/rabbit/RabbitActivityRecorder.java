@@ -185,6 +185,27 @@ public final class RabbitActivityRecorder {
                 correlation.current());
     }
 
+    /** Records a publish with the sender's correlation, captured by the adapter ({@code docs/PLAN-v2.md} §5.1). */
+    public void recordPublish(
+            String exchange,
+            String routingKey,
+            Long durationMillis,
+            boolean success,
+            String errorMessage,
+            String correlationId,
+            CorrelationContext context) {
+        record(
+                Direction.PUBLISH,
+                exchange,
+                routingKey,
+                null,
+                durationMillis,
+                success,
+                errorMessage,
+                correlationId,
+                context == null ? CorrelationContext.NONE : context);
+    }
+
     /** Records a completed (successful or failed) {@code @RabbitListener} message delivery. */
     public void recordConsume(
             String exchange,
@@ -204,6 +225,28 @@ public final class RabbitActivityRecorder {
                 errorMessage,
                 correlationId,
                 correlation.current());
+    }
+
+    /** Records a consumed delivery with the correlation the adapter captured for it ({@code docs/PLAN-v2.md} §5.1). */
+    public void recordConsume(
+            String exchange,
+            String routingKey,
+            String queue,
+            Long durationMillis,
+            boolean success,
+            String errorMessage,
+            String correlationId,
+            CorrelationContext context) {
+        record(
+                Direction.CONSUME,
+                exchange,
+                routingKey,
+                queue,
+                durationMillis,
+                success,
+                errorMessage,
+                correlationId,
+                context == null ? CorrelationContext.NONE : context);
     }
 
     private void record(

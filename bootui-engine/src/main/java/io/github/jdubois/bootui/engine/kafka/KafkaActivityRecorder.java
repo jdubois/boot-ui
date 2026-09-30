@@ -242,6 +242,32 @@ public final class KafkaActivityRecorder {
                 correlation.current());
     }
 
+    /** Records a consumed record with the correlation the adapter captured for it ({@code docs/PLAN-v2.md} §5.1). */
+    public void recordConsume(
+            String topic,
+            Integer partition,
+            Long offset,
+            String key,
+            Long durationMillis,
+            boolean success,
+            String errorMessage,
+            String groupId,
+            String listenerId,
+            CorrelationContext context) {
+        record(
+                Direction.CONSUME,
+                topic,
+                partition,
+                offset,
+                key,
+                durationMillis,
+                success,
+                errorMessage,
+                groupId,
+                listenerId,
+                context == null ? CorrelationContext.NONE : context);
+    }
+
     private void record(
             Direction direction,
             String topic,

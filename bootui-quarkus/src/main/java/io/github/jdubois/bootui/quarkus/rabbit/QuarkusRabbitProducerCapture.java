@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.quarkus.rabbit;
 
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
+import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.smallrye.reactive.messaging.OutgoingInterceptor;
 import io.smallrye.reactive.messaging.rabbitmq.OutgoingRabbitMQMetadata;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -86,9 +88,33 @@ public class QuarkusRabbitProducerCapture implements OutgoingInterceptor {
                     null, // no send-start timestamp in the ack callback, so duration is always unknown
                     success,
                     errorMessage,
-                    metadata.getCorrelationId());
+                    metadata.getCorrelationId(),
+                    senderOf(message));
         } catch (RuntimeException ex) {
             log.warn("BootUI could not capture an outgoing RabbitMQ message; leaving it untouched", ex);
         }
     }
+
+    /**
+     * Snapshots the sender's BootUI correlation when the message enters the channel ({@code docs/PLAN-v2.md} §5.1):
+     * the request, scheduled run, or consumed message that sent it. The ack or nack that records the send may run on
+     * another thread, so the snapshot travels in the message's metadata.
+     */
+    @Override
+    public Message<?> onMessage(Message<?> message) {
+        try {
+            CorrelationContext sender = QuarkusRequestCorrelation.current();
+            return sender.isEmpty() ? message : message.addMetadata(new SenderCorrelation(sender));
+        } catch (RuntimeException ex) {
+            return message;
+        }
+    }
+
+    private static CorrelationContext senderOf(Message<?> message) {
+        return message.getMetadata(SenderCorrelation.class)
+                .map(SenderCorrelation::sender)
+                .orElse(CorrelationContext.NONE);
+    }
+
+    record SenderCorrelation(CorrelationContext sender) {}
 }

@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.quarkus.kafka;
 
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
+import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.smallrye.reactive.messaging.OutgoingInterceptor;
 import io.smallrye.reactive.messaging.kafka.api.OutgoingKafkaRecordMetadata;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -88,7 +90,8 @@ public class QuarkusKafkaProducerCapture implements OutgoingInterceptor {
                     keyOf(metadata.getKey()),
                     null, // the ack callback carries no send-start timestamp, so duration is never known here
                     success,
-                    errorMessage);
+                    errorMessage,
+                    senderOf(message));
         } catch (RuntimeException ex) {
             log.warn("BootUI could not capture an outgoing Kafka message; leaving it untouched", ex);
         }
@@ -102,4 +105,27 @@ public class QuarkusKafkaProducerCapture implements OutgoingInterceptor {
     private static Integer normalizePartition(int partition) {
         return partition < 0 ? null : partition;
     }
+
+    /**
+     * Snapshots the sender's BootUI correlation when the message enters the channel ({@code docs/PLAN-v2.md} §5.1):
+     * the request, scheduled run, or consumed message that sent it. The ack or nack that records the send may run on
+     * another thread, so the snapshot travels in the message's metadata.
+     */
+    @Override
+    public Message<?> onMessage(Message<?> message) {
+        try {
+            CorrelationContext sender = QuarkusRequestCorrelation.current();
+            return sender.isEmpty() ? message : message.addMetadata(new SenderCorrelation(sender));
+        } catch (RuntimeException ex) {
+            return message;
+        }
+    }
+
+    private static CorrelationContext senderOf(Message<?> message) {
+        return message.getMetadata(SenderCorrelation.class)
+                .map(SenderCorrelation::sender)
+                .orElse(CorrelationContext.NONE);
+    }
+
+    record SenderCorrelation(CorrelationContext sender) {}
 }

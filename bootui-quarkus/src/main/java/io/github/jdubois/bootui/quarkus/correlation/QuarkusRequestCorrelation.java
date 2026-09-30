@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.smallrye.common.vertx.ContextLocals;
 import io.smallrye.common.vertx.VertxContext;
+import io.vertx.core.Context;
 
 /**
  * Keeps a request's {@link CorrelationContext} on the Vert.x duplicated context that Quarkus creates for every HTTP
@@ -34,6 +35,24 @@ public final class QuarkusRequestCorrelation {
                 return false;
             }
             ContextLocals.put(CONTEXT_KEY, context);
+            return true;
+        } catch (RuntimeException ex) {
+            return false;
+        }
+    }
+
+    /**
+     * Attaches {@code correlation} to a given duplicated context, such as the one SmallRye Reactive Messaging processes
+     * a message on, so every thread that continues that work reads it.
+     *
+     * @return whether it was attached; {@code false} when {@code context} is not a duplicated context
+     */
+    public static boolean attach(Context context, CorrelationContext correlation) {
+        try {
+            if (context == null || correlation == null || !VertxContext.isDuplicatedContext(context)) {
+                return false;
+            }
+            context.putLocal(CONTEXT_KEY, correlation);
             return true;
         } catch (RuntimeException ex) {
             return false;

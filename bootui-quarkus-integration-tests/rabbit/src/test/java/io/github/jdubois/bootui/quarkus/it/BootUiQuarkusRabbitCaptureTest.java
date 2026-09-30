@@ -2,23 +2,33 @@ package io.github.jdubois.bootui.quarkus.it;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
+import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
 import io.github.jdubois.bootui.quarkus.rabbit.QuarkusRabbitConsumerCapture;
 import io.github.jdubois.bootui.quarkus.rabbit.QuarkusRabbitProducerCapture;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
+import io.smallrye.common.vertx.VertxContext;
+import io.smallrye.reactive.messaging.providers.locals.LocalContextMetadata;
 import io.smallrye.reactive.messaging.rabbitmq.IncomingRabbitMQMetadata;
 import io.smallrye.reactive.messaging.rabbitmq.OutgoingRabbitMQMetadata;
+import io.vertx.core.Context;
+import io.vertx.core.Vertx;
 import jakarta.inject.Inject;
 import java.net.URL;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import org.eclipse.microprofile.reactive.messaging.Message;
 import org.eclipse.microprofile.reactive.messaging.Metadata;
 import org.junit.jupiter.api.Test;
@@ -51,6 +61,9 @@ class BootUiQuarkusRabbitCaptureTest {
 
     @Test
     void capturesBothDirectionsThroughTheSharedReportAndKeepsJmsUnavailable() {
+        recorder.clear();
+        long capturedBefore =
+                probe().get("/bootui/api/rabbitmq").json().path("totalCaptured").asLong();
         producerCapture.onMessageAck(outgoingMessage());
         Message<?> consumed = consumerCapture.afterMessageReceive(incomingMessage());
         consumerCapture.onMessageNack(consumed, new IllegalStateException(SENSITIVE_PAYLOAD));
@@ -73,7 +86,7 @@ class BootUiQuarkusRabbitCaptureTest {
         assertThat(root.path("capturing").asBoolean(false)).isTrue();
         assertThat(root.path("captureCorrelationIdEnabled").asBoolean(false)).isTrue();
         assertThat(root.path("total").asInt()).isEqualTo(2);
-        assertThat(root.path("totalCaptured").asLong()).isEqualTo(2);
+        assertThat(root.path("totalCaptured").asLong()).isEqualTo(capturedBefore + 2);
 
         JsonNode consumedDto = root.path("messages").path(0);
         assertThat(consumedDto.path("direction").asText()).isEqualTo("CONSUME");
@@ -97,7 +110,49 @@ class BootUiQuarkusRabbitCaptureTest {
         assertThat(clear.status()).isEqualTo(204);
         JsonNode afterClear = probe().get("/bootui/api/rabbitmq").json();
         assertThat(afterClear.path("total").asInt(-1)).isZero();
-        assertThat(afterClear.path("totalCaptured").asLong()).isEqualTo(2);
+        assertThat(afterClear.path("totalCaptured").asLong()).isEqualTo(capturedBefore + 2);
+    }
+
+    @Inject
+    Vertx vertx;
+
+    @Test
+    void aDeliveryIsAnExecutionOnItsMessageContextAndAPublishRecordsItsSender() throws Exception {
+        recorder.clear();
+        Context messageContext = VertxContext.createNewDuplicatedContext(vertx.getOrCreateContext());
+        Message<?> received = consumerCapture.afterMessageReceive(
+                incomingMessage().addMetadata(new LocalContextMetadata(messageContext)));
+
+        CompletableFuture<String> onEventLoop = new CompletableFuture<>();
+        CompletableFuture<String> onWorker = new CompletableFuture<>();
+        messageContext.runOnContext(ignored -> {
+            onEventLoop.complete(QuarkusRequestCorrelation.current().executionId());
+            messageContext
+                    .executeBlocking(() -> QuarkusRequestCorrelation.current().executionId())
+                    .onComplete(result -> onWorker.complete(result.result()));
+        });
+        String execution = onEventLoop.get(10, TimeUnit.SECONDS);
+        assertThat(execution).matches("[0-9a-f]{16}");
+        assertThat(onWorker.get(10, TimeUnit.SECONDS))
+                .as("blocking work continuing on a worker thread keeps the delivery's execution")
+                .isEqualTo(execution);
+        consumerCapture.onMessageAck(received);
+
+        Message<?> sent;
+        try (BootUiCorrelation.Scope ignored =
+                BootUiCorrelation.open(CorrelationContext.forRequest("0123456789abcdef"))) {
+            sent = producerCapture.onMessage(outgoingMessage());
+        }
+        CompletableFuture.runAsync(() -> producerCapture.onMessageAck(sent)).get(10, TimeUnit.SECONDS);
+
+        assertThat(recorder.recent())
+                .extracting(
+                        RabbitActivityRecorder.CapturedMessage::direction,
+                        RabbitActivityRecorder.CapturedMessage::requestId,
+                        RabbitActivityRecorder.CapturedMessage::executionId)
+                .containsExactly(
+                        tuple(RabbitActivityRecorder.Direction.PUBLISH, "0123456789abcdef", null),
+                        tuple(RabbitActivityRecorder.Direction.CONSUME, null, execution));
     }
 
     private BootUiHttpProbe probe() {

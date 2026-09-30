@@ -2,9 +2,11 @@ package io.github.jdubois.bootui.quarkus.kafka;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.Direction;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.smallrye.reactive.messaging.kafka.api.IncomingKafkaRecordMetadata;
 import io.smallrye.reactive.messaging.kafka.api.OutgoingKafkaRecordMetadata;
 import java.util.List;
@@ -140,6 +142,38 @@ class QuarkusKafkaCaptureTests {
         assertThat(message.errorMessage()).isNull();
         assertThat(message.groupId()).isNull();
         assertThat(message.listenerId()).isEqualTo("orders-in");
+    }
+
+    @Test
+    void eachDeliveryIsRecordedAsItsOwnExecutionAndASendAsItsSendersChild() throws Exception {
+        KafkaActivityRecorder recorder = enabledRecorder();
+        QuarkusKafkaConsumerCapture consumer = new QuarkusKafkaConsumerCapture(recorder);
+        QuarkusKafkaProducerCapture producer = new QuarkusKafkaProducerCapture(recorder);
+
+        Message<?> first = consumer.afterMessageReceive(incomingKafkaMessage("orders", 0, 1L, "k", "orders-in"));
+        Message<?> second = consumer.afterMessageReceive(incomingKafkaMessage("orders", 0, 2L, "k", "orders-in"));
+        consumer.onMessageAck(first);
+        consumer.onMessageNack(second, new IllegalStateException("boom"));
+        Message<?> sent;
+        try (BootUiCorrelation.Scope ignored =
+                BootUiCorrelation.open(CorrelationContext.forExecution("00112233aabbccdd"))) {
+            sent = producer.onMessage(outgoingKafkaMessage("shipments", 0, "k"));
+        }
+        java.util.concurrent.CompletableFuture.runAsync(() -> producer.onMessageAck(sent))
+                .get(10, java.util.concurrent.TimeUnit.SECONDS);
+
+        List<CapturedMessage> consumed = recorder.recent().stream()
+                .filter(message -> message.direction() == Direction.CONSUME)
+                .toList();
+        assertThat(consumed)
+                .extracting(CapturedMessage::executionId)
+                .allSatisfy(id -> assertThat(id).matches("[0-9a-f]{16}"))
+                .doesNotHaveDuplicates();
+        assertThat(recorder.recent())
+                .filteredOn(message -> message.direction() == Direction.PRODUCE)
+                .singleElement()
+                .extracting(CapturedMessage::executionId)
+                .isEqualTo("00112233aabbccdd");
     }
 
     @Test

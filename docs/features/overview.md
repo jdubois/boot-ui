@@ -260,11 +260,12 @@ Kafka, RabbitMQ, and JMS activity land in the same `MESSAGING` stream. **Payload
 — because a message payload is an arbitrary, potentially large and sensitive application object with no generic masking
 strategy. Raw exception messages are not retained either; failed operations carry only generic failure text.
 
-On Spring MVC and WebFlux, each consumed message runs as an execution of its own, with its own BootUI execution id, so
-the SQL statements, exceptions, REST client calls, and messages its listener produces nest under it. An outgoing
-message nests under the request, scheduled run, or consumed message that sent it. For Kafka, whose client reports a
-send on its own I/O thread, BootUI snapshots the sender's context when `KafkaTemplate` sends the record. On Quarkus,
-messaging entries stay top-level for now.
+Each consumed message runs as an execution of its own, with its own BootUI execution id, so the SQL statements,
+exceptions, REST client calls, and messages its listener produces nest under it. An outgoing message nests under the
+request, scheduled run, or consumed message that sent it. For Kafka on Spring, whose client reports a send on its own
+I/O thread, BootUI snapshots the sender's context when `KafkaTemplate` sends the record. On Quarkus, the execution id
+is attached to the Vert.x context SmallRye Reactive Messaging processes the message on, so it follows the listener to
+a worker thread, and a send's context is snapshotted when the message enters its channel. JMS capture is Spring-only.
 
 ::: details Kafka capture
 

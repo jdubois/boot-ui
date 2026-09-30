@@ -1,8 +1,12 @@
 package io.github.jdubois.bootui.quarkus.kafka;
 
+import io.github.jdubois.bootui.engine.correlation.RequestIds;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
+import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.smallrye.reactive.messaging.IncomingInterceptor;
 import io.smallrye.reactive.messaging.kafka.api.IncomingKafkaRecordMetadata;
+import io.smallrye.reactive.messaging.providers.locals.LocalContextMetadata;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.reactive.messaging.Message;
@@ -77,7 +81,7 @@ public class QuarkusKafkaConsumerCapture implements IncomingInterceptor {
             if (message.getMetadata(IncomingKafkaRecordMetadata.class).isEmpty()) {
                 return message;
             }
-            return message.addMetadata(new CaptureStart(System.nanoTime()));
+            return message.addMetadata(new CaptureStart(System.nanoTime(), openExecution(message)));
         } catch (RuntimeException ex) {
             log.warn("BootUI could not begin timing an incoming Kafka message; leaving it untouched", ex);
             return message;
@@ -104,9 +108,9 @@ public class QuarkusKafkaConsumerCapture implements IncomingInterceptor {
             if (metadata == null) {
                 return;
             }
-            Long durationMillis = message.getMetadata(CaptureStart.class)
-                    .map(start -> Math.max(0L, (System.nanoTime() - start.nanos()) / 1_000_000L))
-                    .orElse(null);
+            CaptureStart start = message.getMetadata(CaptureStart.class).orElse(null);
+            Long durationMillis = start == null ? null : Math.max(0L, (System.nanoTime() - start.nanos()) / 1_000_000L);
+            CorrelationContext execution = start == null ? CorrelationContext.NONE : start.execution();
             recorder.recordConsume(
                     metadata.getTopic(),
                     metadata.getPartition(),
@@ -116,7 +120,8 @@ public class QuarkusKafkaConsumerCapture implements IncomingInterceptor {
                     success,
                     errorMessage,
                     null, // IncomingKafkaRecordMetadata exposes no consumer group id, so leave it null
-                    metadata.getChannel());
+                    metadata.getChannel(),
+                    execution);
         } catch (RuntimeException ex) {
             log.warn("BootUI could not capture an incoming Kafka message; leaving it untouched", ex);
         }
@@ -131,5 +136,18 @@ public class QuarkusKafkaConsumerCapture implements IncomingInterceptor {
      * to time the delivery. Carried as message metadata so it travels with the (single) message instance
      * and needs no shared per-message state.
      */
-    record CaptureStart(long nanos) {}
+    /**
+     * Makes this delivery an execution of its own ({@code docs/PLAN-v2.md} §5.1): attaches a new execution context to
+     * the duplicated Vert.x context SmallRye Reactive Messaging processes the message on, so the listener's SQL,
+     * exceptions, and REST client calls carry its id on whichever thread they run, and carries it in the message's
+     * metadata for the ack or nack that records the delivery.
+     */
+    private static CorrelationContext openExecution(Message<?> message) {
+        CorrelationContext execution = CorrelationContext.forExecution(RequestIds.next());
+        message.getMetadata(LocalContextMetadata.class)
+                .ifPresent(local -> QuarkusRequestCorrelation.attach(local.context(), execution));
+        return execution;
+    }
+
+    record CaptureStart(long nanos, CorrelationContext execution) {}
 }
