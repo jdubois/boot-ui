@@ -360,7 +360,7 @@ Delivery slices, each one pull request to `v2` with its own tests and documentat
 
 | Slice | Delivers | Depends on | Status |
 | --- | --- | --- | --- |
-| M1-1 | Engine correlation core: `CorrelationContext` and the `CorrelationContextProvider` SPI, the scope-based holder that always restores the previous context, request ids, and run identity. No capture changes yet | — | 🚧 In progress |
+| M1-1 | Engine correlation core: `CorrelationContext` and the `CorrelationContextProvider` SPI, the scope-based `BootUiCorrelation` holder that always restores the previous context, `ScopedCorrelationContextProvider` (which fills in the trace id from `TraceIdProvider`), `RequestIds`, and `RunIdentity`. No capture changes yet | — | ✅ Delivered |
 | M1-2 | Quarkus: request scope in `QuarkusHttpExchangeCaptureFilter`, restored around worker dispatch, and the exchange stamped with its request id | M1-1 | 📋 Planned |
 | M1-3 | Spring MVC: request scope in `RequestCorrelationFilter` with async redispatch, phase markers, and the exchange stamped in §3.24a's BootUI-owned repository | M1-1, §3.24a | 📋 Planned |
 | M1-4 | Spring WebFlux: the Reactor-context bridge, the `spring.reactor.context-propagation=auto` default, and exchange stamping at `beforeCommit` | M1-1, §3.24a | 📋 Planned |
