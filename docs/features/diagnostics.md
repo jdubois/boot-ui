@@ -57,14 +57,18 @@ Log messages follow the same exposure rule as [exception messages](#exposure-and
 
 - The value of each secret-like `key=value` or `key: value` assignment, such as a password, token, or API key, is
   replaced with `******`.
-- The credential after an HTTP authorization scheme is masked while the key and the scheme stay visible, as in
-  `Authorization: Bearer ******`, `"authorization": "Basic ******"`, or `Proxy-Authorization: Digest ******`. The whole
-  comma-separated parameter list of a Digest, OAuth, or AWS signature credential is covered. After an `authorization`
-  key, a scheme BootUI does not recognize is masked together with its credential, because it cannot be told apart from
-  a bare credential.
-- A token-shaped credential after `Bearer` is masked even when no key precedes it, as in `sending Bearer ******`. It
-  must have at least eight characters including a digit, or at least twenty, so prose such as `missing Bearer token`
-  stays readable. Other scheme names are common words, so they are recognized only after a secret-like key.
+- After an `authorization` key, the credential that follows an HTTP authorization scheme is masked while the key and
+  the scheme stay visible, as in `Authorization: Bearer ******`, `"authorization": "Basic ******"`, or
+  `Proxy-Authorization: Digest ******`. Every comma-separated parameter of a Digest, OAuth, or AWS signature
+  credential and every value of a multi-valued header, as in `Authorization=[Basic ******, Bearer ******]`, is covered.
+  A scheme BootUI does not recognize is masked together with its credential, because it cannot be told apart from a
+  bare credential. After any other secret-like key, a scheme is masked together with its credential, as in
+  `X-Auth-Token: ******`.
+- A credential after `Bearer`, `Basic`, `Negotiate`, or `NTLM` is masked even when no key precedes it, as in
+  `sending Bearer ******`, when its shape shows it is one: a `Basic` credential must decode to `user:password`, and any
+  other must have at least eight characters including a digit, or at least twenty. Prose such as
+  `missing Bearer token` or `Basic auth is enabled` stays readable. Other scheme names are common words, so they are
+  recognized only after a secret-like key.
 
 Under `METADATA_ONLY` the message is omitted while the timestamp, level, logger, and thread remain, and the panel marks
 each such line **message omitted by policy** rather than showing it empty. Only under `FULL`, or with

@@ -135,12 +135,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `Authorization: Bearer <token>` hid the word `Bearer` and showed the token. The credential is now masked and the
   key and scheme stay visible: `Authorization: Bearer ******`, `"authorization": "Basic ******"`, or
   `Proxy-Authorization: Digest ******`, including every parameter of a Digest, OAuth, or AWS signature credential and
-  the `Authorization=[Bearer ...]` and `Authorization:"Bearer ..."` forms that header maps print. After an
-  `authorization` key, a scheme BootUI does not recognize is masked together with its credential. A token-shaped
-  `Bearer` credential is masked even with no key before it, as in `sending Bearer ******`, while prose such as
-  `missing Bearer token` is unchanged. This changes Log Tail messages on every surface, exception messages, and Spring
-  Dev Services container logs alike, on Spring MVC, Spring WebFlux, and Quarkus. `METADATA_ONLY`, `FULL`,
-  `bootui.mask-secrets=false`, and every other secret-like assignment behave as before
+  every value of the `Authorization=[Basic ..., Bearer ...]` and `Authorization:"Bearer ..."` forms that header maps
+  print. After an `authorization` key, a scheme BootUI does not recognize is masked together with its credential, and
+  after any other secret-like key a scheme is always masked together with its credential. A credential after a bare
+  `Bearer`, `Basic`, `Negotiate`, or `NTLM` is masked even with no key before it when its shape shows it is one, as in
+  `sending Bearer ******`, while prose such as `missing Bearer token` or `Basic auth is enabled` is unchanged. This
+  changes Log Tail messages on every surface, exception messages, and Spring Dev Services container logs alike, on
+  Spring MVC, Spring WebFlux, and Quarkus. Any other secret-like key whose value does not start with a scheme is
+  masked exactly as before, and `METADATA_ONLY`, `FULL`, and `bootui.mask-secrets=false` are unchanged
   ([Log message exposure](docs/features/diagnostics.md#log-message-exposure), follows
   [#1150](https://github.com/jdubois/boot-ui/pull/1150)).
 

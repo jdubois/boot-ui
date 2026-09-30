@@ -192,7 +192,43 @@ class MessageExposureTests {
                 arguments(
                         "authorization = Bearer\ttok-1 (expired)", "authorization = Bearer\t****** (expired)", "tok-1"),
                 arguments("-H 'Authorization: Bearer tok-1'", "-H 'Authorization: Bearer ******'", "tok-1"),
-                arguments("X-Auth-Token: Bearer tok-1", "X-Auth-Token: Bearer ******", "tok-1"));
+                arguments(
+                        "{\"authorization\": [ \"Basic dXNlcjpwYXNz\" ]}",
+                        "{\"authorization\": [ \"Basic ******\" ]}",
+                        "dXNlcjpwYXNz"),
+                arguments(
+                        "{Authorization=[Basic dXNlcjpwYXNz, Bearer tok-1]}",
+                        "{Authorization=[Basic ******, Bearer ******]}",
+                        "tok-1"),
+                arguments(
+                        "{authorization=[\"Basic dXNlcjpwYXNz\", \"Basic dGVzdDp0ZXN0\"]}",
+                        "{authorization=[\"Basic ******\", \"Basic ******\"]}",
+                        "dGVzdDp0ZXN0"),
+                arguments(
+                        "{\\\"Authorization\\\":\\\"Basic dXNlcjpwYXNz\\\"}",
+                        "{\\\"Authorization\\\":\\\"Basic ******\\\"}",
+                        "dXNlcjpwYXNz"),
+                arguments(
+                        "{\\\"authorization\\\":\\\"Bearer tok-1\\\"}",
+                        "{\\\"authorization\\\":\\\"Bearer ******\\\"}",
+                        "tok-1"),
+                arguments("Authorization header: Bearer tok-1", "Authorization header: Bearer ******", "tok-1"),
+                arguments(
+                        "authorization_header=Basic dXNlcjpwYXNz", "authorization_header=Basic ******", "dXNlcjpwYXNz"),
+                arguments("Authorization: Bearer \"tok-1\"", "Authorization: Bearer \"******\"", "tok-1"),
+                arguments("Authorization: Basic 'dXNlcjpwYXNz'", "Authorization: Basic '******'", "dXNlcjpwYXNz"),
+                arguments(
+                        "{\"authorization\": [\n  \"Basic dXNlcjpwYXNz\"\n]}",
+                        "{\"authorization\": [\n  \"Basic ******\"\n]}",
+                        "dXNlcjpwYXNz"),
+                arguments(
+                        "[Authorization:\"Basic dXNlcjpwYXNz\", \"Basic dGVzdDp0ZXN0\"]",
+                        "[Authorization:\"Basic ******\", \"Basic ******\"]",
+                        "dGVzdDp0ZXN0"),
+                arguments(
+                        "{\"message\":\"[Authorization:\\\"Basic dXNlcjpwYXNz\\\"]\"}",
+                        "{\"message\":\"[Authorization:\\\"Basic ******\\\"]\"}",
+                        "dXNlcjpwYXNz"));
     }
 
     @ParameterizedTest
@@ -233,7 +269,28 @@ class MessageExposureTests {
                         "{\"authorization\":\"Digest ******\"}"),
                 arguments(
                         "Authorization: Digest username=\"Mufasa\", response=\"6629fae4",
-                        "Authorization: Digest ******"));
+                        "Authorization: Digest ******"),
+                arguments(
+                        "Authorization: Digest username=\"Mu\\\"fasa\", response=\"6629fae4\" sent",
+                        "Authorization: Digest ****** sent"),
+                arguments(
+                        "{\"authorization\":\"Digest username=\\\"Mu\\\\\\\"fasa\\\", response=\\\"6629fae4\\\"\"}",
+                        "{\"authorization\":\"Digest ******\"}"),
+                arguments(
+                        "Authorization: Digest username*=UTF-8''Mufasa%C3%A4, realm=\"x\", response=\"6629fae4\"",
+                        "Authorization: Digest ******"),
+                arguments(
+                        "Authorization: Digest username=\"Mufasa\",\n    realm=\"x\",\n    response=\"6629fae4\"\nnext",
+                        "Authorization: Digest ******\nnext"),
+                arguments(
+                        "Authorization: Digest " + "p=\"v\", ".repeat(100) + "response=\"6629fae4\"",
+                        "Authorization: Digest ******"),
+                arguments(
+                        "Authorization: Digest \"username=\"Mufasa\", response=\"6629fae4\"\"",
+                        "Authorization: Digest \"******\""),
+                arguments(
+                        "{\n  \"authorization\" : [\n    \"Digest username=\\\"Mufasa\\\", response=\\\"6629fae4\\\"\"\n  ]\n}",
+                        "{\n  \"authorization\" : [\n    \"Digest ******\"\n  ]\n}"));
     }
 
     @ParameterizedTest
@@ -258,7 +315,30 @@ class MessageExposureTests {
                 arguments(
                         "Authorization: SharedAccessSignature sr=sb%3A%2F%2Fns&sig=c2lnbmF0dXJl%3D&se=1700000000",
                         "Authorization: ******", "c2lnbmF0dXJl"),
-                arguments("Authorization: abc123 rejected", "Authorization: ******", "abc123"));
+                arguments("Authorization: abc123 rejected", "Authorization: ******", "abc123"),
+                arguments(
+                        "Headers[Authorization=raw123 X-Token=Bearer tok999 Accept=application/json]",
+                        "Headers[Authorization=****** X-Token=****** Accept=application/json]",
+                        "tok999"),
+                arguments("Authorization: raw123 X-Api-Key: k1-9", "Authorization: ****** X-Api-Key: ******", "k1-9"),
+                arguments("Authorization: SSWS \"00QCjAl4MlV\"", "Authorization: ******\"", "00QCjAl4MlV"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("schemesAfterOtherSecretKeys")
+    void masksASchemeTogetherWithItsCredentialAfterAnyOtherSecretKey(String text, String expected) {
+        // The scheme is masked too, so a password that happens to be a scheme name is never shown.
+        assertThat(MessageExposure.maskSecretAssignments(text)).isEqualTo(expected);
+    }
+
+    static Stream<Arguments> schemesAfterOtherSecretKeys() {
+        return Stream.of(
+                arguments("X-Auth-Token: Bearer tok-1", "X-Auth-Token: ******"),
+                arguments("token=Bearer tok-1 retry", "token=****** retry"),
+                arguments("password=Basic login failed", "password=****** failed"),
+                arguments("secret: oauth rotation failed", "secret: ****** failed"),
+                arguments("api_key: Digest this later please", "api_key: ****** later please"),
+                arguments("{\"apiKey\": \"Token ak-1\"}", "{\"apiKey\": \"******\"}"));
     }
 
     @Test
@@ -276,15 +356,32 @@ class MessageExposureTests {
     }
 
     @ParameterizedTest
-    @MethodSource("bareBearerCredentials")
-    void masksATokenShapedCredentialAfterABareBearer(String text, String expected, String secret) {
+    @MethodSource("bareSchemeCredentials")
+    void masksACredentialShapedValueAfterABareScheme(String text, String expected, String secret) {
         assertThat(MessageExposure.maskSecretAssignments(text))
                 .isEqualTo(expected)
                 .doesNotContain(secret);
     }
 
-    static Stream<Arguments> bareBearerCredentials() {
+    static Stream<Arguments> bareSchemeCredentials() {
         return Stream.of(
+                arguments("sent Basic dXNlcjpwYXNzd29yZA== upstream", "sent Basic ****** upstream", "dXNlcjpwYXNz"),
+                arguments(
+                        "Authorization: is Basic dXNlcjpwYXNzd29yZA==",
+                        "Authorization: ****** Basic ******",
+                        "dXNlcjpwYXNz"),
+                arguments(
+                        "\"Authorization\" => \"Basic dXNlcjpwYXNzd29yZA==\"",
+                        "\"Authorization\" =****** \"Basic ******\"",
+                        "dXNlcjpwYXNz"),
+                arguments(
+                        "Received Negotiate Header for http://localhost:8080/api: Negotiate YIIGhgYJKoZIhvcSAQICAQBu==",
+                        "Received Negotiate Header for http://localhost:8080/api: Negotiate ******",
+                        "YIIGhg"),
+                arguments(
+                        "NTLM TlRMTVNTUAABAAAAB4IIogAAAAAAAAAAAAAAAAAAAAAGAbEdAAAADw== received",
+                        "NTLM ****** received",
+                        "TlRMTVNT"),
                 arguments(
                         "sending Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln to api",
                         "sending Bearer ****** to api",
@@ -312,7 +409,11 @@ class MessageExposureTests {
                 "Bearer abc123",
                 "OAuth2Bearer 0123456789abcdef",
                 "token_type=bearer",
-                "Basic auth is enabled"
+                "Basic auth is enabled",
+                "Basic settings",
+                "Basic YWJjZA== is not a user:password pair",
+                "NTLM authentication failed",
+                "Negotiate failed for user alice"
             })
     void leavesProseAboutAuthorizationSchemesAlone(String text) {
         assertThat(MessageExposure.maskSecretAssignments(text)).isSameAs(text);
@@ -348,7 +449,7 @@ class MessageExposureTests {
 
     @Test
     void masksEveryOtherAssignmentExactlyAsThePreviousRuleDid() {
-        // Everything but a scheme credential, or an authorization value followed by more text on its line.
+        // Everything but a value that starts with a scheme or an authorization value followed by more text on its line.
         Pattern previous = Pattern.compile(
                 "(?i)([\"']?(?:password|passwd|pwd|secret|token|api[-_]?key|apikey|authorization|credential|"
                         + "access[-_]?key|client[-_]?secret|private[-_]?key)[\"']?\\s*[=:]\\s*[\"']?)([^\\s\"',;&)]+)");
@@ -388,7 +489,14 @@ class MessageExposureTests {
                 "authorization: digest a=\"".repeat(size / 24),
                 "Authorization: " + "x ".repeat(size / 2),
                 "authorization" + " ".repeat(size) + "x",
-                "password password=".repeat(size / 18));
+                "password password=".repeat(size / 18),
+                "Authorization: Digest a=\"" + "\\\"".repeat(size / 2),
+                "{Authorization=[Basic abc" + ", Basic abc".repeat(size / 11) + "]}",
+                "Basic abcd ".repeat(size / 11),
+                "Bearer bearer ".repeat(size / 14),
+                "authorization header: ".repeat(size / 22),
+                "Authorization: Digest a*=" + "x'".repeat(size / 2),
+                "Authorization: Bearer " + "tokenx".repeat(size / 6));
 
         for (String input : inputs) {
             assertTimeoutPreemptively(
@@ -401,6 +509,11 @@ class MessageExposureTests {
                 () -> assertThat(MessageExposure.maskSecretAssignments(
                                 "Authorization: Bearer " + "a".repeat(size) + "=="))
                         .isEqualTo("Authorization: Bearer ******"));
+        assertTimeoutPreemptively(
+                Duration.ofSeconds(10),
+                () -> assertThat(MessageExposure.maskSecretAssignments(
+                                "Authorization: Digest " + "p=\"v\", ".repeat(size / 8) + "response=\"6629fae4\""))
+                        .isEqualTo("Authorization: Digest ******"));
         assertTimeoutPreemptively(
                 Duration.ofSeconds(10),
                 () -> assertThat(MessageExposure.maskSecretAssignments("sent Bearer " + "a".repeat(size)))

@@ -203,7 +203,8 @@ read and the panel says they are omitted by policy, and only `FULL` or `bootui.m
 ::: warning Masking covers recognizable secrets, not every secret
 Container logs are masked only where a secret has a recognizable shape: the first word of a secret-like `key=value` or
 `key: value` assignment, and the credential after an authorization scheme. A service that prints a bare token without
-a `Bearer` scheme, or a credential inside a connection string, to its own logs still surfaces it here.
+a scheme, a short credential after a scheme with no key before it, or a credential inside a connection string, to its
+own logs still surfaces it here.
 :::
 
 On Quarkus the panel reports the framework's native Dev Services, the containers it auto-starts for dev and test. The
