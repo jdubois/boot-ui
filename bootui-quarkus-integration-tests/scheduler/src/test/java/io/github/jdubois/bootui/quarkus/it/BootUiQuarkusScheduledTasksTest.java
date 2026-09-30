@@ -91,16 +91,18 @@ class BootUiQuarkusScheduledTasksTest {
         while (CorrelationProbeJob.SEEN.size() < 2 && System.currentTimeMillis() < deadline) {
             Thread.sleep(200);
         }
+        // A run is recorded once its body has returned, so every id read from the store first is already in SEEN,
+        // however many more runs complete between the two reads.
+        List<String> recorded = runs.runs().stream()
+                .filter(run -> run.runnable().endsWith("CorrelationProbeJob#probe"))
+                .map(ScheduledTaskRunStore.Run::executionId)
+                .toList();
         List<String> seen = List.copyOf(CorrelationProbeJob.SEEN);
         assertThat(seen).as("the probe job ran at least twice").hasSizeGreaterThanOrEqualTo(2);
         assertThat(seen)
                 .allSatisfy(id -> assertThat(id).matches("[0-9a-f]{16}"))
                 .doesNotHaveDuplicates();
 
-        List<String> recorded = runs.runs().stream()
-                .filter(run -> run.runnable().endsWith("CorrelationProbeJob#probe"))
-                .map(ScheduledTaskRunStore.Run::executionId)
-                .toList();
         assertThat(recorded)
                 .as("every recorded run carries the execution id its job saw")
                 .isNotEmpty()
