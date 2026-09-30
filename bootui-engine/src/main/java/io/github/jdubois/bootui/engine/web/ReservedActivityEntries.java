@@ -24,12 +24,14 @@ import java.util.function.Predicate;
  * </ul>
  *
  * <p>A statement or call that is slow and also failed or answered with an error surfaces as {@code ERROR} or
- * {@code WARN}, which its rule reserves anyway, so SQL and REST need no slow threshold here. Every other entry type
- * comes from a buffer that evicts strictly oldest first, so none is reserved, whatever its severity.</p>
+ * {@code WARN}, which its rule reserves anyway, so SQL and REST need no slow threshold here. No other entry type comes
+ * from a buffer with a reserved share, so the rule reserves none of them; the capture coordinator remembers their
+ * failures by severity instead.</p>
  *
  * <p>The rule follows a buffer's classification, not its configured share: a record flagged by a buffer whose reserved
- * share is {@code 0}, or by an application-managed Spring exchange repository, is still reported as reserved. That
- * errs towards remembering a record, never towards capturing it twice.</p>
+ * share is {@code 0}, or by an application-managed Spring exchange repository, is still reported as reserved. The
+ * coordinator remembers each entry type in its own window, so such a record can only displace records of its own
+ * type, which that buffer then keeps no longer than routine ones.</p>
  */
 public final class ReservedActivityEntries implements Predicate<ActivityEntryDto> {
 

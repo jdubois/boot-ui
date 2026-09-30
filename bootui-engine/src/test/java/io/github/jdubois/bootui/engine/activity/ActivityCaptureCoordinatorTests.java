@@ -186,10 +186,10 @@ class ActivityCaptureCoordinatorTests {
 
     @Test
     void aSeverityOnlyRuleCapturesAHiddenSlowClientErrorTwice() {
-        // The rule persistence applied before it followed the exchange buffer: ERROR, SLOW, and REST client WARN.
-        Predicate<ActivityEntryDto> severityOnly = entry -> "ERROR".equals(entry.severity())
-                || "SLOW".equals(entry.severity())
-                || ("WARN".equals(entry.severity()) && "REST_CLIENT".equals(entry.type()));
+        // The rule persistence applied before it followed the exchange buffer: ERROR and SLOW entries, which the
+        // coordinator still remembers on its own, and REST client WARN entries.
+        Predicate<ActivityEntryDto> severityOnly =
+                entry -> "WARN".equals(entry.severity()) && "REST_CLIENT".equals(entry.type());
         ActivityEntryDto slowNotFound = request("slow-404", 1, "WARN", 404, 1_500L);
 
         assertThat(capturesAfterHidingAndReappearing(slowNotFound, severityOnly))
@@ -199,8 +199,9 @@ class ActivityCaptureCoordinatorTests {
 
     /**
      * Every combination of the rules the failure-preserving buffers apply, as each adapter renders the entry: a record
-     * its buffer reserves is captured once even when it reappears after the first window forgot it; any other record
-     * is captured again, the documented trade-off for records their buffer evicts oldest first.
+     * its buffer reserves, or a failure of a source without a reserved share, is captured once even when it reappears
+     * after the first window forgot it; any other entry is captured again, the documented trade-off for routine
+     * entries.
      */
     @ParameterizedTest(name = "{0}")
     @MethodSource("reappearingEntries")
@@ -237,18 +238,19 @@ class ActivityCaptureCoordinatorTests {
                 Arguments.of("slow failed SQL", entry("r", "SQL", 1, "ERROR", "select"), 1_000L, 1),
                 Arguments.of("slow SQL", entry("r", "SQL", 1, "SLOW", "select"), 0L, 1),
                 Arguments.of("routine SQL", entry("r", "SQL", 1, "OK", "select"), 1_000L, 2),
-                Arguments.of("exception", entry("r", "EXCEPTION", 1, "ERROR", "boom"), 1_000L, 2),
-                Arguments.of("failed scheduled run", entry("r", "SCHEDULED", 1, "ERROR", "job"), 1_000L, 2),
-                Arguments.of("slow scheduled run", entry("r", "SCHEDULED", 1, "SLOW", "job"), 1_000L, 2),
-                Arguments.of("failed message", entry("r", "MESSAGING", 1, "ERROR", "orders"), 1_000L, 2),
+                Arguments.of("recurring exception group", entry("r", "EXCEPTION", 1, "ERROR", "boom"), 1_000L, 1),
+                Arguments.of("failed scheduled run", entry("r", "SCHEDULED", 1, "ERROR", "job"), 1_000L, 1),
+                Arguments.of("slow scheduled run", entry("r", "SCHEDULED", 1, "SLOW", "job"), 1_000L, 1),
+                Arguments.of("routine scheduled run", entry("r", "SCHEDULED", 1, "OK", "job"), 1_000L, 2),
+                Arguments.of("failed message", entry("r", "MESSAGING", 1, "ERROR", "orders"), 1_000L, 1),
+                Arguments.of("open circuit", entry("r", "FAULT_TOLERANCE", 1, "ERROR", "open"), 1_000L, 1),
                 Arguments.of("denied security event", entry("r", "SECURITY", 1, "WARN", "denied"), 1_000L, 2),
                 Arguments.of("trapped mail", entry("r", "MAIL", 1, "WARN", "hello"), 1_000L, 2),
-                Arguments.of("cache miss", entry("r", "CACHE", 1, "WARN", "miss"), 1_000L, 2),
-                Arguments.of("open circuit", entry("r", "FAULT_TOLERANCE", 1, "ERROR", "open"), 1_000L, 2));
+                Arguments.of("cache miss", entry("r", "CACHE", 1, "WARN", "miss"), 1_000L, 2));
     }
 
     @Test
-    void failuresFromBuffersWithoutAReservedShareDoNotEvictAReservedRecordFromTheReservedWindow() {
+    void aFailingScheduledJobCannotMakePersistenceForgetAReservedRequest() {
         RecordingStore store = new RecordingStore();
         ActivityCaptureCoordinator coordinator =
                 new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 1, RESERVED);
@@ -256,13 +258,32 @@ class ActivityCaptureCoordinatorTests {
 
         coordinator.ingest(List.of(slowNotFound));
         for (int i = 0; i < 40; i++) {
-            // A failing @Scheduled job: ERROR entries from a run store that evicts strictly oldest first.
             coordinator.ingest(List.of(entry("sched-" + i, "SCHEDULED", i + 2, "ERROR", "job failed")));
         }
         coordinator.ingest(List.of(slowNotFound));
 
         assertThat(captures(store, "slow-404")).isEqualTo(1);
-        assertThat(coordinator.reservedSeenCount()).isEqualTo(1);
+        assertThat(coordinator.rememberedCount("REQUEST")).isEqualTo(1);
+        assertThat(coordinator.rememberedCount("SCHEDULED")).isEqualTo(16);
+    }
+
+    @Test
+    void slowRequestsCannotMakePersistenceForgetAFailedStatement() {
+        RecordingStore store = new RecordingStore();
+        ActivityCaptureCoordinator coordinator =
+                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 1, RESERVED);
+        ActivityEntryDto failedStatement = entry("sql-1", "SQL", 1, "ERROR", "select");
+
+        coordinator.ingest(List.of(failedStatement));
+        for (int i = 0; i < 40; i++) {
+            // Remembered too, even when BootUI does not own the exchange repository and so reserves none of them.
+            coordinator.ingest(List.of(request("slow-404-" + i, i + 2, "WARN", 404, 1_500L)));
+        }
+        // SQL Trace still holds the failure, and it reappears once newer entries are cleared from the view.
+        coordinator.ingest(List.of(failedStatement));
+
+        assertThat(captures(store, "sql-1")).isEqualTo(1);
+        assertThat(coordinator.rememberedCount("SQL")).isEqualTo(1);
     }
 
     @Test
@@ -298,10 +319,10 @@ class ActivityCaptureCoordinatorTests {
             coordinator.ingest(view);
 
             assertThat(coordinator.seenCount()).isLessThanOrEqualTo(16 + viewSize);
-            assertThat(coordinator.reservedSeenCount()).isLessThanOrEqualTo(16 + viewSize);
+            assertThat(coordinator.rememberedCount("REQUEST")).isLessThanOrEqualTo(16 + viewSize);
         }
         assertThat(store.allAppended).hasSize(100 * viewSize);
-        assertThat(coordinator.reservedSeenCount()).isEqualTo(16);
+        assertThat(coordinator.rememberedCount("REQUEST")).isEqualTo(16);
     }
 
     /**

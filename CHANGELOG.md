@@ -85,15 +85,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **Live Activity durable persistence stores a slow `4xx` request once.** A `4xx` request that reached
-  `bootui.activity.request-slow-threshold-ms` is kept in the HTTP exchange buffer's reserved share, but Live Activity
-  shows it as `WARN`, so persistence did not treat it as reserved. When newer entries pushed it out of the stream and
-  it reappeared, it was stored a second time. Persistence now recognizes reserved records by the buffers' own rules and
-  thresholds: `5xx` and slow requests, failed and slow statements, and failed, `4xx`/`5xx`, and slow REST calls. On
-  Spring MVC, Spring WebFlux, and Quarkus, the configured request slow threshold drives both the buffer and
-  persistence. Exceptions, scheduled runs, and other entries whose sources keep no reserved share no longer take
-  places in the reserved window, so a failing scheduled job cannot make persistence forget a reserved request.
-  Severities are unchanged
+- **Live Activity durable persistence stores a failed or slow entry once, including a slow `4xx` request.**
+  Persistence remembers the entries it stored in a bounded window. An entry that newer entries pushed out of Spring
+  MVC's capped stream and that came back later, for example once `bootui.free-on-idle` released captured SQL, could be
+  stored a second time. Failed and slow entries are now remembered in a second window per kind of entry, which routine
+  entries and other kinds never displace, so a failing scheduled job cannot make persistence forget a failed request.
+  Requests, statements, and REST calls are recognized by the rule and threshold of the failure-preserving buffer that
+  keeps them: `5xx` and slow requests, failed and slow statements, and failed, `4xx`/`5xx`, and slow REST calls. A `4xx`
+  request that reached `bootui.activity.request-slow-threshold-ms`, shown as `WARN`, therefore counts as slow, and on
+  Spring MVC, Spring WebFlux, and Quarkus the configured threshold drives both the buffer and persistence. Severities
+  are unchanged
   ([Failure-preserving retention](docs/features/diagnostics.md#failure-preserving-retention)).
 - **Log Tail and Dev Services container logs follow the value-exposure policy.** Log messages were returned exactly
   as captured on every surface, and Spring's Dev Services container logs verbatim, so a logged password assignment was

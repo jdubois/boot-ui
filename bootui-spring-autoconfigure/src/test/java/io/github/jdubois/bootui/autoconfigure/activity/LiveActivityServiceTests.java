@@ -9,6 +9,8 @@ import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
+import io.github.jdubois.bootui.autoconfigure.web.BootUiHttpExchangeRepository;
+import io.github.jdubois.bootui.autoconfigure.web.ExchangeSlowThreshold;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.SecurityLogsController;
@@ -35,12 +37,17 @@ import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.web.LiveActivityAssembler;
 import io.github.jdubois.bootui.engine.web.ReservedActivityEntries;
+import java.net.URI;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.actuate.web.exchanges.HttpExchange;
+import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
+import org.springframework.mock.env.MockEnvironment;
 
 class LiveActivityServiceTests {
 
@@ -1093,6 +1100,57 @@ class LiveActivityServiceTests {
                                         "REST success=%s, status %s, %s ms, threshold %s ms, severity %s",
                                         success, status, durationMillis, threshold, entry.severity())
                                 .isEqualTo(recorder.retention().reserved() == 1);
+                    }
+                }
+            }
+        }
+        softly.assertAll();
+    }
+
+    /**
+     * Both Spring stacks build the capture's reserved-entry rule from {@code bootui.activity.request-slow-threshold-ms},
+     * while BootUI's exchange repository applies {@link ExchangeSlowThreshold}, which is {@code 0} when Actuator does
+     * not record {@code time-taken}. They must still agree on every request, read through the real controller.
+     */
+    @Test
+    void requestEntriesAreReservedExactlyWhenBootUisExchangeRepositoryReservesTheExchange() {
+        SoftAssertions softly = new SoftAssertions();
+        for (String include : new String[] {null, "request-headers,time-taken", "request-headers,response-headers"}) {
+            for (long threshold : new long[] {0L, 1_000L}) {
+                BootUiProperties properties = new BootUiProperties();
+                properties.getActivity().setRequestSlowThresholdMs(threshold);
+                MockEnvironment environment = new MockEnvironment();
+                if (include != null) {
+                    environment.setProperty("management.httpexchanges.recording.include", include);
+                }
+                boolean timeTaken = include == null || include.contains("time-taken");
+                ReservedActivityEntries rule =
+                        new ReservedActivityEntries(properties.getActivity().getRequestSlowThresholdMs());
+                for (int status : new int[] {200, 302, 404, 499, 500, 503}) {
+                    for (long durationMs : new long[] {5L, 999L, 1_000L, 1_500L}) {
+                        BootUiHttpExchangeRepository repository = new BootUiHttpExchangeRepository(
+                                10, 90, ExchangeSlowThreshold.resolve(properties, environment), false);
+                        repository.add(new HttpExchange(
+                                Instant.parse("2026-06-03T09:15:00Z"),
+                                new HttpExchange.Request(
+                                        URI.create("http://localhost:8080/api/orders"), "127.0.0.1", "GET", Map.of()),
+                                new HttpExchange.Response(status, Map.of()),
+                                null,
+                                null,
+                                timeTaken ? Duration.ofMillis(durationMs) : null));
+                        HttpExchangesController requests = new HttpExchangesController(
+                                LiveActivityServiceTests.<HttpExchangeRepository>provider(repository), properties);
+
+                        ActivityEntryDto entry = only(
+                                service(requests, null, null, null, null, properties)
+                                        .report(null, null, 0, 0),
+                                "REQUEST");
+
+                        softly.assertThat(rule.test(entry))
+                                .as(
+                                        "include %s, threshold %s ms, status %s, %s ms, severity %s",
+                                        include, threshold, status, durationMs, entry.severity())
+                                .isEqualTo(repository.snapshot().reserved() == 1);
                     }
                 }
             }
