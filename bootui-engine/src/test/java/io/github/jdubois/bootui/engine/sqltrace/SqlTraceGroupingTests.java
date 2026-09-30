@@ -9,9 +9,9 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Verifies the grouping/N+1-flagging/call-site-aggregation helper shared by the per-request profile
- * (Spring's {@code LiveActivityCorrelator}, Quarkus's {@code RequestProfileAssembler}) and the list-level
- * N+1 badge (Spring's {@code LiveActivityService}, Quarkus's {@code LiveActivityAssembler}), so all four
- * consumers agree on exactly what counts as a potential N+1 access pattern.
+ * (the shared {@code ExecutionProfileAssembler}) and the list-level N+1 badge (Spring's
+ * {@code LiveActivityService}, Quarkus's {@code LiveActivityAssembler}), so every consumer agrees on
+ * exactly what counts as a potential N+1 access pattern.
  */
 class SqlTraceGroupingTests {
 
