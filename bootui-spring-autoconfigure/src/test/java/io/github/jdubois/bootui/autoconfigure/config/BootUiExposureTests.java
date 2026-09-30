@@ -7,6 +7,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.mock.env.MockEnvironment;
@@ -58,6 +59,31 @@ class BootUiExposureTests {
             environment.setProperty("bootui.expose-values", "still-not-a-mode");
             assertThat(exposure.valueExposure()).isEqualTo(ValueExposure.MASKED);
             assertThat(warnings.list).hasSize(2);
+        } finally {
+            logger.detachAppender(warnings);
+        }
+    }
+
+    @Test
+    void leavesTheInvalidValueWarningToAReadOutsideALogTailDeliveryThread() throws Exception {
+        Logger logger = (Logger) LoggerFactory.getLogger(BootUiExposure.class);
+        ListAppender<ILoggingEvent> warnings = new ListAppender<>();
+        warnings.start();
+        logger.addAppender(warnings);
+        try {
+            MockEnvironment environment = new MockEnvironment().withProperty("bootui.expose-values", "not-a-mode");
+            BootUiExposure exposure = new BootUiExposure(environment, new BootUiProperties());
+
+            Thread delivery =
+                    LogTailBuffer.deliveryThreadFactory("bootui-log-tail-test-").newThread(exposure::valueExposure);
+            delivery.start();
+            delivery.join(5_000);
+            assertThat(warnings.list)
+                    .as("not reported where Log Tail cannot capture it")
+                    .isEmpty();
+
+            assertThat(exposure.valueExposure()).isEqualTo(ValueExposure.MASKED);
+            assertThat(warnings.list).hasSize(1);
         } finally {
             logger.detachAppender(warnings);
         }

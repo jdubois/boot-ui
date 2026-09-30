@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.config;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -16,7 +17,8 @@ import org.springframework.core.env.Environment;
  *
  * <p>An invalid runtime value is reported once, not on every read, until it binds again. Log Tail resolves the
  * policy for every streamed line, and the warning is itself a captured log line, so repeating it would feed an open
- * stream its own warnings.</p>
+ * stream its own warnings. A read on a Log Tail delivery thread does not report it, because a line logged there is
+ * never captured; the next read elsewhere does.</p>
  */
 public class BootUiExposure implements ExposurePolicy {
 
@@ -57,7 +59,7 @@ public class BootUiExposure implements ExposurePolicy {
             invalidProperties.remove(propertyName);
             return value;
         } catch (BindException ex) {
-            if (invalidProperties.add(propertyName)) {
+            if (!LogTailBuffer.isDeliveryThread() && invalidProperties.add(propertyName)) {
                 log.warn("Ignoring invalid BootUI property '{}' and using the already-bound value.", propertyName, ex);
             }
             return fallback;

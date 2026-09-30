@@ -26,9 +26,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `messageOmitted` and `logsOmitted` flags let the Log Tail and Dev Services panels say a message was omitted by policy
   instead of showing an empty line. Exception messages are unchanged.
 - **Log Tail streams no longer do exposure or encoding work on application logging threads.** Spring WebFlux and
-  Quarkus now hand each captured line to dedicated delivery threads, as Spring MVC already did, and a line logged on
-  one of those threads, such as framework debug output about encoding the stream, is never captured, so a stream can
-  no longer feed its own log output back to itself. Like Spring MVC, a WebFlux or Quarkus client that falls 1,000
+  Quarkus now hand each captured line to dedicated delivery threads, as Spring MVC already did. A line logged on one of
+  those threads is never captured, and WebFlux serializes each line there rather than leaving it to Spring's encoder,
+  so a stream can no longer feed its own log output, such as framework debug logging, back to itself. Like Spring MVC, a WebFlux or Quarkus client that falls 1,000
   lines behind is disconnected and reconnects, instead of buffering without bound, and a stream always releases its
   slot and subscription, even when its delivery task is rejected.
 - **An invalid `bootui.expose-values` or `bootui.mask-secrets` value is reported once rather than on every read, on

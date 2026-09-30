@@ -153,6 +153,11 @@ public final class LogTailBuffer {
         };
     }
 
+    /** Whether the calling thread delivers log-tail lines, so anything it logs is not captured. */
+    public static boolean isDeliveryThread() {
+        return Boolean.TRUE.equals(DELIVERY_THREAD.get());
+    }
+
     /** The number of live subscribers, so adapters and tests can confirm a closed stream released its subscription. */
     public int subscriberCount() {
         return subscribers.size();

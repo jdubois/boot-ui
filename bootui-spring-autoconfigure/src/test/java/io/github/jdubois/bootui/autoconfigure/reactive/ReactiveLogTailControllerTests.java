@@ -14,6 +14,7 @@ import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.LogLineDto;
 import io.github.jdubois.bootui.engine.logtail.LogTailReader;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -26,6 +27,7 @@ import org.springframework.mock.env.MockEnvironment;
 import reactor.core.Disposable;
 import reactor.core.Exceptions;
 import reactor.test.StepVerifier;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Tests for {@link ReactiveLogTailController}. The capped ring-buffer behaviour is already covered
@@ -35,18 +37,31 @@ import reactor.test.StepVerifier;
  */
 class ReactiveLogTailControllerTests {
 
+    private static final JsonMapper JSON =
+            JsonMapper.builder().findAndAddModules().build();
+
+    private final List<ReactiveLogTailController> controllers = new ArrayList<>();
+
     @AfterEach
     void uninstallAppender() {
+        controllers.forEach(ReactiveLogTailController::shutdown);
         BootUiLogAppender installed = BootUiLogAppender.find();
         if (installed != null) {
             installed.uninstall();
         }
     }
 
+    /** Builds a controller that teardown shuts down, disposing its delivery scheduler. */
+    private ReactiveLogTailController controller(BootUiProperties properties, BootUiExposure exposure) {
+        ReactiveLogTailController controller = new ReactiveLogTailController(properties, exposure);
+        controllers.add(controller);
+        return controller;
+    }
+
     @Test
     void recentEndpointReturnsTailFromInstalledAppender() {
         ReactiveLogTailController controller =
-                new ReactiveLogTailController(new BootUiProperties(), new BootUiExposure(new BootUiProperties()));
+                controller(new BootUiProperties(), new BootUiExposure(new BootUiProperties()));
         BootUiLogAppender installedAppender = BootUiLogAppender.find();
 
         String uniqueMsg = "unique-reactive-test-" + System.nanoTime();
@@ -62,7 +77,7 @@ class ReactiveLogTailControllerTests {
     @Test
     void streamEmitsBacklogThenLiveLines() {
         ReactiveLogTailController controller =
-                new ReactiveLogTailController(new BootUiProperties(), new BootUiExposure(new BootUiProperties()));
+                controller(new BootUiProperties(), new BootUiExposure(new BootUiProperties()));
         BootUiLogAppender installedAppender = BootUiLogAppender.find();
 
         String backlogMsg = "backlog-" + System.nanoTime();
@@ -73,13 +88,13 @@ class ReactiveLogTailControllerTests {
         StepVerifier.create(controller.stream())
                 .assertNext(sse -> {
                     assertThat(sse.event()).isEqualTo("log");
-                    assertThat(sse.data().message()).isEqualTo(backlogMsg);
+                    assertThat(line(sse).message()).isEqualTo(backlogMsg);
                 })
                 .then(() -> installedAppender.doAppend(event(Level.WARN, "live.Logger", liveMsg)))
                 .assertNext(sse -> {
                     assertThat(sse.event()).isEqualTo("log");
-                    assertThat(sse.data().message()).isEqualTo(liveMsg);
-                    assertThat(sse.data().level()).isEqualTo("WARN");
+                    assertThat(line(sse).message()).isEqualTo(liveMsg);
+                    assertThat(line(sse).level()).isEqualTo("WARN");
                 })
                 .thenCancel()
                 .verify(Duration.ofSeconds(5));
@@ -89,8 +104,7 @@ class ReactiveLogTailControllerTests {
     void recentAppliesTheLiveExposurePolicyToRetainedLines() {
         MockEnvironment environment = new MockEnvironment();
         BootUiProperties properties = new BootUiProperties();
-        ReactiveLogTailController controller =
-                new ReactiveLogTailController(properties, new BootUiExposure(environment, properties));
+        ReactiveLogTailController controller = controller(properties, new BootUiExposure(environment, properties));
         String logger = "reactive.exposure." + System.nanoTime();
         BootUiLogAppender.find().doAppend(event(Level.WARN, logger, "login password=hunter2\nthen token: tok-1"));
 
@@ -118,31 +132,30 @@ class ReactiveLogTailControllerTests {
     void streamExposesBacklogAndLiveLinesUnderThePolicyInForceWhenEachIsEmitted() {
         MockEnvironment environment = new MockEnvironment();
         BootUiProperties properties = new BootUiProperties();
-        ReactiveLogTailController controller =
-                new ReactiveLogTailController(properties, new BootUiExposure(environment, properties));
+        ReactiveLogTailController controller = controller(properties, new BootUiExposure(environment, properties));
         BootUiLogAppender installedAppender = BootUiLogAppender.find();
         String logger = "reactive.stream." + System.nanoTime();
         installedAppender.doAppend(event(Level.INFO, logger, "backlog password=hunter2"));
 
         StepVerifier.create(controller.stream()
-                        .filter(sse -> logger.equals(sse.data().logger())))
-                .assertNext(sse -> assertThat(sse.data().message()).isEqualTo("backlog password=******"))
+                        .filter(sse -> logger.equals(line(sse).logger())))
+                .assertNext(sse -> assertThat(line(sse).message()).isEqualTo("backlog password=******"))
                 .then(() -> installedAppender.doAppend(event(Level.WARN, logger, "live api_key=ak-1")))
-                .assertNext(sse -> assertThat(sse.data().message()).isEqualTo("live api_key=******"))
+                .assertNext(sse -> assertThat(line(sse).message()).isEqualTo("live api_key=******"))
                 .then(() -> {
                     environment.setProperty("bootui.expose-values", "METADATA_ONLY");
                     installedAppender.doAppend(event(Level.WARN, logger, "omitted password=hunter2"));
                 })
                 .assertNext(sse -> {
-                    assertThat(sse.data().message()).isNull();
-                    assertThat(sse.data().messageOmitted()).isTrue();
-                    assertThat(sse.data().level()).isEqualTo("WARN");
+                    assertThat(line(sse).message()).isNull();
+                    assertThat(line(sse).messageOmitted()).isTrue();
+                    assertThat(line(sse).level()).isEqualTo("WARN");
                 })
                 .then(() -> {
                     environment.setProperty("bootui.expose-values", "FULL");
                     installedAppender.doAppend(event(Level.WARN, logger, "verbatim password=hunter2"));
                 })
-                .assertNext(sse -> assertThat(sse.data().message()).isEqualTo("verbatim password=hunter2"))
+                .assertNext(sse -> assertThat(line(sse).message()).isEqualTo("verbatim password=hunter2"))
                 .thenCancel()
                 .verify(Duration.ofSeconds(5));
     }
@@ -160,12 +173,12 @@ class ReactiveLogTailControllerTests {
                 return super.valueExposure();
             }
         };
-        ReactiveLogTailController controller = new ReactiveLogTailController(properties, blocking);
+        ReactiveLogTailController controller = controller(properties, blocking);
         BootUiLogAppender installedAppender = BootUiLogAppender.find();
         String logger = "reactive.thread." + System.nanoTime();
         List<LogLineDto> received = new CopyOnWriteArrayList<>();
         Disposable subscription = controller.stream()
-                .map(ServerSentEvent::data)
+                .map(ReactiveLogTailControllerTests::line)
                 .filter(line -> logger.equals(line.logger()))
                 .subscribe(received::add);
         Thread logging = new Thread(
@@ -208,11 +221,12 @@ class ReactiveLogTailControllerTests {
                 return super.valueExposure();
             }
         };
-        ReactiveLogTailController controller = new ReactiveLogTailController(properties, logging);
+        ReactiveLogTailController controller = controller(properties, logging);
         BootUiLogAppender installedAppender = BootUiLogAppender.find();
         String logger = "reactive.feedback." + System.nanoTime();
         List<LogLineDto> received = new CopyOnWriteArrayList<>();
-        Disposable subscription = controller.stream().map(ServerSentEvent::data).subscribe(received::add);
+        Disposable subscription =
+                controller.stream().map(ReactiveLogTailControllerTests::line).subscribe(received::add);
         try {
             installedAppender.doAppend(event(Level.WARN, logger, "one live line"));
 
@@ -229,14 +243,13 @@ class ReactiveLogTailControllerTests {
                     .doesNotContain("reactive.feedback.Probe");
         } finally {
             subscription.dispose();
-            controller.shutdown();
         }
     }
 
     @Test
     void streamThatFallsTooFarBehindDisconnectsAndReleasesItsSubscription() {
         ReactiveLogTailController controller =
-                new ReactiveLogTailController(new BootUiProperties(), new BootUiExposure(new BootUiProperties()));
+                controller(new BootUiProperties(), new BootUiExposure(new BootUiProperties()));
         BootUiLogAppender installedAppender = BootUiLogAppender.find();
         int subscribersBefore = installedAppender.buffer().subscriberCount();
 
@@ -263,6 +276,30 @@ class ReactiveLogTailControllerTests {
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    @Test
+    void streamWritesEachLineAsTheSameJsonAsTheRecentSnapshot() {
+        ReactiveLogTailController controller =
+                controller(new BootUiProperties(), new BootUiExposure(new BootUiProperties()));
+        String logger = "reactive.json." + System.nanoTime();
+        BootUiLogAppender.find().doAppend(event(Level.WARN, logger, "multi\nline password=hunter2"));
+        LogLineDto snapshot = lineFrom(controller.recent(), logger);
+
+        StepVerifier.create(controller.stream().filter(sse -> line(sse).logger().equals(logger)))
+                .assertNext(sse -> {
+                    assertThat(sse.event()).isEqualTo("log");
+                    assertThat(sse.data())
+                            .as("serialized on the delivery thread, one JSON line with escaped newlines")
+                            .isEqualTo(JSON.writeValueAsString(snapshot))
+                            .doesNotContain("\n", "hunter2");
+                })
+                .thenCancel()
+                .verify(Duration.ofSeconds(5));
+    }
+
+    private static LogLineDto line(ServerSentEvent<String> sse) {
+        return JSON.readValue(sse.data(), LogLineDto.class);
     }
 
     private static LogLineDto lineFrom(List<LogLineDto> lines, String logger) {

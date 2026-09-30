@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.engine.logtail.LogTailReader;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.StubConfig;
 import io.smallrye.mutiny.helpers.test.AssertSubscriber;
+import io.smallrye.mutiny.subscription.BackPressureFailure;
 import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.sse.OutboundSseEvent;
@@ -187,9 +188,11 @@ class LogTailResourceTests {
                 .as("the overflowing stream unsubscribes")
                 .isZero();
         assertThat(resource.activeStreamCount()).as("and frees its stream slot").isZero();
-        subscriber.request(Long.MAX_VALUE);
         subscriber.awaitFailure(Duration.ofSeconds(5));
-        assertThat(subscriber.getFailure()).hasMessageContaining("pending event queue is full");
+        assertThat(subscriber.getFailure())
+                .as("the client is disconnected while it still has no demand, not after it drains")
+                .isInstanceOf(BackPressureFailure.class);
+        assertThat(subscriber.getItems()).isEmpty();
     }
 
     @Test
