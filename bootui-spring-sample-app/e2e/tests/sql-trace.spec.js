@@ -37,6 +37,10 @@ test.describe('SQL Trace view', () => {
 
     await expect(executions).toContainText('Connection')
     await expect(executions).toContainText('Thread')
+    // The sample app's own frames are application code, so the statement names the method that issued it.
+    await expect(executions.locator('tr.sql-detail-row')).toContainText(
+      'io.github.jdubois.bootui.sample.catalog.SampleCatalog.searchProducts('
+    )
   })
 
   test('ranks normalized statements and attributes them to the request route that issued them', async ({
