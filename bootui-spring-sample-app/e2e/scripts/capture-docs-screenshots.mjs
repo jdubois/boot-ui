@@ -2845,12 +2845,88 @@ const httpExchanges = [
   httpExchange('ex-1', 'GET', '/api/sample/products', 'category=tools', 200, 34, 1864, traceId, [
     {name: 'accept', values: ['application/json'], masked: false}
   ]),
+  httpExchange(
+    'ex-4',
+    'GET',
+    '/api/sample/orders/1042',
+    null,
+    200,
+    27,
+    932,
+    null,
+    [{name: 'accept', values: ['application/json'], masked: false}],
+    '/api/sample/orders/{id}'
+  ),
   httpExchange('ex-2', 'POST', '/api/chat', null, 200, 812, 452, traceId, [
     {name: 'authorization', values: [], masked: true},
     {name: 'content-type', values: ['application/json'], masked: false}
   ]),
   httpExchange('ex-3', 'GET', '/admin', null, 403, 12, 0, null, [{name: 'cookie', values: [], masked: true}])
 ]
+
+function httpRoute(id, source, counts, durations) {
+  const [method, route] = id.split(' ')
+  const [status2xx, status3xx, status4xx, status5xx] = counts
+  const requests = status2xx + status3xx + status4xx + status5xx
+  const [avg, p50, p95, p99, max, total, share] = durations
+  return {
+    id,
+    method,
+    route,
+    routeSource: source,
+    requests,
+    status2xx,
+    status3xx,
+    status4xx,
+    status5xx,
+    statusOther: 0,
+    errorCount: status4xx + status5xx,
+    timedRequests: requests,
+    totalDurationMs: total,
+    avgDurationMs: avg,
+    p50DurationMs: p50,
+    p95DurationMs: p95,
+    p99DurationMs: p99,
+    maxDurationMs: max,
+    shareOfRetainedTimePercent: share,
+    topFor: ['REQUESTS', 'TOTAL_DURATION', 'P95_DURATION', 'MAX_DURATION']
+  }
+}
+
+const httpRoutes = {
+  available: true,
+  unavailableReason: null,
+  window: {
+    retainedExchanges: 200,
+    bufferSize: 200,
+    evicted: null,
+    hiddenSelfExchanges: 57,
+    summarizedExchanges: 143,
+    timedExchanges: 143,
+    oldestTimestamp: nowMillis - 18 * 60 * 1000,
+    newestTimestamp: nowMillis - 2_000,
+    totalDurationMs: 19_842
+  },
+  routes: [
+    httpRoute(
+      'GET /api/sample/products',
+      'FRAMEWORK_TEMPLATE',
+      [58, 0, 0, 2],
+      [48.7, 31, 212, 1240, 1240, 2922, 14.73]
+    ),
+    httpRoute('GET /api/sample/orders/{id}', 'FRAMEWORK_TEMPLATE', [41, 0, 3, 0], [27.3, 22, 64, 91, 91, 1201, 6.05]),
+    httpRoute('POST /api/chat', 'FRAMEWORK_TEMPLATE', [18, 0, 1, 0], [812.4, 780, 1490, 1612, 1612, 15_436, 77.79]),
+    httpRoute('GET /admin', 'FRAMEWORK_TEMPLATE', [0, 0, 12, 0], [11.9, 12, 18, 21, 21, 143, 0.72]),
+    httpRoute('GET /files/{value}', 'MASKED_PATH', [7, 1, 0, 0], [17.5, 15, 33, 33, 33, 140, 0.71])
+  ],
+  topPerCriterion: 25,
+  routesTruncated: false,
+  distinctRoutes: 5,
+  notes: [
+    'Every figure covers only the 143 retained, visible exchanges. These are diagnostic evidence for this window, not lifetime or service-level metrics, and a route with few requests has few samples behind its percentiles.',
+    'Routes use the template the framework matched, then the single best route the application declares, then the path with every value-like segment masked. Query strings and path-parameter values are never used.'
+  ]
+}
 
 const emailMessages = [
   {
@@ -4340,6 +4416,10 @@ const activityReport = {
     p95LatencyMs: 1240,
     slowestEndpoint: '/api/sample/products',
     slowestEndpointMs: 1240,
+    latencySampleCount: 143,
+    slowestEndpointRoute: '/api/sample/products',
+    slowestEndpointRouteId: 'GET /api/sample/products',
+    slowestEndpointRouteSource: 'FRAMEWORK_TEMPLATE',
     activeExceptionCount: 2,
     sqlPerMinute: 18.0,
     slowestQueryMs: 18,
@@ -6000,12 +6080,8 @@ const screenshots = [
     'HTTP Exchanges',
     'bootui-http-exchanges.webp',
     async (page) => {
-      await page.getByText('/api/sample/products').waitFor()
-      await page
-        .getByRole('button', {name: /View details/})
-        .first()
-        .click()
-      await page.getByText('Request headers').waitFor()
+      await page.locator('.http-routes-table').getByText('/api/sample/orders/{id}').waitFor()
+      await page.locator('.http-exchanges-table').getByText('/api/sample/products').waitFor()
     }
   ],
   [
@@ -6662,6 +6738,7 @@ async function handleApiRoute(route) {
   if (endpoint === 'security-logs') return fulfillJson(route, securityLogs)
   if (endpoint === 'security') return fulfillJson(route, isQuarkusPlatform ? quarkusSecurity : security)
   if (endpoint === 'security/scan') return fulfillJson(route, security)
+  if (endpoint === 'http-exchanges/routes') return fulfillJson(route, httpRoutes)
   if (endpoint === 'http-exchanges')
     return fulfillJson(
       route,
@@ -7169,7 +7246,18 @@ function securityEvent(principal, type, timestampMillis, data) {
   }
 }
 
-function httpExchange(id, method, path, query, status, durationMs, responseSizeBytes, exchangeTraceId, requestHeaders) {
+function httpExchange(
+  id,
+  method,
+  path,
+  query,
+  status,
+  durationMs,
+  responseSizeBytes,
+  exchangeTraceId,
+  requestHeaders,
+  route = path
+) {
   return {
     id,
     timestamp: new Date(nowMillis - durationMs * 100).toISOString(),
@@ -7189,7 +7277,9 @@ function httpExchange(id, method, path, query, status, durationMs, responseSizeB
     responseHeaders: [
       {name: 'content-type', values: ['application/json'], masked: false},
       {name: 'x-content-type-options', values: ['nosniff'], masked: false}
-    ]
+    ],
+    route,
+    routeSource: 'FRAMEWORK_TEMPLATE'
   }
 }
 
