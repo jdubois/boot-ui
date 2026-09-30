@@ -13,7 +13,7 @@ reads the way developers investigate: every entry point anchors a correlated tim
 wrote them, entities read as summary → runs → timeline, and failure evidence outlives routine traffic. Each item builds
 on existing capture points and retained evidence, adding only bounded metadata and explicit, on-demand local reads.
 Sampling, quotas, remote ingestion, alerting integrations, and personal-data capture stay out of scope, because BootUI
-remains local-only, bounded, and network-free on render. Three new service panels follow that workstream (§2).
+remains local-only, bounded, and network-free on render. Two new service panels follow that workstream (§2).
 
 The priorities for every item below remain unchanged:
 
@@ -62,7 +62,6 @@ have shipped. Each row is one pull request.
 | 3    | §3.21 Log correlation                           | Log Tail, Live Activity                               | §3.27, §3.20b, §3.20c |
 | 4    | §3.6 Declarative HTTP client registry           | New panel (Services)                                  | —                     |
 | 4    | §3.8 gRPC                                       | New panel (Services)                                  | —                     |
-| 4    | §3.9 Spring Batch                               | New panel (Services)                                  | —                     |
 
 - **Wave 0** closes a safety gap: log text is the one captured application text that bypasses the value-exposure
   policy. Safety is the first priority, so it ships before anything else.
@@ -116,6 +115,7 @@ in the MySQL panel remains an unsupported follow-up outside this roadmap.
 - **MongoDB operational view** (formerly §3.5), dropped on 2026-09-30. BootUI plans no MongoDB client, topology,
   database, collection, or index view. The Spring Data panel still lists MongoDB repositories, and Dev Services still
   shows MongoDB service connections.
+- **Spring Batch** (formerly §3.9), dropped on 2026-09-30. BootUI plans no Spring Batch job, execution, or step view.
 
 ## 3. Feature specifications
 
@@ -242,68 +242,6 @@ Acceptance criteria:
 - Sample applications and fixtures cover absent gRPC support, unary and streaming services, multiple named channels,
   plaintext and TLS metadata, reflection on/off, metric presence/absence, status-code aggregates, malformed targets, and
   high-cardinality bounds without external services.
-
-### 3.9 Spring Batch — Services 📋 Planned
-
-BootUI shows scheduled task definitions and runs, but it does not expose Spring Batch jobs, executions, step progress, or
-failure outcomes. When batch metadata is stored in a database, Spring Batch already retains this operational history in
-its `JobRepository`, making it available for a strictly read-only Spring panel without adding capture or controlling
-jobs. Spring Boot 4 ships Spring Batch 6, in which `JobRepository` extends the now-deprecated `JobExplorer`,
-`JobOperator` extends the now-deprecated `JobLauncher`, and the default job repository is resourceless: it keeps no
-execution history unless JDBC-backed metadata (`spring-boot-batch-jdbc`) is configured.
-
-Scope:
-
-- Add one shared `batch` panel and stable `/bootui/api/batch/**` contract for Spring servlet and Spring WebFlux. Quarkus
-  reports the panel honestly unavailable because it has no equivalent Spring Batch runtime.
-- Discover registered job names and available job metadata, then list bounded, pageable job instances and executions
-  newest-first.
-- Report each execution's job name, instance and execution identifiers, start/create/end/update times, batch status, exit
-  code, safely rendered exit description, and identifying/non-identifying job parameters with type and provenance.
-- Show step executions with status, timing, read/write/filter/skip/commit/rollback counts, termination state, and bounded,
-  safely rendered failure summaries.
-- Provide server-side filtering by job name, status, execution identifier, and time range, plus drill-down from a job to
-  its instances, executions, and steps.
-- Treat running executions as live data and refresh their progress without creating a separate recorder or Live Activity
-  event source.
-- With a resourceless job repository, report that execution history is not retained and how to enable it, rather than
-  showing an empty history that reads as "no runs".
-
-Architecture:
-
-- Put DTO assembly, paging, filtering, ordering, status normalization, bounds, and safe failure rendering in a JSON-free,
-  framework-neutral engine service behind a neutral batch metadata provider SPI.
-- Keep Spring Batch types in a classpath- and bean-gated Spring provider. Both servlet and WebFlux adapters use the same
-  provider and controller contract; Quarkus wires only explicit unavailability metadata.
-- Read history only through the query methods `JobRepository` inherits from `JobExplorer`, and use repository metadata
-  only where necessary to explain configuration. Do not depend on a separate `JobExplorer` bean, which Spring Batch 6
-  no longer requires. Never call `JobOperator` or `JobLauncher`, `JobRepository` create, update, or delete methods, or
-  application job beans.
-- Route parameter names/values, exit descriptions, and failure details through the exposure and masking policy. Bound
-  queries and response cardinality before loading step details so a large batch repository cannot exhaust the application.
-
-Out of scope for the first release:
-
-- Launching, restarting, stopping, abandoning, or deleting jobs or executions.
-- Editing job parameters, repository state, execution context, or Spring Batch configuration.
-- Capturing item payloads, execution-context values, reader/writer contents, or full exception stack traces.
-- Adding a Batch event type to Live Activity or installing listeners around application jobs and steps.
-- Providing a Quarkus-specific batch implementation without a comparable native runtime contract.
-
-Acceptance criteria:
-
-- Opening or refreshing the panel never launches, stops, restarts, abandons, or otherwise mutates a job execution.
-- Spring servlet and Spring WebFlux return the same stable DTOs and paging behavior for equivalent Spring Batch metadata;
-  Quarkus reports a clear not-applicable reason.
-- Applications without Spring Batch or without a `JobRepository` load normally and show a framework-correct unavailable
-  state without optional classloading failures. A resourceless repository shows the history-not-retained state.
-- Large job repositories remain bounded through server-side paging and filtering, and running execution progress refreshes
-  without loading unrelated history.
-- Job parameters, exit descriptions, and failure summaries respect masking and exposure policy; execution-context values,
-  item payloads, and full stack traces never reach the response.
-- Sample applications and fixtures cover absent Batch support, resourceless and JDBC-backed repositories, empty
-  repositories, multiple jobs and instances, running, completed, stopped, and failed executions, step skip/rollback
-  counts, masked parameters, long failure descriptions, and high-cardinality paging without external services.
 
 ### 3.14 Correlation-ID filtering — Live Activity 📋 Planned
 
@@ -1032,7 +970,7 @@ Acceptance criteria:
 
 ## 4. Cross-cutting work
 
-Most planned items extend existing panels; only §3.6, §3.8, and §3.9 add panels. Consistency tests enforce much of the
+Most planned items extend existing panels; only §3.6 and §3.8 add panels. Consistency tests enforce much of the
 lists below, so a missed step fails the build rather than drifting silently.
 
 ### Every item
@@ -1089,31 +1027,30 @@ In addition:
 
 ## 5. Risks
 
-| Risk                                                                                       | Feature(s)       | Impact | Mitigation                                                                                                                                                                                |
-| ------------------------------------------------------------------------------------------ | ---------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Optional Actuator endpoints, libraries, beans, or servers missing                          | all              | Medium | Internal bridges, classpath/bean gating, stable empty DTOs, and clear unavailable reasons per panel.                                                                                      |
-| Scope creep beyond each item's first release                                               | all              | High   | Treat each item's out-of-scope list as binding, and move new ideas to a later plan revision.                                                                                              |
-| Log Tail or container logs show secrets under the default `MASKED` mode                    | 3.27             | High   | One read-time rule shared with Exceptions, message omission under `METADATA_ONLY`, and tests on every surface and adapter.                                                                |
-| Client discovery instantiates lazy clients, mutates builders, or resolves hosts            | 3.6              | High   | Read registrations and bean definitions only, never request a lazy bean, add no interceptor, and perform no DNS lookup.                                                                   |
-| Base URLs or proxy settings leak credentials                                               | 3.6              | High   | Always strip user-info and secret query values, and never serialize TLS or proxy secrets, in every exposure mode.                                                                         |
-| gRPC discovery creates channels, enables reflection, or loads absent `io.grpc` classes     | 3.8              | High   | Read existing registries and metrics only, and gate providers on classpath, beans, and Quarkus capabilities.                                                                              |
-| Batch history reads slow the application, or read as empty under a resourceless repository | 3.9              | Medium | Bounded, paged `JobRepository` queries, and an explicit history-not-retained state for the resourceless repository.                                                                       |
-| Correlation-ID lookup identities are reversed for short or sequential identifiers          | 3.14             | Medium | Derive lookup identities with a keyed hash under a per-process random key, never a plain hash.                                                                                            |
-| Lexical table extraction misreads SQL and invents or misses access                         | 3.18             | High   | Per-statement extraction status, an explicit unresolved bucket, no CTE/alias/function ever reported as a table, and a fixture corpus of Hibernate and vendor SQL.                         |
-| The data access map is read as a complete CRUD matrix                                      | 3.18             | Medium | Label every view as observed in the retained window, show the window, evictions, and exclusions inline, and add no static inference.                                                      |
-| Location lists drift from violation text or break older clients                            | 3.19             | Medium | Derive text and location from one retained record, keep fields additive, and test alignment on every advisor, sample, and page.                                                           |
-| Source-path lookup slows scans or reads unexpected files                                   | 3.19             | Medium | Reuse the existing bounded lookup and budgets, run it only during explicit scans, never follow symlinks, and never resolve archives.                                                      |
-| IDE links send local paths somewhere unexpected                                            | 3.19, 3.26       | Low    | Off by default, fixed IDE URL-scheme presets only, and no custom or web templates.                                                                                                        |
-| Correlation over-claims which request or execution caused a record                         | 3.20, 3.21       | Medium | Tiered, labelled correlation with a unique-candidate rule; ambiguous work stays top-level.                                                                                                |
-| MDC values, exports, or source excerpts leak secrets                                       | 3.21, 3.25, 3.26 | High   | Explicitly configured MDC keys, §3.27's read-time rule, omission under `METADATA_ONLY`, literal and comment stripping for source under `MASKED`, and exports built only from masked DTOs. |
-| New capture fields slow application hot paths                                              | 3.20, 3.21, 3.24 | Medium | Copy only data already at hand at existing hooks, with bounded copies and fail-open capture.                                                                                              |
-| Route percentiles over a small or evicted window read as service-level metrics             | 3.22             | Medium | Show the sample count and evidence window beside every percentile, and compute only over retained exchanges.                                                                              |
-| Runs whose identifier differs from their definition's are dropped or misattributed         | 3.23             | Medium | An explicit **Unmatched runs** group, and identifier fixtures on every adapter.                                                                                                           |
-| Unified slow thresholds change existing `SLOW` severities                                  | 3.23, 3.24       | Low    | One documented default per threshold, recorded in `CHANGELOG.md` as a behavior change.                                                                                                    |
-| Reserved retention hides recent routine traffic                                            | 3.24             | Low    | Reserve a bounded share of existing capacity and report retained, reserved, and evicted counts.                                                                                           |
-| Ignore rules hide needed evidence or misfile work from ignored requests                    | 3.24             | Medium | Empty by default, 5xx always captured, invalid patterns reported, and an explicit **Ignored routes** attribution bucket.                                                                  |
-| `MASKED` source excerpts leak a literal because the lexer mis-tokenizes Java or Kotlin     | 3.26             | High   | Omit the excerpt whenever lexing is incomplete, and test Java text blocks and unicode escapes and Kotlin raw strings, string templates, and nested comments.                              |
-| Source reads escape the project tree                                                       | 3.26             | High   | Reuse §3.19's bounded module and source-set lookup, refuse symlinks and archives, and read only one resolved file on open or export.                                                      |
+| Risk                                                                                   | Feature(s)       | Impact | Mitigation                                                                                                                                                                                |
+| -------------------------------------------------------------------------------------- | ---------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Optional Actuator endpoints, libraries, beans, or servers missing                      | all              | Medium | Internal bridges, classpath/bean gating, stable empty DTOs, and clear unavailable reasons per panel.                                                                                      |
+| Scope creep beyond each item's first release                                           | all              | High   | Treat each item's out-of-scope list as binding, and move new ideas to a later plan revision.                                                                                              |
+| Log Tail or container logs show secrets under the default `MASKED` mode                | 3.27             | High   | One read-time rule shared with Exceptions, message omission under `METADATA_ONLY`, and tests on every surface and adapter.                                                                |
+| Client discovery instantiates lazy clients, mutates builders, or resolves hosts        | 3.6              | High   | Read registrations and bean definitions only, never request a lazy bean, add no interceptor, and perform no DNS lookup.                                                                   |
+| Base URLs or proxy settings leak credentials                                           | 3.6              | High   | Always strip user-info and secret query values, and never serialize TLS or proxy secrets, in every exposure mode.                                                                         |
+| gRPC discovery creates channels, enables reflection, or loads absent `io.grpc` classes | 3.8              | High   | Read existing registries and metrics only, and gate providers on classpath, beans, and Quarkus capabilities.                                                                              |
+| Correlation-ID lookup identities are reversed for short or sequential identifiers      | 3.14             | Medium | Derive lookup identities with a keyed hash under a per-process random key, never a plain hash.                                                                                            |
+| Lexical table extraction misreads SQL and invents or misses access                     | 3.18             | High   | Per-statement extraction status, an explicit unresolved bucket, no CTE/alias/function ever reported as a table, and a fixture corpus of Hibernate and vendor SQL.                         |
+| The data access map is read as a complete CRUD matrix                                  | 3.18             | Medium | Label every view as observed in the retained window, show the window, evictions, and exclusions inline, and add no static inference.                                                      |
+| Location lists drift from violation text or break older clients                        | 3.19             | Medium | Derive text and location from one retained record, keep fields additive, and test alignment on every advisor, sample, and page.                                                           |
+| Source-path lookup slows scans or reads unexpected files                               | 3.19             | Medium | Reuse the existing bounded lookup and budgets, run it only during explicit scans, never follow symlinks, and never resolve archives.                                                      |
+| IDE links send local paths somewhere unexpected                                        | 3.19, 3.26       | Low    | Off by default, fixed IDE URL-scheme presets only, and no custom or web templates.                                                                                                        |
+| Correlation over-claims which request or execution caused a record                     | 3.20, 3.21       | Medium | Tiered, labelled correlation with a unique-candidate rule; ambiguous work stays top-level.                                                                                                |
+| MDC values, exports, or source excerpts leak secrets                                   | 3.21, 3.25, 3.26 | High   | Explicitly configured MDC keys, §3.27's read-time rule, omission under `METADATA_ONLY`, literal and comment stripping for source under `MASKED`, and exports built only from masked DTOs. |
+| New capture fields slow application hot paths                                          | 3.20, 3.21, 3.24 | Medium | Copy only data already at hand at existing hooks, with bounded copies and fail-open capture.                                                                                              |
+| Route percentiles over a small or evicted window read as service-level metrics         | 3.22             | Medium | Show the sample count and evidence window beside every percentile, and compute only over retained exchanges.                                                                              |
+| Runs whose identifier differs from their definition's are dropped or misattributed     | 3.23             | Medium | An explicit **Unmatched runs** group, and identifier fixtures on every adapter.                                                                                                           |
+| Unified slow thresholds change existing `SLOW` severities                              | 3.23, 3.24       | Low    | One documented default per threshold, recorded in `CHANGELOG.md` as a behavior change.                                                                                                    |
+| Reserved retention hides recent routine traffic                                        | 3.24             | Low    | Reserve a bounded share of existing capacity and report retained, reserved, and evicted counts.                                                                                           |
+| Ignore rules hide needed evidence or misfile work from ignored requests                | 3.24             | Medium | Empty by default, 5xx always captured, invalid patterns reported, and an explicit **Ignored routes** attribution bucket.                                                                  |
+| `MASKED` source excerpts leak a literal because the lexer mis-tokenizes Java or Kotlin | 3.26             | High   | Omit the excerpt whenever lexing is incomplete, and test Java text blocks and unicode escapes and Kotlin raw strings, string templates, and nested comments.                              |
+| Source reads escape the project tree                                                   | 3.26             | High   | Reuse §3.19's bounded module and source-set lookup, refuse symlinks and archives, and read only one resolved file on open or export.                                                      |
 
 ## 6. Validation checklist
 
