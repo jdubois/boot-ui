@@ -25,10 +25,13 @@ import io.github.jdubois.bootui.core.dto.PageMetadata;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
+import io.github.jdubois.bootui.engine.activity.ActivityCapturePoller;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityQuery;
+import io.github.jdubois.bootui.engine.activity.ActivityStore;
 import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
+import io.github.jdubois.bootui.engine.activity.StoredActivityEntry;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.email.EmailCaptureService;
@@ -43,8 +46,10 @@ import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
 import org.h2.jdbcx.JdbcDataSource;
@@ -1069,6 +1074,118 @@ class ReactiveLiveActivityControllerTests {
                 });
     }
 
+    @Test
+    void captureRemembersASlowClientErrorThatTheExchangeRepositoryReserves() {
+        // A 404 that took 1.5 s is WARN in the stream, but at the default 1,000 ms threshold the repository keeps it
+        // in its reserved share, so the feed can show it again after the first capture window forgot it.
+        assertThat(capturesOfAHiddenSlowClientError(new BootUiProperties())).isEqualTo(1);
+    }
+
+    @Test
+    void captureClassifiesRequestsWithTheConfiguredRequestSlowThreshold() {
+        BootUiProperties raised = new BootUiProperties();
+        raised.getActivity().setRequestSlowThresholdMs(2_000);
+        BootUiProperties disabled = new BootUiProperties();
+        disabled.getActivity().setRequestSlowThresholdMs(0);
+
+        // Neither threshold makes the repository reserve that request, so it is routine and captured again.
+        assertThat(capturesOfAHiddenSlowClientError(raised)).isEqualTo(2);
+        assertThat(capturesOfAHiddenSlowClientError(disabled)).isEqualTo(2);
+    }
+
+    /**
+     * Drives this controller's own capture wiring one poll at a time: the feed shows a slow 404, then 20 newer
+     * exchanges (more than the smallest capture window holds), then the slow 404 again.
+     */
+    private static long capturesOfAHiddenSlowClientError(BootUiProperties properties) {
+        List<StoredActivityEntry> captured = new CopyOnWriteArrayList<>();
+        SwitchableActivityStore store = new SwitchableActivityStore(new ActivityStore() {
+            @Override
+            public void appendBatch(List<StoredActivityEntry> entries) {
+                captured.addAll(entries);
+            }
+
+            @Override
+            public ActivityPage query(ActivityQuery query) {
+                return ActivityPage.EMPTY;
+            }
+        });
+        HttpExchangeDto slowNotFound = timedExchange("slow-404", 1_000L, 404, 1_500L);
+        List<HttpExchangeDto> newer = new ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            newer.add(0, timedExchange("ok-" + i, 2_000L + i, 200, 5L));
+        }
+        HttpExchangesController exchanges = mock(HttpExchangesController.class);
+        when(exchanges.exchanges(null, null, null, null, null))
+                .thenReturn(
+                        exchangesReport(List.of(slowNotFound)),
+                        exchangesReport(newer),
+                        exchangesReport(List.of(slowNotFound)));
+        ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
+                provider(exchanges),
+                empty(SqlTraceRecorder.class),
+                empty(RestClientTraceRecorder.class),
+                empty(DataSource.class),
+                empty(ExceptionStore.class),
+                empty(ScheduledTaskRunStore.class),
+                empty(ReactiveSecurityLogsController.class),
+                empty(TracesController.class),
+                empty(HealthController.class),
+                empty(EmailController.class),
+                empty(EmailCaptureService.class),
+                empty(CacheActivityRecorder.class),
+                empty(KafkaActivityRecorder.class),
+                empty(JmsActivityRecorder.class),
+                empty(FaultToleranceEventRecorder.class),
+                empty(RabbitActivityRecorder.class),
+                store,
+                disabledSettings(),
+                properties,
+                new BootUiExposure(properties));
+        try {
+            ActivityCapturePoller poller =
+                    controller.startCapture(persistenceSettings(true, "instance-r", Duration.ofHours(1), 1));
+            poller.captureNow();
+            poller.captureNow();
+            poller.captureNow();
+        } finally {
+            controller.shutdown();
+        }
+        return captured.stream()
+                .filter(stored -> "slow-404".equals(stored.entry().id()))
+                .count();
+    }
+
+    private static HttpExchangeDto timedExchange(String id, long timestamp, int status, long durationMs) {
+        return new HttpExchangeDto(
+                id,
+                Instant.ofEpochMilli(timestamp),
+                "GET",
+                "/api/orders",
+                null,
+                "/api/orders",
+                status,
+                status / 100 + "xx",
+                durationMs,
+                null,
+                "127.0.0.1",
+                null,
+                null,
+                null,
+                List.of(),
+                List.of());
+    }
+
+    private static HttpExchangesReport exchangesReport(List<HttpExchangeDto> exchanges) {
+        return new HttpExchangesReport(
+                exchanges.size(),
+                exchanges.size(),
+                0,
+                exchanges,
+                new PageMetadata(exchanges.size(), exchanges.size(), 0, exchanges.size(), exchanges.size(), false),
+                null);
+    }
+
     private ReactiveLiveActivityController profileController(
             BootUiProperties properties, RestClientTraceRecorder restRecorder, CacheActivityRecorder cacheRecorder) {
         HttpExchangesController httpExchanges = mock(HttpExchangesController.class);
@@ -1142,6 +1259,11 @@ class ReactiveLiveActivityControllerTests {
 
     private static ActivityPersistenceSettings persistenceSettings(
             boolean enabled, String instanceId, Duration captureInterval) {
+        return persistenceSettings(enabled, instanceId, captureInterval, 500);
+    }
+
+    private static ActivityPersistenceSettings persistenceSettings(
+            boolean enabled, String instanceId, Duration captureInterval, int bufferMaxEntries) {
         return new ActivityPersistenceSettings(
                 enabled,
                 ActivityPersistenceSettings.DataSourceMode.SHARED,
@@ -1151,7 +1273,7 @@ class ReactiveLiveActivityControllerTests {
                 null,
                 "bootui_activity",
                 Duration.ofSeconds(5),
-                500,
+                bufferMaxEntries,
                 Duration.ofDays(7),
                 instanceId,
                 captureInterval);

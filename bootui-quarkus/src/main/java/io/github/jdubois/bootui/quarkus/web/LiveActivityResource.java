@@ -20,6 +20,7 @@ import io.github.jdubois.bootui.engine.activity.ActivityCapturePoller;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityQuery;
+import io.github.jdubois.bootui.engine.activity.ActivityStore;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchResponse;
 import io.github.jdubois.bootui.engine.activity.ActivitySwitchService;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
@@ -44,6 +45,7 @@ import io.github.jdubois.bootui.engine.web.LiveActivityAssembler;
 import io.github.jdubois.bootui.engine.web.ProfileCapabilities;
 import io.github.jdubois.bootui.engine.web.ProfileEvidence;
 import io.github.jdubois.bootui.engine.web.ProfileEvidence.Source;
+import io.github.jdubois.bootui.engine.web.ReservedActivityEntries;
 import io.github.jdubois.bootui.quarkus.BootUiEngineProducer;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
@@ -159,6 +161,7 @@ public class LiveActivityResource {
     private final RestClientTraceRecorder restClientTraceRecorder;
     private final HttpExchangesService exchanges = new HttpExchangesService();
     private final LiveActivityAssembler assembler;
+    private final ReservedActivityEntries reservedEntries;
     private final ExecutionProfileAssembler profileAssembler = new ExecutionProfileAssembler();
     private final SecurityLogsService securityLogs = new SecurityLogsService();
     private final AtomicInteger openStreams = new AtomicInteger();
@@ -188,6 +191,7 @@ public class LiveActivityResource {
         // The exchange buffer carries bootui.activity.request-slow-threshold-ms, so REQUEST severity and exchange
         // retention classify slow requests identically.
         this.assembler = new LiveActivityAssembler(buffer.slowThresholdMillis());
+        this.reservedEntries = new ReservedActivityEntries(buffer.slowThresholdMillis());
         this.exposure = exposure;
         this.sqlRecorder = sqlRecorder;
         this.exceptionStore = exceptionStore;
@@ -303,10 +307,20 @@ public class LiveActivityResource {
         ActivitySwitchResponse response = new ActivitySwitchService()
                 .useExistingDataSource(activityStore, persistenceSettings, dataSource, request);
         if (response.newSettings() != null) {
-            switchPoller = ActivityCaptureFactory.start(
-                    activityStore, response.newSettings(), () -> mergedReport(0).entries());
+            switchPoller = startCapture(activityStore, response.newSettings());
         }
         return Response.status(response.status()).entity(response.body()).build();
+    }
+
+    /**
+     * Starts a capture poller that appends this resource's {@link #mergedReport} feed to {@code store}, remembering
+     * the entries the exchange, SQL, and REST client buffers reserve with the exchange buffer's own request slow
+     * threshold. Shared by {@code QuarkusActivityCapture} at startup and by the runtime switch; the caller owns closing
+     * the returned poller.
+     */
+    public ActivityCapturePoller startCapture(ActivityStore store, ActivityPersistenceSettings settings) {
+        return ActivityCaptureFactory.start(
+                store, settings, reservedEntries, () -> mergedReport(0).entries());
     }
 
     /**

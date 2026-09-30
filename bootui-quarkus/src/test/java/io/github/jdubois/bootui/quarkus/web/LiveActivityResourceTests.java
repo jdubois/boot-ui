@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.core.dto.ActivityPersistenceOptionDto;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchRequest;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchResult;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
+import io.github.jdubois.bootui.engine.activity.ActivityCapturePoller;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityQuery;
@@ -46,6 +47,7 @@ import java.time.Instant;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
 import org.h2.jdbcx.JdbcDataSource;
@@ -252,6 +254,100 @@ class LiveActivityResourceTests {
         assertThat(requestSeverity(new HttpExchangeBuffer(50))).isEqualTo("OK");
         assertThat(requestSeverity(new HttpExchangeBuffer(50, 25, 600L))).isEqualTo("SLOW");
         assertThat(requestSeverity(new HttpExchangeBuffer(50, 25, 0L))).isEqualTo("OK");
+    }
+
+    @Test
+    void captureRemembersASlowClientErrorThatTheExchangeBufferReserves() {
+        // A 404 that took 1.5 s is WARN in the stream, but at the default 1,000 ms threshold the buffer keeps it in
+        // its reserved share, so the feed can show it again after the first capture window forgot it.
+        assertThat(capturesOfAHiddenSlowClientError(new HttpExchangeBuffer(50))).isEqualTo(1);
+    }
+
+    @Test
+    void captureClassifiesRequestsWithTheExchangeBufferThreshold() {
+        // Neither threshold makes the buffer reserve that request, so it is routine and captured again.
+        assertThat(capturesOfAHiddenSlowClientError(new HttpExchangeBuffer(50, 25, 2_000L)))
+                .isEqualTo(2);
+        assertThat(capturesOfAHiddenSlowClientError(new HttpExchangeBuffer(50, 25, 0L)))
+                .isEqualTo(2);
+    }
+
+    /**
+     * Drives this resource's own capture wiring one poll at a time: the feed shows a slow 404, then only 20 newer
+     * exchanges (more than the smallest capture window holds), then the same slow 404 again, as a feed does when a
+     * source that dropped out of it returns.
+     */
+    private static long capturesOfAHiddenSlowClientError(HttpExchangeBuffer buffer) {
+        List<StoredActivityEntry> captured = new CopyOnWriteArrayList<>();
+        SwitchableActivityStore store = new SwitchableActivityStore(new ActivityStore() {
+            @Override
+            public void appendBatch(List<StoredActivityEntry> entries) {
+                captured.addAll(entries);
+            }
+
+            @Override
+            public ActivityPage query(ActivityQuery query) {
+                return ActivityPage.EMPTY;
+            }
+        });
+        LiveActivityResource resource = resourceWith(
+                store,
+                disabledSettings(),
+                unsatisfiedDataSource(),
+                buffer,
+                unsatisfiedEmailCaptureService(),
+                new KafkaActivityRecorder(true, true, 200, 16),
+                config(Map.of()));
+        CapturedHttpExchange slowNotFound = timedExchange(1_000L, "/api/orders/42", 404, 1_500L);
+        ActivityPersistenceSettings settings = new ActivityPersistenceSettings(
+                true,
+                ActivityPersistenceSettings.DataSourceMode.SHARED,
+                null,
+                null,
+                null,
+                null,
+                "bootui_activity",
+                Duration.ofSeconds(5),
+                1,
+                Duration.ofDays(7),
+                "instance-r",
+                Duration.ofHours(1));
+        try (ActivityCapturePoller poller = resource.startCapture(store, settings)) {
+            buffer.record(slowNotFound);
+            poller.captureNow();
+            clear(buffer);
+            for (int i = 0; i < 20; i++) {
+                buffer.record(timedExchange(2_000L + i, "/api/health", 200, 5L));
+            }
+            poller.captureNow();
+            clear(buffer);
+            buffer.record(slowNotFound);
+            poller.captureNow();
+        }
+        String slowNotFoundId = captured.get(0).entry().id();
+        return captured.stream()
+                .filter(stored -> slowNotFoundId.equals(stored.entry().id()))
+                .count();
+    }
+
+    private static void clear(HttpExchangeBuffer buffer) {
+        buffer.suspendForIdle();
+        buffer.resumeFromIdle();
+    }
+
+    private static CapturedHttpExchange timedExchange(long timestamp, String path, int status, long durationMs) {
+        return new CapturedHttpExchange(
+                Instant.ofEpochMilli(timestamp),
+                "GET",
+                URI.create("http://localhost:8080" + path),
+                status,
+                durationMs,
+                "127.0.0.1",
+                null,
+                null,
+                Map.of(),
+                Map.of(),
+                null);
     }
 
     private static String requestSeverity(HttpExchangeBuffer buffer) {

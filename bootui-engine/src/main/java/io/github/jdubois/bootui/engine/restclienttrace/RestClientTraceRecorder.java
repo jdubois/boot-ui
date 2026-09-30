@@ -258,10 +258,11 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
 
     /**
      * Whether a call belongs in the reserved share: the client threw, the server answered {@code 4xx}/{@code 5xx}
-     * (the same "error response" the panel counts), or the call reached the slow-call threshold.
+     * (the same "error response" the panel counts), or the call reached the slow-call threshold. The one rule both
+     * this recorder and the Live Activity persistence capture apply.
      */
-    private boolean isFailedOrSlow(CapturedCall call) {
-        return !call.success() || (call.status() != null && call.status() >= 400) || isSlow(call.durationMillis());
+    public static boolean isFailedOrSlow(boolean success, Integer status, boolean slow) {
+        return !success || (status != null && status >= 400) || slow;
     }
 
     /** Remembers that a client type (RestClient, RestTemplate, or WebClient) was instrumented. */
@@ -422,7 +423,7 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
                 traceId,
                 captureCallSite ? currentCallSite() : null,
                 requestId);
-        buffer.add(entry, isFailedOrSlow(entry));
+        buffer.add(entry, isFailedOrSlow(entry.success(), entry.status(), isSlow(entry.durationMillis())));
         totalCaptured.incrementAndGet();
         notifyListeners();
     }
