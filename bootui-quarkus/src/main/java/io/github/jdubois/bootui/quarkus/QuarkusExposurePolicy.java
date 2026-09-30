@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.quarkus;
 
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -97,8 +98,9 @@ public class QuarkusExposurePolicy implements ExposurePolicy {
         }
     }
 
+    /** Not on a Log Tail delivery thread, where the warning would not be captured; the next read elsewhere reports it. */
     private void warnOnce(String key, String message) {
-        if (invalidKeys.add(key)) {
+        if (!LogTailBuffer.isDeliveryThread() && invalidKeys.add(key)) {
             warning.accept(message);
         }
     }

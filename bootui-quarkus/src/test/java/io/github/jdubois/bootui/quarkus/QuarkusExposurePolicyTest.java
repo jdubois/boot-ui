@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -99,5 +100,21 @@ class QuarkusExposurePolicyTest {
                     .as(off)
                     .isFalse();
         }
+    }
+
+    @Test
+    void leavesTheInvalidValueWarningToAReadOutsideALogTailDeliveryThread() throws Exception {
+        List<String> warnings = new ArrayList<>();
+        QuarkusExposurePolicy policy = new QuarkusExposurePolicy(
+                new StubConfig(Map.of(QuarkusExposurePolicy.MASK_SECRETS_KEY, "maybe")), warnings::add);
+
+        Thread delivery =
+                LogTailBuffer.deliveryThreadFactory("bootui-log-tail-test-").newThread(policy::maskSecrets);
+        delivery.start();
+        delivery.join(5_000);
+        assertThat(warnings).isEmpty();
+
+        assertThat(policy.maskSecrets()).isTrue();
+        assertThat(warnings).hasSize(1);
     }
 }

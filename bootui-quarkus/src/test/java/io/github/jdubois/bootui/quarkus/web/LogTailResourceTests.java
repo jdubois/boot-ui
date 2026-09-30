@@ -12,7 +12,6 @@ import io.github.jdubois.bootui.engine.logtail.LogTailReader;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.StubConfig;
 import io.smallrye.mutiny.helpers.test.AssertSubscriber;
-import io.smallrye.mutiny.subscription.BackPressureFailure;
 import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.sse.OutboundSseEvent;
@@ -191,8 +190,42 @@ class LogTailResourceTests {
         subscriber.awaitFailure(Duration.ofSeconds(5));
         assertThat(subscriber.getFailure())
                 .as("the client is disconnected while it still has no demand, not after it drains")
-                .isInstanceOf(BackPressureFailure.class);
+                .hasMessageContaining("pending event queue is full");
         assertThat(subscriber.getItems()).isEmpty();
+    }
+
+    @Test
+    void aReaderThatKeepsUpIsNeverDisconnectedByABurst() {
+        LogTailBuffer buffer = new LogTailBuffer(LogTailBuffer.DEFAULT_MAX_LINES, Long.MAX_VALUE);
+        for (int line = 0; line < LogTailBuffer.DEFAULT_MAX_LINES; line++) {
+            buffer.add(line("backlog " + line));
+        }
+        ManualExecutor delivery = new ManualExecutor();
+        LogTailResource resource = new LogTailResource(buffer, policy, () -> delivery);
+        AssertSubscriber<OutboundSseEvent> subscriber =
+                resource.stream(deliveredSse()).subscribe().withSubscriber(AssertSubscriber.create(Long.MAX_VALUE));
+
+        delivery.runAll();
+        for (int line = 0; line < LogTailReader.MAX_PENDING_LINES - 1 - LogTailBuffer.DEFAULT_MAX_LINES; line++) {
+            buffer.add(line("live " + line));
+            delivery.runAll();
+        }
+        assertThat(subscriber.getItems()).hasSize(LogTailReader.MAX_PENDING_LINES - 1);
+
+        // Two lines arrive before the next drain, just as a batch of upstream demand runs out.
+        buffer.add(line("burst 1"));
+        buffer.add(line("burst 2"));
+        delivery.runAll();
+        for (int line = 0; line < 3 * LogTailReader.MAX_PENDING_LINES; line++) {
+            buffer.add(line("steady " + line));
+            delivery.runAll();
+        }
+
+        assertThat(subscriber.getFailure()).isNull();
+        assertThat(subscriber.getItems()).hasSize(4 * LogTailReader.MAX_PENDING_LINES + 1);
+        assertThat(resource.activeStreamCount()).isOne();
+        subscriber.cancel();
+        assertThat(resource.activeStreamCount()).isZero();
     }
 
     @Test
@@ -258,6 +291,24 @@ class LogTailResourceTests {
                 .extracting(event -> (LogLineDto) event.getData())
                 .extracting(LogLineDto::message, LogLineDto::messageOmitted)
                 .containsExactly(tuple(null, true), tuple(null, true));
+    }
+
+    /** Runs delivery tasks only when asked, so a test controls exactly when lines are drained. */
+    private static final class ManualExecutor implements Executor {
+
+        private final java.util.ArrayDeque<Runnable> tasks = new java.util.ArrayDeque<>();
+
+        @Override
+        public void execute(Runnable command) {
+            tasks.add(command);
+        }
+
+        void runAll() {
+            Runnable task;
+            while ((task = tasks.poll()) != null) {
+                task.run();
+            }
+        }
     }
 
     /** Logs {@code message} from a dedicated thread, standing in for an application thread. */

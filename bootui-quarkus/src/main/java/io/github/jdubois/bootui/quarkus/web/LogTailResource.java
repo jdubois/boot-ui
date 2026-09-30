@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import io.smallrye.mutiny.Multi;
 import io.smallrye.mutiny.subscription.BackPressureStrategy;
+import io.smallrye.mutiny.subscription.MultiEmitter;
 import jakarta.annotation.PreDestroy;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
@@ -97,15 +98,17 @@ public class LogTailResource {
     /**
      * Streams the backlog, then live lines. The logging thread only hands each captured line to {@code emitOn}, which
      * delivers it on a dedicated delivery thread, where it is exposed under the policy in force at that moment, so a
-     * policy change also applies to lines queued for a slow client. Like the servlet stream, a client that falls
-     * {@link LogTailReader#MAX_PENDING_LINES} lines behind is disconnected at once: the emitter fails instead of
-     * buffering, and {@code emitOn} delivers a failure ahead of the lines it still holds.
+     * policy change also applies to lines queued for a slow client. Like the servlet stream, a client with
+     * {@link LogTailReader#MAX_PENDING_LINES} lines not yet delivered is disconnected at once, even while it reads
+     * nothing: the count covers every line handed over and not yet delivered, and {@code emitOn} delivers the
+     * failure ahead of the lines it still holds.
      */
     @GET
     @Path("/stream")
     @Produces(MediaType.SERVER_SENT_EVENTS)
     public Multi<OutboundSseEvent> stream(@Context Sse sse) {
         StreamRegistration registration = new StreamRegistration();
+        AtomicInteger undelivered = new AtomicInteger();
         return Multi.createFrom()
                 .<LogLineDto>emitter(
                         emitter -> {
@@ -117,27 +120,51 @@ public class LogTailResource {
                             // lock, then replay the backlog: no line is dropped or duplicated across the
                             // replay/live boundary. Live delivery arrives on arbitrary logging threads; the
                             // emitter serialises them.
-                            LogTailBuffer.Subscription subscription = reader.subscribeWithReplay(line -> {
-                                if (!emitter.isCancelled()) {
-                                    emitter.emit(line);
-                                }
-                            });
+                            LogTailBuffer.Subscription subscription =
+                                    reader.subscribeWithReplay(line -> offer(emitter, line, undelivered, registration));
                             emitter.onTermination(registration::release);
                             registration.attach(subscription.unsubscribe());
                             for (LogLineDto line : subscription.backlog()) {
-                                if (emitter.isCancelled()) {
+                                if (!offer(emitter, line, undelivered, registration)) {
                                     break;
                                 }
-                                emitter.emit(line);
                             }
                         },
-                        BackPressureStrategy.ERROR)
-                .emitOn(deliveryExecutor.get(), LogTailReader.MAX_PENDING_LINES)
-                .map(line -> event(sse, line))
+                        // Pending lines are bounded by the undelivered count, not by emitOn's batched upstream
+                        // demand, which is only replenished after a whole batch and would reject a normal reader's
+                        // burst.
+                        BackPressureStrategy.IGNORE)
+                .emitOn(deliveryExecutor.get(), LogTailReader.MAX_PENDING_LINES + 1)
+                .map(line -> {
+                    undelivered.decrementAndGet();
+                    return event(sse, line);
+                })
                 // emitOn does not cancel its upstream when the executor rejects a delivery, so the stream is also
                 // released from the downstream side; release runs once, whichever termination arrives first.
                 .onTermination()
                 .invoke(registration::release);
+    }
+
+    /**
+     * Hands one captured line to the stream, or disconnects it once {@link LogTailReader#MAX_PENDING_LINES} lines are
+     * waiting. Counting here bounds every queue between the logging thread and the client.
+     */
+    private static boolean offer(
+            MultiEmitter<? super LogLineDto> emitter,
+            LogLineDto line,
+            AtomicInteger undelivered,
+            StreamRegistration registration) {
+        if (emitter.isCancelled()) {
+            return false;
+        }
+        if (undelivered.incrementAndGet() > LogTailReader.MAX_PENDING_LINES) {
+            registration.release();
+            emitter.fail(new IllegalStateException(
+                    "BootUI log-tail stream disconnected because its pending event queue is full"));
+            return false;
+        }
+        emitter.emit(line);
+        return true;
     }
 
     int activeStreamCount() {
