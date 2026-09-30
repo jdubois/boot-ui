@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.github.jdubois.bootui.autoconfigure.activity.LiveActivityController;
+import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationFilter;
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
@@ -62,6 +63,7 @@ import org.springframework.boot.servlet.actuate.web.exchanges.HttpExchangesFilte
 import org.springframework.boot.servlet.filter.OrderedFilter;
 import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.boot.webclient.WebClientCustomizer;
 import org.springframework.boot.webmvc.autoconfigure.DispatcherServletAutoConfiguration;
 import org.springframework.boot.webmvc.autoconfigure.WebMvcAutoConfiguration;
@@ -709,6 +711,12 @@ class BootUiAutoConfigurationTests {
                             (BootUiHttpExchangeRepository) context.getBean(HttpExchangeRepository.class);
                     assertThat(repository.retention(repository.snapshot()).slowThresholdMillis())
                             .isZero();
+                    // The trace side-registry classifies with the same threshold, so a slow success is routine in
+                    // both buffers.
+                    RequestCorrelationFilter filter = (RequestCorrelationFilter)
+                            context.getBean("bootUiRequestCorrelationFilterRegistration", FilterRegistrationBean.class)
+                                    .getFilter();
+                    assertThat(filter).extracting("requestSlowThresholdMs").isEqualTo(0L);
                 });
     }
 

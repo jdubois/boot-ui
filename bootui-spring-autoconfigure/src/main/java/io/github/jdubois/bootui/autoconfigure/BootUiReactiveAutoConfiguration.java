@@ -962,15 +962,11 @@ public class BootUiReactiveAutoConfiguration {
         @Bean(BOOTUI_HTTP_EXCHANGE_REPOSITORY_BEAN)
         @ConditionalOnMissingBean(HttpExchangeRepository.class)
         HttpExchangeRepository bootUiReactiveHttpExchangeRepository(
-                BootUiProperties properties,
-                HttpExchangesProperties exchangesProperties,
-                ListableBeanFactory beanFactory) {
+                BootUiProperties properties, Environment environment, ListableBeanFactory beanFactory) {
             return new BootUiHttpExchangeRepository(
                     properties.getHttpExchanges().getMaxExchanges(),
                     properties.getHttpExchanges().getReservedSharePercent(),
-                    BootUiHttpExchangeRepository.slowThresholdMillis(
-                            properties.getActivity().getRequestSlowThresholdMs(),
-                            exchangesProperties.getRecording().getInclude()),
+                    ExchangeSlowThreshold.resolve(properties, environment),
                     BootUiHttpExchangeRepository.isRecordedByApplication(
                             beanFactory, HttpExchangesWebFilter.class, BOOTUI_HTTP_EXCHANGES_WEB_FILTER_BEAN));
         }
@@ -1066,8 +1062,10 @@ public class BootUiReactiveAutoConfiguration {
         ReactiveHttpExchangeTraceFilter bootUiReactiveHttpExchangeTraceFilter(
                 BootUiProperties properties,
                 HttpExchangeTraceRegistry registry,
-                ReactiveOtelTraceIdProvider traceIdProvider) {
-            return new ReactiveHttpExchangeTraceFilter(properties, registry, traceIdProvider);
+                ReactiveOtelTraceIdProvider traceIdProvider,
+                Environment environment) {
+            return new ReactiveHttpExchangeTraceFilter(
+                    properties, registry, traceIdProvider, ExchangeSlowThreshold.resolve(properties, environment));
         }
 
         /**

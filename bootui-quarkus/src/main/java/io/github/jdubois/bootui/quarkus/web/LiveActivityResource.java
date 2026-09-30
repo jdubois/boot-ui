@@ -36,7 +36,6 @@ import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.security.SecurityLogsService;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
-import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.telemetry.TracesService;
 import io.github.jdubois.bootui.engine.web.ExecutionProfileAssembler;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
@@ -79,9 +78,8 @@ import javax.sql.DataSource;
  * {@link ScheduledTaskRunStore}), Kafka messages (via the shared {@link KafkaActivityRecorder}), and
  * captured email (via the shared {@link EmailCaptureService}), REST Client Reactive calls (via the shared
  * {@link RestClientTraceRecorder}), and JVM heap into the neutral {@link LiveActivityReport}. Cache activity
- * has no capture seam on Quarkus yet. The HTTP-exchange source hides BootUI's own traffic via the adapter-wide
- * {@link SelfTelemetryClassifier} singleton (see its class javadoc), the same instance Metrics/Cache/Traces
- * inject, rather than a locally hardcoded path check. SQL trace
+ * has no capture seam on Quarkus yet. The HTTP-exchange source never holds BootUI's own traffic, because the capture
+ * filter skips it on the path below the Quarkus root path. SQL trace
  * contributes only when a datasource is configured (the recorder is gated on Agroal); security events
  * contribute only when Quarkus's security capability is present and
  * {@code quarkus.security.events.enabled=true} (the same gate {@code SecurityLogsResource} uses, reused here
@@ -157,7 +155,6 @@ public class LiveActivityResource {
     private final RabbitActivityRecorder rabbitRecorder;
     private final FaultToleranceEventRecorder faultToleranceRecorder;
     private final RestClientTraceRecorder restClientTraceRecorder;
-    private final SelfTelemetryClassifier selfClassifier;
     private final HttpExchangesService exchanges = new HttpExchangesService();
     private final LiveActivityAssembler assembler;
     private final ExecutionProfileAssembler profileAssembler = new ExecutionProfileAssembler();
@@ -183,8 +180,7 @@ public class LiveActivityResource {
             KafkaActivityRecorder kafkaRecorder,
             RabbitActivityRecorder rabbitRecorder,
             FaultToleranceEventRecorder faultToleranceRecorder,
-            RestClientTraceRecorder restClientTraceRecorder,
-            SelfTelemetryClassifier selfClassifier) {
+            RestClientTraceRecorder restClientTraceRecorder) {
         this.buffer = buffer;
         // The exchange buffer carries bootui.activity.request-slow-threshold-ms, so REQUEST severity and exchange
         // retention classify slow requests identically.
@@ -205,7 +201,6 @@ public class LiveActivityResource {
         this.rabbitRecorder = rabbitRecorder;
         this.faultToleranceRecorder = faultToleranceRecorder;
         this.restClientTraceRecorder = restClientTraceRecorder;
-        this.selfClassifier = selfClassifier;
     }
 
     /**
@@ -505,7 +500,8 @@ public class LiveActivityResource {
     private HttpExchangesReport requestsReport() {
         return exchanges.report(
                 buffer.snapshot(),
-                uri -> !selfClassifier.shouldInclude(selfClassifier.isBootUiPath(uri)),
+                // The capture filter never records BootUI's own requests, judged below the root path.
+                HttpExchangesService.BootUiSelfPath.EXCLUDED_AT_CAPTURE,
                 exposure.maskSecrets(),
                 exposure.valueExposure(),
                 null,

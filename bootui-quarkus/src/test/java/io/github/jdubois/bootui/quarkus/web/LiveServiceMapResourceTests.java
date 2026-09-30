@@ -8,7 +8,6 @@ import io.github.jdubois.bootui.engine.datasource.ConnectionPoolService;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
-import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
@@ -231,7 +230,6 @@ class LiveServiceMapResourceTests {
                 buffer,
                 exposure,
                 new QuarkusPanelAvailability(config),
-                new SelfTelemetryClassifier(true, "/bootui", "/bootui/api"),
                 pools == null ? new ConnectionPoolService(null, exposure) : pools,
                 new UnsatisfiedInstance<>(),
                 rest,

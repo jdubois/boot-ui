@@ -306,15 +306,11 @@ public class BootUiAutoConfiguration {
         @Bean
         @ConditionalOnMissingBean(HttpExchangeRepository.class)
         HttpExchangeRepository bootUiHttpExchangeRepository(
-                BootUiProperties properties,
-                HttpExchangesProperties exchangesProperties,
-                ListableBeanFactory beanFactory) {
+                BootUiProperties properties, Environment environment, ListableBeanFactory beanFactory) {
             return new BootUiHttpExchangeRepository(
                     properties.getHttpExchanges().getMaxExchanges(),
                     properties.getHttpExchanges().getReservedSharePercent(),
-                    BootUiHttpExchangeRepository.slowThresholdMillis(
-                            properties.getActivity().getRequestSlowThresholdMs(),
-                            exchangesProperties.getRecording().getInclude()),
+                    ExchangeSlowThreshold.resolve(properties, environment),
                     BootUiHttpExchangeRepository.isRecordedByApplication(
                             beanFactory, HttpExchangesFilter.class, BOOTUI_HTTP_EXCHANGES_FILTER_BEAN));
         }
@@ -967,14 +963,17 @@ public class BootUiAutoConfiguration {
 
     @Bean
     public FilterRegistrationBean<RequestCorrelationFilter> bootUiRequestCorrelationFilterRegistration(
-            RequestCorrelationRegistry registry, HttpExchangeTraceRegistry traceRegistry, BootUiProperties properties) {
+            RequestCorrelationRegistry registry,
+            HttpExchangeTraceRegistry traceRegistry,
+            BootUiProperties properties,
+            Environment environment) {
         FilterRegistrationBean<RequestCorrelationFilter> registration =
                 new FilterRegistrationBean<>(new RequestCorrelationFilter(
                         registry,
                         traceRegistry,
                         properties.getPath(),
                         properties.getApiPath(),
-                        properties.getActivity().getRequestSlowThresholdMs()));
+                        ExchangeSlowThreshold.resolve(properties, environment)));
         registration.addUrlPatterns("/*");
         registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE + 100);
         registration.setName("bootUiRequestCorrelationFilter");

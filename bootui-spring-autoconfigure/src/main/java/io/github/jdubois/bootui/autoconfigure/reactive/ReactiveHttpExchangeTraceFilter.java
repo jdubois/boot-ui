@@ -51,10 +51,22 @@ public final class ReactiveHttpExchangeTraceFilter extends AbstractReactiveBootU
 
     public ReactiveHttpExchangeTraceFilter(
             BootUiProperties properties, HttpExchangeTraceRegistry registry, TraceIdProvider traceIdProvider) {
+        this(properties, registry, traceIdProvider, properties.getActivity().getRequestSlowThresholdMs());
+    }
+
+    /**
+     * @param requestSlowThresholdMs the slow threshold BootUI's exchange repository applies (see
+     *     {@code ExchangeSlowThreshold}), so a trace record is reserved exactly when its exchange is
+     */
+    public ReactiveHttpExchangeTraceFilter(
+            BootUiProperties properties,
+            HttpExchangeTraceRegistry registry,
+            TraceIdProvider traceIdProvider,
+            long requestSlowThresholdMs) {
         super(properties);
         this.registry = registry;
         this.traceIdProvider = traceIdProvider;
-        this.requestSlowThresholdMs = properties.getActivity().getRequestSlowThresholdMs();
+        this.requestSlowThresholdMs = requestSlowThresholdMs;
     }
 
     @Override
