@@ -29,7 +29,7 @@ describe('requestProfile helpers', () => {
 
     expect(sections.SQL.tierLabel).toBe('serving thread')
     expect(sections.SQL.truncationText).toBe(
-      'Groups and timing count all 250 correlated statements; the profile lists the first 200.'
+      'Execution counts and timing cover all 250 correlated statements; the profile lists the first 200.'
     )
     expect(sections.CACHE.available).toBe(false)
     expect(sections.CACHE.tierLabel).toBe('')

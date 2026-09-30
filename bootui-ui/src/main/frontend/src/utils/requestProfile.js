@@ -61,10 +61,10 @@ export function profileSections(profile) {
  */
 function truncationText(section, shown) {
   if (!section.truncated) return ''
-  // The drawer shows SQL as groups built from every correlated statement, so only the raw statement
-  // list the profile carries is bounded.
+  // The drawer shows SQL as groups whose execution counts and timing cover every correlated statement;
+  // only the raw statement list the profile carries is cut at the bound.
   if (section.type === 'SQL') {
-    return `Groups and timing count all ${section.total} correlated statements; the profile lists the first ${shown}.`
+    return `Execution counts and timing cover all ${section.total} correlated statements; the profile lists the first ${shown}.`
   }
   return `Showing the first ${shown} of ${section.total} ${SECTION_NOUNS[section.type] ?? 'items'}.`
 }

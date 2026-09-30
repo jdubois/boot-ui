@@ -40,7 +40,7 @@ class TraceCorrelationIndexTests {
         assertThat(match.carriedBy(request)).isTrue();
         assertThat(match.carriedBy(execution)).isTrue();
         assertThat(index.parentRequestId("trace-a")).isNull();
-        assertThat(index.isShared("trace-a")).isTrue();
+        assertThat(index.isSharedByRequests("trace-a")).isTrue();
     }
 
     @Test

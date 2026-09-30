@@ -122,7 +122,7 @@ public final class ExecutionProfileAssembler {
         if (capabilities.traceIdOnlyAdapter()) {
             notes.add(REDUCED_PROFILE_NOTE);
         }
-        if (traceId != null && context.index().isShared(traceId)) {
+        if (traceId != null && context.index().isSharedByRequests(traceId)) {
             notes.add(
                     capabilities.traceIdOnlyAdapter()
                             ? "This request's trace id " + traceId + " is shared by more than one captured request, "

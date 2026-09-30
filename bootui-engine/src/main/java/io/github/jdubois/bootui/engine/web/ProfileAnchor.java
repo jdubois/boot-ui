@@ -111,12 +111,12 @@ record ProfileAnchor(
 
     /**
      * Whether a signal recorded with this request context could have come from this anchor. An HTTP anchor
-     * requires the same path and, when both are known, the same method; an anchor with no request context of
-     * its own has nothing to compare, so it admits any.
+     * requires the same path and, when both are known, the same method; any other anchor admits only a
+     * signal recorded outside an HTTP request.
      */
     boolean admitsRequestContext(String requestMethod, String requestPath) {
         if (type != Type.REQUEST) {
-            return true;
+            return requestPath == null;
         }
         if (path == null || requestPath == null || !path.equalsIgnoreCase(requestPath)) {
             return false;

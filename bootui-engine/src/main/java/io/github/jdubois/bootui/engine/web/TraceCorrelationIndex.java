@@ -62,9 +62,12 @@ final class TraceCorrelationIndex {
         return carriers.size() == 1 ? carriers.get(0).id() : null;
     }
 
-    /** Whether more than one anchor carries {@code traceId}. */
-    boolean isShared(String traceId) {
-        return carriers(traceId).size() > 1;
+    /** Whether more than one HTTP request anchor carries {@code traceId}. */
+    boolean isSharedByRequests(String traceId) {
+        return carriers(traceId).stream()
+                        .filter(anchor -> anchor.type() == ProfileAnchor.Type.REQUEST)
+                        .count()
+                > 1;
     }
 
     /** Resolves a child carrying {@code childTraceId} at {@code childTimestamp} against every anchor. */
