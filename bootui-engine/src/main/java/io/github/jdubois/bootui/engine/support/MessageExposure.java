@@ -64,15 +64,24 @@ public final class MessageExposure {
     /**
      * One {@code name=value} or {@code name="value"} parameter of a Digest, OAuth, or AWS-style credential. A quoted
      * value honors backslash escapes and runs to the end of the line when its closing quote is missing, so a malformed
-     * value is over-masked, never cut short. A value quoted with escaped quotes, as inside a JSON string, closes at the
-     * next escaped quote that is not itself escaped. An RFC 8187 extended value, as in
+     * value is over-masked, never cut short. A value quoted with escaped quotes, at any depth of JSON nesting, closes
+     * at an escaped quote followed by a comma, a quote, a bracket, whitespace, or the end. An RFC 8187 extended value, as in
      * {@code username*=UTF-8''J%C3%A4s}, is covered too. An unquoted value is never a scheme followed by its own
      * credential, as in {@code X-Token=Bearer ...}, which is left for its own match.
      */
     private static final String AUTH_PARAM = "[A-Za-z0-9_.~+*-]++[ \\t]*+=[ \\t]*+"
-            + "(?:\"(?:[^\"\\\\\\r\\n]|\\\\.)*+\"?|\\\\\"(?:[^\"\\\\\\r\\n]|\\\\\\\\\\\\.|\\\\[^\"\\r\\n])*+(?:\\\\\")?"
+            + "(?:\"(?:[^\"\\\\\\r\\n]|\\\\.)*+\"?"
+            + "|\\\\++\"(?:[^\"\\\\\\r\\n]|\\\\++[^\"\\\\\\r\\n]|\\\\++\"(?![ \\t]*+,|\\\\*+[\"']|[\\]})\\s]|$))*+"
+            + "(?:\\\\++\")?"
             + "|[A-Za-z0-9!#$&+.^_`|~-]*+'[A-Za-z0-9-]*+'[^\\s,\"'\\\\)\\]}]++"
             + "|(?!" + AUTHORIZATION_SCHEME + "[ \\t])[^\\s,\"'\\\\)\\]}]++)";
+
+    /**
+     * A secret-like key and its separator ahead, as in {@code X-Api-Key: ...}, where {@code =} followed by {@code =},
+     * whitespace, or the end is Base64 padding rather than a separator.
+     */
+    private static final String SECRET_KEY_AHEAD =
+            "[^\\s=:]{0,64}?(?<![A-Za-z0-9+/])" + SECRET_KEY_NAME + QUOTE + "\\s*(?::|=(?![=\\s]|$))";
 
     /**
      * The credential after a scheme: a comma-separated parameter list, which may wrap after a comma, or else one token.
@@ -81,22 +90,25 @@ public final class MessageExposure {
      * and iterative, with no limit on the number of parameters.
      */
     private static final String CREDENTIAL = "(?:" + AUTH_PARAM + "(?:[ \\t]*+,\\s*+" + AUTH_PARAM + ")*+"
-            + "|(?![^\\s=:]{0,64}?(?<![A-Za-z0-9+/])" + SECRET_KEY_NAME + QUOTE + "\\s*(?::|=(?![=\\s]|$))|"
-            + AUTHORIZATION_SCHEME + "[ \\t])"
+            + "|(?!" + SECRET_KEY_AHEAD + "|" + AUTHORIZATION_SCHEME + "[ \\t])"
             + "[^\\s\"',;&)\\]}\\\\]++)";
 
     /** An authorization scheme BootUI does not recognize, which starts with a letter, and the whitespace after it. */
     private static final String CUSTOM_SCHEME = "[A-Za-z][^\\s\"',;&)\\]}\\\\]*+[ \\t]++" + QUOTE;
 
-    /** A value of a multi-valued header with no scheme, which is never the key of a following assignment. */
-    private static final String LIST_TOKEN =
-            "(?![^\\s\"',;&)\\]}\\\\:=]++(?:\\\\?[\"']\\s*+[:=]|\\s*+:))" + "[^\\s\"',;&)\\]}\\\\]++";
+    /**
+     * A value of a multi-valued header with no scheme. It is never the key of a following assignment, and never starts
+     * with a secret-like assignment, which is left for its own match.
+     */
+    private static final String LIST_TOKEN = "(?![^\\s\"',;&)\\]}\\\\:=]++(?:\\\\?[\"']\\s*+[:=]|\\s*+:)|"
+            + SECRET_KEY_AHEAD + ")[^\\s\"',;&)\\]}\\\\]++";
 
     /**
      * Groups 1, 3, and 5 keep an {@code authorization} key, and groups 2, 4, and 6 hold the bracket that opens a
      * multi-valued header after it. Group 1 also keeps a recognized scheme, and the credential after it is masked.
      * After group 3, an unrecognized scheme is masked with its credential, because a custom scheme cannot be told apart
-     * from a bare credential followed by more text. After group 5, the first value of a list is masked. Group 7 keeps
+     * from a bare credential followed by more text. After group 5, the first value of a list is masked, unless it is a
+     * secret-like assignment, which is then left for its own match. Group 7 keeps
      * any other secret-like key, and a value that starts with a scheme is masked with its credential, so a password
      * that happens to be a scheme name is never shown. Group 8 keeps any other secret-like key, and the first
      * whitespace-free value token is masked, exactly as before schemes were recognized.
@@ -104,16 +116,17 @@ public final class MessageExposure {
     private static final Pattern SECRET_ASSIGNMENT = Pattern.compile("(?i)"
             + "(" + AUTHORIZATION_HEADER_KEY + "(" + BRACKET + ")?+" + SCHEME + ")" + CREDENTIAL
             + "|(" + AUTHORIZATION_KEY + "(" + BRACKET + ")?+)" + CUSTOM_SCHEME + CREDENTIAL
-            + "|(" + AUTHORIZATION_KEY + "(" + BRACKET + "))" + LIST_TOKEN
+            + "|(" + AUTHORIZATION_KEY + "(" + BRACKET + "))(?:" + LIST_TOKEN + "|(?=" + SECRET_KEY_AHEAD + "))"
             + "|(" + SECRET_KEY + ")" + SCHEME + CREDENTIAL
             + "|(" + SECRET_KEY + ")[^\\s\"',;&)]+");
 
     /**
-     * One further value of an authorization header after a comma. Group 1 is the separator, with the quote that
-     * closes the previous value in group 2 and the quote that opens this one in group 3, and group 4 keeps a recognized
-     * scheme.
+     * One further value of an authorization header after a comma, which is never the key of a following assignment.
+     * Group 1 is the separator, with the quote that closes the previous value in group 2 and the quote that opens this
+     * one in group 3, and group 4 keeps a recognized scheme.
      */
     private static final Pattern FURTHER_VALUE = Pattern.compile("(?i)((\\\\?[\"'])?[ \\t]*+,\\s*+(\\\\?[\"'])?)"
+            + "(?![^\"'\\\\\\r\\n]{0,256}+\\\\?[\"']\\s*+[:=])"
             + "(?:(" + SCHEME + ")" + CREDENTIAL + "|" + CUSTOM_SCHEME + CREDENTIAL + "|" + LIST_TOKEN + ")");
 
     /**
@@ -210,11 +223,14 @@ public final class MessageExposure {
             if (masked == null) {
                 masked = new StringBuilder(text.length());
             }
-            masked.append(text, copied, assignment.start())
-                    .append(kept(assignment))
-                    .append(SecretMasker.MASKED_VALUE);
             int end = assignment.end();
-            if (assignment.group(1) != null || assignment.group(3) != null || assignment.group(5) != null) {
+            boolean valueLeft = assignment.group(5) != null && end == assignment.end(5);
+            masked.append(text, copied, assignment.start()).append(kept(assignment));
+            if (!valueLeft) {
+                masked.append(SecretMasker.MASKED_VALUE);
+            }
+            if (!valueLeft
+                    && (assignment.group(1) != null || assignment.group(3) != null || assignment.group(5) != null)) {
                 // Further values are masked only in a list: after a bracket, or between quoted values.
                 boolean list =
                         assignment.group(2) != null || assignment.group(4) != null || assignment.group(6) != null;

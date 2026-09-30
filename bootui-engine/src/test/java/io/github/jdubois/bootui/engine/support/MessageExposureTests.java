@@ -295,6 +295,10 @@ class MessageExposureTests {
                         "Authorization: Digest \"username=\"Mufasa\", response=\"6629fae4\"\"",
                         "Authorization: Digest \"******\""),
                 arguments(
+                        "{\\\"authorization\\\":\\\"Digest username=\\\\\\\"Mufasa\\\\\\\", "
+                                + "response=\\\\\\\"6629fae4\\\\\\\"\\\"}",
+                        "{\\\"authorization\\\":\\\"Digest ******\\\"}"),
+                arguments(
                         "Authorization: Digest username=\\\"Mufasa\\\", response=\\\"6629fae4\\\" -> 401 for /api",
                         "Authorization: Digest ****** -> 401 for /api"),
                 arguments(
@@ -360,7 +364,17 @@ class MessageExposureTests {
                 arguments(
                         "{\"authorization\": [\"Basic dXNlcjpwYXNz\", \"ApiKey ak-2\"]}",
                         "{\"authorization\": [\"Basic ******\", \"******\"]}",
-                        "ak-2"));
+                        "ak-2"),
+                arguments(
+                        "Authorization=[raw-1, password=\"pw-2\"]",
+                        "Authorization=[******, password=\"******\"]",
+                        "pw-2"),
+                arguments(
+                        "Authorization=[Bearer tok-1, password=\"pw-2\"]",
+                        "Authorization=[Bearer ******, password=\"******\"]",
+                        "pw-2"),
+                arguments("Authorization=[password=\"pw-2\"]", "Authorization=[password=\"******\"]", "pw-2"),
+                arguments("Authorization=[apikey='ak-2']", "Authorization=[apikey='******']", "ak-2"));
     }
 
     @ParameterizedTest
@@ -368,6 +382,7 @@ class MessageExposureTests {
             strings = {
                 "{\"authorization\": \"Bearer ******\", \"accept\": \"application/json\"}",
                 "{'Authorization': 'Basic ******', 'Host': 'api.example.com'}",
+                "{\"authorization\": \"Bearer ******\", \"user name\": \"bob\"}",
                 "[Authorization:\"Bearer ******\", Accept:\"*/*\"]",
                 "{Authorization=[Bearer ******], Accept=[*/*]}",
                 "Authorization: Bearer ******, retrying the request"
