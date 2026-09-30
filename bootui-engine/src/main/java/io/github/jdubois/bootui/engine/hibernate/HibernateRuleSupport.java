@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.hibernate;
 
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolation;
 import io.github.jdubois.bootui.engine.support.DetailText;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,7 +21,7 @@ final class HibernateRuleSupport {
 
     private static final java.util.Set<String> KNOWN_SEVERITIES = java.util.Set.of(CRITICAL, HIGH, MEDIUM, LOW, INFO);
 
-    private static final int MAX_SAMPLE_VIOLATIONS = 10;
+    static final int MAX_SAMPLE_VIOLATIONS = 10;
 
     private HibernateRuleSupport() {}
 
@@ -48,6 +49,18 @@ final class HibernateRuleSupport {
     static HibernateRuleResultDto violation(
             HibernateRuleDefinition definition, String severityOverride, List<String> details) {
         return result(definition, VIOLATION, severityOverride, details.size(), samples(details));
+    }
+
+    /**
+     * Builds a violation result from samples the collector already sanitized; each sample keeps its location.
+     */
+    static HibernateRuleResultDto violation(
+            HibernateRuleDefinition definition,
+            String severityOverride,
+            int violationCount,
+            List<AdvisorViolation> samples) {
+        return result(definition, VIOLATION, severityOverride, violationCount, AdvisorViolation.texts(samples))
+                .withSampleLocations(AdvisorViolation.locations(samples));
     }
 
     static HibernateRuleResultDto result(

@@ -2,6 +2,7 @@ import {flushPromises, mount} from '@vue/test-utils'
 import {h} from 'vue'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 import AdvisorRuleViolations from './AdvisorRuleViolations.vue'
+import {OPEN_IN_STORAGE_KEY, resetOpenInPreference} from '../../utils/sourceLocation.js'
 
 const ruleId = 'ARCH-SPRING-004'
 const details = {scanId: 'scan one', total: 29, retained: 29, retentionLimit: 10000, truncated: false}
@@ -292,5 +293,88 @@ describe('AdvisorRuleViolations', () => {
     expect(a.attributes('aria-controls')).not.toBe(b.attributes('aria-controls'))
     expect(a.attributes('aria-label')).not.toBe(b.attributes('aria-label'))
     expect(document.getElementById(a.attributes('aria-controls'))).not.toBeNull()
+  })
+
+  describe('locations', () => {
+    const located = (index) => ({
+      className: `example.Service${index}`,
+      memberName: 'handle',
+      kind: 'METHOD',
+      sourceFile: `Service${index}.java`,
+      line: index + 1,
+      sourcePath: `/work/app/src/main/java/example/Service${index}.java`,
+      precision: 'LINE'
+    })
+    const locations = (count, start = 0) =>
+      Array.from({length: count}, (_, index) => ((index + start) % 3 === 2 ? null : located(index + start)))
+
+    beforeEach(() => {
+      window.localStorage.clear()
+      resetOpenInPreference()
+    })
+    afterEach(() => {
+      window.localStorage.clear()
+      resetOpenInPreference()
+    })
+
+    it('shows each sample location beside its text, and nothing for a null entry', () => {
+      const wrapper = render({rule: {...rule, sampleLocations: locations(10)}})
+      const items = wrapper.findAll('li')
+      expect(items).toHaveLength(10)
+      expect(items[0].text()).toContain(violations(1)[0])
+      expect(items[0].text()).toContain('example.Service0#handle (Service0.java:1)')
+      expect(items[2].text()).toBe(violations(3)[2])
+      expect(items[2].find('.advisor-violation-location').exists()).toBe(false)
+      expect(wrapper.findAll('a')).toHaveLength(0)
+    })
+
+    it('ignores a location list that is not aligned with its texts', () => {
+      const wrapper = render({rule: {...rule, sampleLocations: locations(3)}})
+      expect(wrapper.findAll('.advisor-violation-location')).toHaveLength(0)
+      expect(wrapper.findAll('li').map((item) => item.text())).toEqual(violations(10))
+    })
+
+    it('shows the page locations aligned with every detail page', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        response({...result({count: 29, offset: 0, limit: 100}), locations: locations(29)})
+      )
+      const wrapper = render({rule: {...rule, sampleLocations: locations(10)}})
+      await button(wrapper, 'View violations').trigger('click')
+      await flushPromises()
+      const items = wrapper.findAll('li')
+      expect(items).toHaveLength(29)
+      expect(items[28].text()).toContain('example.Service28#handle (Service28.java:29)')
+      expect(items[26].find('.advisor-violation-location').exists()).toBe(false)
+    })
+
+    it('copies a location by keyboard-reachable button and announces it once', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      vi.stubGlobal('navigator', {clipboard: {writeText}})
+      const wrapper = render({rule: {...rule, sampleLocations: locations(10)}})
+      const copy = wrapper.get('button[aria-label="Copy location example.Service0#handle (Service0.java:1)"]')
+      expect(copy.attributes('type')).toBe('button')
+      await copy.trigger('click')
+      await flushPromises()
+      expect(writeText).toHaveBeenCalledWith('example.Service0#handle (Service0.java:1)')
+      expect(copy.text()).toBe('Copied')
+      expect(wrapper.findAll('[role="status"]')).toHaveLength(1)
+      expect(wrapper.get('[role="status"]').text()).toBe('Copied location example.Service0#handle (Service0.java:1).')
+    })
+
+    it('links a location only when an Open in preset is chosen and a local path exists', async () => {
+      window.localStorage.setItem(OPEN_IN_STORAGE_KEY, 'idea')
+      resetOpenInPreference()
+      const withoutPath = {...located(1), sourcePath: null}
+      const wrapper = render({rule: {...rule, sampleLocations: [located(0), withoutPath, ...locations(8, 2)]}})
+      const links = wrapper.findAll('a')
+      const first = links[0]
+      expect(first.attributes('href')).toBe(
+        'idea://open?file=%2Fwork%2Fapp%2Fsrc%2Fmain%2Fjava%2Fexample%2FService0.java&line=1'
+      )
+      expect(first.attributes('aria-label')).toBe('Open example.Service0#handle (Service0.java:1) in IntelliJ IDEA')
+      expect(wrapper.findAll('li')[1].find('a').exists()).toBe(false)
+      expect(wrapper.findAll('li')[1].text()).toContain('example.Service1#handle (Service1.java:2)')
+      expect(links.every((link) => link.attributes('href').startsWith('idea://open?file='))).toBe(true)
+    })
   })
 })

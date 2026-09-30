@@ -1,9 +1,8 @@
 package io.github.jdubois.bootui.engine.restapi;
 
 import io.github.jdubois.bootui.core.dto.RestApiRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorFindings;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ExceptionHandlerModel;
-import java.util.ArrayList;
-import java.util.List;
 
 final class ExceptionHandlersDoNotReturnRawStringsRule extends AbstractRestApiRule {
 
@@ -22,13 +21,15 @@ final class ExceptionHandlersDoNotReturnRawStringsRule extends AbstractRestApiRu
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        List<String> violations = new ArrayList<>();
+        AdvisorFindings violations = new AdvisorFindings();
         for (ExceptionHandlerModel handler :
                 context.targets(context.exceptionHandlers(), ExceptionHandlerModel::rendersBody)) {
             if (RestApiRuleHelp.hasUnknownBody(handler)) context.evidence().markRequiredUnknown();
             if ("java.lang.String".equals(handler.bodyTypeName()) && handler.rendersBody()) {
-                violations.add(simpleName(handler.declaringClassName()) + "#" + handler.methodName()
-                        + " returns a raw String error body");
+                violations.add(
+                        simpleName(handler.declaringClassName()) + "#" + handler.methodName()
+                                + " returns a raw String error body",
+                        context.location(handler));
             }
         }
         return RestApiRuleSupport.fromViolations(context, definition(), violations);

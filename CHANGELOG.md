@@ -9,6 +9,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Architecture, REST API, and Hibernate findings say where the code is.** Each rule result carries
+  `sampleLocations`, aligned index-for-index with `sampleViolations`, and each detail page carries `locations`,
+  aligned with `violations`, on REST, the report and `get_*_rule_violations` MCP tools, and the CLI. A location names
+  the class, member, recorded source file, line, and local source path of the one code element a finding concerns,
+  with a `LINE`, `MEMBER`, or `CLASS` precision. Source paths are resolved only during an explicit scan, through the
+  Architecture advisor's bounded module and source-set lookup; archives, other layouts, ambiguous matches, and
+  exhausted budgets keep no path and say why in `violationDetails.locationNotes`. Kotlin lines inlined from another
+  file are dropped rather than shown wrong. The panels show each location with a **Copy location** action and an
+  opt-in, per-browser **Open in** preference for VS Code or IntelliJ IDEA. Violation text, counts, severities,
+  dismissals, evidence, and scores are unchanged, and findings that span several elements carry no location
+  (docs/PLAN.md §3.19).
+- **Request profiles show the REST client calls and cache accesses a request made.** The Live Activity profile drawer
+  and **Copy profile** gain REST client calls, masked exactly as the REST Client panel shows them, and cache accesses,
+  which carry only the hashed key, on Spring MVC, Spring WebFlux, and Quarkus (cache on Spring only, since Quarkus has no
+  cache-access capture seam). Every section is labelled with the tier that correlated it — trace id, serving thread, or
+  time window — the profile is flagged approximate whenever a time window was used, a tier an adapter cannot provide is
+  listed as unavailable, and each section shows at most 200 entries with a count of the rest. The
+  `GET /bootui/api/activity/request/{id}` response only gains fields (docs/PLAN.md §3.20a).
 - **Route performance rankings in HTTP Exchanges.** A route table above the exchange list summarizes the retained
   window per method and route: request count, 2xx/3xx/4xx/5xx counts, average, p50, p95, p99, and maximum duration, and
   share of retained request time, ranked by requests, total time, p95, slowest request, or errors. Routes resolve from
@@ -21,6 +39,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Every adapter builds request profiles with one shared engine assembler.** Spring MVC, Spring WebFlux, and Quarkus
+  now serve the profile through `ExecutionProfileAssembler`, so identical evidence produces an identical profile. Each
+  signal attaches to at most one request: a trace id shared by two captured requests, or a serving thread or time
+  window two requests could equally claim, now leaves the signal out of both profiles and counts it in the notes,
+  instead of showing it in both. On Spring MVC, exceptions keep their method, path, and window match, within which a
+  trace id now settles which request threw them; on Quarkus, a disabled SQL Trace, Exceptions, or Security Logs panel
+  no longer contributes to request profiles, as on Spring.
 - **One slowest-request KPI for every stack.** Live Activity's p50/p95 latency and slowest request are now computed once
   in the shared engine, so Spring MVC, Spring WebFlux, and Quarkus report the same figures for the same traffic. The
   slowest request is labelled with its resolved route and links to that route's row in HTTP Exchanges, and the latency
@@ -29,8 +54,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   none. SQL Trace, Live Activity, and route rankings share one percentile helper; no existing SQL Trace figure changes.
 - **Route labels are the same whichever source resolved them.** SQL Trace route attribution now renders a Spring
   framework template the way it renders a declared one, so `/orders/{id:[0-9]+}` reads `/orders/{id}`, while a wildcard
-  such as `/**` is kept as declared. A variable's pattern may now contain `?` or `/` without truncating the route. When declared mappings are ambiguous, a masked path now also masks every segment they mark
-  as a parameter, and a brace-delimited segment on a real request is masked rather than trusted as template syntax.
+  such as `/**` is kept as declared. A variable's pattern may now contain `?` or `/` without truncating the route.
+  When declared mappings are ambiguous, a masked path now also masks every segment they mark as a parameter, and a
+  brace-delimited segment on a real request is masked rather than trusted as template syntax.
   On Quarkus, declared JAX-RS routes are now matched under `quarkus.http.root-path` and `quarkus.rest.path`, so SQL
   Trace attributes requests to their declared route instead of a masked path when the application has a root path.
 - **Quarkus 3.33.3.3.** The Quarkus extension, integration tests, and sample app move to Quarkus 3.33.3.3, the

@@ -48,6 +48,11 @@ class BootUiQuarkusApiConformanceTest extends AbstractBootUiApiConformanceTest {
     @TestHTTPResource
     URL baseUrl;
 
+    @Override
+    protected boolean expectsResolvedSourcePaths() {
+        return true;
+    }
+
     /**
      * {@code ItCatalogueExceptionMapper} is declared in {@code com.example.bootui.it.errors} rather than
      * alongside this test: BootUI excludes its own {@code io.github.jdubois.bootui.quarkus} package from

@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.restapi;
 
+import io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ControllerModel;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ExceptionHandlerModel;
@@ -23,7 +24,37 @@ record RestApiContext(
         List<ThrownExceptionModel> thrownExceptions,
         RestApiModel.Framework framework,
         RestApiEvaluationEvidence evidence,
-        AdvisorViolationCollector violationCollector) {
+        AdvisorViolationCollector violationCollector,
+        RestApiLocations locations) {
+
+    RestApiContext(
+            List<String> basePackages,
+            List<ControllerModel> controllers,
+            List<HandlerMethodModel> handlers,
+            List<ExceptionHandlerModel> exceptionHandlers,
+            boolean openApiAnnotationsPresent,
+            boolean globalVersioningConfigured,
+            boolean hasExceptionHandling,
+            List<String> responseStatusExceptionClasses,
+            List<ThrownExceptionModel> thrownExceptions,
+            RestApiModel.Framework framework,
+            RestApiEvaluationEvidence evidence,
+            AdvisorViolationCollector violationCollector) {
+        this(
+                basePackages,
+                controllers,
+                handlers,
+                exceptionHandlers,
+                openApiAnnotationsPresent,
+                globalVersioningConfigured,
+                hasExceptionHandling,
+                responseStatusExceptionClasses,
+                thrownExceptions,
+                framework,
+                evidence,
+                violationCollector,
+                RestApiLocations.none());
+    }
 
     RestApiContext(
             List<String> basePackages,
@@ -58,6 +89,17 @@ record RestApiContext(
         exceptionHandlers = List.copyOf(exceptionHandlers);
         responseStatusExceptionClasses = List.copyOf(responseStatusExceptionClasses);
         thrownExceptions = List.copyOf(thrownExceptions);
+        locations = locations == null ? RestApiLocations.none() : locations;
+    }
+
+    /** Where {@code model} (a controller, handler, exception handler, or throwing endpoint) was declared. */
+    AdvisorViolationLocationDto location(Object model) {
+        return locations.of(model);
+    }
+
+    /** The scan-local identity of the element {@code model} was built from, or {@code null} when unknown. */
+    String elementIdentity(Object model) {
+        return locations.identity(model);
     }
 
     boolean jaxRs() {

@@ -863,6 +863,109 @@ public abstract class AbstractBootUiApiConformanceTest {
         }
     }
 
+    /**
+     * Structured violation locations: every location list is either empty or aligned index-for-index with its
+     * text list, on report samples and on detail pages alike, and only the Architecture, REST API, and Hibernate
+     * advisors carry any. Locations are bounded and precise about what they know.
+     */
+    @Test
+    void advisorViolationLocationsAreAlignedBoundedAndOnlyOnLocatedAdvisors() {
+        Set<String> located = Set.of("architecture", "rest-api", "hibernate");
+        for (String panel :
+                List.of("architecture", "hibernate", "spring", "rest-api", "memory", "security", "database-advisor")) {
+            if (!isPanelUsableInLiveManifest(panel)) continue;
+            BootUiHttpProbe probe = probe();
+            Response scanned = probe.request("POST", api("/" + panel + "/scan"), stateChangingHeaders(probe), "");
+            assertThat(scanned.status()).as(panel + " scan").isEqualTo(200);
+            JsonNode report = scanned.json();
+            JsonNode notes = report.path("violationDetails").path("locationNotes");
+            assertThat(notes.isArray())
+                    .as(panel + " violationDetails.locationNotes")
+                    .isTrue();
+            String query = "?scanId="
+                    + URLEncoder.encode(
+                            report.path("violationDetails").path("scanId").asText(), StandardCharsets.UTF_8);
+            if (located.contains(panel) && !panel.equals("hibernate") && expectsResolvedSourcePaths()) {
+                assertThat(report.path("results").findValues("sampleLocations").stream()
+                                .flatMap(list -> java.util.stream.StreamSupport.stream(list.spliterator(), false))
+                                .filter(location -> !location.isNull()
+                                        && !location.path("sourcePath").isNull())
+                                .map(location -> java.nio.file.Path.of(
+                                        location.path("sourcePath").asText()))
+                                .anyMatch(path -> java.nio.file.Files.isRegularFile(path)
+                                        && (path.toString().contains("src" + java.io.File.separator + "main")
+                                                || path.toString().contains("src" + java.io.File.separator + "test"))))
+                        .as(panel + ": a location resolves to the application's own source file")
+                        .isTrue();
+            }
+            for (JsonNode rule : report.path("results")) {
+                JsonNode samples = rule.path("sampleViolations");
+                JsonNode sampleLocations = rule.path("sampleLocations");
+                if (located.contains(panel)) {
+                    assertThat(sampleLocations.isArray())
+                            .as(panel + " sampleLocations")
+                            .isTrue();
+                    assertLocations(panel + " " + rule.path("id").asText() + " samples", samples, sampleLocations);
+                } else {
+                    assertThat(sampleLocations.isMissingNode())
+                            .as(panel + " results carry no sampleLocations")
+                            .isTrue();
+                }
+                String route = api("/" + panel + "/rules/"
+                        + URLEncoder.encode(rule.path("id").asText(), StandardCharsets.UTF_8) + "/violations");
+                Response detail = probe.get(route + query + "&offset=0&limit=5");
+                if (detail.status() != 200) continue;
+                JsonNode page = detail.json();
+                assertThat(page.path("locations").isArray())
+                        .as(panel + " detail locations")
+                        .isTrue();
+                assertLocations(panel + " detail page", page.path("violations"), page.path("locations"));
+                if (!located.contains(panel)) {
+                    assertThat(page.path("locations"))
+                            .as(panel + " detail page carries no locations")
+                            .isEmpty();
+                } else if (!page.path("locations").isEmpty() && sampleLocations.size() > 0) {
+                    assertThat(page.path("locations").get(0)).isEqualTo(sampleLocations.get(0));
+                }
+            }
+        }
+    }
+
+    /**
+     * Whether this runner's application classes are compiled into a local Maven or Gradle output directory, so
+     * the explicit Architecture and REST API scans must each resolve at least one location to a source file under
+     * the module's {@code src/main} or {@code src/test} tree.
+     */
+    protected boolean expectsResolvedSourcePaths() {
+        return false;
+    }
+
+    private static void assertLocations(String subject, JsonNode texts, JsonNode locations) {
+        if (locations.isEmpty()) return;
+        assertThat(locations.size()).as(subject + " locations align with texts").isEqualTo(texts.size());
+        boolean any = false;
+        for (JsonNode location : locations) {
+            if (location.isNull()) continue;
+            any = true;
+            assertThat(location.path("className").asText())
+                    .as(subject + " className")
+                    .isNotBlank();
+            assertThat(location.path("className").asText().length()).isLessThanOrEqualTo(512);
+            assertThat(location.path("kind").asText()).isIn("CLASS", "METHOD", "CONSTRUCTOR", "FIELD");
+            assertThat(location.path("precision").asText()).isIn("LINE", "MEMBER", "CLASS");
+            JsonNode line = location.path("line");
+            assertThat(line.isNull() || line.asInt() > 0).as(subject + " line").isTrue();
+            assertThat(location.path("precision").asText().equals("LINE")).isEqualTo(!line.isNull());
+            JsonNode path = location.path("sourcePath");
+            assertThat(path.isNull() || path.asText().length() <= 1024)
+                    .as(subject + " sourcePath")
+                    .isTrue();
+        }
+        assertThat(any)
+                .as(subject + " a non-empty location list has a location")
+                .isTrue();
+    }
+
     @Test
     void concurrentArchitectureScansReturnCanonicalBusyConflict() throws Exception {
         assumeTrue(
@@ -1335,6 +1438,37 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(detailResponse.status())
                 .as("GET /bootui/api/traces/{unknown} must return 404 for an unrecognised trace id")
                 .isEqualTo(404);
+    }
+
+    @Test
+    void requestProfileKeepsOneBackwardCompatibleShapeForAnUnknownRequest() {
+        // The profile drill-down is a detail read of Live Activity, so the root-read sweep never reaches it.
+        // An id that was never captured must answer 200 with the canonical unavailable profile, and every
+        // later, additive section must be present and empty rather than missing, on every adapter.
+        assumeTrue(isPanelUsableInLiveManifest("activity"), "activity panel is not available in this environment");
+        ReadContract contract = BootUiApiContractCatalog.requestProfile();
+
+        Response response = probe().get(api(contract.relativePath()));
+
+        assertThat(response.status())
+                .as("GET %s status", contract.relativePath())
+                .isEqualTo(200);
+        assertThat(response.isJson())
+                .as("GET %s content-type", contract.relativePath())
+                .isTrue();
+        List<String> failures = new ArrayList<>();
+        assertJsonContract("activity request profile", contract, response.json(), failures);
+        assertThat(failures).as("request profile contract").isEmpty();
+        JsonNode profile = response.json();
+        assertThat(profile.path("available").asBoolean(true)).isFalse();
+        assertThat(profile.path("unavailableReason").asText())
+                .isEqualTo("Request conformance-unknown-request is no longer in the buffer");
+        for (String section : List.of("sql", "restCalls", "cacheAccesses", "sections", "correlationTiers")) {
+            assertThat(profile.path(section).size())
+                    .as("$.%s of an unavailable profile", section)
+                    .isZero();
+        }
+        assertThat(profile.path("approximate").asBoolean(true)).isFalse();
     }
 
     @Test

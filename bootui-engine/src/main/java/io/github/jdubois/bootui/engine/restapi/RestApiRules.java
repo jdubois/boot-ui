@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.restapi;
 
 import io.github.jdubois.bootui.core.dto.RestApiRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorFindings;
 import io.github.jdubois.bootui.engine.errorcontract.ErrorBodyCategory;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ControllerModel;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ExceptionHandlerModel;
@@ -63,10 +64,11 @@ abstract class AbstractRestApiRule implements RestApiRule {
             Predicate<HandlerMethodModel> applicable,
             Predicate<HandlerMethodModel> predicate,
             String suffix) {
-        List<String> violations = new ArrayList<>();
+        AdvisorFindings violations = new AdvisorFindings();
         for (HandlerMethodModel handler : context.targets(context.handlers(), applicable)) {
             if (predicate.test(handler)) {
-                violations.add(handler.describe() + (suffix.isEmpty() ? "" : " — " + suffix));
+                violations.add(
+                        handler.describe() + (suffix.isEmpty() ? "" : " — " + suffix), context.location(handler));
             }
         }
         return RestApiRuleSupport.fromViolations(context, definition, violations);
@@ -585,7 +587,7 @@ final class PreferClassLevelBasePathRule extends AbstractRestApiRule {
                     .computeIfAbsent(handler.controllerClassName(), ignored -> new ArrayList<>())
                     .add(handler);
         }
-        List<String> violations = new ArrayList<>();
+        AdvisorFindings violations = new AdvisorFindings();
         for (ControllerModel controller : context.targets(
                 context.controllers(),
                 candidate -> !candidate.declaredOnInterface() && candidate.handlerCount() >= 2)) {
@@ -597,8 +599,10 @@ final class PreferClassLevelBasePathRule extends AbstractRestApiRule {
             List<HandlerMethodModel> controllerHandlers = byController.getOrDefault(controller.className(), List.of());
             String shared = sharedLeadingSegment(controllerHandlers);
             if (shared != null) {
-                violations.add(controller.simpleName() + " repeats leading path segment '/" + shared
-                        + "' on every method but has no class-level @RequestMapping");
+                violations.add(
+                        controller.simpleName() + " repeats leading path segment '/" + shared
+                                + "' on every method but has no class-level @RequestMapping",
+                        context.location(controller));
             }
         }
         return RestApiRuleSupport.fromViolations(context, definition(), violations);
@@ -654,19 +658,23 @@ final class ConsistentPathStyleRule extends AbstractRestApiRule {
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        List<String> violations = new ArrayList<>();
+        AdvisorFindings violations = new AdvisorFindings();
         for (ControllerModel controller : context.controllers()) {
             for (String path : context.targets(controller.typeLevelPaths())) {
                 if (hasIrregularSlash(path)) {
-                    violations.add(controller.simpleName() + " — class-level mapping path '" + path
-                            + "' has an irregular slash");
+                    violations.add(
+                            controller.simpleName() + " — class-level mapping path '" + path
+                                    + "' has an irregular slash",
+                            context.location(controller));
                 }
             }
         }
         for (HandlerMethodModel handler : context.handlers()) {
             for (String path : context.targets(handler.mappingPaths())) {
                 if (hasIrregularSlash(path)) {
-                    violations.add(handler.describe() + " — mapping path '" + path + "' has an irregular slash");
+                    violations.add(
+                            handler.describe() + " — mapping path '" + path + "' has an irregular slash",
+                            context.location(handler));
                 }
             }
         }
@@ -716,7 +724,7 @@ final class PathVariablesAreBoundRule extends AbstractRestApiRule {
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         if (context.jaxRs()) return RestApiRuleSupport.springPathBinding(definition());
-        List<String> violations = new ArrayList<>();
+        AdvisorFindings violations = new AdvisorFindings();
         for (HandlerMethodModel handler : context.handlers()) {
             if (handler.jaxRs()
                     || handler.pathVariableNames().isEmpty()
@@ -736,8 +744,10 @@ final class PathVariablesAreBoundRule extends AbstractRestApiRule {
                     }
                 }
                 if (!unmatched.isEmpty()) {
-                    violations.add(handler.describe() + " — required @PathVariable name(s) " + unmatched
-                            + " have no matching {token} in alternative '" + path + "'");
+                    violations.add(
+                            handler.describe() + " — required @PathVariable name(s) " + unmatched
+                                    + " have no matching {token} in alternative '" + path + "'",
+                            context.location(handler));
                 }
             }
         }
@@ -790,12 +800,14 @@ final class ResourcePathsAreNounsRule extends AbstractRestApiRule {
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        List<String> violations = new ArrayList<>();
+        AdvisorFindings violations = new AdvisorFindings();
         for (HandlerMethodModel handler : context.handlers()) {
             for (String path : handler.effectivePaths()) {
                 for (String segment : context.targets(RestApiRuleHelp.staticSegments(path))) {
                     if (RestApiRuleHelp.isVerbSegment(segment)) {
-                        violations.add(handler.describe() + " — verb-like path segment '" + segment + "'");
+                        violations.add(
+                                handler.describe() + " — verb-like path segment '" + segment + "'",
+                                context.location(handler));
                         break;
                     }
                 }
@@ -860,7 +872,7 @@ final class CollectionsUsePluralNounsRule extends AbstractRestApiRule {
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        List<String> violations = new ArrayList<>();
+        AdvisorFindings violations = new AdvisorFindings();
         for (HandlerMethodModel handler : context.handlers()) {
             if (!handler.httpMethods().contains("GET")
                     || !(handler.returnsCollection() || handler.returnsPageOrSlice())) {
@@ -875,7 +887,9 @@ final class CollectionsUsePluralNounsRule extends AbstractRestApiRule {
                 String last = staticSegments.get(staticSegments.size() - 1);
                 String lower = last.toLowerCase(Locale.ROOT);
                 if (!lower.endsWith("s") && !IRREGULAR_PLURALS.contains(lower) && !UNCOUNTABLE_NOUNS.contains(lower)) {
-                    violations.add(handler.describe() + " — collection path '/" + last + "' is singular");
+                    violations.add(
+                            handler.describe() + " — collection path '/" + last + "' is singular",
+                            context.location(handler));
                     break;
                 }
             }
@@ -899,12 +913,14 @@ final class PathSegmentsAreKebabCaseRule extends AbstractRestApiRule {
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        List<String> violations = new ArrayList<>();
+        AdvisorFindings violations = new AdvisorFindings();
         for (HandlerMethodModel handler : context.handlers()) {
             for (String path : handler.effectivePaths()) {
                 for (String segment : context.targets(RestApiRuleHelp.staticSegments(path))) {
                     if (RestApiRuleHelp.isNonKebab(segment)) {
-                        violations.add(handler.describe() + " — non-kebab-case path segment '" + segment + "'");
+                        violations.add(
+                                handler.describe() + " — non-kebab-case path segment '" + segment + "'",
+                                context.location(handler));
                         break;
                     }
                 }
@@ -1272,7 +1288,7 @@ final class DtosAreImmutableRule extends AbstractRestApiRule {
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        List<String> violations = new ArrayList<>();
+        AdvisorFindings violations = new AdvisorFindings();
         for (HandlerMethodModel handler : context.targets(
                 context.handlers(), candidate -> !candidate.returnsVoid() && candidate.serializesBody())) {
             if (handler.bodyIsUntyped()) {
@@ -1281,7 +1297,8 @@ final class DtosAreImmutableRule extends AbstractRestApiRule {
             }
             if (handler.bodyExposesSetters() && !handler.returnsVoid() && handler.serializesBody()) {
                 violations.add(
-                        handler.describe() + " — response DTO '" + handler.bodyTypeName() + "' exposes public setters");
+                        handler.describe() + " — response DTO '" + handler.bodyTypeName() + "' exposes public setters",
+                        context.location(handler));
             }
         }
         return RestApiRuleSupport.fromViolations(context, definition(), violations);
@@ -1531,14 +1548,16 @@ final class PatchUsesPatchMediaTypeRule extends AbstractRestApiRule {
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        List<String> violations = new ArrayList<>();
+        AdvisorFindings violations = new AdvisorFindings();
         for (HandlerMethodModel handler : context.targets(
                 context.handlers(), candidate -> candidate.httpMethods().contains("PATCH"))) {
             if (!handler.httpMethods().contains("PATCH")) {
                 continue;
             }
             if (handler.effectiveConsumes().stream().noneMatch(PatchUsesPatchMediaTypeRule::isConcreteMediaType)) {
-                violations.add(handler.describe() + " — PATCH declares no positive concrete consumes media type");
+                violations.add(
+                        handler.describe() + " — PATCH declares no positive concrete consumes media type",
+                        context.location(handler));
             }
         }
         return RestApiRuleSupport.fromViolations(context, definition(), violations);
@@ -1645,7 +1664,7 @@ final class PreferProblemDetailRule extends AbstractRestApiRule {
         if (context.exceptionHandlers().isEmpty()) {
             return RestApiRuleSupport.pass(definition());
         }
-        List<String> violations = new ArrayList<>();
+        AdvisorFindings violations = new AdvisorFindings();
         for (ExceptionHandlerModel handler : context.targets(
                 context.exceptionHandlers(),
                 candidate -> !candidate.jaxRs()
@@ -1659,8 +1678,10 @@ final class PreferProblemDetailRule extends AbstractRestApiRule {
                     && !handler.returnsVoid()
                     && !handler.hasResponseParam()
                     && !RestApiRuleHelp.hasUnknownBody(handler)) {
-                violations.add(simpleName(handler.declaringClassName()) + "#" + handler.methodName() + " returns '"
-                        + simpleName(handler.bodyTypeName()) + "' instead of ProblemDetail");
+                violations.add(
+                        simpleName(handler.declaringClassName()) + "#" + handler.methodName() + " returns '"
+                                + simpleName(handler.bodyTypeName()) + "' instead of ProblemDetail",
+                        context.location(handler));
             }
         }
         return RestApiRuleSupport.fromViolations(context, definition(), violations);
@@ -1692,7 +1713,7 @@ final class ExceptionHandlersSetErrorStatusRule extends AbstractRestApiRule {
         if (context.exceptionHandlers().isEmpty()) {
             return RestApiRuleSupport.pass(definition());
         }
-        List<String> violations = new ArrayList<>();
+        AdvisorFindings violations = new AdvisorFindings();
         for (ExceptionHandlerModel handler : context.targets(
                 context.exceptionHandlers(),
                 candidate -> !candidate.jaxRs()
@@ -1708,8 +1729,10 @@ final class ExceptionHandlersSetErrorStatusRule extends AbstractRestApiRule {
                     && !handler.returnsVoid()
                     && !RestApiRuleHelp.hasUnknownBody(handler)
                     && !handler.hasResponseParam()) {
-                violations.add(simpleName(handler.declaringClassName()) + "#" + handler.methodName()
-                        + " declares a body without explicit status selection; review the Spring default status");
+                violations.add(
+                        simpleName(handler.declaringClassName()) + "#" + handler.methodName()
+                                + " declares a body without explicit status selection; review the Spring default status",
+                        context.location(handler));
             }
         }
         return RestApiRuleSupport.fromViolations(context, definition(), violations);
@@ -1776,13 +1799,15 @@ final class ControllersAreTaggedRule extends AbstractRestApiRule {
                 controllersWithTaggedHandler.add(handler.controllerClassName());
             }
         }
-        List<String> violations = new ArrayList<>();
+        AdvisorFindings violations = new AdvisorFindings();
         for (ControllerModel controller : context.targets(context.controllers(), candidate -> !candidate.hidden())) {
             if (controller.hidden()) {
                 continue;
             }
             if (!controller.hasTag() && !controllersWithTaggedHandler.contains(controller.className())) {
-                violations.add(controller.simpleName() + " has no explicit tag/operation-tag grouping");
+                violations.add(
+                        controller.simpleName() + " has no explicit tag/operation-tag grouping",
+                        context.location(controller));
             }
         }
         return RestApiRuleSupport.fromViolations(context, definition(), violations);
@@ -1866,12 +1891,14 @@ final class ResponseProducingEndpointsDeclareProducesRule extends AbstractRestAp
                 controllersDeclaringProduces.add(handler.controllerClassName());
             }
         }
-        List<String> violations = new ArrayList<>();
+        AdvisorFindings violations = new AdvisorFindings();
         for (HandlerMethodModel handler : context.handlers()) {
             if (serializesRepresentation(handler)
                     && handler.effectiveProduces().isEmpty()
                     && controllersDeclaringProduces.contains(handler.controllerClassName())) {
-                violations.add(handler.describe() + " — serializes a body but declares no produces media type");
+                violations.add(
+                        handler.describe() + " — serializes a body but declares no produces media type",
+                        context.location(handler));
             }
         }
         return RestApiRuleSupport.fromViolations(context, definition(), violations);
@@ -1902,7 +1929,7 @@ final class DuplicatePathVariableTokenRule extends AbstractRestApiRule {
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
         if (context.jaxRs()) return RestApiRuleSupport.springPathBinding(definition());
-        List<String> violations = new ArrayList<>();
+        AdvisorFindings violations = new AdvisorFindings();
         for (HandlerMethodModel handler : context.handlers()) {
             if (handler.jaxRs()) {
                 continue;
@@ -1910,7 +1937,9 @@ final class DuplicatePathVariableTokenRule extends AbstractRestApiRule {
             for (String path : context.targets(handler.effectivePaths())) {
                 List<String> duplicates = duplicateTokens(path);
                 if (!duplicates.isEmpty()) {
-                    violations.add(handler.describe() + " — path '" + path + "' has duplicate token(s): " + duplicates);
+                    violations.add(
+                            handler.describe() + " — path '" + path + "' has duplicate token(s): " + duplicates,
+                            context.location(handler));
                 }
             }
         }
@@ -2097,7 +2126,7 @@ final class BroadExceptionHandlerRule extends AbstractRestApiRule {
         if (context.exceptionHandlers().isEmpty()) {
             return RestApiRuleSupport.pass(definition());
         }
-        List<String> violations = new ArrayList<>();
+        AdvisorFindings violations = new AdvisorFindings();
         for (ExceptionHandlerModel handler : context.targets(
                 context.exceptionHandlers(),
                 candidate -> !candidate.jaxRs() && candidate.catchesExceptionOrThrowable())) {
@@ -2113,9 +2142,11 @@ final class BroadExceptionHandlerRule extends AbstractRestApiRule {
                     && !handler.responseStatusValue().isEmpty()
                     && !RestApiRuleHelp.SERVER_ERROR_STATUS_NAMES.contains(handler.responseStatusValue());
             if (mapsToNonServerErrorStatus) {
-                violations.add(simpleName(handler.declaringClassName()) + "#" + handler.methodName()
-                        + " catches Exception/Throwable and maps it to a fixed non-5xx status ("
-                        + handler.responseStatusValue() + ")");
+                violations.add(
+                        simpleName(handler.declaringClassName()) + "#" + handler.methodName()
+                                + " catches Exception/Throwable and maps it to a fixed non-5xx status ("
+                                + handler.responseStatusValue() + ")",
+                        context.location(handler));
             }
         }
         return RestApiRuleSupport.fromViolations(context, definition(), violations);
@@ -2308,14 +2339,16 @@ final class RetryAfterOnThrottlingResponsesRule extends AbstractRestApiRule {
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        List<String> violations = new ArrayList<>();
+        AdvisorFindings violations = new AdvisorFindings();
         for (HandlerMethodModel handler : context.targets(
                 context.handlers(), candidate -> THROTTLING_STATUS_NAMES.contains(candidate.responseStatusValue()))) {
             if (THROTTLING_STATUS_NAMES.contains(handler.responseStatusValue())
                     && !handler.returnsResponseEntity()
                     && !handler.hasResponseParam()) {
-                violations.add(handler.describe() + " declares " + handler.responseStatusValue()
-                        + "; optionally review Retry-After policy");
+                violations.add(
+                        handler.describe() + " declares " + handler.responseStatusValue()
+                                + "; optionally review Retry-After policy",
+                        context.location(handler));
             }
         }
 
@@ -2325,8 +2358,10 @@ final class RetryAfterOnThrottlingResponsesRule extends AbstractRestApiRule {
             if (THROTTLING_STATUS_NAMES.contains(handler.responseStatusValue())
                     && !handler.returnsResponseEntity()
                     && !handler.hasResponseParam()) {
-                violations.add(simpleName(handler.declaringClassName()) + "#" + handler.methodName() + " declares "
-                        + handler.responseStatusValue() + "; optionally review Retry-After policy");
+                violations.add(
+                        simpleName(handler.declaringClassName()) + "#" + handler.methodName() + " declares "
+                                + handler.responseStatusValue() + "; optionally review Retry-After policy",
+                        context.location(handler));
             }
         }
 
