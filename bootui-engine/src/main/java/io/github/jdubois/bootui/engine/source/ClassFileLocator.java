@@ -9,7 +9,9 @@ import java.net.URLConnection;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.security.CodeSource;
 import java.util.ArrayList;
 import java.util.Enumeration;
@@ -102,10 +104,16 @@ public final class ClassFileLocator {
                 }
                 URL root = roots.nextElement();
                 if ("file".equals(root.getProtocol())) {
-                    Path file = regularFile(Path.of(root.toURI()), fileName);
-                    if (file != null) {
+                    Path directory = Path.of(root.toURI());
+                    Presence presence = inspect(directory, fileName);
+                    if (presence == Presence.UNKNOWN) {
+                        // A root that cannot be inspected could hold a second copy.
+                        uncertainLookups++;
+                        return null;
+                    }
+                    if (presence == Presence.PRESENT) {
                         holders++;
-                        match = file;
+                        match = directory.resolve(fileName);
                     }
                 } else if ("jar".equals(root.getProtocol())) {
                     if (archiveHolds(root, fileName)) holders++;
@@ -124,6 +132,31 @@ public final class ClassFileLocator {
             return null;
         }
         return match == null ? null : match.toUri();
+    }
+
+    private enum Presence {
+        PRESENT,
+        ABSENT,
+        UNKNOWN
+    }
+
+    /**
+     * Whether {@code directory} holds {@code fileName} as a regular file, reading attributes without following links.
+     * Anything that cannot be decided, including a link or an access failure, is {@link Presence#UNKNOWN}.
+     */
+    private static Presence inspect(Path directory, String fileName) {
+        try {
+            BasicFileAttributes root =
+                    Files.readAttributes(directory, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            if (!root.isDirectory()) return Presence.UNKNOWN;
+            BasicFileAttributes file = Files.readAttributes(
+                    directory.resolve(fileName), BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            return file.isRegularFile() ? Presence.PRESENT : Presence.UNKNOWN;
+        } catch (NoSuchFileException ex) {
+            return Presence.ABSENT;
+        } catch (IOException | InvalidPathException | SecurityException ex) {
+            return Presence.UNKNOWN;
+        }
     }
 
     private static boolean archiveHolds(URL packageRoot, String fileName) throws IOException {

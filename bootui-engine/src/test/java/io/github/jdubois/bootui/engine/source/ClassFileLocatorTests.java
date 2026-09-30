@@ -139,6 +139,34 @@ class ClassFileLocatorTests {
     }
 
     @Test
+    void aFileRootThatCannotBeInspectedLeavesTheClassUnproven() throws IOException {
+        classFile("app/target/classes/com/example/Order.class");
+        URL locked = directory("locked/com/example");
+        Path lockedPath = workspace.resolve("locked/com/example");
+        java.util.Set<java.nio.file.attribute.PosixFilePermission> original;
+        try {
+            original = Files.getPosixFilePermissions(lockedPath);
+            Files.setPosixFilePermissions(lockedPath, java.util.Set.of());
+        } catch (UnsupportedOperationException ex) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false, "POSIX permissions are unavailable.");
+            return;
+        }
+        try {
+            org.junit.jupiter.api.Assumptions.assumeFalse(
+                    Files.isReadable(lockedPath), "Permissions are not enforced for this user.");
+            ClassFileLocator locator = ClassFileLocator.forScan();
+
+            URI located = locator.locate(
+                    "com.example.Order", loader(List.of(directory("app/target/classes/com/example"), locked)), null);
+
+            assertThat(located.getScheme()).isEqualTo("quarkus");
+            assertThat(locator.notes()).singleElement().asString().contains("within the lookup bounds");
+        } finally {
+            Files.setPosixFilePermissions(lockedPath, original);
+        }
+    }
+
+    @Test
     void tooManyPackageRootsLeaveTheClassUnproven() throws IOException {
         classFile("app/target/classes/com/example/Order.class");
         List<URL> roots = new ArrayList<>();
