@@ -238,9 +238,9 @@ graph LR
 - v2 pull requests target `v2`, stay small, and pass the same gates as `main` pull requests (§9, §11).
 - **M0-1** extends `.github/workflows/build.yml` push and pull-request filters to `v2`, so the full build, conformance
   runners, and browser suites run on every v2 change.
-- Existing 1.x bugs found by this work are fixed on `main` as 1.x patches, not held for 2.0 (D8): the
-  `OFFSET 0 ROWS FETCH FIRST` clause in `JdbcActivityStore`, which no MySQL version accepts, and `StackFramePrefixes`
-  treating the sample apps' package as framework code.
+- Existing 1.x bugs found by this work are fixed on `main` as 1.x patches, not held for 2.0 (D8). Both found so far
+  are fixed and merged into `v2`: Live Activity persistence on MySQL and Oracle (#1144), and call sites in the sample
+  apps (#1143).
 
 ### 4.3 Releases
 
@@ -376,6 +376,21 @@ Architecture:
 - Sequences are unique per `(instanceId, runId)`, so a restart never collides with a previous run.
 - The dispatcher owns aggregation, so the application thread only snapshots, allocates the envelope, and offers.
 
+Storage design decisions (settled before M2; defaults are properties unless noted):
+
+| Decision | Choice | Why |
+| --- | --- | --- |
+| Clocks | Durations come from `System.nanoTime()`; epoch milliseconds are kept only to order events across sources and to display them | Wall clocks jump, and sub-millisecond local SQL must not collapse to zero |
+| Latency percentiles | A log-linear histogram written in the engine: microsecond values, 32 powers of two (1 µs to about 36 minutes), 16 linear sub-buckets each, so any percentile is within 6.25 % of the true value. Aggregates hold a dense `int[512]` (2 KB); run summaries serialize only non-empty buckets | Deterministic, mergeable across runs, and dependency-free. A t-digest is harder to merge and test, and fixed-width buckets cannot span 0.5 ms to 30 s |
+| String sharing | A per-run dictionary interns route templates, handlers, statement fingerprints, normalized SQL, call sites, thread families, datasource names, and exception-group ids; events hold small integer codes | Keeps the average retained event within the byte budget |
+| Byte accounting | The dispatcher estimates each retained row's size once (a fixed overhead per event type plus the lengths of its non-interned strings) and keeps a running total, evicting until both the count and byte bounds hold. Dictionaries count against the same budget | A bounded journal needs a bound it can compute in O(1) |
+| Evidence ring | Array-backed rings, one for routine events and one for the reserved failed-and-slow share (10 % by default), newest first across both | O(1) insertion and eviction, and §3.24's semantics |
+| Budget per event | At 50,000 events in 32 MB, about 670 bytes per event including indexes, which a typical interned SQL event (400–750 bytes) meets. On a small heap, the 5 % byte bound binds before the count bound | The status block names the bound that binds, with the oldest retained time |
+| Cardinality caps | 500 routes, 2,000 statement fingerprints (50 per route), 500 exception groups, 100 thread families, and 20 call sites per fingerprint. Beyond a cap, events go to a visible **Other** bucket with a count | A dynamic path or unparameterized SQL cannot exhaust memory or silently disappear |
+| Queue and drops | `queue-capacity` 10,000; the last 10 % admits only failed or slow events, so routine events drop first. The dispatcher drains in batches of up to 512 events | Bursts must not drop the evidence developers came for |
+| Run summaries | The holder keeps the 5 most recent runs, each ≤ 256 KB (≤ 1.3 MB in total), evicting the oldest. Summaries hold templates, fingerprints, group ids, counts, histograms, and each run's comparability facts: never principals, values, or SQL literals | Enough history for "since the last few reloads" at a fixed cost |
+| Windows | Every report states two windows: the **aggregate window** (all events of the run, before eviction) and the **evidence window** (retained rows, biased toward failures by the reservation) | Percentiles and exemplars answer different questions and must not be confused |
+
 Out of scope for 2.0:
 
 - A JDBC event journal. Live Activity persistence keeps its existing `bootui_activity` table, now fed by a journal
@@ -399,7 +414,8 @@ the journal and extends its request profile, behind parity tests, before the pol
 Scope:
 
 - Serve the Live Activity feed, Live Flow, and SSE stream from the journal. Live Activity persistence writes the
-  existing `bootui_activity` rows from a journal subscriber, so bursts are no longer lost and no table changes.
+  existing `bootui_activity` rows from a journal subscriber, so bursts are no longer lost and no table changes. The
+  subscriber never writes rows less masked than `MASKED` (§8).
 - Nest children by `REQUEST_ID` first, then §3.20's tiers, so request-thread SQL, security, cache, exception, log, and
   Kafka rows sit under their request.
 - Add transaction, log, and AI call rows on the stacks that capture them.
@@ -720,16 +736,17 @@ Each unavailable cell is returned as availability with a reason and documented i
 ## 8. Safety, privacy, and performance
 
 The journal follows the model the 1.x buffers and §3.27 already use: **store bounded raw evidence in memory, apply the
-live exposure policy at read time, and write to disk only an irreversible, metadata-only form.**
+live exposure policy at read time, and never write to disk anything less masked than `MASKED`.**
 
 | Concern | Rule |
 | --- | --- |
-| Never captured | Bind values, message payloads, request bodies, and email bodies, subjects, and recipients, in every mode |
+| Never captured | Bind values (even with SQL Trace's `capture-parameters` on), message payloads, request bodies, and email bodies, subjects, and recipients, in every mode |
 | Read-time exposure | Journal rows, observations, evidence, exports, and MCP output pass through `SecretMasker` and the live `ExposurePolicy` when read, so a change from `FULL` to `MASKED` applies at once |
 | Cached projections | Keyed by exposure generation, and discarded when the policy changes |
 | Source-panel policy | Evidence from a disabled panel's source is omitted, with the reason |
-| Principals and sessions | Pseudonymized with a keyed hash under a per-process random key, never a plain hash, as §3.14 requires |
-| On disk | The baseline file and `bootui_activity` rows hold metadata only: templates, fingerprints, group ids, counts, and timings |
+| Principals and sessions | Pseudonymized with a keyed hash under a per-process random key, never a plain hash, as §3.14 requires. Run summaries and the baseline file hold only counts of anonymous and authenticated requests, never principals |
+| On disk: baseline file | Metadata only: route templates, statement fingerprints, exception-group ids, counts, histograms, and comparability facts |
+| On disk: `bootui_activity` rows | Opt-in Live Activity persistence keeps its 1.x columns, including summaries, paths, and the principal. The journal subscriber writes them as rendered under `MASKED` even when the live policy is `FULL`, pseudonymizes the principal, and re-applies the live policy when rows are read, so `METADATA_ONLY` omits summaries and details. This is a 2.0 behavior change, noted in `CHANGELOG.md` |
 | Page load | Reads project aggregates within a time budget; nothing captures, scans, reads a database, or calls a network |
 | Production | Quarkus registers nothing in `LaunchMode.NORMAL`; Spring activation rules are unchanged |
 | Self-exclusion | BootUI's threads, paths, and JDBC never enter the journal |
@@ -740,6 +757,7 @@ live exposure policy at read time, and write to disk only an irreversible, metad
 | Application thread: snapshot, envelope, and `offer` | < 2 µs p99 on a reference machine; never blocks |
 | Sample-app throughput, journal on versus off | Within 5 % |
 | Retained rows | ≤ the smaller of 32 MB and 5 % of the maximum heap, evictions counted |
+| Dispatcher | Sustains at least 20,000 events per second on a reference machine (the PoC produced 88), measured by the overhead scenario |
 | Projection read | ≤ 250 ms, then `PARTIAL` |
 
 ## 9. Cross-cutting work
@@ -799,12 +817,16 @@ lands on `v2` and before 2.0.0:
 | D8 | Where do 1.x bugs found by v2 go? | `main`, as 1.x patches |
 | D9 | Persist a baseline across JVM restarts? | Opt-in file in the build output directory; JDBC deferred |
 | D10 | Panel name? | Runtime Insights, the maintainer's term. "Explain" was proposed and rejected |
+| D11 | How are percentiles computed? | An engine log-linear histogram within 6.25 %, mergeable across runs (§5.2) |
+| D12 | What may reach disk? | Nothing less masked than `MASKED`; the baseline file holds metadata only (§8) |
+| D13 | How many previous runs are kept? | The 5 most recent, each ≤ 256 KB (§5.2) |
 
 ## Appendix A. Review log
 
 The first draft was audited independently by three models, each with a primary lens and a shared brief to maximize
 business value: Claude Opus 5.5 (product strategy, **S**), GPT-6.1 Sol (technical feasibility, **F**), and Grok 4.7
-(adoption and agent value, **A**). The draft was then reconciled with the reordered v1 plan (commit `be7762ab1`).
+(adoption and agent value, **A**). The draft was then reconciled with the reordered v1 plan (commit `be7762ab1`). A
+later design review of storage and algorithms (**Design review**) settled the journal's storage decisions before M2.
 
 | Proposal | By | Outcome |
 | --- | --- | --- |
@@ -841,6 +863,9 @@ business value: Claude Opus 5.5 (product strategy, **S**), GPT-6.1 Sol (technica
 | One exchange-repository design shared with v1 §3.24a | S, F | Accepted (§3, §5.1) |
 | v1's new waves, CLI naming rule, and cross-cutting checklist | Main | Adopted (§3, §4.1, §5.6, §9) |
 | Sync `v2` with `main` and update this plan before each new piece of work | Maintainer | Adopted (§4.2, §11) |
+| Settle the histogram, byte accounting, cardinality caps, drop priority, run-summary retention, and the two report windows before M2 | Design review | Adopted (§5.2) |
+| `bootui_activity` persists summaries, paths, and principals, contradicting "metadata only on disk" | Design review | Fixed: never less masked than `MASKED`, principal pseudonymized, live policy re-applied on read (§8) |
+| Name a dispatcher throughput budget, since a single thread can become the bottleneck | Design review | Adopted (§8) |
 
 ## Appendix B. Proof-of-concept evidence
 
