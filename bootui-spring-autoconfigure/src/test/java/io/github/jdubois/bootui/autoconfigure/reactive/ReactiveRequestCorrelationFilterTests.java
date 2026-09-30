@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.reactive;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
@@ -11,6 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.server.reactive.HttpHandler;
@@ -19,6 +21,7 @@ import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
 
 /**
@@ -93,6 +96,38 @@ class ReactiveRequestCorrelationFilterTests {
                             .requestId());
         }
         assertThat(blockingReads.values()).doesNotHaveDuplicates();
+    }
+
+    @Test
+    void aCancelledTimedOutOrFailedRequestLeavesNoContextOnTheSchedulerThreadItUsed() {
+        Hooks.enable();
+        Scheduler single = Schedulers.newSingle("bootui-leak-probe");
+        try {
+            WebFilterChain hangs =
+                    exchange -> Mono.delay(Duration.ofSeconds(30), single).then();
+            WebFilterChain fails = exchange -> Mono.fromCallable(() -> "work")
+                    .subscribeOn(single)
+                    .flatMap(work -> Mono.<Void>error(new IllegalStateException("handler failed")));
+
+            filter.filter(exchange("/api/cancelled"), hangs).subscribe().dispose();
+            assertThatThrownBy(() -> filter.filter(exchange("/api/timed-out"), hangs)
+                            .timeout(Duration.ofMillis(50))
+                            .block(Duration.ofSeconds(5)))
+                    .hasCauseInstanceOf(TimeoutException.class);
+            assertThatThrownBy(
+                            () -> filter.filter(exchange("/api/failed"), fails).block(Duration.ofSeconds(5)))
+                    .hasMessageContaining("handler failed");
+
+            // Read the thread's own holder, without automatic propagation restoring anything around the task.
+            Hooks.disable();
+            CorrelationContext left = Mono.fromCallable(BootUiCorrelation::current)
+                    .subscribeOn(single)
+                    .block(Duration.ofSeconds(5));
+            assertThat(left).isSameAs(CorrelationContext.NONE);
+            assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
+        } finally {
+            single.dispose();
+        }
     }
 
     @Test

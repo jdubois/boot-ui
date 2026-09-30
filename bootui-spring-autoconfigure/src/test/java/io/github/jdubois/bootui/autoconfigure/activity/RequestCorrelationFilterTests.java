@@ -18,6 +18,7 @@ import org.slf4j.MDC;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import org.springframework.web.servlet.HandlerMapping;
 
 class RequestCorrelationFilterTests {
@@ -96,6 +97,40 @@ class RequestCorrelationFilterTests {
         assertThat(seen).hasSize(2);
         assertThat(seen.get(1)).isEqualTo(seen.get(0)).isNotNull();
         assertThat(registry.snapshot()).hasSize(1);
+        assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
+    }
+
+    @Test
+    void anAsyncTimeoutAndItsErrorDispatchRunUnderTheRequestIdAndLeaveTheThreadClean() throws Exception {
+        RequestCorrelationFilter filter = new RequestCorrelationFilter(
+                new RequestCorrelationRegistry(10), new HttpExchangeTraceRegistry(10), "/bootui");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/orders");
+        List<String> seen = new ArrayList<>();
+        filter.doFilter(
+                request,
+                new MockHttpServletResponse(),
+                (req, res) -> seen.add(BootUiCorrelation.current().requestId()));
+
+        request.setDispatcherType(DispatcherType.ASYNC);
+        request.removeAttribute(filter.getClass().getName() + ".FILTERED");
+        FilterChain timesOut = (req, res) -> {
+            seen.add(BootUiCorrelation.current().requestId());
+            throw new AsyncRequestTimeoutException();
+        };
+        assertThatThrownBy(() -> filter.doFilter(request, new MockHttpServletResponse(), timesOut))
+                .isInstanceOf(AsyncRequestTimeoutException.class);
+        assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
+
+        request.setDispatcherType(DispatcherType.ERROR);
+        request.removeAttribute(filter.getClass().getName() + ".FILTERED");
+        FilterChain errorPageFails = (req, res) -> {
+            seen.add(BootUiCorrelation.current().requestId());
+            throw new ServletException("error page failed");
+        };
+        assertThatThrownBy(() -> filter.doFilter(request, new MockHttpServletResponse(), errorPageFails))
+                .isInstanceOf(ServletException.class);
+
+        assertThat(seen).hasSize(3).containsOnly(seen.get(0)).doesNotContainNull();
         assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
     }
 

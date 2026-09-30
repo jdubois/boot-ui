@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.smallrye.common.vertx.VertxContext;
 import io.vertx.core.Context;
 import io.vertx.core.Vertx;
+import io.vertx.core.WorkerExecutor;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterAll;
@@ -72,6 +73,39 @@ class QuarkusRequestCorrelationTest {
         });
 
         assertThat(seenBySecond.get(10, TimeUnit.SECONDS)).isSameAs(CorrelationContext.NONE);
+    }
+
+    @Test
+    void aReusedWorkerThreadCarriesNoContextIntoTheNextRequest() throws Exception {
+        WorkerExecutor worker = vertx.createSharedWorkerExecutor("bootui-leak-probe", 1);
+        try {
+            Context first = VertxContext.createNewDuplicatedContext(vertx.getOrCreateContext());
+            Context next = VertxContext.createNewDuplicatedContext(vertx.getOrCreateContext());
+            CompletableFuture<String> firstRead = new CompletableFuture<>();
+            CompletableFuture<String> nextRead = new CompletableFuture<>();
+
+            first.runOnContext(ignored -> {
+                QuarkusRequestCorrelation.attach(CorrelationContext.forRequest("r1"));
+                worker.executeBlocking(this::describeWorker).onComplete(result -> firstRead.complete(result.result()));
+            });
+            String[] firstSeen = firstRead.get(10, TimeUnit.SECONDS).split("\\|");
+            next.runOnContext(ignored -> worker.executeBlocking(this::describeWorker)
+                    .onComplete(result -> nextRead.complete(result.result())));
+            String[] nextSeen = nextRead.get(10, TimeUnit.SECONDS).split("\\|");
+
+            assertThat(nextSeen[0]).as("the same worker thread").isEqualTo(firstSeen[0]);
+            assertThat(firstSeen[1]).isEqualTo("r1");
+            assertThat(nextSeen[1]).as("the next request's context").isEqualTo("null");
+            assertThat(nextSeen[2]).as("the worker thread's own holder").isEqualTo("null");
+        } finally {
+            worker.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        }
+    }
+
+    private String describeWorker() {
+        return Thread.currentThread().getName() + "|"
+                + QuarkusRequestCorrelation.current().requestId() + "|"
+                + BootUiCorrelation.current().requestId();
     }
 
     @Test

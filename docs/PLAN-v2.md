@@ -164,11 +164,14 @@ The M0-3 overhead baseline (`CaptureOverheadBenchmarkTest`, opt-in) measured tod
 worst-case route that answers in about 0.7 ms: with BootUI on, the sample app sustains a median 83 % of the throughput
 it reaches with BootUI off, and its p99 latency rises from 1.81 ms to 2.52 ms, with tracing sampling every request in
 both configurations. Slower, realistic requests dilute this cost. The journal target above is measured on top of this
-baseline, with BootUI on in both runs, and M1 and M2 must not make the BootUI-on figure worse.
+baseline, with BootUI on in both runs, and M1 and M2 must not make the BootUI-on figure worse. After M1, the same
+benchmark, on JDK 26, measures a median 87 % of the BootUI-off throughput, with p99 latency rising from 1.25 ms to
+1.54 ms, so M1's request ids, execution ids, phases, and thread kinds cost no measurable throughput.
 
 ### 2.3 Gates
 
 - **After M1.** If exact correlation stays below 95 % on Spring MVC or Quarkus, fix capture before building on it.
+  Passed: the M1-6f scenario measures 100 % on every stack, in every phase, with and without tracing (§1.1).
 - **After M3.** If fewer than 50 % of external-application observations are judged useful, stop adding observations and
   fold the useful ones into the existing panels they belong to.
 - **Before 2.0.0.** If the overhead target is missed, the journal ships disabled by default and the release notes say
@@ -219,7 +222,7 @@ Three design points shape how v2 reuses v1 foundations:
 | Milestone | Delivers | Depends on | Effort (engineer-days, rough) | Status |
 | --- | --- | --- | --- | --- |
 | **M0 Readiness** | CI on `v2`, the correlation and overhead scenarios as baselines, and the propagation and restart spikes (§5.1, §5.8) | — | 5–8 | ✅ Delivered |
-| **M1 Exact correlation** (§5.1) | One correlation context on every event, with or without tracing, on all three stacks, and the request phase markers | M0; v1 wave 1 (§3.20a ✅, §3.24a ✅) | 45–56 | 🚧 In progress |
+| **M1 Exact correlation** (§5.1) | One correlation context on every event, with or without tracing, on all three stacks, and the request phase markers | M0; v1 wave 1 (§3.20a ✅, §3.24a ✅) | 45–56 | ✅ Delivered |
 | **M2 Journal and Live Activity** (§5.2, §5.3, §5.11) | The in-memory journal, incremental aggregates, run summaries, resource correlation (scope readings, GC by id, CPU ledger, resource track), and Live Activity served from the journal with its unified timeline | M1; §3.22, §3.27 | 44–56 | 📋 Planned |
 | **M3 Runtime Insights** (§5.4–§5.6) | Projections, the runtime model, the panel, Live Activity entry points, twelve observations, agent tools, and the demo | M2; §3.25 | 52–65 | 📋 Planned |
 | **M4 Change loop and 2.0 readiness** (§5.7–§5.9, §5.12) | Change impact, run comparison and behavior diff, anonymous access, proxy bypass, external validation, and the release path | M3; §3.18 | 33–45 | 📋 Planned |
@@ -312,13 +315,14 @@ graph LR
 
 ## 5. Feature specifications
 
-### 5.1 Exact correlation — Cross-cutting 📋 Planned
+### 5.1 Exact correlation — Cross-cutting ✅ Delivered
 
 Every runtime event should know, when it happens, which request, trace, span, transaction, and run it belongs to, with
-or without tracing. Today the Spring MVC exchange's trace id is re-derived by `HttpExchangeTraceRegistry.match` (method
-and path, ±50 ms, unique candidate only), exceptions and security events on Spring MVC carry no trace id, and no stack
-has a request identity that works without tracing. Adding fields is the easy part; **propagating the context across
-thread, Reactor, and Vert.x boundaries is the critical engineering problem**.
+or without tracing. Before M1, the Spring MVC exchange's trace id was re-derived by `HttpExchangeTraceRegistry.match`
+(method and path, ±50 ms, unique candidate only), exceptions and security events on Spring MVC carried no trace id,
+and no stack had a request identity that worked without tracing. M1 delivered it (§1.1 has the measurements). Adding
+fields is the easy part; **propagating the context across thread, Reactor, and Vert.x boundaries is the critical
+engineering problem**.
 
 Scope:
 
@@ -424,7 +428,7 @@ Delivery slices, each one pull request to `v2` with its own tests and documentat
 | M1-6d2 | Request phase markers on Quarkus: a JAX-RS `@Provider` whose request filter runs last, just before the resource method, and whose response filter runs first, just after it, so entity writing runs in `RESPONSE`. Spring Security's authentication time is summed into each request's markers from its authentication observation, on both Spring stacks. Spring WebFlux has no hook between an annotated handler and its result writing short of replacing its `RequestMappingHandlerAdapter`, so its statements carry no phase; the §5.3 timeline falls back to handler-less intervals there | M1-6d | ✅ Delivered |
 | M1-6e | Spring for GraphQL (an optional dependency) names each request's operation from its `graphql.request` observation, reading the operation graphql-java parsed, and the operation becomes part of the route, such as `/graphql (query ProductList)`, in the exchange list, route rankings, and route filter. REST client summaries keep the port their URI states, in both assemblers and the profile drawer | M1-5 | ✅ Delivered |
 | M1-6f | The extended correlation scenario (§1.1). Spring MVC and Quarkus run it with tracing on and off. A route hands its query to a raw executor, and on Spring MVC a route sends to Kafka on an in-JVM broker. Every phase enforces 100 % nesting on every stack, WebFlux included, and every request carrying its own trace id when tracing is on. The scenario also checks that no child is nested under a request that was not running when it happened, that raw-executor work is reported and never nested, and, by reading one profile per route, that no request-thread profile is approximate. Spring exchanges now find their trace id and route template through their request id, so identical overlapping requests keep them. On Quarkus, Kafka and RabbitMQ sends need a container broker, so their sender nesting stays covered by `QuarkusKafkaCaptureTests` and the RabbitMQ integration test | M1-6e | ✅ Delivered |
-| M1-6g | The no-leak guard: engine tests reusing platform threads, virtual threads, and Reactor schedulers, adapter tests after async timeouts, errors, and cancellations on Spring MVC and WebFlux, and Vert.x worker hops on Quarkus, a JUnit extension that fails any engine or adapter test leaving a correlation scope open, and a new `runId` on a DevTools restart and a Quarkus live reload | M1-6f | 📋 Planned |
+| M1-6g | The no-leak guard. `CorrelationLeakGuard`, a JUnit extension every engine, Spring adapter, and Quarkus adapter test runs under, fails a test that leaves a correlation scope open on its thread, and clears the thread so only that test fails. Tests prove that a thread started inside a scope inherits nothing, that 200 virtual threads keep their own context across unmounts, that a Spring MVC async timeout and a failing error page run under the request id and leave the thread clean, that a cancelled, timed-out, or failed WebFlux request leaves nothing on the scheduler thread it used, and that a reused Vert.x worker carries nothing into the next request. A `QuarkusDevModeTest` edits a resource and reads a new `runId`, with the next ordinal, of the same BootUI instance; a Spring context restart already had its test | M1-6f | ✅ Delivered |
 
 ### 5.2 Runtime journal — Diagnostics 📋 Planned
 

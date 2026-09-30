@@ -285,6 +285,11 @@ the Spring MVC runners send Kafka messages to an in-JVM broker. Each runner writ
 ./mvnw -B -ntp -pl bootui-quarkus-integration-tests/otel test -Dtest='BootUiQuarkusCorrelationCoverage*'
 ```
 
+The engine, the Spring adapter, and the Quarkus adapter run every test under `CorrelationLeakGuard`, registered in
+each module's `junit-platform.properties`. It fails a test that leaves a BootUI correlation scope open on its thread,
+because that scope would leak into whichever test the thread runs next. Close every scope a test opens, for example
+with try-with-resources.
+
 The capture overhead benchmark (`CaptureOverheadBenchmarkTest`) compares the Spring MVC sample app's throughput and
 latency with BootUI on and off. Timings depend on the machine, so it is opt-in and never a CI gate. It takes about
 three minutes and writes its report to `target/capture-overhead/`:
