@@ -71,11 +71,11 @@ few trustworthy observations exactly where developers and agents already look.**
 2. **Remembered.** Evidence outlives the 200-entry window and survives a DevTools restart or Quarkus live reload, so
    "what changed since the last run?" has an answer (§5.2, §5.3, §5.8).
 3. **Explained.** Observations answer the questions in §1.1 in one sentence with numbers, a sample size, and a concrete
-   check, in Live Activity, a Runtime Insights panel, and agent tools (§5.4–§5.9).
+   check, in Live Activity, a Runtime Insights panel, and agent tools (§5.4–§5.9, §5.12).
 
 The graph from the study remains the conceptual model: requests, routes, beans, tables, transactions, and messages,
-joined by typed relations. With exact keys, those joins become indexed group-bys maintained as events arrive, so 2.0
-needs neither a graph database nor a general graph engine.
+joined by typed relations. With exact keys, most joins become indexed group-bys maintained as events arrive. The rest
+walk a small in-memory typed runtime model (§5.4), so 2.0 needs neither a graph database nor a general graph engine.
 
 ### 1.3 What does not change
 
@@ -112,15 +112,16 @@ Spring WebFlux, and Quarkus, readable by humans and agents alike**.
 
 | Job | Today in 1.x | With 2.0 | Where |
 | --- | --- | --- | --- |
-| Explain a slow route | One trace, then SQL Trace, then Transactions | Where a route's time goes across all its requests, with or without tracing | §5.5 `route-time-breakdown` |
-| Fix repeated queries | N+1 flags one request at a time | N+1 groups across a route, with the call site | §5.5 `n-plus-one-hotspots` |
-| Find what broke | Scan the Exceptions list | Exception groups per route, marked new in this run | §5.5 `exception-hotspots` |
-| Check a change | Remember numbers, or nothing | Per-route and per-statement deltas against the previous run, after a hot reload | §5.8 |
-| Prepare a refactoring | Beans graph without traffic | Beans, routes, and tables a change can reach, with observed traffic and unexercised routes | §5.7 |
-| Review data access | Security and SQL Trace, separately | Anonymous writes, and anonymous reach of tables otherwise used only by protected routes | §5.9 |
-| Catch a hidden failure | A 200 in HTTP Exchanges, an exception in another panel | Routes that answered 2xx while an exception or error log was recorded in the same request | §5.5 `swallowed-error-2xx` |
-| Keep reactive code non-blocking | Invisible until production stalls | Blocking SQL, REST, or sleeps observed on event-loop threads, per route and call site | §5.5 `event-loop-blocking` |
-| Control LLM spend | Token counts per span, one at a time | Tokens, model, latency, and errors per route or job, and their change since the last run | §5.5 `llm-cost-by-route` |
+| Explain a slow route | One trace, then SQL Trace, then Transactions | Named phases across a route's warm requests: authentication, filters, connection wait, handler, and response write, with CPU and allocation | §5.5 `route-time-breakdown` |
+| Fix repeated queries | N+1 flags one request at a time | Repeated SELECTs across a route, with the call site and the phase, including queries run while the response is written | §5.5 `repeated-selects`, `lazy-sql-after-handler` |
+| Find what broke | Scan the Exceptions list | Exception groups per route, not observed in the previous run, with a check for well-known framework exceptions | §5.5 `exception-hotspots` |
+| Catch a hidden failure | A 200 in HTTP Exchanges, an exception in another panel | 2xx responses whose transaction rolled back, or that recorded an exception, an error log, or a failed downstream call | §5.5 `errors-behind-2xx` |
+| Understand Spring's machinery | Guess from annotations and log noise | Transactions bypassed by self-invocation, one request holding two connections, writes split across transactions, GET requests that write, and framework warnings by route | §5.5, §5.12 |
+| Keep reactive code non-blocking | Invisible until production stalls | JDBC started on event-loop threads, per route and call site | §5.5 `event-loop-blocking` |
+| Control AI usage | Token counts per span, one at a time | Tokens, model calls per request, prompt growth, and length-limited answers per route or job | §5.5 `ai-usage-by-route` |
+| Check a change | Remember numbers, or nothing | What the reload changed: new queries, hosts, exceptions, dependencies, and restart cost, then latency | §5.8 |
+| Prepare a refactoring | Beans graph without traffic | Routes a change reaches, through beans or shared tables and hosts, with observed traffic and unexercised routes | §5.7 |
+| Review anonymous access | Security and SQL Trace, separately | Anonymous writes, and anonymous 2xx on routes declared protected | §5.9 |
 | Give an agent runtime ground truth | The last few seconds of `get_live_activity` | Compact observations with exemplar request ids, and targeted impact and comparison tools | §5.6 |
 
 ### 2.2 How success is measured
@@ -133,7 +134,7 @@ controls:
 | Exact correlation | ≥ 99 % of request-thread events carry their request id on Spring MVC and Quarkus, with and without tracing; WebFlux reports its measured coverage | Concurrency scenario on the sample apps, in CI (§5.1) |
 | Capture overhead | < 2 µs p99 for the full application-thread path on a reference machine; sample-app throughput within 5 % with the journal on versus off | Timed engine test and a sample-app benchmark scenario |
 | External validity | On five open-source applications not written for BootUI (Spring PetClinic, a JHipster sample, Quarkus Super Heroes, a WebFlux sample, and a Kafka application), ≥ 70 % of observations judged actionable or informative by two reviewers, and none misleading | A validation report under `docs/`, rerun before 2.0.0 |
-| Agent effectiveness | Ten scripted investigations answered correctly from tool output alone, with fewer tool calls than with 1.x tools | A local agent benchmark with no telemetry, baseline measured first |
+| Agent effectiveness | Ten scripted investigations answered correctly from tool output alone, with fewer tool calls than with 1.x tools, and five refusal fixtures where the right answer is not to edit (§5.6) | A local agent benchmark with no telemetry, baseline measured first |
 | Time to first observation | ≤ 5 minutes from adding the dependency to reading a first observation, with tracing off and no extra property | Scripted walkthrough on each sample app |
 | Honesty | No observation on any counterexample fixture; "not enough evidence" never reads as "no change" | Fixture tests per observation |
 
@@ -194,12 +195,12 @@ Three design points change how v1 items are finished, without changing their v1 
 | Milestone | Delivers | Depends on | Effort (engineer-days, rough) | Status |
 | --- | --- | --- | --- | --- |
 | **M0 Readiness** | CI on `v2`, the correlation and overhead scenarios as baselines, and the propagation and restart spikes (§5.1, §5.8) | — | 5–8 | ✅ Delivered |
-| **M1 Exact correlation** (§5.1) | One correlation context on every event, with or without tracing, on all three stacks | M0; v1 wave 1 (§3.20a, §3.24a) | 42–52 | 📋 Planned |
-| **M2 Journal and Live Activity** (§5.2, §5.3, §5.11) | The in-memory journal, incremental aggregates, run summaries, resource correlation (scope readings, GC by id, CPU ledger, resource track), and Live Activity served from the journal with its unified timeline | M1; §3.22, §3.27 | 41–53 | 📋 Planned |
-| **M3 Runtime Insights** (§5.4–§5.6) | Projections, the panel, Live Activity entry points, ten observations, agent tools, and the demo | M2; §3.25 | 45–57 | 📋 Planned |
-| **M4 Change loop and 2.0 readiness** (§5.7–§5.9) | Change impact, run comparison, anonymous data reach, external validation, and the release path | M3; §3.18 | 25–35 | 📋 Planned |
+| **M1 Exact correlation** (§5.1) | One correlation context on every event, with or without tracing, on all three stacks, and the request phase markers | M0; v1 wave 1 (§3.20a, §3.24a) | 45–56 | 📋 Planned |
+| **M2 Journal and Live Activity** (§5.2, §5.3, §5.11) | The in-memory journal, incremental aggregates, run summaries, resource correlation (scope readings, GC by id, CPU ledger, resource track), and Live Activity served from the journal with its unified timeline | M1; §3.22, §3.27 | 44–56 | 📋 Planned |
+| **M3 Runtime Insights** (§5.4–§5.6) | Projections, the runtime model, the panel, Live Activity entry points, twelve observations, agent tools, and the demo | M2; §3.25 | 52–65 | 📋 Planned |
+| **M4 Change loop and 2.0 readiness** (§5.7–§5.9, §5.12) | Change impact, run comparison and behavior diff, anonymous access, proxy bypass, external validation, and the release path | M3; §3.18 | 33–45 | 📋 Planned |
 
-M0–M4 total about **158–205 engineer-days**, roughly six to eight months with two developers who also maintain 1.x.
+M0–M4 total about **179–230 engineer-days**, roughly seven to nine months with two developers who also maintain 1.x.
 Opt-in JFR attribution (§5.11) is not included; it adds 6–9 engineer-days if D17 brings it into 2.0.
 The v1 foundations are estimated in their own plan. Before v1 wave 1 lands, `v2` works on M0 and the spikes.
 
@@ -290,7 +291,15 @@ Scope:
 - Add nullable, additive `requestId` fields (and `spanId`, `transactionId`, `dataSource`, `thread` where missing) to
   the affected DTOs, each with a secondary constructor matching today's canonical one.
 - Record the **thread kind** of every event (request worker, virtual thread, Reactor Netty or Vert.x event loop, Reactor
-  scheduler, or other), classified by the adapter that owns the thread rather than guessed from its name later.
+  scheduler, or other), classified by the adapter that owns the thread rather than guessed from its name later. For an
+  operation, record the kind of the thread it **started** on, not the one it completed on.
+- Record **request phase markers** in the context: handler dispatch and handler return, and the start of response
+  writing and view rendering. Spring MVC uses `HandlerInterceptor` and `ResponseBodyAdvice`, WebFlux its handler
+  adapter, and Quarkus JAX-RS filters and a `WriterInterceptor`. Where Spring Security's authentication observation is
+  active, an `ObservationHandler` records the authentication interval, as `ScheduledTaskRunObservationHandler` already
+  does for scheduled runs.
+- Record the Spring for GraphQL operation type and name from its `graphql.request` observation, so each operation is a
+  route of its own.
 - Keep the port in Live Activity REST client summaries, so two local services on different ports stay distinct.
 
 Architecture:
@@ -375,6 +384,12 @@ Scope:
   persistence disclosure, and a confirmation-gated **Clear recording** action that read-only policy blocks.
 - **Per-request CPU time, allocated bytes, and GC pauses**, measured by §5.11's scope readings: summed over every
   segment a request runs on a thread, including thread hops, and unavailable, with the reason, on virtual threads.
+- **Connection checkout and release** timestamps and the pool of each logical connection, from the JDBC proxy, which
+  already intercepts `getConnection`, so connection wait, connection holding, and connections per request are measured.
+- Up to **four interned application frames** per SQL, REST client, and cache event, with their method types, where
+  1.x keeps one call site.
+- For framework loggers, the **unformatted message template** of each `WARN` and `ERROR` event, so warnings group
+  exactly without storing their arguments.
 - Properties under `bootui.runtime-journal.*`: `enabled`, `max-events`, `max-bytes`, `queue-capacity`, and `sources`,
   which also accepts `gc` and `resources` (§5.11).
 
@@ -457,10 +472,10 @@ Acceptance criteria:
   sources, against the 1.x feed.
 - Existing Live Activity API consumers keep working: DTO changes are additive.
 
-### 5.4 Runtime projections — Engine 📋 Planned
+### 5.4 Runtime projections and runtime model — Engine 📋 Planned
 
 Observations need joins across sources. With exact keys, those joins are lookups in the journal's aggregates and small
-indexes, so this item replaces the draft's general graph engine with bounded projections.
+indexes, so this item replaces the draft's general graph engine with bounded projections and one small typed graph.
 
 Scope:
 
@@ -470,20 +485,34 @@ Scope:
   mappings or beans.
 - Table references from §3.18's extraction, computed once per statement fingerprint on the dispatcher, never on the
   capture path.
-- Two small algorithms with property-based tests: reverse dependency closure (change impact) and interval arithmetic
-  (transaction and timeline breakdowns).
+- A **runtime model**: typed nodes (route, GraphQL operation, scheduled job, bean, repository, table, cache, outbound
+  host, topic or queue, AI model, and exception group) and typed edges (depends on, handled by, reads, writes, calls,
+  publishes, consumes, and raises). Each edge carries per-run counts, first and last seen, and its **provenance**:
+  declared by structure, observed in an owned execution, or inferred from shared access to a resource. The dispatcher
+  builds it from the aggregates, within the cardinality caps and the byte budget: about 5,000 nodes and 30,000 edges
+  at most.
+- Three small algorithms with property-based tests: reverse closure over an allowlist of edge types, depth ≤ 5 (change
+  impact); interval unions (timeline breakdowns); and edge-set differences between runs (behavior diff).
 - A read budget of 250 ms per projection over a full journal. Exceeding it returns a `PARTIAL` result with the reason.
 - Every join carries its correlation tier, and each observation declares the minimum tier it accepts.
 
+Architecture:
+
+- Structural reach, observed execution, and shared-resource access are never merged into one claim. A path through a
+  shared table means two routes used the same table, never that one read the rows the other wrote.
+- The model is an in-memory adjacency structure of interned ids, not a database: it has no query language, and agents
+  reach it only through named tools (§5.6).
+
 Out of scope for 2.0:
 
-- A general graph model, community detection, and graph query languages.
+- A graph database, graph query languages, community detection, and centrality (§5.10).
 
 Acceptance criteria:
 
 - Projections over 50,000 retained events and full aggregates stay within the read budget on a reference machine,
   pinned by a tagged, generously margined timed test.
 - The PoC evidence, converted into a Java fixture builder, reproduces the PoC's findings that 2.0 keeps.
+- A fixture where two routes share only a table never reports a path between their executions.
 
 ### 5.5 Runtime Insights panel — Overview 📋 Planned
 
@@ -498,37 +527,49 @@ Scope:
   and deep links.
 - The report carries its window (runs, time range, events per source, drops, evictions), a **correlation coverage**
   breakdown per source, the observations, a **Not exercised in this run** list of declared routes, and limitations.
-- Each observation carries a stable id (`kind:subject`, surviving refreshes), one measured sentence, a sample size, the
-  minimum tier used, **What to check** (one to three imperatives with panel links), at most three exemplar request
+- Each observation carries a stable id (`kind:subject`, surviving refreshes), a status (`OBSERVED`, `INSUFFICIENT`,
+  `NOT_APPLICABLE`, `NOT_COMPARABLE`, or `PARTIAL`), one measured sentence, the eligible and affected request counts,
+  the minimum tier used, **What to check** (one to three imperatives with panel links), at most three exemplar request
   ids, bounded masked evidence, and limitations. Insufficient evidence names what is missing, for example "`GET
   /api/orders`: 2 of 5 requests needed".
+- **Evidence completeness comes first.** Each observation reports the coverage of the sources it reads and their drops.
+  Drops, capture pauses, cardinality overflow, or incomplete correlation make an absence claim `PARTIAL`. Minimum
+  counts decide when an observation is shown, not how confident it is: a single exact event can establish a fact, and
+  repetition establishes recurrence, never a cause.
+- The first request of each route in a run is reported apart as **cold** (for example "first request 412 ms; warm
+  median 11 ms") and excluded from percentiles.
+- A Spring for GraphQL operation is a route of its own: its type and name, from the `graphql.request` observation,
+  subdivide `POST /graphql`, so route-level observations stay meaningful for GraphQL applications.
 - Observations in M3:
 
 | Id | Observation | Minimums | Stacks |
 | --- | --- | --- | --- |
-| `route-time-breakdown` | Where a route's time goes across its requests: before the handler (filters, including security), SQL, REST client, and the rest. Span self-time refines the rest when tracing is on | ≥ 5 successful requests; p50 ≥ 20 ms | All three. Quarkus ORM SQL time is unknown (prepared-statement capture has no end hook) and reported so |
-| `n-plus-one-hotspots` | Statement fingerprints repeated within requests across a route, with the call site | ≥ 3 affected requests | All three |
-| `exception-hotspots` | Exception groups per route, marked new when absent from the previous run | ≥ 1 occurrence; "new" needs a previous run | All three |
-| `transaction-hold` | A transaction open during a REST client or AI call, or open for mostly time without observed SQL | Transaction ≥ 20 ms; ≥ 3 per method | Spring MVC and WebFlux (blocking transactions) |
-| `unowned-work` | Work with no request, by thread family, with overlapping routes as candidates only | ≥ 5 events per family; startup, scheduled, and BootUI threads excluded | All three |
-| `swallowed-error-2xx` | A route that answered 2xx while an exception occurrence or an `ERROR` log was recorded in the same request, grouped by exception group | ≥ 1 request; exact `REQUEST_ID` tier only. Worded "verify that this fallback is intentional" | All three |
-| `event-loop-blocking` | Blocking work on an event-loop thread: JDBC, blocking REST client calls, or waits, per route and call site, with the share of request time spent there | ≥ 3 requests; thread kind from the owning adapter (§5.1), never a name guess | Spring WebFlux and Quarkus. Spring MVC has no event loop and reports not applicable |
-| `retry-amplification` | One request multiplying downstream work through retries: attempts × calls per remote host or AI model, with failures and timeouts | ≥ 1 request with retry events | All three, where Fault Tolerance capture exists |
-| `llm-cost-by-route` | Tokens (input and output), model, latency, and errors of AI calls per route or job, and the change since the previous run | ≥ 3 AI calls per route, or one above `ai-token-threshold` | All three, where AI calls are recognized from GenAI spans |
-| `cpu-or-waiting` | Whether a route's time is CPU, allocation, or waiting: per-route CPU share and allocated bytes per request. With `route-time-breakdown`, it separates "hashing a password" from "waiting on a pool" | ≥ 5 requests with CPU readings; a request's segments are summed across thread hops (§5.11) | All three on platform, worker, and event-loop threads. On virtual threads, only through opt-in JFR attribution (§5.11) |
+| `route-time-breakdown` | Where a route's warm requests spend their time, as named phases: **authentication** (Spring Security's authentication observation), **other filters**, **connection wait**, **handler** (SQL, REST client, AI calls, and the rest), and **response write** (serialization and view rendering). Intervals are unioned, so overlapping calls never add up to more than the request, and overlap and unattributed time are shown. CPU time and allocated bytes per request appear as columns where measured (§5.11) | ≥ 5 warm requests. Shown at any latency; prominent when p50 ≥ 20 ms or one phase ≥ 50 % | All three. The authentication phase is Spring only. Quarkus ORM SQL time is unknown, and the sentence says so. CPU is unavailable on virtual threads without JFR attribution |
+| `repeated-selects` | Repeated SELECTs (suspected N+1): one normalized SELECT fingerprint executed ≥ 5 times in a request after a different statement, with the call site, the phase (handler or response write), whether the repeats ran in a transaction, and whether their count tracks the result size | ≥ 3 affected requests. In the default agent list only when their total time is ≥ 50 ms | All three. Quarkus ORM statements count as preparations |
+| `exception-hotspots` | Exception groups per route, with a cross-run signature (type and bounded class and method frames, never line numbers), marked "not observed in the previous run" when that run exercised the route. About twelve framework exceptions carry a specific check: `LazyInitializationException`, `UnexpectedRollbackException` with the inner transaction that marked it rollback-only, Jackson recursion, `OptimisticLockException`, `DataIntegrityViolationException`, and `SQLTransientConnectionException` among them | ≥ 1 occurrence | All three. Exceptions handled inside WebFlux handlers are partial |
+| `errors-behind-2xx` | A 2xx response while, in the same request, (a) the root transaction rolled back, (b) an exception occurrence was recorded, (c) an `ERROR` log was written, or (d) a downstream call returned 5xx, ordered by that strength. Errors that a retry or fallback of the same policy recovered are listed apart as **recovered**. Worded "verify the response or fallback contract" | ≥ 1 request; `REQUEST_ID` tier only | All three. Evidence (a) is Spring MVC and WebFlux only |
+| `transaction-across-remote-call` | A transaction still open when a REST client or AI call starts, with the connection it held (checkout to release, §5.2) and, as a labelled estimate, the throughput at which this route alone would exhaust the pool: pool size ÷ hold time | ≥ 3 transactions of one method; ≥ 20 ms | Spring MVC and WebFlux blocking transactions. Reactive transactions are not applicable; Quarkus is unavailable |
+| `event-loop-blocking` | A synchronous blocking operation that **started** on an adapter-identified event-loop thread: timed JDBC execution first. An asynchronous client completing on an event loop is normal and never counts | One confirmed operation; recurrence after 3 requests | Spring WebFlux and Quarkus. Not applicable to Spring MVC inbound requests |
+| `ai-usage-by-route` | AI operations per route or job, counted once per inference layer: model, latency, errors, input and output tokens with token coverage, model calls per request (agent loops), prompt growth across successive calls of one route and principal group, and operations that stopped at the length limit. No money figure unless a local, versioned price table is configured | ≥ 3 operations per route, or one above `ai-token-threshold`, or one length-limited stop | All three, where GenAI spans are recognized. Without tracing it is not applicable, never "no usage" |
+| `lazy-sql-after-handler` | SQL executed after the handler returned, while the response was written or the view rendered, outside a transaction (open session in view), by route and fingerprint | ≥ 3 requests, or 1 request with ≥ 10 statements | Spring MVC. On Quarkus these surface as `LazyInitializationException` in `exception-hotspots`; not applicable to WebFlux |
+| `connections-per-request` | One request holding two or more connections of one pool at the same time, for example `REQUIRES_NEW` inside a transaction, with the pool size and the concurrency at which the route deadlocks the pool: ⌊(pool − 1) ÷ (held − 1)⌋ requests | ≥ 1 request; `REQUEST_ID` tier only | All three, for JDBC pools (HikariCP and Agroal) |
+| `split-transaction-writes` | One request committing its writes in two or more independent transactions or autocommit statements, with their boundaries. Worded "if these writes must succeed together…" | ≥ 1 request | Spring MVC and WebFlux blocking transactions; Quarkus is unavailable |
+| `safe-method-dml` | GET or HEAD requests that successfully executed an INSERT, UPDATE, or DELETE, by route, fingerprint, and call site. Worded as a question: an incidental audit write, or a state change the caller asked for? | ≥ 1 request | All three for executed JDBC; Quarkus ORM statements are unverified preparations |
+| `framework-warnings-by-route` | `WARN` and `ERROR` events from framework loggers (Hibernate, Spring, HikariCP, Quarkus, Vert.x, Reactor, Jackson, and Tomcat) carrying a request id, grouped by logger, message template, and route, and marked new in the run. About ten known codes carry a specific check, such as Hibernate's in-memory pagination `HHH90003004`, Hikari's leak detection, and Vert.x's blocked-thread warning | ≥ 1 event | All three |
 
+- `gc-inflated-latency` and `heap-growth-after-gc` (§5.11) join this table if D18 confirms them.
 - Entry points where developers already look:
   - the Live Activity request profile's **why this route is slow** section (§5.3);
   - a link from Live Activity's slowest-request KPI to its route's observation;
-  - the **No request** filter linking to `unowned-work`;
-  - command-palette keywords: *why slow*, *slow*, *what changed*, *impact*, *new exceptions*, *blocking*, *retries*,
-    *tokens*, *CPU*.
+  - the **No request** filter in Live Activity, which lists work that ran without a request by thread family;
+  - command-palette keywords: *why slow*, *slow*, *what changed*, *impact*, *new exceptions*, *blocking*, *tokens*,
+    *open session*, *connections*.
 - The UI, following `DESIGN.md`:
   - the header states the window and **What this run did that no single panel shows.**, with **Export** offering JSON
     and **Copy for AI** (Markdown through §3.25's helper), and no observation count;
   - a correlation coverage strip with text labels, so the reliability of everything below is visible first;
-  - a search field by route, table, bean, or thread, then theme chips: time, queries, errors, transactions, context,
-    and change;
+  - a search field by route, table, bean, or thread, then theme chips: time, queries, errors, transactions, framework,
+    AI, security, and change;
   - a master-detail list: observations in sentence-case groups on the left; on the right the sentence, **What to
     check**, the evidence table, limits, source-panel links, and the equivalent CLI command. The request timeline is
     the only chart;
@@ -537,16 +578,16 @@ Scope:
 ```text
 ┌ Runtime Insights ─────────────── Run 3 · 18,412 events · last 9 min · 0 dropped      [Export ▾] [Copy for AI] ┐
 │ What this run did that no single panel shows.                                                                 │
-│ Linked by  request id ██████████████████░ 96 %  trace id █ 2 %  background (expected) ░ 1 %  none ░ 1 %      │
+│ Linked by  request id ██████████████████░ 96 %  trace id █ 2 %  background (expected) ░ 1 %  none ░ 1 %       │
 ├──────────────────────────────┬────────────────────────────────────────────────────────────────────────────────┤
-│ Search routes, tables, beans │ GET /api/secure/products spends 94 % of its time before the controller runs    │
-│ [Time] [Queries] [Errors] …  │ 30 requests · request id · 101 of 108 ms in filters, including Spring Security │
+│ Search routes, tables, beans │ GET /api/secure/products spends 96 of 101 ms in authentication                 │
+│ [Time] [Queries] [Errors] …  │ 30 warm requests · request id · HTTP Basic re-authenticated 30 of 30 requests  │
 │ Time                         │ What to check                                                                  │
-│ ▸ /api/secure/products 94 %  │  1. HTTP Basic verifies the password on every call: compare a session or token │
+│ ▸ /api/secure/products 95 %  │  1. HTTP Basic verifies the password on every call: compare a session or token │
 │ Queries                      │  2. Check the password encoder's cost for the dev profile  → Security, Config  │
-│   N+1 in ProductService:42   │ Evidence (20 of 30 rows) · Limits · CLI: bootui insights show <id>             │
-│ Context                      │                                                                                │
-│   90 statements, no request  │                                                                                │
+│   Repeated SELECT, 40 × req  │ Evidence (20 of 30 rows) · Limits · CLI: bootui insights show <id>             │
+│ Transactions                 │                                                                                │
+│   2 connections per request  │                                                                                │
 └──────────────────────────────┴────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -557,8 +598,11 @@ Architecture:
   as healthy.
 - Projections are cached per journal watermark and per exposure generation, so a live exposure change never serves a
   stale, less-masked result.
-- Sentences describe what was observed in the window, never causes or verdicts, and **What to check** stays
-  conditional ("if these belong to a request, propagate the context in your `TaskDecorator`").
+- Sentences name what was counted, never a cause, a severity, or a patch. **What to check** stays conditional ("if
+  these writes must succeed together…").
+- Human text and agent text differ. The panel's **What to check** may suggest a design alternative. The agent
+  payload's `verify` line only says how to confirm the fact: open one exemplar request, and do not apply a fix from
+  this row alone (§5.6).
 - Thin adapters: a Spring MVC controller, a WebFlux controller on `boundedElastic` where projection work could block,
   and a Quarkus resource registered in `BootUiQuarkusProcessor`. Quarkus registers nothing in `LaunchMode.NORMAL`.
 - The panel is available when the journal is enabled, and otherwise unavailable with the property to set.
@@ -573,34 +617,43 @@ Acceptance criteria:
 - The demo scenario on each stack, with tracing off, shows the `route-time-breakdown` observation for the secured
   route, opens its evidence, and follows a deep link.
 - Every observation's unavailable state names its missing capability instead of returning an empty success.
+- The sample apps seed one case for every observation, and a counterexample for each that must not fire: a public
+  catalog read, an intentional fallback, an asynchronous client completing on an event loop, and an audit write on GET.
 
 ### 5.6 Runtime Insights for agents — Developer tools 📋 Planned
 
-Agents need the same answers in few tokens, through the fixed `McpToolSchema` names that the published CLI binds.
-Every v2 tool is a read tool on an existing schema.
+Agents need short, stable, diffable facts that can refuse to answer, not a dashboard. Passing raw traces or pass/fail
+results to agents leads to wrong repairs, so every tool returns compact observations. All tools are read tools on
+existing `McpToolSchema` names, which the published CLI binds, and add no schema.
 
 | Tool | Schema | CLI command | Returns |
 | --- | --- | --- | --- |
-| `get_runtime_insights` | `QUERY_LIMIT` | `bootui insights list` | At most `limit` (8 by default) compact observations filtered by `query` (a route, table, bean, class, or `new`), plus coverage, the run, and `comparable` |
-| `get_runtime_insight` | `ID` | `bootui insights show <id>` | One observation with its top 20 evidence rows and a truncation count; drill down with `get_request_profile` |
-| `get_runtime_impact` | `ID` | `bootui insights impact <id>` | The change-impact checklist for a bean name, simple class name, or repository (§5.7) |
-| `get_runtime_run_comparison` | `ID` | `bootui insights compare <id>` | The comparison with `previous` or a run id (§5.8) |
+| `get_runtime_insights` | `QUERY_LIMIT` | `bootui insights list` | Coverage first, then at most `limit` (8 by default) observations: id, status, one sentence, eligible and affected counts, tier, at most one exemplar request id, a `verify` line, and a truncation count. `query` is empty, `new`, `security`, `diff`, or a route, table, bean, or class. The default omits latency-only rows and anything below its tier floor |
+| `get_runtime_insight` | `ID` | `bootui insights show <id>` | The same compact object and at most 20 evidence rows; drill down with `get_request_profile` on the exemplar |
+| `get_runtime_impact` | `ID` | `bootui insights impact <id>` | For a bean, class, repository, table, cache, or host: `AMBIGUOUS` with candidates, or the checklist of §5.7, capped at 8 rows per list |
+| `get_runtime_run_comparison` | `ID` | `bootui insights compare <id>` | For `previous` or a run id: comparability first, then at most 8 behavior rows (§5.8). Too few samples is `INSUFFICIENT`, never "no change" |
 
-- Compact output stays smaller than one `get_live_activity` page. Correlational or incomparable results are omitted
-  unless the query asks for them, and `INSUFFICIENT` and `NOT_COMPARABLE` are explicit statuses an agent cannot
-  collapse into success.
-- `McpGuidance.diagnose_runtime_issue` starts with `get_runtime_insights` for route, table, or change questions, then
-  `get_request_profile` on one exemplar. `get_live_activity`'s description changes to: "Use for the newest events and
-  to pick an entry id. For why a route is slow or what changed, call `get_runtime_insights` first."
+- `INSUFFICIENT`, `NOT_APPLICABLE`, `NOT_COMPARABLE`, and `PARTIAL` are statuses an agent cannot collapse into success,
+  and an empty list never means "healthy".
+- `McpGuidance.diagnose_runtime_issue` starts with `get_runtime_insights`, then one `get_request_profile`.
+  `get_live_activity`'s description changes to: "Newest events and entry ids only. For why a route is slow, what a
+  reload changed, or what a test run did not exercise, call `get_runtime_insights` or `get_runtime_run_comparison`
+  first."
+- A new `verify_after_change` prompt: run the tests, call `get_runtime_run_comparison` with `previous`, and stop. Do
+  not edit from a latency row, and do not treat a missing observation as proof that a behavior is gone.
 - A documented **analyze after tests** workflow: run the application's integration or browser tests, then
   `bootui insights list --json`. Tests are where realistic traffic comes from.
+- Quarkus Dev MCP registration of these four read tools joins M3 if it is only a registration, so that Quarkus agents
+  discover them where they already look.
 
 Acceptance criteria:
 
 - Every tool moves in lockstep as PLAN.md §4 requires, and `ToolManifestGeneratorTests` and
   `mcpToolCatalogIsDocumentedInEveryCanonicalToolList` pass.
 - A 1.x CLI binary keeps its commands against a 2.0 application; new commands need a 2.x CLI.
-- The ten scripted agent investigations in §2.2 pass.
+- The ten scripted agent investigations in §2.2 pass, and so do five refusal fixtures that an agent fails by editing:
+  H2 against PostgreSQL (`NOT_COMPARABLE` before any delta), ten-sample p50 jitter below the noise floor, a public
+  catalog read, an intentional fallback behind a 2xx, and virtual-thread CPU reported as unavailable.
 
 ### 5.7 Change impact — Runtime Insights 📋 Planned
 
@@ -609,28 +662,43 @@ checklist, not a node list.
 
 Scope:
 
-- Resolve a bean name, simple class name, or repository name to exactly one bean. Ambiguity returns `AMBIGUOUS` with
-  candidates, never a guessed closure.
-- Report the potential structural impact (the reverse dependency closure, depth ≤ 5) joined with observed traffic:
-  routes with request, anonymous, and error counts, exemplar request ids, tables read and written, and mapped routes in
-  the closure with **no traffic in this run**, each with one imperative check.
+- Resolve a bean name, simple class name, repository name, table, cache, or outbound host to exactly one node of the
+  runtime model (§5.4). Ambiguity returns `AMBIGUOUS` with candidates, never a guessed closure.
+- Report, as separate lists capped at 8 rows each with a total count:
+  - **observed routes**: routes reached through the reverse dependency closure (depth ≤ 5) that ran in this run, with
+    request, anonymous, and error counts, exemplar request ids, and the tables they read and wrote;
+  - **not exercised**: mapped routes in the closure with no traffic in this run, each with one check;
+  - **through shared resources**: routes outside the closure that read the tables or caches, or call the hosts, that
+    the changed code writes or calls. They share a resource with it, not code.
+- Structural reach is a count, never a node dump, and it stays apart from observed execution: route traffic does not
+  prove that a request went through the changed bean.
 - Word the result as what was and was not exercised, never as "safe".
 
 Acceptance criteria:
 
 - Spring MVC and WebFlux use the bean graph; Quarkus uses ArC injection edges and reports them unavailable, not empty,
   when it cannot read them.
-- Changing `ProductRepository` in the sample app lists its beans, routes, counts, and the unexercised route.
+- Changing `ProductRepository` in the sample app lists its observed routes, the unexercised route, and a route that
+  reads `sample_products` through another repository.
 
 ### 5.8 Run comparison — Runtime Insights 📋 Planned
 
 A developer changes code, the application reloads, and the developer wants to know what moved. This is the inner loop,
-so comparison must work without a database.
+so comparison must work without a database. On a laptop, warmup and noise dominate latency, while the counts identical
+requests produce are stable, so the comparison leads with **behavior** and reports latency last.
 
 Scope:
 
-- Compare the current run with the previous run, or with a chosen run: per route and statement, count, p50, and p95
-  deltas, with ≥ 10 samples on each side; exception groups new in this run.
+- Compare the current run with the previous run, or with a chosen run. Behavior rows come first, per route: statements
+  per request, new statement fingerprints, REST and AI calls, new outbound hosts, new exception groups, the status-class
+  mix, routes newly hit, tokens, cache misses, and median allocated bytes; and runtime-model edges that are new or gone,
+  such as "run 5 added `OrderService → pay.internal:8443`, 15 calls". A count shift needs ≥ 3 requests on each side;
+  a new item appears at its first occurrence.
+- **Restart cost**: after a DevTools restart, the context's time to ready and the beans whose initialization moved by
+  ≥ 200 ms and ≥ 50 %, compared only with the previous restart, never with the first cold start. Quarkus reports the
+  live-reload total only.
+- Latency comes last and is labelled noisy: the warm p50 only, with ≥ 10 warm samples on each side, reported when it
+  moved by ≥ 50 % and ≥ 20 ms. A p95 appears only with ≥ 60 warm samples on each side, as sparse tail evidence.
 - Keep run summaries across DevTools restarts and Quarkus live reloads in a tiny `bootui-run-holder` artifact whose
   static holder keeps only bounded JDK-typed data: strings, numbers, arrays, and JDK collections, never application,
   framework, or BootUI classes, which would pin the previous class loader. The M0-4 spike showed that a dependency jar
@@ -644,60 +712,72 @@ Scope:
   enablement differ; list configuration differences as limitations.
 - Offer an opt-in `bootui.runtime-journal.baseline-file` that writes one run summary into the build output directory
   (`target/` or `build/`), so a comparison survives a full JVM restart. It holds only route templates, statement
-  fingerprints, exception-group ids, counts, and timings.
+  fingerprints, outbound hosts, exception-group ids, status-class and per-route counts, histograms, and the top bean
+  initialization times: never principals, literals, or SQL text.
 
 Acceptance criteria:
 
-- Reloading the sample app after a code change yields a comparison without any property set.
+- Reloading the sample app after a change that adds a query to a route reports the new fingerprint and the higher
+  statement count after 3 requests, without any property set.
 - A comparison with too few samples returns `INSUFFICIENT`, never "no change".
 - Switching the sample app from H2 to PostgreSQL returns `NOT_COMPARABLE` with the datasource difference first.
 
-### 5.9 Anonymous data reach — Runtime Insights 📋 Planned
+### 5.9 Anonymous access — Runtime Insights 📋 Planned
 
 The draft's `data-exposure` flagged a table read by both anonymous and protected routes. That is the normal
 public-catalog-plus-admin pattern, including the sample app's own `sample_products`, so it would teach users to ignore
-the panel. This observation reports only what deserves review.
+the panel. Both observations here report facts, never vulnerability verdicts.
 
 Scope:
 
-- `anonymous-data-reach` reports an anonymous successful request that **writes** a table, or that **reads** a table
-  otherwise accessed only by role-restricted routes, joining §3.18's table access with the authentication observed on
-  each request.
-- A shared read appears only when the anonymous and protected statements differ, worded "same table, compare the
-  statements".
-- Words are exact: an observed principal proves authentication happened, not that the route required it. Evidence
-  links to Security and §3.18's data access map.
-- The sample apps gain a deliberately anonymous debug endpoint that reads a table only administrators otherwise read,
-  as the seeded case.
+- Authentication is three-valued: anonymous, authenticated, or unknown. A missing principal means anonymous only where
+  the adapter's capture establishes it.
+- `anonymous-data-reach` reports anonymous successful requests that executed INSERT, UPDATE, or DELETE on a table,
+  joining §3.18's table access with the authentication observed on each request. Anonymous and protected reads of the
+  same table stay in §3.18's data access map as exploration, not as an observation.
+- `anonymous-success-on-restricted-route` reports a 2xx answered to a proven-anonymous request on a route whose first
+  matching declared security rule requires authentication or a role. If a preceding filter chain cannot be read, it
+  reports nothing. Worded: "a successful anonymous response, not proof that the rule is wrong".
+- Agent `verify` lines say "do not add authorization from this row alone". Evidence links to Security and §3.18's data
+  access map.
+- The sample apps gain two seeded cases: an anonymous debug endpoint that writes a table otherwise written only by
+  administrators, and a route declared protected but reachable anonymously through a matcher-ordering mistake.
 
 Acceptance criteria:
 
-- The seeded case is found on every stack with security; the public catalog and administrator list are not.
-- Quarkus reports observed authentication only where its security capture proves it.
+- Both seeded cases are found on every stack with security, while registration, login, and the public catalog are not.
+- Quarkus reports anonymity only where its security capture proves it, and is otherwise `INSUFFICIENT`.
 
 ### 5.10 After 2.0 💤 Deferred and ❌ Cut
 
 | Item | Status | Reason |
 | --- | --- | --- |
+| Named path templates | 💤 Deferred, first after 2.0 | Three templates over the runtime model (§5.4): `message-consumer-reach` (send → consume → table → other route), `shared-resource-coupling` (routes sharing a table, cache, or host without a common bean), and `data-lineage` (a last-writer index per table and cache). At most 8 paths each, with the tier and the limitation "the same table is not the same row"; never a user- or agent-written query |
+| Runtime model export | 💤 Deferred | Nodes and edges of one run as JSON, masked like every export, which GraphML and Neo4j import can consume; replaces the GraphML export |
+| Embedded graph database | 💤 Deferred, with a trigger | Three audits and a storage research found no insight that needs one at BootUI's volumes, where anchored traversals over about 5,000 nodes take under a millisecond. Revisit only if users ask for ad-hoc questions no named template answers, as a separate optional in-memory module that runs on Java 17 and loads safely on all three stacks. ArcadeDB's mainline needs Java 21, DuckPGQ downloads its extension at runtime, and Neo4j embedded is GPLv3 |
+| `retry-amplification` | 💤 Deferred | Proving amplification needs policy-invocation ids and attempt boundaries, and Quarkus capture records circuit-breaker transitions, not retries. Until then an agent would remove retries that work; retry events stay in the Fault Tolerance panel |
+| `unowned-work` as an observation | 💤 Deferred | Mostly reports background work or BootUI's own coverage gaps. It stays a **No request** filter in Live Activity |
 | `sql-outside-database` | 💤 Deferred | Needs two explicit database snapshots with aligned interval deltas, reset detection, and datasource identity; cumulative server-wide statistics include other clients |
-| `cache-shielding` | 💤 Deferred | Spring-only; the unified timeline already shows a miss followed by SQL. After 2.0, as per-route cache effectiveness (hit ratio and the SQL each miss caused) |
-| `pool-pressure-by-route` | 💤 Deferred | High value: which route can starve the connection pool, from checkout wait, hold time, concurrency, and pool size. Needs connection checkout and release timestamps from the JDBC proxy, and low dev concurrency makes it a capacity estimate, not a finding |
-| `unbounded-result-ramp` | 💤 Deferred | High value: queries without a limit whose row counts or response sizes grow over the run. Needs result-set row counts and response sizes |
-| `sensitive-runtime-egress` | 💤 Deferred | High value: counts of secret-like values in logs, outbound headers and URLs, and AI prompts, by category, never the values. Builds on §3.27's shared masking helper |
+| `cache-effectiveness` | 💤 Deferred | Replaces `cache-shielding`: per cache and route, hits, misses, key churn (distinct keys close to lookups while distinct URLs are few), and stampedes (overlapping misses on one key). Spring only |
+| `pool-pressure-by-route` | 💤 Deferred | Which route can starve the connection pool under concurrency. `connections-per-request` covers the structural case in 2.0; low dev concurrency makes this one an estimate |
+| `unbounded-result-ramp` | 💤 Deferred | Queries without a limit whose row counts or response sizes grow over the run. Needs result-set row counts and response sizes |
+| `secret-shape-counts` | 💤 Deferred | Replaces `sensitive-runtime-egress`: per route, counts by category of secret-like assignments masked in log lines and outbound URLs, from §3.27's shared masking helper. Never values, and never prompts |
+| `virtual-thread-pinning` | 💤 Deferred | `jdk.VirtualThreadPinned` per route and application frame, frequent on JDK 21 with `synchronized`. Cheap once §5.11's opt-in JFR attribution exists |
+| `external-ack-before-rollback` | 💤 Deferred | A remote POST acknowledged inside a transaction that then rolled back: a consistency question, which needs careful boundary fixtures |
+| `unbatched-write-loop` | 💤 Deferred | Many single prepared INSERTs of one shape in a request and transaction, with no JDBC batch |
+| `unparameterized-sql-by-route` | 💤 Deferred | `DB-RUNTIME-001` joined with routes and call sites, never displaying literals or claiming injection |
+| `session-id-stable-across-login`, `outbound-host-fanout` | 💤 Deferred | Narrow runtime security facts; the first needs a keyed session hash per request |
 | Slow-versus-fast cohort comparison | 💤 Deferred | "What distinguishes the slow requests of a route?" over curated attributes (cache miss, statement set, exception, thread kind, principal group), as Honeycomb BubbleUp does. Curated dimensions first; an optional embedded analytics engine only if users ask for ad-hoc slicing |
-| Bounded path queries | 💤 Deferred | Variable-length flows such as request → message → consumer → table → other routes, through named templates with depth ≤ 5 and an edge allowlist, never a free-form query language |
 | Log and exception text search | 💤 Deferred | An optional in-memory Lucene index over retained, already-masked rows, rebuilt when the exposure policy changes, if users ask for it |
-| `consecutive-outbound-waterfall`, `osiv-lazy-sql-after-handler`, `read-only-transaction-writes`, `scheduled-overlap-drift`, `message-consumer-backpressure` | 💤 Deferred | Useful but narrower; revisit with the external-validation results (§2.2) |
+| `consecutive-outbound-waterfall`, `read-only-transaction-writes`, `scheduled-overlap-drift`, `message-consumer-backpressure` | 💤 Deferred | Useful but narrower; revisit with the external-validation results (§2.2) |
 | JDBC event journal | 💤 Deferred | A storage product in its own right (idempotent retries, three dialects, disk bounds); revisit on demand |
-| GraphML export | 💤 Deferred | Only once users ask for graph exploration beyond the JSON export |
 | CI budgets on observations | 💤 Deferred | Once run comparison is proven |
-| Quarkus Dev UI card and Dev MCP registration | 💤 Deferred | Would meet Quarkus developers where they already look; a separate item |
+| Quarkus Dev UI card | 💤 Deferred | Would meet Quarkus developers where they already look; Dev MCP registration joins M3 (§5.6) |
 | `noisy-neighbours` | ❌ Cut | Measures laptop contention (IDE, GC, local models), not the application |
-| `runtime-modules` (Louvain) | ❌ Cut | An architecture curiosity, not an inner-loop answer |
+| `runtime-modules` (Louvain), community detection, and centrality | ❌ Cut | Architecture curiosities, not inner-loop answers; declared Spring Modulith modules are actionable where detected communities are not |
 | `journeys` | ❌ Cut | In development, the journey is the developer's own clicks |
-| `messaging-flows` as an observation | ❌ Cut | Exact nesting under the request (§5.1, §5.3) is the feature |
+| `messaging-flows` as an observation | ❌ Cut | Exact nesting under the request (§5.1, §5.3) is the feature; the `message-consumer-reach` template follows it |
 | Neo4j CSV and OCEL 2.0 exports | ❌ Cut | Niche audiences, with documentation, conformance, and native-hint costs |
-| Embedded graph database | ❌ Cut | The storage research (Appendix A) found no insight that needs one at BootUI's volumes: bounded traversals over the PoC graph run in under a millisecond. Graph databases remain export targets, and none fits embedding (Neo4j is GPLv3, Kuzu is archived, ArcadeDB is heavy for a starter) |
 
 ### 5.11 Resource correlation — Diagnostics 📋 Planned
 
@@ -732,10 +812,11 @@ Scope, verified on JDK 27 by the resource-correlation research (Appendix A):
 5. **JFR attribution (opt-in, user-triggered, bounded).** A custom `bootui.ExecutionSegment` JFR event carries the
    request id of each scope segment; it costs under 100 ns while no recording runs. During a **Profile resources**
    session, bounded by `jfr.max-duration`, CPU and allocation samples are joined to segments by Java thread id and
-   interval inside JFR's own clock, virtual threads included. That lifts `cpu-or-waiting`'s virtual-thread limit and
-   adds the hot frames of a route. `jdk.CPUTimeSample` is used where available (Linux, JDK 25 and later), and the
-   report says which sampler ran. Starting JFR costs about 330 ms and 42 MB of process memory and writes a repository
-   to the temporary directory, so it never starts on its own or on page load. Its milestone is D17.
+   interval inside JFR's own clock, virtual threads included. That lifts the virtual-thread CPU limit of
+   `route-time-breakdown` and adds the hot frames of a route. `jdk.CPUTimeSample` is used where available (Linux,
+   JDK 25 and later), and the report says which sampler ran. Starting JFR costs about 330 ms and 42 MB of process
+   memory and writes a repository to the temporary directory, so it never starts on its own or on page load. Its
+   milestone is D17.
 
 Surfaces:
 
@@ -777,6 +858,36 @@ Acceptance criteria:
 - Requests, thread families, and JVM internals sum to process CPU within 1 % per ledger interval.
 - A synthetic JFR recording joins samples to the right request, including on a virtual thread.
 - The overhead scenario (§2.2) measures scope readings on and off and stays within its budget.
+
+### 5.12 Proxy bypass — Runtime Insights 📋 Planned
+
+Spring applies `@Transactional`, `@Cacheable`, and `@Async` through proxies, so a call from inside the same bean, a
+`private` or `final` method, or an instance created with `new` silently skips them. These are among the most viewed
+Spring questions on Stack Overflow (together more than 480,000 views). The Architecture advisor's self-invocation rule
+can only say that a call **may** bypass the proxy; runtime evidence shows that it **did**.
+
+Scope:
+
+- `proxy-bypass` reports an annotated method that ran without its effect, in the same request:
+  - `@Transactional`, with a propagation that requires a transaction, while no open transaction had that boundary;
+  - `@Cacheable` for cache X, with no access to cache X before the method ran;
+  - `@Async`, running on the calling request's own thread.
+- Each finding names the method, the route, the affected and eligible request counts, and the calling frame, and links
+  the static self-invocation finding when there is one. Minimum: 1 request, `REQUEST_ID` tier only.
+- What to check: "Call the method through the bean: inject it, or move it to another bean."
+
+Architecture:
+
+- SQL, REST client, and cache events keep up to four interned application frames, with their method types for exact
+  overload resolution (§5.2). A Spring adapter SPI resolves the boundary annotations of a frame once, on the
+  dispatcher, with Spring's merged-annotation lookup, so annotations inherited from interfaces count.
+- AspectJ weaving mode is detected and reported not applicable. `TransactionTemplate` boundaries, which have no method,
+  are skipped.
+
+Acceptance criteria:
+
+- The sample app's seeded self-invocation of a `@Transactional` method is found, while calls through the bean are not.
+- Quarkus reports not applicable, because ArC intercepts self-invocation by design.
 
 ## 6. Architecture
 
@@ -826,14 +937,17 @@ Spring, Quarkus, or JSON dependency.
 | Cache events | ✓ | ✓ | Unavailable: no cache capture |
 | WebSocket frames | ✓ | Unavailable | Unavailable |
 | Journal, aggregates, run summaries | ✓ | ✓ | ✓ |
-| `route-time-breakdown`, `n-plus-one-hotspots`, `exception-hotspots`, `unowned-work` | ✓ | ✓ | ✓ (SQL share unknown for ORM statements) |
-| `transaction-hold` | ✓ | ✓ (blocking) | Unavailable |
+| `route-time-breakdown` | ✓ | ✓ | ✓, without the authentication phase; ORM SQL time unknown |
+| `repeated-selects`, `exception-hotspots`, `errors-behind-2xx`, `connections-per-request`, `safe-method-dml`, `framework-warnings-by-route` | ✓ | ✓ | ✓ (ORM statements are preparations) |
+| `transaction-across-remote-call`, `split-transaction-writes` | ✓ | Blocking transactions | Unavailable |
+| `lazy-sql-after-handler` | ✓ | Not applicable | As `LazyInitializationException` |
+| `proxy-bypass` | ✓ | ✓ | Not applicable: ArC intercepts self-invocation |
 | `change-impact` | Bean graph | Bean graph | ArC injection edges |
 | Run comparison across reloads | DevTools restart | DevTools restart | Live reload |
-| `anonymous-data-reach` | With Spring Security | With Spring Security | Where security capture proves authentication |
-| `swallowed-error-2xx`, `retry-amplification`, `llm-cost-by-route` | ✓ | ✓ | ✓ |
-| `event-loop-blocking` | Not applicable: no event loop | Reactor Netty event loops | Vert.x event loops |
-| `cpu-or-waiting` | Platform threads, summed across hops; virtual threads through opt-in JFR | Event loops and schedulers, summed across hops | Worker and event-loop threads, summed across hops |
+| `anonymous-data-reach`, `anonymous-success-on-restricted-route` | With Spring Security | With Spring Security | Where security capture proves anonymity |
+| `ai-usage-by-route` | Where GenAI spans are recognized | Same | Same |
+| `event-loop-blocking` | Not applicable to inbound requests | Reactor Netty event loops | Vert.x event loops |
+| CPU and allocation in `route-time-breakdown` | Platform threads, summed across hops; virtual threads through opt-in JFR | Event loops and schedulers, summed across hops | Worker and event-loop threads, summed across hops |
 | GC by id, CPU ledger, and resource track | ✓ | ✓ | ✓ |
 | JFR attribution | Where the runtime ships JFR | Same | Same |
 
@@ -932,8 +1046,8 @@ lands on `v2` and before 2.0.0:
 | D11 | How are percentiles computed? | An engine log-linear histogram within 6.25 %, mergeable across runs (§5.2) |
 | D12 | What may reach disk? | Nothing less masked than `MASKED`; the baseline file holds metadata only (§8) |
 | D13 | How many previous runs are kept? | The 5 most recent, each ≤ 256 KB (§5.2) |
-| D14 | Which new insights join 2.0? | **Maintainer decision:** `swallowed-error-2xx`, `event-loop-blocking`, `retry-amplification`, `llm-cost-by-route`, and `cpu-or-waiting`; the other researched insights come after 2.0 (§5.10) |
-| D15 | Graph database or search engine? | Neither in 2.0. A graph database adds no insight at BootUI's volumes; curated cohort comparison and bounded path templates come first, with optional Lucene or embedded analytics only on demand |
+| D14 | Which insights are in 2.0? | **Maintainer decision, revised after three insight audits:** twelve M3 observations (§5.5) and, in M4, change impact through shared resources, the behavior diff, the two anonymous-access observations, and `proxy-bypass`. `cpu-or-waiting` became CPU and allocation columns of `route-time-breakdown`; `retry-amplification` and `unowned-work` moved after 2.0 (§5.10) |
+| D15 | Graph database or search engine? | No graph database, search engine, or query language in 2.0. Re-examined at the maintainer's request by three audits, which agreed that the graph **model** has value and a graph **database** adds none at BootUI's volumes. 2.0 builds an in-memory typed runtime model (§5.4) for change impact through shared resources and for new dependencies between runs. Named path templates come first after 2.0; an optional graph module waits for a trigger (§5.10) |
 | D16 | Are the GC source, scope readings, ledger, and resource track on by default? | Open. Recommendation: yes, with the journal (D1), and removable through `sources` |
 | D17 | Is JFR attribution in 2.0? | Open. Recommendation: yes, as an opt-in M4 item, because it is the only way to measure CPU on virtual threads, which the sample apps and many Spring Boot 4 applications enable |
 | D18 | Is heap growth after GC a Runtime Insights observation, or a Memory advisor rule? | Open. Recommendation: an observation, fed by the resource track, with the Memory advisor linking to it |
@@ -946,7 +1060,9 @@ business value: Claude Opus 5.5 (product strategy, **S**), GPT-6.1 Sol (technica
 (adoption and agent value, **A**). The draft was then reconciled with the reordered v1 plan (commit `be7762ab1`). A
 later design review of storage and algorithms (**Design review**) settled the journal's storage decisions before M2.
 Two research reviews then assessed new insights (**Insights research**) and graph or search storage (**Storage
-research**).
+research**). Three insight audits followed, again one per model: GPT-6.1 Sol (evidence and false positives, **E**),
+Claude Opus 5.5 (developer value, **V**), and Grok 4.7 (agents, security, and a contrarian view, **G**). At the
+maintainer's request, each also challenged the "no graph database" decision.
 
 | Proposal | By | Outcome |
 | --- | --- | --- |
@@ -988,6 +1104,12 @@ research**).
 | Name a dispatcher throughput budget, since a single thread can become the bottleneck | Design review | Adopted (§8) |
 | Add high-value insights from runtime-analysis prior art (Sentry, Digma, BlockHound, Resilience4j, Honeycomb, pganalyze): event-loop blocking, retry amplification, LLM cost by route, swallowed 2xx errors, CPU versus waiting, pool pressure, unbounded result ramps, sensitive egress | Insights research | Five adopted for 2.0 (D14, §5.5); three deferred (§5.10) |
 | Per-thread CPU and allocation for `cpu-or-waiting` | Insights research | Adopted, with a verified limit: the JVM returns `-1` on virtual threads, reported as unavailable (§5.2) |
+| Insight audits: make evidence completeness the first gate, with explicit statuses; union overlapping intervals; name phases; separate cold requests; rename observations to what is measured (`repeated-selects`, `errors-behind-2xx`, `transaction-across-remote-call`, `ai-usage-by-route`) | E, V, G | Adopted (§5.5) |
+| Merge `cpu-or-waiting` into `route-time-breakdown`; defer `retry-amplification` and `unowned-work` | E, V, G | Adopted, reversing part of D14 with the maintainer's agreement |
+| Add `lazy-sql-after-handler`, `connections-per-request`, `split-transaction-writes`, `safe-method-dml`, `framework-warnings-by-route`, `proxy-bypass`, and `anonymous-success-on-restricted-route` | V, E, G | Adopted (§5.5, §5.9, §5.12) |
+| Lead run comparison with a behavior diff of stable counts, new hosts, and restart cost; latency last and labelled noisy | V, G, E | Adopted (§5.8) |
+| Compact agent payloads with statuses, a `verify` line, a `verify_after_change` prompt, refusal fixtures, and Quarkus Dev MCP registration | G | Adopted (§5.6) |
+| Challenge "no graph database" | E, V, G | Kept for the database; a typed runtime model and named path templates adopted (D15, §5.4, §5.10) |
 | Link CPU, allocation, and GC to runtime events by identity: scope readings, GC by id, a CPU ledger, a resource track, and opt-in JFR attribution | Resource-correlation research (user-directed) | Adopted as §5.11 in M2, with D16–D19 open |
 | Store events in a graph database or a search engine for richer insights | Storage research | Rejected for 2.0 (D15): no insight needs a graph database at these volumes; cohort comparison, bounded path templates, and optional Lucene deferred (§5.10) |
 
