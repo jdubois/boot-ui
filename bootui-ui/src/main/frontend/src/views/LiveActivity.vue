@@ -530,7 +530,11 @@ function renderProfileReport() {
     lines.push('  (none correlated)')
   }
   pushTruncation(lines, meta.SQL)
-  if (p.exceptions && p.exceptions.length) {
+  if (meta.EXCEPTION && !meta.EXCEPTION.available) {
+    lines.push('')
+    lines.push('Exceptions:')
+    lines.push(`  (unavailable: ${meta.EXCEPTION.unavailableReason})`)
+  } else if (p.exceptions && p.exceptions.length) {
     lines.push('')
     lines.push(`Exceptions${tierSuffix(meta.EXCEPTION, true)}:`)
     for (const [index, ex] of p.exceptions.entries()) {
@@ -540,7 +544,11 @@ function renderProfileReport() {
     }
     pushTruncation(lines, meta.EXCEPTION)
   }
-  if (p.security && p.security.length) {
+  if (meta.SECURITY && !meta.SECURITY.available) {
+    lines.push('')
+    lines.push('Security events:')
+    lines.push(`  (unavailable: ${meta.SECURITY.unavailableReason})`)
+  } else if (p.security && p.security.length) {
     lines.push('')
     lines.push(`Security events${tierSuffix(meta.SECURITY, true)}:`)
     for (const [index, event] of p.security.entries()) {
@@ -1264,7 +1272,10 @@ function toggleFlow() {
               </p>
             </section>
 
-            <section v-if="profile.exceptions.length" class="mb-3">
+            <section
+              v-if="profile.exceptions.length || (sections.EXCEPTION && !sections.EXCEPTION.available)"
+              class="mb-3"
+            >
               <h3 class="h6">
                 Exceptions
                 <span
@@ -1274,6 +1285,9 @@ function toggleFlow() {
                   >{{ sections.EXCEPTION.tierLabel }}</span
                 >
               </h3>
+              <p v-if="sections.EXCEPTION && !sections.EXCEPTION.available" class="text-muted small mb-0">
+                {{ sections.EXCEPTION.unavailableReason }}
+              </p>
               <div v-for="(ex, index) in profile.exceptions" :key="index" class="small mb-1">
                 <code>{{ ex.exceptionClassName }}</code>
                 <span v-if="ex.message" class="text-muted">: {{ ex.message }}</span>
@@ -1287,7 +1301,12 @@ function toggleFlow() {
               </p>
             </section>
 
-            <section v-if="profile.security && profile.security.length" class="mb-3">
+            <section
+              v-if="
+                (profile.security && profile.security.length) || (sections.SECURITY && !sections.SECURITY.available)
+              "
+              class="mb-3"
+            >
               <h3 class="h6">
                 Security events
                 <span
@@ -1297,6 +1316,9 @@ function toggleFlow() {
                   >{{ sections.SECURITY.tierLabel }}</span
                 >
               </h3>
+              <p v-if="sections.SECURITY && !sections.SECURITY.available" class="text-muted small mb-0">
+                {{ sections.SECURITY.unavailableReason }}
+              </p>
               <div v-for="(event, index) in profile.security" :key="index" class="small mb-1">
                 <code>{{ event.type }}</code>
                 <span v-if="event.principal" class="text-muted"> · {{ event.principal }}</span>

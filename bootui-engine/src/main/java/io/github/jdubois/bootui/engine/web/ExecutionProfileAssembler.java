@@ -43,9 +43,9 @@ import java.util.function.ToLongFunction;
  * <p>Correlation is tiered, strongest first, and a child attaches to at most one anchor:</p>
  *
  * <ol>
- *   <li>{@link CorrelationTier#TRACE_ID} on every adapter: a child whose trace id exactly one anchor of
- *       any type carries (see {@link TraceCorrelationIndex}). A trace shared by several anchors attaches
- *       nothing.</li>
+ *   <li>{@link CorrelationTier#TRACE_ID} on every adapter: a child whose trace id is carried by exactly
+ *       one anchor of any type whose trace window contains it (see {@link TraceCorrelationIndex}). A trace
+ *       two such anchors carry attaches nothing by trace id.</li>
  *   <li>{@link CorrelationTier#SERVING_THREAD} where the adapter has a thread-per-request model: a child
  *       recorded on the one thread that served exactly one anchor, inside its window.</li>
  *   <li>{@link CorrelationTier#TIME_WINDOW} as a labelled last resort on the same adapters: a child
@@ -452,7 +452,8 @@ public final class ExecutionProfileAssembler {
         }
         Predicate<ProfileAnchor> sameWindow =
                 anchor -> anchor.covers(timestamp) && anchor.admitsPrincipal(event.principal());
-        if (!sameWindow.test(self)) {
+        // An HTTP request keeps today's window-and-principal gate even for a trace match.
+        if (self.type() == ProfileAnchor.Type.REQUEST && !sameWindow.test(self)) {
             return Decision.OTHER;
         }
         if (decision.decided()) {

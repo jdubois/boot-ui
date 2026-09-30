@@ -20,7 +20,8 @@ import java.util.Map;
  *
  * <p>{@link LiveActivityAssembler} uses {@link #parentRequestId(String)} to nest children under their
  * REQUEST entry in the merged feed, and {@link ExecutionProfileAssembler} uses {@link #match(String, long)}
- * for the profile drill-down, so both get the identical guarantee.</p>
+ * for the profile drill-down. While every anchor is an open-window REQUEST, both agree; once bounded anchor
+ * types exist, the feed must resolve children through {@link #match(String, long)} too.</p>
  */
 final class TraceCorrelationIndex {
 

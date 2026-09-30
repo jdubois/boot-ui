@@ -527,6 +527,24 @@ describe('LiveActivity', () => {
             {type: 'SQL', available: true, tier: 'TRACE_ID', total: 6, truncated: 0, ambiguous: 0},
             {type: 'REST_CLIENT', available: true, tier: null, total: 0, truncated: 0, ambiguous: 0},
             {
+              type: 'EXCEPTION',
+              available: false,
+              unavailableReason: 'The Exceptions panel is disabled.',
+              tier: null,
+              total: 0,
+              truncated: 0,
+              ambiguous: 0
+            },
+            {
+              type: 'SECURITY',
+              available: false,
+              unavailableReason: 'Security Logs is not capturing on this application.',
+              tier: null,
+              total: 0,
+              truncated: 0,
+              ambiguous: 0
+            },
+            {
               type: 'CACHE',
               available: false,
               unavailableReason: 'Cache access capture is not available on Quarkus.',
@@ -553,6 +571,8 @@ describe('LiveActivity', () => {
     const drawer = wrapper.get('.activity-drawer')
     expect(drawer.text()).toContain('No REST client calls correlated to this request.')
     expect(drawer.text()).toContain('Cache access capture is not available on Quarkus.')
+    expect(drawer.text()).toContain('The Exceptions panel is disabled.')
+    expect(drawer.text()).toContain('Security Logs is not capturing on this application.')
     expect(drawer.text()).toContain(
       'Serving thread and time window correlation are unavailable on this adapter: Event loop.'
     )
