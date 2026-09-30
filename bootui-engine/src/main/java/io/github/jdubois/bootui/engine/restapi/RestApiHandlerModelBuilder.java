@@ -5,6 +5,7 @@ import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaEnumConstant;
 import com.tngtech.archunit.core.domain.JavaField;
+import com.tngtech.archunit.core.domain.JavaMember;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaParameter;
 import com.tngtech.archunit.core.domain.JavaParameterizedType;
@@ -170,7 +171,7 @@ final class RestApiHandlerModelBuilder {
     private final List<ExceptionHandlerModel> exceptionHandlers = new ArrayList<>();
     private final List<String> responseStatusExceptionClasses = new ArrayList<>();
     private final List<ThrownExceptionModel> thrownExceptions = new ArrayList<>();
-    private final IdentityHashMap<Object, AdvisorViolationLocationDto> locations = new IdentityHashMap<>();
+    private final IdentityHashMap<Object, RestApiLocations.Element> locations = new IdentityHashMap<>();
     private boolean hasExceptionHandling;
     private int springControllerCount;
     private int jaxRsResourceCount;
@@ -221,8 +222,14 @@ final class RestApiHandlerModelBuilder {
 
     private <T> T located(T model, Object element) {
         AdvisorViolationLocationDto location = ArchUnitLocations.of(element);
-        if (location != null) locations.put(model, location);
+        if (location != null) locations.put(model, new RestApiLocations.Element(location, identity(element)));
         return model;
+    }
+
+    private static String identity(Object element) {
+        if (element instanceof JavaMember member) return member.getFullName();
+        if (element instanceof JavaClass type) return type.getName();
+        return null;
     }
 
     boolean incomplete() {

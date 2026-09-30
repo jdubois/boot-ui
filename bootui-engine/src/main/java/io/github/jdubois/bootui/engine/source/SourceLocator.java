@@ -280,17 +280,22 @@ public final class SourceLocator {
     private static boolean trustedClassFile(
             SourceTreeReader tree, LocalSourceModule module, Path classFile, Map<Path, Boolean> directories) {
         if (classFile == null || classFile.getParent() == null) return false;
-        try {
-            Boolean safe = directories.get(classFile.getParent());
-            if (safe == null) {
-                safe = tree.safeDirectory(module.root(), classFile.getParent());
-                directories.put(classFile.getParent(), safe);
+        Path directory = classFile.getParent();
+        Boolean safe = directories.get(directory);
+        if (safe == null) {
+            try {
+                safe = tree.safeDirectory(module.root(), directory);
+            } catch (IOException | SecurityException ex) {
+                safe = false;
             }
-            return safe
-                    && Files.readAttributes(classFile, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS)
-                            .isRegularFile();
+            directories.put(directory, safe);
+        }
+        if (!safe) return false;
+        // A missing or unreadable class file disqualifies only that class, never its siblings.
+        try {
+            return Files.readAttributes(classFile, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS)
+                    .isRegularFile();
         } catch (IOException | SecurityException ex) {
-            directories.put(classFile.getParent(), false);
             return false;
         }
     }

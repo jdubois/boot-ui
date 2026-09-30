@@ -97,6 +97,11 @@ record RestApiContext(
         return locations.of(model);
     }
 
+    /** The scan-local identity of the element {@code model} was built from, or {@code null} when unknown. */
+    String elementIdentity(Object model) {
+        return locations.identity(model);
+    }
+
     boolean jaxRs() {
         return framework == RestApiModel.Framework.JAX_RS;
     }

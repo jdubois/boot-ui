@@ -169,8 +169,9 @@ failure never changes a finding, its text, or the scan status. A Kotlin line is 
 maps it one-to-one onto the class's own file; inlined code, whether its inline function lives in another file or the
 same one, and lines past the end of the resolved file drop to `MEMBER` precision. At most 1,024 Kotlin class files are
 read for their source map per scan, only from local output directories; beyond that, lines are dropped and a location
-note says so. Symbolic links under `src/*/resources` or `src/*/webapp` are ignored, while any other link in a source
-tree leaves that module's classes without a path, with its own note.
+note says so. Symbolic links under `src/*/resources`, `src/*/webapp`, or `src/*/frontend` are ignored, while any other
+link in a source tree leaves that module's classes without a path, with its own note. A class file reached through a
+symbolic link, or missing, leaves only that class without a path.
 Unlike the limitations above, resolved locations deliberately include the local source path, so the panel and agents
 can open the file.
 

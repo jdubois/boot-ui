@@ -165,8 +165,8 @@ they are not gated by the value-exposure policy.
 A line is shown only when it belongs to the named member in the named file. Kotlin gives inlined code line numbers
 that map to the inline function's own body, in another file or the same one; BootUI reads the class's source map
 during the scan and keeps only the lines Kotlin maps one-to-one onto the class's own file. It drops any other line,
-any line past the end of the resolved file, and the lines of classes read from an archive to `MEMBER` precision rather
-than show a wrong one.
+any line past the end of the resolved file, and the lines of Kotlin classes read from an archive to `MEMBER` precision
+rather than show a wrong one.
 
 In the panels, each sample and detail row shows its location beside the text, with a keyboard-accessible **Copy
 location** button that copies, for example, `com.example.OrderService#place (OrderService.java:42)`. The **Open

@@ -22,19 +22,28 @@ class DeclaredExceptionLocationTests {
         return new AdvisorViolationLocationDto(className, "find", "METHOD", "Orders.java", line, null);
     }
 
+    private static RestApiLocations.Element element(String className, int line, String identity) {
+        return new RestApiLocations.Element(location(className, line), identity);
+    }
+
     @Test
-    void aDeduplicatedTextKeepsALocationOnlyWhenEveryOccurrenceAgrees() {
+    void aDeduplicatedTextKeepsALocationOnlyWhenEveryOccurrenceIsTheSameElement() {
         ThrownExceptionModel overloadOne = thrown("Orders", "find");
         ThrownExceptionModel overloadTwo = thrown("Orders", "find");
+        ThrownExceptionModel sameLineOne = thrown("Refunds", "find");
+        ThrownExceptionModel sameLineTwo = thrown("Refunds", "find");
         ThrownExceptionModel sameElementOne = thrown("Invoices", "find");
         ThrownExceptionModel sameElementTwo = thrown("Invoices", "find");
         ThrownExceptionModel single = thrown("Payments", "find");
-        IdentityHashMap<Object, AdvisorViolationLocationDto> locations = new IdentityHashMap<>();
-        locations.put(overloadOne, location("com.example.Orders", 10));
-        locations.put(overloadTwo, location("com.example.Orders", 20));
-        locations.put(sameElementOne, location("com.example.Invoices", 7));
-        locations.put(sameElementTwo, location("com.example.Invoices", 7));
-        locations.put(single, location("com.example.Payments", 3));
+        IdentityHashMap<Object, RestApiLocations.Element> locations = new IdentityHashMap<>();
+        locations.put(overloadOne, element("com.example.Orders", 10, "com.example.Orders.find(long)"));
+        locations.put(overloadTwo, element("com.example.Orders", 20, "com.example.Orders.find(java.lang.String)"));
+        // Equal locations, different overloads: identical DTOs must not merge two methods into one location.
+        locations.put(sameLineOne, element("com.example.Refunds", 4, "com.example.Refunds.find(long)"));
+        locations.put(sameLineTwo, element("com.example.Refunds", 4, "com.example.Refunds.find(int)"));
+        locations.put(sameElementOne, element("com.example.Invoices", 7, "com.example.Invoices.find(long)"));
+        locations.put(sameElementTwo, element("com.example.Invoices", 7, "com.example.Invoices.find(long)"));
+        locations.put(single, element("com.example.Payments", 3, "com.example.Payments.find(long)"));
         RestApiContext context = new RestApiContext(
                 List.of("com.example"),
                 List.of(),
@@ -58,7 +67,7 @@ class DeclaredExceptionLocationTests {
                 false,
                 true,
                 List.of(),
-                List.of(overloadOne, overloadTwo, sameElementOne, sameElementTwo, single),
+                List.of(overloadOne, overloadTwo, sameLineOne, sameLineTwo, sameElementOne, sameElementTwo, single),
                 RestApiModel.Framework.SPRING,
                 new RestApiEvaluationEvidence(),
                 new AdvisorViolationCollector(100),
@@ -66,16 +75,18 @@ class DeclaredExceptionLocationTests {
 
         RestApiRuleResultDto result = new DeclaredExceptionsHaveHandlersRule().evaluate(context);
 
-        assertThat(result.violationCount()).isEqualTo(3);
+        assertThat(result.violationCount()).isEqualTo(4);
         assertThat(result.sampleViolations())
                 .containsExactly(
                         "Orders#find declares OrderMissing, for which no handler declaration was found in the"
+                                + " imported model",
+                        "Refunds#find declares OrderMissing, for which no handler declaration was found in the"
                                 + " imported model",
                         "Invoices#find declares OrderMissing, for which no handler declaration was found in the"
                                 + " imported model",
                         "Payments#find declares OrderMissing, for which no handler declaration was found in the"
                                 + " imported model");
         assertThat(result.sampleLocations())
-                .containsExactly(null, location("com.example.Invoices", 7), location("com.example.Payments", 3));
+                .containsExactly(null, null, location("com.example.Invoices", 7), location("com.example.Payments", 3));
     }
 }

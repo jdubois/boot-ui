@@ -230,6 +230,28 @@ class SourceLocatorTests {
     }
 
     @Test
+    void aMissingClassFileDoesNotDisqualifyItsSiblings() throws IOException {
+        Path present = write("shop/src/main/java/com/example/Present.java", "package com.example; class Present {}");
+        write("shop/src/main/java/com/example/Missing.java", "package com.example; class Missing {}");
+        URI missing = workspace
+                .resolve("shop/target/classes/com/example/Missing.class")
+                .toUri();
+        URI compiled = classFile("shop/target/classes/com/example/Present.class");
+
+        SourceLocator.Result result = SourceLocator.resolve(List.of(
+                request("com.example.Missing", missing, "Missing.java"),
+                request("com.example.Present", compiled, "Present.java")));
+
+        assertThat(result.get("com.example.Missing")).isEmpty();
+        assertThat(result.get("com.example.Present").orElseThrow().path())
+                .isEqualTo(present.toAbsolutePath().normalize());
+        assertThat(result.notes())
+                .singleElement()
+                .asString()
+                .startsWith("1 class(es) have a class file that is missing");
+    }
+
+    @Test
     void aSymbolicLinkAmongResourcesDoesNotBlockTheModule() throws IOException {
         Path source = write("shop/src/main/java/com/example/Order.java", "package com.example; class Order {}");
         Path config = write("elsewhere/application.properties", "a=b");

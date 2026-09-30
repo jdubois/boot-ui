@@ -10,10 +10,12 @@ import java.net.URLConnection;
 import java.net.URLStreamHandler;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Enumeration;
 import java.util.List;
-import java.util.jar.Attributes;
+import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
-import java.util.jar.Manifest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -22,22 +24,35 @@ class ClassFileLocatorTests {
     @TempDir
     Path workspace;
 
-    /** A loader that, like Quarkus for transformed classes, answers only with an unopenable in-memory URL. */
-    private static ClassLoader inMemoryLoader() {
-        URLStreamHandler handler = new URLStreamHandler() {
-            @Override
-            protected URLConnection openConnection(URL url) throws IOException {
-                throw new IOException("in memory");
-            }
-        };
+    private static final URLStreamHandler IN_MEMORY = new URLStreamHandler() {
+        @Override
+        protected URLConnection openConnection(URL url) throws IOException {
+            throw new IOException("in memory");
+        }
+    };
+
+    private static URL inMemory(String name) {
+        try {
+            return new URL(null, "quarkus:" + name, IN_MEMORY);
+        } catch (IOException ex) {
+            throw new IllegalStateException(ex);
+        }
+    }
+
+    /**
+     * A loader that, like Quarkus for transformed classes, serves the class itself only from memory, while its
+     * package resolves to the given roots.
+     */
+    private static ClassLoader loader(List<URL> packageRoots) {
         return new ClassLoader(null) {
             @Override
             public URL getResource(String name) {
-                try {
-                    return new URL(null, "quarkus:" + name, handler);
-                } catch (IOException ex) {
-                    throw new IllegalStateException(ex);
-                }
+                return inMemory(name);
+            }
+
+            @Override
+            public Enumeration<URL> getResources(String name) {
+                return name.endsWith("/") ? Collections.enumeration(packageRoots) : Collections.emptyEnumeration();
             }
         };
     }
@@ -49,139 +64,102 @@ class ClassFileLocatorTests {
         return file;
     }
 
+    private URL directory(String relative) throws IOException {
+        return Files.createDirectories(workspace.resolve(relative)).toUri().toURL();
+    }
+
     @Test
     void usesTheLoaderResourceWhenItIsAReadableLocation() {
-        URI located = ClassFileLocator.forScan()
-                .locate(ClassFileLocatorTests.class.getName(), ClassFileLocatorTests.class.getClassLoader(), null);
+        ClassFileLocator locator = ClassFileLocator.forScan();
+        URI located = locator.locate(
+                ClassFileLocatorTests.class.getName(), ClassFileLocatorTests.class.getClassLoader(), null);
 
         assertThat(located.getScheme()).isEqualTo("file");
         assertThat(Path.of(located)).isRegularFile().hasFileName("ClassFileLocatorTests.class");
+        assertThat(locator.notes()).isEmpty();
     }
 
     @Test
-    void findsAnInMemoryClassInTheOneClassPathDirectoryThatHoldsIt() throws IOException {
+    void findsAnInMemoryClassInTheOnePackageRootThatHoldsIt() throws IOException {
         Path file = classFile("app/target/classes/com/example/Order.class");
-        ClassFileLocator locator =
-                locator(true, workspace.resolve("elsewhere"), workspace.resolve("app/target/classes"));
+        ClassFileLocator locator = ClassFileLocator.forScan();
+        ClassLoader loader = loader(
+                List.of(directory("other/target/classes/com/example"), directory("app/target/classes/com/example")));
 
-        assertThat(locator.locate("com.example.Order", inMemoryLoader(), null)).isEqualTo(file.toUri());
+        assertThat(locator.locate("com.example.Order", loader, null)).isEqualTo(file.toUri());
+        assertThat(locator.notes()).isEmpty();
     }
 
     @Test
-    void keepsTheUnopenableLocationWhenNoOrSeveralDirectoriesHoldTheClass() throws IOException {
+    void aPackageRootThatCannotBeReadLeavesTheClassUnproven() throws IOException {
+        classFile("app/target/classes/com/example/Order.class");
+        ClassFileLocator locator = ClassFileLocator.forScan();
+        ClassLoader loader = loader(List.of(inMemory("com/example/"), directory("app/target/classes/com/example")));
+
+        assertThat(locator.locate("com.example.Order", loader, null).getScheme())
+                .isEqualTo("quarkus");
+        assertThat(locator.notes()).singleElement().asString().contains("within the lookup bounds");
+    }
+
+    @Test
+    void keepsTheInMemoryLocationWhenTwoRootsHoldTheClass() throws IOException {
         classFile("one/com/example/Order.class");
         classFile("two/com/example/Order.class");
-        ClassFileLocator ambiguous = locator(true, workspace.resolve("one"), workspace.resolve("two"));
-        ClassFileLocator missing = locator(true, workspace.resolve("none"));
+        ClassFileLocator locator = ClassFileLocator.forScan();
+        ClassLoader loader = loader(List.of(directory("one/com/example"), directory("two/com/example")));
 
-        assertThat(ambiguous.locate("com.example.Order", inMemoryLoader(), null).getScheme())
+        assertThat(locator.locate("com.example.Order", loader, null).getScheme())
                 .isEqualTo("quarkus");
-        assertThat(missing.locate("com.example.Order", inMemoryLoader(), null).getScheme())
-                .isEqualTo("quarkus");
-        assertThat(missing.locate("com.example.Order", null, null)).isNull();
-        assertThat(ambiguous.notes()).singleElement().asString().contains("more than one class path directory");
-        assertThat(missing.notes()).isEmpty();
+        assertThat(locator.notes()).singleElement().asString().contains("found in more than one location");
     }
 
     @Test
-    void anIncompleteClassPathNeverProvesASingleMatch() throws IOException {
+    void anArchiveRootHoldingTheSameClassMakesTheMatchAmbiguous() throws IOException {
         classFile("app/target/classes/com/example/Order.class");
-        ClassFileLocator incomplete = locator(false, workspace.resolve("app/target/classes"));
+        Path jar = workspace.resolve("lib/copy.jar");
+        Files.createDirectories(jar.getParent());
+        try (OutputStream output = Files.newOutputStream(jar);
+                JarOutputStream archive = new JarOutputStream(output)) {
+            archive.putNextEntry(new JarEntry("com/example/"));
+            archive.putNextEntry(new JarEntry("com/example/Order.class"));
+            archive.write(new byte[] {1});
+        }
+        URL archiveRoot = new URL("jar:" + jar.toUri() + "!/com/example/");
+        ClassFileLocator locator = ClassFileLocator.forScan();
 
-        assertThat(incomplete
-                        .locate("com.example.Order", inMemoryLoader(), null)
+        URI located = locator.locate(
+                "com.example.Order", loader(List.of(directory("app/target/classes/com/example"), archiveRoot)), null);
+
+        assertThat(located.getScheme()).isEqualTo("quarkus");
+        assertThat(locator.notes()).singleElement().asString().contains("more than one location");
+        assertThat(ClassFileLocator.forScan()
+                        .locate("com.example.Missing", loader(List.of(archiveRoot)), null)
                         .getScheme())
                 .isEqualTo("quarkus");
-        assertThat(incomplete.notes()).singleElement().asString().contains("too large to search completely");
     }
 
     @Test
-    void tooManyLauncherJarsOrAnOversizedManifestLeaveTheSearchIncomplete() throws IOException {
-        List<String> jars = new java.util.ArrayList<>();
-        for (int index = 0; index <= ClassFileLocator.MAX_LAUNCHER_JARS; index++) {
-            jars.add(jar("lib/dependency-" + index + ".jar", null).toString());
+    void tooManyPackageRootsLeaveTheClassUnproven() throws IOException {
+        classFile("app/target/classes/com/example/Order.class");
+        List<URL> roots = new ArrayList<>();
+        for (int index = 0; index < ClassFileLocator.MAX_PACKAGE_ROOTS; index++) {
+            roots.add(directory("empty" + index + "/com/example"));
         }
-        assertThat(ClassFileLocator.classPathDirectories(String.join(java.io.File.pathSeparator, jars))
-                        .complete())
-                .isFalse();
+        roots.add(directory("app/target/classes/com/example"));
+        ClassFileLocator locator = ClassFileLocator.forScan();
 
-        Path huge = jar("lib/huge.jar", "x".repeat(ClassFileLocator.MAX_MANIFEST_BYTES));
-        ClassFileLocator.ClassPath oversized = ClassFileLocator.classPathDirectories(huge.toString());
-        assertThat(oversized.complete()).isFalse();
-        assertThat(oversized.directories()).isEmpty();
-
-        Path plain = jar("lib/plain.jar", null);
-        assertThat(ClassFileLocator.classPathDirectories(plain.toString()).complete())
-                .isTrue();
+        assertThat(locator.locate("com.example.Order", loader(roots), null).getScheme())
+                .isEqualTo("quarkus");
+        assertThat(locator.notes()).singleElement().asString().contains("within the lookup bounds");
     }
 
     @Test
-    void dependencyJarsAreNeverReadForManifestsSoAPlainClassPathStaysComplete() throws IOException {
-        Path classes = Files.createDirectories(workspace.resolve("app/target/classes"));
-        List<String> entries = new java.util.ArrayList<>(List.of(classes.toString()));
-        for (int index = 0; index < 20; index++) {
-            Path dependency = workspace.resolve("lib/dependency-" + index + ".jar");
-            Files.createDirectories(dependency.getParent());
-            Manifest manifest = new Manifest();
-            manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
-            manifest.getMainAttributes()
-                    .put(
-                            Attributes.Name.CLASS_PATH,
-                            workspace.resolve("unrelated").toUri() + "");
-            try (OutputStream output = Files.newOutputStream(dependency);
-                    JarOutputStream jar = new JarOutputStream(output, manifest)) {
-                jar.putNextEntry(new java.util.jar.JarEntry("com/example/A.class"));
-                jar.putNextEntry(new java.util.jar.JarEntry("com/example/B.class"));
-            }
-            entries.add(dependency.toString());
-        }
-        Files.createDirectories(workspace.resolve("unrelated"));
+    void aClassWithoutAnyLoaderResourceHasNoLocation() {
+        ClassLoader empty = new ClassLoader(null) {};
 
-        ClassFileLocator.ClassPath classPath =
-                ClassFileLocator.classPathDirectories(String.join(java.io.File.pathSeparator, entries));
-
-        assertThat(classPath.complete()).isTrue();
-        assertThat(classPath.directories())
-                .containsExactly(classes.toAbsolutePath().normalize());
-    }
-
-    private Path jar(String relative, String classPath) throws IOException {
-        Path launcher = workspace.resolve(relative);
-        Files.createDirectories(launcher.getParent());
-        Manifest manifest = new Manifest();
-        manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
-        if (classPath != null) manifest.getMainAttributes().put(Attributes.Name.CLASS_PATH, classPath);
-        try (OutputStream output = Files.newOutputStream(launcher);
-                JarOutputStream jar = new JarOutputStream(output, manifest)) {
-            jar.flush();
-        }
-        return launcher;
-    }
-
-    private static ClassFileLocator locator(boolean complete, Path... directories) {
-        return new ClassFileLocator(() -> new ClassFileLocator.ClassPath(List.of(directories), complete));
-    }
-
-    @Test
-    void readsDirectoriesNamedByALauncherJarManifestOnce() throws IOException {
-        Path classes = Files.createDirectories(workspace.resolve("app/target/classes"));
-        Files.createDirectories(workspace.resolve("lib"));
-        Path launcher = workspace.resolve("lib/launcher.jar");
-        Manifest manifest = new Manifest();
-        manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
-        manifest.getMainAttributes()
-                .put(Attributes.Name.CLASS_PATH, classes.toUri() + " ../missing/ relative-dependency.jar");
-        try (OutputStream output = Files.newOutputStream(launcher);
-                JarOutputStream jar = new JarOutputStream(output, manifest)) {
-            jar.flush();
-        }
-        Path direct = Files.createDirectories(workspace.resolve("direct"));
-
-        ClassFileLocator.ClassPath directories = ClassFileLocator.classPathDirectories(
-                String.join(java.io.File.pathSeparator, direct.toString(), launcher.toString(), "", "missing.jar"));
-
-        assertThat(directories.directories())
-                .containsExactly(direct.toAbsolutePath().normalize(), classes.normalize());
-        assertThat(directories.complete()).isTrue();
+        assertThat(ClassFileLocator.forScan().locate("com.example.Order", empty, null))
+                .isNull();
+        assertThat(ClassFileLocator.forScan().locate("com.example.Order", null, null))
+                .isNull();
     }
 }

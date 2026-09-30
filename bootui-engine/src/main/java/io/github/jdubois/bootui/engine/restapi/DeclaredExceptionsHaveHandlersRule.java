@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.core.dto.RestApiRuleResultDto;
 import io.github.jdubois.bootui.engine.advisor.AdvisorFindings;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ExceptionHandlerModel;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ThrownExceptionModel;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -62,8 +63,10 @@ final class DeclaredExceptionsHaveHandlersRule extends AbstractRestApiRule {
             mapped.addAll(handler.handledExceptionTypes());
         }
         // Texts are deduplicated as before. One text can stand for several endpoints (overloads, or controllers
-        // sharing a simple name), so it keeps a location only when every occurrence names the same element.
+        // sharing a simple name), so it keeps a location only when every occurrence is the same known element.
+        // Locations alone cannot tell overloads apart, so the element identity decides.
         Map<String, AdvisorViolationLocationDto> reported = new LinkedHashMap<>();
+        Map<String, String> identities = new HashMap<>();
         Set<String> spanning = new HashSet<>();
         for (ThrownExceptionModel thrown : context.targets(context.thrownExceptions())) {
             if (isMapped(thrown, mapped)) {
@@ -73,9 +76,13 @@ final class DeclaredExceptionsHaveHandlersRule extends AbstractRestApiRule {
                     + thrown.exceptionSimpleName()
                     + ", for which no handler declaration was found in the imported model";
             AdvisorViolationLocationDto location = context.location(thrown);
+            String identity = context.elementIdentity(thrown);
             if (!reported.containsKey(violation)) {
                 reported.put(violation, location);
-            } else if (!Objects.equals(reported.get(violation), location)) {
+                identities.put(violation, identity);
+            } else if (identity == null
+                    || !identity.equals(identities.get(violation))
+                    || !Objects.equals(reported.get(violation), location)) {
                 spanning.add(violation);
             }
         }
