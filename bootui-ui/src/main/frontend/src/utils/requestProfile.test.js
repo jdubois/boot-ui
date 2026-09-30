@@ -46,6 +46,10 @@ describe('requestProfile helpers', () => {
     })
 
     expect(childTierLabel(sections.REST_CLIENT, 1)).toBe('trace id')
+    const truncatedWeaker = profileSections({
+      sections: [{type: 'SQL', tier: 'SERVING_THREAD', childTiers: ['TRACE_ID', 'TRACE_ID'], total: 3, truncated: 1}]
+    })
+    expect(childTierLabel(truncatedWeaker.SQL, 0)).toBe('trace id')
     expect(childTierLabel(sections.CACHE, 0)).toBe('')
     expect(childTierLabel(undefined, 0)).toBe('')
     expect(sections.SECURITY.truncationText).toBe('Showing the first 2 of 3 security events.')

@@ -45,8 +45,9 @@ export function profileSections(profile) {
       ...section,
       tierLabel: tierLabel(section.tier),
       tierTitle: tierTitle(section.tier),
-      // Per-child labels only add information when a section mixes tiers.
-      mixedTiers: new Set(childTiers).size > 1,
+      // Per-child labels only add information when shown children differ from each other or from the
+      // section tier, which also counts children the bound left out.
+      mixedTiers: childTiers.some((tier) => tier !== section.tier),
       truncationText: truncationText(section, shown)
     }
   }
