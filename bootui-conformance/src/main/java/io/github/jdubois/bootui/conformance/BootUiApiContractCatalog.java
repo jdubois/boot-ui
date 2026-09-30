@@ -112,7 +112,7 @@ public final class BootUiApiContractCatalog {
             inventory("flyway", "/flyway/migrations", "flywayPresent", "databases"),
             inventory("liquibase", "/liquibase/changesets", "liquibasePresent", "databases"),
             inventory("database-connection-pools", "/database-connection-pools/pools", "hikariPresent", "pools"),
-            advisor("hibernate", "/hibernate", "results"),
+            locatedAdvisor("hibernate", "/hibernate", "results"),
             advisor("database-advisor", "/database-advisor", "results"),
             // A runtime view, not an advisor: no severities, no findings, no score. The contract is the
             // read's own outcome plus the evidence it did and did not gather.
@@ -216,8 +216,8 @@ public final class BootUiApiContractCatalog {
                             "hiddenSelf", JsonType.INTEGER,
                             "unavailableReason", JsonType.NULLABLE_STRING,
                             "retention", JsonType.NULLABLE_OBJECT)),
-            advisor("architecture", "/architecture", "results"),
-            advisor("rest-api", "/rest-api", "results"),
+            locatedAdvisor("architecture", "/architecture", "results"),
+            locatedAdvisor("rest-api", "/rest-api", "results"),
             read(
                     "vulnerabilities",
                     "/vulnerabilities",
@@ -484,6 +484,33 @@ public final class BootUiApiContractCatalog {
                         "scan.status",
                         JsonType.STRING,
                         resultField,
+                        JsonType.ARRAY));
+    }
+
+    /**
+     * An advisor whose results carry structured violation locations: its report always exposes the retrieval metadata
+     * with the notes that explain a missing source path, and each result adds {@code sampleLocations}.
+     */
+    private static ReadContract locatedAdvisor(String panelId, String path, String resultField) {
+        return read(
+                panelId,
+                path,
+                fields(
+                        "localOnly",
+                        JsonType.BOOLEAN,
+                        "disclaimer",
+                        JsonType.STRING,
+                        "severityCounts",
+                        JsonType.ARRAY,
+                        "scan",
+                        JsonType.OBJECT,
+                        "scan.status",
+                        JsonType.STRING,
+                        resultField,
+                        JsonType.ARRAY,
+                        "violationDetails",
+                        JsonType.OBJECT,
+                        "violationDetails.locationNotes",
                         JsonType.ARRAY));
     }
 

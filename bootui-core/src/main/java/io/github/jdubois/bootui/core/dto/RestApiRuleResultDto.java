@@ -16,10 +16,39 @@ public record RestApiRuleResultDto(
         List<String> sampleViolations,
         String recommendation,
         String learnMoreUrl,
-        boolean dismissed) {
+        boolean dismissed,
+        List<AdvisorViolationLocationDto> sampleLocations) {
 
     public RestApiRuleResultDto {
         sampleViolations = DtoCollections.immutableCopy(sampleViolations);
+        sampleLocations = DtoCollections.alignedCopy(sampleViolations, sampleLocations);
+    }
+
+    public RestApiRuleResultDto(
+            String id,
+            String name,
+            String category,
+            String severity,
+            String description,
+            String status,
+            int violationCount,
+            List<String> sampleViolations,
+            String recommendation,
+            String learnMoreUrl,
+            boolean dismissed) {
+        this(
+                id,
+                name,
+                category,
+                severity,
+                description,
+                status,
+                violationCount,
+                sampleViolations,
+                recommendation,
+                learnMoreUrl,
+                dismissed,
+                List.of());
     }
 
     public RestApiRuleResultDto(
@@ -59,6 +88,24 @@ public record RestApiRuleResultDto(
                 sampleViolations,
                 recommendation,
                 learnMoreUrl,
-                dismissed);
+                dismissed,
+                sampleLocations);
+    }
+
+    /** This result with locations aligned index-for-index with {@code sampleViolations}, or none when empty. */
+    public RestApiRuleResultDto withSampleLocations(List<AdvisorViolationLocationDto> sampleLocations) {
+        return new RestApiRuleResultDto(
+                id,
+                name,
+                category,
+                severity,
+                description,
+                status,
+                violationCount,
+                sampleViolations,
+                recommendation,
+                learnMoreUrl,
+                dismissed,
+                sampleLocations);
     }
 }

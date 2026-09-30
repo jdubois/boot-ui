@@ -32,8 +32,9 @@ public final class HttpExchangeTraceRegistry {
      * and the handler pattern that was matched.
      *
      * <p>{@code routeTemplate} is the declared route such as {@code /api/orders/{id}}, or {@code null}
-     * when no handler matched. It lets SQL Trace group database work by route rather than by a path that
-     * embeds identifiers, which is the only grouping key that stays low-cardinality and value-free.</p>
+     * when no handler matched. It lets SQL Trace and the HTTP Exchanges route summary group work by route
+     * rather than by a path that embeds identifiers, which is the only grouping key that stays
+     * low-cardinality and value-free.</p>
      */
     public record HttpExchangeTrace(
             long startMillis, long endMillis, String method, String path, String traceId, String routeTemplate) {
@@ -130,6 +131,49 @@ public final class HttpExchangeTraceRegistry {
             }
             return found == null || found.traceId() == null || found.traceId().isBlank() ? null : found.traceId();
         }
+
+        /** See {@link HttpExchangeTraceRegistry#matchRouteTemplate}. */
+        public String matchRouteTemplate(String method, String path, long start, long end) {
+            if (method == null || path == null) {
+                return null;
+            }
+            long slack = 50L;
+            String template = null;
+            boolean found = false;
+            for (HttpExchangeTrace candidate : traces) {
+                if (!method.equalsIgnoreCase(candidate.method()) || !path.equals(candidate.path())) {
+                    continue;
+                }
+                if (candidate.startMillis() > end + slack || candidate.endMillis() < start - slack) {
+                    continue;
+                }
+                String candidateTemplate = candidate.routeTemplate() == null
+                                || candidate.routeTemplate().isBlank()
+                        ? null
+                        : candidate.routeTemplate().trim();
+                if (candidateTemplate == null) {
+                    return null;
+                }
+                if (found && !candidateTemplate.equals(template)) {
+                    return null;
+                }
+                template = candidateTemplate;
+                found = true;
+            }
+            return template;
+        }
+    }
+
+    /**
+     * Returns the handler pattern recorded for the request(s) whose handling window overlaps
+     * {@code [start, end]} for the given method and path, or {@code null} when none matches or the
+     * candidates disagree. Unlike {@link #match}, several overlapping candidates are not ambiguous by
+     * themselves: requests with the same method and path reach the same handler, so the route is decided
+     * whenever every candidate recorded the same, non-blank pattern. A candidate with no pattern, or with a
+     * different one, leaves the route undecided rather than guessed.
+     */
+    public String matchRouteTemplate(String method, String path, long start, long end) {
+        return matcher().matchRouteTemplate(method, path, start, end);
     }
 
     /**

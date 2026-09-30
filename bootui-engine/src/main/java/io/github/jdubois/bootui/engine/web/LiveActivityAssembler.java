@@ -23,6 +23,7 @@ import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import io.github.jdubois.bootui.engine.support.BlankStrings;
+import io.github.jdubois.bootui.engine.support.Percentiles;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
 import java.time.Instant;
@@ -339,9 +340,6 @@ public final class LiveActivityAssembler {
         List<ActivityEntryDto> entries = new ArrayList<>();
 
         long errors = 0;
-        long slowest = 0;
-        String slowestPath = null;
-        List<Long> durations = new ArrayList<>();
 
         // Map each non-blank request trace id to its REQUEST entry id, tracking trace ids shared by more
         // than one request so an ambiguous (reused) trace never nests a child under the wrong request.
@@ -384,13 +382,6 @@ public final class LiveActivityAssembler {
             long ts = e.timestamp() == null ? 0L : e.timestamp().toEpochMilli();
             if (e.status() >= 400) {
                 errors++;
-            }
-            if (e.durationMs() != null) {
-                durations.add(e.durationMs());
-                if (e.durationMs() > slowest) {
-                    slowest = e.durationMs();
-                    slowestPath = e.path();
-                }
             }
             // The request's own principal (Quarkus's security layer authenticated it directly, e.g. via
             // rc.user()) takes precedence as the more direct signal; fall back to a correlated security
@@ -552,16 +543,19 @@ public final class LiveActivityAssembler {
             restCallErrorRatePercent = round((restErrors * 100d) / rest.size());
             List<Long> restDurations =
                     rest.stream().map(RestClientTraceEntryDto::durationMillis).toList();
-            restCallP95LatencyMs = percentile(restDurations, 95);
+            restCallP95LatencyMs = Percentiles.of(restDurations, 95);
         }
 
+        // Shared with the Spring MVC LiveActivityService, so all three stacks report the same latency KPIs
+        // and the same slowest request for the same retained exchanges.
+        RequestLatencyKpis latency = RequestLatencyKpis.of(exchanges);
         ActivityKpiDto kpis = new ActivityKpiDto(
                 0d,
                 exchanges.isEmpty() ? 0d : (errors * 100d) / exchanges.size(),
-                percentile(durations, 50),
-                percentile(durations, 95),
-                slowestPath,
-                slowest == 0 ? null : slowest,
+                latency.p50Ms(),
+                latency.p95Ms(),
+                latency.slowestPath(),
+                latency.slowestMs(),
                 exceptions.size(),
                 0d,
                 slowestQuery,
@@ -571,7 +565,11 @@ public final class LiveActivityAssembler {
                 cacheHitRatioPercent,
                 scheduledTaskFailureCount,
                 restCallErrorRatePercent,
-                restCallP95LatencyMs);
+                restCallP95LatencyMs,
+                latency.sampleCount(),
+                latency.slowestRoute(),
+                latency.slowestRouteId(),
+                latency.slowestRouteSource());
         return new LiveActivityReport(true, entries, typeCounts, kpis, sources, warnings);
     }
 
@@ -905,16 +903,6 @@ public final class LiveActivityAssembler {
 
     private static double round(double value) {
         return Math.round(value * 100.0) / 100.0;
-    }
-
-    private Long percentile(List<Long> values, int p) {
-        if (values.isEmpty()) {
-            return null;
-        }
-        List<Long> sorted = new ArrayList<>(values);
-        sorted.sort(Long::compareTo);
-        int index = Math.min(sorted.size() - 1, (int) Math.ceil(p / 100d * sorted.size()) - 1);
-        return sorted.get(Math.max(0, index));
     }
 
     private Long heapUsed() {

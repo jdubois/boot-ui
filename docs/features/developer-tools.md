@@ -60,7 +60,7 @@ makes outbound calls to OSV.dev.
 
 **Diagnostics reads** — `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
 `get_sql_traces`, `get_transactions` (Spring MVC and WebFlux only), `get_traces`, `get_log_tail`,
-`get_http_exchanges`, and
+`get_http_exchanges`, `get_http_routes`, and
 `get_rest_client_traces`. `get_live_activity` returns the correlated feed of HTTP requests, SQL statements, exceptions,
 security events, scheduled-task runs, and, on Spring, cache accesses, grouped by request or trace.
 `get_exception_detail` returns a group's stack trace, causes, and occurrences.
@@ -124,7 +124,7 @@ engine. Each adapter supplies only a thin Jackson envelope codec, Jackson 2 on Q
 requests and responses are byte-identical across backends.
 
 **Quarkus** runs the same JSON-RPC bridge at the same endpoint with the same runtime toggle, reading the `bootui.mcp.*`
-keys from MicroProfile Config. Its catalog declares 73 tools against Spring MVC's 89, because the tools behind
+keys from MicroProfile Config. Its catalog declares 74 tools against Spring MVC's 90, because the tools behind
 Spring-only panels are withheld: the GraalVM and CRaC scans and reports, Conditions, Startup Timeline, HTTP Sessions,
 Spring Data, Spring Security, JMS, DevTools, and every transaction tool. `get_overview` is offered, and `spring_scan`
 runs the Quarkus-native idiom advisor.

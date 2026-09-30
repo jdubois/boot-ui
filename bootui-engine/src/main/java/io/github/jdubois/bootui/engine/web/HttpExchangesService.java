@@ -6,6 +6,9 @@ import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.HttpHeaderDto;
+import io.github.jdubois.bootui.core.dto.PageMetadata;
+import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
+import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.engine.support.PagedList;
 import io.github.jdubois.bootui.engine.support.SensitiveNames;
 import io.github.jdubois.bootui.engine.support.UriMasking;
@@ -27,9 +30,10 @@ import java.util.Map;
 public final class HttpExchangesService {
 
     /**
-     * Builds the report from already-captured exchanges. The {@code selfFilter} hides BootUI's own
-     * traffic; {@code maskSecrets}/{@code exposure} drive credential masking identically to config-time
-     * exposure.
+     * Builds the report from already-captured exchanges, without declared route mappings or a route filter.
+     * Kept for callers that have no mapping evidence; every adapter binding uses
+     * {@link #report(List, BootUiSelfPath, boolean, ValueExposure, RouteTemplateResolver, String, String,
+     * String, String, Integer, Integer)} so its routes match the route summary.
      */
     public HttpExchangesReport report(
             List<CapturedHttpExchange> captured,
@@ -41,52 +45,127 @@ public final class HttpExchangesService {
             String statusClass,
             Integer offset,
             Integer limit) {
-        return report(captured, selfFilter, maskSecrets, exposure, query, method, statusClass, offset, limit, null);
+        return report(
+                captured,
+                selfFilter,
+                maskSecrets,
+                exposure,
+                RouteTemplateResolver.empty(),
+                query,
+                method,
+                statusClass,
+                null,
+                offset,
+                limit);
     }
 
     /**
-     * Builds the report as {@link #report(List, BootUiSelfPath, boolean, ValueExposure, String, String, String,
-     * Integer, Integer)} does, carrying the recorder's retention counts so the panel can state how complete its
-     * window is. {@code retention} is {@code null} when the adapter does not know how its recorder retains records.
+     * Builds the report from already-captured exchanges, as
+     * {@link #report(List, BootUiSelfPath, boolean, ValueExposure, RouteTemplateResolver, String, String, String,
+     * String, Integer, Integer, CaptureRetentionDto)} does, without retention counts.
      */
     public HttpExchangesReport report(
             List<CapturedHttpExchange> captured,
             BootUiSelfPath selfFilter,
             boolean maskSecrets,
             ValueExposure exposure,
+            RouteTemplateResolver templates,
             String query,
             String method,
             String statusClass,
+            String route,
+            Integer offset,
+            Integer limit) {
+        return report(
+                captured,
+                selfFilter,
+                maskSecrets,
+                exposure,
+                templates,
+                query,
+                method,
+                statusClass,
+                route,
+                offset,
+                limit,
+                null);
+    }
+
+    /**
+     * Builds the report from already-captured exchanges. The {@code selfFilter} hides BootUI's own
+     * traffic; {@code maskSecrets}/{@code exposure} drive credential masking identically to config-time
+     * exposure. Each exchange is labelled with the route the route summary groups it under, resolved from
+     * its framework template, then {@code templates}, then a masked path; a non-blank {@code route} keeps
+     * only the exchanges whose route id ({@code METHOD route}) equals it, so a route-summary row links to
+     * exactly the exchanges it counts. The report carries the recorder's {@code retention} counts, so the panel
+     * can state how complete its window is, or {@code null} when the adapter does not know how its recorder
+     * retains records.
+     */
+    public HttpExchangesReport report(
+            List<CapturedHttpExchange> captured,
+            BootUiSelfPath selfFilter,
+            boolean maskSecrets,
+            ValueExposure exposure,
+            RouteTemplateResolver templates,
+            String query,
+            String method,
+            String statusClass,
+            String route,
             Integer offset,
             Integer limit,
             CaptureRetentionDto retention) {
         List<HttpExchangeDto> visible = new ArrayList<>();
+        List<String> routeIds = new ArrayList<>();
         int hiddenSelf = 0;
         for (CapturedHttpExchange exchange : captured) {
             if (isSelfExchange(exchange, selfFilter)) {
                 hiddenSelf++;
                 continue;
             }
-            visible.add(toDto(exchange, maskSecrets, exposure));
+            RouteLabel label = HttpRoutes.labelOf(exchange, templates);
+            visible.add(toDto(exchange, maskSecrets, exposure, label));
+            routeIds.add(label.id());
+        }
+
+        String routeFilter = route == null ? "" : route.trim();
+        List<HttpExchangeDto> candidates = visible;
+        if (!routeFilter.isEmpty()) {
+            candidates = new ArrayList<>();
+            for (int i = 0; i < visible.size(); i++) {
+                if (routeFilter.equals(routeIds.get(i))) {
+                    candidates.add(visible.get(i));
+                }
+            }
         }
 
         String normalizedQuery = PagedList.normalize(query);
         String normalizedMethod = PagedList.normalize(method).toUpperCase(Locale.ROOT);
         String normalizedStatusClass = PagedList.normalize(statusClass);
         PagedList.Result<HttpExchangeDto> page = PagedList.from(
-                visible,
+                candidates,
                 exchange -> matches(exchange, normalizedQuery, normalizedMethod, normalizedStatusClass),
                 offset,
                 limit);
+        // The page's total stays the visible window, so a route filter reads as "n of the retained window".
+        PageMetadata metadata = page.page();
+        if (candidates != visible) {
+            metadata = new PageMetadata(
+                    visible.size(),
+                    metadata.matched(),
+                    metadata.offset(),
+                    metadata.limit(),
+                    metadata.returned(),
+                    metadata.hasMore());
+        }
         return new HttpExchangesReport(
-                visible.size(), captured.size(), hiddenSelf, page.items(), page.page(), null, retention);
+                visible.size(), captured.size(), hiddenSelf, page.items(), metadata, null, retention);
     }
 
     /**
      * Whether an exchange is BootUI's own traffic, judged on its path only: a query string that merely mentions a
      * BootUI path, such as {@code ?next=/bootui}, never hides an application request.
      */
-    private boolean isSelfExchange(CapturedHttpExchange exchange, BootUiSelfPath selfFilter) {
+    static boolean isSelfExchange(CapturedHttpExchange exchange, BootUiSelfPath selfFilter) {
         if (exchange.uri() == null || selfFilter == null) {
             return false;
         }
@@ -94,7 +173,8 @@ public final class HttpExchangesService {
         return selfFilter.isBootUiPath(path == null ? exchange.uri().toString() : path);
     }
 
-    private HttpExchangeDto toDto(CapturedHttpExchange exchange, boolean maskSecrets, ValueExposure exposure) {
+    private HttpExchangeDto toDto(
+            CapturedHttpExchange exchange, boolean maskSecrets, ValueExposure exposure, RouteLabel label) {
         java.net.URI requestUri = exchange.uri();
         String method = exchange.method();
         String uri = requestUri == null ? null : displayUri(requestUri, maskSecrets, exposure);
@@ -122,7 +202,9 @@ public final class HttpExchangesService {
                 sessionId,
                 resolveTraceId(exchange.traceId(), requestHeaders),
                 requestHeaders,
-                responseHeaders);
+                responseHeaders,
+                label.route(),
+                label.source().name());
     }
 
     /**

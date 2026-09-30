@@ -1,4 +1,4 @@
-package io.github.jdubois.bootui.engine.architecture;
+package io.github.jdubois.bootui.engine.source;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -8,10 +8,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-class GeneratedSourceDeclarationsTests {
+class SourceDeclarationsTests {
     @Test
     void ignoresCommentsLiteralsAndNestedDeclarations() throws IOException {
-        var result = GeneratedSourceDeclarations.read("""
+        var result = SourceDeclarations.read("""
                 // package wrong; class Invented {}
                 package sample.api;
                 @jakarta.annotation.Generated("class Fake {}")
@@ -27,7 +27,7 @@ class GeneratedSourceDeclarationsTests {
 
     @Test
     void recognizesKotlinPackagesObjectsAndEscapedNames() throws IOException {
-        var result = GeneratedSourceDeclarations.read("""
+        var result = SourceDeclarations.read("""
                 package sample.`kotlin-api`
                 /* outer /* nested */ comment */
                 object ApiUtil {
@@ -52,12 +52,12 @@ class GeneratedSourceDeclarationsTests {
                 "package sample; // \\u00xz class ApiUtil {}"
             })
     void unsupportedOrIncompleteSourceNeverBecomesPositiveOwnership(String source) {
-        assertThatThrownBy(() -> GeneratedSourceDeclarations.read(source)).isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> SourceDeclarations.read(source)).isInstanceOf(IOException.class);
     }
 
     @Test
     void stringTemplatesAndRawStringsCannotInventDeclarations() throws IOException {
-        var result = GeneratedSourceDeclarations.read("""
+        var result = SourceDeclarations.read("""
                 package sample
                 val value = "${listOf("}", "class Fake {}", "${42}").joinToString()}"
                 val raw = \"""class Bogus {}
@@ -70,7 +70,7 @@ class GeneratedSourceDeclarationsTests {
 
     @Test
     void javaCommentsDoNotNestAndTextBlockEscapesStayInsideTheLiteral() throws IOException {
-        var result = GeneratedSourceDeclarations.read("""
+        var result = SourceDeclarations.read("""
                 package sample;
                 /* nested opener is only text: /* */ class ApiUtil {
                     String text = \"""
@@ -84,7 +84,7 @@ class GeneratedSourceDeclarationsTests {
     @Test
     void whitespaceAndMultilineCommentsDoNotHideDeclarationNames() throws IOException {
         for (boolean kotlin : new boolean[] {false, true}) {
-            var result = GeneratedSourceDeclarations.read("""
+            var result = SourceDeclarations.read("""
                     package sample;
                     class
                     ApiUtil {}
@@ -98,7 +98,7 @@ class GeneratedSourceDeclarationsTests {
     @Test
     void translatesJavaUnicodeBeforeRecognizingCommentsPackagesAndTypes() throws IOException {
         String escape = "\\" + "u";
-        var result = GeneratedSourceDeclarations.read("package s" + escape + "0061mple; // comment"
+        var result = SourceDeclarations.read("package s" + escape + "0061mple; // comment"
                 + escape + "000d public cl" + escape + "0061ss Api" + escape + "0000Util "
                 + escape + "007b String text = \"" + escape + "2026\"; " + escape + "007d");
         assertThat(result.packageName()).isEqualTo("sample");
@@ -108,21 +108,20 @@ class GeneratedSourceDeclarationsTests {
     @Test
     void unicodeEligibilityUsesTranslatedBackslashParityWithoutRecursiveExpansion() throws IOException {
         String slash = "\\";
-        assertThat(GeneratedSourceDeclarations.translateJavaUnicode(slash + "uuuu005a"))
-                .isEqualTo("Z");
-        assertThat(GeneratedSourceDeclarations.translateJavaUnicode(slash.repeat(2) + "u005a"))
+        assertThat(SourceDeclarations.translateJavaUnicode(slash + "uuuu005a")).isEqualTo("Z");
+        assertThat(SourceDeclarations.translateJavaUnicode(slash.repeat(2) + "u005a"))
                 .isEqualTo(slash.repeat(2) + "u005a");
-        assertThat(GeneratedSourceDeclarations.translateJavaUnicode(slash.repeat(3) + "u005a"))
+        assertThat(SourceDeclarations.translateJavaUnicode(slash.repeat(3) + "u005a"))
                 .isEqualTo(slash.repeat(2) + "Z");
-        assertThat(GeneratedSourceDeclarations.translateJavaUnicode(slash + "u005cu005a"))
+        assertThat(SourceDeclarations.translateJavaUnicode(slash + "u005cu005a"))
                 .isEqualTo(slash + "u005a");
-        assertThat(GeneratedSourceDeclarations.translateJavaUnicode(slash + "u005c" + slash + "u005a"))
+        assertThat(SourceDeclarations.translateJavaUnicode(slash + "u005c" + slash + "u005a"))
                 .isEqualTo(slash + "Z");
-        assertThat(GeneratedSourceDeclarations.translateJavaUnicode(slash + "u005c" + slash.repeat(2) + "u005a"))
+        assertThat(SourceDeclarations.translateJavaUnicode(slash + "u005c" + slash.repeat(2) + "u005a"))
                 .isEqualTo(slash.repeat(2) + "Z");
-        assertThatThrownBy(() -> GeneratedSourceDeclarations.translateJavaUnicode(slash + "u0"))
+        assertThatThrownBy(() -> SourceDeclarations.translateJavaUnicode(slash + "u0"))
                 .isInstanceOf(IOException.class);
-        assertThatThrownBy(() -> GeneratedSourceDeclarations.translateJavaUnicode(slash + "u0xz0"))
+        assertThatThrownBy(() -> SourceDeclarations.translateJavaUnicode(slash + "u0xz0"))
                 .isInstanceOf(IOException.class);
     }
 }

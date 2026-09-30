@@ -60,6 +60,10 @@ For Copilot app sessions, prefer the `MAVEN_OPTS` pattern in `.github/github-app
 invocation in that script. Do not put `${maven.multiModuleProjectDirectory}/.m2` in global `~/.m2/settings.xml`; IntelliJ
 may pass it through literally as a non-absolute path. Do not commit a project-wide repository override solely for
 worktree isolation.
+A relative repository path resolves against each Maven process's working directory, so anything that starts Maven from
+another directory needs an absolute path. The Spring browser suites start Maven from `bootui-spring-sample-app/e2e`,
+including `read-only.spec.js`; for them, use `-Dmaven.repo.local="$PWD/.m2"` from the repository root in `MAVEN_OPTS`
+and set `BOOTUI_MAVEN_REPO_LOCAL` to the same path.
 
 Detailed rules are path-scoped under `.github/instructions/` and apply automatically by file path. Three custom agents
 under `.github/agents/` are available: `bootui-vertical-pr` for end-to-end feature delivery, `bootui-release` for

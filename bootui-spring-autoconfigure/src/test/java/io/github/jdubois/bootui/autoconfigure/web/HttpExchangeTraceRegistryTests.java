@@ -136,4 +136,43 @@ class HttpExchangeTraceRegistryTests {
                 null,
                 java.time.Duration.ofMillis(1));
     }
+
+    @Test
+    void matchesTheRouteTemplateRecordedForTheOverlappingRequest() {
+        HttpExchangeTraceRegistry registry = new HttpExchangeTraceRegistry(10);
+        registry.record(new HttpExchangeTrace(1000, 1100, "GET", "/orders/1", null, " /orders/{id} "));
+        registry.record(new HttpExchangeTrace(5000, 5100, "GET", "/orders/1", null, "/elsewhere"));
+
+        assertThat(registry.matchRouteTemplate("get", "/orders/1", 1010, 1090)).isEqualTo("/orders/{id}");
+        assertThat(registry.matchRouteTemplate("POST", "/orders/1", 1010, 1090)).isNull();
+        assertThat(registry.matchRouteTemplate("GET", "/orders/2", 1010, 1090)).isNull();
+        assertThat(registry.matchRouteTemplate("GET", "/orders/1", 3000, 3100)).isNull();
+        assertThat(registry.matchRouteTemplate(null, "/orders/1", 1010, 1090)).isNull();
+    }
+
+    /**
+     * Concurrent identical requests make the trace id ambiguous, but not the route: the same method and
+     * path reach the same handler, so an agreeing pattern is still decided.
+     */
+    @Test
+    void concurrentIdenticalRequestsStillResolveAnAgreeingTemplate() {
+        HttpExchangeTraceRegistry registry = new HttpExchangeTraceRegistry(10);
+        registry.record(new HttpExchangeTrace(1000, 1100, "GET", "/orders/1", "trace-1", "/orders/{id}"));
+        registry.record(new HttpExchangeTrace(1050, 1150, "GET", "/orders/1", "trace-2", "/orders/{id}"));
+
+        assertThat(registry.match("GET", "/orders/1", 1000, 1100)).isNull();
+        assertThat(registry.matchRouteTemplate("GET", "/orders/1", 1000, 1100)).isEqualTo("/orders/{id}");
+    }
+
+    @Test
+    void leavesTheRouteUndecidedWhenOverlappingCandidatesDisagreeOrRecordedNone() {
+        HttpExchangeTraceRegistry registry = new HttpExchangeTraceRegistry(10);
+        registry.record(new HttpExchangeTrace(1000, 1100, "GET", "/orders/1", null, "/orders/{id}"));
+        registry.record(new HttpExchangeTrace(1050, 1150, "GET", "/orders/1", null, "/orders/{orderId}"));
+        registry.record(new HttpExchangeTrace(3000, 3100, "GET", "/static/app.js", null, null));
+
+        assertThat(registry.matchRouteTemplate("GET", "/orders/1", 1000, 1100)).isNull();
+        assertThat(registry.matchRouteTemplate("GET", "/static/app.js", 3000, 3100))
+                .isNull();
+    }
 }

@@ -2845,12 +2845,88 @@ const httpExchanges = [
   httpExchange('ex-1', 'GET', '/api/sample/products', 'category=tools', 200, 34, 1864, traceId, [
     {name: 'accept', values: ['application/json'], masked: false}
   ]),
+  httpExchange(
+    'ex-4',
+    'GET',
+    '/api/sample/orders/1042',
+    null,
+    200,
+    27,
+    932,
+    null,
+    [{name: 'accept', values: ['application/json'], masked: false}],
+    '/api/sample/orders/{id}'
+  ),
   httpExchange('ex-2', 'POST', '/api/chat', null, 200, 812, 452, traceId, [
     {name: 'authorization', values: [], masked: true},
     {name: 'content-type', values: ['application/json'], masked: false}
   ]),
   httpExchange('ex-3', 'GET', '/admin', null, 403, 12, 0, null, [{name: 'cookie', values: [], masked: true}])
 ]
+
+function httpRoute(id, source, counts, durations) {
+  const [method, route] = id.split(' ')
+  const [status2xx, status3xx, status4xx, status5xx] = counts
+  const requests = status2xx + status3xx + status4xx + status5xx
+  const [avg, p50, p95, p99, max, total, share] = durations
+  return {
+    id,
+    method,
+    route,
+    routeSource: source,
+    requests,
+    status2xx,
+    status3xx,
+    status4xx,
+    status5xx,
+    statusOther: 0,
+    errorCount: status4xx + status5xx,
+    timedRequests: requests,
+    totalDurationMs: total,
+    avgDurationMs: avg,
+    p50DurationMs: p50,
+    p95DurationMs: p95,
+    p99DurationMs: p99,
+    maxDurationMs: max,
+    shareOfRetainedTimePercent: share,
+    topFor: ['REQUESTS', 'TOTAL_DURATION', 'P95_DURATION', 'MAX_DURATION']
+  }
+}
+
+const httpRoutes = {
+  available: true,
+  unavailableReason: null,
+  window: {
+    retainedExchanges: 143,
+    bufferSize: 200,
+    evicted: 0,
+    hiddenSelfExchanges: 0,
+    summarizedExchanges: 143,
+    timedExchanges: 143,
+    oldestTimestamp: nowMillis - 18 * 60 * 1000,
+    newestTimestamp: nowMillis - 2_000,
+    totalDurationMs: 19_842
+  },
+  routes: [
+    httpRoute(
+      'GET /api/sample/products',
+      'FRAMEWORK_TEMPLATE',
+      [58, 0, 0, 2],
+      [48.7, 31, 212, 1240, 1240, 2922, 14.73]
+    ),
+    httpRoute('GET /api/sample/orders/{id}', 'FRAMEWORK_TEMPLATE', [41, 0, 3, 0], [27.3, 22, 64, 91, 91, 1201, 6.05]),
+    httpRoute('POST /api/chat', 'FRAMEWORK_TEMPLATE', [18, 0, 1, 0], [812.4, 780, 1490, 1612, 1612, 15_436, 77.79]),
+    httpRoute('GET /admin', 'FRAMEWORK_TEMPLATE', [0, 0, 12, 0], [11.9, 12, 18, 21, 21, 143, 0.72]),
+    httpRoute('GET /files/{value}', 'MASKED_PATH', [7, 1, 0, 0], [17.5, 15, 33, 33, 33, 140, 0.71])
+  ],
+  topPerCriterion: 25,
+  routesTruncated: false,
+  distinctRoutes: 5,
+  notes: [
+    'Every figure covers only the 143 retained, visible exchanges. These are diagnostic evidence for this window, not lifetime or service-level metrics, and a route with few requests has few samples behind its percentiles.',
+    'Routes use the template the framework matched, then the single best route the application declares, then the path with every value-like segment masked. Query strings and path-parameter values are never used.'
+  ]
+}
 
 const emailMessages = [
   {
@@ -4353,11 +4429,16 @@ const activityReport = {
   },
   kpis: {
     requestsPerMinute: 42.5,
-    errorRatePercent: 12.5,
-    p50LatencyMs: 14,
+    // Consistent with the HTTP Exchanges route-rankings fixture, which covers the same 143 retained requests.
+    errorRatePercent: 12.59,
+    p50LatencyMs: 24,
     p95LatencyMs: 1240,
-    slowestEndpoint: '/api/sample/products',
-    slowestEndpointMs: 1240,
+    slowestEndpoint: '/api/chat',
+    slowestEndpointMs: 1612,
+    latencySampleCount: 143,
+    slowestEndpointRoute: '/api/chat',
+    slowestEndpointRouteId: 'POST /api/chat',
+    slowestEndpointRouteSource: 'FRAMEWORK_TEMPLATE',
     activeExceptionCount: 2,
     sqlPerMinute: 18.0,
     slowestQueryMs: 18,
@@ -6018,12 +6099,8 @@ const screenshots = [
     'HTTP Exchanges',
     'bootui-http-exchanges.webp',
     async (page) => {
-      await page.getByText('/api/sample/products').waitFor()
-      await page
-        .getByRole('button', {name: /View details/})
-        .first()
-        .click()
-      await page.getByText('Request headers').waitFor()
+      await page.locator('.http-routes-table').getByText('/api/sample/orders/{id}').waitFor()
+      await page.locator('.http-exchanges-table').getByText('/api/sample/products').waitFor()
     }
   ],
   [
@@ -6680,23 +6757,32 @@ async function handleApiRoute(route) {
   if (endpoint === 'security-logs') return fulfillJson(route, securityLogs)
   if (endpoint === 'security') return fulfillJson(route, isQuarkusPlatform ? quarkusSecurity : security)
   if (endpoint === 'security/scan') return fulfillJson(route, security)
-  if (endpoint === 'http-exchanges')
-    return fulfillJson(
-      route,
-      pagedReport('exchanges', httpExchanges, url, {
-        recorded: httpExchanges.length,
-        unavailableReason: null,
-        retention: {
-          applicationManaged: false,
-          capacity: 200,
-          reservedCapacity: 50,
-          retained: httpExchanges.length,
-          reserved: 0,
-          evicted: 0,
-          slowThresholdMillis: 1000
-        }
-      })
-    )
+  if (endpoint === 'http-exchanges/routes') return fulfillJson(route, httpRoutes)
+  if (endpoint === 'http-exchanges') {
+    // The list shows the newest page of the same retained window the route rankings summarize.
+    const report = pagedReport('exchanges', httpExchanges, url, {unavailableReason: null})
+    return fulfillJson(route, {
+      ...report,
+      total: httpRoutes.window.summarizedExchanges,
+      recorded: httpRoutes.window.retainedExchanges,
+      hiddenSelf: httpRoutes.window.hiddenSelfExchanges,
+      page: {
+        ...report.page,
+        total: httpRoutes.window.summarizedExchanges,
+        matched: httpRoutes.window.summarizedExchanges,
+        hasMore: true
+      },
+      retention: {
+        applicationManaged: false,
+        capacity: httpRoutes.window.bufferSize,
+        reservedCapacity: 50,
+        retained: httpRoutes.window.retainedExchanges,
+        reserved: 6,
+        evicted: httpRoutes.window.evicted,
+        slowThresholdMillis: 1000
+      }
+    })
+  }
   if (endpoint === 'email') return fulfillJson(route, email)
   if (endpoint === 'kafka') return fulfillJson(route, kafka)
   if (endpoint === 'rabbitmq') return fulfillJson(route, rabbit)
@@ -7196,7 +7282,18 @@ function securityEvent(principal, type, timestampMillis, data) {
   }
 }
 
-function httpExchange(id, method, path, query, status, durationMs, responseSizeBytes, exchangeTraceId, requestHeaders) {
+function httpExchange(
+  id,
+  method,
+  path,
+  query,
+  status,
+  durationMs,
+  responseSizeBytes,
+  exchangeTraceId,
+  requestHeaders,
+  route = path
+) {
   return {
     id,
     timestamp: new Date(nowMillis - durationMs * 100).toISOString(),
@@ -7216,7 +7313,9 @@ function httpExchange(id, method, path, query, status, durationMs, responseSizeB
     responseHeaders: [
       {name: 'content-type', values: ['application/json'], masked: false},
       {name: 'x-content-type-options', values: ['nosniff'], masked: false}
-    ]
+    ],
+    route,
+    routeSource: 'FRAMEWORK_TEMPLATE'
   }
 }
 

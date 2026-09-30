@@ -147,8 +147,8 @@ assess the pull request again.
 - When a pull request is behind `main` or has conflicts, comment `@dependabot rebase`. If its lock file is corrupt,
   comment `@dependabot recreate`. Do this only while the branch has no human commits.
 - Reproduce locally when you repair a branch, when CI does not cover the change, or when you need to see a failure.
-  Use the Maven Wrapper with an isolated repository (`-Dmaven.repo.local=.m2`) and run the smallest command that
-  proves the change, then broaden:
+  Use the Maven Wrapper with an isolated repository (`-Dmaven.repo.local=.m2`; the browser suites need the absolute
+  form described in `AGENTS.md` "Parallel worktrees") and run the smallest command that proves the change, then broaden:
   - Maven: `./mvnw -B -ntp -Dmaven.repo.local=.m2 -Pcoverage clean install`. For Quarkus, run the focused extension
     build from the Quarkus instructions on JDK 17, 21, or 25, because other JDKs skip augmentation.
   - Spring or Jackson changes: run the Spring MVC, Spring WebFlux, and Quarkus conformance runners.

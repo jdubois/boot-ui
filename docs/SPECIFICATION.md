@@ -1073,12 +1073,21 @@ Features:
 - Show request and response headers in row details.
 - Offer a client-side **Copy as cURL** action in row details that rebuilds a runnable command template from the retained
   exchange metadata, without capturing a body or replaying the request.
-- Provide server-side filtering by path/URL/trace id, method, and status class with bounded paging.
+- Provide server-side filtering by path/URL/trace id, method, status class, and route with bounded paging.
 - Hide BootUI self-requests by default through `bootui.monitoring.exclude-self`. Where BootUI owns recording they are
   never recorded, judged from the decoded path below the context path and never the query string, so console polling
   never displaces application exchanges.
 - State the retained window above the list: exchanges kept of the capacity, the reserved share and how much of it holds
   failed or slow exchanges, and evictions since startup.
+- Label every exchange with its route and link it to its Live Activity request profile.
+- Rank routes over the retained window (`GET /bootui/api/http-exchanges/routes`): per method and route, the request
+  count; 2xx, 3xx, 4xx, and 5xx counts; average, p50, p95, p99, and maximum duration; and share of retained request
+  time, ranked by requests, total time, p95, maximum, or errors. Each route links to the exchange list filtered to it.
+- Resolve a route from the framework's handler template, then the single best declared mapping, then a masked path,
+  exactly as SQL Trace route attribution does, and report the source as `FRAMEWORK_TEMPLATE`, `DECLARED_MAPPING`, or
+  `MASKED_PATH`.
+- State the evidence window beside the rankings: retained exchanges, buffer size, evictions, the oldest retained
+  exchange, and hidden BootUI exchanges.
 
 Acceptance criteria:
 
@@ -1094,6 +1103,15 @@ Acceptance criteria:
   computed from the same snapshot as the exchanges. When the application provides its own `HttpExchangeRepository` or
   recording filter, BootUI never replaces it, keeps its former plain behavior, and reports `applicationManaged: true`
   with only the retained count.
+- Route counts and durations reconcile with the retained, visible exchanges; status classes add up to the request count,
+  and percentiles are exact nearest-rank values over each route's timed exchanges.
+- Route rankings return the union of each criterion's top routes (25 by default, at most 100) with the criteria each
+  route leads, state how many distinct routes were retained, and break ties on the route id in plain character order.
+  `?route=<id>` always returns that route's row. Ambiguous declared mappings produce no template but still mask every
+  parameter position they declare, framework and declared templates render identically, and a route never carries a
+  query string.
+- A value the exchange source does not report, such as an application repository's capacity or evictions, is `null`
+  rather than guessed. BootUI-owned buffers report both, from the same snapshot as the ranked exchanges.
 - Secret-like headers and query parameters are masked unless value exposure is explicitly set to `FULL`. Sensitive
   parameter names are matched percent-decoded, so a URL-encoded name cannot evade masking, and the same masking applies
   to a query-shaped URI fragment.
@@ -1222,6 +1240,11 @@ Features:
   Quarkus) cache hit
   ratio — the percentage of captured cache reads (`HIT`/`MISS`) that were hits, deep-linked to the Cache panel — and a
   scheduled-task failure count linking into the Scheduled Tasks panel.
+- The p50/p95 latency and the slowest request are computed once, in the shared engine, over every retained request with a
+  duration (`latencySampleCount`), so they are identical on every adapter for the same evidence. The slowest request
+  carries its resolved route (`slowestEndpointRoute`, `slowestEndpointRouteId`, `slowestEndpointRouteSource`), links to
+  that route's row in the HTTP Exchanges route rankings, and a tie goes to the newest request.
+- `?request=<exchange id>` opens that request's profile, so each HTTP Exchanges row links to its profile.
 - Client-side filter chips by type and severity, collapsing of adjacent identical entries with an occurrence count,
   nesting of correlated children under their request (expanded by default; any active filter or free-text search
   flattens the feed so the query spans every signal), and a
@@ -2497,19 +2520,26 @@ stacks. The `spring` root remains the Quarkus application advisor on Quarkus; th
 
 Reports retain their existing `violationCount` and `sampleViolations` previews (normally ten per rule, twenty for the
 Quarkus application and Security advisors), plus `violationDetails: {scanId, total, retained, retentionLimit,
-truncated}`. The snapshot ID is null before a completed scan. Totals and retention are before dismissal and describe
+truncated, locationNotes}`. The snapshot ID is null before a completed scan. Totals and retention are before dismissal and describe
 retrieval completeness, not evidence coverage or score eligibility. The latest completed report and sanitized detail
 index are published together; reads during another scan serve the previous snapshot. Dismiss/restore preserves its
 identity and retained entries. Only the latest snapshot is kept.
 
 Detail reads require the report's nonblank `scanId`; offset defaults to zero and limit to 100, capped at 1000.
 Malformed/fractional/overflowing inputs, negative offsets, and nonpositive limits are rejected. Responses contain
-`scanId`, `ruleId`, full `violationCount`, `retainedCount`, `truncated`, `violations`, and
-`page: {total, matched, offset, limit, returned, hasMore}`. Page totals count retained entries; a terminal page does not
-prove complete retention. Offsets at/beyond the retained end return an empty terminal page. Unknown/non-finding
+`scanId`, `ruleId`, full `violationCount`, `retainedCount`, `truncated`, `violations`,
+`page: {total, matched, offset, limit, returned, hasMore}`, and `locations`. Page totals count retained entries; a
+terminal page does not prove complete retention. Offsets at/beyond the retained end return an empty terminal page. Unknown/non-finding
 rules return 404; missing or stale snapshots return 409 with cached-report refresh guidance. Dismissed findings are
 retrievable. Reads obey panel availability, enabled and safety policy, but are allowed in read-only mode, and never
 rescan or collect new observations.
+
+Architecture, REST API, and Hibernate results add `sampleLocations`, aligned index-for-index with `sampleViolations`,
+and their pages fill `locations`, aligned with `violations`. Each non-null entry is an
+`AdvisorViolationLocationDto {className, memberName, kind, sourceFile, line, sourcePath, precision}` for the one code
+element the finding names; an empty list means no listed violation has one, which is always the case for the other
+advisors. Locations are captured from scan evidence and completed with a local source path only during an explicit
+scan; detail reads never resolve them again. See [violation locations](features/advisors.md#violation-locations).
 
 The UI offers **View violations** only on demand when more findings exist, then bounded inline Previous/Next and
 **Back to samples**. It retains samples/the last page through loading or failure, provides Retry or an explicit
@@ -2571,6 +2601,7 @@ Initial endpoints:
 | `/bootui/api/log-tail/stream`                    | GET    | Log stream over Server-Sent Events                                                     |
 | `/bootui/api/exceptions`                         | GET    | Bounded exception groups with status and occurrence summaries                         |
 | `/bootui/api/http-exchanges`                     | GET    | Recent application HTTP request/response metadata                                      |
+| `/bootui/api/http-exchanges/routes`              | GET    | Route performance rankings over the retained HTTP exchanges                            |
 | `/bootui/api/traces`                         | GET    | Recent local trace summaries                                                           |
 | `/bootui/api/traces/{traceId}`               | GET    | Trace waterfall detail                                                                 |
 | `/bootui/api/traces`                         | DELETE | Clear retained local traces when not read-only                                         |
@@ -2846,7 +2877,7 @@ Design rules:
     `get_database_advisor_report`, `get_memory_report`, `get_security_report`, `get_pentest_report`,
     `get_rest_api_report`, `get_graalvm_report`, `get_crac_report`, and `get_vulnerabilities_report`.
   - Diagnostics: `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
-    `get_sql_traces`, `get_transactions`, `get_traces`, `get_log_tail`, `get_http_exchanges`, and
+    `get_sql_traces`, `get_transactions`, `get_traces`, `get_log_tail`, `get_http_exchanges`, `get_http_routes`, and
     `get_rest_client_traces`.
   - Runtime and integration reads: `get_overview`, `get_health`, `get_config`, `get_beans`, `get_mappings`,
     `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`,

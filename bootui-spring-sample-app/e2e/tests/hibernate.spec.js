@@ -87,7 +87,9 @@ test.describe('Hibernate Advisor view', () => {
       page.getByText(/SampleOrderRepository#markAllAs is @Modifying without clearAutomatically/)
     ).toBeVisible()
     await expect(page.getByText('Native Page queries should review count derivation')).toBeVisible()
-    await expect(page.getByText(/SampleOrderRepository#findPageNative/)).toBeVisible()
+    await expect(
+      page.getByText(/SampleOrderRepository#findPageNative is a native paged @Query without countQuery/)
+    ).toBeVisible()
     await expect(page.getByRole('link', {name: 'Learn more'}).first()).toBeVisible()
   })
 

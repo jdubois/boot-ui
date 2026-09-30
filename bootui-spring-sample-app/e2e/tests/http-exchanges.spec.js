@@ -8,11 +8,11 @@ test.describe('HTTP Exchanges view', () => {
 
     await openView('http-exchanges', 'HTTP Exchanges')
 
-    await expect(page.locator('table')).toContainText('/api/sample/hello', {timeout: 15_000})
-    await expect(page.locator('table')).toContainText('GET')
-    await expect(page.locator('table')).toContainText('200')
+    await expect(page.locator('.http-exchanges-table')).toContainText('/api/sample/hello', {timeout: 15_000})
+    await expect(page.locator('.http-exchanges-table')).toContainText('GET')
+    await expect(page.locator('.http-exchanges-table')).toContainText('200')
 
-    const sampleRow = page.locator('tbody tr', {hasText: '/api/sample/hello'}).first()
+    const sampleRow = page.locator('.http-exchanges-table tbody tr', {hasText: '/api/sample/hello'}).first()
     const detailsButton = sampleRow.locator('.http-exchanges-detail-toggle')
     await expect(detailsButton).toBeVisible()
     await detailsButton.click()
@@ -38,8 +38,8 @@ test.describe('HTTP Exchanges view', () => {
 
     await openView('http-exchanges', 'HTTP Exchanges')
 
-    await expect(page.locator('table')).toContainText('/api/secure', {timeout: 15_000})
-    await expect(page.locator('table')).toContainText('401')
+    await expect(page.locator('.http-exchanges-table')).toContainText('/api/secure', {timeout: 15_000})
+    await expect(page.locator('.http-exchanges-table')).toContainText('401')
   })
 
   test('copies a safe cURL template without values, secrets, or a replayed request', async ({
@@ -64,7 +64,7 @@ test.describe('HTTP Exchanges view', () => {
     await openView('http-exchanges', 'HTTP Exchanges')
     await page.locator('#http-exchanges-filter').fill('curlProbe')
 
-    const probeRow = page.locator('tbody tr', {hasText: 'curlProbe'}).first()
+    const probeRow = page.locator('.http-exchanges-table tbody tr', {hasText: 'curlProbe'}).first()
     await expect(probeRow).toBeVisible({timeout: 15_000})
     await probeRow.locator('.http-exchanges-detail-toggle').click()
 
@@ -98,5 +98,33 @@ test.describe('HTTP Exchanges view', () => {
     expect(copied).not.toContain('beta')
     expect(copied.toLowerCase()).not.toContain('x-api-key')
     expect(copied).not.toContain('e2e-must-not-be-copied')
+  })
+
+  test('ranks routes over the retained window and drills down to one route and a request profile', async ({
+    openView,
+    page
+  }) => {
+    for (let i = 0; i < 3; i++) {
+      expect((await page.request.get('/api/sample/hello')).ok()).toBeTruthy()
+    }
+
+    await openView('http-exchanges', 'HTTP Exchanges')
+
+    const routeRow = page.locator('.http-routes-table tbody tr[data-route-id="GET /api/sample/hello"]')
+    await expect(routeRow).toBeVisible({timeout: 15_000})
+    await expect(routeRow.locator('.http-routes-source')).toHaveText(/template|declared|masked path/)
+    await expect(page.locator('.http-routes-window')).toContainText('retained')
+    await expect(page.locator('.http-routes-window')).toContainText('BootUI')
+    await expect(page.locator('.http-routes-table')).not.toContainText('/bootui')
+
+    await routeRow.locator('.http-routes-exchanges-link').click()
+    await expect(page.locator('.http-exchanges-route-filter')).toContainText('GET /api/sample/hello')
+    const rows = page.locator('.http-exchanges-table tbody tr')
+    await expect(rows.first()).toContainText('/api/sample/hello')
+    await expect(page.locator('.http-exchanges-table')).not.toContainText('/api/secure')
+
+    await rows.first().locator('.http-exchanges-profile-link').click()
+    await expect(page).toHaveURL(/\/activity\?request=/)
+    await expect(page.locator('.activity-drawer')).toBeVisible()
   })
 })

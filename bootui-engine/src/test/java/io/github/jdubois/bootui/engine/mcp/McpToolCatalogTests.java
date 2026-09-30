@@ -13,10 +13,23 @@ class McpToolCatalogTests {
 
     @Test
     void advertisesTheFullToolSurfacePerStack() {
-        assertThat(McpToolCatalog.entries()).hasSize(89);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(89);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(88);
-        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(73);
+        assertThat(McpToolCatalog.entries()).hasSize(90);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(90);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(89);
+        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(74);
+    }
+
+    @Test
+    void httpRouteRankingsAreAReadOnTheExistingLimitSchemaOnEveryStack() {
+        McpToolCatalog.Entry routes = McpToolCatalog.byName("get_http_routes").orElseThrow();
+        McpToolCatalog.Entry exchanges =
+                McpToolCatalog.byName("get_http_exchanges").orElseThrow();
+
+        // The published CLI binds options by schema name, so a new tool must reuse an existing schema.
+        assertThat(routes.schema()).isEqualTo(McpToolSchema.LIMIT);
+        assertThat(routes.action()).isFalse();
+        assertThat(routes.panelId()).isEqualTo(BootUiPanels.HTTP_EXCHANGES);
+        assertThat(routes.stacks()).isEqualTo(exchanges.stacks()).containsExactlyInAnyOrder(Stack.values());
     }
 
     @Test

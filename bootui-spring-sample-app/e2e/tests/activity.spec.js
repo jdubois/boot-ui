@@ -238,7 +238,10 @@ test.describe('Live Activity view', () => {
       .locator('.activity-kpis')
       .getByTitle(/in HTTP Exchanges$/)
       .click()
-    await expect(page).toHaveURL(/\/http-exchanges\?q=/)
+    await expect(page).toHaveURL(/\/http-exchanges\?route=/)
+    // The KPI opens on the slowest request's route row, ranked by slowest request, with its exchanges listed.
+    await expect(page.locator('.http-routes-row-active')).toBeVisible({timeout: 15_000})
+    await expect(page.locator('.http-exchanges-route-filter')).toBeVisible()
   })
 
   test('shows a Live flow service map of dependencies derived from retained evidence', async ({openView, page}) => {

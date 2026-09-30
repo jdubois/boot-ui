@@ -387,6 +387,13 @@ public class QuarkusMcpTools {
                         "get_http_exchanges",
                         McpToolDescriptions.quarkus("get_http_exchanges"),
                         args -> httpExchanges.exchanges(null, null, null, null, args.limit())));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_http_routes",
+                        McpToolDescriptions.quarkus("get_http_routes"),
+                        args -> httpExchanges.routes(args.limit())));
 
         // --- Core context read tools ---
         addIfAvailable(

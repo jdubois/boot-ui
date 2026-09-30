@@ -209,6 +209,12 @@ The seven MCP tools are `get_architecture_rule_violations`, `get_hibernate_rule_
 `id` and `scanId`, optional integer `offset` (default zero, nonnegative) and `limit` (default 100, positive,
 capped at `min(1000, transport max-results)`). Obtain `scanId` from `get_<advisor>_report` first.
 
+Architecture, REST API, and Hibernate reports and pages also carry structured locations: `sampleLocations` aligned
+with `sampleViolations`, and `locations` aligned with `violations` (a `null` entry has no location). Each gives
+`className`, `memberName`, `kind`, `sourceFile`, `line`, `sourcePath`, and `precision` (`LINE`, `MEMBER`, `CLASS`).
+Open `sourcePath` at `line` to go straight to the code; `violationDetails.locationNotes` explains a missing path.
+Never parse a location out of the violation text.
+
 Keep the rule and scan ID fixed, advance the offset by `page.returned`, and stop when `page.hasMore` is false.
 `page.total` and `page.matched` count retained entries, not the full `violationCount`. Inspect rule/report
 `truncated`: retention overflow means even a terminal page is incomplete. Report `violationDetails` contains
@@ -405,7 +411,8 @@ When BootUI MCP tools are available:
 
 1. Call core reads such as `get_overview` and `get_health` first.
 2. Use targeted diagnostic reads such as `get_live_activity`, `get_exceptions`, `get_exception_detail`,
-   `get_sql_traces`, `get_traces`, `get_log_tail`, and `get_http_exchanges`. Their buffers are bounded: before
+   `get_sql_traces`, `get_traces`, `get_log_tail`, `get_http_exchanges`, and `get_http_routes` (per-route request
+   counts, status classes, and p50/p95/p99 latency over the retained window). Their buffers are bounded: before
    concluding that a request, statement, or call never happened, check the `retention` object for evictions.
 3. Run only the advisor relevant to the task, such as `architecture_scan`, `spring_scan`, `hibernate_scan`,
    `memory_scan`, `security_scan`, `pentest_scan`, or `rest_api_scan`.

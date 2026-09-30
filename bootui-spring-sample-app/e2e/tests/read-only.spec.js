@@ -167,9 +167,11 @@ async function startSampleApp(properties) {
     throw new Error(`Maven Wrapper not found at ${mvnw}`)
   }
 
+  const mavenRepo = process.env.BOOTUI_MAVEN_REPO_LOCAL
   const child = spawn(
     mvnw,
     [
+      ...(mavenRepo ? [`-Dmaven.repo.local=${mavenRepo}`] : []),
       '-f',
       path.join(sampleAppDir, 'pom.xml'),
       '-q',

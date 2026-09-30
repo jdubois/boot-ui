@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
+import io.github.jdubois.bootui.core.dto.HttpRoutesReport;
 import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
@@ -73,5 +74,27 @@ class HttpExchangesResourceTests {
 
         assertThat(report.hiddenSelf()).isZero();
         assertThat(report.exchanges()).extracting(HttpExchangeDto::path).containsExactly("/api/bootui/export");
+    }
+
+    @Test
+    void routeWindowReportsTheBufferCapacityAndEvictionsFromTheSameSnapshot() {
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(4, 50, 1_000L);
+        buffer.record(exchange("/server-error", 500, 5));
+        for (int i = 0; i < 10; i++) {
+            buffer.record(exchange("/ok", 200, 5));
+        }
+        HttpExchangesResource resource = new HttpExchangesResource(
+                buffer,
+                new QuarkusExposurePolicy(new SmallRyeConfigBuilder()
+                        .withSources(new PropertiesConfigSource(Map.of(), "test", 1000))
+                        .build()));
+
+        HttpRoutesReport report = resource.routes(null);
+
+        assertThat(report.window().bufferSize()).isEqualTo(4);
+        assertThat(report.window().evicted()).isEqualTo(7L);
+        assertThat(report.window().retainedExchanges()).isEqualTo(4);
+        assertThat(report.window().hiddenSelfExchanges()).isZero();
+        assertThat(report.notes()).noneMatch(note -> note.contains("does not count evictions"));
     }
 }

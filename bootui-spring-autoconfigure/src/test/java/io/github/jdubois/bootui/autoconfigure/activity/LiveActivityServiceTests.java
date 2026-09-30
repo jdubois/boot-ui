@@ -29,6 +29,7 @@ import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.web.LiveActivityAssembler;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -311,6 +312,81 @@ class LiveActivityServiceTests {
         assertThat(kpis.slowestEndpoint()).isEqualTo("/slow");
         assertThat(kpis.slowestEndpointMs()).isEqualTo(200L);
         assertThat(kpis.slowestQueryMs()).isEqualTo(40L);
+    }
+
+    /**
+     * Spring MVC computes its KPIs here, while Spring WebFlux and Quarkus use the engine assembler; both
+     * delegate to the shared engine helper, so the same retained exchanges must yield the same latency KPIs
+     * and the same labelled slowest request on every stack.
+     */
+    @Test
+    void latencyKpisAndSlowestRouteMatchTheSharedEngineAssembler() {
+        HttpExchangeDto[] exchanges = {
+            routedExchange("r1", BASE.plusMillis(0), "/api/orders/1", 40L, "/api/orders/{id}", "FRAMEWORK_TEMPLATE"),
+            routedExchange("r2", BASE.plusMillis(10), "/api/orders/2", 900L, "/api/orders/{id}", "FRAMEWORK_TEMPLATE"),
+            routedExchange("r3", BASE.plusMillis(20), "/api/health", 900L, "/api/health", "DECLARED_MAPPING"),
+            routedExchange("r4", BASE.plusMillis(30), "/files/abc123", 3L, "/files/{value}", "MASKED_PATH"),
+            routedExchange("r5", BASE.plusMillis(40), "/stream", null, "/stream", "MASKED_PATH")
+        };
+        var mvc = service(requests(exchanges), null, null, null, null, new BootUiProperties())
+                .report(null, null, 0, 0)
+                .kpis();
+        var shared = new LiveActivityAssembler()
+                .report(
+                        new HttpExchangesReport(
+                                exchanges.length,
+                                exchanges.length,
+                                0,
+                                List.of(exchanges),
+                                new PageMetadata(exchanges.length, exchanges.length, 0, exchanges.length, 5, false),
+                                null),
+                        List.of(),
+                        false,
+                        null,
+                        List.of(),
+                        List.of(),
+                        false,
+                        List.of(),
+                        false,
+                        List.of(),
+                        null,
+                        0,
+                        List.of(),
+                        false,
+                        List.of(),
+                        false,
+                        List.of(),
+                        false,
+                        List.of(),
+                        false)
+                .kpis();
+
+        // The two 900 ms requests tie; the newer one wins on every stack.
+        assertThat(mvc.slowestEndpoint()).isEqualTo("/api/health");
+        assertThat(mvc.slowestEndpointRoute()).isEqualTo("/api/health");
+        assertThat(mvc.slowestEndpointRouteId()).isEqualTo("GET /api/health");
+        assertThat(mvc.slowestEndpointRouteSource()).isEqualTo("DECLARED_MAPPING");
+        assertThat(mvc.latencySampleCount()).isEqualTo(4);
+        assertThat(mvc.p50LatencyMs()).isEqualTo(40L);
+        assertThat(mvc.p95LatencyMs()).isEqualTo(900L);
+        assertThat(List.of(
+                        mvc.p50LatencyMs(),
+                        mvc.p95LatencyMs(),
+                        mvc.slowestEndpoint(),
+                        mvc.slowestEndpointMs(),
+                        mvc.slowestEndpointRoute(),
+                        mvc.slowestEndpointRouteId(),
+                        mvc.slowestEndpointRouteSource(),
+                        mvc.latencySampleCount()))
+                .isEqualTo(List.of(
+                        shared.p50LatencyMs(),
+                        shared.p95LatencyMs(),
+                        shared.slowestEndpoint(),
+                        shared.slowestEndpointMs(),
+                        shared.slowestEndpointRoute(),
+                        shared.slowestEndpointRouteId(),
+                        shared.slowestEndpointRouteSource(),
+                        shared.latencySampleCount()));
     }
 
     @Test
@@ -1222,7 +1298,7 @@ class LiveActivityServiceTests {
                 List.of(exchanges),
                 new PageMetadata(0, exchanges.length, exchanges.length, 1, 0, false),
                 null);
-        when(controller.exchanges(null, null, null, 0, 200)).thenReturn(report);
+        when(controller.exchanges(null, null, null, null, null)).thenReturn(report);
         return controller;
     }
 
@@ -1275,6 +1351,29 @@ class LiveActivityServiceTests {
         ExceptionsReport report = new ExceptionsReport(true, null, 50, groups.length, List.of(groups));
         when(controller.list()).thenReturn(report);
         return controller;
+    }
+
+    private static HttpExchangeDto routedExchange(
+            String id, Instant timestamp, String path, Long durationMs, String route, String routeSource) {
+        return new HttpExchangeDto(
+                id,
+                timestamp,
+                "GET",
+                path,
+                null,
+                path,
+                200,
+                "2xx",
+                durationMs,
+                null,
+                null,
+                null,
+                null,
+                null,
+                List.of(),
+                List.of(),
+                route,
+                routeSource);
     }
 
     private static HttpExchangeDto exchange(

@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.hibernate;
 
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolation;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import java.lang.reflect.Method;
 import java.util.List;
@@ -60,11 +61,20 @@ record HibernateContext(
                 label);
     }
 
-    void retainViolations(String ruleId, List<String> details) {
-        violationCollector.record(ruleId, details.size(), details, value -> {
-            String detail = HibernateRuleSupport.detail(value);
-            return unitLabel == null ? detail : HibernateRuleSupport.detail("[" + unitLabel + "] " + detail);
-        });
+    /**
+     * Records a rule's findings for this unit and returns its samples, cut from the same unit-labelled, sanitized
+     * records the collector retains, so each sample keeps its location and matches its retained detail.
+     */
+    List<AdvisorViolation> retainViolations(String ruleId, List<AdvisorViolation> details) {
+        return violationCollector.record(
+                ruleId,
+                details.size(),
+                details,
+                value -> {
+                    String detail = HibernateRuleSupport.detail(value);
+                    return unitLabel == null ? detail : HibernateRuleSupport.detail("[" + unitLabel + "] " + detail);
+                },
+                HibernateRuleSupport.MAX_SAMPLE_VIOLATIONS);
     }
 
     HibernateContext(

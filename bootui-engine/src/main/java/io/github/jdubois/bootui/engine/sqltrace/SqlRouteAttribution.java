@@ -268,21 +268,17 @@ public final class SqlRouteAttribution {
         return value == null || value.isBlank() ? null : value;
     }
 
-    /** The grouping identity of a route: its method plus its template or masked path. */
+    /**
+     * The grouping identity of a route: its method plus its template or masked path, resolved by the shared
+     * {@link RouteLabel} so SQL Trace and the HTTP Exchanges route summary always agree. SQL Trace keeps its
+     * published two-value {@code routeSource} contract: both template tiers report {@code ROUTE_TEMPLATE}.
+     */
     private record RouteKey(String id, String method, String route, String source) {
 
         static RouteKey of(SqlRequestEvidence request, RouteTemplateResolver templates) {
-            String method = request.method() == null || request.method().isBlank()
-                    ? "UNKNOWN"
-                    : request.method().toUpperCase(java.util.Locale.ROOT);
-            String reported =
-                    request.routeTemplate() == null || request.routeTemplate().isBlank()
-                            ? null
-                            : request.routeTemplate().trim();
-            String template = reported != null ? reported : templates.resolve(request.path());
-            String route = template != null ? template : RoutePathMasker.mask(request.path());
-            String source = template != null ? "ROUTE_TEMPLATE" : "MASKED_PATH";
-            return new RouteKey(method + " " + route, method, route, source);
+            RouteLabel label = RouteLabel.of(request.method(), request.path(), request.routeTemplate(), templates);
+            String source = label.source().isTemplate() ? "ROUTE_TEMPLATE" : "MASKED_PATH";
+            return new RouteKey(label.id(), label.method(), label.route(), source);
         }
     }
 

@@ -1,11 +1,16 @@
 package io.github.jdubois.bootui.engine.restapi;
 
+import io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto;
 import io.github.jdubois.bootui.core.dto.RestApiRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorFindings;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ExceptionHandlerModel;
 import io.github.jdubois.bootui.engine.restapi.RestApiModel.ThrownExceptionModel;
-import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -57,8 +62,12 @@ final class DeclaredExceptionsHaveHandlersRule extends AbstractRestApiRule {
         for (ExceptionHandlerModel handler : context.exceptionHandlers()) {
             mapped.addAll(handler.handledExceptionTypes());
         }
-        List<String> violations = new ArrayList<>();
-        Set<String> reported = new LinkedHashSet<>();
+        // Texts are deduplicated as before. One text can stand for several endpoints (overloads, or controllers
+        // sharing a simple name), so it keeps a location only when every occurrence is the same known element.
+        // Locations alone cannot tell overloads apart, so the element identity decides.
+        Map<String, AdvisorViolationLocationDto> reported = new LinkedHashMap<>();
+        Map<String, String> identities = new HashMap<>();
+        Set<String> spanning = new HashSet<>();
         for (ThrownExceptionModel thrown : context.targets(context.thrownExceptions())) {
             if (isMapped(thrown, mapped)) {
                 continue;
@@ -66,10 +75,20 @@ final class DeclaredExceptionsHaveHandlersRule extends AbstractRestApiRule {
             String violation = thrown.controllerSimpleName() + "#" + thrown.methodName() + " declares "
                     + thrown.exceptionSimpleName()
                     + ", for which no handler declaration was found in the imported model";
-            if (reported.add(violation)) {
-                violations.add(violation);
+            AdvisorViolationLocationDto location = context.location(thrown);
+            String identity = context.elementIdentity(thrown);
+            if (!reported.containsKey(violation)) {
+                reported.put(violation, location);
+                identities.put(violation, identity);
+            } else if (identity == null
+                    || !identity.equals(identities.get(violation))
+                    || !Objects.equals(reported.get(violation), location)) {
+                spanning.add(violation);
             }
         }
+        AdvisorFindings violations = new AdvisorFindings();
+        reported.forEach(
+                (violation, location) -> violations.add(violation, spanning.contains(violation) ? null : location));
         return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 

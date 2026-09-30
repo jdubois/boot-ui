@@ -49,7 +49,8 @@ You are the BootUI vertical-PR owner. Deliver one coherent change from investiga
      `npm run test:custom-path` in `bootui-spring-sample-app/e2e`, and `npm test` in `bootui-quarkus-sample-app/e2e`.
 
    Fix failures rather than weakening assertions. Isolate Maven from other worktrees with `-Dmaven.repo.local=.m2`,
-   using the same repository for every invocation, and remember that a JDK outside 17, 21, and 25 silently skips Quarkus
+   using the same repository for every invocation (the browser suites need the absolute form described in `AGENTS.md`
+   "Parallel worktrees"), and remember that a JDK outside 17, 21, and 25 silently skips Quarkus
    augmentation, so a green local run there proves less than it appears to.
 8. Review the final diff for unrelated changes, framework leaks, unbounded work, optional-dependency classloading, secret exposure, safety-policy drift, and stale documentation.
 9. Unless the task is explicitly plan-only, finish by committing and opening or updating one non-draft pull request.

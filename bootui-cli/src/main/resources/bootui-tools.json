@@ -462,6 +462,19 @@
       "summary": "Return a bounded, newest-first snapshot of application HTTP request/response metadata."
     },
     {
+      "name": "get_http_routes",
+      "command": "http routes",
+      "schema": "LIMIT",
+      "panel": "http-exchanges",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Return route performance rankings over the retained HTTP exchanges: per method and route template, request and status-class counts, average, p50, p95, p99 and maximum duration, and share of request time, plus the evidence window."
+    },
+    {
       "name": "get_http_sessions",
       "command": "http sessions",
       "schema": "NONE",
