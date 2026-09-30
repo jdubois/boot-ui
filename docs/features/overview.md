@@ -337,8 +337,9 @@ What differs is **how signals correlate to a request**, because only the servlet
 
 - **Spring MVC** uses the full tiered join above: trace id, then serving thread, then time window. SQL first matches
   BootUI's own request id, so it nests exactly even when identical requests overlap.
-- **Spring WebFlux** and **Quarkus** correlate by **trace id only**. Reactor Netty and the Vert.x event loop have no
-  thread-per-request model, so the thread-based and time-window tiers do not apply. Without a trace id the feed still
+- **Spring WebFlux** and **Quarkus** correlate by **trace id only**, except SQL, which first matches BootUI's own
+  request id. Reactor Netty and the Vert.x event loop have no thread-per-request model, so the thread-based and
+  time-window tiers do not apply. Without a trace id the feed still
   shows every signal, just flat rather than nested, and the profiler drawer honestly reports itself unavailable rather
   than fabricating a partial profile.
 
@@ -363,6 +364,13 @@ trace id for now.
 Spring MVC stamps the same kind of request id on each exchange and each SQL statement. `RequestCorrelationFilter`
 generates it when the request starts and keeps it current on the servlet thread, including during an asynchronous
 redispatch of the same request. Work done during the container's `/error` dispatch carries no request id yet.
+
+Spring WebFlux does the same without a serving thread. BootUI's reactive correlation wraps the whole HTTP handler,
+writes the request id into the Reactor context, and registers a Micrometer context-propagation accessor, so Reactor
+restores it on the event loop, `boundedElastic`, and `parallel` threads the request hops to. BootUI contributes
+`spring.reactor.context-propagation=auto` as an overridable default for this. If the application sets `limited`, or
+has no Micrometer context propagation, only the thread that assembles the request sees the id, and statements on other
+threads carry none rather than a guessed one.
 
 :::
 

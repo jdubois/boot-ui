@@ -175,6 +175,9 @@ public abstract class AbstractCorrelationCoverageTest {
         assertThat(report.child("SQL").observed())
                 .as(phase + ": the scenario routes must run SQL on a request-serving thread")
                 .isPositive();
+        assertThat(report.requestsSharingAnId())
+                .as(phase + ": every request carries its own BootUI request id, so no two requests share an id")
+                .isZero();
         for (Map.Entry<String, Double> floor : minimumNestedShares(phase).entrySet()) {
             TypeCoverage coverage = report.child(floor.getKey());
             if (coverage.observed() > 0) {

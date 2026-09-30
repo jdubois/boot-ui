@@ -201,11 +201,12 @@ Every exchange carries the route it belongs to, shown under its path when the tw
 opens the request's profile in [Live Activity](overview.md#the-per-request-profiler). Stacks that correlate a profile
 by trace id alone explain in the profile when a request carried none.
 
-On Spring MVC and Quarkus, every exchange also carries BootUI's own `requestId`, generated when the request starts,
-whether or not OpenTelemetry is present. On Spring MVC it covers the servlet thread and any asynchronous redispatch of
-the same request; on Quarkus it follows the request from the Vert.x event loop to the worker or virtual thread that
-continues it. It is the exchange's `id`, so identical requests that overlap never share an id, and the search field
-matches it. On Spring WebFlux, `requestId` is `null` for now, and the id remains a hash of the exchange.
+Every exchange also carries BootUI's own `requestId`, generated when the request starts, whether or not OpenTelemetry
+is present. On Spring MVC it covers the servlet thread and any asynchronous redispatch of the same request. On Spring
+WebFlux it travels in the Reactor context to every scheduler the request hops to, including error rendering. On
+Quarkus it follows the request from the Vert.x event loop to the worker or virtual thread that continues it. It is the
+exchange's `id`, so identical requests that overlap never share an id, and the search field matches it. An exchange
+recorded without one, for example by an application-provided repository, keeps a hash of the exchange as its id.
 
 ### Route rankings
 

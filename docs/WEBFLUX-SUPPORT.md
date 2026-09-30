@@ -398,19 +398,27 @@ resolves correctly across those hops when Reactor's *automatic context propagati
 wired correctly but reads an empty/invalid span everywhere except by coincidence on the thread the request started on.
 `BootUiActuatorDefaultsEnvironmentPostProcessor` now contributes `spring.reactor.context-propagation=auto` as an
 overridable default (the same "library default, host always wins" pattern used for
-`management.tracing.sampling.probability`) whenever the application is reactive and the OpenTelemetry SDK is present —
-see §7 for how this was found.
+`management.tracing.sampling.probability`) whenever the application is reactive and Micrometer context propagation
+(`io.micrometer.context.ContextRegistry`, which Micrometer Tracing brings) is present — see §7 for how this was found.
+
+**BootUI's own request id.** `ReactiveRequestCorrelationFilter` gives every application request BootUI's request id
+(`docs/PLAN-v2.md` §5.1) with or without OpenTelemetry. It is an `HttpHandlerDecoratorFactory`, so it wraps WebFlux's
+exception handlers and the response commit as well as the filter chain. It writes the id into the Reactor context, and
+`BootUiCorrelationThreadLocalAccessor` exposes it to Micrometer context propagation, so the same `auto` mode restores it
+on every scheduler hop. As a WebFilter it also keeps it on the `ServerWebExchange`. BootUI's exchange repository stamps
+each exchange with it when `HttpExchangesWebFilter` records it in `beforeCommit`, which makes the id the exchange's `id`,
+and `SqlTraceRecorder` stamps each statement, so Live Activity nests SQL under the exact request that ran it.
 
 **Known, accepted residual limitations:**
 
-- Correlation is still trace-id-primary, exactly like Quarkus. A request with no active tracing span at all (for
-  example, OpenTelemetry entirely absent) still shows every signal flat/uncorrelated rather than nested, since there is
-  no id to key on. This is not WebFlux-specific — the same is true of the Quarkus adapter today.
+- Correlation is still trace-id-primary for every signal except SQL, exactly like Quarkus. Without a tracing span,
+  SQL still nests by BootUI's request id, but exceptions, security events, cache accesses, and REST client calls show
+  flat until they carry the request id too (`docs/PLAN-v2.md` M1-5b).
 - `HttpExchangeTraceRegistry#match` (and its servlet sibling `RequestCorrelationRegistry`) deliberately requires a
   *unique* method+path+time-window candidate. Two genuinely concurrent identical requests (the same endpoint hit twice
   within roughly the same tens of milliseconds, with no other distinguishing signal) correlate to *neither* rather than
-  risk attributing one request's trace id to the other. Both still show in the feed; they simply render without a nested
-  SQL/exception child until a less ambiguous signal is added.
+  risk attributing one request's trace id to the other. Both still show in the feed, each with its own SQL nested by
+  request id, but without other nested children until those carry the request id too.
 - The servlet adapter's thread-based correlation (`LiveActivityCorrelator`) is not ported — it has no reactive
   equivalent.
 

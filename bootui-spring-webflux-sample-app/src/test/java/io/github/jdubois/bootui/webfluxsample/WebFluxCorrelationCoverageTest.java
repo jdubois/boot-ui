@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.webfluxsample;
 
 import io.github.jdubois.bootui.conformance.AbstractCorrelationCoverageTest;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
@@ -43,6 +44,12 @@ class WebFluxCorrelationCoverageTest extends AbstractCorrelationCoverageTest {
                 Traffic.anonymous("/api/notes", 8),
                 Traffic.anonymous("/api/greetings/bootui", 4),
                 Traffic.anonymous("/api/sample/boom", 4));
+    }
+
+    /** Since M1-4, every statement carries its request id across Reactor scheduler hops, in every phase. */
+    @Override
+    protected Map<String, Double> minimumNestedShares(Phase phase) {
+        return Map.of("SQL", 1.0);
     }
 
     @Override

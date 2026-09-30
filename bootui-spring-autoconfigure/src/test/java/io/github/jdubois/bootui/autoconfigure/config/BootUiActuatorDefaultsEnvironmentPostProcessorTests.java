@@ -8,8 +8,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.env.DefaultPropertiesPropertySource;
+import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.core.Ordered;
 import org.springframework.core.env.MapPropertySource;
+import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.mock.env.MockEnvironment;
 
 class BootUiActuatorDefaultsEnvironmentPostProcessorTests {
@@ -177,7 +179,20 @@ class BootUiActuatorDefaultsEnvironmentPostProcessorTests {
     }
 
     @Test
-    void contributesReactorContextPropagationForReactiveAppsWithOpenTelemetry() {
+    void doesNotContributeReactorContextPropagationWithoutMicrometerContextPropagation() {
+        MockEnvironment env = new MockEnvironment().withProperty("bootui.enabled", "ON");
+        SpringApplication application = applicationWithWebType(WebApplicationType.REACTIVE);
+        application.setResourceLoader(
+                new DefaultResourceLoader(new FilteredClassLoader("io.micrometer.context.ContextRegistry")));
+
+        processor.postProcessEnvironment(env, application);
+
+        assertThat(env.getProperty(BootUiActuatorDefaultsEnvironmentPostProcessor.REACTOR_CONTEXT_PROPAGATION_PROPERTY))
+                .isNull();
+    }
+
+    @Test
+    void contributesReactorContextPropagationForReactiveAppsWithMicrometerContextPropagation() {
         MockEnvironment env = new MockEnvironment().withProperty("bootui.enabled", "ON");
 
         processor.postProcessEnvironment(env, applicationWithWebType(WebApplicationType.REACTIVE));

@@ -27,6 +27,7 @@ import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
 import io.github.jdubois.bootui.autoconfigure.pentesting.PentestingController;
 import io.github.jdubois.bootui.autoconfigure.postgres.PostgresqlController;
 import io.github.jdubois.bootui.autoconfigure.rabbit.RabbitController;
+import io.github.jdubois.bootui.autoconfigure.reactive.BootUiCorrelationThreadLocalAccessor;
 import io.github.jdubois.bootui.autoconfigure.reactive.BootUiHttpExchangesWebFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.BootUiJsonWebFluxConfigurer;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveActivitySignalFilter;
@@ -50,6 +51,7 @@ import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveLocalhostOnlyFilt
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveLogTailController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveOtelTraceIdProvider;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactivePanelAccessFilter;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveRequestCorrelationFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveRestClientTraceController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityEventTraceRegistry;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityHeadersFilter;
@@ -619,6 +621,27 @@ public class BootUiReactiveAutoConfiguration {
     public ReactiveActivitySignalFilter bootUiReactiveActivitySignalFilter(
             BootUiProperties properties, ObjectProvider<ReactiveLiveActivityController> liveActivityController) {
         return new ReactiveActivitySignalFilter(properties, liveActivityController);
+    }
+
+    @Bean
+    public ReactiveRequestCorrelationFilter bootUiReactiveRequestCorrelationFilter(BootUiProperties properties) {
+        return new ReactiveRequestCorrelationFilter(properties);
+    }
+
+    /**
+     * Registers {@link BootUiCorrelationThreadLocalAccessor} with Micrometer context propagation, so Reactor's
+     * automatic context propagation carries each request's BootUI correlation to the threads it hops to
+     * ({@code docs/PLAN-v2.md} §5.1). Gated on the library being present, which Micrometer Tracing brings.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "io.micrometer.context.ContextRegistry")
+    static class ReactiveCorrelationPropagationConfiguration {
+
+        @Bean
+        SmartInitializingSingleton bootUiCorrelationThreadLocalAccessorRegistration() {
+            BootUiCorrelationThreadLocalAccessor.register();
+            return () -> {};
+        }
     }
 
     @Bean

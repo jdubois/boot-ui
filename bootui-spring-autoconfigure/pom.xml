@@ -56,6 +56,16 @@
             <optional>true</optional>
         </dependency>
         <!--
+          Micrometer Context Propagation, optional: the reactive adapter registers a ThreadLocalAccessor for
+          BootUI's request correlation only when the application has it (it arrives with Micrometer Tracing).
+          The accessor is loaded solely from a @ConditionalOnClass nested configuration.
+        -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>context-propagation</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <!--
           RestClientCustomizer/RestTemplateCustomizer (org.springframework.boot.restclient) and
           WebClientCustomizer (org.springframework.boot.webclient) each moved to their own Spring Boot 4
           module and are not transitively pulled in by spring-boot-starter-web/-webflux. Both are gated by
