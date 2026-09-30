@@ -28,11 +28,14 @@ test.describe('REST Client view', () => {
     await expect(failedRow).toBeVisible()
     await expect(failedRow).toContainText('RestClient')
 
-    // Expanding the row reveals the call site, thread, and error message.
+    // Expanding the row reveals the client, thread, error message, and the sample method that issued the call.
     await failedRow.click()
     await expect(recentCalls).toContainText('Client')
     await expect(recentCalls).toContainText('Thread')
     await expect(recentCalls).toContainText('Error')
+    await expect(recentCalls.locator('tr.rest-detail-row').first()).toContainText(
+      'io.github.jdubois.bootui.sample.catalog.SampleController.quarkusSecureProducts('
+    )
   })
 
   test('can pause and resume recording', async ({openView, page}) => {

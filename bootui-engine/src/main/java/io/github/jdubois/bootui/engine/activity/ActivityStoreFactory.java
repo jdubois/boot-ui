@@ -46,12 +46,13 @@ public final class ActivityStoreFactory {
 
     /**
      * Builds a durable {@link BufferedActivityStore} over {@code dataSource} and eagerly verifies its
-     * schema (see {@link JdbcActivityStore#verifySchema()}) before returning, so a broken or unreachable
-     * database is rejected immediately rather than surfacing later on the first background flush. Used
+     * schema and read path (see {@link JdbcActivityStore#verifySchema()}) before returning, so a broken or
+     * unreachable database, or one that rejects the store's read statement, is rejected immediately rather than
+     * surfacing later on the first background flush or as a Live Activity panel that no longer loads. Used
      * only by the "Use the existing datasource" runtime switch (see {@code ActivitySwitchService}) —
      * the startup path above stays lazy-verify-on-first-write via {@link #create}, unchanged.
      *
-     * @throws ActivityStoreException if the schema cannot be verified/created
+     * @throws ActivityStoreException if the schema cannot be verified/created or the table cannot be read
      */
     public static BufferedActivityStore createAndVerifyDurable(
             ActivityPersistenceSettings settings, DataSource dataSource) {

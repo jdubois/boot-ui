@@ -1256,7 +1256,10 @@ Features:
     same one the SQL Trace panel may already be tracing) or a small dedicated, non-pooled connection configured
     through `bootui.activity.persistence.dedicated-*`. The backing table (`bootui.activity.persistence.table-name`,
     default `bootui_activity`) is created automatically on first use with a probe-then-create check that is safe when
-    several instances start concurrently against the same schema.
+    several instances start concurrently against the same schema. The SQL is portable except for two differences
+    detected once per store from the JDBC driver's reported product name: 64-bit columns are `NUMBER(19)` on Oracle,
+    which has no `BIGINT`, and pages are capped with `LIMIT` on MySQL and MariaDB instead of the SQL-standard
+    `OFFSET … FETCH FIRST`. The store is tested against live PostgreSQL, MySQL, MariaDB, and Oracle servers.
   A `BufferedActivityStore` decorator wraps the JDBC store and provides, uniformly for any future `ActivityStore`
   implementation:
   - Write-behind buffering with a scheduled flush every `bootui.activity.persistence.flush-interval` (default 5s).
@@ -1298,9 +1301,10 @@ Features:
   mirroring the confirmation UX of other state-changing actions such as Flyway migrate/clean or Cache clear) that
   atomically swaps the running instance's `ActivityStore` — behind a `SwitchableActivityStore` indirection — from
   `InMemoryActivityStore` to a `BufferedActivityStore`/`JdbcActivityStore` pair: it verifies/creates the backing table
-  against the current `DataSource` and starts the same capture-poller/flush cycle a startup-enabled instance would have,
-  with no restart and no dropped entries. If no `DataSource` is present, the disclosure instead links to setup
-  documentation for configuring one (or a dedicated one) and enabling persistence at startup. The switch is
+  against the current `DataSource`, checks that the store's paged read runs there, and starts the same
+  capture-poller/flush cycle a startup-enabled instance would have, with no restart and no dropped entries. If no
+  `DataSource` is present, the disclosure instead links to setup documentation for configuring one (or a dedicated
+  one) and enabling persistence at startup. The switch is
   **runtime-only**: it does not write configuration, so a later restart reverts to the in-memory default unless
   persistence is also turned on via `bootui.activity.persistence.enabled=true`. Identical on both adapters (Spring's
   `LiveActivityController` and Quarkus's `LiveActivityResource` share the same engine-level `ActivitySwitchService`).

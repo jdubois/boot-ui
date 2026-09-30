@@ -349,7 +349,10 @@
           Test-scope only: PostgresDatabaseAdvisorLiveTests and MariaDbDatabaseAdvisorLiveTests exercise the
           Database Advisor's vendor catalog augmentation against real servers, because partition/sequence
           ownership (PostgreSQL) and the information_schema column set (MySQL 8.0's IS_VISIBLE versus
-          MariaDB 10.6's IGNORED) cannot be proven against a hand-built model. Both skip without Docker.
+          MariaDB 10.6's IGNORED) cannot be proven against a hand-built model. The activity package's
+          *ActivityStoreLiveTests likewise run the Live Activity durable store against real PostgreSQL, MySQL,
+          MariaDB and Oracle servers, whose DDL and row-limit syntax H2 cannot stand in for. All skip without
+          Docker.
         -->
         <dependency>
             <groupId>org.testcontainers</groupId>
@@ -369,10 +372,11 @@
         <!--
           Test-scope only: OracleDatabaseAdvisorLiveTests exercises the Database Advisor's Oracle ALL_*
           catalog augmentation against a real 23ai (Oracle Database Free, a 19c+ superset) server, because
-          index/constraint/sequence catalog shapes cannot be proven against a hand-built model. There is no
-          production ojdbc dependency anywhere else in this project; the engine reads Oracle through plain
-          java.sql.* against whatever Connection the host application's own datasource supplies. Skips
-          without Docker.
+          index/constraint/sequence catalog shapes cannot be proven against a hand-built model, and
+          OracleActivityStoreLiveTests proves the Live Activity durable store's Oracle DDL (NUMBER(19), since
+          Oracle has no BIGINT). There is no production ojdbc dependency anywhere else in this project; the
+          engine reads Oracle through plain java.sql.* against whatever Connection the host application's own
+          datasource supplies. Skips without Docker.
         -->
         <dependency>
             <groupId>org.testcontainers</groupId>
