@@ -4,6 +4,8 @@ import io.github.jdubois.bootui.autoconfigure.activity.LiveActivityController;
 import io.github.jdubois.bootui.autoconfigure.activity.LiveServiceMapController;
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationFilter;
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationRegistry;
+import io.github.jdubois.bootui.autoconfigure.activity.RequestPhaseInterceptor;
+import io.github.jdubois.bootui.autoconfigure.activity.RequestPhaseResponseBodyAdvice;
 import io.github.jdubois.bootui.autoconfigure.activity.SecurityEventCorrelationRegistry;
 import io.github.jdubois.bootui.autoconfigure.activity.ServletThreadKinds;
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
@@ -63,6 +65,7 @@ import io.github.jdubois.bootui.autoconfigure.websocket.SpringWebSocketMetadataP
 import io.github.jdubois.bootui.autoconfigure.websocket.WebSocketController;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.cli.CliService;
+import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator;
@@ -107,8 +110,11 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.ImportRuntimeHints;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.core.Ordered;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.springframework.web.util.DisconnectedClientHelper;
 import tools.jackson.databind.ObjectMapper;
 
@@ -752,7 +758,8 @@ public class BootUiAutoConfiguration {
     }
 
     @Bean
-    public SqlTraceRecorder bootUiSqlTraceRecorder(BootUiProperties properties, ThreadKindClassifier threadKinds) {
+    public SqlTraceRecorder bootUiSqlTraceRecorder(
+            BootUiProperties properties, ThreadKindClassifier threadKinds, RequestPhases phases) {
         BootUiProperties.SqlTrace sqlTrace = properties.getSqlTrace();
         boolean enabled = sqlTrace.isEnabled() && properties.isPanelEnabled(BootUiPanels.SQL_TRACE);
         SqlTraceRecorder recorder = new SqlTraceRecorder(
@@ -767,6 +774,7 @@ public class BootUiAutoConfiguration {
                 sqlTrace.getNPlusOneThreshold(),
                 sqlTrace.getReservedSharePercent());
         recorder.setThreadKindClassifier(threadKinds);
+        recorder.setRequestPhases(phases);
         return recorder;
     }
 
@@ -971,19 +979,43 @@ public class BootUiAutoConfiguration {
         return registration;
     }
 
+    /** The phase markers of recent requests ({@code docs/PLAN-v2.md} §5.1). */
+    @Bean
+    public RequestPhases bootUiRequestPhases() {
+        return new RequestPhases();
+    }
+
+    @Bean
+    public RequestPhaseResponseBodyAdvice bootUiRequestPhaseResponseBodyAdvice(RequestPhases phases) {
+        return new RequestPhaseResponseBodyAdvice(phases);
+    }
+
+    @Bean
+    public WebMvcConfigurer bootUiRequestPhaseWebMvcConfigurer(RequestPhases phases) {
+        RequestPhaseInterceptor interceptor = new RequestPhaseInterceptor(phases);
+        return new WebMvcConfigurer() {
+            @Override
+            public void addInterceptors(InterceptorRegistry registry) {
+                registry.addInterceptor(interceptor).order(Ordered.HIGHEST_PRECEDENCE);
+            }
+        };
+    }
+
     @Bean
     public FilterRegistrationBean<RequestCorrelationFilter> bootUiRequestCorrelationFilterRegistration(
             RequestCorrelationRegistry registry,
             HttpExchangeTraceRegistry traceRegistry,
             BootUiProperties properties,
-            Environment environment) {
+            Environment environment,
+            RequestPhases phases) {
         FilterRegistrationBean<RequestCorrelationFilter> registration =
                 new FilterRegistrationBean<>(new RequestCorrelationFilter(
                         registry,
                         traceRegistry,
                         properties.getPath(),
                         properties.getApiPath(),
-                        ExchangeSlowThreshold.resolve(properties, environment)));
+                        ExchangeSlowThreshold.resolve(properties, environment),
+                        phases));
         registration.addUrlPatterns("/*");
         registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE + 100);
         registration.setName("bootUiRequestCorrelationFilter");

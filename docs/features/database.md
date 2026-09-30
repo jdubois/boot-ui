@@ -477,7 +477,9 @@ category (`SELECT`/`INSERT`/`UPDATE`/`DELETE`/`DDL`/`OTHER`), wall-clock duratio
 originating connection, executing thread and its kind, the call site that triggered it (when call-site capture is
 enabled), and any failure. The thread kind — `WORKER`, `VIRTUAL_THREAD`, `EVENT_LOOP`, `REACTOR_SCHEDULER`, or `OTHER`
 — comes from the adapter that owns the thread, from its type rather than its name, so JDBC run on a Reactor Netty or
-Vert.x event loop reads `EVENT_LOOP`. REST client calls carry the kind of the thread they started on. A Spring `DataSource` wrapper is never replaced, because its concrete type is part of your application's
+Vert.x event loop reads `EVENT_LOOP`. REST client calls carry the kind of the thread they started on. On Spring MVC,
+each statement also records the phase of its request it ran in: `FILTERS` before the handler, `HANDLER` inside it, and
+`RESPONSE` once it has returned, while the body is serialized or a view renders, which is where lazy loading surfaces. A Spring `DataSource` wrapper is never replaced, because its concrete type is part of your application's
 contract: instead, when it owns the only reference to a pool — as `spring.datasource.connection-fetch=lazy` does with
 `LazyConnectionDataSourceProxy` — the pool inside it is traced in place, and when its target is a bean that was traced
 on its own it is left alone so executions are not double-counted. Wrapping

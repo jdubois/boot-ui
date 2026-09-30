@@ -6,8 +6,10 @@ import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry.HttpExchangeTrace;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
+import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -38,7 +40,8 @@ import org.springframework.web.util.UrlPathHelper;
  * {@link CorrelationContext} current on the serving thread while the chain runs, so every event recorded for the
  * request, including the exchange Actuator records on the same thread, carries that id with or without tracing. The
  * context is kept as a request attribute and made current again on an async redispatch, which may run on another
- * thread; the redispatch is not recorded again.</p>
+ * thread, and on the container's error dispatch, such as {@code /error}; neither is recorded again. A request the
+ * error dispatch serves on its own, without a first dispatch through this filter, stays unowned.</p>
  */
 public final class RequestCorrelationFilter extends OncePerRequestFilter {
 
@@ -47,6 +50,7 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
     private final String bootUiPath;
     private final String bootUiApiPath;
     private final long requestSlowThresholdMs;
+    private final RequestPhases phases;
 
     public RequestCorrelationFilter(
             RequestCorrelationRegistry registry, HttpExchangeTraceRegistry traceRegistry, String bootUiPath) {
@@ -65,6 +69,20 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
             String bootUiPath,
             String bootUiApiPath,
             long requestSlowThresholdMs) {
+        this(registry, traceRegistry, bootUiPath, bootUiApiPath, requestSlowThresholdMs, null);
+    }
+
+    /**
+     * @param phases the phase markers of recent requests, begun here for each request; {@code null} tracks none
+     */
+    public RequestCorrelationFilter(
+            RequestCorrelationRegistry registry,
+            HttpExchangeTraceRegistry traceRegistry,
+            String bootUiPath,
+            String bootUiApiPath,
+            long requestSlowThresholdMs,
+            RequestPhases phases) {
+        this.phases = phases;
         this.registry = registry;
         this.traceRegistry = traceRegistry;
         this.bootUiPath = bootUiPath;
@@ -78,7 +96,7 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
-        if (isAsyncDispatch(request)) {
+        if (isAsyncDispatch(request) || request.getDispatcherType() == DispatcherType.ERROR) {
             try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(asyncContext(request))) {
                 chain.doFilter(request, response);
             }
@@ -86,6 +104,9 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
         }
         CorrelationContext correlation = CorrelationContext.forRequest(RequestIds.next());
         request.setAttribute(CORRELATION_ATTRIBUTE, correlation);
+        if (phases != null) {
+            phases.begin(correlation.requestId());
+        }
         try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(correlation)) {
             recordAround(request, response, chain);
         }
@@ -178,6 +199,6 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilterErrorDispatch() {
-        return true;
+        return false;
     }
 }

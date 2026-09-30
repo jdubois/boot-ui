@@ -8,6 +8,8 @@ import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
 import io.github.jdubois.bootui.engine.activity.BootUiJdbcCaptureGuard;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
+import io.github.jdubois.bootui.engine.correlation.RequestPhase;
+import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.correlation.ThreadKinds;
 import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
 import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
@@ -95,7 +97,50 @@ public final class SqlTraceRecorder implements IdleReclaimable {
             String callSite,
             String requestId,
             String executionId,
-            String threadKind) {
+            String threadKind,
+            String requestPhase) {
+        /** Without BootUI's execution identity. */
+        public CapturedStatement(
+                long id,
+                long timestamp,
+                String sql,
+                StatementType statementType,
+                Category category,
+                long durationMicros,
+                boolean success,
+                String errorMessage,
+                Long affectedRows,
+                int batchSize,
+                String connectionId,
+                String thread,
+                String traceId,
+                List<String> parameters,
+                String callSite,
+                String requestId,
+                String executionId,
+                String threadKind) {
+            this(
+                    id,
+                    timestamp,
+                    sql,
+                    statementType,
+                    category,
+                    durationMicros,
+                    success,
+                    errorMessage,
+                    affectedRows,
+                    batchSize,
+                    connectionId,
+                    thread,
+                    traceId,
+                    parameters,
+                    callSite,
+                    requestId,
+                    executionId,
+                    threadKind,
+                    null);
+        }
+
         /** Without the thread kind. */
         public CapturedStatement(
                 long id,
@@ -240,6 +285,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
     private volatile TraceIdProvider traceIdProvider = SqlTraceRecorder::mdcTraceId;
     private final CorrelationSource correlation = new CorrelationSource();
     private final ThreadKinds threadKinds = new ThreadKinds();
+    private volatile RequestPhases requestPhases;
     private volatile SpanEnricher spanEnricher = SpanEnricher.NO_OP;
 
     /** A recorder reserving the default share of its buffer for failed and slow executions. */
@@ -351,6 +397,28 @@ public final class SqlTraceRecorder implements IdleReclaimable {
     }
 
     /**
+     * Installs the phase markers of recent requests ({@code docs/PLAN-v2.md} §5.1), so each statement records the phase
+     * of its request it ran in, such as {@code RESPONSE} for lazy loading during body serialization. {@code null}, the
+     * default, records no phase.
+     */
+    public void setRequestPhases(RequestPhases requestPhases) {
+        this.requestPhases = requestPhases;
+    }
+
+    private String requestPhase(String requestId) {
+        RequestPhases phases = requestPhases;
+        if (phases == null || requestId == null) {
+            return null;
+        }
+        try {
+            RequestPhase phase = phases.phaseOf(requestId);
+            return phase == null ? null : phase.name();
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    /**
      * Installs the {@link SpanEnricher} used to stamp {@code bootui.sql.*} depth attributes on the active
      * request span as statements are recorded. Defaults to {@link SpanEnricher#NO_OP}; each adapter installs
      * the OpenTelemetry-backed enricher only when OpenTelemetry tracing is present. Passing {@code null}
@@ -445,7 +513,8 @@ public final class SqlTraceRecorder implements IdleReclaimable {
                 captureCallSite ? currentCallSite() : null,
                 context.requestId(),
                 context.executionId(),
-                threadKinds.current().name());
+                threadKinds.current().name(),
+                requestPhase(context.requestId()));
         buffer.add(entry, isFailedOrSlow(entry.success(), isSlow(entry.durationMicros())));
         totalCaptured.incrementAndGet();
         notifyListeners();
@@ -708,7 +777,8 @@ public final class SqlTraceRecorder implements IdleReclaimable {
                 entry.callSite(),
                 entry.requestId(),
                 entry.executionId(),
-                entry.threadKind());
+                entry.threadKind(),
+                entry.requestPhase());
     }
 
     private static String truncate(String value, int max) {

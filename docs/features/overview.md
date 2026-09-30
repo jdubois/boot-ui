@@ -393,7 +393,7 @@ Spring MVC stamps the same kind of request id on each exchange and on the same s
 audit events have no field for it, so BootUI keeps the id current when each event is published beside the event
 itself. `RequestCorrelationFilter`
 generates it when the request starts and keeps it current on the servlet thread, including during an asynchronous
-redispatch of the same request. Work done during the container's `/error` dispatch carries no request id yet.
+redispatch of the same request and during the container's `/error` dispatch.
 
 Spring WebFlux does the same without a serving thread. BootUI's reactive correlation wraps the whole HTTP handler,
 writes the request id into the Reactor context, and registers a Micrometer context-propagation accessor, so Reactor
