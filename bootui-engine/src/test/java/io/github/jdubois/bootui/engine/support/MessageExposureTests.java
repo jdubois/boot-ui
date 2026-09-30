@@ -93,6 +93,13 @@ class MessageExposureTests {
     }
 
     @Test
+    void masksOnlyTheFirstValueTokenSoACredentialAfterAnAuthSchemeIsNotCovered() {
+        // A known limitation of the pattern shared with Exceptions, documented rather than silently widened here.
+        assertThat(MessageExposure.maskSecretAssignments("Authorization: Bearer abc.def"))
+                .isEqualTo("Authorization: ****** abc.def");
+    }
+
+    @Test
     void leavesTextWithoutSecretAssignmentsUnchanged() {
         String text = "Started Application in 1.2 seconds (process running for 1.5)";
 

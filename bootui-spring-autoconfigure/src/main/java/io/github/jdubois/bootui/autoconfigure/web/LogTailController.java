@@ -11,9 +11,9 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -34,7 +34,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @ConditionalOnClass(name = "ch.qos.logback.classic.LoggerContext")
 public class LogTailController {
 
-    private static final AtomicLong THREAD_SEQUENCE = new AtomicLong();
+    /** Stream workers are delivery threads: a line they log while sending is never captured and streamed back. */
+    private static final ThreadFactory STREAM_THREADS = LogTailBuffer.deliveryThreadFactory("bootui-log-tail-stream-");
 
     private final BootUiLogAppender appender;
     private final LogTailReader reader;
@@ -51,7 +52,7 @@ public class LogTailController {
      * Per-client pending event bound. It holds the full 500-line replay plus a bounded live burst; a
      * client that cannot drain it is disconnected rather than consuming memory indefinitely.
      */
-    static final int MAX_PENDING_EVENTS = LogTailBuffer.DEFAULT_MAX_LINES * 2;
+    static final int MAX_PENDING_EVENTS = LogTailReader.MAX_PENDING_LINES;
 
     @Autowired
     public LogTailController(BootUiProperties properties, BootUiExposure exposure) {
@@ -167,11 +168,7 @@ public class LogTailController {
                 100L,
                 TimeUnit.MILLISECONDS,
                 new SynchronousQueue<>(),
-                runnable -> {
-                    Thread thread = new Thread(runnable, "bootui-log-tail-stream-" + THREAD_SEQUENCE.incrementAndGet());
-                    thread.setDaemon(true);
-                    return thread;
-                },
+                STREAM_THREADS,
                 new ThreadPoolExecutor.AbortPolicy());
     }
 }

@@ -504,14 +504,51 @@ public abstract class AbstractBootUiApiConformanceTest {
         snapshot.assertMaskedIn(recent.json(), "GET /log-tail/recent");
 
         LogTailExposureContract backlog = new LogTailExposureContract().log();
-        String replayed =
-                probe().readStreamUntil(api("/log-tail/stream"), () -> {}, backlog.marker, Duration.ofSeconds(10));
+        String replayed = readLogStream(() -> {}, backlog);
         backlog.assertMaskedInStream(replayed, "the log-tail SSE backlog");
 
         LogTailExposureContract live = new LogTailExposureContract();
-        String streamed =
-                probe().readStreamUntil(api("/log-tail/stream"), live::log, live.marker, Duration.ofSeconds(10));
+        String streamed = readLogStream(live::log, live);
         live.assertMaskedInStream(streamed, "the log-tail SSE stream");
+    }
+
+    @Test
+    void logTailFollowsALiveExposureChangeWithoutARestart() {
+        LogTailExposureContract retained = new LogTailExposureContract().log();
+
+        LogTailExposureContract.withExposure("METADATA_ONLY", null, () -> {
+            retained.assertOmittedIn(
+                    probe().get(api("/log-tail/recent")).json(), "GET /log-tail/recent (METADATA_ONLY)");
+            retained.assertOmittedInStream(
+                    readLogStream(() -> {}, retained), "the log-tail SSE backlog (METADATA_ONLY)");
+        });
+        LogTailExposureContract.withExposure(
+                "FULL",
+                null,
+                () -> retained.assertVerbatimIn(
+                        probe().get(api("/log-tail/recent")).json(), "GET /log-tail/recent (FULL)"));
+        LogTailExposureContract.withExposure(
+                "MASKED",
+                "false",
+                () -> retained.assertVerbatimIn(
+                        probe().get(api("/log-tail/recent")).json(), "GET /log-tail/recent (mask-secrets=false)"));
+        retained.assertMaskedIn(probe().get(api("/log-tail/recent")).json(), "GET /log-tail/recent (restored)");
+
+        // An open stream picks up the change for the next line it sends.
+        LogTailExposureContract live = new LogTailExposureContract();
+        LogTailExposureContract.withExposure(null, null, () -> {
+            String streamed = readLogStream(
+                    () -> {
+                        LogTailExposureContract.setExposure("METADATA_ONLY");
+                        live.log();
+                    },
+                    live);
+            live.assertOmittedInStream(streamed, "the open log-tail SSE stream after a change to METADATA_ONLY");
+        });
+    }
+
+    private String readLogStream(Runnable afterOpen, LogTailExposureContract contract) {
+        return probe().readStreamUntil(api("/log-tail/stream"), afterOpen, contract.logger, Duration.ofSeconds(10));
     }
 
     @Test

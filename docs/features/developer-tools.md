@@ -200,8 +200,9 @@ assignments such as `POSTGRES_PASSWORD=...` are masked before the tail is cut, u
 read and the panel says they are omitted by policy, and only `FULL` or `bootui.mask-secrets=false` shows them verbatim.
 
 ::: warning Masking covers assignments, not every secret
-Only secret-like `key=value` and `key: value` assignments are masked in container logs. A service that prints a bare
-token or a credential inside a connection string to its own logs still surfaces it here.
+Only the first word of a secret-like `key=value` or `key: value` assignment is masked in container logs. A service that
+prints a bare token, a credential inside a connection string, or a token after an authorization scheme such as
+`Bearer` to its own logs still surfaces it here.
 :::
 
 On Quarkus the panel reports the framework's native Dev Services, the containers it auto-starts for dev and test. The

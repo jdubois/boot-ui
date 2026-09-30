@@ -17,6 +17,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
+import reactor.core.scheduler.Scheduler;
+import reactor.core.scheduler.Schedulers;
+import reactor.util.concurrent.Queues;
 
 /**
  * Reactive (WebFlux) sibling of {@code LogTailController}: the same {@link LogTailBuffer} ring
@@ -39,6 +42,16 @@ public class ReactiveLogTailController {
     private final LogTailReader reader;
     private final AtomicInteger subscriberCount = new AtomicInteger();
 
+    /**
+     * Dedicated delivery threads, so that a line logged while a stream line is exposed or encoded, such as
+     * Spring's debug output about encoding the event, is never captured and streamed back.
+     */
+    private final Scheduler delivery = Schedulers.newBoundedElastic(
+            MAX_CONCURRENT_STREAMS,
+            Integer.MAX_VALUE,
+            LogTailBuffer.deliveryThreadFactory("bootui-log-tail-stream-reactive-"),
+            60);
+
     public ReactiveLogTailController(BootUiProperties properties, BootUiExposure exposure) {
         this.appender = BootUiLogAppender.install(new LogTailBuffer(
                 LogTailBuffer.DEFAULT_MAX_LINES, properties.getLogTail().getMaxBytes()));
@@ -55,29 +68,41 @@ public class ReactiveLogTailController {
      * {@link LogTailBuffer#subscribeWithReplay} atomically snapshots the backlog and registers the
      * live subscriber under one lock, so no line is lost or duplicated between the two; the flux
      * subscription itself (not controller construction) is the side-effecting moment, matching
-     * WebFlux's subscribe-once-per-request model.
+     * WebFlux's subscribe-once-per-request model. The logging thread only hands the captured line
+     * over; {@code publishOn} moves delivery to a dedicated delivery thread, where each line is exposed
+     * under the policy in force as it is sent, as the servlet stream's SSE worker does. Like the
+     * servlet stream, a client that falls {@link LogTailReader#MAX_PENDING_LINES} lines behind is
+     * disconnected rather than buffering without bound.
      */
     @GetMapping(path = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<LogLineDto>> stream() {
         return Flux.defer(() -> {
-                    if (subscriberCount.incrementAndGet() > MAX_CONCURRENT_STREAMS) {
-                        subscriberCount.decrementAndGet();
-                        return Flux.<LogLineDto>error(
-                                new IllegalStateException("Too many concurrent BootUI log-tail streams"));
-                    }
-                    return Flux.<LogLineDto>create(sink -> {
-                                LogTailBuffer.Subscription subscription = reader.subscribeWithReplay(sink::next);
-                                Runnable unsubscribe = subscription.unsubscribe();
-                                sink.onDispose(unsubscribe::run);
-                                for (LogLineDto line : subscription.backlog()) {
-                                    sink.next(line);
-                                }
-                            })
-                            .doFinally(signalType -> subscriberCount.decrementAndGet());
-                })
-                .map(line -> ServerSentEvent.<LogLineDto>builder(reader.expose(line))
-                        .event("log")
-                        .build());
+            if (subscriberCount.incrementAndGet() > MAX_CONCURRENT_STREAMS) {
+                subscriberCount.decrementAndGet();
+                return Flux.<ServerSentEvent<LogLineDto>>error(
+                        new IllegalStateException("Too many concurrent BootUI log-tail streams"));
+            }
+            return Flux.<LogLineDto>create(sink -> {
+                        LogTailBuffer.Subscription subscription = reader.subscribeWithReplay(sink::next);
+                        Runnable unsubscribe = subscription.unsubscribe();
+                        sink.onDispose(unsubscribe::run);
+                        for (LogLineDto line : subscription.backlog()) {
+                            sink.next(line);
+                        }
+                    })
+                    .onBackpressureBuffer(LogTailReader.MAX_PENDING_LINES)
+                    // Without delayError, an overflow disconnects at once instead of waiting behind lines a
+                    // stalled client will never drain.
+                    .publishOn(delivery, false, Queues.SMALL_BUFFER_SIZE)
+                    .map(line -> ServerSentEvent.<LogLineDto>builder(reader.expose(line))
+                            .event("log")
+                            .build())
+                    .doFinally(signalType -> subscriberCount.decrementAndGet());
+        });
+    }
+
+    int activeStreamCount() {
+        return subscriberCount.get();
     }
 
     /**
@@ -90,5 +115,6 @@ public class ReactiveLogTailController {
     @EventListener(ContextClosedEvent.class)
     void shutdown() {
         appender.uninstall();
+        delivery.dispose();
     }
 }

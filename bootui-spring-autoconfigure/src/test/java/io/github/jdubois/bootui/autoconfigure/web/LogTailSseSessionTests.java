@@ -275,12 +275,16 @@ class LogTailSseSessionTests {
         TestEmitter emitter = new TestEmitter();
         MockEnvironment environment = new MockEnvironment();
         List<LogLineDto> sent = new CopyOnWriteArrayList<>();
+        List<String> sendThreads = new CopyOnWriteArrayList<>();
         LogTailController controller = new LogTailController(
                 appender,
                 new BootUiExposure(environment, new BootUiProperties()),
                 () -> emitter,
                 8,
-                (ignored, line) -> sent.add(line));
+                (ignored, line) -> {
+                    sendThreads.add(Thread.currentThread().getName());
+                    sent.add(line);
+                });
 
         try {
             controller.stream();
@@ -313,10 +317,42 @@ class LogTailSseSessionTests {
             await().atMost(Duration.ofSeconds(2))
                     .untilAsserted(() -> assertThat(sent).hasSize(5));
             assertThat(sent.get(4).message()).isEqualTo("unmasked password=hunter2");
+            assertThat(sendThreads)
+                    .as("lines are exposed and sent on the stream worker, never on the logging thread")
+                    .allMatch(name -> name.startsWith("bootui-log-tail-stream-"));
             assertThat(buffer.recent())
                     .as("the buffer keeps captured lines; exposure happens on read")
                     .extracting(LogLineDto::message)
                     .contains("backlog password=hunter2", "omitted password=hunter2");
+        } finally {
+            emitter.fireCompletion();
+            controller.shutdown();
+        }
+    }
+
+    @Test
+    void linesLoggedWhileSendingAreNotStreamedBack() throws Exception {
+        LogTailBuffer buffer = new LogTailBuffer();
+        BootUiLogAppender appender = freshAppender(buffer);
+        TestEmitter emitter = new TestEmitter();
+        List<String> sent = new CopyOnWriteArrayList<>();
+        LogTailController controller = new LogTailController(appender, () -> emitter, 8, (ignored, line) -> {
+            // Stands in for a framework that logs while the stream writes a line.
+            buffer.add(line("logged while sending"));
+            sent.add(line.message());
+        });
+
+        try {
+            controller.stream();
+            buffer.add(line("one live line"));
+            await().atMost(Duration.ofSeconds(2))
+                    .untilAsserted(() -> assertThat(sent).containsExactly("one live line"));
+            Thread.sleep(300);
+
+            assertThat(sent)
+                    .as("a line logged on the stream worker is never captured")
+                    .hasSize(1);
+            assertThat(buffer.recent()).extracting(LogLineDto::message).containsExactly("one live line");
         } finally {
             emitter.fireCompletion();
             controller.shutdown();

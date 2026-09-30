@@ -78,7 +78,7 @@ describe('Log Tail', () => {
     expect(rows[2].find('.log-placeholder').exists()).toBe(false)
     expect(rows[2].text()).toContain('login password=******')
     expect(wrapper.get('[role="note"]').text()).toContain(
-      'Log messages are omitted because bootui.expose-values is METADATA_ONLY.'
+      'Some log messages were omitted because bootui.expose-values was METADATA_ONLY when they were read.'
     )
   })
 

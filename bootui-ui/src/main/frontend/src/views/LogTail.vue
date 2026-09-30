@@ -185,8 +185,8 @@ onBeforeUnmount(() => disconnect(false))
 
     <div v-if="hasOmittedMessages" class="alert alert-info py-2 small" role="note">
       <i aria-hidden="true" class="bi bi-eye-slash me-1"></i>
-      Log messages are omitted because <code>bootui.expose-values</code> is <code>METADATA_ONLY</code>. Timestamps,
-      levels, and loggers are still shown, and filtering matches logger names only.
+      Some log messages were omitted because <code>bootui.expose-values</code> was <code>METADATA_ONLY</code> when they
+      were read. Their timestamps, levels, and loggers are still shown, and the filter matches them by logger name only.
     </div>
 
     <pre

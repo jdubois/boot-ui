@@ -12,4 +12,10 @@ package io.github.jdubois.bootui.core.dto;
  * @param maxBytes the maximum number of UTF-8 bytes returned
  * @param logsOmitted {@code true} when the exposure policy withheld the log text
  */
-public record DevServiceLogReport(String id, String logs, boolean truncated, int maxBytes, boolean logsOmitted) {}
+public record DevServiceLogReport(String id, String logs, boolean truncated, int maxBytes, boolean logsOmitted) {
+
+    /** A log tail whose text has not been withheld. */
+    public DevServiceLogReport(String id, String logs, boolean truncated, int maxBytes) {
+        this(id, logs, truncated, maxBytes, false);
+    }
+}

@@ -24,8 +24,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   retained lines and open streams without a restart. Container logs are masked before the tail is cut and are not read
   at all under `METADATA_ONLY`. `LogLineDto.message` and `DevServiceLogReport.logs` are now nullable, and the additive
   `messageOmitted` and `logsOmitted` flags let the Log Tail and Dev Services panels say a message was omitted by policy
-  instead of showing an empty line. An invalid runtime `bootui.expose-values` or `bootui.mask-secrets` value on Spring
-  is now reported once rather than on every read. Exception messages are unchanged.
+  instead of showing an empty line. Exception messages are unchanged.
+- **Log Tail streams no longer do exposure or encoding work on application logging threads.** Spring WebFlux and
+  Quarkus now hand each captured line to dedicated delivery threads, as Spring MVC already did, and a line logged on
+  one of those threads, such as framework debug output about encoding the stream, is never captured, so a stream can
+  no longer feed its own log output back to itself. Like Spring MVC, a WebFlux or Quarkus client that falls 1,000
+  lines behind is disconnected and reconnects, instead of buffering without bound, and a stream always releases its
+  slot and subscription, even when its delivery task is rejected.
+- **An invalid `bootui.expose-values` or `bootui.mask-secrets` value is reported once rather than on every read, on
+  Spring and Quarkus.** On Quarkus an unrecognized `bootui.mask-secrets` value such as a typo now keeps masking on,
+  instead of being converted to `false`, and `bootui.expose-values=metadata-only` is accepted for `METADATA_ONLY`, as
+  Spring's relaxed binding already did.
 - **Spring MVC Log Tail streams no longer throw on a worker thread when a client disconnects or the application
   stops.** When the servlet container had already failed the async request, the stream worker still tried to
   complete the `SseEmitter`. Tomcat rejected that with an uncaught `IllegalStateException`, and the session could

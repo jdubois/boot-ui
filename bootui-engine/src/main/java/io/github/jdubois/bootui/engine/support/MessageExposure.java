@@ -19,8 +19,10 @@ import java.util.regex.Pattern;
  *   <li>{@link ValueExposure#FULL} returns the text verbatim.</li>
  * </ul>
  *
- * <p>Only assignments to a secret-like key are detected. Bare tokens and credentials embedded in connection strings
- * are not, so masked text is safer to show, not guaranteed secret-free.</p>
+ * <p>Only assignments to a secret-like key are detected, and only their first whitespace-free value token is masked.
+ * Bare tokens, credentials embedded in connection strings, and the credential that follows an authorization scheme,
+ * as in {@code Authorization: Bearer <token>} where only {@code Bearer} is masked, are not, so masked text is safer to
+ * show, not guaranteed secret-free.</p>
  *
  * <p>Resolve the rule with {@link #current(ExposurePolicy)} at read time, once per response or streamed line, so a
  * live change to {@code bootui.expose-values} or {@code bootui.mask-secrets} applies to the next read without a
@@ -81,9 +83,9 @@ public final class MessageExposure {
     }
 
     /**
-     * Replaces the value of every secret-like assignment in {@code text}, such as {@code password=...},
-     * {@code "apiKey": "..."}, or {@code Authorization: ...}, with {@link SecretMasker#MASKED_VALUE}, keeping the key
-     * and separator. The scan is not line-bound, so it covers every line of multi-line text.
+     * Replaces the first whitespace-free value token of every secret-like assignment in {@code text}, such as
+     * {@code password=...}, {@code "apiKey": "..."}, or {@code token: ...}, with {@link SecretMasker#MASKED_VALUE},
+     * keeping the key and separator. The scan is not line-bound, so it covers every line of multi-line text.
      */
     public static String maskSecretAssignments(String text) {
         if (text == null || text.isEmpty()) {

@@ -78,7 +78,7 @@ test.describe('Log Tail view (Quarkus)', () => {
     await expect(pane).toContainText('com.example.Db - message omitted by policy')
     await expect(pane).toContainText('login password=******')
     await expect(page.getByRole('note')).toContainText(
-      'Log messages are omitted because bootui.expose-values is METADATA_ONLY.'
+      'Some log messages were omitted because bootui.expose-values was METADATA_ONLY when they were read.'
     )
   })
 })

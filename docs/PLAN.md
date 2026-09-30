@@ -571,11 +571,12 @@ Delivery slices, each one pull request with its own tests and documentation:
 
 Log Tail captures log lines through `BootUiLogAppender`, a Logback appender, on Spring and through
 `QuarkusLogTailHandler`, a root `java.util.logging` handler, on Quarkus, both into the shared `LogTailBuffer`. Each
-`LogLineDto` carries only a timestamp, level, logger, thread, and a message that §3.27's read path masks or omits. A
-log line therefore cannot be tied to the request or execution that wrote it, and a warning never appears in Live
-Activity next to the SQL and exceptions it explains. This enhancement stamps log lines with correlation evidence at
-capture time and surfaces warnings and errors as a Live Activity signal. It builds on the delivered §3.27, which
-applies the exposure policy to log messages through `LogTailReader`, and on §3.20's execution anchors.
+`LogLineDto` carries only a timestamp, level, logger, thread, a message that §3.27's read path masks or omits, and a
+`messageOmitted` flag. A log line therefore cannot be tied to the request or execution that wrote it, and a warning
+never appears in Live Activity next to the SQL and exceptions it explains. This enhancement stamps log lines with
+correlation evidence at capture time and surfaces warnings and errors as a Live Activity signal. It builds on the
+delivered §3.27, which applies the exposure policy to log messages through `LogTailReader`, and on §3.20's execution
+anchors.
 
 Scope:
 

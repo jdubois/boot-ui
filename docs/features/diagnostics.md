@@ -57,8 +57,9 @@ Log messages follow the same exposure rule as [exception messages](#exposure-and
 token, or API key, is replaced with `******`, on every line of a multi-line message. Under `METADATA_ONLY` the message
 is omitted while the timestamp, level, logger, and thread remain, and the panel marks each such line
 **message omitted by policy** rather than showing it empty. Only under `FULL`, or with `bootui.mask-secrets=false`, are
-messages shown verbatim. Only assignments are detected: a bare token or a credential inside a connection string is not
-masked, so treat log output as local diagnostic data.
+messages shown verbatim. Only the first word of an assignment's value is masked, so a bare token, a credential inside
+a connection string, or the token after an authorization scheme, as in `Authorization: Bearer <token>`, is not. Treat
+log output as local diagnostic data.
 
 The rule applies when a line is read, not when it is captured, so it covers the recent snapshot
 (`GET /bootui/api/log-tail/recent`), the SSE stream including its replayed backlog, the `get_log_tail` MCP tool, and

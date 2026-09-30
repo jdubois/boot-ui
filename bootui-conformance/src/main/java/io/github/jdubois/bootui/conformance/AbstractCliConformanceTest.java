@@ -148,13 +148,22 @@ public abstract class AbstractCliConformanceTest {
     }
 
     @Test
-    void testCliLogTailToolMasksSecretAssignments() {
+    void testCliLogTailToolFollowsTheExposurePolicy() {
         LogTailExposureContract contract = new LogTailExposureContract().log();
 
-        Response response = invoke("get_log_tail", "{}");
+        contract.assertMaskedIn(cliLogTail(), "bootui logs tail");
+        LogTailExposureContract.withExposure(
+                "METADATA_ONLY",
+                null,
+                () -> contract.assertOmittedIn(cliLogTail(), "bootui logs tail (METADATA_ONLY)"));
+        LogTailExposureContract.withExposure(
+                "FULL", null, () -> contract.assertVerbatimIn(cliLogTail(), "bootui logs tail (FULL)"));
+    }
 
+    private JsonNode cliLogTail() {
+        Response response = invoke("get_log_tail", "{}");
         assertThat(response.status()).isEqualTo(200);
-        contract.assertMaskedIn(response.json().path("entries"), "bootui logs tail");
+        return response.json().path("entries");
     }
 
     @Test

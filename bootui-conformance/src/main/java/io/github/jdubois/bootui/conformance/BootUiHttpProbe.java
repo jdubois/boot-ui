@@ -91,8 +91,8 @@ public final class BootUiHttpProbe {
 
     /**
      * Starts a streaming GET, runs {@code afterOpen} once the response headers arrive, and returns the body received
-     * until it contains {@code needle} or {@code timeout} elapses, whichever comes first. The stream is closed before
-     * returning, so an SSE endpoint's open-ended body never blocks the caller.
+     * until it holds the whole server-sent event containing {@code needle}, or {@code timeout} elapses, whichever comes
+     * first. The stream is closed before returning, so an SSE endpoint's open-ended body never blocks the caller.
      */
     public String readStreamUntil(String path, Runnable afterOpen, String needle, Duration timeout) {
         HttpRequest request = HttpRequest.newBuilder()
@@ -128,6 +128,13 @@ public final class BootUiHttpProbe {
         }
     }
 
+    /** Whether {@code received} holds {@code needle} and the blank line that ends the event carrying it. */
+    static boolean holdsCompleteEventWith(CharSequence received, String needle) {
+        String text = received.toString().replace("\r\n", "\n").replace('\r', '\n');
+        int found = text.indexOf(needle);
+        return found >= 0 && text.indexOf("\n\n", found + needle.length()) >= 0;
+    }
+
     private static void readUntil(java.io.InputStream body, StringBuilder received, String needle) {
         try (java.io.Reader reader = new java.io.InputStreamReader(body, java.nio.charset.StandardCharsets.UTF_8)) {
             char[] chunk = new char[8192];
@@ -135,7 +142,7 @@ public final class BootUiHttpProbe {
             while ((read = reader.read(chunk)) != -1) {
                 synchronized (received) {
                     received.append(chunk, 0, read);
-                    if (received.indexOf(needle) >= 0) {
+                    if (holdsCompleteEventWith(received, needle)) {
                         return;
                     }
                 }

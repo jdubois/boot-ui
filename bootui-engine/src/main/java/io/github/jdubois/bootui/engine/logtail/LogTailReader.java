@@ -22,6 +22,13 @@ import java.util.function.Consumer;
  */
 public final class LogTailReader {
 
+    /**
+     * Captured lines one stream may hold while its client catches up: the full {@link LogTailBuffer#DEFAULT_MAX_LINES}
+     * replay plus a bounded live burst. A stream that falls further behind is disconnected rather than buffering
+     * without bound, and the client reconnects.
+     */
+    public static final int MAX_PENDING_LINES = LogTailBuffer.DEFAULT_MAX_LINES * 2;
+
     private final LogTailBuffer buffer;
 
     private final ExposurePolicy exposure;
@@ -52,9 +59,10 @@ public final class LogTailReader {
 
     /**
      * Subscribes to captured lines with an atomic backlog replay, as {@link LogTailBuffer#subscribeWithReplay} does.
-     * The backlog and the lines passed to {@code subscriber} are captured lines: pass each one through
-     * {@link #expose(LogLineDto)} when writing it, so the exposure work stays off the logging thread where the
-     * transport allows and reflects the policy at delivery time.
+     * The backlog and the lines passed to {@code subscriber} are captured lines, and {@code subscriber} runs on the
+     * logging thread: hand each line to a thread from {@link LogTailBuffer#deliveryThreadFactory(String)} and pass it
+     * through {@link #expose(LogLineDto)} there, when writing it, so the exposure work stays off the logging thread,
+     * reflects the policy at delivery time, and cannot feed its own log output back into the stream.
      */
     public LogTailBuffer.Subscription subscribeWithReplay(Consumer<LogLineDto> subscriber) {
         return buffer.subscribeWithReplay(subscriber);
