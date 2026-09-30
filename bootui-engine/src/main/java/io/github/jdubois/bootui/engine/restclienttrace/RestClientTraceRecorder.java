@@ -14,6 +14,7 @@ import io.github.jdubois.bootui.engine.support.DetailText;
 import io.github.jdubois.bootui.engine.support.SensitiveNames;
 import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import io.github.jdubois.bootui.engine.support.UriMasking;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
@@ -80,7 +81,45 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
             String thread,
             String traceId,
             String callSite,
-            String requestId) {
+            String requestId,
+            String executionId) {
+        /** Without BootUI's execution identity. */
+        public CapturedCall(
+                long id,
+                long timestamp,
+                String method,
+                String uri,
+                String host,
+                String path,
+                Integer status,
+                long durationMillis,
+                boolean success,
+                String errorMessage,
+                String clientType,
+                Map<String, String> requestHeaders,
+                String thread,
+                String traceId,
+                String callSite,
+                String requestId) {
+            this(
+                    id,
+                    timestamp,
+                    method,
+                    uri,
+                    host,
+                    path,
+                    status,
+                    durationMillis,
+                    success,
+                    errorMessage,
+                    clientType,
+                    requestHeaders,
+                    thread,
+                    traceId,
+                    callSite,
+                    requestId,
+                    null);
+        }
 
         public CapturedCall {
             requestHeaders = requestHeaders == null ? Map.of() : Map.copyOf(requestHeaders);
@@ -314,7 +353,7 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
                 headers,
                 thread,
                 currentTraceId(),
-                correlation.requestId());
+                correlation.current());
     }
 
     /**
@@ -348,7 +387,7 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
                 headers,
                 thread,
                 traceId,
-                correlation.requestId());
+                correlation.current());
     }
 
     /**
@@ -369,6 +408,40 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
             String thread,
             String traceId,
             String requestId) {
+        record(
+                method,
+                uri,
+                host,
+                path,
+                status,
+                durationMillis,
+                success,
+                errorMessage,
+                clientType,
+                headers,
+                thread,
+                traceId,
+                CorrelationContext.forRequest(normalizeTraceId(requestId)));
+    }
+
+    /**
+     * Records one outbound call with the trace id and BootUI correlation captured explicitly at the interception
+     * boundary, for clients whose response callback may run where the caller's context is no longer current.
+     */
+    public void record(
+            String method,
+            String uri,
+            String host,
+            String path,
+            Integer status,
+            long durationMillis,
+            boolean success,
+            String errorMessage,
+            String clientType,
+            Map<String, String> headers,
+            String thread,
+            String traceId,
+            CorrelationContext caller) {
         if (!shouldRecord()) {
             return;
         }
@@ -385,7 +458,7 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
                 headers,
                 thread,
                 normalizeTraceId(traceId),
-                normalizeTraceId(requestId));
+                caller == null ? CorrelationContext.NONE : caller);
     }
 
     private boolean shouldRecord() {
@@ -405,7 +478,7 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
             Map<String, String> headers,
             String thread,
             String traceId,
-            String requestId) {
+            CorrelationContext caller) {
         CapturedCall entry = new CapturedCall(
                 sequence.incrementAndGet(),
                 System.currentTimeMillis(),
@@ -422,7 +495,8 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
                 thread,
                 traceId,
                 captureCallSite ? currentCallSite() : null,
-                requestId);
+                caller.requestId(),
+                caller.executionId());
         buffer.add(entry, isFailedOrSlow(entry.success(), entry.status(), isSlow(entry.durationMillis())));
         totalCaptured.incrementAndGet();
         notifyListeners();
@@ -624,7 +698,8 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
                 entry.traceId(),
                 entry.thread(),
                 entry.callSite(),
-                entry.requestId());
+                entry.requestId(),
+                entry.executionId());
     }
 
     /**
@@ -730,6 +805,11 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
     /** BootUI's request id for the next captured call, or {@code null} when no request owns it; fully guarded. */
     public String currentRequestId() {
         return correlation.requestId();
+    }
+
+    /** BootUI's correlation for the next captured call, {@link CorrelationContext#NONE} when nothing owns it. */
+    public CorrelationContext currentCorrelation() {
+        return correlation.current();
     }
 
     /**

@@ -72,6 +72,7 @@ import io.github.jdubois.bootui.quarkus.websocket.RawWebSocketEndpoint;
 import io.github.jdubois.bootui.quarkus.websocket.WebSocketsRecorder;
 import io.github.jdubois.bootui.spi.ErrorHandlerDescriptor;
 import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
+import io.quarkus.arc.deployment.AnnotationsTransformerBuildItem;
 import io.quarkus.arc.deployment.BeanArchiveIndexBuildItem;
 import io.quarkus.arc.deployment.ExcludedTypeBuildItem;
 import io.quarkus.arc.deployment.SyntheticBeanBuildItem;
@@ -118,6 +119,7 @@ import java.util.TreeMap;
 import java.util.stream.Collectors;
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.AnnotationTarget;
+import org.jboss.jandex.AnnotationTransformation;
 import org.jboss.jandex.AnnotationValue;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
@@ -285,6 +287,17 @@ class BootUiQuarkusProcessor {
 
     private static final String SCHEDULED_TASK_RUN_RECORDER_CLASS =
             "io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskRunRecorder";
+
+    private static final String SCHEDULED_EXECUTION_INTERCEPTOR_CLASS =
+            "io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledExecutionInterceptor";
+
+    private static final DotName SCHEDULED_EXECUTION_BINDING =
+            DotName.createSimple("io.github.jdubois.bootui.quarkus.scheduled.BootUiScheduledExecution");
+
+    /** {@code io.quarkus.scheduler.Scheduled} and its repeatable container, named so no scheduler type is loaded. */
+    private static final List<DotName> SCHEDULED_ANNOTATIONS = List.of(
+            DotName.createSimple("io.quarkus.scheduler.Scheduled"),
+            DotName.createSimple("io.quarkus.scheduler.Scheduled$Schedules"));
 
     // Referenced by class name only: QuarkusEmailCapture observes io.quarkus.mailer.SentMail, so the deployment
     // classloader must never load it while augmenting an application without quarkus-mailer (loading it would link
@@ -2301,7 +2314,32 @@ class BootUiQuarkusProcessor {
             BuildProducer<ExcludedTypeBuildItem> excludedTypes) {
         boolean present =
                 launchMode.getLaunchMode() != LaunchMode.NORMAL && capabilities.isPresent(Capability.SCHEDULER);
-        registerCapabilityGatedBeans(present, additionalBeans, excludedTypes, SCHEDULED_TASK_RUN_RECORDER_CLASS);
+        registerCapabilityGatedBeans(
+                present,
+                additionalBeans,
+                excludedTypes,
+                SCHEDULED_TASK_RUN_RECORDER_CLASS,
+                SCHEDULED_EXECUTION_INTERCEPTOR_CLASS);
+    }
+
+    /**
+     * Binds {@code QuarkusScheduledExecutionInterceptor} to every {@code @Scheduled} method, so each run gets its own
+     * BootUI execution context ({@code docs/PLAN-v2.md} §5.1). Gated exactly like the run recorder it hands the id to:
+     * the scheduler capability outside normal (production) mode. The binding is added at build time, so the
+     * application's sources are untouched.
+     */
+    @BuildStep
+    void bindScheduledExecutionInterceptor(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            BuildProducer<AnnotationsTransformerBuildItem> transformers) {
+        if (launchMode.getLaunchMode() == LaunchMode.NORMAL || !capabilities.isPresent(Capability.SCHEDULER)) {
+            return;
+        }
+        transformers.produce(new AnnotationsTransformerBuildItem(AnnotationTransformation.forMethods()
+                .whenAnyMatch(SCHEDULED_ANNOTATIONS)
+                .transform(context -> context.add(AnnotationInstance.builder(SCHEDULED_EXECUTION_BINDING)
+                        .buildWithTarget(context.declaration())))));
     }
 
     /**

@@ -1,7 +1,10 @@
 package io.github.jdubois.bootui.autoconfigure.scheduled;
 
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.correlation.RequestIds;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationHandler;
 import java.lang.reflect.Method;
@@ -47,7 +50,30 @@ public final class ScheduledTaskRunObservationHandler implements ObservationHand
         context.put(
                 StartMarker.class,
                 new StartMarker(
-                        System.currentTimeMillis(), Thread.currentThread().getName()));
+                        System.currentTimeMillis(),
+                        Thread.currentThread().getName(),
+                        CorrelationContext.forExecution(RequestIds.next())));
+    }
+
+    /**
+     * Makes the run's execution context current while the task runs ({@code docs/PLAN-v2.md} §5.1). Spring opens the
+     * observation's scope around the task's own invocation, on the thread that runs it, so SQL, exceptions, and REST
+     * client calls the task makes carry its execution id. A scope already open on this thread, such as a request's,
+     * is restored when the task's scope closes.
+     */
+    @Override
+    public void onScopeOpened(ScheduledTaskObservationContext context) {
+        StartMarker start = context.get(StartMarker.class);
+        if (start != null) {
+            context.put(BootUiCorrelation.Scope.class, BootUiCorrelation.open(start.correlation()));
+        }
+    }
+
+    @Override
+    public void onScopeClosed(ScheduledTaskObservationContext context) {
+        if (context.remove(BootUiCorrelation.Scope.class) instanceof BootUiCorrelation.Scope scope) {
+            scope.close();
+        }
     }
 
     @Override
@@ -60,6 +86,7 @@ public final class ScheduledTaskRunObservationHandler implements ObservationHand
         long startTimestamp = start == null ? System.currentTimeMillis() : start.startTimestamp();
         long durationMs = Math.max(0L, System.currentTimeMillis() - startTimestamp);
         String thread = start == null ? Thread.currentThread().getName() : start.thread();
+        String executionId = start == null ? null : start.correlation().executionId();
         Throwable error = context.getError();
         if (error != null) {
             store.record(
@@ -69,9 +96,10 @@ public final class ScheduledTaskRunObservationHandler implements ObservationHand
                     false,
                     error.getClass().getName(),
                     error.getMessage(),
-                    thread);
+                    thread,
+                    executionId);
         } else {
-            store.record(runnable, startTimestamp, durationMs, context.isComplete(), null, null, thread);
+            store.record(runnable, startTimestamp, durationMs, context.isComplete(), null, null, thread, executionId);
         }
     }
 
@@ -85,5 +113,5 @@ public final class ScheduledTaskRunObservationHandler implements ObservationHand
         return method.getDeclaringClass().getName() + "." + method.getName();
     }
 
-    private record StartMarker(long startTimestamp, String thread) {}
+    private record StartMarker(long startTimestamp, String thread, CorrelationContext correlation) {}
 }

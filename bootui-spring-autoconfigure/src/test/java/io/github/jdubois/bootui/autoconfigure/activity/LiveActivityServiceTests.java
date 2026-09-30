@@ -700,6 +700,58 @@ class LiveActivityServiceTests {
     }
 
     @Test
+    void nestsSqlUnderTheScheduledRunWhoseExecutionIdItCarriesOnAnyThread() {
+        io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.Run seed =
+                scheduledRun("MyJob#run", BASE.plusMillis(1000).toEpochMilli(), 30L, true, "scheduler-1");
+        SqlTraceEntryDto base = sqlEntryOn(1, BASE.plusMillis(9000).toEpochMilli(), "worker-7", null);
+        SqlTraceEntryDto statement = new SqlTraceEntryDto(
+                base.id(),
+                base.timestamp(),
+                base.sql(),
+                base.statementType(),
+                base.category(),
+                base.durationMicros(),
+                base.durationMillis(),
+                base.success(),
+                base.errorMessage(),
+                base.affectedRows(),
+                base.batchSize(),
+                base.connectionId(),
+                base.thread(),
+                base.slow(),
+                base.parameters(),
+                null,
+                null,
+                null,
+                "00112233aabbccdd");
+        LiveActivityService service = service(
+                null,
+                sql(statement),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                scheduledStore(new io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore.Run(
+                        0,
+                        seed.runnable(),
+                        seed.startTimestamp(),
+                        seed.durationMs(),
+                        true,
+                        null,
+                        null,
+                        seed.thread(),
+                        "00112233aabbccdd")),
+                null,
+                new BootUiProperties());
+
+        assertThat(parentOf(service.report(null, null, 0, 0), "sql-1")).isEqualTo("sched-1");
+    }
+
+    @Test
     void leavesExceptionTopLevelWhenScheduledTaskThreadDoesNotMatch() {
         LiveActivityService service = service(
                 null,
@@ -1877,7 +1929,8 @@ class LiveActivityServiceTests {
                     run.success(),
                     run.exceptionClassName(),
                     run.message(),
-                    run.thread());
+                    run.thread(),
+                    run.executionId());
         }
         return store;
     }

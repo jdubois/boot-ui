@@ -265,6 +265,109 @@ class LiveActivityAssemblerTests {
     }
 
     @Test
+    void nestsSqlRestCallsAndExceptionsUnderTheScheduledRunWhoseExecutionIdTheyCarry() {
+        String execution = "00112233aabbccdd";
+        ScheduledTaskRunStore store = new ScheduledTaskRunStore(10);
+        store.record("com.example.Jobs.sync", 1_000L, 50L, true, null, null, "scheduling-1", execution);
+        store.record("com.example.Jobs.sync", 2_000L, 50L, true, null, null, "scheduling-1", "ffeeddccbbaa9988");
+        SqlTraceEntryDto base = sql(10, "select 1", null, 1_010L);
+        SqlTraceEntryDto statement = new SqlTraceEntryDto(
+                base.id(),
+                base.timestamp(),
+                base.sql(),
+                base.statementType(),
+                base.category(),
+                base.durationMicros(),
+                base.durationMillis(),
+                base.success(),
+                base.errorMessage(),
+                base.affectedRows(),
+                base.batchSize(),
+                base.connectionId(),
+                "scheduling-1",
+                base.slow(),
+                base.parameters(),
+                null,
+                null,
+                null,
+                execution);
+        RestClientTraceEntryDto call = new RestClientTraceEntryDto(
+                4L,
+                1_020L,
+                "GET",
+                "https://api.example.com/rates",
+                "api.example.com",
+                "/rates",
+                200,
+                3L,
+                true,
+                null,
+                false,
+                "RestClient",
+                Map.of(),
+                null,
+                "scheduling-1",
+                null,
+                null,
+                execution);
+        ExceptionGroupDto seed = exception("g-1", null, 1_030L);
+        ExceptionGroupDto failure = new ExceptionGroupDto(
+                seed.id(),
+                seed.exceptionClassName(),
+                seed.message(),
+                seed.count(),
+                seed.firstSeen(),
+                seed.lastSeen(),
+                seed.location(),
+                seed.applicationException(),
+                "another-thread",
+                null,
+                null,
+                null,
+                "log",
+                null,
+                seed.status(),
+                seed.regressionCount(),
+                null,
+                null,
+                execution);
+        String runEntry = "sched-"
+                + store.runs().stream()
+                        .filter(run -> execution.equals(run.executionId()))
+                        .findFirst()
+                        .orElseThrow()
+                        .sequence();
+
+        LiveActivityReport report = assembler.report(
+                requests(),
+                List.of(statement),
+                true,
+                null,
+                List.of(failure),
+                List.of(),
+                false,
+                List.of(),
+                false,
+                store.runs(),
+                "UP",
+                0,
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(),
+                false,
+                List.of(call),
+                true);
+
+        assertThat(entry(report, "sql-10").parentId()).isEqualTo(runEntry);
+        assertThat(entry(report, "rest-4").parentId()).isEqualTo(runEntry);
+        assertThat(onlyEntryOfType(report, "EXCEPTION").parentId())
+                .as("an exception thrown on another thread still nests by execution id")
+                .isEqualTo(runEntry);
+    }
+
+    @Test
     void anUnknownRequestIdFallsBackToTheTraceId() {
         HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
         List<SqlTraceEntryDto> sql = List.of(stampedSql(10, "0000000000000000", "trace-a"));

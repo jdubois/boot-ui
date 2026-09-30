@@ -55,7 +55,47 @@ public record RestClientTraceEntryDto(
         String traceId,
         String thread,
         String callSite,
-        String requestId) {
+        String requestId,
+        String executionId) {
+    /** Without BootUI's execution identity. */
+    public RestClientTraceEntryDto(
+            long id,
+            long timestamp,
+            String method,
+            String uri,
+            String host,
+            String path,
+            Integer status,
+            long durationMillis,
+            boolean success,
+            String errorMessage,
+            boolean slow,
+            String clientType,
+            Map<String, String> requestHeaders,
+            String traceId,
+            String thread,
+            String callSite,
+            String requestId) {
+        this(
+                id,
+                timestamp,
+                method,
+                uri,
+                host,
+                path,
+                status,
+                durationMillis,
+                success,
+                errorMessage,
+                slow,
+                clientType,
+                requestHeaders,
+                traceId,
+                thread,
+                callSite,
+                requestId,
+                null);
+    }
 
     public RestClientTraceEntryDto {
         requestHeaders = DtoCollections.immutableCopy(requestHeaders);

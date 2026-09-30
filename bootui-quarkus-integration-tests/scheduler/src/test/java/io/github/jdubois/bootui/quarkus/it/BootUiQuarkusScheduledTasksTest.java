@@ -2,13 +2,17 @@ package io.github.jdubois.bootui.quarkus.it;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.scheduler.CorrelationProbeJob;
 import com.example.scheduler.SampleScheduledJobs;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
+import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
+import jakarta.inject.Inject;
 import java.net.URL;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -48,7 +52,7 @@ class BootUiQuarkusScheduledTasksTest {
                 .as("with quarkus-scheduler present the report is available")
                 .isTrue();
         assertThat(root.path("total").asInt(0))
-                .as("all three @Scheduled methods are captured")
+                .as("every @Scheduled method is captured")
                 .isGreaterThanOrEqualTo(3);
 
         JsonNode cron = taskByRunnable(root, JOBS + "#cronJob");
@@ -76,6 +80,31 @@ class BootUiQuarkusScheduledTasksTest {
         assertThat(delayed.path("initialDelayMs").asLong(-1))
                 .as("delayed=10s string initial delay parsed to milliseconds")
                 .isEqualTo(10000);
+    }
+
+    @Inject
+    ScheduledTaskRunStore runs;
+
+    @Test
+    void eachRunCarriesItsOwnExecutionIdAndIsRecordedWithIt() throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 15_000;
+        while (CorrelationProbeJob.SEEN.size() < 2 && System.currentTimeMillis() < deadline) {
+            Thread.sleep(200);
+        }
+        List<String> seen = List.copyOf(CorrelationProbeJob.SEEN);
+        assertThat(seen).as("the probe job ran at least twice").hasSizeGreaterThanOrEqualTo(2);
+        assertThat(seen)
+                .allSatisfy(id -> assertThat(id).matches("[0-9a-f]{16}"))
+                .doesNotHaveDuplicates();
+
+        List<String> recorded = runs.runs().stream()
+                .filter(run -> run.runnable().endsWith("CorrelationProbeJob#probe"))
+                .map(ScheduledTaskRunStore.Run::executionId)
+                .toList();
+        assertThat(recorded)
+                .as("every recorded run carries the execution id its job saw")
+                .isNotEmpty()
+                .allSatisfy(id -> assertThat(seen).contains(id));
     }
 
     @Test

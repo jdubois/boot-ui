@@ -5,8 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.email.CapturedEmail;
 import io.github.jdubois.bootui.engine.email.EmailStore;
+import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.util.List;
 import java.util.Map;
@@ -88,6 +90,41 @@ class CorrelationStampingTests {
                 .singleElement()
                 .extracting(call -> call.requestId())
                 .isEqualTo(REQUEST_ID);
+    }
+
+    @Test
+    void sqlExceptionsAndRestCallsCarryTheCurrentExecutionId() {
+        SqlTraceRecorder sql = new SqlTraceRecorder(true, true, false, false, 10, 100L, 2_048, 256, 5);
+        ExceptionStore exceptions = new ExceptionStore(10, 10, 10);
+        RestClientTraceRecorder rest = restRecorder();
+
+        try (BootUiCorrelation.Scope ignored =
+                BootUiCorrelation.open(CorrelationContext.forExecution("00112233aabbccdd"))) {
+            sql.record(
+                    SqlTraceRecorder.StatementType.STATEMENT,
+                    SqlTraceRecorder.Category.SELECT,
+                    "select 1",
+                    List.of(),
+                    10L,
+                    true,
+                    null,
+                    null,
+                    0,
+                    "c1",
+                    "scheduling-1");
+            exceptions.record(new IllegalStateException("boom"), "scheduling-1", null, null, null, "log");
+            recordCall(rest);
+        }
+
+        assertThat(sql.recent()).singleElement().satisfies(statement -> {
+            assertThat(statement.executionId()).isEqualTo("00112233aabbccdd");
+            assertThat(statement.requestId()).isNull();
+        });
+        assertThat(exceptions.groups().get(0).last().executionId()).isEqualTo("00112233aabbccdd");
+        assertThat(rest.recent())
+                .singleElement()
+                .extracting(call -> call.executionId())
+                .isEqualTo("00112233aabbccdd");
     }
 
     @Test

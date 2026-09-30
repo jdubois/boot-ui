@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.exceptions;
 import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
 import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -202,8 +203,9 @@ public final class ExceptionStore {
         String location = location(safeFrames);
         boolean applicationException = safeFrames.stream().anyMatch(Frame::applicationFrame);
         long now = System.currentTimeMillis();
-        Occurrence occurrence =
-                new Occurrence(now, thread, method, path, handler, source, traceId, correlation.requestId());
+        CorrelationContext context = correlation.current();
+        Occurrence occurrence = new Occurrence(
+                now, thread, method, path, handler, source, traceId, context.requestId(), context.executionId());
 
         synchronized (lock) {
             Group group = groups.get(fingerprint);
@@ -520,7 +522,23 @@ public final class ExceptionStore {
             String handler,
             String source,
             String traceId,
-            String requestId) {
+            String requestId,
+
+            String executionId) {
+
+        /** Without BootUI's execution identity. */
+        public Occurrence(
+                long timestamp,
+                String thread,
+                String requestMethod,
+                String requestPath,
+                String handler,
+                String source,
+                String traceId,
+                String requestId) {
+
+            this(timestamp, thread, requestMethod, requestPath, handler, source, traceId, requestId, null);
+        }
 
         /** Without BootUI's request identity. */
         public Occurrence(

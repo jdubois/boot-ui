@@ -55,6 +55,22 @@ public final class ScheduledTaskRunStore {
             String exceptionClassName,
             String message,
             String thread) {
+        record(runnable, startTimestamp, durationMs, success, exceptionClassName, message, thread, null);
+    }
+
+    /**
+     * Records one run with the BootUI execution id it ran under ({@code docs/PLAN-v2.md} §5.1), so the signals it
+     * produced, which carry the same id, nest under it.
+     */
+    public void record(
+            String runnable,
+            long startTimestamp,
+            long durationMs,
+            boolean success,
+            String exceptionClassName,
+            String message,
+            String thread,
+            String executionId) {
         try {
             Run run = new Run(
                     sequence.incrementAndGet(),
@@ -64,7 +80,8 @@ public final class ScheduledTaskRunStore {
                     success,
                     exceptionClassName,
                     message,
-                    thread);
+                    thread,
+                    executionId);
             synchronized (lock) {
                 runs.addFirst(run);
                 while (runs.size() > maxEntries) {
@@ -120,5 +137,20 @@ public final class ScheduledTaskRunStore {
             boolean success,
             String exceptionClassName,
             String message,
-            String thread) {}
+            String thread,
+            String executionId) {
+
+        /** Without BootUI's execution identity. */
+        public Run(
+                long sequence,
+                String runnable,
+                long startTimestamp,
+                long durationMs,
+                boolean success,
+                String exceptionClassName,
+                String message,
+                String thread) {
+            this(sequence, runnable, startTimestamp, durationMs, success, exceptionClassName, message, thread, null);
+        }
+    }
 }

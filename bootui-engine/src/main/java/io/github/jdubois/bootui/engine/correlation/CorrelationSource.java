@@ -32,6 +32,11 @@ public final class CorrelationSource {
         }
     }
 
+    /** The current execution id, or {@code null} when no scheduled run or consumed message owns the work. */
+    public String executionId() {
+        return current().executionId();
+    }
+
     /** The current request id, or {@code null} when no request owns the work. */
     public String requestId() {
         return current().requestId();

@@ -361,6 +361,17 @@ public final class LiveActivityAssembler {
         // tier below when no HTTP request claims the exception (see matchScheduledTaskParent).
         List<ScheduledTaskAnchor> scheduledTaskAnchors = buildScheduledTaskAnchors(scheduled);
 
+        // Scheduled runs stamped with BootUI's execution id (docs/PLAN-v2.md §5.1): a child carrying that id nests
+        // under
+        // the run exactly, after the request-id tier and before any trace-id match.
+        Map<String, String> scheduledEntryByExecutionId = new HashMap<>();
+        for (ScheduledTaskRunStore.Run run : scheduled) {
+            String executionId = BlankStrings.blankToNull(run.executionId());
+            if (executionId != null) {
+                scheduledEntryByExecutionId.putIfAbsent(executionId, scheduledEntryId(run));
+            }
+        }
+
         // Correlate security events to their owning request BEFORE building REQUEST entries (an immutable
         // record can't be patched after construction), so a uniquely-matched event's principal can be
         // stamped onto the request as `securedPrincipal`. Newest-first iteration + putIfAbsent means the
@@ -427,12 +438,26 @@ public final class LiveActivityAssembler {
             if (slowestQueryMicros == null || s.durationMicros() > slowestQueryMicros) {
                 slowestQueryMicros = s.durationMicros();
             }
-            entries.add(toSqlEntry(s, parentRequestId(stampedRequestIds, traceIndex, s.requestId(), s.traceId())));
+            entries.add(toSqlEntry(
+                    s,
+                    parentOf(
+                            stampedRequestIds,
+                            scheduledEntryByExecutionId,
+                            traceIndex,
+                            s.requestId(),
+                            s.executionId(),
+                            s.traceId())));
         }
         Long slowestQuery = slowestQueryMicros == null ? null : Math.round(slowestQueryMicros / 1_000.0);
 
         for (ExceptionGroupDto g : exceptions) {
-            String parentId = parentRequestId(stampedRequestIds, traceIndex, g.lastRequestId(), g.lastTraceId());
+            String parentId = parentOf(
+                    stampedRequestIds,
+                    scheduledEntryByExecutionId,
+                    traceIndex,
+                    g.lastRequestId(),
+                    g.lastExecutionId(),
+                    g.lastTraceId());
             if (parentId == null) {
                 // No owning HTTP request: fall back to attributing the exception to the background
                 // @Scheduled execution that produced it (serving-thread + time-window join — the same
@@ -476,7 +501,14 @@ public final class LiveActivityAssembler {
 
         for (RestClientTraceEntryDto entry : rest) {
             entries.add(toRestEntry(
-                    entry, parentRequestId(stampedRequestIds, traceIndex, entry.requestId(), entry.traceId())));
+                    entry,
+                    parentOf(
+                            stampedRequestIds,
+                            scheduledEntryByExecutionId,
+                            traceIndex,
+                            entry.requestId(),
+                            entry.executionId(),
+                            entry.traceId())));
         }
 
         for (FaultToleranceEventRecorder.CapturedEvent event : faultTolerance) {
@@ -635,6 +667,26 @@ public final class LiveActivityAssembler {
                 entry.parentId(),
                 entry.securedPrincipal(),
                 entry.sqlNPlusOneSuspected());
+    }
+
+    /**
+     * The entry a child nests under: the request whose BootUI request id it carries, else the scheduled run whose
+     * execution id it carries, else the single request sharing its trace id, else none.
+     */
+    private static String parentOf(
+            Set<String> stampedRequestIds,
+            Map<String, String> scheduledEntryByExecutionId,
+            TraceCorrelationIndex traceIndex,
+            String requestId,
+            String executionId,
+            String traceId) {
+        String stamped = BlankStrings.blankToNull(requestId);
+        if (stamped != null && stampedRequestIds.contains(stamped)) {
+            return stamped;
+        }
+        String execution = BlankStrings.blankToNull(executionId);
+        String scheduledEntry = execution == null ? null : scheduledEntryByExecutionId.get(execution);
+        return scheduledEntry != null ? scheduledEntry : traceIndex.parentRequestId(traceId);
     }
 
     /**
@@ -840,6 +892,10 @@ public final class LiveActivityAssembler {
      * into the shared exception log buffer — it additionally nests as a full {@code EXCEPTION} child entry
      * under this one, exactly like a request's failure does today; see {@link #matchScheduledTaskParent}.
      */
+    private static String scheduledEntryId(ScheduledTaskRunStore.Run run) {
+        return "sched-" + run.sequence();
+    }
+
     private ActivityEntryDto toScheduledTaskEntry(ScheduledTaskRunStore.Run run) {
         String severity;
         if (!run.success()) {
@@ -851,7 +907,7 @@ public final class LiveActivityAssembler {
         }
         String detail = run.success() ? null : run.exceptionClassName() + messageSuffix(run.message());
         return new ActivityEntryDto(
-                "sched-" + run.sequence(),
+                scheduledEntryId(run),
                 TYPE_SCHEDULED,
                 run.startTimestamp(),
                 severity,

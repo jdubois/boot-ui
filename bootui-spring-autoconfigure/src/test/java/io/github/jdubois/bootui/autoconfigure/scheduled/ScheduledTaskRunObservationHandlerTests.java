@@ -5,8 +5,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.example.sample.SampleScheduledTask;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.scheduling.support.ScheduledTaskObservationContext;
@@ -73,6 +78,36 @@ class ScheduledTaskRunObservationHandlerTests {
         handler.onStop(context);
 
         assertThat(store.runs()).isEmpty();
+    }
+
+    @Test
+    void eachRunIsCurrentAsItsOwnExecutionWhileItRunsAndIsRecordedWithIt() throws Exception {
+        ScheduledTaskRunStore store = new ScheduledTaskRunStore(10);
+        ObservationRegistry registry = ObservationRegistry.create();
+        registry.observationConfig().observationHandler(new ScheduledTaskRunObservationHandler(store, selfDataFilter));
+        CorrelationContext request = CorrelationContext.forRequest("0123456789abcdef");
+        List<CorrelationContext> seen = new ArrayList<>();
+
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(request)) {
+            for (int i = 0; i < 2; i++) {
+                ScheduledTaskObservationContext context = applicationOwnedContext();
+                Observation.createNotStarted("tasks.scheduled.execution", () -> context, registry)
+                        .observe(() -> seen.add(BootUiCorrelation.current()));
+            }
+            assertThat(BootUiCorrelation.current())
+                    .as("the scope open before the run is restored after it")
+                    .isEqualTo(request);
+        }
+
+        assertThat(seen).extracting(CorrelationContext::requestId).containsOnlyNulls();
+        assertThat(seen)
+                .extracting(CorrelationContext::executionId)
+                .allSatisfy(id -> assertThat(id).matches("[0-9a-f]{16}"))
+                .doesNotHaveDuplicates();
+        assertThat(store.runs())
+                .extracting(ScheduledTaskRunStore.Run::executionId)
+                .containsExactlyInAnyOrderElementsOf(
+                        seen.stream().map(CorrelationContext::executionId).toList());
     }
 
     private ScheduledTaskObservationContext applicationOwnedContext() throws Exception {

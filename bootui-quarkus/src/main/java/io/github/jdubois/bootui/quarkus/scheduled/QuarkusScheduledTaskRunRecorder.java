@@ -57,6 +57,7 @@ public class QuarkusScheduledTaskRunRecorder {
 
     private void record(ScheduledExecution execution, boolean success, Throwable failure) {
         String runnable = execution.getTrigger().getMethodDescription();
+        String executionId = QuarkusScheduledExecutionInterceptor.takeCompleted(runnable);
         if (runnable == null || runnable.isBlank()) {
             return; // programmatically registered job: no stable method identity to report
         }
@@ -75,9 +76,10 @@ public class QuarkusScheduledTaskRunRecorder {
                     false,
                     failure.getClass().getName(),
                     failure.getMessage(),
-                    thread);
+                    thread,
+                    executionId);
         } else {
-            store.record(runnable, startTimestamp, durationMs, success, null, null, thread);
+            store.record(runnable, startTimestamp, durationMs, success, null, null, thread, executionId);
         }
     }
 

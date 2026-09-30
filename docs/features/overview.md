@@ -149,7 +149,9 @@ self-filtered, and bounded exactly as it is there.
 | Fault tolerance | `FAULT_TOLERANCE` | Resilience4j, Spring Retry, and SmallRye Fault Tolerance     | All                          |
 
 Scheduled-task capture records each `@Scheduled` method _execution_ — start, success, failure, duration — without extra
-proxying on either adapter. Cache rows summarize the operation and cache name (`MISS orders`), with `WARN` severity for
+proxying on either adapter. Each run also gets its own BootUI execution id while it runs, so the SQL statements,
+exceptions, and REST client calls it makes nest under the run, even on another thread. On Quarkus this covers blocking
+`@Scheduled` methods; one returning a `Uni` or `CompletionStage` completes later and its run carries no execution id. Cache rows summarize the operation and cache name (`MISS orders`), with `WARN` severity for
 a miss and `OK` otherwise; the detail shows only a short hashed key (`key a1b2c3…`), never a raw key or value, even
 under full value exposure.
 

@@ -178,7 +178,7 @@ public class LiveActivityService {
         Map<String, List<SqlTraceEntryDto>> sqlByRequestId = new HashMap<>();
         if (sql != null) {
             for (SqlTraceEntryDto entry : sql.entries()) {
-                String parentId = matchSqlParent(entry, anchors);
+                String parentId = matchSqlParent(entry, anchors, scheduledAnchors);
                 all.add(toSqlEntry(entry, parentId));
                 if (parentId != null) {
                     sqlByRequestId
@@ -193,12 +193,15 @@ public class LiveActivityService {
         // "chatty call" group is only surfaced inside the REST Client panel itself.
         if (rest != null) {
             for (RestClientTraceEntryDto entry : rest.entries()) {
-                all.add(toRestEntry(entry, matchRestParent(entry, anchors)));
+                all.add(toRestEntry(entry, matchRestParent(entry, anchors, scheduledAnchors)));
             }
         }
         if (exceptionsReport != null) {
             for (ExceptionGroupDto group : exceptionsReport.groups()) {
                 String parentId = matchExceptionParent(group, anchors);
+                if (parentId == null) {
+                    parentId = matchByExecutionId(group.lastExecutionId(), scheduledAnchors);
+                }
                 if (parentId == null) {
                     // No owning HTTP request: fall back to attributing the exception to the background
                     // @Scheduled execution that produced it (thread + time-window join, the same tiered
@@ -836,9 +839,33 @@ public class LiveActivityService {
      * thread within the request window (exact). Returns {@code null} when neither tier yields a unique
      * request, so the entry stays top-level rather than being mis-attributed.
      */
-    private static String matchSqlParent(SqlTraceEntryDto entry, List<RequestAnchor> anchors) {
-        return matchByRequestIdThenTraceThenThread(
-                entry.requestId(), entry.traceId(), entry.thread(), entry.timestamp(), anchors);
+    private static String matchSqlParent(
+            SqlTraceEntryDto entry, List<RequestAnchor> anchors, List<ScheduledTaskAnchor> scheduledAnchors) {
+        String byRequestId = matchByRequestId(entry.requestId(), anchors);
+        if (byRequestId != null) {
+            return byRequestId;
+        }
+        String byExecutionId = matchByExecutionId(entry.executionId(), scheduledAnchors);
+        if (byExecutionId != null) {
+            return byExecutionId;
+        }
+        return matchByTraceThenThread(entry.traceId(), entry.thread(), entry.timestamp(), anchors);
+    }
+
+    /**
+     * The scheduled run whose BootUI execution id the child carries ({@code docs/PLAN-v2.md} §5.1): exact, whatever
+     * thread the child ran on. {@code null} when it carries none or no retained run has it.
+     */
+    private static String matchByExecutionId(String executionId, List<ScheduledTaskAnchor> anchors) {
+        if (executionId == null || executionId.isBlank()) {
+            return null;
+        }
+        for (ScheduledTaskAnchor anchor : anchors) {
+            if (executionId.equals(anchor.executionId())) {
+                return anchor.id();
+            }
+        }
+        return null;
     }
 
     /** The request whose id the child carries, else {@link #matchByTraceThenThread}'s tiers. */
@@ -916,9 +943,17 @@ public class LiveActivityService {
      * tiering {@link #matchSqlParent} uses for SQL, since outbound calls are made on the same application
      * thread as the request that triggered them.
      */
-    private static String matchRestParent(RestClientTraceEntryDto entry, List<RequestAnchor> anchors) {
-        return matchByRequestIdThenTraceThenThread(
-                entry.requestId(), entry.traceId(), entry.thread(), entry.timestamp(), anchors);
+    private static String matchRestParent(
+            RestClientTraceEntryDto entry, List<RequestAnchor> anchors, List<ScheduledTaskAnchor> scheduledAnchors) {
+        String byRequestId = matchByRequestId(entry.requestId(), anchors);
+        if (byRequestId != null) {
+            return byRequestId;
+        }
+        String byExecutionId = matchByExecutionId(entry.executionId(), scheduledAnchors);
+        if (byExecutionId != null) {
+            return byExecutionId;
+        }
+        return matchByTraceThenThread(entry.traceId(), entry.thread(), entry.timestamp(), anchors);
     }
 
     /**
@@ -1058,8 +1093,8 @@ public class LiveActivityService {
         List<ScheduledTaskAnchor> anchors = new ArrayList<>(runs.size());
         for (ScheduledTaskRunStore.Run run : runs) {
             long start = run.startTimestamp();
-            anchors.add(
-                    new ScheduledTaskAnchor("sched-" + run.sequence(), start, start + run.durationMs(), run.thread()));
+            anchors.add(new ScheduledTaskAnchor(
+                    "sched-" + run.sequence(), start, start + run.durationMs(), run.thread(), run.executionId()));
         }
         return anchors;
     }
@@ -1068,7 +1103,7 @@ public class LiveActivityService {
      * A captured {@code @Scheduled} execution reduced to what is needed to attach a correlated exception to
      * it: its {@code SCHEDULED} entry id, its execution window, and the thread it ran on.
      */
-    private record ScheduledTaskAnchor(String id, long start, long end, String thread) {}
+    private record ScheduledTaskAnchor(String id, long start, long end, String thread, String executionId) {}
 
     private ActivityKpiDto computeKpis(
             HttpExchangesReport requests,
