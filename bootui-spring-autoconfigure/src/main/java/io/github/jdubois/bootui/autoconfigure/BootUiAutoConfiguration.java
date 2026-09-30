@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.autoconfigure.activity.LiveServiceMapController;
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationFilter;
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationRegistry;
 import io.github.jdubois.bootui.autoconfigure.activity.SecurityEventCorrelationRegistry;
+import io.github.jdubois.bootui.autoconfigure.activity.ServletThreadKinds;
 import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureController;
 import io.github.jdubois.bootui.autoconfigure.cli.BootUiCliController;
 import io.github.jdubois.bootui.autoconfigure.cli.BootUiCliServiceFactory;
@@ -71,6 +72,7 @@ import io.github.jdubois.bootui.engine.transactions.TransactionRecorder;
 import io.github.jdubois.bootui.engine.websocket.WebSocketActivityRecorder;
 import io.github.jdubois.bootui.engine.websocket.WebSocketService;
 import io.github.jdubois.bootui.engine.websocket.WebSocketSettings;
+import io.github.jdubois.bootui.spi.ThreadKindClassifier;
 import java.nio.file.Paths;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -743,11 +745,17 @@ public class BootUiAutoConfiguration {
         return new SecurityEventCorrelationRegistry(properties.getActivity().getMaxEntries());
     }
 
+    /** This stack's classifier of the thread each operation starts on ({@code docs/PLAN-v2.md} §5.1). */
     @Bean
-    public SqlTraceRecorder bootUiSqlTraceRecorder(BootUiProperties properties) {
+    public ThreadKindClassifier bootUiThreadKindClassifier() {
+        return new ServletThreadKinds();
+    }
+
+    @Bean
+    public SqlTraceRecorder bootUiSqlTraceRecorder(BootUiProperties properties, ThreadKindClassifier threadKinds) {
         BootUiProperties.SqlTrace sqlTrace = properties.getSqlTrace();
         boolean enabled = sqlTrace.isEnabled() && properties.isPanelEnabled(BootUiPanels.SQL_TRACE);
-        return new SqlTraceRecorder(
+        SqlTraceRecorder recorder = new SqlTraceRecorder(
                 enabled,
                 sqlTrace.isRecording(),
                 sqlTrace.isCaptureParameters(),
@@ -758,6 +766,8 @@ public class BootUiAutoConfiguration {
                 sqlTrace.getMaxParameterLength(),
                 sqlTrace.getNPlusOneThreshold(),
                 sqlTrace.getReservedSharePercent());
+        recorder.setThreadKindClassifier(threadKinds);
+        return recorder;
     }
 
     /**

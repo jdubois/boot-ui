@@ -72,6 +72,7 @@ import io.github.jdubois.bootui.engine.websocket.WebSocketSettings;
 import io.github.jdubois.bootui.quarkus.beans.QuarkusBeanProvider;
 import io.github.jdubois.bootui.quarkus.config.QuarkusConfigProvider;
 import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
+import io.github.jdubois.bootui.quarkus.correlation.QuarkusThreadKinds;
 import io.github.jdubois.bootui.quarkus.databaseadvisor.QuarkusDatabaseAdvisorDataSourceProvider;
 import io.github.jdubois.bootui.quarkus.errorcontract.QuarkusErrorContractProvider;
 import io.github.jdubois.bootui.quarkus.faulttolerance.QuarkusFaultTolerancePolicyProvider;
@@ -1325,6 +1326,7 @@ public class BootUiEngineProducer {
         if (traceIdProvider.isResolvable()) {
             recorder.setTraceIdProvider(traceIdProvider.get());
         }
+        recorder.setThreadKindClassifier(new QuarkusThreadKinds());
         recorder.setCorrelationContextProvider(QuarkusRequestCorrelation::current);
         return recorder;
     }

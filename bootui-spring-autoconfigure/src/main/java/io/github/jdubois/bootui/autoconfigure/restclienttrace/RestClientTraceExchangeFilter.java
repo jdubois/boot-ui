@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.autoconfigure.restclienttrace;
 
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.github.jdubois.bootui.spi.ThreadKind;
 import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -36,9 +38,21 @@ public class RestClientTraceExchangeFilter implements ExchangeFilterFunction {
     @Override
     public Mono<ClientResponse> filter(ClientRequest request, ExchangeFunction next) {
         long start = System.nanoTime();
+        // The call starts here, on the subscribing thread; its outcome arrives on an event loop, so the caller's
+        // correlation and thread kind are captured now (docs/PLAN-v2.md §5.1).
+        Caller caller = caller();
         return next.exchange(request)
-                .doOnNext(response -> recordSafely(request, elapsedMillis(start), statusOf(response), true, null))
-                .doOnError(ex -> recordSafely(request, elapsedMillis(start), null, false, ex.getMessage()));
+                .doOnNext(
+                        response -> recordSafely(request, elapsedMillis(start), statusOf(response), true, null, caller))
+                .doOnError(ex -> recordSafely(request, elapsedMillis(start), null, false, ex.getMessage(), caller));
+    }
+
+    private Caller caller() {
+        try {
+            return new Caller(recorder.currentCorrelation(), recorder.currentThreadKind());
+        } catch (RuntimeException ex) {
+            return new Caller(CorrelationContext.NONE, null);
+        }
     }
 
     private static Integer statusOf(ClientResponse response) {
@@ -50,7 +64,12 @@ public class RestClientTraceExchangeFilter implements ExchangeFilterFunction {
     }
 
     private void recordSafely(
-            ClientRequest request, long durationMillis, Integer status, boolean success, String errorMessage) {
+            ClientRequest request,
+            long durationMillis,
+            Integer status,
+            boolean success,
+            String errorMessage,
+            Caller caller) {
         try {
             URI uri = request.url();
             recorder.record(
@@ -64,12 +83,17 @@ public class RestClientTraceExchangeFilter implements ExchangeFilterFunction {
                     errorMessage,
                     CLIENT_TYPE,
                     flattenHeaders(request.headers()),
-                    Thread.currentThread().getName());
+                    Thread.currentThread().getName(),
+                    recorder.currentTraceId(),
+                    caller.correlation(),
+                    caller.threadKind());
         } catch (RuntimeException ignored) {
             // The response/error has already been emitted downstream by the time this runs - a capture
             // failure must never disrupt the outbound call.
         }
     }
+
+    private record Caller(CorrelationContext correlation, ThreadKind threadKind) {}
 
     private static long elapsedMillis(long startNanos) {
         return Math.max(0, (System.nanoTime() - startNanos) / 1_000_000);

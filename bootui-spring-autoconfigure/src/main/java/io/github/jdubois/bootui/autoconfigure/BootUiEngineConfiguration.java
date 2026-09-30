@@ -100,6 +100,7 @@ import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
 import io.github.jdubois.bootui.spi.MappingProvider;
 import io.github.jdubois.bootui.spi.ScheduledTaskProvider;
+import io.github.jdubois.bootui.spi.ThreadKindClassifier;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.persistence.EntityManagerFactory;
 import java.time.Clock;
@@ -761,10 +762,11 @@ public class BootUiEngineConfiguration {
     static class RestClientTraceBackendConfiguration {
 
         @Bean
-        RestClientTraceRecorder bootUiRestClientTraceRecorder(BootUiProperties properties) {
+        RestClientTraceRecorder bootUiRestClientTraceRecorder(
+                BootUiProperties properties, ObjectProvider<ThreadKindClassifier> threadKinds) {
             BootUiProperties.RestClientTrace restClientTrace = properties.getRestClientTrace();
             boolean enabled = restClientTrace.isEnabled() && properties.isPanelEnabled(BootUiPanels.REST_CLIENT_TRACE);
-            return new RestClientTraceRecorder(
+            RestClientTraceRecorder recorder = new RestClientTraceRecorder(
                     enabled,
                     restClientTrace.isRecording(),
                     restClientTrace.isCaptureHeaders(),
@@ -775,6 +777,8 @@ public class BootUiEngineConfiguration {
                     restClientTrace.getMaxHeaderValueLength(),
                     restClientTrace.getChattyCallThreshold(),
                     restClientTrace.getReservedSharePercent());
+            threadKinds.ifAvailable(recorder::setThreadKindClassifier);
+            return recorder;
         }
 
         /**

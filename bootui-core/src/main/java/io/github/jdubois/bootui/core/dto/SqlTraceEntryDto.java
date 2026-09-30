@@ -57,7 +57,52 @@ public record SqlTraceEntryDto(
         String traceId,
         String callSite,
         String requestId,
-        String executionId) {
+        String executionId,
+        String threadKind) {
+    /** Without the thread kind. */
+    public SqlTraceEntryDto(
+            long id,
+            long timestamp,
+            String sql,
+            String statementType,
+            String category,
+            long durationMicros,
+            long durationMillis,
+            boolean success,
+            String errorMessage,
+            Long affectedRows,
+            int batchSize,
+            String connectionId,
+            String thread,
+            boolean slow,
+            List<String> parameters,
+            String traceId,
+            String callSite,
+            String requestId,
+            String executionId) {
+        this(
+                id,
+                timestamp,
+                sql,
+                statementType,
+                category,
+                durationMicros,
+                durationMillis,
+                success,
+                errorMessage,
+                affectedRows,
+                batchSize,
+                connectionId,
+                thread,
+                slow,
+                parameters,
+                traceId,
+                callSite,
+                requestId,
+                executionId,
+                null);
+    }
+
     /** Without BootUI's execution identity. */
     public SqlTraceEntryDto(
             long id,

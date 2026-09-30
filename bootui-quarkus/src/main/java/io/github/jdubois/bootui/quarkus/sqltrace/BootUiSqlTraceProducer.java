@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies;
 import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
 import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
+import io.github.jdubois.bootui.quarkus.correlation.QuarkusThreadKinds;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.quarkus.agroal.runtime.AgroalDataSourceUtil;
 import io.quarkus.datasource.common.runtime.DataSourceUtil;
@@ -84,6 +85,7 @@ public class BootUiSqlTraceProducer {
         // Stamp each statement with BootUI's request id, read from the request's Vert.x context, which reaches the
         // worker thread blocking SQL runs on, with or without OpenTelemetry (docs/PLAN-v2.md §5.1).
         recorder.setCorrelationContextProvider(QuarkusRequestCorrelation::current);
+        recorder.setThreadKindClassifier(new QuarkusThreadKinds());
         // When OpenTelemetry is present, install the span enricher so each recorded statement stamps
         // bootui.sql.* depth on the active request span for the cross-service trace waterfall. Absent
         // OpenTelemetry the enricher is unresolvable and the recorder keeps the neutral no-op.

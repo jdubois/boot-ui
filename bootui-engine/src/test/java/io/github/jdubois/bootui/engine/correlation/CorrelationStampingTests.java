@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorde
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.github.jdubois.bootui.spi.ThreadKind;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -125,6 +126,61 @@ class CorrelationStampingTests {
                 .singleElement()
                 .extracting(call -> call.executionId())
                 .isEqualTo("00112233aabbccdd");
+    }
+
+    @Test
+    void sqlAndRestCallsCarryTheKindOfTheThreadTheyStartedOn() {
+        SqlTraceRecorder sql = new SqlTraceRecorder(true, true, false, false, 10, 100L, 2_048, 256, 5);
+        RestClientTraceRecorder rest = restRecorder();
+        sql.setThreadKindClassifier(() -> ThreadKind.EVENT_LOOP);
+        rest.setThreadKindClassifier(() -> {
+            throw new IllegalStateException("classifier down");
+        });
+
+        sql.record(
+                SqlTraceRecorder.StatementType.STATEMENT,
+                SqlTraceRecorder.Category.SELECT,
+                "select 1",
+                List.of(),
+                10L,
+                true,
+                null,
+                null,
+                0,
+                "c1",
+                "reactor-http-nio-1");
+        recordCall(rest);
+        rest.record(
+                "GET",
+                "https://api.example.com/rates",
+                "api.example.com",
+                "/rates",
+                200,
+                3L,
+                true,
+                null,
+                "WebClient",
+                Map.of(),
+                "reactor-http-nio-2",
+                null,
+                CorrelationContext.NONE,
+                ThreadKind.WORKER);
+
+        assertThat(sql.recent())
+                .singleElement()
+                .extracting(statement -> statement.threadKind())
+                .isEqualTo("EVENT_LOOP");
+        assertThat(rest.recent())
+                .extracting(call -> call.threadKind())
+                .as("an explicit start-thread kind wins, and a failing classifier reads OTHER")
+                .containsExactlyInAnyOrder("WORKER", "OTHER");
+    }
+
+    @Test
+    void theDefaultClassifierOnlyKnowsVirtualThreads() {
+        assertThat(ThreadKinds.isVirtual(Thread.currentThread())).isFalse();
+        assertThat(ThreadKinds.DEFAULT.current()).isEqualTo(ThreadKind.OTHER);
+        assertThat(ThreadKinds.isVirtual(null)).isFalse();
     }
 
     @Test

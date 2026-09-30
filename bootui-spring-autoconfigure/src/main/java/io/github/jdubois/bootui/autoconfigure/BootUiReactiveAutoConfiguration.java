@@ -57,6 +57,7 @@ import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityEventTrac
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityHeadersFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSecurityLogsController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveSqlTraceController;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveThreadKinds;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveTransactionsController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveWebSocketController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveWebSocketMetadataProvider;
@@ -80,6 +81,7 @@ import io.github.jdubois.bootui.engine.transactions.TransactionRecorder;
 import io.github.jdubois.bootui.engine.websocket.WebSocketActivityRecorder;
 import io.github.jdubois.bootui.engine.websocket.WebSocketService;
 import io.github.jdubois.bootui.engine.websocket.WebSocketSettings;
+import io.github.jdubois.bootui.spi.ThreadKindClassifier;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -742,11 +744,17 @@ public class BootUiReactiveAutoConfiguration {
      * {@code ConsoleActivityFilter}/{@code ConsoleActivityTracker} port; without it, SQL capture simply
      * never suspends while idle (a resource-usage gap, not a correctness one).
      */
+    /** This stack's classifier of the thread each operation starts on ({@code docs/PLAN-v2.md} §5.1). */
     @Bean
-    public SqlTraceRecorder bootUiSqlTraceRecorder(BootUiProperties properties) {
+    public ThreadKindClassifier bootUiThreadKindClassifier() {
+        return new ReactiveThreadKinds();
+    }
+
+    @Bean
+    public SqlTraceRecorder bootUiSqlTraceRecorder(BootUiProperties properties, ThreadKindClassifier threadKinds) {
         BootUiProperties.SqlTrace sqlTrace = properties.getSqlTrace();
         boolean enabled = sqlTrace.isEnabled() && properties.isPanelEnabled(BootUiPanels.SQL_TRACE);
-        return new SqlTraceRecorder(
+        SqlTraceRecorder recorder = new SqlTraceRecorder(
                 enabled,
                 sqlTrace.isRecording(),
                 sqlTrace.isCaptureParameters(),
@@ -757,6 +765,8 @@ public class BootUiReactiveAutoConfiguration {
                 sqlTrace.getMaxParameterLength(),
                 sqlTrace.getNPlusOneThreshold(),
                 sqlTrace.getReservedSharePercent());
+        recorder.setThreadKindClassifier(threadKinds);
+        return recorder;
     }
 
     /**
