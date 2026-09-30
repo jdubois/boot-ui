@@ -158,10 +158,13 @@ test.describe('Live Activity view (Quarkus)', () => {
     await expect(drawer).toHaveCount(0)
   })
 
-  test('never attributes a REST client call to either request sharing its trace id', async ({openView, page}) => {
+  test('attributes a REST client call to its caller by request id when two requests share a trace id', async ({
+    openView,
+    page
+  }) => {
     // The sample REST client calls this same app, so the inbound POST and the downstream GET it triggers
-    // are two captured requests carrying one propagated trace id. The cross-anchor uniqueness guard then
-    // attributes the outbound call to neither and counts it in the notes.
+    // are two captured requests carrying one propagated trace id. The trace id cannot decide between them,
+    // but the outbound call carries the calling request's BootUI request id, so it is attributed exactly.
     await page.request.post('/bootui/api/rest-client-trace/recording', {data: {enabled: true}})
     const capture = await page.request.post('/api/sample/rest-client-capture')
     expect(capture.ok()).toBeTruthy()
@@ -174,18 +177,15 @@ test.describe('Live Activity view (Quarkus)', () => {
     const drawer = page.locator('.activity-drawer')
     await expect(drawer).toBeVisible()
     const rest = drawer.locator('section', {has: page.getByRole('heading', {name: /^REST client calls/})})
-    await expect(rest).toContainText('No REST client calls correlated to this request.')
+    await expect(rest).toContainText('/api/sample/products')
+    await expect(rest.locator('.activity-tier')).toHaveText('request id')
     await expect(drawer).toContainText('shared by more than one captured request')
-    await expect(drawer).toContainText('could equally belong to another captured request')
 
     await drawer.getByRole('button', {name: 'Close'}).click()
     await expect(drawer).toHaveCount(0)
   })
 
-  test('correlates a security event to the profiled request by trace id, never claiming a thread-exact match', async ({
-    openView,
-    page
-  }) => {
+  test('correlates a security event to the profiled request exactly by its request id', async ({openView, page}) => {
     // /api/secure/products deliberately also runs a live SQL SELECT (see SecureResource), so this
     // request's drawer exercises SQL correlation and security correlation together.
     const secure = await page.request.get('/api/secure/products', {
@@ -207,13 +207,10 @@ test.describe('Live Activity view (Quarkus)', () => {
     await expect(security).toBeVisible({timeout: 15_000})
     await expect(security).toContainText('AuthenticationSuccessEvent')
 
-    // Reduced correlation: Quarkus's reactive event-loop/worker model has no per-request serving-thread
-    // identity, so ExecutionProfileAssembler can only ever claim a "principal" match here (the event's
-    // principal equals the request's), never the stronger "exact" (thread-matched) badge Spring can show
-    // for the same scenario. Scoped to the security section specifically, since the SQL section on this
-    // same request legitimately does show "exact" (see the previous test).
-    await expect(security.getByText('principal', {exact: true})).toBeVisible()
-    await expect(security.getByText('exact', {exact: true})).toHaveCount(0)
+    // Quarkus has no per-request serving thread, but the security event carries the request's BootUI request
+    // id, stamped on the request's Vert.x context, so the event is attributed exactly, not just by principal.
+    await expect(security.getByText('exact', {exact: true})).toBeVisible()
+    await expect(security.locator('.activity-tier')).toHaveText('request id')
 
     await drawer.getByRole('button', {name: 'Close'}).click()
   })

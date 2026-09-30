@@ -132,11 +132,12 @@ public final class ExecutionProfileAssembler {
             notes.add(
                     capabilities.traceIdOnlyAdapter()
                             ? "This request's trace id " + traceId + " is shared by more than one captured request, "
-                                    + "so correlation was skipped to avoid attributing another request's signals to "
-                                    + "this one."
+                                    + "so trace-id correlation was skipped to avoid attributing another request's "
+                                    + "signals to this one; only signals carrying this request's BootUI request id "
+                                    + "are attributed."
                             : "This request's trace id " + traceId + " is shared by more than one captured request, "
-                                    + "so trace-id correlation was skipped and only the serving-thread and "
-                                    + "time-window tiers were used.");
+                                    + "so trace-id correlation was skipped and only the request-id, serving-thread, "
+                                    + "and time-window tiers were used.");
         }
 
         Section<SqlTraceEntryDto> sql = correlateSql(context, evidence.sql());
