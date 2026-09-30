@@ -111,6 +111,20 @@ class RouteLabelTests {
     }
 
     @Test
+    void anEscapedBraceInAVariablePatternIsRegexTextNotStructure() {
+        String template = "/files/{id:[a-z]+\\{}/details";
+        RouteTemplateResolver declared = RouteTemplateResolver.of(List.of(mapping("GET", template)));
+
+        assertThat(RouteTemplateResolver.canonical(template)).isEqualTo("/files/{id}/details");
+        assertThat(RouteTemplateResolver.canonical("/files/{id:[a-z]+\\}}/x")).isEqualTo("/files/{id}/x");
+        RouteLabel resolved = RouteLabel.of("GET", "/files/abc/details", null, declared);
+        assertThat(resolved.route()).isEqualTo("/files/{id}/details");
+        assertThat(resolved.id())
+                .isEqualTo(RouteLabel.of("GET", "/files/abc/details", template, declared)
+                        .id());
+    }
+
+    @Test
     void maskedPathNeverExposesAPathParameterValueOrQueryString() {
         RouteLabel label = RouteLabel.of(
                 "DELETE",

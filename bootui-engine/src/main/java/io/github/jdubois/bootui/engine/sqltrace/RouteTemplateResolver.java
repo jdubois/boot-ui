@@ -250,6 +250,12 @@ public final class RouteTemplateResolver {
         StringBuilder variable = null;
         for (int i = 0; i < segment.length(); i++) {
             char c = segment.charAt(i);
+            if (c == '\\' && i + 1 < segment.length()) {
+                // An escaped brace inside a variable's pattern is regex text, not template structure.
+                (depth > 0 ? variable : out).append(c).append(segment.charAt(i + 1));
+                i++;
+                continue;
+            }
             if (c == '{') {
                 if (depth == 0) {
                     variable = new StringBuilder();
@@ -296,6 +302,11 @@ public final class RouteTemplateResolver {
         String trimmed = template.trim();
         for (int i = 0; i < trimmed.length(); i++) {
             char c = trimmed.charAt(i);
+            if (c == '\\' && i + 1 < trimmed.length()) {
+                current.append(c).append(trimmed.charAt(i + 1));
+                i++;
+                continue;
+            }
             if (c == '{') {
                 depth++;
             } else if (c == '}' && depth > 0) {

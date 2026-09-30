@@ -4411,14 +4411,15 @@ const activityReport = {
   },
   kpis: {
     requestsPerMinute: 42.5,
-    errorRatePercent: 12.5,
-    p50LatencyMs: 14,
+    // Consistent with the HTTP Exchanges route-rankings fixture, which covers the same 143 retained requests.
+    errorRatePercent: 12.59,
+    p50LatencyMs: 24,
     p95LatencyMs: 1240,
-    slowestEndpoint: '/api/sample/products',
-    slowestEndpointMs: 1240,
+    slowestEndpoint: '/api/chat',
+    slowestEndpointMs: 1612,
     latencySampleCount: 143,
-    slowestEndpointRoute: '/api/sample/products',
-    slowestEndpointRouteId: 'GET /api/sample/products',
+    slowestEndpointRoute: '/api/chat',
+    slowestEndpointRouteId: 'POST /api/chat',
     slowestEndpointRouteSource: 'FRAMEWORK_TEMPLATE',
     activeExceptionCount: 2,
     sqlPerMinute: 18.0,
@@ -6739,14 +6740,22 @@ async function handleApiRoute(route) {
   if (endpoint === 'security') return fulfillJson(route, isQuarkusPlatform ? quarkusSecurity : security)
   if (endpoint === 'security/scan') return fulfillJson(route, security)
   if (endpoint === 'http-exchanges/routes') return fulfillJson(route, httpRoutes)
-  if (endpoint === 'http-exchanges')
-    return fulfillJson(
-      route,
-      pagedReport('exchanges', httpExchanges, url, {
-        recorded: httpExchanges.length,
-        unavailableReason: null
-      })
-    )
+  if (endpoint === 'http-exchanges') {
+    // The list shows the newest page of the same retained window the route rankings summarize.
+    const report = pagedReport('exchanges', httpExchanges, url, {unavailableReason: null})
+    return fulfillJson(route, {
+      ...report,
+      total: httpRoutes.window.summarizedExchanges,
+      recorded: httpRoutes.window.retainedExchanges,
+      hiddenSelf: httpRoutes.window.hiddenSelfExchanges,
+      page: {
+        ...report.page,
+        total: httpRoutes.window.summarizedExchanges,
+        matched: httpRoutes.window.summarizedExchanges,
+        hasMore: true
+      }
+    })
+  }
   if (endpoint === 'email') return fulfillJson(route, email)
   if (endpoint === 'kafka') return fulfillJson(route, kafka)
   if (endpoint === 'rabbitmq') return fulfillJson(route, rabbit)

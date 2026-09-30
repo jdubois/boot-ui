@@ -80,6 +80,9 @@ const subtitle = computed(
 
 let lastRoutesFetch = 0
 let forceNextRoutes = false
+// Only the newest ranking request may publish, so a slower, older response can never replace a newer one,
+// such as the response that pins a just-linked route.
+let routesGeneration = 0
 const routesFetchedAt = ref(null)
 
 async function loadRoutes(force = false) {
@@ -89,11 +92,15 @@ async function loadRoutes(force = false) {
   // Pinning the linked route makes the server return its row even when it is outside every top list.
   const pinned = highlightedRoute.value
   const url = pinned ? `api/http-exchanges/routes?route=${encodeURIComponent(pinned)}` : 'api/http-exchanges/routes'
+  const generation = ++routesGeneration
   try {
-    routesReport.value = await getJson(url)
+    const report = await getJson(url)
+    if (generation !== routesGeneration) return
+    routesReport.value = report
     routesError.value = null
     routesFetchedAt.value = Date.now()
   } catch (e) {
+    if (generation !== routesGeneration) return
     routesReport.value = null
     routesError.value = e?.message ? `Could not load route rankings: ${e.message}` : 'Could not load route rankings.'
   }
@@ -165,15 +172,16 @@ const displayedRoutes = computed(() =>
 const distinctRoutes = computed(() => routesReport.value?.distinctRoutes ?? allRoutes.value.length)
 
 // Why routes are missing from this ranking: the per-criterion cap, or a zero score on the criterion.
+// Why retained routes are not on screen: the per-criterion cap, a zero score on the criterion, or, when nothing
+// scores, the bounded union the server returned. Counted against the rows actually displayed, pinned row included.
 const rankingGap = computed(() => {
-  if (rankingMetricUnmeasured.value) return null
-  const shown = rankedRoutes.value.length
-  const missing = distinctRoutes.value - shown
+  const missing = distinctRoutes.value - displayedRoutes.value.length
   if (missing <= 0) return null
+  if (rankingMetricUnmeasured.value) return {reason: 'unranked', missing}
   // The server lists at most topPerCriterion routes for a criterion, taken from those that score on it. A
   // shorter list therefore already holds every scoring route, and the rest record nothing for this criterion.
-  const capped = shown >= (routesReport.value?.topPerCriterion ?? Infinity)
-  return {capped, missing}
+  const capped = rankedRoutes.value.length >= (routesReport.value?.topPerCriterion ?? Infinity)
+  return {reason: capped ? 'capped' : 'unscored', missing}
 })
 
 const highlightedRouteMissing = computed(
@@ -567,10 +575,15 @@ onMounted(() => {
       </div>
 
       <p v-if="rankingGap" class="text-muted small mb-0 http-routes-truncation">
-        <template v-if="rankingGap.capped">
+        <template v-if="rankingGap.reason === 'capped'">
           Showing the top {{ formatNumber(rankedRoutes.length) }} of {{ formatNumber(distinctRoutes) }} retained routes
           by {{ rankingMetricLabel.toLowerCase() }}; {{ formatNumber(rankingGap.missing) }} more
           {{ rankingGap.missing === 1 ? 'route is' : 'routes are' }} not shown.
+        </template>
+        <template v-else-if="rankingGap.reason === 'unranked'">
+          Showing {{ formatNumber(displayedRoutes.length) }} of {{ formatNumber(distinctRoutes) }} retained routes;
+          {{ formatNumber(rankingGap.missing) }} more {{ rankingGap.missing === 1 ? 'route is' : 'routes are' }} not
+          shown.
         </template>
         <template v-else>
           {{ formatNumber(rankingGap.missing) }} of {{ formatNumber(distinctRoutes) }} retained

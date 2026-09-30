@@ -31,6 +31,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   framework template the way it renders a declared one, so `/orders/{id:[0-9]+}` reads `/orders/{id}`, while a wildcard
   such as `/**` is kept as declared. A variable's pattern may now contain `?` or `/` without truncating the route. When declared mappings are ambiguous, a masked path now also masks every segment they mark
   as a parameter, and a brace-delimited segment on a real request is masked rather than trusted as template syntax.
+  On Quarkus, declared JAX-RS routes are now matched under `quarkus.http.root-path` and `quarkus.rest.path`, so SQL
+  Trace attributes requests to their declared route instead of a masked path when the application has a root path.
 - **Quarkus 3.33.3.3.** The Quarkus extension, integration tests, and sample app move to Quarkus 3.33.3.3, the
   newest micro release of the 3.33 LTS stream.
 

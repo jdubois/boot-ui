@@ -165,7 +165,11 @@ three sources it came from:
 | `masked path` | No template matched, so every path segment that reads like a value is replaced with `{value}`. |
 
 A template is shown the same way whichever source produced it, so `{id:[0-9]+}` reads `{id}` and a route never splits
-into two rows, while a catch-all such as `/**` is kept as declared, so it never merges with a masked path. Quarkus has no runtime route template, so its routes come from the declared JAX-RS mappings. Spring
+into two rows, while a catch-all such as `/**` is kept as declared, so it never merges with a masked path. Two
+handlers on the same method and path that differ only in their variable patterns, such as `{id:[0-9]+}` and
+`{id:[a-z]+}`, therefore share one row: a pattern is never shown. Quarkus has no runtime route template, so its routes come from the declared JAX-RS mappings, matched under
+`quarkus.http.root-path` and `quarkus.rest.path`; a prefix contributed only by `@ApplicationPath` is not known at
+runtime, so those routes fall back to masked paths. Spring
 WebFlux records the matched handler pattern with the OpenTelemetry integration, which the reactive starter includes;
 without it, WebFlux routes fall back to masked paths, and the panel says so. Query strings are never part of a route.
 

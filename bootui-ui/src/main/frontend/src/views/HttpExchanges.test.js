@@ -15,8 +15,12 @@ const RouterLinkStub = {
   template: '<a class="router-link-stub" :data-to="JSON.stringify(to)"><slot /></a>'
 }
 
+const mounted = []
+
 function mountExchanges() {
-  return mount(HttpExchanges, {global: {stubs: {RouterLink: RouterLinkStub}}})
+  const wrapper = mount(HttpExchanges, {global: {stubs: {RouterLink: RouterLinkStub}}})
+  mounted.push(wrapper)
+  return wrapper
 }
 
 function jsonResponse(body, ok = true, status = 200) {
@@ -61,6 +65,8 @@ describe('HTTP Exchanges', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.useRealTimers()
+    // The route is shared and reactive, so a component left mounted would react to the next test's links.
+    mounted.splice(0).forEach((wrapper) => wrapper.unmount())
     routeState.query = {}
     router.replace.mockClear()
   })
@@ -368,6 +374,66 @@ describe('HTTP Exchanges', () => {
 
       expect(wrapper.find('.http-routes-truncation').text()).toContain('Showing the top 1 of 2 retained routes')
       expect(wrapper.find('.http-routes-truncation').text()).not.toContain('record no')
+    })
+
+    it('never lets an older ranking response replace a newer pinned one', async () => {
+      const pending = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url) => {
+          if (!String(url).startsWith('api/http-exchanges/routes')) return Promise.resolve(jsonResponse(report()))
+          return new Promise((resolve) => pending.push({url: String(url), resolve}))
+        })
+      )
+      const wrapper = mountExchanges()
+      await flushPromises()
+      expect(pending).toHaveLength(1)
+
+      routeState.query = {route: 'GET /rare'}
+      await flushPromises()
+      expect(pending).toHaveLength(2)
+      expect(pending[1].url).toContain('route=GET%20%2Frare')
+
+      pending[1].resolve(
+        jsonResponse(routesReport({routes: [route(), route({id: 'GET /rare', route: '/rare', topFor: []})]}))
+      )
+      await flushPromises()
+      pending[0].resolve(jsonResponse(routesReport()))
+      await flushPromises()
+
+      expect(wrapper.find('.http-routes-table tbody tr[data-route-id="GET /rare"]').exists()).toBe(true)
+      expect(wrapper.find('.http-routes-linked-hidden').exists()).toBe(false)
+    })
+
+    it('counts the pinned row as shown and states omissions when nothing scores', async () => {
+      routeState.query = {route: 'GET /rare'}
+      stubFetch(
+        routesReport({
+          routes: [route(), route({id: 'GET /rare', route: '/rare', topFor: []})],
+          topPerCriterion: 1,
+          routesTruncated: true,
+          distinctRoutes: 30
+        })
+      )
+      const wrapper = mountExchanges()
+      await flushPromises()
+
+      expect(wrapper.find('.http-routes-truncation').text()).toContain('28 more routes are not shown')
+
+      await wrapper.find('#http-routes-metric').setValue('errorCount')
+      stubFetch(
+        routesReport({
+          routes: [route({errorCount: 0, status4xx: 0, status5xx: 0, topFor: ['REQUESTS']})],
+          topPerCriterion: 1,
+          routesTruncated: true,
+          distinctRoutes: 40
+        })
+      )
+      await wrapper.find('button[title="Refresh"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('.http-routes-truncation').text()).toContain('Showing 1 of 40 retained routes')
+      expect(wrapper.find('.http-routes-truncation').text()).toContain('39 more routes are not shown')
     })
 
     it('keeps the chosen ranking in the URL so a drill-down never snaps it back', async () => {
