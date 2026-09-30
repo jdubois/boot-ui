@@ -330,9 +330,10 @@ captured reactively or by framework-neutral engine buffers.
 ::: details Where each of the nine signals comes from
 
 The original four — HTTP Exchanges, SQL Trace, Exceptions, and Security Logs — are already captured reactively by the
-panels in §6.2/§6.3. The five newer entry types added by the Live Activity event-type extension workstream
-(`docs/PLAN.md` §3.4) reuse the same framework-neutral engine buffers regardless of stack, because their capture wiring
-(`BootUiEngineConfiguration`) is gated purely on classpath/bean presence, never on `ConditionalOnWebApplication`:
+panels in §6.2/§6.3. The five newer entry types added by the Live Activity event-type extension workstream (see
+[Live Activity](features/overview.md#the-ten-signals)) reuse the same framework-neutral engine buffers regardless of
+stack, because their capture wiring (`BootUiEngineConfiguration`) is gated purely on classpath/bean presence, never on
+`ConditionalOnWebApplication`:
 
 - Cache and Scheduled Tasks are read from the same `CacheActivityRecorder`/`ScheduledTaskRunStore` the §6.1 panels
   already expose unmodified.

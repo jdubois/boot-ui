@@ -13,7 +13,7 @@ import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder.CapturedMes
  *
  * <p>Unlike {@code SQL}/{@code EXCEPTION}/{@code SECURITY} entries, no request-parent
  * correlation is attempted (BootUI has no trace id on the publisher/consumer thread for
- * RabbitMQ today), so every entry is top-level; see {@code docs/PLAN.md} §3.4 for the nesting
+ * RabbitMQ today), so every entry is top-level; see {@code docs/PLAN.md} §3.20 for the nesting
  * this can grow into once messaging spans carry a correlation id. Duration is only known for
  * consumed messages (the publisher hook runs before the actual send with no post-send callback
  * available without publisher confirms).</p>

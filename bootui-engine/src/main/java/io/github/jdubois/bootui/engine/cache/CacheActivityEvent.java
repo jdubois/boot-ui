@@ -2,8 +2,8 @@ package io.github.jdubois.bootui.engine.cache;
 
 /**
  * One captured cache access, already reduced to what the Live Activity {@code CACHE} event needs: never
- * the raw key or value (see {@code docs/PLAN.md} §3.4 — "cache keys are hashed rather than shown raw even
- * under full exposure"), only a short, stable {@code keyHash}.
+ * the raw key or value, even under full value exposure (see the Live Activity section of
+ * {@code docs/features/overview.md}), only a short, stable {@code keyHash}.
  *
  * @param seq monotonic sequence number assigned at capture time, used as this event's stable id
  * @param timestampMillis epoch millis when the access happened

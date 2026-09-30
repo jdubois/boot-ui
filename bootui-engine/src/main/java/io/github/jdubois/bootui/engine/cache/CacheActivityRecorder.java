@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Framework-neutral, in-memory, bounded ring buffer of cache accesses (hit/miss/put/evict/clear), feeding
- * the Live Activity panel's {@code CACHE} event type (see {@code docs/PLAN.md} §3.4). Each adapter feeds
+ * the Live Activity panel's {@code CACHE} event type (see {@code docs/features/overview.md}). Each adapter feeds
  * this recorder from wherever it intercepts real cache access — the Spring adapter decorates
  * {@code CacheManager}/{@code Cache} beans so every access (annotation-driven or programmatic) is
  * captured — while this class owns only the neutral concerns: bounding, key hashing, and change

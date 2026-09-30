@@ -247,8 +247,8 @@ public class BootUiEngineProducer {
 
     /**
      * The Quarkus-only scheduled-task-run ring buffer fed by {@code QuarkusScheduledTaskRunRecorder}
-     * (the CDI {@code SuccessfulExecution}/{@code FailedExecution} observer — see {@code docs/PLAN.md}
-     * §3.4). Always produced, mirroring the always-produced pattern the other optional-dependency
+     * (the CDI {@code SuccessfulExecution}/{@code FailedExecution} observer — see {@code docs/features/overview.md}).
+     * Always produced, mirroring the always-produced pattern the other optional-dependency
      * buffers use: when {@code quarkus-scheduler} is absent (or the capability-gated observer is
      * excluded), nothing ever calls {@link ScheduledTaskRunStore#record}, so the Live Activity panel
      * simply renders no {@code SCHEDULED} entries. Capacity bounds memory

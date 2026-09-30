@@ -14,7 +14,7 @@ import java.util.List;
  * Feeds the shared engine {@link ScheduledTaskRunStore} from Quarkus's own {@code @Scheduled} method
  * instrumentation, so BootUI needs neither method interception nor a competing {@code JobInstrumenter}
  * (the scheduler allows only one CDI bean of that type, and {@code quarkus-opentelemetry} already claims
- * it when scheduler tracing is enabled — see {@code docs/PLAN.md} §3.4).
+ * it when scheduler tracing is enabled — see {@code docs/QUARKUS-SUPPORT.md}).
  *
  * <p>Quarkus's scheduler ({@code BaseScheduler}, shared by the built-in {@code SimpleScheduler} and the
  * Quartz extension) always fires an ordinary CDI {@link SuccessfulExecution} or {@link FailedExecution}
