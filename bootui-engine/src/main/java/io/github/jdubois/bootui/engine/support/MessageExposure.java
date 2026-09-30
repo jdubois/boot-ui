@@ -219,21 +219,30 @@ public final class MessageExposure {
         StringBuilder masked = null;
         int copied = 0;
         int from = 0;
+        int listedAt = -1;
         while (from < text.length() && assignment.find(from)) {
             if (masked == null) {
                 masked = new StringBuilder(text.length());
             }
             int end = assignment.end();
             boolean valueLeft = assignment.group(5) != null && end == assignment.end(5);
+            // A first list value left to its own match still opens the list for the values after it.
+            boolean listed = assignment.start() == listedAt;
+            listedAt = valueLeft ? end : -1;
             masked.append(text, copied, assignment.start()).append(kept(assignment));
             if (!valueLeft) {
                 masked.append(SecretMasker.MASKED_VALUE);
             }
             if (!valueLeft
-                    && (assignment.group(1) != null || assignment.group(3) != null || assignment.group(5) != null)) {
+                    && (listed
+                            || assignment.group(1) != null
+                            || assignment.group(3) != null
+                            || assignment.group(5) != null)) {
                 // Further values are masked only in a list: after a bracket, or between quoted values.
-                boolean list =
-                        assignment.group(2) != null || assignment.group(4) != null || assignment.group(6) != null;
+                boolean list = listed
+                        || assignment.group(2) != null
+                        || assignment.group(4) != null
+                        || assignment.group(6) != null;
                 if (further == null) {
                     further = FURTHER_VALUE.matcher(text).useTransparentBounds(true);
                 }

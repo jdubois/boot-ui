@@ -374,7 +374,19 @@ class MessageExposureTests {
                         "Authorization=[Bearer ******, password=\"******\"]",
                         "pw-2"),
                 arguments("Authorization=[password=\"pw-2\"]", "Authorization=[password=\"******\"]", "pw-2"),
-                arguments("Authorization=[apikey='ak-2']", "Authorization=[apikey='******']", "ak-2"));
+                arguments("Authorization=[apikey='ak-2']", "Authorization=[apikey='******']", "ak-2"),
+                arguments(
+                        "Authorization=[password=pw-1, Basic dXNlcjpwYXNz, SSWS 00QCjAl4MlV]",
+                        "Authorization=[password=******, Basic ******, ******]",
+                        "00QCjAl4MlV"),
+                arguments(
+                        "Authorization=[api_key=\"ak-1\", Digest response=\"6629fae4\"]",
+                        "Authorization=[api_key=\"******\", Digest ******]",
+                        "6629fae4"),
+                arguments(
+                        "Authorization=[password=\"pw-1\", Token xyz987]",
+                        "Authorization=[password=\"******\", Token ******]",
+                        "xyz987"));
     }
 
     @ParameterizedTest
