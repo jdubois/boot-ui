@@ -45,13 +45,11 @@ test.describe('Live Activity view', () => {
     await expect(drawer).toHaveCount(0)
   })
 
-  test('profiles the cache accesses and REST client calls a request made on its serving thread', async ({
-    openView,
-    page
-  }) => {
+  test('profiles the cache accesses and REST client calls a request made', async ({openView, page}) => {
     // /products reads through the sample-products cache on the request thread, and
     // /quarkus-secure-products calls the companion Quarkus app, which is not running in this suite, so
-    // the outbound RestClient call fails fast but is still captured on the request thread.
+    // the outbound RestClient call fails fast but is still captured on the request thread. Both correlate
+    // exactly: by the trace id the sample's tracer stamps, or else by the serving thread.
     const products = await page.request.get('/api/sample/products')
     expect(products.ok()).toBeTruthy()
     const crossService = await page.request.get('/api/sample/quarkus-secure-products')
@@ -66,7 +64,7 @@ test.describe('Live Activity view', () => {
     await expect(drawer).toBeVisible()
     const cache = drawer.locator('section', {has: page.getByRole('heading', {name: /^Cache accesses/})})
     await expect(cache).toContainText('sample-products')
-    await expect(cache.locator('.activity-tier')).toHaveText('serving thread')
+    await expect(cache.locator('.activity-tier')).toHaveText(/^(trace id|serving thread)$/)
     await expect(drawer.getByRole('heading', {name: /^REST client calls/})).toBeVisible()
     await drawer.getByRole('button', {name: 'Close'}).click()
     await expect(drawer).toHaveCount(0)
@@ -79,7 +77,7 @@ test.describe('Live Activity view', () => {
     await expect(drawer).toBeVisible()
     const rest = drawer.locator('section', {has: page.getByRole('heading', {name: /^REST client calls/})})
     await expect(rest).toContainText('/api/secure/products → failed')
-    await expect(rest.locator('.activity-tier')).toHaveText('serving thread')
+    await expect(rest.locator('.activity-tier')).toHaveText(/^(trace id|serving thread)$/)
     await expect(drawer.getByRole('button', {name: /Copy profile/})).toBeVisible()
     await drawer.getByRole('button', {name: 'Close'}).click()
     await expect(drawer).toHaveCount(0)

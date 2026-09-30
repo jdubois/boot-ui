@@ -328,7 +328,7 @@ const timingSummary = computed(() => {
     text += ` (${timing.sqlPercent}% of request)`
   }
   if (timing.restCallCount) {
-    text += `, ${timing.restCallCount} REST client call(s), ${formatMillis(timing.restCallMs)} ms outbound`
+    text += `, ${timing.restCallCount} REST client call(s), ${formatDurationMs(timing.restCallMs)} outbound`
   }
   return text
 })
