@@ -48,6 +48,58 @@ class HttpExchangesServiceTests {
                 capturedTraceId);
     }
 
+    private static CapturedHttpExchange identical(String requestId) {
+        return new CapturedHttpExchange(
+                Instant.parse("2024-01-01T00:00:00Z"),
+                "GET",
+                URI.create("http://localhost:8080/api/orders"),
+                200,
+                12L,
+                "127.0.0.1",
+                null,
+                null,
+                Map.of(),
+                Map.of(),
+                null,
+                null,
+                requestId);
+    }
+
+    private HttpExchangesReport reportOf(List<CapturedHttpExchange> captured, String query) {
+        return service.report(captured, uri -> false, true, ValueExposure.MASKED, query, null, null, null, null);
+    }
+
+    @Test
+    void identicalRequestsWithoutARequestIdShareAnId() {
+        List<HttpExchangeDto> exchanges =
+                reportOf(List.of(identical(null), identical(null)), null).exchanges();
+
+        assertThat(exchanges.get(0).id()).isEqualTo(exchanges.get(1).id());
+        assertThat(exchanges.get(0).requestId()).isNull();
+    }
+
+    @Test
+    void theRequestIdIsTheExchangeIdSoIdenticalRequestsStayDistinct() {
+        List<HttpExchangeDto> exchanges = reportOf(
+                        List.of(identical("0123456789abcdef"), identical("fedcba9876543210")), null)
+                .exchanges();
+
+        assertThat(exchanges)
+                .extracting(HttpExchangeDto::id)
+                .containsExactlyInAnyOrder("0123456789abcdef", "fedcba9876543210");
+        assertThat(exchanges)
+                .extracting(HttpExchangeDto::requestId)
+                .containsExactlyInAnyOrder("0123456789abcdef", "fedcba9876543210");
+    }
+
+    @Test
+    void exchangesAreSearchableByRequestId() {
+        HttpExchangesReport report =
+                reportOf(List.of(identical("0123456789abcdef"), identical("fedcba9876543210")), "fedcba98");
+
+        assertThat(report.exchanges()).extracting(HttpExchangeDto::requestId).containsExactly("fedcba9876543210");
+    }
+
     @Test
     void prefersCapturedTraceIdOverInboundHeaders() {
         HttpExchangesReport report = service.report(

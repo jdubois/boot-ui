@@ -23,6 +23,10 @@ import java.util.Map;
  * {@code HttpExchangeTraceRegistry}; Quarkus has no runtime equivalent and passes {@code null}, so the
  * engine resolves the route from the application's declared mappings instead (see
  * {@link io.github.jdubois.bootui.engine.sqltrace.RouteLabel}).</p>
+ *
+ * <p>{@code requestId} is BootUI's own identity for the request, stamped at capture time by adapters that open a
+ * correlation scope for it ({@code docs/PLAN-v2.md} §5.1), or {@code null} from adapters that do not yet. It becomes
+ * the exchange's id, so identical requests that overlap never share one.</p>
  */
 public record CapturedHttpExchange(
         Instant timestamp,
@@ -36,11 +40,42 @@ public record CapturedHttpExchange(
         Map<String, List<String>> requestHeaders,
         Map<String, List<String>> responseHeaders,
         String traceId,
-        String routeTemplate) {
+        String routeTemplate,
+        String requestId) {
 
     public CapturedHttpExchange {
         requestHeaders = requestHeaders == null ? Map.of() : requestHeaders;
         responseHeaders = responseHeaders == null ? Map.of() : responseHeaders;
+    }
+
+    /** A captured exchange without BootUI's request identity, for adapters that do not stamp one yet. */
+    public CapturedHttpExchange(
+            Instant timestamp,
+            String method,
+            java.net.URI uri,
+            int status,
+            Long durationMs,
+            String remoteAddress,
+            String principal,
+            String sessionId,
+            Map<String, List<String>> requestHeaders,
+            Map<String, List<String>> responseHeaders,
+            String traceId,
+            String routeTemplate) {
+        this(
+                timestamp,
+                method,
+                uri,
+                status,
+                durationMs,
+                remoteAddress,
+                principal,
+                sessionId,
+                requestHeaders,
+                responseHeaders,
+                traceId,
+                routeTemplate,
+                null);
     }
 
     /** A captured exchange with no framework route template, for adapters that cannot record one. */
@@ -68,6 +103,7 @@ public record CapturedHttpExchange(
                 requestHeaders,
                 responseHeaders,
                 traceId,
+                null,
                 null);
     }
 }

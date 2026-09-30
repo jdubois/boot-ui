@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.engine.architecture.ArchitectureScanner;
 import io.github.jdubois.bootui.engine.beans.BeansService;
 import io.github.jdubois.bootui.engine.cache.CacheService;
 import io.github.jdubois.bootui.engine.config.ConfigService;
+import io.github.jdubois.bootui.engine.correlation.ScopedCorrelationContextProvider;
 import io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorScanner;
 import io.github.jdubois.bootui.engine.datasource.ConnectionPoolService;
 import io.github.jdubois.bootui.engine.devservices.DevServicesReportService;
@@ -68,6 +69,7 @@ import io.github.jdubois.bootui.engine.websocket.WebSocketService;
 import io.github.jdubois.bootui.engine.websocket.WebSocketSettings;
 import io.github.jdubois.bootui.quarkus.beans.QuarkusBeanProvider;
 import io.github.jdubois.bootui.quarkus.config.QuarkusConfigProvider;
+import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
 import io.github.jdubois.bootui.quarkus.databaseadvisor.QuarkusDatabaseAdvisorDataSourceProvider;
 import io.github.jdubois.bootui.quarkus.errorcontract.QuarkusErrorContractProvider;
 import io.github.jdubois.bootui.quarkus.faulttolerance.QuarkusFaultTolerancePolicyProvider;
@@ -84,6 +86,7 @@ import io.github.jdubois.bootui.quarkus.web.QuarkusGitHubSettings;
 import io.github.jdubois.bootui.quarkus.websocket.QuarkusWebSocketMetadataProvider;
 import io.github.jdubois.bootui.spi.CacheProvider;
 import io.github.jdubois.bootui.spi.ConnectionPoolProvider;
+import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.FlywayProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.HibernateStatisticsProvider;
@@ -305,6 +308,18 @@ public class BootUiEngineProducer {
             service.setTraceIdProvider(traceIdProvider.get());
         }
         return service;
+    }
+
+    /**
+     * The correlation context of the work being recorded ({@code docs/PLAN-v2.md} §5.1): the open thread scope, else
+     * the context {@code QuarkusHttpExchangeCaptureFilter} attached to the request's Vert.x duplicated context, with
+     * the trace id filled in from OpenTelemetry when it is present.
+     */
+    @Produces
+    @Singleton
+    public CorrelationContextProvider correlationContextProvider(Instance<TraceIdProvider> traceIdProvider) {
+        return new ScopedCorrelationContextProvider(
+                QuarkusRequestCorrelation::current, traceIdProvider.isResolvable() ? traceIdProvider.get() : null);
     }
 
     /**

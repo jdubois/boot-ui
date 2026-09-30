@@ -1,13 +1,19 @@
 package io.github.jdubois.bootui.quarkus.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.smallrye.config.PropertiesConfigSource;
 import io.smallrye.config.SmallRyeConfigBuilder;
@@ -19,6 +25,7 @@ import io.vertx.core.http.HttpServerResponse;
 import io.vertx.ext.web.RoutingContext;
 import jakarta.enterprise.inject.Instance;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import org.eclipse.microprofile.config.Config;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -88,6 +95,50 @@ class QuarkusHttpExchangeCaptureFilterTest {
         completeRequest(filter(buffer, Map.of("quarkus.http.root-path", "/app")), rc);
 
         assertThat(buffer.snapshot()).hasSize(1);
+    }
+
+    @Test
+    void stampsEachExchangeWithItsOwnRequestId() {
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+        QuarkusHttpExchangeCaptureFilter filter = filter(buffer, Map.of());
+
+        completeRequest(filter, mockRequest("/orders"));
+        completeRequest(filter, mockRequest("/orders"));
+
+        assertThat(buffer.snapshot())
+                .extracting(CapturedHttpExchange::requestId)
+                .allSatisfy(id -> assertThat(id).matches("[0-9a-f]{16}"))
+                .doesNotHaveDuplicates();
+    }
+
+    @Test
+    void makesTheRequestContextCurrentWhileTheChainRunsAndRestoresItAfter() {
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+        RoutingContext rc = mockRequest("/orders");
+        AtomicReference<CorrelationContext> duringChain = new AtomicReference<>();
+        doAnswer(invocation -> {
+                    duringChain.set(BootUiCorrelation.current());
+                    return null;
+                })
+                .when(rc)
+                .next();
+
+        completeRequest(filter(buffer, Map.of()), rc);
+
+        assertThat(duringChain.get().requestId())
+                .isEqualTo(buffer.snapshot().get(0).requestId());
+        assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
+    }
+
+    @Test
+    void restoresTheThreadWhenTheChainThrows() {
+        RoutingContext rc = mockRequest("/orders");
+        doThrow(new IllegalStateException("handler failed")).when(rc).next();
+
+        assertThatThrownBy(() -> filter(new HttpExchangeBuffer(10), Map.of()).handle(rc))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
     }
 
     /** Runs the filter and then fires the body-end handler it registered, as Vert.x does on response end. */

@@ -161,7 +161,8 @@ public final class HttpExchangesService {
                 requestHeaders,
                 responseHeaders,
                 label.route(),
-                label.source().name());
+                label.source().name(),
+                exchange.requestId());
     }
 
     /**
@@ -351,10 +352,18 @@ public final class HttpExchangesService {
                 || PagedList.contains(exchange.path(), query)
                 || PagedList.contains(exchange.query(), query)
                 || PagedList.contains(exchange.uri(), query)
-                || PagedList.contains(exchange.traceId(), query);
+                || PagedList.contains(exchange.traceId(), query)
+                || PagedList.contains(exchange.requestId(), query);
     }
 
+    /**
+     * BootUI's request id when the adapter stamped one, which is unique even for identical overlapping requests;
+     * otherwise a hash of the displayed exchange, which such requests can share.
+     */
     private String id(CapturedHttpExchange exchange, String method, String uri, int status, Long durationMs) {
+        if (exchange.requestId() != null && !exchange.requestId().isBlank()) {
+            return exchange.requestId();
+        }
         String input = exchange.timestamp()
                 + "|"
                 + nullToEmpty(method)

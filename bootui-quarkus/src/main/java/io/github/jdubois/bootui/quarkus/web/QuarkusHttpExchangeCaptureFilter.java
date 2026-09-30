@@ -1,8 +1,12 @@
 package io.github.jdubois.bootui.quarkus.web;
 
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.correlation.RequestIds;
 import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.quarkus.QuarkusBootUiPaths;
+import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.quarkus.security.identity.SecurityIdentity;
 import io.quarkus.vertx.http.runtime.filters.Filters;
@@ -51,6 +55,12 @@ import org.eclipse.microprofile.config.Config;
  * {@code quarkus-vertx-http}, so this needs no capability gate, unlike the CDI security-event capture in
  * {@code QuarkusSecurityEventCapture}. An unauthenticated or anonymous request stamps {@code null}, matching
  * the Spring adapter's {@code HttpExchange.getPrincipal()} contract.</p>
+ *
+ * <p>Each request also gets BootUI's own request id at filter entry ({@code docs/PLAN-v2.md} §5.1). Its
+ * {@link CorrelationContext} is attached to the request's Vert.x duplicated context, which Quarkus carries to the
+ * worker or virtual thread that may continue the request, and made current on the event loop while the rest of the
+ * chain runs synchronously. The captured exchange is stamped with that id, whether or not OpenTelemetry is
+ * present.</p>
  */
 @ApplicationScoped
 public class QuarkusHttpExchangeCaptureFilter {
@@ -82,6 +92,9 @@ public class QuarkusHttpExchangeCaptureFilter {
         }
         long startNanos = System.nanoTime();
         Instant started = Instant.now();
+        String requestId = RequestIds.next();
+        CorrelationContext correlation = CorrelationContext.forRequest(requestId);
+        QuarkusRequestCorrelation.attach(correlation);
         HttpServerRequest request = rc.request();
         Map<String, List<String>> requestHeaders = headers(request.headers());
         String traceId = currentTraceId();
@@ -99,9 +112,13 @@ public class QuarkusHttpExchangeCaptureFilter {
                     null,
                     requestHeaders,
                     headers(response.headers()),
-                    traceId));
+                    traceId,
+                    null,
+                    requestId));
         });
-        rc.next();
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(correlation)) {
+            rc.next();
+        }
     }
 
     /**
