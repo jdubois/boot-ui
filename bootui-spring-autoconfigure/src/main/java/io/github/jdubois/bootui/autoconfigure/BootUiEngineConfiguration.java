@@ -189,6 +189,30 @@ public class BootUiEngineConfiguration {
     }
 
     /**
+     * Names each GraphQL request's operation from Spring for GraphQL's {@code graphql.request} observation, so every
+     * operation is a route of its own ({@code docs/PLAN-v2.md} §5.1). Gated on both types, so an application without
+     * Spring for GraphQL or Micrometer observation loads nothing here.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(
+            name = {
+                "org.springframework.graphql.observation.ExecutionRequestObservationContext",
+                "org.springframework.boot.micrometer.observation.autoconfigure.ObservationRegistryCustomizer"
+            })
+    static class GraphQlOperationConfiguration {
+
+        @Bean
+        org.springframework.boot.micrometer.observation.autoconfigure.ObservationRegistryCustomizer<
+                        io.micrometer.observation.ObservationRegistry>
+                bootUiGraphQlOperationCustomizer(RequestPhases phases) {
+            return registry -> registry.observationConfig()
+                    .observationHandler(
+                            new io.github.jdubois.bootui.autoconfigure.graphql.GraphQlOperationObservationHandler(
+                                    phases));
+        }
+    }
+
+    /**
      * Adds Spring Security's authentication time to each request's phase markers, through the observation it emits
      * when Spring Boot's observation registry is configured ({@code docs/PLAN-v2.md} §5.1). Gated on both types, so
      * an application without Spring Security or Micrometer observation loads nothing here.

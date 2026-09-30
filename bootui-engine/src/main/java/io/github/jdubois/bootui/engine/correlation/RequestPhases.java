@@ -71,6 +71,33 @@ public final class RequestPhases {
         }
     }
 
+    /**
+     * Names the operation a tracked request carried, such as {@code query ProductList} for a GraphQL request, so each
+     * operation is a route of its own.
+     */
+    public void setOperation(String requestId, String operation) {
+        if (requestId == null || operation == null || operation.isBlank()) {
+            return;
+        }
+        synchronized (timelines) {
+            Timeline timeline = timelines.get(requestId);
+            if (timeline != null) {
+                timeline.operation = operation;
+            }
+        }
+    }
+
+    /** The operation a tracked request carried, or {@code null}. */
+    public String operationOf(String requestId) {
+        if (requestId == null) {
+            return null;
+        }
+        synchronized (timelines) {
+            Timeline timeline = timelines.get(requestId);
+            return timeline == null ? null : timeline.operation;
+        }
+    }
+
     /** The phase the request is in, or {@code null} when it is not tracked. */
     public RequestPhase phaseOf(String requestId) {
         if (requestId == null) {
@@ -121,6 +148,7 @@ public final class RequestPhases {
         private Long handlerAt;
         private Long responseAt;
         private long authenticationMicros;
+        private String operation;
 
         private Timeline(long startedAt) {
             this.filtersAt = startedAt;

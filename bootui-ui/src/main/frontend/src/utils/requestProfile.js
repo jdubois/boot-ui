@@ -113,7 +113,19 @@ export function unavailableTiersText(profile) {
 export function restCallSummary(call) {
   const method = call.method ? `${call.method} ` : ''
   const outcome = call.success ? (call.status ?? '') : 'failed'
-  return `${method}${call.host ?? ''}${call.path ?? ''} → ${outcome}`
+  return `${method}${callAuthority(call)}${call.path ?? ''} → ${outcome}`
+}
+
+// The host, with the port when the captured URI states one, so two local services on different ports stay distinct.
+function callAuthority(call) {
+  const host = call.host ?? ''
+  if (!host || !call.uri) return host
+  try {
+    const port = new URL(call.uri).port
+    return port ? `${host}:${port}` : host
+  } catch {
+    return host
+  }
 }
 
 export function cacheAccessSummary(access) {

@@ -36,6 +36,7 @@ import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
+import io.github.jdubois.bootui.engine.restclienttrace.RestClientAuthority;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import io.github.jdubois.bootui.engine.support.BlankStrings;
@@ -621,7 +622,7 @@ public class LiveActivityService {
         } else {
             severity = SEVERITY_OK;
         }
-        String host = entry.host() == null ? "" : entry.host();
+        String host = RestClientAuthority.of(entry.host(), entry.uri());
         String path = entry.path() == null ? "" : entry.path();
         String outcome = entry.success() ? String.valueOf(entry.status()) : "failed";
         String summary = (entry.method() == null ? "" : entry.method() + " ") + host + path + " → " + outcome;

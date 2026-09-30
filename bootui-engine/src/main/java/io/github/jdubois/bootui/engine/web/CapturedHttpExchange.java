@@ -41,7 +41,39 @@ public record CapturedHttpExchange(
         Map<String, List<String>> responseHeaders,
         String traceId,
         String routeTemplate,
-        String requestId) {
+        String requestId,
+        String operation) {
+    /** Without BootUI's execution identity. */
+    public CapturedHttpExchange(
+            Instant timestamp,
+            String method,
+            java.net.URI uri,
+            int status,
+            Long durationMs,
+            String remoteAddress,
+            String principal,
+            String sessionId,
+            Map<String, List<String>> requestHeaders,
+            Map<String, List<String>> responseHeaders,
+            String traceId,
+            String routeTemplate,
+            String requestId) {
+        this(
+                timestamp,
+                method,
+                uri,
+                status,
+                durationMs,
+                remoteAddress,
+                principal,
+                sessionId,
+                requestHeaders,
+                responseHeaders,
+                traceId,
+                routeTemplate,
+                requestId,
+                null);
+    }
 
     public CapturedHttpExchange {
         requestHeaders = requestHeaders == null ? Map.of() : requestHeaders;

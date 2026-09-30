@@ -65,6 +65,37 @@ class HttpExchangesServiceTests {
                 requestId);
     }
 
+    @Test
+    void eachNamedOperationPostedToOneEndpointIsARouteOfItsOwn() {
+        List<CapturedHttpExchange> captured = List.of(
+                graphQl("0123456789abcdef", "query ProductList"),
+                graphQl("fedcba9876543210", "mutation AddProduct"),
+                graphQl("00112233aabbccdd", null));
+
+        assertThat(reportOf(captured, null).exchanges())
+                .extracting(HttpExchangeDto::route)
+                .containsExactlyInAnyOrder(
+                        "/graphql (query ProductList)", "/graphql (mutation AddProduct)", "/graphql");
+    }
+
+    private static CapturedHttpExchange graphQl(String requestId, String operation) {
+        return new CapturedHttpExchange(
+                Instant.parse("2024-01-01T00:00:00Z"),
+                "POST",
+                URI.create("http://localhost:8080/graphql"),
+                200,
+                12L,
+                "127.0.0.1",
+                null,
+                null,
+                Map.of(),
+                Map.of(),
+                null,
+                "/graphql",
+                requestId,
+                operation);
+    }
+
     private HttpExchangesReport reportOf(List<CapturedHttpExchange> captured, String query) {
         return service.report(captured, uri -> false, true, ValueExposure.MASKED, query, null, null, null, null);
     }

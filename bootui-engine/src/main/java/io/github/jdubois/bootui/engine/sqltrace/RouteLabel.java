@@ -58,6 +58,21 @@ public record RouteLabel(String id, String method, String route, Source source) 
      * @param frameworkTemplate the pattern the runtime matched, or {@code null} when none was recorded
      * @param declared the application's declared routes; {@code null} means none are known
      */
+    /**
+     * The route of a request that carried a named operation, such as a GraphQL {@code query ProductList} posted to
+     * {@code /graphql}: the operation is part of the route, so each operation is ranked and filtered on its own
+     * ({@code docs/PLAN-v2.md} §5.1).
+     */
+    public static RouteLabel of(
+            String method, String path, String frameworkTemplate, String operation, RouteTemplateResolver declared) {
+        RouteLabel base = of(method, path, frameworkTemplate, declared);
+        if (operation == null || operation.isBlank()) {
+            return base;
+        }
+        String route = base.route() + " (" + operation.trim() + ")";
+        return new RouteLabel(idOf(base.method(), route), base.method(), route, base.source());
+    }
+
     public static RouteLabel of(String method, String path, String frameworkTemplate, RouteTemplateResolver declared) {
         String normalizedMethod = normalizeMethod(method);
         String reported = RouteTemplateResolver.canonical(frameworkTemplate);

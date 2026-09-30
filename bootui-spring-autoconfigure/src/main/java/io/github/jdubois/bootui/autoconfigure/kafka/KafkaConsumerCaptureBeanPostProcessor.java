@@ -95,7 +95,13 @@ public final class KafkaConsumerCaptureBeanPostProcessor implements BeanPostProc
                 ConsumerRecord<Object, Object> record, Consumer<Object, Object> consumer) {
             startNanos.set(System.nanoTime());
             openExecution();
-            return delegate == null ? record : delegate.intercept(record, consumer);
+            ConsumerRecord<Object, Object> intercepted =
+                    delegate == null ? record : delegate.intercept(record, consumer);
+            if (intercepted == null) {
+                // The application's interceptor filtered the record out, so no listener runs for it.
+                closeExecution();
+            }
+            return intercepted;
         }
 
         @Override

@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.kafka;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -114,6 +115,23 @@ class KafkaConsumerCaptureBeanPostProcessorTests {
     }
 
     @Test
+    void aRecordTheApplicationsInterceptorFiltersOutLeavesNoExecutionOpen() {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 16);
+        ConcurrentKafkaListenerContainerFactory<Object, Object> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        @SuppressWarnings("unchecked")
+        RecordInterceptor<Object, Object> filtering = mock(RecordInterceptor.class);
+        when(filtering.intercept(any(), any())).thenReturn(null);
+        factory.setRecordInterceptor(filtering);
+        new KafkaConsumerCaptureBeanPostProcessor(provider(recorder))
+                .postProcessAfterInitialization(factory, "myListenerFactory");
+
+        currentInterceptor(factory).intercept(new ConsumerRecord<>("orders", 0, 1L, "k", "v"), mock(Consumer.class));
+
+        assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
+    }
+
+    @Test
     void capturesFailedDelivery() {
         KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 16);
         KafkaConsumerCaptureBeanPostProcessor postProcessor =
@@ -131,6 +149,7 @@ class KafkaConsumerCaptureBeanPostProcessorTests {
 
         interceptor.intercept(record, consumer);
         interceptor.failure(record, new IllegalStateException("boom"), consumer);
+        interceptor.afterRecord(record, consumer);
 
         assertThat(recorder.recent()).hasSize(1);
         CapturedMessage message = recorder.recent().get(0);

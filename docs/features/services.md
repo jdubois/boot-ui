@@ -105,7 +105,8 @@ also feeds Live Activity's REST entries.
 The panel refreshes over Server-Sent Events rather than fixed-interval polling. Recent calls also surface in Live
 Activity, nested under the request that made them, with a deep link back here. That nesting uses BootUI's request id
 first on every stack, then the trace id and the serving thread on Spring MVC, and the trace id alone on WebFlux and
-Quarkus.
+Quarkus. A call's summary keeps the port its URI states, such as `localhost:8082`, so two local services on different
+ports stay distinct.
 
 ::: details Per-adapter wiring detail
 On Spring, the customizer that wires a given client type fails open, skipping itself entirely when that client's Spring

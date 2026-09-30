@@ -87,6 +87,26 @@ describe('requestProfile helpers', () => {
   })
 
   it('summarizes REST client calls and cache accesses from the masked payload only', () => {
+    expect(
+      restCallSummary({
+        method: 'GET',
+        host: 'localhost',
+        uri: 'http://localhost:8082/api/secure/products?token=******',
+        path: '/api/secure/products',
+        success: true,
+        status: 200
+      })
+    ).toBe('GET localhost:8082/api/secure/products → 200')
+    expect(
+      restCallSummary({
+        method: 'GET',
+        host: 'api.example',
+        uri: 'https://api.example/items',
+        path: '/items',
+        success: true,
+        status: 200
+      })
+    ).toBe('GET api.example/items → 200')
     expect(restCallSummary({method: 'GET', host: 'api.example', path: '/items', success: true, status: 200})).toBe(
       'GET api.example/items → 200'
     )

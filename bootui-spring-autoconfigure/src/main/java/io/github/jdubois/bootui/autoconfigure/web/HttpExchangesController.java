@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.HttpRoutesReport;
+import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
@@ -72,6 +73,8 @@ public class HttpExchangesController implements BeanFactoryAware {
     private final HttpExchangesService service = new HttpExchangesService();
 
     private final HttpRouteSummaryService routeSummary = new HttpRouteSummaryService();
+
+    private volatile RequestPhases requestPhases;
 
     private HttpExchangeTraceRegistry traceRegistry;
 
@@ -266,7 +269,22 @@ public class HttpExchangesController implements BeanFactoryAware {
                 response == null ? null : response.getHeaders(),
                 capturedTraceId(traces, exchange, request, durationMs),
                 capturedRouteTemplate(traces, exchange, request, durationMs),
-                stamping == null ? null : stamping.requestId(exchange));
+                stamping == null ? null : stamping.requestId(exchange),
+                operationOf(stamping == null ? null : stamping.requestId(exchange)));
+    }
+
+    /**
+     * Installs the phase markers of recent requests, which name the operation a request carried, such as a GraphQL
+     * {@code query ProductList} ({@code docs/PLAN-v2.md} §5.1), so each operation is a route of its own.
+     */
+    @Autowired(required = false)
+    public void setRequestPhases(RequestPhases requestPhases) {
+        this.requestPhases = requestPhases;
+    }
+
+    private String operationOf(String requestId) {
+        RequestPhases phases = requestPhases;
+        return phases == null ? null : phases.operationOf(requestId);
     }
 
     /**

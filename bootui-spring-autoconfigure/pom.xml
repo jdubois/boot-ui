@@ -66,6 +66,15 @@
             <optional>true</optional>
         </dependency>
         <!--
+          Spring for GraphQL, optional: BootUI names each GraphQL operation's route from the graphql.request
+          observation (docs/PLAN-v2.md §5.1). Loaded only from a @ConditionalOnClass nested configuration.
+        -->
+        <dependency>
+            <groupId>org.springframework.graphql</groupId>
+            <artifactId>spring-graphql</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <!--
           RestClientCustomizer/RestTemplateCustomizer (org.springframework.boot.restclient) and
           WebClientCustomizer (org.springframework.boot.webclient) each moved to their own Spring Boot 4
           module and are not transitively pulled in by spring-boot-starter-web/-webflux. Both are gated by

@@ -15,6 +15,6 @@ final class HttpRoutes {
     /** The route {@code exchange} is grouped under: framework template, declared mapping, or masked path. */
     static RouteLabel labelOf(CapturedHttpExchange exchange, RouteTemplateResolver templates) {
         String path = exchange.uri() == null ? null : exchange.uri().getPath();
-        return RouteLabel.of(exchange.method(), path, exchange.routeTemplate(), templates);
+        return RouteLabel.of(exchange.method(), path, exchange.routeTemplate(), exchange.operation(), templates);
     }
 }

@@ -260,6 +260,11 @@ runtime, so those routes fall back to masked paths. Spring
 WebFlux records the matched handler pattern with the OpenTelemetry integration, which the reactive starter includes;
 without it, WebFlux routes fall back to masked paths, and the panel says so. Query strings are never part of a route.
 
+With Spring for GraphQL, every operation is posted to one endpoint, so BootUI adds the operation graphql-java parsed to
+the route, such as `/graphql (query ProductList)`, and each operation is ranked and filtered on its own. Only the
+operation's type and name are kept, never its variables or selection. It needs Spring Boot's observation support,
+which Actuator brings.
+
 A masked path also masks every segment that a matching declared route marks as a parameter, even when two declarations
 match equally well. Only a path that no declaration matches at all keeps segments that read like route words, so a
 word-shaped value such as a user name on an undeclared path is shown as captured, exactly as the exchange list shows
