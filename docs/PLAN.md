@@ -9,6 +9,9 @@ configuration, database migrations, services, diagnostics, project health, and d
 operational sibling to PostgreSQL is delivered (§3.17); the planned **MongoDB** operational view (§3.5) remains
 a separate workstream.
 
+This plan covers the 1.x line. BootUI 2.0, built on exact correlation, a runtime journal, and Runtime Insights, is
+planned separately in [PLAN-v2.md](PLAN-v2.md).
+
 The priorities for every item below remain unchanged:
 
 1. Safety and local-only operation.

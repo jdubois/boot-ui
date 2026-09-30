@@ -19,6 +19,7 @@ const sidebarLabels = {
   'WEBFLUX-SUPPORT.md': 'WebFlux design notes',
   'SPECIFICATION.md': 'Specification',
   'PLAN.md': 'Implementation plan',
+  'PLAN-v2.md': 'v2 plan',
   'PROPERTIES.md': 'Properties',
   'REPOSITORY.md': 'Repository',
   'WORKS-WITH.md': 'BootUI family',
@@ -82,7 +83,7 @@ const groups = [
   {
     text: 'Contributing',
     collapsed: true,
-    docs: ['REPOSITORY.md', 'SPECIFICATION.md', 'PLAN.md', 'QUARKUS-SUPPORT.md', 'WEBFLUX-SUPPORT.md']
+    docs: ['REPOSITORY.md', 'SPECIFICATION.md', 'PLAN.md', 'PLAN-v2.md', 'QUARKUS-SUPPORT.md', 'WEBFLUX-SUPPORT.md']
   }
 ]
 
