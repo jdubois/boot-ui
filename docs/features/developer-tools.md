@@ -193,10 +193,16 @@ services. Restart controls appear only for supported Testcontainers services, an
 Opening the panel is side-effect free: BootUI skips lazy, prototype, and otherwise uninitialized service beans that
 would have to be created just for inspection, and reports those skips as warnings.
 
-::: warning Masking covers connection details, not log output
 BootUI masks discovered connection details, such as credentials embedded in a JDBC URL, before they reach the browser.
-Raw container log output is streamed verbatim, bounded by `bootui.dev-services.log-tail-bytes`, and is not scanned for
-secrets. A service that prints credentials to its own logs surfaces them here.
+Container log output, bounded by `bootui.dev-services.log-tail-bytes`, follows the same exposure rule as
+[Log Tail](diagnostics.md#log-message-exposure): under the default `bootui.expose-values=MASKED` secret-like
+assignments such as `POSTGRES_PASSWORD=...` are masked before the tail is cut, under `METADATA_ONLY` the logs are not
+read and the panel says they are omitted by policy, and only `FULL` or `bootui.mask-secrets=false` shows them verbatim.
+
+::: warning Masking covers assignments, not every secret
+Only the first word of a secret-like `key=value` or `key: value` assignment is masked in container logs. A service that
+prints a bare token, a credential inside a connection string, or a token after an authorization scheme such as
+`Bearer` to its own logs still surfaces it here.
 :::
 
 On Quarkus the panel reports the framework's native Dev Services, the containers it auto-starts for dev and test. The

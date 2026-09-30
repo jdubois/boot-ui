@@ -111,6 +111,44 @@ test.describe('Dev Services view', () => {
     await expect(details.locator('pre')).toContainText('Ready to accept connections')
   })
 
+  test('says why container logs are missing when the value-exposure policy omits them', async ({openView, page}) => {
+    await page.route(
+      (url) => url.pathname === '/bootui/api/dev-services',
+      async (route) => {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify(devServicesReport)
+        })
+      }
+    )
+    await page.route(
+      (url) => url.pathname === '/bootui/api/dev-services/bean%3AredisContainer/logs',
+      async (route) => {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: 'bean:redisContainer',
+            logs: null,
+            truncated: false,
+            maxBytes: 65536,
+            logsOmitted: true
+          })
+        })
+      }
+    )
+
+    await openView('dev-services', /^Dev Services/)
+    const redisRow = page.locator('tbody tr', {hasText: 'redis'})
+    await redisRow.getByRole('button', {name: 'View logs'}).click()
+
+    const details = page.locator('.card', {hasText: 'redis'}).last()
+    await expect(details.getByRole('note')).toContainText(
+      'Container logs are omitted because bootui.expose-values is METADATA_ONLY.'
+    )
+    await expect(details.locator('pre')).toHaveCount(0)
+    await expect(details).not.toContainText('No log output yet.')
+  })
+
   test('posts restart for restartable services', async ({page}) => {
     let restartCalled = false
     await page.route(

@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.core.dto.LogLineDto;
 import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
+import io.github.jdubois.bootui.engine.logtail.LogTailReader;
 import java.io.IOException;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
@@ -11,7 +12,9 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * One Spring MVC log-tail subscription. Buffer callbacks only perform a bounded queue offer; a
- * dedicated daemon worker owns all potentially blocking {@link SseEmitter} I/O.
+ * dedicated daemon worker owns all potentially blocking {@link SseEmitter} I/O and reads each queued
+ * line, backlog and live alike, through the {@link LogTailReader} just before sending it, so the
+ * exposure policy in force at delivery applies and the logging thread does no extra work.
  */
 final class LogTailSseSession implements AutoCloseable {
 
@@ -23,6 +26,7 @@ final class LogTailSseSession implements AutoCloseable {
     private static final Runnable NOOP = () -> {};
 
     private final SseEmitter emitter;
+    private final LogTailReader reader;
     private final ArrayBlockingQueue<LogLineDto> pending;
     private final ExecutorService workerExecutor;
     private final EventSender sender;
@@ -38,11 +42,13 @@ final class LogTailSseSession implements AutoCloseable {
 
     LogTailSseSession(
             SseEmitter emitter,
+            LogTailReader reader,
             int queueCapacity,
             ExecutorService workerExecutor,
             EventSender sender,
             Runnable onClose) {
         this.emitter = emitter;
+        this.reader = reader;
         this.pending = new ArrayBlockingQueue<>(queueCapacity);
         this.workerExecutor = workerExecutor;
         this.sender = sender;
@@ -53,7 +59,7 @@ final class LogTailSseSession implements AutoCloseable {
         return emitter;
     }
 
-    void start(LogTailBuffer buffer) {
+    void start() {
         boolean overflow = false;
         RejectedExecutionException rejected = null;
         synchronized (lifecycleMonitor) {
@@ -61,7 +67,7 @@ final class LogTailSseSession implements AutoCloseable {
                 return;
             }
 
-            LogTailBuffer.Subscription subscription = buffer.subscribeWithReplay(this::enqueue);
+            LogTailBuffer.Subscription subscription = reader.subscribeWithReplay(this::enqueue);
             unsubscribe = subscription.unsubscribe();
             for (LogLineDto line : subscription.backlog()) {
                 if (!pending.offer(line)) {
@@ -105,14 +111,14 @@ final class LogTailSseSession implements AutoCloseable {
         try {
             while (!closed.get()) {
                 LogLineDto line = pending.take();
-                sender.send(emitter, line);
+                sender.send(emitter, reader.expose(line));
             }
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             if (!closed.get()) {
                 fail(new IllegalStateException("BootUI log-tail stream worker was interrupted", ex));
             }
-        } catch (IOException | IllegalStateException ex) {
+        } catch (IOException | RuntimeException ex) {
             fail(ex);
         } finally {
             workerThread = null;

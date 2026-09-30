@@ -11,10 +11,12 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.core.dto.LogLineDto;
 import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -84,7 +86,8 @@ class LogTailControllerTests {
     @Test
     void recentEndpointReturnsTailFromInstalledAppender() throws Exception {
         // LogTailController's ctor installs (idempotently) and owns the buffer; reuse its appender.
-        LogTailController controller = new LogTailController(new BootUiProperties());
+        LogTailController controller =
+                new LogTailController(new BootUiProperties(), new BootUiExposure(new BootUiProperties()));
         BootUiLogAppender installedAppender = BootUiLogAppender.find();
 
         String uniqueMsg = "unique-test-" + System.nanoTime();
@@ -102,7 +105,8 @@ class LogTailControllerTests {
 
     @Test
     void recentEndpointDtoShapeMatchesLogLineDtoRecord() throws Exception {
-        LogTailController controller = new LogTailController(new BootUiProperties());
+        LogTailController controller =
+                new LogTailController(new BootUiProperties(), new BootUiExposure(new BootUiProperties()));
         BootUiLogAppender installedAppender = BootUiLogAppender.find();
         long ts = System.currentTimeMillis();
         String uniqueMsg = "shape-check-" + System.nanoTime();
@@ -130,6 +134,40 @@ class LogTailControllerTests {
     }
 
     @Test
+    void recentEndpointAppliesTheLiveExposurePolicyToRetainedLines() throws Exception {
+        MockEnvironment environment = new MockEnvironment();
+        BootUiProperties properties = new BootUiProperties();
+        LogTailController controller = new LogTailController(properties, new BootUiExposure(environment, properties));
+        String logger = "exposure.Logger" + System.nanoTime();
+        BootUiLogAppender.find()
+                .doAppend(event(Level.WARN, logger, "db login password=hunter2\nretry with apiKey: ak-1"));
+        MockMvc mvc = standaloneSetup(controller).build();
+        String line = "$[?(@.logger == '" + logger + "')]";
+
+        mvc.perform(get("/bootui/api/log-tail/recent"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(line + ".message").value("db login password=******\nretry with apiKey: ******"))
+                .andExpect(jsonPath(line + ".messageOmitted").value(false));
+
+        environment.setProperty("bootui.expose-values", "METADATA_ONLY");
+        mvc.perform(get("/bootui/api/log-tail/recent"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(line + ".message").value((Object) null))
+                .andExpect(jsonPath(line + ".messageOmitted").value(true))
+                .andExpect(jsonPath(line + ".level").value("WARN"))
+                .andExpect(jsonPath(line + ".thread").value("test-thread"));
+
+        environment.setProperty("bootui.expose-values", "FULL");
+        mvc.perform(get("/bootui/api/log-tail/recent"))
+                .andExpect(jsonPath(line + ".message").value("db login password=hunter2\nretry with apiKey: ak-1"));
+
+        environment.setProperty("bootui.expose-values", "MASKED");
+        environment.setProperty("bootui.mask-secrets", "false");
+        mvc.perform(get("/bootui/api/log-tail/recent"))
+                .andExpect(jsonPath(line + ".message").value("db login password=hunter2\nretry with apiKey: ak-1"));
+    }
+
+    @Test
     void defaultLogTailMaxBytesIsUnbounded() {
         assertThat(new BootUiProperties().getLogTail().getMaxBytes()).isZero();
     }
@@ -145,7 +183,7 @@ class LogTailControllerTests {
             BootUiProperties properties = new BootUiProperties();
             properties.getLogTail().setMaxBytes(4096L);
 
-            new LogTailController(properties);
+            new LogTailController(properties, new BootUiExposure(properties));
 
             assertThat(BootUiLogAppender.find().buffer().maxBytes()).isEqualTo(4096L);
         } finally {

@@ -1050,11 +1050,17 @@ Features:
 - Show recent buffered log lines.
 - Stream new log events with Server-Sent Events.
 - Pause, resume, clear, and filter by severity in the browser.
+- Apply the value-exposure rule that exception messages follow to every message when it is read: mask secret-like
+  assignments under `MASKED`, omit the message and set `messageOmitted` under `METADATA_ONLY`, and return it verbatim
+  under `FULL` or with `bootui.mask-secrets=false`.
 
 Acceptance criteria:
 
 - The panel is classpath-gated and unavailable when Logback is absent.
 - Log events are shaped into stable DTOs before reaching the browser.
+- The snapshot, the SSE stream and its replayed backlog, `get_log_tail`, and `bootui logs tail` apply the same rule on
+  every stack, and a runtime exposure change applies to the next snapshot and streamed line without a restart.
+- An omitted message is marked in the panel, never shown as an empty line.
 
 ### 5.14.1 HTTP Exchanges Panel
 
@@ -2337,7 +2343,9 @@ Features:
   - Testcontainers.
   - connection details.
 - Show sanitized connection details.
-- Show bounded logs when a bean-backed Testcontainers service exposes them.
+- Show bounded logs when a bean-backed Testcontainers service exposes them, masking secret-like assignments under
+  `MASKED` before the tail is cut, omitting them under `METADATA_ONLY` with `logsOmitted` set, and returning them
+  verbatim only under `FULL` or with `bootui.mask-secrets=false`.
 - Show a restart action for bean-backed services only when explicitly enabled with
   `bootui.dev-services.restart-enabled=true`.
 - Skip lazy, prototype, abstract, or otherwise uninitialized service beans instead of creating them from a read-only
@@ -2908,7 +2916,8 @@ Design rules:
 - **Same safety model as the panels.** The endpoint sits behind `LocalhostOnlyFilter` (loopback source, `Host`
   allow-list, cross-site write protection). The dispatcher enforces per-panel access: read tools require the backing
   panel to be enabled, action tools are additionally refused when the panel is read-only or `bootui.read-only=true`.
-  Configuration values flow through the same secret masking and `bootui.expose-values` mode, and paginated reads are
+  Configuration values and exception and log messages flow through the same secret masking and `bootui.expose-values`
+  mode, and paginated reads are
   bounded by `bootui.mcp.max-results`. Request, concurrent-call, execution-time, and rendered-response budgets prevent a
   client from monopolizing local resources. The MCP Server status reports completed call count, aggregate latency,
   capacity refusals, timeouts, and response-limit refusals. Application-controlled logs, SQL, traces, and exception messages cannot be
