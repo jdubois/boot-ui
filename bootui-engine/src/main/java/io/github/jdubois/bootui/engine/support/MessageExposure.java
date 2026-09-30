@@ -65,8 +65,8 @@ public final class MessageExposure {
      * One {@code name=value} or {@code name="value"} parameter of a Digest, OAuth, or AWS-style credential. A quoted
      * value honors backslash escapes and runs to the end of the line when its closing quote is missing, so a malformed
      * value is over-masked, never cut short. A value quoted with escaped quotes, at any depth of JSON nesting, closes
-     * at an escaped quote followed by a comma, a quote, a bracket, whitespace, or the end. An RFC 8187 extended value, as in
-     * {@code username*=UTF-8''J%C3%A4s}, is covered too. An unquoted value is never a scheme followed by its own
+     * at an escaped quote followed by a comma, a quote, a bracket, whitespace, or the end. An RFC 8187 extended value,
+     * as in {@code username*=UTF-8''J%C3%A4s}, is covered too. An unquoted value is never a scheme followed by its own
      * credential, as in {@code X-Token=Bearer ...}, which is left for its own match.
      */
     private static final String AUTH_PARAM = "[A-Za-z0-9_.~+*-]++[ \\t]*+=[ \\t]*+"
