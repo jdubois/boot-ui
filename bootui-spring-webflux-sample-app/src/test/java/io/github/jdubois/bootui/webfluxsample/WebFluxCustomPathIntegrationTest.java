@@ -69,6 +69,20 @@ class WebFluxCustomPathIntegrationTest extends AbstractBootUiApiConformanceTest 
         return Runtime.SPRING_WEBFLUX;
     }
 
+    /**
+     * The sample's security chain rejects unmapped paths before Actuator's exchange filter records them, so
+     * the route probe uses a permitted, templated endpoint whose path value is the probe marker.
+     */
+    @Override
+    protected String routeProbePath() {
+        return applicationPath() + "/api/greetings/conformance-route-probe-4711";
+    }
+
+    @Override
+    protected String applicationPath() {
+        return "/host";
+    }
+
     @Override
     protected String uiPath() {
         return UI_PATH;

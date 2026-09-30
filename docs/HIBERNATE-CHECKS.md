@@ -73,6 +73,23 @@ converters, custom generators, physical naming, runtime query changes, and some 
 reconstructed from annotations alone. The per-rule limitations below matter when you interpret both a finding and an
 absence of findings.
 
+### Violation locations
+
+A finding about one entity, mapped attribute, or repository method carries a
+[violation location](features/advisors.md#violation-locations): the entity class, the Java field or getter behind the
+attribute on its declaring class (a `@MappedSuperclass` included), or the repository interface method. The JPA
+metamodel and reflection record no line numbers, so these locations stay at `MEMBER` or `CLASS` precision and never
+show a line. During the explicit scan BootUI reads each located class's recorded source file name from its class
+file, without loading any class, and resolves its local source path through the Architecture advisor's
+[module and source-set lookup](ARCHITECTURE-CHECKS.md#violation-locations). The class file is found through the class's
+own class loader. Quarkus serves bytecode-enhanced entities from memory, in dev and test mode alike, so BootUI then asks
+the same loader for every root of the entity's package and keeps the one local output directory that holds its class
+file. It keeps no path when no root or more than one root holds it, when an archive root holds a copy, when a root
+cannot be read, or when the package has more than 64 roots. At most 1,024 located classes are read per scan. Configuration,
+settings, and profile findings, and findings that span several elements such as composite identifier classes, carry no
+location. Unit-labelled samples and retained details keep the same location for the same finding across persistence
+units.
+
 ### Version baseline
 
 The audited baselines are Spring Boot 4.1.1 with Hibernate 7.4.5.Final, and Quarkus 3.33.3.1 with Hibernate

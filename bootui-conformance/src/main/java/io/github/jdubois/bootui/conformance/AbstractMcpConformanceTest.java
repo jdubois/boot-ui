@@ -382,6 +382,35 @@ public abstract class AbstractMcpConformanceTest {
     }
 
     @Test
+    void testMcpLogTailToolFollowsTheExposurePolicy() {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            LogTailExposureContract contract = new LogTailExposureContract().log();
+            contract.assertMaskedIn(mcpLogTail(), "MCP get_log_tail");
+            LogTailExposureContract.withExposure(
+                    "METADATA_ONLY",
+                    null,
+                    () -> contract.assertOmittedIn(mcpLogTail(), "MCP get_log_tail (METADATA_ONLY)"));
+            LogTailExposureContract.withExposure(
+                    "FULL", null, () -> contract.assertVerbatimIn(mcpLogTail(), "MCP get_log_tail (FULL)"));
+        }
+    }
+
+    private JsonNode mcpLogTail() {
+        Response response = probe().request(
+                        "POST",
+                        "/bootui/api/mcp",
+                        Map.of("Content-Type", "application/json"),
+                        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"get_log_tail\"}}");
+        assertThat(response.status()).isEqualTo(200);
+        JsonNode result = response.json().path("result");
+        assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
+        return LogTailExposureContract.json(
+                        result.path("content").get(0).path("text").asText())
+                .path("entries");
+    }
+
+    @Test
     void testMcpUnknownToolRetainsSafeActionableError() {
         assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
         try {

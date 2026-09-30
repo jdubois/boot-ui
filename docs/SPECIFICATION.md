@@ -1050,11 +1050,17 @@ Features:
 - Show recent buffered log lines.
 - Stream new log events with Server-Sent Events.
 - Pause, resume, clear, and filter by severity in the browser.
+- Apply the value-exposure rule that exception messages follow to every message when it is read: mask secret-like
+  assignments under `MASKED`, omit the message and set `messageOmitted` under `METADATA_ONLY`, and return it verbatim
+  under `FULL` or with `bootui.mask-secrets=false`.
 
 Acceptance criteria:
 
 - The panel is classpath-gated and unavailable when Logback is absent.
 - Log events are shaped into stable DTOs before reaching the browser.
+- The snapshot, the SSE stream and its replayed backlog, `get_log_tail`, and `bootui logs tail` apply the same rule on
+  every stack, and a runtime exposure change applies to the next snapshot and streamed line without a restart.
+- An omitted message is marked in the panel, never shown as an empty line.
 
 ### 5.14.1 HTTP Exchanges Panel
 
@@ -1072,12 +1078,30 @@ Features:
 - Show request and response headers in row details.
 - Offer a client-side **Copy as cURL** action in row details that rebuilds a runnable command template from the retained
   exchange metadata, without capturing a body or replaying the request.
-- Provide server-side filtering by path/URL/trace id, method, and status class with bounded paging.
+- Provide server-side filtering by path/URL/trace id, method, status class, and route with bounded paging.
 - Hide BootUI self-requests by default through `bootui.monitoring.exclude-self`.
+- Label every exchange with its route and link it to its Live Activity request profile.
+- Rank routes over the retained window (`GET /bootui/api/http-exchanges/routes`): per method and route, the request
+  count; 2xx, 3xx, 4xx, and 5xx counts; average, p50, p95, p99, and maximum duration; and share of retained request
+  time, ranked by requests, total time, p95, maximum, or errors. Each route links to the exchange list filtered to it.
+- Resolve a route from the framework's handler template, then the single best declared mapping, then a masked path,
+  exactly as SQL Trace route attribution does, and report the source as `FRAMEWORK_TEMPLATE`, `DECLARED_MAPPING`, or
+  `MASKED_PATH`.
+- State the evidence window beside the rankings: retained exchanges, buffer size, evictions, the oldest retained
+  exchange, and hidden BootUI exchanges.
 
 Acceptance criteria:
 
 - The recorder is bounded by `bootui.http-exchanges.max-exchanges`, defaulting to 200.
+- Route counts and durations reconcile with the retained, visible exchanges; status classes add up to the request count,
+  and percentiles are exact nearest-rank values over each route's timed exchanges.
+- Route rankings return the union of each criterion's top routes (25 by default, at most 100) with the criteria each
+  route leads, state how many distinct routes were retained, and break ties on the route id in plain character order.
+  `?route=<id>` always returns that route's row. Ambiguous declared mappings produce no template but still mask every
+  parameter position they declare, framework and declared templates render identically, and a route never carries a
+  query string.
+- A value the exchange source does not report, such as an application repository's capacity or either buffer's
+  evictions, is `null` rather than guessed.
 - Secret-like headers and query parameters are masked unless value exposure is explicitly set to `FULL`. Sensitive
   parameter names are matched percent-decoded, so a URL-encoded name cannot evade masking, and the same masking applies
   to a query-shaped URI fragment.
@@ -1206,20 +1230,32 @@ Features:
   Quarkus) cache hit
   ratio — the percentage of captured cache reads (`HIT`/`MISS`) that were hits, deep-linked to the Cache panel — and a
   scheduled-task failure count linking into the Scheduled Tasks panel.
+- The p50/p95 latency and the slowest request are computed once, in the shared engine, over every retained request with a
+  duration (`latencySampleCount`), so they are identical on every adapter for the same evidence. The slowest request
+  carries its resolved route (`slowestEndpointRoute`, `slowestEndpointRouteId`, `slowestEndpointRouteSource`), links to
+  that route's row in the HTTP Exchanges route rankings, and a tie goes to the newest request.
+- `?request=<exchange id>` opens that request's profile, so each HTTP Exchanges row links to its profile.
 - Client-side filter chips by type and severity, collapsing of adjacent identical entries with an occurrence count,
   nesting of correlated children under their request (expanded by default; any active filter or free-text search
   flattens the feed so the query spans every signal), and a
   pause/resume control over a live feed pushed by **Server-Sent Events** (`GET /bootui/api/activity/stream`): the server
   emits a tiny coalesced tick whenever any source changes and the browser re-fetches, rather than polling on a timer.
-- A per-request profiler (`GET /bootui/api/activity/request/{id}`) that correlates one request's signals with a tiered
-  join: trace id (distributed trace), HTTP anchor (exceptions by method/path/time window, further disambiguated by the
-  request's serving thread when it is uniquely known), serving thread within the
-  request window (SQL, which carries no trace id but runs on the request's worker thread), and time window plus principal
-  (Spring Security audit events, further pinned to the request's serving thread when BootUI captured the audit event on
-  it, so a concurrent request sharing the principal cannot trade events). SQL is matched exactly by trace id when
-  present, otherwise exactly by the request's
-  serving thread; it falls back to an approximate time-window match only when the serving thread cannot be uniquely
-  identified (concurrent identical requests or async execution). Repeated identical `SELECT`s above
+- A per-request profiler (`GET /bootui/api/activity/request/{id}`) that correlates one request's SQL, exceptions,
+  security audit events, REST client calls, and cache accesses, served on every adapter by one shared engine assembler
+  (`ExecutionProfileAssembler`). Correlation is tiered, strongest first: trace id (a trace id exactly one captured
+  request carries, on every adapter), serving thread (the request's servlet worker thread within its window, Spring MVC
+  only), and time window (Spring MVC only, labelled approximate). Exceptions add the request method and path to the
+  thread and window tiers; security events add the principal and are pinned to the serving thread when BootUI captured
+  the audit event on it, so a concurrent request sharing the principal cannot trade events. SQL is matched exactly by
+  trace id when present, otherwise exactly by the request's serving thread; it falls back to an approximate time-window
+  match only when neither matched any statement (concurrent identical requests or async execution). On Spring MVC,
+  exceptions keep their method, path, and window gate, within which a trace id or the serving thread decides first.
+  REST client calls and cache accesses attach by trace id or serving thread only, like the stream. A signal attaches to
+  at most one request: a trace id, thread, or window two captured requests could equally claim attaches the signal to
+  neither and is counted in the notes. Each section reports its availability, the weakest tier it used, the tier of
+  each shown child, and its total, truncated (above 200 entries), and ambiguous counts; `correlationTiers` lists the tiers the adapter can provide, with a reason
+  for each one it cannot; and `approximate` flags a profile that used the time window. Every new field is additive.
+  Repeated identical `SELECT`s above
   `bootui.activity.n-plus-one-threshold` are surfaced as a potential N+1, together with the distinct application call
   site(s) that issued them (from SQL Trace's call-site capture, `bootui.sql-trace.capture-call-site`, on by default) so a
   flagged group names exactly where in the code to look.
@@ -2307,7 +2343,9 @@ Features:
   - Testcontainers.
   - connection details.
 - Show sanitized connection details.
-- Show bounded logs when a bean-backed Testcontainers service exposes them.
+- Show bounded logs when a bean-backed Testcontainers service exposes them, masking secret-like assignments under
+  `MASKED` before the tail is cut, omitting them under `METADATA_ONLY` with `logsOmitted` set, and returning them
+  verbatim only under `FULL` or with `bootui.mask-secrets=false`.
 - Show a restart action for bean-backed services only when explicitly enabled with
   `bootui.dev-services.restart-enabled=true`.
 - Skip lazy, prototype, abstract, or otherwise uninitialized service beans instead of creating them from a read-only
@@ -2471,19 +2509,26 @@ stacks. The `spring` root remains the Quarkus application advisor on Quarkus; th
 
 Reports retain their existing `violationCount` and `sampleViolations` previews (normally ten per rule, twenty for the
 Quarkus application and Security advisors), plus `violationDetails: {scanId, total, retained, retentionLimit,
-truncated}`. The snapshot ID is null before a completed scan. Totals and retention are before dismissal and describe
+truncated, locationNotes}`. The snapshot ID is null before a completed scan. Totals and retention are before dismissal and describe
 retrieval completeness, not evidence coverage or score eligibility. The latest completed report and sanitized detail
 index are published together; reads during another scan serve the previous snapshot. Dismiss/restore preserves its
 identity and retained entries. Only the latest snapshot is kept.
 
 Detail reads require the report's nonblank `scanId`; offset defaults to zero and limit to 100, capped at 1000.
 Malformed/fractional/overflowing inputs, negative offsets, and nonpositive limits are rejected. Responses contain
-`scanId`, `ruleId`, full `violationCount`, `retainedCount`, `truncated`, `violations`, and
-`page: {total, matched, offset, limit, returned, hasMore}`. Page totals count retained entries; a terminal page does not
-prove complete retention. Offsets at/beyond the retained end return an empty terminal page. Unknown/non-finding
+`scanId`, `ruleId`, full `violationCount`, `retainedCount`, `truncated`, `violations`,
+`page: {total, matched, offset, limit, returned, hasMore}`, and `locations`. Page totals count retained entries; a
+terminal page does not prove complete retention. Offsets at/beyond the retained end return an empty terminal page. Unknown/non-finding
 rules return 404; missing or stale snapshots return 409 with cached-report refresh guidance. Dismissed findings are
 retrievable. Reads obey panel availability, enabled and safety policy, but are allowed in read-only mode, and never
 rescan or collect new observations.
+
+Architecture, REST API, and Hibernate results add `sampleLocations`, aligned index-for-index with `sampleViolations`,
+and their pages fill `locations`, aligned with `violations`. Each non-null entry is an
+`AdvisorViolationLocationDto {className, memberName, kind, sourceFile, line, sourcePath, precision}` for the one code
+element the finding names; an empty list means no listed violation has one, which is always the case for the other
+advisors. Locations are captured from scan evidence and completed with a local source path only during an explicit
+scan; detail reads never resolve them again. See [violation locations](features/advisors.md#violation-locations).
 
 The UI offers **View violations** only on demand when more findings exist, then bounded inline Previous/Next and
 **Back to samples**. It retains samples/the last page through loading or failure, provides Retry or an explicit
@@ -2545,6 +2590,7 @@ Initial endpoints:
 | `/bootui/api/log-tail/stream`                    | GET    | Log stream over Server-Sent Events                                                     |
 | `/bootui/api/exceptions`                         | GET    | Bounded exception groups with status and occurrence summaries                         |
 | `/bootui/api/http-exchanges`                     | GET    | Recent application HTTP request/response metadata                                      |
+| `/bootui/api/http-exchanges/routes`              | GET    | Route performance rankings over the retained HTTP exchanges                            |
 | `/bootui/api/traces`                         | GET    | Recent local trace summaries                                                           |
 | `/bootui/api/traces/{traceId}`               | GET    | Trace waterfall detail                                                                 |
 | `/bootui/api/traces`                         | DELETE | Clear retained local traces when not read-only                                         |
@@ -2628,7 +2674,7 @@ Initial endpoints:
 | `/bootui/api/transactions`                   | GET    | Current bounded transaction-boundary snapshot and aggregate statistics                 |
 | `/bootui/api/activity`                       | GET    | Merged Live Activity stream and KPI summary (params: `type`, `severity`, `since`, `limit`, plus `q`, `until`, `cursor`, `pageSize` when persistence is enabled) |
 | `/bootui/api/activity/stream`                | GET    | Live Activity change notifications over Server-Sent Events (re-fetch trigger)           |
-| `/bootui/api/activity/request/{id}`          | GET    | Per-request profile correlating SQL, exceptions, trace, and auth for one HTTP exchange   |
+| `/bootui/api/activity/request/{id}`          | GET    | Per-request profile correlating SQL, exceptions, auth, REST client calls, cache accesses, and trace for one HTTP exchange |
 | `/bootui/api/activity/use-existing-datasource` | POST | Hot-switch Live Activity from in-memory to the existing `DataSource` (confirmation-gated) |
 | `/bootui/api/email`                          | GET    | Captured outgoing email summaries and content-policy status                             |
 | `/bootui/api/kafka`                          | GET    | Bounded Kafka producer and consumer activity                                            |
@@ -2819,7 +2865,7 @@ Design rules:
     `get_database_advisor_report`, `get_memory_report`, `get_security_report`, `get_pentest_report`,
     `get_rest_api_report`, `get_graalvm_report`, `get_crac_report`, and `get_vulnerabilities_report`.
   - Diagnostics: `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
-    `get_sql_traces`, `get_transactions`, `get_traces`, `get_log_tail`, `get_http_exchanges`, and
+    `get_sql_traces`, `get_transactions`, `get_traces`, `get_log_tail`, `get_http_exchanges`, `get_http_routes`, and
     `get_rest_client_traces`.
   - Runtime and integration reads: `get_overview`, `get_health`, `get_config`, `get_beans`, `get_mappings`,
     `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`,
@@ -2870,7 +2916,8 @@ Design rules:
 - **Same safety model as the panels.** The endpoint sits behind `LocalhostOnlyFilter` (loopback source, `Host`
   allow-list, cross-site write protection). The dispatcher enforces per-panel access: read tools require the backing
   panel to be enabled, action tools are additionally refused when the panel is read-only or `bootui.read-only=true`.
-  Configuration values flow through the same secret masking and `bootui.expose-values` mode, and paginated reads are
+  Configuration values and exception and log messages flow through the same secret masking and `bootui.expose-values`
+  mode, and paginated reads are
   bounded by `bootui.mcp.max-results`. Request, concurrent-call, execution-time, and rendered-response budgets prevent a
   client from monopolizing local resources. The MCP Server status reports completed call count, aggregate latency,
   capacity refusals, timeouts, and response-limit refusals. Application-controlled logs, SQL, traces, and exception messages cannot be

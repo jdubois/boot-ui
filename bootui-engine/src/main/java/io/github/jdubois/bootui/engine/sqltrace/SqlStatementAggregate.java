@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.sqltrace;
 
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
+import io.github.jdubois.bootui.engine.support.Percentiles;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -107,9 +108,10 @@ final class SqlStatementAggregate {
     }
 
     /**
-     * Nearest-rank percentile over this group's retained durations. Exact for the window it describes, so
-     * the panel can honestly label these "over the retained window" rather than as sampled estimates. The
-     * sorted view is memoized because every ranked row asks for three percentiles from the same group.
+     * Nearest-rank percentile over this group's retained durations, using the shared {@link Percentiles}
+     * definition. Exact for the window it describes, so the panel can honestly label these "over the retained
+     * window" rather than as sampled estimates. The sorted view is memoized because every ranked row asks for
+     * three percentiles from the same group.
      */
     long percentileMicros(int percentile) {
         if (durationsMicros.isEmpty()) {
@@ -117,12 +119,9 @@ final class SqlStatementAggregate {
         }
         List<Long> sorted = sortedDurationsMicros;
         if (sorted == null) {
-            sorted = new ArrayList<>(durationsMicros);
-            sorted.sort(null);
+            sorted = Percentiles.sortedAscending(durationsMicros);
             sortedDurationsMicros = sorted;
         }
-        int rank = (int) Math.ceil(percentile / 100.0 * sorted.size());
-        int index = Math.min(sorted.size() - 1, Math.max(0, rank - 1));
-        return sorted.get(index);
+        return Percentiles.ofSorted(sorted, percentile);
     }
 }

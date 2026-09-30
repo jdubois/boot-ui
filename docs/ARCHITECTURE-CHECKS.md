@@ -143,11 +143,37 @@ declarations and stay eligible for coding checks, because their function bodies 
 outside the module, or inside excluded dependency and cache trees, are not supported.
 
 Lookup failures, symlinked source trees, and exhausted budgets produce a sanitized limitation and a `PARTIAL` scan
-while retaining uncertain classes and known findings. No source contents or local paths appear in the report.
+while retaining uncertain classes and known findings. These limitations carry no source contents or local paths.
 
 This policy is shared by all three stacks. `classesAnalyzed` still counts the full imported application graph, while
 coding-rule counts, previews, retained details, and score penalties exclude only established generated findings. An
 empty eligible coding-rule target set does not establish usable evidence on its own.
+
+### Violation locations
+
+The same module and source-set lookup, with the same budgets, also resolves where each finding is. After every rule
+has run, the scan maps each class named by a [violation location](features/advisors.md#violation-locations) to exactly
+one `.java` or `.kt` file under its module's `src/main` or `src/test` tree or generated-source roots, reading only
+same-named candidate files to learn their package and length. The location itself comes from ArchUnit's violating
+objects, never from the report text:
+
+- a field access, method call, or other dependency points at the calling method or constructor and the line of the
+  access;
+- a method, constructor, or field finding points at that member, with the method's first recorded line;
+- a class finding points at the class, at `CLASS` precision;
+- a static initializer, lambda body, or other compiler-generated member keeps its class and line but not its name.
+
+ARCH-PKG-001 cycles span several packages and never carry a location. Classes from archives, other layouts, ambiguous
+matches, and exhausted budgets keep a `null` path, with the reason in `violationDetails.locationNotes`; a location
+failure never changes a finding, its text, or the scan status. A Kotlin line is kept only when the class's source map
+maps it one-to-one onto the class's own file; inlined code, whether its inline function lives in another file or the
+same one, and lines past the end of the resolved file drop to `MEMBER` precision. At most 1,024 Kotlin class files are
+read for their source map per scan, only from local output directories; beyond that, lines are dropped and a location
+note says so. Symbolic links under `src/*/resources`, `src/*/webapp`, or `src/*/frontend` are ignored, while any other
+link in a source tree leaves that module's classes without a path, with its own note. A class file reached through a
+symbolic link, or missing, leaves only that class without a path.
+Unlike the limitations above, resolved locations deliberately include the local source path, so the panel and agents
+can open the file.
 
 ## Kotlin applications
 

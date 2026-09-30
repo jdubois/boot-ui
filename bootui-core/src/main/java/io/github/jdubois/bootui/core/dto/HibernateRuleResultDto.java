@@ -20,10 +20,41 @@ public record HibernateRuleResultDto(
         String recommendation,
         String learnMoreUrl,
         boolean dismissed,
-        String coverageNote) {
+        String coverageNote,
+        List<AdvisorViolationLocationDto> sampleLocations) {
 
     public HibernateRuleResultDto {
         sampleViolations = DtoCollections.immutableCopy(sampleViolations);
+        sampleLocations = DtoCollections.alignedCopy(sampleViolations, sampleLocations);
+    }
+
+    public HibernateRuleResultDto(
+            String id,
+            String name,
+            String category,
+            String severity,
+            String description,
+            String status,
+            int violationCount,
+            List<String> sampleViolations,
+            String recommendation,
+            String learnMoreUrl,
+            boolean dismissed,
+            String coverageNote) {
+        this(
+                id,
+                name,
+                category,
+                severity,
+                description,
+                status,
+                violationCount,
+                sampleViolations,
+                recommendation,
+                learnMoreUrl,
+                dismissed,
+                coverageNote,
+                List.of());
     }
 
     public HibernateRuleResultDto(
@@ -92,7 +123,8 @@ public record HibernateRuleResultDto(
                 recommendation,
                 learnMoreUrl,
                 dismissed,
-                coverageNote);
+                coverageNote,
+                sampleLocations);
     }
 
     public HibernateRuleResultDto withCoverageNote(String coverageNote) {
@@ -108,6 +140,25 @@ public record HibernateRuleResultDto(
                 recommendation,
                 learnMoreUrl,
                 dismissed,
-                coverageNote);
+                coverageNote,
+                sampleLocations);
+    }
+
+    /** This result with locations aligned index-for-index with {@code sampleViolations}, or none when empty. */
+    public HibernateRuleResultDto withSampleLocations(List<AdvisorViolationLocationDto> sampleLocations) {
+        return new HibernateRuleResultDto(
+                id,
+                name,
+                category,
+                severity,
+                description,
+                status,
+                violationCount,
+                sampleViolations,
+                recommendation,
+                learnMoreUrl,
+                dismissed,
+                coverageNote,
+                sampleLocations);
     }
 }

@@ -112,7 +112,7 @@ public final class BootUiApiContractCatalog {
             inventory("flyway", "/flyway/migrations", "flywayPresent", "databases"),
             inventory("liquibase", "/liquibase/changesets", "liquibasePresent", "databases"),
             inventory("database-connection-pools", "/database-connection-pools/pools", "hikariPresent", "pools"),
-            advisor("hibernate", "/hibernate", "results"),
+            locatedAdvisor("hibernate", "/hibernate", "results"),
             advisor("database-advisor", "/database-advisor", "results"),
             // A runtime view, not an advisor: no severities, no findings, no score. The contract is the
             // read's own outcome plus the evidence it did and did not gather.
@@ -215,8 +215,8 @@ public final class BootUiApiContractCatalog {
                             "recorded", JsonType.INTEGER,
                             "hiddenSelf", JsonType.INTEGER,
                             "unavailableReason", JsonType.NULLABLE_STRING)),
-            advisor("architecture", "/architecture", "results"),
-            advisor("rest-api", "/rest-api", "results"),
+            locatedAdvisor("architecture", "/architecture", "results"),
+            locatedAdvisor("rest-api", "/rest-api", "results"),
             read(
                     "vulnerabilities",
                     "/vulnerabilities",
@@ -329,6 +329,33 @@ public final class BootUiApiContractCatalog {
                             "stats", JsonType.OBJECT,
                             "warnings", JsonType.ARRAY)));
 
+    /**
+     * The Live Activity per-request profile, {@code GET /activity/request/{id}}. It is a detail read of the
+     * {@code activity} panel rather than its root read, so it is kept out of {@link #reads()}. Every field
+     * is present even when the profile is unavailable, so an older client that ignores the later sections
+     * and a newer one that reads them see one shape on every adapter.
+     */
+    private static final ReadContract REQUEST_PROFILE = read(
+            "activity",
+            "/activity/request/conformance-unknown-request",
+            fields(
+                    "available", JsonType.BOOLEAN,
+                    "unavailableReason", JsonType.NULLABLE_STRING,
+                    "request", JsonType.NULLABLE_OBJECT,
+                    "sql", JsonType.ARRAY,
+                    "sqlGroups", JsonType.ARRAY,
+                    "sqlCorrelationApproximate", JsonType.BOOLEAN,
+                    "exceptions", JsonType.ARRAY,
+                    "security", JsonType.ARRAY,
+                    "trace", JsonType.NULLABLE_OBJECT,
+                    "timing", JsonType.NULLABLE_OBJECT,
+                    "notes", JsonType.ARRAY,
+                    "restCalls", JsonType.ARRAY,
+                    "cacheAccesses", JsonType.ARRAY,
+                    "sections", JsonType.ARRAY,
+                    "correlationTiers", JsonType.ARRAY,
+                    "approximate", JsonType.BOOLEAN));
+
     private static final List<ActionContract> ACTIONS = buildActions();
 
     private BootUiApiContractCatalog() {}
@@ -341,6 +368,11 @@ public final class BootUiApiContractCatalog {
         Map<String, ReadContract> contracts = new LinkedHashMap<>();
         READS.forEach(contract -> contracts.put(contract.panelId(), contract));
         return Map.copyOf(contracts);
+    }
+
+    /** The per-request profile detail read of the {@code activity} panel, for an id that is never captured. */
+    public static ReadContract requestProfile() {
+        return REQUEST_PROFILE;
     }
 
     public static List<ActionContract> actions() {
@@ -447,6 +479,33 @@ public final class BootUiApiContractCatalog {
                         "scan.status",
                         JsonType.STRING,
                         resultField,
+                        JsonType.ARRAY));
+    }
+
+    /**
+     * An advisor whose results carry structured violation locations: its report always exposes the retrieval metadata
+     * with the notes that explain a missing source path, and each result adds {@code sampleLocations}.
+     */
+    private static ReadContract locatedAdvisor(String panelId, String path, String resultField) {
+        return read(
+                panelId,
+                path,
+                fields(
+                        "localOnly",
+                        JsonType.BOOLEAN,
+                        "disclaimer",
+                        JsonType.STRING,
+                        "severityCounts",
+                        JsonType.ARRAY,
+                        "scan",
+                        JsonType.OBJECT,
+                        "scan.status",
+                        JsonType.STRING,
+                        resultField,
+                        JsonType.ARRAY,
+                        "violationDetails",
+                        JsonType.OBJECT,
+                        "violationDetails.locationNotes",
                         JsonType.ARRAY));
     }
 

@@ -239,7 +239,10 @@ the classpath) are simply not advertised.
   `limit`. They have the same stack/capability availability as their report, and remain usable in read-only mode.
 - **Diagnostics reads:** `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
   `get_sql_traces`, `get_transactions` (Spring MVC/WebFlux only), `get_traces`, `get_log_tail`, `get_http_exchanges`,
-  and `get_rest_client_traces`.
+  `get_http_routes`, and `get_rest_client_traces`.
+  `get_http_routes` returns the [HTTP Exchanges route rankings](features/diagnostics.md#route-rankings): per method and
+  route template, request and status-class counts, p50/p95/p99 and maximum duration, share of request time, and the
+  evidence window they cover; its optional `limit` is the number of routes each ranking criterion contributes.
   `get_live_activity` returns the correlated feed the [Live Activity panel](features/overview.md#live-activity) shows (HTTP requests, SQL
   statements, exceptions, and security events grouped by request/trace); `get_exception_detail` takes a required `id`
   (from `get_exceptions` or `get_live_activity`) and returns that exception group's full stack trace, causes, and
@@ -303,8 +306,8 @@ For example, if the report identifies scan `scan-opaque-1` and rule `ARCH-SPRING
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_architecture_rule_violations","arguments":{"id":"ARCH-SPRING-004","scanId":"scan-opaque-1","offset":0,"limit":100}}}
 ```
 
-Each page contains `scanId`, `ruleId`, `violationCount`, `retainedCount`, `truncated`, `violations`, and `page`.
-Advance `offset` by `page.returned` until `page.hasMore` is false, keeping the same rule and scan ID.
+Each page contains `scanId`, `ruleId`, `violationCount`, `retainedCount`, `truncated`, `violations`, `page`, and
+`locations`. Advance `offset` by `page.returned` until `page.hasMore` is false, keeping the same rule and scan ID.
 Both `page.total` and `page.matched` count **retained entries for that rule**, not `violationCount`.
 An offset at or past the retained end returns an empty terminal page.
 
@@ -313,7 +316,8 @@ The default offset is zero and page size is 100, capped at `min(1000, bootui.mcp
 nonnegative integers and limits positive integers. Nulls, fractional/overflowing numbers, and undeclared arguments
 are refused, not silently normalized.
 
-Report-level `violationDetails` carries `scanId`, `total`, `retained`, `retentionLimit`, and `truncated`.
+Report-level `violationDetails` carries `scanId`, `total`, `retained`, `retentionLimit`, `truncated`, and
+`locationNotes`.
 Only the latest scan is retained, by default up to 10,000 sanitized details across that advisor's rules, configurable
 with `bootui.advisors.max-retained-violations`. A truncated report or rule is not a complete retained list, even when
 `page.hasMore` becomes false; a rule can have a positive count and zero retained details. Increasing the retention
@@ -334,6 +338,27 @@ rules are HTTP 400 (HTTP 404 is reserved for an unadvertised tool), and stale sn
 MCP still refuses an oversized rendered response with JSON-RPC `-32003`. Retry the **same scan ID and offset**
 with a smaller `limit`; a byte-budget refusal is neither an empty page nor proof of completion. Do not advance
 the offset on any error. Keep pages bounded and stop rather than looping if even one detail exceeds the byte budget.
+
+### Going straight to the code
+
+Architecture, REST API, and Hibernate findings that name exactly one code element carry a structured location, so an
+agent can open the file instead of parsing the violation text. In `get_architecture_report`, `get_rest_api_report`,
+and `get_hibernate_report`, each result's `sampleLocations` is aligned index-for-index with `sampleViolations`; in the
+matching `get_*_rule_violations` page, `locations` is aligned with `violations`. A `null` entry means that violation
+has no location, and an empty list means none of them has one. Each location has `className`, `memberName`, `kind`
+(`CLASS`, `METHOD`, `CONSTRUCTOR`, or `FIELD`), `sourceFile`, `line`, `sourcePath`, and `precision` (`LINE`,
+`MEMBER`, or `CLASS`):
+
+```json
+{"className":"com.example.OrderService","memberName":"place","kind":"METHOD","sourceFile":"OrderService.java",
+ "line":42,"sourcePath":"/work/shop/src/main/java/com/example/OrderService.java","precision":"LINE"}
+```
+
+Open `sourcePath` at `line` when both are present. A `null` `sourcePath` means the class came from an archive, an
+unsupported layout, an ambiguous match, or an exhausted lookup budget; `violationDetails.locationNotes` says which.
+Hibernate locations never carry a line, and a line BootUI cannot verify, such as Kotlin code inlined from another
+file, is dropped rather than guessed. Findings that span several elements, such as package cycles, have no location.
+Paths are resolved only by an explicit scan, so reading a cached report or a detail page never touches the disk.
 
 ### Reading a bounded result
 
@@ -395,7 +420,8 @@ The MCP server inherits BootUI's full safety posture, so handing it to an agent 
 - Read tools require the backing panel to be enabled; all action tools are additionally refused when the panel is
   read-only or `bootui.read-only=true`, returning a clear tool error instead of running.
 - Values pass through the same secret masking and `bootui.expose-values` mode as the REST API, and paginated reads are
-  capped by `bootui.mcp.max-results` (default `200`).
+  capped by `bootui.mcp.max-results` (default `200`). `get_log_tail` and `get_exceptions` mask secret-like assignments
+  in messages by default and omit messages under `METADATA_ONLY`, flagging a log line's `messageOmitted`.
 - MCP request size, concurrency, tool execution time, and rendered response size are independently bounded through
   `bootui.mcp.*`; capacity, timeout, and response-limit failures are explicit rather than silently truncated.
 

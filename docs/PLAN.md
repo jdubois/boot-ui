@@ -49,11 +49,7 @@ have shipped. Each row is one pull request.
 
 | Wave | Item                                            | Panels                                                | Depends on            |
 | ---- | ----------------------------------------------- | ----------------------------------------------------- | --------------------- |
-| 0    | §3.27 Log exposure policy                       | Log Tail, Dev Services                                | —                     |
 | 1    | §3.24a Failure-preserving retention             | HTTP Exchanges, SQL Trace, REST Client                | —                     |
-| 1    | §3.20a Shared profile assembler                 | Live Activity                                         | —                     |
-| 1    | §3.22 Route performance rankings                | HTTP Exchanges, Live Activity                         | —                     |
-| 1    | §3.19 Structured violation locations            | Architecture, REST API, Hibernate                     | —                     |
 | 2    | §3.20b Scheduled-run profiles                   | Live Activity                                         | §3.20a                |
 | 2    | §3.20c Consumed-message profiles                | Live Activity                                         | §3.20a                |
 | 2    | §3.24b Capture ignore rules                     | HTTP Exchanges, Live Activity, SQL Trace, REST Client | §3.24a                |
@@ -66,10 +62,13 @@ have shipped. Each row is one pull request.
 | 4    | §3.6 Declarative HTTP client registry           | New panel (Services)                                  | —                     |
 | 4    | §3.8 gRPC                                       | New panel (Services)                                  | —                     |
 
-- **Wave 0** closes a safety gap: log text is the one captured application text that bypasses the value-exposure
-  policy. Safety is the first priority, so it ships before anything else.
+- **Wave 0**, §3.27 Log exposure policy, has shipped ([delivered](#delivered)). It closed the one gap where captured
+  application text bypassed the value-exposure policy, ahead of everything else because safety is the first priority.
+  §3.21 still lists it as a dependency, now satisfied, because it builds on §3.27's read path.
 - **Wave 1** builds the shared pieces that later items reuse: the tiered capture buffer, the generalized profile
   assembler, one percentile helper and slowest-request KPI, and the violation location model with its source locator.
+  The generalized profile assembler has shipped as §3.20a, so §3.20b, §3.20c, and §3.25 can start, and the percentile
+  helper and slowest-request KPI have shipped as §3.22.
 - **Wave 2** builds directly on wave 1 or improves existing evidence independently. §3.14 lands before §3.21 so log
   correlation can match configured correlation identifiers from the start. §3.25's `get_execution_profile` tool
   follows §3.20b, and its source excerpts follow §3.26, as small follow-up pull requests.
@@ -80,35 +79,40 @@ have shipped. Each row is one pull request.
 
 ```mermaid
 graph LR
-  S27["3.27 Log exposure"] --> S21["3.21 Log correlation"]
-  S20a["3.20a Shared assembler"] --> S20b["3.20b Scheduled runs"]
+  S27["3.27 Log exposure ✅"] --> S21["3.21 Log correlation"]
+  S20a["3.20a Shared assembler ✅"] --> S20b["3.20b Scheduled runs"]
   S20a --> S20c["3.20c Consumed messages"]
   S20a --> S25["3.25 Agent export"]
   S20b --> S21
   S20c --> S21
   S20b --> S23["3.23 Run history"]
-  S22["3.22 Route rankings"] --> S23
+  S22["3.22 Route rankings ✅"] --> S23
   S24a["3.24a Retention"] --> S24b["3.24b Ignore rules"]
-  S19["3.19 Violation locations"] --> S26["3.26 Source context"]
+  S19["3.19 Violation locations ✅"] --> S26["3.26 Source context"]
   S14["3.14 Correlation IDs"] -.-> S21
   S20b -.-> S25
   S26 -.-> S25
 ```
 
-Dashed edges are optional: the later item ships without the earlier one and gains a capability once it lands.
+Dashed edges are optional: the later item ships without the earlier one and gains a capability once it lands. A ✅
+node has shipped and stays in the graph while items that depend on it remain planned.
 
 ### Delivered
 
-| §    | Item                                                        | Release | Documentation                                                           |
-| ---- | ----------------------------------------------------------- | ------- | ----------------------------------------------------------------------- |
-| 3.7  | Fault Tolerance panel                                       | 1.15.0  | [Fault Tolerance](features/services.md#fault-tolerance)                 |
-| 3.10 | WebSockets panel                                            | 1.15.0  | [WebSockets](features/services.md#websockets)                           |
-| 3.11 | Error-contract catalogue in REST API and Exceptions         | 1.15.0  | [Declared error contract](features/advisors.md#declared-error-contract) |
-| 3.12 | Slow-SQL ranking and route attribution in SQL Trace         | 1.15.0  | [SQL Trace rankings](features/database.md#rankings)                     |
-| 3.15 | Meter provenance and explanation in Metrics                 | 1.15.0  | [Metrics](features/runtime.md#metrics)                                  |
-| 3.16 | Cache tiering and hit ratios                                | 1.15.0  | [Tiering and hit ratios](features/services.md#tiering-and-hit-ratios)   |
-| —    | Command-line endpoint, `bootui` CLI, and Command Line panel | 1.16.0  | [Command Line](features/developer-tools.md#command-line), [CLI](CLI.md) |
-| 3.17 | MySQL operational view, tested on Oracle MySQL 8.4 LTS      | 1.18.0  | [MySQL](features/database.md#mysql)                                     |
+| §     | Item                                                         | Release    | Documentation                                                           |
+| ----- | ------------------------------------------------------------ | ---------- | ----------------------------------------------------------------------- |
+| 3.7   | Fault Tolerance panel                                        | 1.15.0     | [Fault Tolerance](features/services.md#fault-tolerance)                 |
+| 3.10  | WebSockets panel                                             | 1.15.0     | [WebSockets](features/services.md#websockets)                           |
+| 3.11  | Error-contract catalogue in REST API and Exceptions          | 1.15.0     | [Declared error contract](features/advisors.md#declared-error-contract) |
+| 3.12  | Slow-SQL ranking and route attribution in SQL Trace          | 1.15.0     | [SQL Trace rankings](features/database.md#rankings)                     |
+| 3.15  | Meter provenance and explanation in Metrics                  | 1.15.0     | [Metrics](features/runtime.md#metrics)                                  |
+| 3.16  | Cache tiering and hit ratios                                 | 1.15.0     | [Tiering and hit ratios](features/services.md#tiering-and-hit-ratios)   |
+| —     | Command-line endpoint, `bootui` CLI, and Command Line panel  | 1.16.0     | [Command Line](features/developer-tools.md#command-line), [CLI](CLI.md) |
+| 3.17  | MySQL operational view, tested on Oracle MySQL 8.4 LTS       | 1.18.0     | [MySQL](features/database.md#mysql)                                     |
+| 3.19  | Structured violation locations in advisor findings           | Unreleased | [Violation locations](features/advisors.md#violation-locations)         |
+| 3.20a | Shared profile assembler with REST client and cache evidence | Unreleased | [Per-request profiler](features/overview.md#the-per-request-profiler)   |
+| 3.22  | Route performance rankings in HTTP Exchanges                 | Unreleased | [Route rankings](features/diagnostics.md#route-rankings)                |
+| 3.27  | Log exposure policy for Log Tail and Dev Services            | Unreleased | [Log message exposure](features/diagnostics.md#log-message-exposure)    |
 
 Earlier deliveries were removed from this plan when they shipped; `CHANGELOG.md` records every release. MariaDB support
 in the MySQL panel remains an unsupported follow-up outside this roadmap.
@@ -399,95 +403,13 @@ Acceptance criteria:
   `docs/features/database.md`, `docs/CLI.md`, `docs/AI-AGENTS.md`, `docs/SPECIFICATION.md`, `skills/bootui/SKILL.md`,
   frontend unit tests, and the Spring MVC, Spring WebFlux, and Quarkus browser suites cover the new view.
 
-### 3.19 Structured violation locations — Advisors 📋 Planned
-
-Advisor findings name the offending code only inside free text. `sampleViolations` and the retained detail pages are
-sanitized strings, so neither the browser nor an agent can reliably tell which class, member, file, and line a finding
-points at. This enhancement adds an optional structured location next to each violation text where the advisor has
-one, without changing that text or any count, severity, score, or dismissal.
-
-Scope:
-
-- Add a core `AdvisorViolationLocationDto` carrying the class name, an optional member name and kind (`CLASS`, `METHOD`,
-  `CONSTRUCTOR`, `FIELD`), the class file's recorded source file name, an optional positive line number, an optional
-  local source path, and a `precision` of `LINE`, `MEMBER`, or `CLASS`.
-- Add `sampleLocations` to the Architecture, REST API, and Hibernate rule-result DTOs, aligned index-for-index with
-  `sampleViolations`. Add `locations` to the shared `AdvisorRuleViolationsDto`, aligned with `violations`.
-- A `null` element means that violation has no location. An empty list means the report carries no location data at
-  all, as for an unsupported advisor or an older snapshot. Existing fields keep their meaning and content.
-- Populate locations in the first release only where the scan evidence names one code element:
-  - **Architecture:** from ArchUnit's violating objects and their `SourceCodeLocation` — class, member, source file,
-    and line — never by parsing the report text.
-  - **REST API:** the handler method or exception handler the finding concerns, from the same ArchUnit model.
-  - **Hibernate:** the entity class and the mapped attribute's Java member, at member precision, because the metamodel
-    and reflection carry no line number.
-- Leave locations empty, never guessed, for findings that span several elements, such as package cycles, and for
-  findings about beans, configuration, schema, JVM state, dependencies, or security policy. This covers the Spring and
-  Quarkus application, Memory, Security, Quarkus Security, Database, Pentesting, and Vulnerabilities advisors.
-- Resolve the source path only during an explicit scan. Reuse the Architecture advisor's bounded module and source-set
-  lookup to find exactly one source file for a class compiled into a local Maven or Gradle output directory. See
-  [Generated application code](ARCHITECTURE-CHECKS.md#generated-application-code) for that lookup.
-- Classes read from archives, ambiguous matches, and exhausted lookup budgets keep a `null` path with a scan note.
-- Show the location beside each sample and detail row in the shared advisor violation component, with a
-  **Copy location** action producing, for example, `com.example.OrderService#place (OrderService.java:42)`.
-- Add an opt-in, per-browser **Open in** preference — None (the default), VS Code, or IntelliJ IDEA — stored through
-  `safeLocalStorage` like the other UI preferences. When both a path and a preset are available, the location becomes a
-  link built from that preset's fixed URL scheme.
-- Do not accept custom templates or web URLs, so a local path can never be sent to a network address.
-- Return the same locations through REST, the report and `get_*_rule_violations` MCP tools, and the CLI, and mention
-  them in the tool summaries so agents can navigate straight to the code.
-
-Architecture:
-
-- Extend `AdvisorViolationCollector` to retain an optional location with each sanitized detail. Derive the samples and
-  the retained detail pages from those same records, so text and location cannot drift apart. The retention budget
-  still counts violations, not bytes.
-- Keep ArchUnit and reflection types inside the engine advisor packages; `bootui-core` carries only the neutral record.
-  Kotlin-aware filtering applies unchanged.
-- A Kotlin file facade or companion reports its declaring source file. A line that falls outside the resolved source
-  file, such as an inline-function mapping, is dropped to member precision rather than shown wrong.
-- Bound every string and path length, and discard line numbers of zero or less, which ArchUnit uses for "unknown".
-- Treat source paths like SQL Trace call sites: application metadata about the developer's own code, not a value gated
-  by the exposure policy.
-- Detail reads keep their contract. They read the latest published snapshot and never scan, import classes, or touch
-  the filesystem.
-- Advisor output changes update the corresponding `docs/*-CHECKS.md` notes, as every advisor change must.
-
-Out of scope for the first release:
-
-- Parsing locations out of existing violation text, or inventing a location for a finding that has none.
-- Launching an IDE or opening files from the server, and any server-side action triggered by a location.
-- Per-occurrence dismissal, notes, or tags. Dismissal remains per rule.
-- Column numbers, end lines, source excerpts, or reading source text into reports.
-- Locations for bean, configuration, schema, runtime, dependency, and security findings.
-- SARIF or any other interchange export. This contract makes such an export possible, but it needs its own
-  specification.
-
-Acceptance criteria:
-
-- Violation text, counts, severities, ordering, scan IDs, dismissals, evidence, and scores are unchanged when locations
-  are present. Older clients reading only `sampleViolations` and `violations` see identical content.
-- Every location list is either empty or exactly aligned with its text list, on every sample and detail page, including
-  dismissed rules, truncated retention, and paging.
-- Architecture, REST API, and Hibernate report the expected class, member, source file, line, and precision on Spring
-  MVC, Spring WebFlux, and Quarkus for Java and Kotlin fixtures. Compiler-generated members stay filtered.
-- Source paths resolve for local Maven and Gradle layouts. They stay `null`, with a scan note, for executable jars,
-  extracted `BOOT-INF/lib` images, Quarkus `lib` layouts, ambiguous matches, and exhausted budgets. No lookup runs
-  outside an explicit scan.
-- The **Open in** preference is off by default, produces links only from its fixed presets, and is keyboard accessible;
-  **Copy location** works without it.
-- MCP responses stay within the existing response budgets at the default page size.
-- The regenerated `bootui-tools.json`, `docs/features/advisors.md`, `docs/AI-AGENTS.md`, `docs/CLI.md`,
-  `skills/bootui/SKILL.md`, `BootUiApiContractCatalog`, conformance, frontend unit tests, and the browser suites cover
-  the change.
-
 ### 3.20 Execution-context profiles — Live Activity 📋 Planned
 
 The per-request profiler (`GET /bootui/api/activity/request/{id}`, `RequestProfileDto`) explains what one HTTP request
 did, but work that starts anywhere else has no equivalent. A `SCHEDULED` entry is top-level, and only an unowned
 exception nests under it, through a serving-thread and time-window join. Consumed Kafka, RabbitMQ, and JMS entries are
-always top-level. The profiler itself still omits REST client calls, cache accesses, and scheduled runs, even though the
-SQL, REST client, cache, and exception recorders already retain a thread and trace id per record.
+always top-level. The profiler itself still omits scheduled runs; REST client calls and cache accesses joined it in
+§3.20a.
 `ScheduledTaskRunStore` retains the executing thread but no trace id, and consumed-message records retain neither a
 thread, a start time, nor a trace id. This enhancement treats a scheduled execution and a consumed-message listener
 invocation as execution contexts in their own right, with the same drill-down as a request and the same honesty about
@@ -500,7 +422,8 @@ Scope:
 - Add `GET /bootui/api/activity/execution/{id}` beside the request profiler. It returns the anchor summary plus
   correlated SQL, SQL groups with N+1 flags and call sites, exceptions, REST client calls, cache accesses, message
   sends, the distributed trace when one matched, a timing breakdown, and notes.
-- Add REST client, cache, and nested scheduled-run evidence to the request profile and to **Copy profile**.
+- Add nested scheduled-run evidence to the request profile and to **Copy profile**, beside the REST client and cache
+  evidence §3.20a added.
 - Nest correlated children under a `SCHEDULED` or consumed `MESSAGING` anchor through the existing `parentId`. Work that
   cannot be placed precisely stays top-level.
 - Record, at the existing capture points only, the trace id active during a scheduled execution, and the start time,
@@ -511,14 +434,20 @@ Scope:
 Architecture:
 
 - Put anchor selection, tiered correlation, child ordering, timing, N+1 reuse, and notes in one framework-neutral engine
-  assembler that generalizes `RequestProfileAssembler`, instead of growing Spring's `LiveActivityCorrelator` separately.
-  HTTP anchors keep today's request-profile policy unchanged.
+  assembler instead of growing Spring's `LiveActivityCorrelator` separately. §3.20a shipped it as
+  `ExecutionProfileAssembler`, which every adapter now uses for request profiles: a later anchor type adds a
+  `ProfileAnchor.Type`, its window, and a DTO projection, and reuses the tiers, bounds, and notes. HTTP anchors keep
+  today's tiers and keys, including Spring MVC's method, path, and window gate for exceptions; the at-most-one rule now
+  applies to them too, so a signal two captured requests could equally claim is counted in the notes instead of
+  appearing in both profiles.
 - Correlate by trace id first on every adapter. A trace id attaches a child only when exactly one anchor of any type
   carries that trace and its window contains the child, extending `TraceCorrelationIndex`'s uniqueness guard across
-  anchor types, because a request and the message or execution it triggers can share one trace. For blocking scheduled
-  methods and listener invocations that run to completion on one thread, allow serving-thread correlation within the
-  recorded window, under the unique-candidate rule SQL route attribution already uses. Allow time-window correlation
-  only as a labelled last resort.
+  anchor types, because a request and the message or execution it triggers can share one trace. §3.20a shipped this
+  guard; an HTTP request's trace window stays open, as it always was, so a request still claims traced work it caused
+  after its response completed, while `SCHEDULED` and `MESSAGING` anchors bound it to their recorded window. For
+  blocking scheduled methods and listener invocations that run to completion on one thread, allow serving-thread
+  correlation within the recorded window, under the unique-candidate rule SQL route attribution already uses. Allow
+  time-window correlation only as a labelled last resort.
 - Extend `ScheduledTaskRunStore.Run` and the Kafka, RabbitMQ, and JMS consumed-record shapes with nullable trace-id,
   thread, and start fields, supplied by `ScheduledTaskRunObservationHandler`, `QuarkusScheduledTaskRunRecorder`, and the
   existing consumer capture hooks. Add no interceptor, proxy, or executor wrapper.
@@ -559,9 +488,10 @@ Acceptance criteria:
 
 Delivery slices, each one pull request with its own tests and documentation:
 
-- **§3.20a Shared profile assembler.** Generalize `RequestProfileAssembler` into the shared engine assembler with the
-  cross-anchor trace-uniqueness guard, and add REST client and cache evidence to request profiles and **Copy profile**.
-  It adds no anchor, and HTTP profiles keep today's correlation policy.
+- ✅ **§3.20a Shared profile assembler.** Delivered: `ExecutionProfileAssembler` replaced `RequestProfileAssembler`
+  and the tiering inside Spring MVC's `LiveActivityCorrelator`, with the cross-anchor trace-uniqueness guard, per-section
+  tier labels, bounds, and ambiguity counts, and REST client and cache evidence in request profiles and **Copy
+  profile**. It added no anchor. See [the per-request profiler](features/overview.md#the-per-request-profiler).
 - **§3.20b Scheduled-run profiles.** Add the trace-id field to `ScheduledTaskRunStore.Run`, serve
   `GET /bootui/api/activity/execution/{id}` for `SCHEDULED` anchors, nest their children, add nested scheduled-run
   evidence to request profiles, and report Quarkus fire-time windows as approximate.
@@ -572,11 +502,12 @@ Delivery slices, each one pull request with its own tests and documentation:
 
 Log Tail captures log lines through `BootUiLogAppender`, a Logback appender, on Spring and through
 `QuarkusLogTailHandler`, a root `java.util.logging` handler, on Quarkus, both into the shared `LogTailBuffer`. Each
-`LogLineDto` carries only a timestamp, level, logger, message, and thread. A log line therefore cannot be tied to the
-request or execution that wrote it, and a warning never appears in Live Activity next to the SQL and exceptions it
-explains. This enhancement stamps log lines with correlation evidence at capture time and surfaces warnings and errors
-as a Live Activity signal. It builds on §3.27, which applies the exposure policy to log messages, and on §3.20's
-execution anchors.
+`LogLineDto` carries only a timestamp, level, logger, thread, a message that §3.27's read path masks or omits, and a
+`messageOmitted` flag. A log line therefore cannot be tied to the request or execution that wrote it, and a warning
+never appears in Live Activity next to the SQL and exceptions it explains. This enhancement stamps log lines with
+correlation evidence at capture time and surfaces warnings and errors as a Live Activity signal. It builds on the
+delivered §3.27, which applies the exposure policy to log messages through `LogTailReader`, and on §3.20's execution
+anchors.
 
 Scope:
 
@@ -633,59 +564,6 @@ Acceptance criteria:
 - Existing Log Tail clients keep working, because the new DTO fields are additive and nullable.
 - Fixtures cover present and absent MDC, WebFlux context hops, Quarkus OpenTelemetry, every exposure mode, oversized
   values, allowlist rejection, de-duplication, filters, and all three adapters.
-
-### 3.22 Route performance rankings — HTTP Exchanges 📋 Planned
-
-SQL Trace ranks statements and database time by request route, but HTTP Exchanges is a flat list of recent requests,
-and `HttpExchangesReport` carries no aggregates. Live Activity's KPI strip computes p50 and p95 latency and names the
-single slowest retained request by its raw path, with no route context. This enhancement gives inbound traffic the same
-summary → runs → profile structure: a per-route table over the retained window, a drill-down to that route's
-exchanges, and a link from each exchange to its request profile.
-
-Scope:
-
-- Add a route summary to HTTP Exchanges: per method and route template, the request count; 2xx, 3xx, 4xx, and 5xx
-  counts; average, p50, p95, p99, and maximum duration; and share of retained request time. Rank by count, p95,
-  maximum, error count, or cumulative duration.
-- Link each route row to the exchange list filtered to that route, and each exchange to its request profile.
-- Resolve templates exactly as SQL route attribution does — framework template, then the application's declared
-  mappings, then a masked path — and report which source was used.
-- Label Live Activity's slowest-request KPI with its resolved route template, and link it to that route's summary row.
-  Spring MVC computes this KPI in `LiveActivityService`, while Spring WebFlux and Quarkus compute it in the engine
-  `LiveActivityAssembler`; compute it once, in the engine, for all three stacks.
-- State the evidence window inline: retained exchanges, buffer size, evictions, oldest retained exchange, and hidden
-  BootUI exchanges.
-- Add a read-only `get_http_routes` MCP tool, on the existing `LIMIT` schema, and a `bootui http routes` CLI command.
-
-Architecture:
-
-- Put grouping, ranking, percentiles, bounds, and window reporting in a framework-neutral engine service over existing
-  exchange evidence. Reuse `RouteTemplateResolver` and `RoutePathMasker`, and extract the percentile logic that
-  `SqlStatementAggregate`, `LiveActivityAssembler`, and Spring MVC's `LiveActivityService` each implement into one
-  shared helper, beside the shared slowest-request KPI.
-- On Spring, take the framework template from the existing `HttpExchangeTraceRegistry`, which `RequestCorrelationFilter`
-  and `ReactiveHttpExchangeTraceFilter` already populate. On Quarkus, resolve it from declared JAX-RS mappings through
-  `QuarkusMappingProvider`, as SQL Trace does.
-- Add no request filter, and never group by query string or path-parameter value.
-
-Out of scope for the first release:
-
-- Lifetime or time-series metrics beyond the retained window. The Metrics panel already exposes Micrometer's
-  `http.server.requests`.
-- Latency targets, alerts, or health claims.
-- Grouping by user, client, or remote address.
-
-Acceptance criteria:
-
-- Route counts and durations reconcile with the retained, visible exchanges in the window.
-- Equivalent exchanges produce the same route summary on all three adapters, with the route source reported.
-- The slowest-request KPI, its p50 and p95, and its route label are identical on all three adapters for equivalent
-  evidence.
-- Ambiguous declared mappings produce no template, and a masked path never exposes a path-parameter value.
-- High-cardinality routes are bounded with a visible truncation count and deterministic tie ordering.
-- BootUI's own exchanges stay out of the summary while `bootui.monitoring.exclude-self` is on.
-- Fixtures cover templated and untemplated routes, ties, status classes, masked paths, eviction, self traffic, and all
-  three adapters.
 
 ### 3.23 Scheduled task run history — Scheduled Tasks 📋 Planned
 
@@ -888,7 +766,8 @@ Architecture:
 
 - Reuse the Architecture advisor's bounded module and source-set lookup that §3.19 reuses. It maps a class compiled
   into a local Maven or Gradle output directory to its module's sources, which covers multi-module projects launched
-  from the reactor root. Share one engine locator between the two features rather than adding a second one.
+  from the reactor root. Share one engine locator between the two features rather than adding a second one: §3.19
+  shipped it as `SourceLocator` in the engine's `source` package, together with `LocalSourceModule`.
 - Run the lookup only when the user opens an exception group or prepares an export. Classes read from archives,
   ambiguous matches, exhausted lookup budgets, native images, and Quarkus `lib` layouts keep no path and report the
   reason.
@@ -922,54 +801,6 @@ Acceptance criteria:
 - Tests cover Maven and Gradle layouts, Kotlin sources, multi-module projects launched from the reactor root, archive
   classes, and availability on all three adapters. Masking fixtures cover Java text blocks and unicode escapes, and
   Kotlin raw strings, string templates, and nested block comments.
-
-### 3.27 Log exposure policy — Log Tail and Dev Services 📋 Planned
-
-Log text is the one captured application text that bypasses BootUI's value-exposure policy. The Exceptions panel scrubs
-secret-like `key=value` assignments from exception messages under the default `MASKED` mode, omits them under
-`METADATA_ONLY`, and shows them verbatim only under `FULL`. Log Tail returns `LogLineDto.message` exactly as captured on
-every surface — `GET /bootui/api/log-tail/recent`, the SSE stream, `get_log_tail`, and `bootui logs tail` — so a line
-that logs a password assignment is shown in full under the default mode. Spring's Dev Services container logs
-(`GET /bootui/api/dev-services/{id}/logs`) are returned the same way. This item closes the gap on its own, ahead of the
-rest of the plan, and §3.21 builds on it.
-
-Scope:
-
-- Apply the exception-message exposure rule to Log Tail messages on every surface: the recent snapshot, the SSE stream
-  including its replayed backlog, `get_log_tail`, and the CLI. `MASKED` scrubs secret-like assignments, `METADATA_ONLY`
-  omits the message while keeping timestamp, level, logger, and thread, and `FULL` shows it verbatim.
-- Apply the same rule to Dev Services container log text on Spring MVC and Spring WebFlux. Quarkus serves no container
-  logs and keeps its current `409` response.
-- Evaluate the policy at read time, so a live exposure change applies to retained lines and open streams without a
-  restart, and capture cost stays unchanged.
-- Show in the Log Tail panel when messages are omitted by policy, so an omitted message never reads as an empty line.
-
-Architecture:
-
-- Move the secret-assignment pattern out of `ExceptionsService` into one engine helper shared by Exceptions, Log Tail,
-  and Dev Services, so the three surfaces mask identically and a pattern fix reaches all of them.
-- Keep `LogTailBuffer` as raw bounded storage. Map each line through the helper in one engine read path that Spring
-  MVC's `LogTailController`, WebFlux's `ReactiveLogTailController`, and Quarkus's `LogTailResource` call for snapshots
-  and streamed lines alike. The MCP tools and the CLI already read through those adapters, so they inherit the rule.
-- `LogLineDto.message` becomes nullable, as exception messages already are. The Vue panel's rendering and severity
-  filter handle a missing message.
-
-Out of scope for the first release:
-
-- Detecting secrets beyond the shared assignment pattern, such as bare tokens or credentials embedded in connection
-  strings. Improvements belong in the shared helper and reach every surface at once.
-- Masking at capture time, or changing what the Logback appender and the Quarkus log handler capture.
-- MDC values, structured arguments, and correlation, which §3.21 owns.
-
-Acceptance criteria:
-
-- Under `MASKED`, no password, token, or API-key assignment in a logged message reaches any Log Tail or Dev Services
-  response on Spring MVC, Spring WebFlux, or Quarkus, including the SSE backlog, `get_log_tail`, and `bootui logs tail`.
-- Under `METADATA_ONLY`, no message text is returned and the panel says why. Under `FULL`, messages are verbatim.
-- Changing `bootui.expose-values` at runtime changes the next snapshot and the next streamed line without a restart.
-- Exceptions output is unchanged after the pattern moves into the shared helper.
-- Tests cover every exposure mode, `bootui.mask-secrets=false`, null and multi-line messages, the SSE backlog and live
-  lines, MCP and CLI output, and all three adapters.
 
 ## 4. Cross-cutting work
 
@@ -1034,20 +865,16 @@ In addition:
 | -------------------------------------------------------------------------------------- | ---------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Optional Actuator endpoints, libraries, beans, or servers missing                      | all              | Medium | Internal bridges, classpath/bean gating, stable empty DTOs, and clear unavailable reasons per panel.                                                                                      |
 | Scope creep beyond each item's first release                                           | all              | High   | Treat each item's out-of-scope list as binding, and move new ideas to a later plan revision.                                                                                              |
-| Log Tail or container logs show secrets under the default `MASKED` mode                | 3.27             | High   | One read-time rule shared with Exceptions, message omission under `METADATA_ONLY`, and tests on every surface and adapter.                                                                |
 | Client discovery instantiates lazy clients, mutates builders, or resolves hosts        | 3.6              | High   | Read registrations and bean definitions only, never request a lazy bean, add no interceptor, and perform no DNS lookup.                                                                   |
 | Base URLs or proxy settings leak credentials                                           | 3.6              | High   | Always strip user-info and secret query values, and never serialize TLS or proxy secrets, in every exposure mode.                                                                         |
 | gRPC discovery creates channels, enables reflection, or loads absent `io.grpc` classes | 3.8              | High   | Read existing registries and metrics only, and gate providers on classpath, beans, and Quarkus capabilities.                                                                              |
 | Correlation-ID lookup identities are reversed for short or sequential identifiers      | 3.14             | Medium | Derive lookup identities with a keyed hash under a per-process random key, never a plain hash.                                                                                            |
 | Lexical table extraction misreads SQL and invents or misses access                     | 3.18             | High   | Per-statement extraction status, an explicit unresolved bucket, no CTE/alias/function ever reported as a table, and a fixture corpus of Hibernate and vendor SQL.                         |
 | The data access map is read as a complete CRUD matrix                                  | 3.18             | Medium | Label every view as observed in the retained window, show the window, evictions, and exclusions inline, and add no static inference.                                                      |
-| Location lists drift from violation text or break older clients                        | 3.19             | Medium | Derive text and location from one retained record, keep fields additive, and test alignment on every advisor, sample, and page.                                                           |
-| Source-path lookup slows scans or reads unexpected files                               | 3.19             | Medium | Reuse the existing bounded lookup and budgets, run it only during explicit scans, never follow symlinks, and never resolve archives.                                                      |
-| IDE links send local paths somewhere unexpected                                        | 3.19, 3.26       | Low    | Off by default, fixed IDE URL-scheme presets only, and no custom or web templates.                                                                                                        |
+| IDE links send local paths somewhere unexpected                                        | 3.26             | Low    | Off by default, fixed IDE URL-scheme presets only, and no custom or web templates.                                                                                                        |
 | Correlation over-claims which request or execution caused a record                     | 3.20, 3.21       | Medium | Tiered, labelled correlation with a unique-candidate rule; ambiguous work stays top-level.                                                                                                |
 | MDC values, exports, or source excerpts leak secrets                                   | 3.21, 3.25, 3.26 | High   | Explicitly configured MDC keys, §3.27's read-time rule, omission under `METADATA_ONLY`, literal and comment stripping for source under `MASKED`, and exports built only from masked DTOs. |
 | New capture fields slow application hot paths                                          | 3.20, 3.21, 3.24 | Medium | Copy only data already at hand at existing hooks, with bounded copies and fail-open capture.                                                                                              |
-| Route percentiles over a small or evicted window read as service-level metrics         | 3.22             | Medium | Show the sample count and evidence window beside every percentile, and compute only over retained exchanges.                                                                              |
 | Runs whose identifier differs from their definition's are dropped or misattributed     | 3.23             | Medium | An explicit **Unmatched runs** group, and identifier fixtures on every adapter.                                                                                                           |
 | Unified slow thresholds change existing `SLOW` severities                              | 3.23, 3.24       | Low    | One documented default per threshold, recorded in `CHANGELOG.md` as a behavior change.                                                                                                    |
 | Reserved retention hides recent routine traffic                                        | 3.24             | Low    | Reserve a bounded share of existing capacity and report retained, reserved, and evicted counts.                                                                                           |

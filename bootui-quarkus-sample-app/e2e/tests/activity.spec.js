@@ -4,8 +4,8 @@ import {expect, test} from './fixtures.js'
 /**
  * Live Activity (Quarkus).
  *
- * Quarkus now has a per-request profile drawer too (`GET /bootui/api/activity/request/{id}` — see
- * `RequestProfileAssembler`), but it is a deliberately *reduced*, trace-id-only profile: unlike Spring's
+ * Quarkus now has a per-request profile drawer too (`GET /bootui/api/activity/request/{id}` — see the shared
+ * `ExecutionProfileAssembler`), but it is a deliberately *reduced*, trace-id-only profile: unlike Spring's
  * tiered profiler (trace id, then method+path+time-window+thread heuristics), Quarkus's reactive
  * event-loop/worker model has no per-request serving-thread identity to fall back on, so a request only
  * ever profiles when it carries a distributed trace id, SQL/security correlation is always exact (never
@@ -142,10 +142,41 @@ test.describe('Live Activity view (Quarkus)', () => {
     await expect(drawer.getByText('exact', {exact: true})).toBeVisible()
     await expect(drawer.getByText('approximate', {exact: true})).toHaveCount(0)
 
-    // The reduced-profile explanation is real, load-bearing UI copy (RequestProfileAssembler's notes),
+    // The reduced-profile explanation is real, load-bearing UI copy (ExecutionProfileAssembler's notes),
     // not an internal implementation detail — a developer reads this to know why Quarkus's profile is
     // narrower than Spring's.
     await expect(drawer).toContainText('reduced, trace-id-only profile')
+
+    // The REST client section is present, and the cache section honestly reports that Quarkus has no
+    // cache-access capture seam; the serving-thread and time-window tiers are reported unavailable.
+    await expect(drawer.getByRole('heading', {name: /^REST client calls/})).toBeVisible()
+    const cache = drawer.locator('section', {has: page.getByRole('heading', {name: /^Cache accesses/})})
+    await expect(cache).toContainText('not available on Quarkus')
+    await expect(drawer).toContainText('Serving thread and time window correlation are unavailable on this adapter')
+
+    await drawer.getByRole('button', {name: 'Close'}).click()
+    await expect(drawer).toHaveCount(0)
+  })
+
+  test('never attributes a REST client call to either request sharing its trace id', async ({openView, page}) => {
+    // The sample REST client calls this same app, so the inbound POST and the downstream GET it triggers
+    // are two captured requests carrying one propagated trace id. The cross-anchor uniqueness guard then
+    // attributes the outbound call to neither and counts it in the notes.
+    await page.request.post('/bootui/api/rest-client-trace/recording', {data: {enabled: true}})
+    const capture = await page.request.post('/api/sample/rest-client-capture')
+    expect(capture.ok()).toBeTruthy()
+
+    await openView('activity', 'Live Activity')
+    const captureRow = page.locator('.activity-table tbody tr', {hasText: '/api/sample/rest-client-capture'}).first()
+    await expect(captureRow).toBeVisible({timeout: 15_000})
+    await captureRow.getByRole('button', {name: /Profile/}).click()
+
+    const drawer = page.locator('.activity-drawer')
+    await expect(drawer).toBeVisible()
+    const rest = drawer.locator('section', {has: page.getByRole('heading', {name: /^REST client calls/})})
+    await expect(rest).toContainText('No REST client calls correlated to this request.')
+    await expect(drawer).toContainText('shared by more than one captured request')
+    await expect(drawer).toContainText('could equally belong to another captured request')
 
     await drawer.getByRole('button', {name: 'Close'}).click()
     await expect(drawer).toHaveCount(0)
@@ -177,7 +208,7 @@ test.describe('Live Activity view (Quarkus)', () => {
     await expect(security).toContainText('AuthenticationSuccessEvent')
 
     // Reduced correlation: Quarkus's reactive event-loop/worker model has no per-request serving-thread
-    // identity, so RequestProfileAssembler can only ever claim a "principal" match here (the event's
+    // identity, so ExecutionProfileAssembler can only ever claim a "principal" match here (the event's
     // principal equals the request's), never the stronger "exact" (thread-matched) badge Spring can show
     // for the same scenario. Scoped to the security section specifically, since the SQL section on this
     // same request legitimately does show "exact" (see the previous test).
@@ -267,7 +298,10 @@ test.describe('Live Activity view (Quarkus)', () => {
       .locator('.activity-kpis')
       .getByTitle(/in HTTP Exchanges$/)
       .click()
-    await expect(page).toHaveURL(/\/http-exchanges\?q=/)
+    await expect(page).toHaveURL(/\/http-exchanges\?route=/)
+    // The KPI opens on the slowest request's route row, ranked by slowest request, with its exchanges listed.
+    await expect(page.locator('.http-routes-row-active')).toBeVisible({timeout: 15_000})
+    await expect(page.locator('.http-exchanges-route-filter')).toBeVisible()
   })
 
   test('shows a Live flow service map of dependencies derived from retained evidence', async ({openView, page}) => {

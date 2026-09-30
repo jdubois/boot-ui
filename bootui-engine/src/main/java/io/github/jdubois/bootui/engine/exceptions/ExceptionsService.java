@@ -1,6 +1,5 @@
 package io.github.jdubois.bootui.engine.exceptions;
 
-import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.ErrorContractLinkDto;
 import io.github.jdubois.bootui.core.dto.ExceptionCauseDto;
 import io.github.jdubois.bootui.core.dto.ExceptionDetailDto;
@@ -9,9 +8,9 @@ import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.ExceptionOccurrenceDto;
 import io.github.jdubois.bootui.core.dto.ExceptionsReport;
 import io.github.jdubois.bootui.engine.errorcontract.ErrorContractLinkResolver;
+import io.github.jdubois.bootui.engine.support.MessageExposure;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.util.Locale;
-import java.util.regex.Pattern;
 
 /**
  * Framework-neutral assembly + display masking for the Exceptions panel, shared by the Spring Boot and
@@ -26,14 +25,11 @@ import java.util.regex.Pattern;
  *
  * <p>Messages are surfaced according to the configured value-exposure policy: omitted for
  * {@code METADATA_ONLY}, scrubbed of obvious secret-like assignments for the default {@code MASKED}
- * mode, and shown verbatim only for {@code FULL}. Stack frames carry only class/method/file/line. Pure
- * functions over core DTOs, an SPI {@link ExposurePolicy}, and the JDK.</p>
+ * mode, and shown verbatim only for {@code FULL}, through the {@link MessageExposure} rule that Log Tail and Dev
+ * Services share. Stack frames carry only class/method/file/line. Pure functions over core DTOs, an SPI
+ * {@link ExposurePolicy}, and the JDK.</p>
  */
 public final class ExceptionsService {
-
-    private static final Pattern SECRET_ASSIGNMENT = Pattern.compile(
-            "(?i)([\"']?(?:password|passwd|pwd|secret|token|api[-_]?key|apikey|authorization|credential|"
-                    + "access[-_]?key|client[-_]?secret|private[-_]?key)[\"']?\\s*[=:]\\s*[\"']?)([^\\s\"',;&)]+)");
 
     private final ExposurePolicy exposure;
 
@@ -169,13 +165,6 @@ public final class ExceptionsService {
     }
 
     private String displayMessage(String message) {
-        ValueExposure valueExposure = exposure.valueExposure();
-        if (valueExposure == ValueExposure.METADATA_ONLY || message == null) {
-            return null;
-        }
-        if (valueExposure == ValueExposure.MASKED && exposure.maskSecrets()) {
-            return SECRET_ASSIGNMENT.matcher(message).replaceAll(result -> result.group(1) + "******");
-        }
-        return message;
+        return MessageExposure.current(exposure).apply(message);
     }
 }

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.MissingNode;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.ActionContract;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.JsonType;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.ReadContract;
@@ -17,6 +18,7 @@ import java.io.UncheckedIOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -129,6 +131,26 @@ public abstract class AbstractBootUiApiConformanceTest {
 
     protected Set<String> unsupportedReadContracts() {
         return Set.of();
+    }
+
+    /**
+     * The host application's own root path, such as a servlet context path, WebFlux base path, or Quarkus
+     * root path, with no trailing slash. Tests that send application traffic prefix it, so the request
+     * reaches the application rather than falling outside its mount.
+     */
+    protected String applicationPath() {
+        return "";
+    }
+
+    /**
+     * An application request the route-ranking contract sends and then looks up. It must contain
+     * {@code conformance-route-probe}, reach the application without credentials so its exchange is recorded,
+     * and end in the path value {@code 4711}, which no route may carry. An unmapped path suits stacks that
+     * record a 404; a stack whose security chain rejects unmapped paths before exchange capture names a
+     * permitted, templated endpoint instead.
+     */
+    protected String routeProbePath() {
+        return applicationPath() + "/conformance-route-probe/4711";
     }
 
     /** Browser-visible UI mount, including any host application root path. */
@@ -496,6 +518,61 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void logTailMasksSecretAssignmentsInTheSnapshotAndTheStream() {
+        LogTailExposureContract snapshot = new LogTailExposureContract().log();
+        Response recent = probe().get(api("/log-tail/recent"));
+        assertThat(recent.status()).as("GET log-tail recent status").isEqualTo(200);
+        snapshot.assertMaskedIn(recent.json(), "GET /log-tail/recent");
+
+        LogTailExposureContract backlog = new LogTailExposureContract().log();
+        String replayed = readLogStream(() -> {}, backlog);
+        backlog.assertMaskedInStream(replayed, "the log-tail SSE backlog");
+
+        LogTailExposureContract live = new LogTailExposureContract();
+        String streamed = readLogStream(live::log, live);
+        live.assertMaskedInStream(streamed, "the log-tail SSE stream");
+    }
+
+    @Test
+    void logTailFollowsALiveExposureChangeWithoutARestart() {
+        LogTailExposureContract retained = new LogTailExposureContract().log();
+
+        LogTailExposureContract.withExposure("METADATA_ONLY", null, () -> {
+            retained.assertOmittedIn(
+                    probe().get(api("/log-tail/recent")).json(), "GET /log-tail/recent (METADATA_ONLY)");
+            retained.assertOmittedInStream(
+                    readLogStream(() -> {}, retained), "the log-tail SSE backlog (METADATA_ONLY)");
+        });
+        LogTailExposureContract.withExposure(
+                "FULL",
+                null,
+                () -> retained.assertVerbatimIn(
+                        probe().get(api("/log-tail/recent")).json(), "GET /log-tail/recent (FULL)"));
+        LogTailExposureContract.withExposure(
+                "MASKED",
+                "false",
+                () -> retained.assertVerbatimIn(
+                        probe().get(api("/log-tail/recent")).json(), "GET /log-tail/recent (mask-secrets=false)"));
+        retained.assertMaskedIn(probe().get(api("/log-tail/recent")).json(), "GET /log-tail/recent (restored)");
+
+        // An open stream picks up the change for the next line it sends.
+        LogTailExposureContract live = new LogTailExposureContract();
+        LogTailExposureContract.withExposure(null, null, () -> {
+            String streamed = readLogStream(
+                    () -> {
+                        LogTailExposureContract.setExposure("METADATA_ONLY");
+                        live.log();
+                    },
+                    live);
+            live.assertOmittedInStream(streamed, "the open log-tail SSE stream after a change to METADATA_ONLY");
+        });
+    }
+
+    private String readLogStream(Runnable afterOpen, LogTailExposureContract contract) {
+        return probe().readStreamUntil(api("/log-tail/stream"), afterOpen, contract.logger, Duration.ofSeconds(10));
+    }
+
+    @Test
     void overviewEndpointServesShellContract() {
         // GET /bootui/api/overview is the shared shell's framework-neutral chrome source: it powers the
         // header subtitle/status and primes the CSRF cookie, so it must answer on every platform
@@ -840,6 +917,109 @@ public abstract class AbstractBootUiApiConformanceTest {
             assertThat(probe.get(api("/" + panel)).json().path("violationDetails"))
                     .isEqualTo(metadata);
         }
+    }
+
+    /**
+     * Structured violation locations: every location list is either empty or aligned index-for-index with its
+     * text list, on report samples and on detail pages alike, and only the Architecture, REST API, and Hibernate
+     * advisors carry any. Locations are bounded and precise about what they know.
+     */
+    @Test
+    void advisorViolationLocationsAreAlignedBoundedAndOnlyOnLocatedAdvisors() {
+        Set<String> located = Set.of("architecture", "rest-api", "hibernate");
+        for (String panel :
+                List.of("architecture", "hibernate", "spring", "rest-api", "memory", "security", "database-advisor")) {
+            if (!isPanelUsableInLiveManifest(panel)) continue;
+            BootUiHttpProbe probe = probe();
+            Response scanned = probe.request("POST", api("/" + panel + "/scan"), stateChangingHeaders(probe), "");
+            assertThat(scanned.status()).as(panel + " scan").isEqualTo(200);
+            JsonNode report = scanned.json();
+            JsonNode notes = report.path("violationDetails").path("locationNotes");
+            assertThat(notes.isArray())
+                    .as(panel + " violationDetails.locationNotes")
+                    .isTrue();
+            String query = "?scanId="
+                    + URLEncoder.encode(
+                            report.path("violationDetails").path("scanId").asText(), StandardCharsets.UTF_8);
+            if (located.contains(panel) && !panel.equals("hibernate") && expectsResolvedSourcePaths()) {
+                assertThat(report.path("results").findValues("sampleLocations").stream()
+                                .flatMap(list -> java.util.stream.StreamSupport.stream(list.spliterator(), false))
+                                .filter(location -> !location.isNull()
+                                        && !location.path("sourcePath").isNull())
+                                .map(location -> java.nio.file.Path.of(
+                                        location.path("sourcePath").asText()))
+                                .anyMatch(path -> java.nio.file.Files.isRegularFile(path)
+                                        && (path.toString().contains("src" + java.io.File.separator + "main")
+                                                || path.toString().contains("src" + java.io.File.separator + "test"))))
+                        .as(panel + ": a location resolves to the application's own source file")
+                        .isTrue();
+            }
+            for (JsonNode rule : report.path("results")) {
+                JsonNode samples = rule.path("sampleViolations");
+                JsonNode sampleLocations = rule.path("sampleLocations");
+                if (located.contains(panel)) {
+                    assertThat(sampleLocations.isArray())
+                            .as(panel + " sampleLocations")
+                            .isTrue();
+                    assertLocations(panel + " " + rule.path("id").asText() + " samples", samples, sampleLocations);
+                } else {
+                    assertThat(sampleLocations.isMissingNode())
+                            .as(panel + " results carry no sampleLocations")
+                            .isTrue();
+                }
+                String route = api("/" + panel + "/rules/"
+                        + URLEncoder.encode(rule.path("id").asText(), StandardCharsets.UTF_8) + "/violations");
+                Response detail = probe.get(route + query + "&offset=0&limit=5");
+                if (detail.status() != 200) continue;
+                JsonNode page = detail.json();
+                assertThat(page.path("locations").isArray())
+                        .as(panel + " detail locations")
+                        .isTrue();
+                assertLocations(panel + " detail page", page.path("violations"), page.path("locations"));
+                if (!located.contains(panel)) {
+                    assertThat(page.path("locations"))
+                            .as(panel + " detail page carries no locations")
+                            .isEmpty();
+                } else if (!page.path("locations").isEmpty() && sampleLocations.size() > 0) {
+                    assertThat(page.path("locations").get(0)).isEqualTo(sampleLocations.get(0));
+                }
+            }
+        }
+    }
+
+    /**
+     * Whether this runner's application classes are compiled into a local Maven or Gradle output directory, so
+     * the explicit Architecture and REST API scans must each resolve at least one location to a source file under
+     * the module's {@code src/main} or {@code src/test} tree.
+     */
+    protected boolean expectsResolvedSourcePaths() {
+        return false;
+    }
+
+    private static void assertLocations(String subject, JsonNode texts, JsonNode locations) {
+        if (locations.isEmpty()) return;
+        assertThat(locations.size()).as(subject + " locations align with texts").isEqualTo(texts.size());
+        boolean any = false;
+        for (JsonNode location : locations) {
+            if (location.isNull()) continue;
+            any = true;
+            assertThat(location.path("className").asText())
+                    .as(subject + " className")
+                    .isNotBlank();
+            assertThat(location.path("className").asText().length()).isLessThanOrEqualTo(512);
+            assertThat(location.path("kind").asText()).isIn("CLASS", "METHOD", "CONSTRUCTOR", "FIELD");
+            assertThat(location.path("precision").asText()).isIn("LINE", "MEMBER", "CLASS");
+            JsonNode line = location.path("line");
+            assertThat(line.isNull() || line.asInt() > 0).as(subject + " line").isTrue();
+            assertThat(location.path("precision").asText().equals("LINE")).isEqualTo(!line.isNull());
+            JsonNode path = location.path("sourcePath");
+            assertThat(path.isNull() || path.asText().length() <= 1024)
+                    .as(subject + " sourcePath")
+                    .isTrue();
+        }
+        assertThat(any)
+                .as(subject + " a non-empty location list has a location")
+                .isTrue();
     }
 
     @Test
@@ -1317,6 +1497,37 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void requestProfileKeepsOneBackwardCompatibleShapeForAnUnknownRequest() {
+        // The profile drill-down is a detail read of Live Activity, so the root-read sweep never reaches it.
+        // An id that was never captured must answer 200 with the canonical unavailable profile, and every
+        // later, additive section must be present and empty rather than missing, on every adapter.
+        assumeTrue(isPanelUsableInLiveManifest("activity"), "activity panel is not available in this environment");
+        ReadContract contract = BootUiApiContractCatalog.requestProfile();
+
+        Response response = probe().get(api(contract.relativePath()));
+
+        assertThat(response.status())
+                .as("GET %s status", contract.relativePath())
+                .isEqualTo(200);
+        assertThat(response.isJson())
+                .as("GET %s content-type", contract.relativePath())
+                .isTrue();
+        List<String> failures = new ArrayList<>();
+        assertJsonContract("activity request profile", contract, response.json(), failures);
+        assertThat(failures).as("request profile contract").isEmpty();
+        JsonNode profile = response.json();
+        assertThat(profile.path("available").asBoolean(true)).isFalse();
+        assertThat(profile.path("unavailableReason").asText())
+                .isEqualTo("Request conformance-unknown-request is no longer in the buffer");
+        for (String section : List.of("sql", "restCalls", "cacheAccesses", "sections", "correlationTiers")) {
+            assertThat(profile.path(section).size())
+                    .as("$.%s of an unavailable profile", section)
+                    .isZero();
+        }
+        assertThat(profile.path("approximate").asBoolean(true)).isFalse();
+    }
+
+    @Test
     void confirmationGatedActionsReturn400WhenConfirmMissing() {
         // Flyway and Liquibase expose mutating actions that require an explicit {"confirm":true} in the
         // request body. Omitting confirm (empty body or {"confirm":false}) must return HTTP 400 with a
@@ -1790,6 +2001,158 @@ public abstract class AbstractBootUiApiConformanceTest {
                     .as("route-by-statement cross product must stay bounded")
                     .isLessThanOrEqualTo(5);
         }
+    }
+
+    /**
+     * HTTP route rankings must present the same bounded, self-describing shape on Spring MVC, Spring WebFlux
+     * and Quarkus: every route declares how it was resolved, never carries a query string, reconciles its
+     * status classes with its request count, and the response states the retained window it summarizes with
+     * BootUI's own traffic kept out of it.
+     */
+    @Test
+    void httpRouteRankingsAreBoundedAndStateTheirWindow() {
+        assumeTrue(
+                isPanelUsableInLiveManifest("http-exchanges"),
+                "http-exchanges panel is not available in this environment");
+
+        Response response = probe().get(api("/http-exchanges/routes?limit=3"));
+        assertThat(response.status()).as("GET /http-exchanges/routes status").isEqualTo(200);
+        assertThat(response.isJson())
+                .as("GET /http-exchanges/routes content-type (%s)", response.contentType())
+                .isTrue();
+
+        JsonNode root = response.json();
+        assertThat(root.path("available").isBoolean()).as("routes.available").isTrue();
+        assertThat(root.path("notes").isArray()).as("routes.notes").isTrue();
+        assumeTrue(root.path("available").asBoolean(false), "HTTP exchanges are not recorded in this environment");
+        assertThat(root.path("topPerCriterion").asInt(-1))
+                .as("routes.topPerCriterion")
+                .isEqualTo(3);
+        assertThat(root.path("routesTruncated").isBoolean())
+                .as("routes.routesTruncated")
+                .isTrue();
+        assertThat(root.path("distinctRoutes").isInt())
+                .as("routes.distinctRoutes")
+                .isTrue();
+
+        JsonNode window = root.path("window");
+        for (String field : List.of(
+                "retainedExchanges",
+                "hiddenSelfExchanges",
+                "summarizedExchanges",
+                "timedExchanges",
+                "totalDurationMs")) {
+            assertThat(window.path(field).isNumber())
+                    .as("routes.window.%s must be numeric", field)
+                    .isTrue();
+        }
+        for (String field : List.of("bufferSize", "evicted", "oldestTimestamp", "newestTimestamp")) {
+            assertThat(window.path(field).isNumber() || isNull(window.path(field)))
+                    .as("routes.window.%s must be a number or null", field)
+                    .isTrue();
+        }
+        assertThat(window.path("summarizedExchanges").asInt()
+                        + window.path("hiddenSelfExchanges").asInt())
+                .as("summarized and hidden BootUI exchanges reconcile with the retained window")
+                .isEqualTo(window.path("retainedExchanges").asInt());
+
+        JsonNode routes = root.path("routes");
+        assertThat(routes.isArray()).as("routes.routes").isTrue();
+        assertThat(routes.size())
+                .as("ranked routes stay bounded by the five ranking criteria")
+                .isLessThanOrEqualTo(5 * 3);
+        for (JsonNode route : routes) {
+            assertThat(route.path("routeSource").asText())
+                    .as("a route must declare how it was resolved")
+                    .isIn("FRAMEWORK_TEMPLATE", "DECLARED_MAPPING", "MASKED_PATH");
+            assertThat(route.path("route").asText())
+                    .as("a route never carries a query string")
+                    .doesNotContain("?");
+            assertThat(route.path("id").asText())
+                    .isEqualTo(route.path("method").asText() + " "
+                            + route.path("route").asText());
+            long statuses = 0;
+            for (String field : List.of("status2xx", "status3xx", "status4xx", "status5xx", "statusOther")) {
+                statuses += route.path(field).asLong();
+            }
+            assertThat(statuses)
+                    .as("status classes reconcile with requests")
+                    .isEqualTo(route.path("requests").asLong());
+            for (String field : List.of("p50DurationMs", "p95DurationMs", "p99DurationMs", "maxDurationMs")) {
+                assertThat(route.path(field).isNumber() || isNull(route.path(field)))
+                        .as("route.%s", field)
+                        .isTrue();
+            }
+            assertThat(route.path("shareOfRetainedTimePercent").isNumber()).isTrue();
+            route.path("topFor")
+                    .forEach(criterion -> assertThat(criterion.asText())
+                            .as("ranking criterion")
+                            .isIn("REQUESTS", "TOTAL_DURATION", "P95_DURATION", "MAX_DURATION", "ERROR_COUNT"));
+        }
+    }
+
+    /**
+     * An application request is listed with its route, and that route's row — pinned, so it is returned
+     * whatever its rank — counts it. The exchange list and the route rankings must agree on every adapter,
+     * and the numeric path segment must never become part of a route.
+     */
+    @Test
+    void httpExchangeRoutesLinkToTheirRankingRow() {
+        assumeTrue(
+                isPanelUsableInLiveManifest("http-exchanges"),
+                "http-exchanges panel is not available in this environment");
+        String marker = "conformance-route-probe";
+        probe().get(routeProbePath());
+
+        // Spring WebFlux records an exchange once the response has completed, so it can land a moment after
+        // the client has read the response; poll briefly rather than race the recorder.
+        JsonNode exchange = MissingNode.getInstance();
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (true) {
+            Response list = probe().get(api("/http-exchanges?q=" + marker));
+            assertThat(list.status()).as("GET /http-exchanges?q= status").isEqualTo(200);
+            assumeTrue(
+                    isNull(list.json().path("unavailableReason")),
+                    "HTTP exchanges are not recorded in this environment");
+            exchange = list.json().path("exchanges").path(0);
+            if (exchange.isObject() || System.nanoTime() > deadline) {
+                break;
+            }
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        assertThat(exchange.isObject()).as("the probe request is recorded").isTrue();
+        String route = exchange.path("route").asText("");
+        assertThat(route)
+                .as("exchange.route")
+                .startsWith("/")
+                .doesNotContain("4711")
+                .doesNotContain("?");
+        assertThat(exchange.path("routeSource").asText()).isIn("FRAMEWORK_TEMPLATE", "DECLARED_MAPPING", "MASKED_PATH");
+        String routeId = exchange.path("method").asText() + " " + route;
+        String encodedRouteId = URLEncoder.encode(routeId, StandardCharsets.UTF_8);
+
+        Response rankings = probe().get(api("/http-exchanges/routes?limit=1&route=" + encodedRouteId));
+        assertThat(rankings.status())
+                .as("GET /http-exchanges/routes?route= status")
+                .isEqualTo(200);
+        JsonNode row = null;
+        for (JsonNode candidate : rankings.json().path("routes")) {
+            if (routeId.equals(candidate.path("id").asText())) {
+                row = candidate;
+            }
+        }
+        assertThat(row).as("the pinned row for %s", routeId).isNotNull();
+        assertThat(row.path("requests").asLong()).isPositive();
+
+        Response filtered = probe().get(api("/http-exchanges?route=" + encodedRouteId));
+        assertThat(filtered.json().path("page").path("matched").asLong())
+                .as("the route filter lists exactly the exchanges the row counts")
+                .isEqualTo(row.path("requests").asLong());
     }
 
     @Test

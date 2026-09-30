@@ -152,6 +152,39 @@ test.describe('BootUI on Spring WebFlux', () => {
     await expect(page.locator('.activity-table')).toBeVisible()
   })
 
+  test('profiles a traced request with trace-id-only tiers on the reactive stack', async ({page, request, baseURL}) => {
+    // The reactive sample runs no tracer, so an inbound W3C traceparent is what gives the exchange the
+    // trace id the reactive profiler correlates on. The serving-thread and time-window tiers stay
+    // unavailable on an event loop, and the drawer says so instead of guessing.
+    const traceId = `4bf92f3577b34da6a3ce929d${Date.now().toString(16).slice(-8).padStart(8, '0')}`
+    const traced = await request.get(`${baseURL}/api/greetings/Grace`, {
+      headers: {traceparent: `00-${traceId}-00f067aa0ba902b7-01`}
+    })
+    expect(traced.ok()).toBeTruthy()
+
+    const activity = await request.get(`${baseURL}/bootui/api/activity`)
+    const entry = (await activity.json()).entries.find(
+      (candidate) => candidate.type === 'REQUEST' && candidate.correlationId === traceId
+    )
+    expect(entry?.profileable).toBe(true)
+
+    await page.goto('/bootui/#/activity')
+    const row = page.locator('.activity-table tbody tr', {hasText: '/api/greetings/Grace'}).first()
+    await expect(row).toBeVisible({timeout: 15_000})
+    await row.getByRole('button', {name: /Profile/}).click()
+
+    const drawer = page.locator('.activity-drawer')
+    await expect(drawer).toBeVisible()
+    await expect(drawer).toContainText('reduced, trace-id-only profile')
+    await expect(drawer.getByRole('heading', {name: /^REST client calls/})).toBeVisible()
+    await expect(drawer.getByRole('heading', {name: /^Cache accesses/})).toBeVisible()
+    await expect(drawer).toContainText('Serving thread and time window correlation are unavailable on this adapter')
+    await expect(drawer.getByRole('button', {name: /Copy profile/})).toBeVisible()
+
+    await page.keyboard.press('Escape')
+    await expect(drawer).toHaveCount(0)
+  })
+
   test('raw Spring Security panel exposes reactive chains and mappings without blocking', async ({
     page,
     request,
@@ -301,7 +334,7 @@ test.describe('BootUI on Spring WebFlux', () => {
     await page.goto('/bootui/#/http-exchanges')
     await page.locator('#http-exchanges-filter').fill('curlProbe')
 
-    const probeRow = page.locator('tbody tr', {hasText: 'curlProbe'}).first()
+    const probeRow = page.locator('.http-exchanges-table tbody tr', {hasText: 'curlProbe'}).first()
     await expect(probeRow).toBeVisible({timeout: 15_000})
     await probeRow.locator('.http-exchanges-detail-toggle').click()
     // Precondition: the header really was recorded, so the absence assertions below cannot pass vacuously.
@@ -327,6 +360,28 @@ test.describe('BootUI on Spring WebFlux', () => {
     expect(copied).not.toContain('beta')
     expect(copied.toLowerCase()).not.toContain('x-api-key')
     expect(copied).not.toContain('e2e-must-not-be-copied')
+  })
+
+  test('HTTP Exchanges ranks routes by their WebFlux template, never by a path value', async ({page, request}) => {
+    for (const name of ['Ada', 'Grace', 'Barbara']) {
+      expect((await request.get(`/api/greetings/${name}`)).ok()).toBeTruthy()
+    }
+
+    await page.goto('/bootui/#/http-exchanges')
+
+    // A word-shaped path value such as a name is indistinguishable from a route word, so only the matched
+    // handler pattern can group these three requests into one row.
+    const routeRow = page.locator('.http-routes-table tbody tr[data-route-id="GET /api/greetings/{name}"]')
+    await expect(routeRow).toBeVisible({timeout: 15_000})
+    await expect(routeRow.locator('.http-routes-source')).toHaveText(/template/)
+    await expect(page.locator('.http-routes-table')).not.toContainText('Grace')
+    await expect(page.locator('.http-routes-table')).not.toContainText('/bootui')
+
+    await routeRow.locator('.http-routes-exchanges-link').click()
+    await expect(page).toHaveURL(/route=GET/)
+    await expect(page.locator('.http-exchanges-route-filter')).toContainText('GET /api/greetings/{name}')
+    await expect(page.locator('.http-exchanges-table tbody tr').first()).toContainText('/api/greetings/')
+    await expect(page.locator('.http-exchanges-table')).not.toContainText('/api/notes')
   })
 
   test('panels with no reactive equivalent yet explain why in the sidebar and panel alert', async ({page}) => {

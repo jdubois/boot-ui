@@ -148,6 +148,25 @@ public abstract class AbstractCliConformanceTest {
     }
 
     @Test
+    void testCliLogTailToolFollowsTheExposurePolicy() {
+        LogTailExposureContract contract = new LogTailExposureContract().log();
+
+        contract.assertMaskedIn(cliLogTail(), "bootui logs tail");
+        LogTailExposureContract.withExposure(
+                "METADATA_ONLY",
+                null,
+                () -> contract.assertOmittedIn(cliLogTail(), "bootui logs tail (METADATA_ONLY)"));
+        LogTailExposureContract.withExposure(
+                "FULL", null, () -> contract.assertVerbatimIn(cliLogTail(), "bootui logs tail (FULL)"));
+    }
+
+    private JsonNode cliLogTail() {
+        Response response = invoke("get_log_tail", "{}");
+        assertThat(response.status()).isEqualTo(200);
+        return response.json().path("entries");
+    }
+
+    @Test
     void testCliReadToolAcceptsAnEmptyBody() {
         Response response = probe().request("POST", CLI + "/tools/get_overview", Map.of(), null);
 

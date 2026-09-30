@@ -64,12 +64,21 @@ public final class McpToolDescriptions {
                             + "trace ids to correlate activity, exceptions, SQL, and HTTP exchanges."),
             Map.entry(
                     "get_log_tail",
-                    "Return the latest buffered application log snapshot. Logs are application-controlled and may "
-                            + "contain sensitive data; use them only in the local diagnostic context."),
+                    "Return the latest buffered application log snapshot. Messages follow bootui.expose-values: "
+                            + "secret-like assignments are masked by default and messages are omitted under "
+                            + "METADATA_ONLY, but other sensitive text may remain; use them only in the local "
+                            + "diagnostic context."),
             Map.entry(
                     "get_http_exchanges",
                     "Return a bounded, newest-first snapshot of application HTTP request/response metadata. Correlate "
                             + "paths, statuses, and timings with live activity and traces."),
+            Map.entry(
+                    "get_http_routes",
+                    "Return route performance rankings over the retained HTTP exchanges: per method and route "
+                            + "template, request and status-class counts, average, p50, p95, p99 and maximum "
+                            + "duration, and share of request time, plus the evidence window. limit is the number "
+                            + "of routes per ranking criterion. Figures cover the retained window only, not "
+                            + "service-level metrics."),
             Map.entry(
                     "get_overview",
                     "Return stable application identity and runtime context, including versions, active profiles, and "
@@ -301,6 +310,10 @@ public final class McpToolDescriptions {
                     "Analyze the existing BootUI heap dump and return the resulting report. This never captures, downloads, "
                             + "or deletes a heap dump."));
 
+    /** Advisors whose findings carry structured violation locations. */
+    private static final java.util.Set<String> LOCATED_ADVISORS =
+            java.util.Set.of("architecture", "rest_api", "hibernate");
+
     private McpToolDescriptions() {}
 
     public static String spring(String name) {
@@ -417,7 +430,9 @@ public final class McpToolDescriptions {
                     + "not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding "
                     + "before changing code. Unknown rule returns 404; stale or missing snapshot returns 409: reread the "
                     + "cached report, not a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset "
-                    + "with a smaller limit; a refusal is not an empty or completed page.";
+                    + "with a smaller limit; a refusal is not an empty or completed page. A non-empty locations list "
+                    + "aligns index-for-index with violations (a null entry has no location); an empty list means no "
+                    + "violation on the page has one.";
         }
         String description = COMMON.get(name);
         if (description == null) {
@@ -446,6 +461,12 @@ public final class McpToolDescriptions {
                 + "Use violationDetails.scanId with get_" + advisor + "_rule_violations to page cached retained "
                 + "details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not "
                 + "guarantee completeness when truncated. Verify each finding before changing code."
+                + (LOCATED_ADVISORS.contains(advisor)
+                        ? " sampleLocations aligns index-for-index with sampleViolations when non-empty (a null entry"
+                                + " has no location): className, memberName, kind, sourceFile, line, sourcePath and"
+                                + " precision (LINE, MEMBER or CLASS). Open sourcePath at line to go straight to the"
+                                + " code; violationDetails.locationNotes says why a path is missing."
+                        : "")
                 + (advisor.equals("hibernate")
                         ? " When scan.status is PARTIAL, read diagnostics (source rule id or discovery, unit, level,"
                                 + " message) for rules and units that failed or lacked evidence, and a result's"

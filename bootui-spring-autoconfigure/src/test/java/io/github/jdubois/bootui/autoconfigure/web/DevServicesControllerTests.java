@@ -17,11 +17,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.autoconfigure.service.connection.ConnectionDetails;
 import org.springframework.context.support.GenericApplicationContext;
+import org.springframework.core.env.MapPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 class DevServicesControllerTests {
@@ -259,6 +261,61 @@ class DevServicesControllerTests {
     }
 
     @Test
+    void logsMaskSecretAssignmentsUnderTheDefaultExposure() throws Exception {
+        GenericApplicationContext context = new GenericApplicationContext();
+        context.registerBean("secretLogsTestcontainer", SecretLogsTestcontainer.class);
+        context.refresh();
+        MockMvc mvc = standaloneSetup(new DevServicesController(context, new BootUiProperties()))
+                .build();
+
+        mvc.perform(get("/bootui/api/dev-services/bean:secretLogsTestcontainer/logs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.logs").value(SecretLogsTestcontainer.MASKED))
+                .andExpect(jsonPath("$.logsOmitted").value(false))
+                .andExpect(jsonPath("$.truncated").value(false));
+
+        context.close();
+    }
+
+    @Test
+    void logsFollowTheLiveExposurePolicyOnEveryRequest() throws Exception {
+        SecretLogsTestcontainer.reads.set(0);
+        GenericApplicationContext context = new GenericApplicationContext();
+        context.registerBean("secretLogsTestcontainer", SecretLogsTestcontainer.class);
+        context.refresh();
+        Map<String, Object> live = new HashMap<>();
+        context.getEnvironment().getPropertySources().addFirst(new MapPropertySource("live", live));
+        MockMvc mvc = standaloneSetup(new DevServicesController(context, new BootUiProperties()))
+                .build();
+        String path = "/bootui/api/dev-services/bean:secretLogsTestcontainer/logs";
+
+        live.put("bootui.expose-values", "METADATA_ONLY");
+        mvc.perform(get(path))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("bean:secretLogsTestcontainer"))
+                .andExpect(jsonPath("$.logs").value((Object) null))
+                .andExpect(jsonPath("$.logsOmitted").value(true))
+                .andExpect(jsonPath("$.truncated").value(false));
+        assertThat(SecretLogsTestcontainer.reads)
+                .as("omitted logs are never read")
+                .hasValue(0);
+
+        live.put("bootui.expose-values", "FULL");
+        mvc.perform(get(path))
+                .andExpect(jsonPath("$.logs").value(SecretLogsTestcontainer.LOGS))
+                .andExpect(jsonPath("$.logsOmitted").value(false));
+
+        live.put("bootui.expose-values", "MASKED");
+        live.put("bootui.mask-secrets", "false");
+        mvc.perform(get(path)).andExpect(jsonPath("$.logs").value(SecretLogsTestcontainer.LOGS));
+
+        live.clear();
+        mvc.perform(get(path)).andExpect(jsonPath("$.logs").value(SecretLogsTestcontainer.MASKED));
+
+        context.close();
+    }
+
+    @Test
     void restartReturns500WhenStopThrows() throws Exception {
         BootUiProperties properties = new BootUiProperties();
         properties.getDevServices().setRestartEnabled(true);
@@ -484,6 +541,28 @@ class DevServicesControllerTests {
 
         public String getLogs() {
             return null;
+        }
+    }
+
+    static class SecretLogsTestcontainer {
+
+        static final String LOGS = "database system is ready\nPOSTGRES_PASSWORD=pg-secret\napi_key: ak-1\n";
+
+        static final String MASKED = "database system is ready\nPOSTGRES_PASSWORD=******\napi_key: ******\n";
+
+        static final AtomicInteger reads = new AtomicInteger();
+
+        public String getDockerImageName() {
+            return "postgres:16";
+        }
+
+        public boolean isRunning() {
+            return true;
+        }
+
+        public String getLogs() {
+            reads.incrementAndGet();
+            return LOGS;
         }
     }
 

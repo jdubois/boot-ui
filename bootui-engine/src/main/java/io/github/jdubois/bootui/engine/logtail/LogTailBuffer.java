@@ -6,6 +6,8 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 
 /**
@@ -29,11 +31,19 @@ import java.util.function.Consumer;
  * {@link #add} on the logging thread. A {@link ThreadLocal} guard drops re-entrant appends so the tail
  * can never recurse into a stack overflow. Subscribers are notified <em>outside</em> the lock, and the
  * buffer itself never logs.</p>
+ *
+ * <p><strong>Delivery threads.</strong> Streams hand captured lines to threads made by
+ * {@link #deliveryThreadFactory(String)}, which expose and write them to clients. Lines logged on those
+ * threads, such as a framework's debug output about encoding the stream itself, are never captured. This
+ * extends the re-entrancy guard across the hand-off: otherwise each delivered line could log a new line
+ * that is captured and delivered in turn, without end.</p>
  */
 public final class LogTailBuffer {
 
     /** Default line cap; matches the historical Spring Logback ring depth so its wire is byte-identical. */
     public static final int DEFAULT_MAX_LINES = 500;
+
+    private static final ThreadLocal<Boolean> DELIVERY_THREAD = ThreadLocal.withInitial(() -> Boolean.FALSE);
 
     private final int maxLines;
     private final long maxBytes;
@@ -64,7 +74,7 @@ public final class LogTailBuffer {
 
     /** Appends a line, evicting oldest lines past the line/byte caps, then notifies subscribers. */
     public void add(LogLineDto line) {
-        if (line == null || Boolean.TRUE.equals(appending.get())) {
+        if (line == null || Boolean.TRUE.equals(appending.get()) || Boolean.TRUE.equals(DELIVERY_THREAD.get())) {
             return;
         }
         appending.set(Boolean.TRUE);
@@ -124,6 +134,34 @@ public final class LogTailBuffer {
     }
 
     private record Entry(LogLineDto line, int bytes) {}
+
+    /**
+     * A factory for the daemon threads that deliver captured lines to log-tail clients, named {@code namePrefix}
+     * followed by a sequence number. No {@code LogTailBuffer} captures a line logged on one of these threads.
+     */
+    public static ThreadFactory deliveryThreadFactory(String namePrefix) {
+        AtomicLong sequence = new AtomicLong();
+        return runnable -> {
+            Thread thread = new Thread(
+                    () -> {
+                        DELIVERY_THREAD.set(Boolean.TRUE);
+                        runnable.run();
+                    },
+                    namePrefix + sequence.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        };
+    }
+
+    /** Whether the calling thread delivers log-tail lines, so anything it logs is not captured. */
+    public static boolean isDeliveryThread() {
+        return Boolean.TRUE.equals(DELIVERY_THREAD.get());
+    }
+
+    /** The number of live subscribers, so adapters and tests can confirm a closed stream released its subscription. */
+    public int subscriberCount() {
+        return subscribers.size();
+    }
 
     /** Backlog snapshot plus an unsubscribe handle returned by {@link #subscribeWithReplay}. */
     public record Subscription(List<LogLineDto> backlog, Runnable unsubscribe) {}

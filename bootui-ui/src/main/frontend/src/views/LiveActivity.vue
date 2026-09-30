@@ -1,5 +1,6 @@
 <script setup>
 import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {useRoute} from 'vue-router'
 import {apiFetch} from '../api.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
@@ -14,6 +15,14 @@ import {useConfirm} from '../utils/useConfirm.js'
 import {useFlashMessage} from '../utils/useFlashMessage.js'
 import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
 import {useCopyToClipboard} from '../utils/useCopyToClipboard.js'
+import {
+  cacheAccessSummary,
+  childTierLabel,
+  profileSections,
+  restCallSummary,
+  tierLabel,
+  unavailableTiersText
+} from '../utils/requestProfile.js'
 import {
   appendOlderPage,
   bucketEntries,
@@ -47,6 +56,7 @@ const FLOW_COLLAPSED_STORAGE_KEY = 'bootui.activity.flowCollapsed'
 const PERSISTENCE_DOCS_URL = 'https://www.julien-dubois.com/boot-ui/properties#live-activity-durable-persistence'
 
 const props = defineProps(panelProps)
+const route = useRoute()
 const {readOnly, readOnlyReason, manifestAvailable, manifestUnavailableReason} = usePanelState(props)
 const {confirm} = useConfirm()
 const {message: banner, flash, clear: clearBanner} = useFlashMessage()
@@ -230,6 +240,25 @@ const combinedEntries = computed(() => mergeActivityPages(report.value?.entries,
 
 const available = computed(() => report.value?.available ?? false)
 const kpis = computed(() => report.value?.kpis ?? null)
+
+// The slowest request links to its route's row in the HTTP Exchanges route summary, ranked by slowest
+// request so the row is on screen. A server that predates route summaries sends no route id, so the link
+// falls back to a path search.
+const slowestEndpointLink = computed(() => {
+  const k = kpis.value
+  if (!k?.slowestEndpoint) return undefined
+  return k.slowestEndpointRouteId
+    ? {path: '/http-exchanges', query: {route: k.slowestEndpointRouteId, rank: 'maxDurationMs'}}
+    : {path: '/http-exchanges', query: {q: k.slowestEndpoint}}
+})
+
+const slowestEndpointTitle = computed(() => {
+  const k = kpis.value
+  if (!k?.slowestEndpoint) return null
+  return k.slowestEndpointRouteId
+    ? `Open ${k.slowestEndpointRouteId}, the route of the slowest request (${k.slowestEndpoint}), in HTTP Exchanges`
+    : `Open ${k.slowestEndpoint} in HTTP Exchanges`
+})
 const sources = computed(() => report.value?.sources ?? [])
 const warnings = computed(() => report.value?.warnings ?? [])
 
@@ -319,8 +348,15 @@ const timingSummary = computed(() => {
   if (timing.sqlPercent != null) {
     text += ` (${timing.sqlPercent}% of request)`
   }
+  if (timing.restCallCount) {
+    text += `, ${timing.restCallCount} REST client call(s), ${formatDurationMs(timing.restCallMs)} outbound`
+  }
   return text
 })
+
+// Per-section correlation metadata (tier, availability, truncation). Empty for an older server's profile.
+const sections = computed(() => profileSections(profile.value))
+const tiersNote = computed(() => unavailableTiersText(profile.value))
 
 function togglePause() {
   autoRefresh.value = !autoRefresh.value
@@ -409,16 +445,20 @@ async function openProfile(
   opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
 ) {
   if (!entry.profileable) return
+  await loadProfile(entry.id, opener)
+}
+
+async function loadProfile(id, opener) {
   profileOpenerEl.value =
     opener?.matches?.('button, a, input, select, textarea, [tabindex]:not([tabindex="-1"])') === true
       ? opener
       : opener?.querySelector?.('.bootui-keyboard-target') || null
-  profileRequestId.value = entry.id
+  profileRequestId.value = id
   profileLoading.value = true
   profileError.value = null
   profile.value = null
   try {
-    const response = await apiFetch(`api/activity/request/${encodeURIComponent(entry.id)}`)
+    const response = await apiFetch(`api/activity/request/${encodeURIComponent(id)}`)
     if (!response.ok) {
       throw new Error(`Request failed with status ${response.status}`)
     }
@@ -497,9 +537,13 @@ function renderProfileReport() {
   if (req.principal) lines.push(`Principal: ${req.principal}`)
   if (req.traceId) lines.push(`Trace id: ${req.traceId}`)
   if (p.timing) lines.push(`Timing: ${timingSummary.value}`)
+  if (p.approximate) lines.push('Correlation: approximate (some signals were matched by time window only)')
+  const meta = sections.value
   lines.push('')
-  lines.push(`SQL (${p.sqlCorrelationApproximate ? 'approximate, time-window' : 'exact'}):`)
-  if (p.sqlGroups && p.sqlGroups.length) {
+  lines.push(sqlHeading(p, meta.SQL))
+  if (meta.SQL && !meta.SQL.available) {
+    lines.push(`  (unavailable: ${meta.SQL.unavailableReason})`)
+  } else if (p.sqlGroups && p.sqlGroups.length) {
     for (const group of p.sqlGroups) {
       const flag = group.potentialNPlusOne ? ' [N+1]' : ''
       lines.push(`  ×${group.executions}${flag} ${group.sql}`)
@@ -510,30 +554,98 @@ function renderProfileReport() {
   } else {
     lines.push('  (none correlated)')
   }
-  if (p.exceptions && p.exceptions.length) {
+  pushTruncation(lines, meta.SQL)
+  if (meta.EXCEPTION && !meta.EXCEPTION.available) {
     lines.push('')
     lines.push('Exceptions:')
-    for (const ex of p.exceptions) {
+    lines.push(`  (unavailable: ${meta.EXCEPTION.unavailableReason})`)
+  } else if (p.exceptions && p.exceptions.length) {
+    lines.push('')
+    lines.push(`Exceptions${tierSuffix(meta.EXCEPTION, true)}:`)
+    for (const [index, ex] of p.exceptions.entries()) {
       const message = ex.message ? `: ${ex.message}` : ''
-      lines.push(`  ${ex.exceptionClassName}${message}`)
+      lines.push(`  ${ex.exceptionClassName}${message}${childTierSuffix(meta.EXCEPTION, index)}`)
       if (ex.location) lines.push(`    at ${ex.location}`)
     }
+    pushTruncation(lines, meta.EXCEPTION)
   }
-  if (p.security && p.security.length) {
+  if (meta.SECURITY && !meta.SECURITY.available) {
     lines.push('')
     lines.push('Security events:')
-    for (const event of p.security) {
+    lines.push(`  (unavailable: ${meta.SECURITY.unavailableReason})`)
+  } else if (p.security && p.security.length) {
+    lines.push('')
+    lines.push(`Security events${tierSuffix(meta.SECURITY, true)}:`)
+    for (const [index, event] of p.security.entries()) {
       const principal = event.principal ? ` · ${event.principal}` : ''
       const match = event.threadMatched ? ' (exact)' : ''
-      lines.push(`  ${event.type}${principal}${match}`)
+      lines.push(`  ${event.type}${principal}${match}${childTierSuffix(meta.SECURITY, index)}`)
+    }
+    pushTruncation(lines, meta.SECURITY)
+  }
+  if (meta.REST_CLIENT) {
+    lines.push('')
+    lines.push(`REST client calls${tierSuffix(meta.REST_CLIENT, true)}:`)
+    if (!meta.REST_CLIENT.available) {
+      lines.push(`  (unavailable: ${meta.REST_CLIENT.unavailableReason})`)
+    } else if (p.restCalls && p.restCalls.length) {
+      for (const [index, call] of p.restCalls.entries()) {
+        lines.push(
+          `  ${restCallSummary(call)} · ${formatDurationMs(call.durationMillis)}${childTierSuffix(meta.REST_CLIENT, index)}`
+        )
+        if (!call.success && call.errorMessage) lines.push(`    ${call.errorMessage}`)
+        if (call.callSite) lines.push(`    at ${call.callSite}`)
+      }
+      pushTruncation(lines, meta.REST_CLIENT)
+    } else {
+      lines.push('  (none correlated)')
     }
   }
-  if (p.notes && p.notes.length) {
+  if (meta.CACHE) {
+    lines.push('')
+    lines.push(`Cache accesses${tierSuffix(meta.CACHE, true)}:`)
+    if (!meta.CACHE.available) {
+      lines.push(`  (unavailable: ${meta.CACHE.unavailableReason})`)
+    } else if (p.cacheAccesses && p.cacheAccesses.length) {
+      for (const [index, access] of p.cacheAccesses.entries()) {
+        const key = access.keyHash ? ` · key ${access.keyHash}` : ''
+        lines.push(`  ${cacheAccessSummary(access)}${key}${childTierSuffix(meta.CACHE, index)}`)
+      }
+      pushTruncation(lines, meta.CACHE)
+    } else {
+      lines.push('  (none correlated)')
+    }
+  }
+  if ((p.notes && p.notes.length) || tiersNote.value) {
     lines.push('')
     lines.push('Notes:')
-    for (const note of p.notes) lines.push(`  - ${note}`)
+    for (const note of p.notes ?? []) lines.push(`  - ${note}`)
+    if (tiersNote.value) lines.push(`  - ${tiersNote.value}`)
   }
   return lines.join('\n')
+}
+
+function tierSuffix(section, standalone = false) {
+  const label = tierLabel(section?.tier)
+  if (!label) return ''
+  return standalone ? ` (${label})` : `, ${label}`
+}
+
+function childTierSuffix(section, index) {
+  const label = childTierLabel(section, index)
+  return label ? ` [${label}]` : ''
+}
+
+// Older servers send no sections, so keep their original heading; otherwise name the tier that was used.
+function sqlHeading(p, section) {
+  if (!section) return `SQL (${p.sqlCorrelationApproximate ? 'approximate, time-window' : 'exact'}):`
+  if (!section.available) return 'SQL (unavailable):'
+  if (!section.tier) return 'SQL:'
+  return `SQL (${section.tier === 'TIME_WINDOW' ? 'approximate' : 'exact'}${tierSuffix(section)}):`
+}
+
+function pushTruncation(lines, section) {
+  if (section?.truncationText) lines.push(`  … ${section.truncationText}`)
 }
 
 function restoreFilters() {
@@ -570,7 +682,15 @@ watch([typeFilter, severityFilter, textFilter, errorsOnly], () => {
   filterReloadTimer = setTimeout(refreshNow, 300)
 })
 
-onMounted(() => window.addEventListener('keydown', onKeydown))
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  // HTTP Exchanges links each exchange here with ?request=<exchange id>. The profile endpoint answers
+  // honestly for any id, including one that is no longer retained or carries no trace id.
+  const linkedRequest = route?.query?.request
+  if (typeof linkedRequest === 'string' && linkedRequest) {
+    loadProfile(linkedRequest, null)
+  }
+})
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   if (filterReloadTimer) clearTimeout(filterReloadTimer)
@@ -703,6 +823,10 @@ function toggleFlow() {
             <div class="card-body py-2">
               <div class="text-muted small">Latency p50 / p95</div>
               <div class="fs-5">{{ kpis.p50LatencyMs ?? '—' }} / {{ kpis.p95LatencyMs ?? '—' }} ms</div>
+              <div v-if="kpis.latencySampleCount != null" class="text-muted small activity-kpi-latency-samples">
+                over {{ formatNumber(kpis.latencySampleCount) }} retained
+                {{ kpis.latencySampleCount === 1 ? 'request' : 'requests' }}
+              </div>
             </div>
           </div>
         </div>
@@ -734,10 +858,10 @@ function toggleFlow() {
         <div class="col-6 col-lg-3">
           <component
             :is="kpis.slowestEndpoint ? 'router-link' : 'div'"
-            class="card h-100 text-reset text-decoration-none"
+            class="card h-100 text-reset text-decoration-none activity-kpi-slowest"
             :class="{'activity-kpi-link': kpis.slowestEndpoint}"
-            :to="kpis.slowestEndpoint ? {path: '/http-exchanges', query: {q: kpis.slowestEndpoint}} : undefined"
-            :title="kpis.slowestEndpoint ? `Open ${kpis.slowestEndpoint} in HTTP Exchanges` : null"
+            :to="kpis.slowestEndpoint ? slowestEndpointLink : undefined"
+            :title="kpis.slowestEndpoint ? slowestEndpointTitle : null"
           >
             <div class="card-body py-2">
               <div class="text-muted small">
@@ -747,7 +871,9 @@ function toggleFlow() {
               <div class="fs-5 text-truncate">
                 <template v-if="kpis.slowestEndpoint">
                   {{ kpis.slowestEndpointMs ?? '—' }} ms
-                  <span class="text-muted small d-block text-truncate">{{ kpis.slowestEndpoint }}</span>
+                  <span class="text-muted small d-block text-truncate activity-kpi-slowest-route">
+                    {{ kpis.slowestEndpointRouteId ?? kpis.slowestEndpoint }}
+                  </span>
                 </template>
                 <template v-else>—</template>
               </div>
@@ -1137,6 +1263,11 @@ function toggleFlow() {
               <p class="small mb-1">{{ timingSummary }}</p>
             </section>
 
+            <p v-if="profile.approximate" class="alert alert-secondary small py-2 mb-3" role="note">
+              <i class="bi bi-info-circle me-1" aria-hidden="true"></i>Parts of this profile are approximate: some
+              signals were matched by time window only.
+            </p>
+
             <section class="mb-3">
               <h3 class="h6">
                 SQL
@@ -1154,6 +1285,12 @@ function toggleFlow() {
                 >
                   exact
                 </span>
+                <span
+                  v-if="sections.SQL?.tierLabel"
+                  class="badge text-bg-light border fw-normal ms-1 activity-tier"
+                  :title="sections.SQL.tierTitle"
+                  >{{ sections.SQL.tierLabel }}</span
+                >
               </h3>
               <div v-for="group in profile.sqlGroups" :key="group.sql" class="small mb-1">
                 <span v-if="group.potentialNPlusOne" class="badge text-bg-danger me-1">
@@ -1165,20 +1302,62 @@ function toggleFlow() {
                   <div v-for="site in group.callSites" :key="site" class="font-monospace">at {{ site }}</div>
                 </div>
               </div>
-              <p v-if="!profile.sql.length" class="text-muted small mb-0">No SQL correlated to this request.</p>
+              <p v-if="sections.SQL && !sections.SQL.available" class="text-muted small mb-0">
+                {{ sections.SQL.unavailableReason }}
+              </p>
+              <p v-else-if="!profile.sql.length" class="text-muted small mb-0">No SQL correlated to this request.</p>
+              <p v-if="sections.SQL?.truncationText" class="text-muted small mb-0">
+                {{ sections.SQL.truncationText }}
+              </p>
             </section>
 
-            <section v-if="profile.exceptions.length" class="mb-3">
-              <h3 class="h6">Exceptions</h3>
+            <section
+              v-if="profile.exceptions.length || (sections.EXCEPTION && !sections.EXCEPTION.available)"
+              class="mb-3"
+            >
+              <h3 class="h6">
+                Exceptions
+                <span
+                  v-if="sections.EXCEPTION?.tierLabel"
+                  class="badge text-bg-light border fw-normal ms-1 activity-tier"
+                  :title="sections.EXCEPTION.tierTitle"
+                  >{{ sections.EXCEPTION.tierLabel }}</span
+                >
+              </h3>
+              <p v-if="sections.EXCEPTION && !sections.EXCEPTION.available" class="text-muted small mb-0">
+                {{ sections.EXCEPTION.unavailableReason }}
+              </p>
               <div v-for="(ex, index) in profile.exceptions" :key="index" class="small mb-1">
                 <code>{{ ex.exceptionClassName }}</code>
                 <span v-if="ex.message" class="text-muted">: {{ ex.message }}</span>
+                <span v-if="childTierLabel(sections.EXCEPTION, index)" class="text-muted activity-child-tier">
+                  · {{ childTierLabel(sections.EXCEPTION, index) }}</span
+                >
                 <span v-if="ex.location" class="d-block text-muted">{{ ex.location }}</span>
               </div>
+              <p v-if="sections.EXCEPTION?.truncationText" class="text-muted small mb-0">
+                {{ sections.EXCEPTION.truncationText }}
+              </p>
             </section>
 
-            <section v-if="profile.security && profile.security.length" class="mb-3">
-              <h3 class="h6">Security events</h3>
+            <section
+              v-if="
+                (profile.security && profile.security.length) || (sections.SECURITY && !sections.SECURITY.available)
+              "
+              class="mb-3"
+            >
+              <h3 class="h6">
+                Security events
+                <span
+                  v-if="sections.SECURITY?.tierLabel"
+                  class="badge text-bg-light border fw-normal ms-1 activity-tier"
+                  :title="sections.SECURITY.tierTitle"
+                  >{{ sections.SECURITY.tierLabel }}</span
+                >
+              </h3>
+              <p v-if="sections.SECURITY && !sections.SECURITY.available" class="text-muted small mb-0">
+                {{ sections.SECURITY.unavailableReason }}
+              </p>
               <div v-for="(event, index) in profile.security" :key="index" class="small mb-1">
                 <code>{{ event.type }}</code>
                 <span v-if="event.principal" class="text-muted"> · {{ event.principal }}</span>
@@ -1196,7 +1375,81 @@ function toggleFlow() {
                 >
                   principal
                 </span>
+                <span v-if="childTierLabel(sections.SECURITY, index)" class="text-muted activity-child-tier">
+                  · {{ childTierLabel(sections.SECURITY, index) }}</span
+                >
               </div>
+              <p v-if="sections.SECURITY?.truncationText" class="text-muted small mb-0">
+                {{ sections.SECURITY.truncationText }}
+              </p>
+            </section>
+
+            <section v-if="sections.REST_CLIENT" class="mb-3">
+              <h3 class="h6">
+                REST client calls
+                <span
+                  v-if="sections.REST_CLIENT.tierLabel"
+                  class="badge text-bg-light border fw-normal ms-1 activity-tier"
+                  :title="sections.REST_CLIENT.tierTitle"
+                  >{{ sections.REST_CLIENT.tierLabel }}</span
+                >
+              </h3>
+              <p v-if="!sections.REST_CLIENT.available" class="text-muted small mb-0">
+                {{ sections.REST_CLIENT.unavailableReason }}
+              </p>
+              <template v-else>
+                <div v-for="(call, index) in profile.restCalls" :key="call.id" class="small mb-1 activity-rest-call">
+                  <code>{{ restCallSummary(call) }}</code>
+                  <span class="text-muted"> · {{ formatDurationMs(call.durationMillis) }}</span>
+                  <span v-if="childTierLabel(sections.REST_CLIENT, index)" class="text-muted activity-child-tier">
+                    · {{ childTierLabel(sections.REST_CLIENT, index) }}</span
+                  >
+                  <span v-if="!call.success && call.errorMessage" class="d-block text-muted">{{
+                    call.errorMessage
+                  }}</span>
+                  <div v-if="call.callSite" class="call-sites text-muted font-monospace">at {{ call.callSite }}</div>
+                </div>
+                <p v-if="!profile.restCalls?.length" class="text-muted small mb-0">
+                  No REST client calls correlated to this request.
+                </p>
+                <p v-if="sections.REST_CLIENT.truncationText" class="text-muted small mb-0">
+                  {{ sections.REST_CLIENT.truncationText }}
+                </p>
+              </template>
+            </section>
+
+            <section v-if="sections.CACHE" class="mb-3">
+              <h3 class="h6">
+                Cache accesses
+                <span
+                  v-if="sections.CACHE.tierLabel"
+                  class="badge text-bg-light border fw-normal ms-1 activity-tier"
+                  :title="sections.CACHE.tierTitle"
+                  >{{ sections.CACHE.tierLabel }}</span
+                >
+              </h3>
+              <p v-if="!sections.CACHE.available" class="text-muted small mb-0">
+                {{ sections.CACHE.unavailableReason }}
+              </p>
+              <template v-else>
+                <div
+                  v-for="(access, index) in profile.cacheAccesses"
+                  :key="index"
+                  class="small mb-1 activity-cache-access"
+                >
+                  <code>{{ cacheAccessSummary(access) }}</code>
+                  <span v-if="access.keyHash" class="text-muted"> · key {{ access.keyHash }}</span>
+                  <span v-if="childTierLabel(sections.CACHE, index)" class="text-muted activity-child-tier">
+                    · {{ childTierLabel(sections.CACHE, index) }}</span
+                  >
+                </div>
+                <p v-if="!profile.cacheAccesses?.length" class="text-muted small mb-0">
+                  No cache accesses correlated to this request.
+                </p>
+                <p v-if="sections.CACHE.truncationText" class="text-muted small mb-0">
+                  {{ sections.CACHE.truncationText }}
+                </p>
+              </template>
             </section>
 
             <section v-if="profile.trace && profile.trace.spans.length" class="mb-3">
@@ -1208,10 +1461,11 @@ function toggleFlow() {
               </ul>
             </section>
 
-            <section v-if="profile.notes.length">
+            <section v-if="profile.notes.length || tiersNote">
               <h3 class="h6">Notes</h3>
               <ul class="small text-muted mb-0">
                 <li v-for="(note, index) in profile.notes" :key="index">{{ note }}</li>
+                <li v-if="tiersNote">{{ tiersNote }}</li>
               </ul>
             </section>
           </div>

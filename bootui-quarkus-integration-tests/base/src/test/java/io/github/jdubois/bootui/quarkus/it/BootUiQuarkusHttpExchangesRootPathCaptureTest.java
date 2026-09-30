@@ -87,6 +87,22 @@ class BootUiQuarkusHttpExchangesRootPathCaptureTest {
                 .isTrue();
     }
 
+    /**
+     * The declared JAX-RS patterns are relative to the application, so they are matched under the same root
+     * path the captured request carries: {@code /app/widgets} resolves to its declared route, not a masked path.
+     */
+    @Test
+    void routeRankingsResolveDeclaredRoutesUnderTheRootPath() {
+        BootUiHttpProbe probe = probe();
+        probe.get("/app/widgets");
+
+        Response report = probe.get("/app/bootui/api/http-exchanges?q=widgets");
+        JsonNode exchange = report.json().path("exchanges").path(0);
+        assertThat(exchange.path("path").asText()).isEqualTo("/app/widgets");
+        assertThat(exchange.path("route").asText()).isEqualTo("/app/widgets");
+        assertThat(exchange.path("routeSource").asText()).isEqualTo("DECLARED_MAPPING");
+    }
+
     public static final class RootPathProfile implements QuarkusTestProfile {
         @Override
         public Map<String, String> getConfigOverrides() {

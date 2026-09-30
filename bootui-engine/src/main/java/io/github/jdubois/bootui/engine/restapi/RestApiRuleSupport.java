@@ -1,8 +1,10 @@
 package io.github.jdubois.bootui.engine.restapi;
 
 import io.github.jdubois.bootui.core.dto.RestApiRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorFindings;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolation;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
 import io.github.jdubois.bootui.engine.support.DetailText;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -63,21 +65,30 @@ final class RestApiRuleSupport {
      */
     static RestApiRuleResultDto fromViolations(
             RestApiContext context, RestApiRuleDefinition definition, List<String> violations) {
+        return fromRecords(context, definition, AdvisorViolation.withoutLocations(violations));
+    }
+
+    /**
+     * Builds a result from findings that may carry locations. The samples are cut from the very records the
+     * collector retains, so each sample text keeps its location and matches its retained detail exactly.
+     */
+    static RestApiRuleResultDto fromViolations(
+            RestApiContext context, RestApiRuleDefinition definition, AdvisorFindings findings) {
+        return fromRecords(context, definition, findings.list());
+    }
+
+    private static RestApiRuleResultDto fromRecords(
+            RestApiContext context, RestApiRuleDefinition definition, List<AdvisorViolation> violations) {
         if (violations.isEmpty()) {
             return pass(definition);
         }
-        if (context.violationCollector() != null) {
-            context.violationCollector()
-                    .record(definition.id(), violations.size(), violations, RestApiRuleSupport::detail);
-        }
-        List<String> samples = new ArrayList<>();
-        for (String violation : violations) {
-            if (samples.size() >= MAX_SAMPLE_VIOLATIONS) {
-                break;
-            }
-            samples.add(detail(violation));
-        }
-        return result(definition, VIOLATION, violations.size(), samples);
+        AdvisorViolationCollector collector = context.violationCollector() != null
+                ? context.violationCollector()
+                : new AdvisorViolationCollector(MAX_SAMPLE_VIOLATIONS);
+        List<AdvisorViolation> samples = collector.record(
+                definition.id(), violations.size(), violations, RestApiRuleSupport::detail, MAX_SAMPLE_VIOLATIONS);
+        return result(definition, VIOLATION, violations.size(), AdvisorViolation.texts(samples))
+                .withSampleLocations(AdvisorViolation.locations(samples));
     }
 
     static RestApiRuleResultDto result(

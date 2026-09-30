@@ -60,7 +60,7 @@ makes outbound calls to OSV.dev.
 
 **Diagnostics reads** — `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
 `get_sql_traces`, `get_transactions` (Spring MVC and WebFlux only), `get_traces`, `get_log_tail`,
-`get_http_exchanges`, and
+`get_http_exchanges`, `get_http_routes`, and
 `get_rest_client_traces`. `get_live_activity` returns the correlated feed of HTTP requests, SQL statements, exceptions,
 security events, scheduled-task runs, and, on Spring, cache accesses, grouped by request or trace.
 `get_exception_detail` returns a group's stack trace, causes, and occurrences.
@@ -124,7 +124,7 @@ engine. Each adapter supplies only a thin Jackson envelope codec, Jackson 2 on Q
 requests and responses are byte-identical across backends.
 
 **Quarkus** runs the same JSON-RPC bridge at the same endpoint with the same runtime toggle, reading the `bootui.mcp.*`
-keys from MicroProfile Config. Its catalog declares 73 tools against Spring MVC's 89, because the tools behind
+keys from MicroProfile Config. Its catalog declares 74 tools against Spring MVC's 90, because the tools behind
 Spring-only panels are withheld: the GraalVM and CRaC scans and reports, Conditions, Startup Timeline, HTTP Sessions,
 Spring Data, Spring Security, JMS, DevTools, and every transaction tool. `get_overview` is offered, and `spring_scan`
 runs the Quarkus-native idiom advisor.
@@ -193,10 +193,16 @@ services. Restart controls appear only for supported Testcontainers services, an
 Opening the panel is side-effect free: BootUI skips lazy, prototype, and otherwise uninitialized service beans that
 would have to be created just for inspection, and reports those skips as warnings.
 
-::: warning Masking covers connection details, not log output
 BootUI masks discovered connection details, such as credentials embedded in a JDBC URL, before they reach the browser.
-Raw container log output is streamed verbatim, bounded by `bootui.dev-services.log-tail-bytes`, and is not scanned for
-secrets. A service that prints credentials to its own logs surfaces them here.
+Container log output, bounded by `bootui.dev-services.log-tail-bytes`, follows the same exposure rule as
+[Log Tail](diagnostics.md#log-message-exposure): under the default `bootui.expose-values=MASKED` secret-like
+assignments such as `POSTGRES_PASSWORD=...` are masked before the tail is cut, under `METADATA_ONLY` the logs are not
+read and the panel says they are omitted by policy, and only `FULL` or `bootui.mask-secrets=false` shows them verbatim.
+
+::: warning Masking covers assignments, not every secret
+Only the first word of a secret-like `key=value` or `key: value` assignment is masked in container logs. A service that
+prints a bare token, a credential inside a connection string, or a token after an authorization scheme such as
+`Bearer` to its own logs still surfaces it here.
 :::
 
 On Quarkus the panel reports the framework's native Dev Services, the containers it auto-starts for dev and test. The

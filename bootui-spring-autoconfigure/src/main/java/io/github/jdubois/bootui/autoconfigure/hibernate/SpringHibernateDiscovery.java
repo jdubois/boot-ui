@@ -116,7 +116,9 @@ public final class SpringHibernateDiscovery {
                     modifying != null,
                     modifying != null && modifying.clearAutomatically(),
                     modifying != null && modifying.flushAutomatically(),
-                    Arrays.asList(method.getParameterTypes())));
+                    Arrays.asList(method.getParameterTypes()),
+                    null,
+                    method.getDeclaringClass()));
         }
         return methods;
     }
