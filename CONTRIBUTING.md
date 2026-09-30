@@ -271,6 +271,17 @@ installing the reactor dependencies, run the affected conformance class:
 ./mvnw -B -ntp -pl bootui-quarkus-integration-tests/base test -Dtest=BootUiQuarkusApiConformanceTest
 ```
 
+The correlation coverage scenario (`AbstractCorrelationCoverageTest`, [PLAN-v2.md](docs/PLAN-v2.md) §5.1) measures
+how much request-thread work Live Activity nests under its request when identical requests are paced, sent
+back-to-back, or sent simultaneously. Each runner writes its report and the raw feed to
+`target/correlation-coverage/`:
+
+```bash
+./mvnw -B -ntp -pl bootui-spring-sample-app test -Dtest=SpringCorrelationCoverageTest
+./mvnw -B -ntp -pl bootui-spring-webflux-sample-app test -Dtest=WebFluxCorrelationCoverageTest
+./mvnw -B -ntp -pl bootui-quarkus-integration-tests/otel test -Dtest=BootUiQuarkusCorrelationCoverageTest
+```
+
 The Architecture ThreadFactory exemption also has packaged-runtime regressions. The Spring check runs at
 `verify`, after the executable jar is repackaged; it scans nested resources and Java 27 bytecode with an intentionally
 older host ASM alongside ArchUnit's embedded reader, and verifies that the engine does not bundle another ASM copy.

@@ -2,8 +2,8 @@
 
 This document plans **BootUI 2.0**. The v1 plan, [PLAN.md](PLAN.md), keeps governing the 1.x line on `main`. All v2
 work happens on the long-lived `v2` branch, and nothing from it is released before 2.0.0 (§4). Section numbers are
-stable identifiers: cite them as `PLAN-v2.md §5.1`, and never renumber or reuse them. An item is 📋 Planned, ✅
-Delivered, 💤 Deferred, or ❌ Cut.
+stable identifiers: cite them as `PLAN-v2.md §5.1`, and never renumber or reuse them. An item is 📋 Planned, 🚧 In
+progress, ✅ Delivered, 💤 Deferred, or ❌ Cut.
 
 This revision incorporates three independent audits, on product strategy, technical feasibility, and adoption and
 agent value, and the reordered v1 plan. Appendix A records every proposal and what was done with it.
@@ -38,6 +38,19 @@ threads, and time windows. A proof of concept on the Spring MVC sample app measu
 
 Spring WebFlux and Quarkus already stamp trace ids on some of these records, but none of the stacks has a request
 identity that works without tracing.
+
+The M0 correlation scenario (§5.1) then measured the same gap in CI, with tracing on, by sending identical requests
+paced like a developer clicking, back-to-back like a test loop, and simultaneously like parallel calls:
+
+| Stack | Paced | Back-to-back | Simultaneous |
+| --- | --- | --- | --- |
+| Spring MVC: requests with a trace id; SQL, security, and cache nested under their request | 100 % | 0 % | 0 % |
+| Spring WebFlux: requests with a trace id; SQL and cache nested under their request | 100 % | 0 % | 0 % |
+| Quarkus: requests with a trace id; SQL and exceptions nested under their request | 100 % | 100 % | 100 % |
+
+On Spring, any two identical requests within ±50 ms of each other lose their link, which a test suite or a page's
+parallel calls do all the time. Quarkus is exact because BootUI owns its exchange capture and stamps the trace id
+directly, which is the design §5.1 extends to every stack.
 
 Once the PoC joined the same events exactly, it surfaced findings no single panel shows:
 
@@ -171,7 +184,7 @@ Three design points change how v1 items are finished, without changing their v1 
 
 | Milestone | Delivers | Depends on | Effort (engineer-days, rough) | Status |
 | --- | --- | --- | --- | --- |
-| **M0 Readiness** | CI on `v2`, the correlation and overhead scenarios as baselines, and the propagation and restart spikes (§5.1, §5.8) | — | 5–8 | 📋 Planned |
+| **M0 Readiness** | CI on `v2`, the correlation and overhead scenarios as baselines, and the propagation and restart spikes (§5.1, §5.8) | — | 5–8 | 🚧 In progress |
 | **M1 Exact correlation** (§5.1) | One correlation context on every event, with or without tracing, on all three stacks | M0; v1 wave 1 (§3.20a, §3.24a) | 40–50 | 📋 Planned |
 | **M2 Journal and Live Activity** (§5.2, §5.3) | The in-memory journal, incremental aggregates, run summaries, and Live Activity served from the journal with its unified timeline | M1; §3.22, §3.27 | 30–40 | 📋 Planned |
 | **M3 Runtime Insights** (§5.4–§5.6) | Projections, the panel, Live Activity entry points, five observations, agent tools, and the demo | M2; §3.25 | 35–45 | 📋 Planned |
@@ -179,6 +192,15 @@ Three design points change how v1 items are finished, without changing their v1 
 
 M0–M4 total about **135–180 engineer-days**, roughly five to seven months with two developers who also maintain 1.x.
 The v1 foundations are estimated in their own plan. Before v1 wave 1 lands, `v2` works on M0 and the spikes.
+
+M0 is split into four items:
+
+| Item | Delivers | Status |
+| --- | --- | --- |
+| M0-1 | `build.yml` runs on `v2` pushes and pull requests | ✅ Delivered |
+| M0-2 | The correlation coverage scenario on Spring MVC, Spring WebFlux, and Quarkus, recording the baseline in §1.1 | ✅ Delivered |
+| M0-3 | The capture overhead scenario, recording the baseline for the §2.2 overhead target | 📋 Planned |
+| M0-4 | The WebFlux propagation spike (§5.1) and the DevTools restart and Quarkus live-reload spike (§5.8) | 📋 Planned |
 
 ```mermaid
 graph LR
@@ -284,10 +306,24 @@ Out of scope:
 - `@Async`, `CompletableFuture`, and executor instrumentation. Work on unwrapped executors stays visible as unowned work
   (§5.5), with the `TaskDecorator` the application can add.
 
+Baseline (M0-2). `AbstractCorrelationCoverageTest` in `bootui-conformance` runs on all three stacks. It reads only
+the public Live Activity feed and writes its report to `target/correlation-coverage/`. Besides the table in §1.1, it
+found:
+
+- **Exchange ids collide.** `HttpExchangesService` hashes an exchange's millisecond timestamp, method, displayed URI,
+  status, and duration into its id, so identical requests that start in the same millisecond and take as long share an
+  id, and their profiles become ambiguous. The scenario observed it on Spring MVC and Spring WebFlux. M1 gives each
+  request its own identity.
+- **Exceptions appear once per group.** Live Activity shows one `EXCEPTION` row per exception group, dated by its last
+  occurrence, so repeated failures of one route nest at most once. M1 records immutable occurrences.
+- **`since` is ignored on Quarkus** without persistence, while Spring honors it. The scenario filters by window itself.
+- **Tracing could not be switched off** with `management.tracing.enabled=false` in a Spring Boot 4 test, so the
+  tracing-off baseline moves to M1, together with the secured, Kafka, and raw-executor routes.
+
 Acceptance criteria:
 
-- The correlation scenario (identical requests in parallel, secured requests, Kafka sends, a raw executor, tracing on
-  and off) meets the §2.2 target on Spring MVC and Quarkus, and WebFlux reports its measured coverage.
+- The correlation scenario, extended with tracing off, Kafka sends, and a raw executor, enforces the §2.2 target as its
+  floors on Spring MVC and Quarkus in every phase, and WebFlux reports its measured coverage.
 - Contexts never leak between requests on reused platform threads, virtual threads, Reactor schedulers, or Vert.x
   worker hops, including after async timeouts and cancellations.
 - A DevTools restart and a Quarkus live reload each produce a new `runId`.
