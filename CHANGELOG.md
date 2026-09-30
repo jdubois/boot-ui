@@ -7,8 +7,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Request profiles show the REST client calls and cache accesses a request made.** The Live Activity profile drawer
+  and **Copy profile** gain REST client calls, masked exactly as the REST Client panel shows them, and cache accesses,
+  which carry only the hashed key, on Spring MVC, Spring WebFlux, and Quarkus (cache on Spring only, since Quarkus has no
+  cache-access capture seam). Every section is labelled with the tier that correlated it — trace id, serving thread, or
+  time window — the profile is flagged approximate whenever a time window was used, a tier an adapter cannot provide is
+  listed as unavailable, and each section shows at most 200 entries with a count of the rest. The
+  `GET /bootui/api/activity/request/{id}` response only gains fields (docs/PLAN.md §3.20a).
+
 ### Changed
 
+- **Every adapter builds request profiles with one shared engine assembler.** Spring MVC, Spring WebFlux, and Quarkus
+  now serve the profile through `ExecutionProfileAssembler`, so identical evidence produces an identical profile. Each
+  signal attaches to at most one request: a trace id shared by two captured requests, or a serving thread or time
+  window two requests could equally claim, now leaves the signal out of both profiles and counts it in the notes,
+  instead of showing it in both. On Spring MVC, exceptions that carry the request's trace id now match it by trace id
+  first, as SQL already did.
 - **Quarkus 3.33.3.3.** The Quarkus extension, integration tests, and sample app move to Quarkus 3.33.3.3, the
   newest micro release of the 3.33 LTS stream.
 

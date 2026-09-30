@@ -16,7 +16,8 @@ import org.junit.jupiter.api.Test;
  * Quarkus analogue of Spring's Symfony-style profiler, deliberately narrower: Spring's tiered correlator
  * falls back to HTTP method+path+time-window+thread heuristics when no trace id is present, relying on its
  * synchronous one-thread-per-request servlet model — an invariant the Vert.x event loop does not provide —
- * so only tier 1 (exact trace-id matching) is ported (see the engine {@code RequestProfileAssembler}).
+ * so the shared engine {@code ExecutionProfileAssembler} serves it with trace-id-only capabilities and reports
+ * the serving-thread and time-window tiers unavailable.
  *
  * <p>Reuses the same {@code /it/sql} and {@code /it/boom} probes as
  * {@link BootUiQuarkusLiveActivityCorrelationTest} and {@link BootUiQuarkusLiveActivityExceptionCorrelationTest},
@@ -73,6 +74,36 @@ class BootUiQuarkusLiveActivityProfileTest {
         assertThat(anyNoteContains(profile, "SQL is correlated exactly by trace id"))
                 .as("the profile must explain the SQL correlation is exact, not heuristic")
                 .isTrue();
+
+        assertThat(profile.path("approximate").asBoolean(true))
+                .as("a trace-id-only profile is never approximate")
+                .isFalse();
+        assertThat(section(profile, "SQL").path("tier").asText())
+                .as("the SQL section is labelled with the tier that correlated it")
+                .isEqualTo("TRACE_ID");
+        assertThat(profile.path("restCalls").isArray())
+                .as("the profile carries a REST client section")
+                .isTrue();
+        assertThat(section(profile, "CACHE").path("available").asBoolean(true))
+                .as("Quarkus has no cache-access capture seam, so the cache section says so")
+                .isFalse();
+        assertThat(section(profile, "CACHE").path("unavailableReason").asText(""))
+                .contains("not available on Quarkus");
+        for (JsonNode tier : profile.path("correlationTiers")) {
+            boolean traceId = "TRACE_ID".equals(tier.path("tier").asText());
+            assertThat(tier.path("available").asBoolean())
+                    .as("only the trace-id tier is provable on Quarkus: %s", tier)
+                    .isEqualTo(traceId);
+        }
+    }
+
+    private static JsonNode section(JsonNode profile, String type) {
+        for (JsonNode section : profile.path("sections")) {
+            if (type.equals(section.path("type").asText())) {
+                return section;
+            }
+        }
+        throw new AssertionError("no " + type + " section in " + profile);
     }
 
     @Test

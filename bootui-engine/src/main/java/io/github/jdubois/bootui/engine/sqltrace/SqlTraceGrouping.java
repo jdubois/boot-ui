@@ -15,7 +15,7 @@ import java.util.Set;
  * and bounded call-site aggregation.
  *
  * <p>Factored out of {@link SqlTraceRecorder#topStatements()} so the Live Activity per-request profile
- * (Spring's {@code LiveActivityCorrelator}, Quarkus's {@code RequestProfileAssembler}) and the
+ * (the shared {@code ExecutionProfileAssembler} every adapter serves it through) and the
  * list-level N+1 badge (Spring's {@code LiveActivityService}, Quarkus's {@code LiveActivityAssembler})
  * apply the exact same definition of "looks like an N+1 access pattern" the global SQL Trace panel
  * uses, over an explicit, already-correlated subset of executions rather than the recorder's full

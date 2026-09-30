@@ -16,7 +16,6 @@ import io.github.jdubois.bootui.core.dto.RequestProfileDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
-import io.github.jdubois.bootui.core.dto.TraceDetailDto;
 import io.github.jdubois.bootui.engine.activity.ActivityCaptureFactory;
 import io.github.jdubois.bootui.engine.activity.ActivityCapturePoller;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
@@ -39,10 +38,13 @@ import io.github.jdubois.bootui.engine.security.SecurityLogsService;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.telemetry.TracesService;
+import io.github.jdubois.bootui.engine.web.ExecutionProfileAssembler;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.engine.web.HttpExchangesService;
 import io.github.jdubois.bootui.engine.web.LiveActivityAssembler;
-import io.github.jdubois.bootui.engine.web.RequestProfileAssembler;
+import io.github.jdubois.bootui.engine.web.ProfileCapabilities;
+import io.github.jdubois.bootui.engine.web.ProfileEvidence;
+import io.github.jdubois.bootui.engine.web.ProfileEvidence.Source;
 import io.github.jdubois.bootui.quarkus.BootUiEngineProducer;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
@@ -114,11 +116,11 @@ import javax.sql.DataSource;
  * {@code QuarkusActivityCapture}'s startup poller would not have been created) and closes it on
  * {@link #onStop}.
  *
- * <p>The per-request <em>profile</em> drill-down ({@code GET /bootui/api/activity/request/{id}}) is a
- * <strong>reduced, trace-id-only</strong> port of Spring's fuller Symfony-style profiler: Spring's tiered
- * correlator falls back to HTTP method+path+time-window+thread heuristics when no trace id is available,
- * which relies on its synchronous one-thread-per-request servlet model and has no reliable Quarkus
- * equivalent (deliberately not ported here — see {@link RequestProfileAssembler}). A REQUEST entry from
+ * <p>The per-request <em>profile</em> drill-down ({@code GET /bootui/api/activity/request/{id}}) is served
+ * by the shared {@link ExecutionProfileAssembler} with <strong>trace-id-only</strong> capabilities: Spring
+ * MVC also correlates by serving thread and time window, which relies on its synchronous
+ * one-thread-per-request servlet model and has no reliable Quarkus equivalent, so this resource reports
+ * those tiers unavailable rather than inferring them. A REQUEST entry from
  * {@link #activity} is marked {@code profileable} by this resource, as a thin post-processing step over the
  * shared assembler's output, iff its exchange carries a resolvable trace id — the exact (and only) signal
  * {@link #request} can correlate on; every other entry, and every request without one, stays
@@ -133,6 +135,10 @@ public class LiveActivityResource {
 
     /** Upper bound on simultaneous activity streams; this is a local dev tool, not a fan-out hub. */
     static final int MAX_CONCURRENT_STREAMS = 20;
+
+    /** Why the profile's cache section is empty on Quarkus: {@code quarkus-cache} has no capture seam. */
+    static final String CACHE_UNAVAILABLE = "Cache access capture is not available on Quarkus: quarkus-cache "
+            + "interceptors expose no public seam to observe cache accesses.";
 
     private final HttpExchangeBuffer buffer;
     private final QuarkusExposurePolicy exposure;
@@ -154,7 +160,7 @@ public class LiveActivityResource {
     private final SelfTelemetryClassifier selfClassifier;
     private final HttpExchangesService exchanges = new HttpExchangesService();
     private final LiveActivityAssembler assembler = new LiveActivityAssembler();
-    private final RequestProfileAssembler profileAssembler = new RequestProfileAssembler();
+    private final ExecutionProfileAssembler profileAssembler = new ExecutionProfileAssembler();
     private final SecurityLogsService securityLogs = new SecurityLogsService();
     private final AtomicInteger openStreams = new AtomicInteger();
     private volatile ActivityCapturePoller switchPoller;
@@ -373,34 +379,53 @@ public class LiveActivityResource {
     }
 
     /**
-     * The reduced, trace-id-only per-request profile drill-down — see the class Javadoc and
-     * {@link RequestProfileAssembler} for why Spring's fuller time-window/thread-heuristic tiers aren't
-     * ported. Gathers the same signal sources {@link #activity} does, then delegates all correlation and
-     * honest-degrade shaping to the framework-neutral assembler.
+     * The trace-id-only per-request profile drill-down — see the class Javadoc for why the serving-thread
+     * and time-window tiers are reported unavailable. Gathers the same masked, self-filtered signal sources
+     * {@link #activity} does, plus REST Client Reactive calls, then delegates all correlation and
+     * honest-degrade shaping to the shared engine assembler. Cache accesses have no capture seam on
+     * Quarkus, so that section reports itself unavailable.
      */
     @GET
     @Path("/request/{id}")
     @Produces(MediaType.APPLICATION_JSON)
     public RequestProfileDto request(@PathParam("id") String id) {
-        HttpExchangesReport requests = requestsReport();
-        HttpExchangeDto request = requests.exchanges().stream()
-                .filter(exchange -> id.equals(exchange.id()))
-                .findFirst()
-                .orElse(null);
-        String traceId = request == null ? null : request.traceId();
-        TraceDetailDto trace = traceId == null || traceId.isBlank()
-                ? null
-                : tracesService.detail(traceId).orElse(null);
-        boolean securityAvailable = panelAvailability.isPanelAvailable(BootUiPanels.SECURITY_LOGS);
+        List<HttpExchangeDto> requests = requestsReport().exchanges();
+        boolean found = requests.stream().anyMatch(exchange -> id.equals(exchange.id()));
+        ProfileEvidence evidence = found
+                ? new ProfileEvidence(
+                        requests,
+                        sqlSource(),
+                        Source.of(allExceptionDetails()),
+                        securitySource(),
+                        restCallSource(),
+                        Source.unavailable(CACHE_UNAVAILABLE),
+                        traceId -> traceId == null || traceId.isBlank()
+                                ? null
+                                : tracesService.detail(traceId).orElse(null))
+                : new ProfileEvidence(requests, null, null, null, null, null, null);
+        return profileAssembler.requestProfile(id, evidence, ProfileCapabilities.traceIdOnly());
+    }
 
-        return profileAssembler.profile(
-                id,
-                request,
-                requests.exchanges(),
-                sqlSnapshot().entries(),
-                allExceptionDetails(),
-                securityEvents(securityAvailable),
-                trace);
+    private Source<SqlTraceEntryDto> sqlSource() {
+        SqlSnapshot sql = sqlSnapshot();
+        return sql.available() ? Source.of(sql.entries()) : Source.unavailable(sql.unavailableWarning());
+    }
+
+    private Source<SecurityLogEventDto> securitySource() {
+        return panelAvailability.isPanelAvailable(BootUiPanels.SECURITY_LOGS)
+                ? Source.of(securityEvents(true))
+                : Source.notCapturing("Security Logs");
+    }
+
+    private Source<RestClientTraceEntryDto> restCallSource() {
+        if (!panelAvailability.isPanelEnabled(BootUiPanels.REST_CLIENT_TRACE)) {
+            return Source.panelDisabled("REST Client");
+        }
+        return restClientActivityAvailable()
+                ? Source.of(restClientTraceRecorder
+                        .report(exposure.maskSecrets(), exposure.valueExposure())
+                        .entries())
+                : Source.notCapturing("REST Client");
     }
 
     @GET

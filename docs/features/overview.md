@@ -187,33 +187,53 @@ cards jump to **Exceptions**, **Health**, **Heap Dump**, **Cache**, and **Schedu
 
 ### The per-request profiler
 
-Clicking a request opens a Symfony-style drawer that correlates that request's signals. It degrades gracefully and
-never fabricates data — every correlation is labelled with how it was established.
+Clicking a request opens a Symfony-style drawer that correlates that request's SQL, exceptions, security events, REST
+client calls, and cache accesses. It degrades gracefully and never fabricates data — every section is labelled with the
+tier that correlated it, and the whole profile is marked approximate whenever a time-window match was used.
 
-| Tier           | How it matches                                        | Labelled        |
-| -------------- | ----------------------------------------------------- | --------------- |
-| Trace id       | Micrometer Tracing's `traceId`, threaded from the MDC | **exact**       |
-| Serving thread | The one worker thread that served the request         | **exact**       |
-| Time window    | Method, path, and time window                         | **approximate** |
+| Tier           | How it matches                                                              | Adapters             | Labelled        |
+| -------------- | --------------------------------------------------------------------------- | -------------------- | --------------- |
+| Trace id       | A trace id that exactly one captured request carries                        | All                  | **exact**       |
+| Serving thread | The one worker thread that served the request, inside its window            | Spring MVC           | **exact**       |
+| Time window    | The request's time window — plus method and path for exceptions, and the principal for security events | Spring MVC | **approximate** |
 
-A servlet request runs start-to-finish on one worker thread that serves only one request at a time, so statements on
-that thread are unambiguously its own. The time-window fallback applies only when the serving thread cannot be uniquely
-identified — two genuinely concurrent identical requests, or SQL run on an async thread.
+One shared engine assembler builds the profile on every adapter, so identical evidence produces an identical profile.
+A servlet request runs start-to-finish on one worker thread that serves only one request at a time, so work on that
+thread is unambiguously its own. Spring WebFlux and Quarkus serve requests on shared event-loop and worker threads, so
+their profiles correlate by trace id only and list the serving-thread and time-window tiers as unavailable rather than
+guessing. For SQL, the time-window fallback applies only when no statement matched a trace id or the serving thread —
+two genuinely concurrent identical requests, or SQL run on an async thread.
 
 Security audit events follow the same rule: matched by time window and principal, but pinned exactly to the serving
 thread when BootUI captured them there, so two concurrent requests sharing a principal cannot trade security events. An
 event proven to have fired on another thread is excluded.
 
+A signal attaches to at most one request. A trace id shared by two captured requests — a reused inbound
+`traceparent`, or an application calling itself — attaches nothing to either, and a signal that two requests' threads
+or windows could equally claim stays out of both profiles. The notes count every such signal, so nothing is attributed
+by guesswork.
+
+**REST client calls** are shown exactly as the REST Client panel shows them, with query and header values masked by
+the same exposure policy, and **cache accesses** carry only the short key hash the cache recorder computed, never a raw
+key or value. Like the stream, both attach by trace id or serving thread only, never by time window. Quarkus has no
+cache-access capture seam, so its cache section says so.
+
 Identical repeated `SELECT`s above `bootui.activity.n-plus-one-threshold` are flagged as a potential N+1. Each flagged
 group lists the call sites in your own code that issued it — class, method, and line, captured by
 `bootui.sql-trace.capture-call-site` (on by default) — so you know which repository or service method to fix.
 
-The drawer also shows the request's timing breakdown (SQL versus everything else), its auth context, and the trace span
-list. **Escape** dismisses it, focus is trapped while it is open, and **Copy profile** exports the already-masked
-correlated timeline as plain text to paste into a bug report.
+Each section shows at most 200 entries and states how many more were correlated; N+1 groups and timing still count
+every correlated statement and call. A section whose source panel is disabled or not capturing explains why instead of
+looking empty.
 
-REST client calls, cache accesses, and scheduled-task runs nest correctly in the stream but are **not yet** part of the
-profiler's correlated timeline or **Copy profile** export. The REST Client panel keeps its own "chatty" badge for now.
+The drawer also shows the request's timing breakdown (SQL and outbound REST calls versus everything else), its auth
+context, and the trace span list. **Escape** dismisses it, focus is trapped while it is open, and **Copy profile**
+exports the already-masked correlated timeline — including REST client calls, cache accesses, tiers, and truncation — as
+plain text to paste into a bug report. Opening a profile only reads evidence BootUI already captured: it captures
+nothing new, calls no network service, and changes no state.
+
+Scheduled-task runs nest correctly in the stream but are **not yet** part of the profiler's correlated timeline or
+**Copy profile** export. The REST Client panel keeps its own "chatty" badge for now.
 
 ### Messaging capture
 

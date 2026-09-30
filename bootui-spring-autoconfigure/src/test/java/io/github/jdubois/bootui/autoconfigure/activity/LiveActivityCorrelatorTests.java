@@ -1,14 +1,18 @@
 package io.github.jdubois.bootui.autoconfigure.activity;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
+import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceController;
 import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.SecurityLogsController;
@@ -21,13 +25,22 @@ import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.PageMetadata;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
+import io.github.jdubois.bootui.core.dto.RequestProfileSectionDto;
+import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
+import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
+import io.github.jdubois.bootui.core.dto.RestClientTraceStatsDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
+import io.github.jdubois.bootui.engine.cache.CacheActivityEvent;
+import io.github.jdubois.bootui.engine.cache.CacheActivityOperation;
+import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
@@ -403,6 +416,87 @@ class LiveActivityCorrelatorTests {
         assertThat(profile.sqlCorrelationApproximate()).isTrue();
     }
 
+    @Test
+    void correlatesRestClientCallsAndCacheAccessesByTheServingThread() {
+        RequestCorrelationRegistry registry = new RequestCorrelationRegistry(100);
+        registry.record(new RequestCorrelationRegistry.RequestCorrelation(START, START + 100, "exec-1", "GET", "/a"));
+        CacheActivityRecorder cache = new CacheActivityRecorder(true, 100);
+        cache.recordHit("cacheManager", "sample-products", "active");
+        CacheActivityEvent captured = cache.recentEvents().get(0);
+        CacheActivityRecorder recorder = mock(CacheActivityRecorder.class);
+        when(recorder.isEnabled()).thenReturn(true);
+        when(recorder.recentEvents())
+                .thenReturn(List.of(
+                        new CacheActivityEvent(
+                                1,
+                                START + 20,
+                                "cacheManager",
+                                "sample-products",
+                                CacheActivityOperation.HIT,
+                                captured.keyHash(),
+                                null,
+                                "exec-1"),
+                        new CacheActivityEvent(
+                                2,
+                                START + 30,
+                                "cacheManager",
+                                "sample-products",
+                                CacheActivityOperation.MISS,
+                                captured.keyHash(),
+                                null,
+                                "scheduling-1")));
+        LiveActivityCorrelator correlator = outboundCorrelator(
+                requestsController(exchange("r1", BASE, "GET", "/a", 200, 100L)),
+                restClientController(
+                        restCall(1, START + 10, "exec-1", "https://inventory.example/items?token=******"),
+                        restCall(2, START + 15, "exec-2", "https://inventory.example/other")),
+                recorder,
+                registry,
+                new BootUiProperties());
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.restCalls()).extracting(RestClientTraceEntryDto::id).containsExactly(1L);
+        assertThat(profile.restCalls().get(0).uri()).isEqualTo("https://inventory.example/items?token=******");
+        assertThat(profile.cacheAccesses()).singleElement().satisfies(access -> {
+            assertThat(access.operation()).isEqualTo("HIT");
+            assertThat(access.keyHash()).isEqualTo(captured.keyHash()).doesNotContain("active");
+        });
+        assertThat(profile.sections())
+                .filteredOn(section -> List.of("REST_CLIENT", "CACHE").contains(section.type()))
+                .allSatisfy(section -> {
+                    assertThat(section.available()).isTrue();
+                    assertThat(section.tier()).isEqualTo("SERVING_THREAD");
+                });
+        assertThat(profile.timing().restCallCount()).isEqualTo(1);
+        assertThat(profile.correlationTiers())
+                .allSatisfy(tier -> assertThat(tier.available()).isTrue());
+    }
+
+    @Test
+    void reportsDisabledRestClientAndCachePanelsWithoutReadingThem() {
+        BootUiProperties properties = new BootUiProperties();
+        properties.panel(BootUiPanels.REST_CLIENT_TRACE).setEnabled(false);
+        properties.panel(BootUiPanels.CACHE).setEnabled(false);
+        RestClientTraceController restClient = restClientController(restCall(1, START + 10, "exec-1", "https://a"));
+        CacheActivityRecorder cache = mock(CacheActivityRecorder.class);
+        LiveActivityCorrelator correlator = outboundCorrelator(
+                requestsController(exchange("r1", BASE, "GET", "/a", 200, 100L)), restClient, cache, null, properties);
+
+        RequestProfileDto profile = correlator.profile("r1");
+
+        assertThat(profile.restCalls()).isEmpty();
+        assertThat(profile.cacheAccesses()).isEmpty();
+        assertThat(profile.sections())
+                .filteredOn(section -> List.of("REST_CLIENT", "CACHE").contains(section.type()))
+                .extracting(RequestProfileSectionDto::available, RequestProfileSectionDto::unavailableReason)
+                .containsExactly(
+                        tuple(false, "The REST Client panel is disabled."),
+                        tuple(false, "The Cache panel is disabled."));
+        verify(restClient, never()).trace();
+        verify(cache, never()).recentEvents();
+    }
+
     // --- helpers ---
 
     private LiveActivityCorrelator correlator(
@@ -447,11 +541,32 @@ class LiveActivityCorrelatorTests {
         return new LiveActivityCorrelator(
                 provider(requests),
                 provider(sql),
+                provider(null),
                 provider(exceptions),
                 provider(security),
                 provider(traces),
+                provider(null),
                 provider(requestCorrelations),
                 provider(securityCorrelations),
+                properties);
+    }
+
+    private LiveActivityCorrelator outboundCorrelator(
+            HttpExchangesController requests,
+            RestClientTraceController restClient,
+            CacheActivityRecorder cache,
+            RequestCorrelationRegistry requestCorrelations,
+            BootUiProperties properties) {
+        return new LiveActivityCorrelator(
+                provider(requests),
+                provider(null),
+                provider(restClient),
+                provider(null),
+                provider(null),
+                provider(null),
+                provider(cache),
+                provider(requestCorrelations),
+                provider(null),
                 properties);
     }
 
@@ -474,6 +589,45 @@ class LiveActivityCorrelatorTests {
         when(controller.exchanges(eq(null), eq(null), eq(null), eq(0), anyInt()))
                 .thenReturn(report);
         return controller;
+    }
+
+    private static RestClientTraceController restClientController(RestClientTraceEntryDto... entries) {
+        RestClientTraceController controller = mock(RestClientTraceController.class);
+        RestClientTraceReport report = new RestClientTraceReport(
+                true,
+                null,
+                true,
+                false,
+                100,
+                entries.length,
+                1000,
+                List.of("RestClient"),
+                RestClientTraceStatsDto.empty(),
+                List.of(entries),
+                List.of(),
+                List.of());
+        when(controller.trace()).thenReturn(report);
+        return controller;
+    }
+
+    private static RestClientTraceEntryDto restCall(long id, long timestamp, String thread, String uri) {
+        return new RestClientTraceEntryDto(
+                id,
+                timestamp,
+                "GET",
+                uri,
+                "inventory.example",
+                "/items",
+                200,
+                12L,
+                true,
+                null,
+                false,
+                "RestClient",
+                Map.of(),
+                null,
+                thread,
+                null);
     }
 
     private static SecurityLogsController securityController(SecurityLogEventDto... events) {

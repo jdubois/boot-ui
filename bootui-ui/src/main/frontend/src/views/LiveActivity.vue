@@ -15,6 +15,13 @@ import {useFlashMessage} from '../utils/useFlashMessage.js'
 import {useEventStreamRefresh} from '../utils/useEventStreamRefresh.js'
 import {useCopyToClipboard} from '../utils/useCopyToClipboard.js'
 import {
+  cacheAccessSummary,
+  profileSections,
+  restCallSummary,
+  tierLabel,
+  unavailableTiersText
+} from '../utils/requestProfile.js'
+import {
   appendOlderPage,
   bucketEntries,
   buildActivityQueryParams,
@@ -319,8 +326,15 @@ const timingSummary = computed(() => {
   if (timing.sqlPercent != null) {
     text += ` (${timing.sqlPercent}% of request)`
   }
+  if (timing.restCallCount) {
+    text += `, ${timing.restCallCount} REST client call(s), ${formatMillis(timing.restCallMs)} ms outbound`
+  }
   return text
 })
+
+// Per-section correlation metadata (tier, availability, truncation). Empty for an older server's profile.
+const sections = computed(() => profileSections(profile.value))
+const tiersNote = computed(() => unavailableTiersText(profile.value))
 
 function togglePause() {
   autoRefresh.value = !autoRefresh.value
@@ -497,9 +511,13 @@ function renderProfileReport() {
   if (req.principal) lines.push(`Principal: ${req.principal}`)
   if (req.traceId) lines.push(`Trace id: ${req.traceId}`)
   if (p.timing) lines.push(`Timing: ${timingSummary.value}`)
+  if (p.approximate) lines.push('Correlation: approximate (some signals were matched by time window only)')
+  const meta = sections.value
   lines.push('')
-  lines.push(`SQL (${p.sqlCorrelationApproximate ? 'approximate, time-window' : 'exact'}):`)
-  if (p.sqlGroups && p.sqlGroups.length) {
+  lines.push(`SQL (${p.sqlCorrelationApproximate ? 'approximate, time-window' : 'exact'}${tierSuffix(meta.SQL)}):`)
+  if (meta.SQL && !meta.SQL.available) {
+    lines.push(`  (unavailable: ${meta.SQL.unavailableReason})`)
+  } else if (p.sqlGroups && p.sqlGroups.length) {
     for (const group of p.sqlGroups) {
       const flag = group.potentialNPlusOne ? ' [N+1]' : ''
       lines.push(`  ×${group.executions}${flag} ${group.sql}`)
@@ -510,30 +528,75 @@ function renderProfileReport() {
   } else {
     lines.push('  (none correlated)')
   }
+  pushTruncation(lines, meta.SQL)
   if (p.exceptions && p.exceptions.length) {
     lines.push('')
-    lines.push('Exceptions:')
+    lines.push(`Exceptions${tierSuffix(meta.EXCEPTION, true)}:`)
     for (const ex of p.exceptions) {
       const message = ex.message ? `: ${ex.message}` : ''
       lines.push(`  ${ex.exceptionClassName}${message}`)
       if (ex.location) lines.push(`    at ${ex.location}`)
     }
+    pushTruncation(lines, meta.EXCEPTION)
   }
   if (p.security && p.security.length) {
     lines.push('')
-    lines.push('Security events:')
+    lines.push(`Security events${tierSuffix(meta.SECURITY, true)}:`)
     for (const event of p.security) {
       const principal = event.principal ? ` · ${event.principal}` : ''
       const match = event.threadMatched ? ' (exact)' : ''
       lines.push(`  ${event.type}${principal}${match}`)
     }
+    pushTruncation(lines, meta.SECURITY)
   }
-  if (p.notes && p.notes.length) {
+  if (meta.REST_CLIENT) {
+    lines.push('')
+    lines.push(`REST client calls${tierSuffix(meta.REST_CLIENT, true)}:`)
+    if (!meta.REST_CLIENT.available) {
+      lines.push(`  (unavailable: ${meta.REST_CLIENT.unavailableReason})`)
+    } else if (p.restCalls && p.restCalls.length) {
+      for (const call of p.restCalls) {
+        lines.push(`  ${restCallSummary(call)} · ${formatDurationMs(call.durationMillis)}`)
+        if (!call.success && call.errorMessage) lines.push(`    ${call.errorMessage}`)
+        if (call.callSite) lines.push(`    at ${call.callSite}`)
+      }
+      pushTruncation(lines, meta.REST_CLIENT)
+    } else {
+      lines.push('  (none correlated)')
+    }
+  }
+  if (meta.CACHE) {
+    lines.push('')
+    lines.push(`Cache accesses${tierSuffix(meta.CACHE, true)}:`)
+    if (!meta.CACHE.available) {
+      lines.push(`  (unavailable: ${meta.CACHE.unavailableReason})`)
+    } else if (p.cacheAccesses && p.cacheAccesses.length) {
+      for (const access of p.cacheAccesses) {
+        const key = access.keyHash ? ` · key ${access.keyHash}` : ''
+        lines.push(`  ${cacheAccessSummary(access)}${key}`)
+      }
+      pushTruncation(lines, meta.CACHE)
+    } else {
+      lines.push('  (none correlated)')
+    }
+  }
+  if ((p.notes && p.notes.length) || tiersNote.value) {
     lines.push('')
     lines.push('Notes:')
-    for (const note of p.notes) lines.push(`  - ${note}`)
+    for (const note of p.notes ?? []) lines.push(`  - ${note}`)
+    if (tiersNote.value) lines.push(`  - ${tiersNote.value}`)
   }
   return lines.join('\n')
+}
+
+function tierSuffix(section, standalone = false) {
+  const label = tierLabel(section?.tier)
+  if (!label) return ''
+  return standalone ? ` (${label})` : `, ${label}`
+}
+
+function pushTruncation(lines, section) {
+  if (section?.truncationText) lines.push(`  … ${section.truncationText}`)
 }
 
 function restoreFilters() {
@@ -1137,6 +1200,11 @@ function toggleFlow() {
               <p class="small mb-1">{{ timingSummary }}</p>
             </section>
 
+            <p v-if="profile.approximate" class="alert alert-secondary small py-2 mb-3" role="note">
+              <i class="bi bi-info-circle me-1" aria-hidden="true"></i>Parts of this profile are approximate: some
+              signals were matched by time window only.
+            </p>
+
             <section class="mb-3">
               <h3 class="h6">
                 SQL
@@ -1154,6 +1222,12 @@ function toggleFlow() {
                 >
                   exact
                 </span>
+                <span
+                  v-if="sections.SQL?.tierLabel"
+                  class="badge text-bg-light border fw-normal ms-1 activity-tier"
+                  :title="sections.SQL.tierTitle"
+                  >{{ sections.SQL.tierLabel }}</span
+                >
               </h3>
               <div v-for="group in profile.sqlGroups" :key="group.sql" class="small mb-1">
                 <span v-if="group.potentialNPlusOne" class="badge text-bg-danger me-1">
@@ -1165,20 +1239,45 @@ function toggleFlow() {
                   <div v-for="site in group.callSites" :key="site" class="font-monospace">at {{ site }}</div>
                 </div>
               </div>
-              <p v-if="!profile.sql.length" class="text-muted small mb-0">No SQL correlated to this request.</p>
+              <p v-if="sections.SQL && !sections.SQL.available" class="text-muted small mb-0">
+                {{ sections.SQL.unavailableReason }}
+              </p>
+              <p v-else-if="!profile.sql.length" class="text-muted small mb-0">No SQL correlated to this request.</p>
+              <p v-if="sections.SQL?.truncationText" class="text-muted small mb-0">
+                {{ sections.SQL.truncationText }}
+              </p>
             </section>
 
             <section v-if="profile.exceptions.length" class="mb-3">
-              <h3 class="h6">Exceptions</h3>
+              <h3 class="h6">
+                Exceptions
+                <span
+                  v-if="sections.EXCEPTION?.tierLabel"
+                  class="badge text-bg-light border fw-normal ms-1 activity-tier"
+                  :title="sections.EXCEPTION.tierTitle"
+                  >{{ sections.EXCEPTION.tierLabel }}</span
+                >
+              </h3>
               <div v-for="(ex, index) in profile.exceptions" :key="index" class="small mb-1">
                 <code>{{ ex.exceptionClassName }}</code>
                 <span v-if="ex.message" class="text-muted">: {{ ex.message }}</span>
                 <span v-if="ex.location" class="d-block text-muted">{{ ex.location }}</span>
               </div>
+              <p v-if="sections.EXCEPTION?.truncationText" class="text-muted small mb-0">
+                {{ sections.EXCEPTION.truncationText }}
+              </p>
             </section>
 
             <section v-if="profile.security && profile.security.length" class="mb-3">
-              <h3 class="h6">Security events</h3>
+              <h3 class="h6">
+                Security events
+                <span
+                  v-if="sections.SECURITY?.tierLabel"
+                  class="badge text-bg-light border fw-normal ms-1 activity-tier"
+                  :title="sections.SECURITY.tierTitle"
+                  >{{ sections.SECURITY.tierLabel }}</span
+                >
+              </h3>
               <div v-for="(event, index) in profile.security" :key="index" class="small mb-1">
                 <code>{{ event.type }}</code>
                 <span v-if="event.principal" class="text-muted"> · {{ event.principal }}</span>
@@ -1199,6 +1298,68 @@ function toggleFlow() {
               </div>
             </section>
 
+            <section v-if="sections.REST_CLIENT" class="mb-3">
+              <h3 class="h6">
+                REST client calls
+                <span
+                  v-if="sections.REST_CLIENT.tierLabel"
+                  class="badge text-bg-light border fw-normal ms-1 activity-tier"
+                  :title="sections.REST_CLIENT.tierTitle"
+                  >{{ sections.REST_CLIENT.tierLabel }}</span
+                >
+              </h3>
+              <p v-if="!sections.REST_CLIENT.available" class="text-muted small mb-0">
+                {{ sections.REST_CLIENT.unavailableReason }}
+              </p>
+              <template v-else>
+                <div v-for="call in profile.restCalls" :key="call.id" class="small mb-1 activity-rest-call">
+                  <code>{{ restCallSummary(call) }}</code>
+                  <span class="text-muted"> · {{ formatDurationMs(call.durationMillis) }}</span>
+                  <span v-if="!call.success && call.errorMessage" class="d-block text-muted">{{
+                    call.errorMessage
+                  }}</span>
+                  <div v-if="call.callSite" class="call-sites text-muted font-monospace">at {{ call.callSite }}</div>
+                </div>
+                <p v-if="!profile.restCalls?.length" class="text-muted small mb-0">
+                  No REST client calls correlated to this request.
+                </p>
+                <p v-if="sections.REST_CLIENT.truncationText" class="text-muted small mb-0">
+                  {{ sections.REST_CLIENT.truncationText }}
+                </p>
+              </template>
+            </section>
+
+            <section v-if="sections.CACHE" class="mb-3">
+              <h3 class="h6">
+                Cache accesses
+                <span
+                  v-if="sections.CACHE.tierLabel"
+                  class="badge text-bg-light border fw-normal ms-1 activity-tier"
+                  :title="sections.CACHE.tierTitle"
+                  >{{ sections.CACHE.tierLabel }}</span
+                >
+              </h3>
+              <p v-if="!sections.CACHE.available" class="text-muted small mb-0">
+                {{ sections.CACHE.unavailableReason }}
+              </p>
+              <template v-else>
+                <div
+                  v-for="(access, index) in profile.cacheAccesses"
+                  :key="index"
+                  class="small mb-1 activity-cache-access"
+                >
+                  <code>{{ cacheAccessSummary(access) }}</code>
+                  <span v-if="access.keyHash" class="text-muted"> · key {{ access.keyHash }}</span>
+                </div>
+                <p v-if="!profile.cacheAccesses?.length" class="text-muted small mb-0">
+                  No cache accesses correlated to this request.
+                </p>
+                <p v-if="sections.CACHE.truncationText" class="text-muted small mb-0">
+                  {{ sections.CACHE.truncationText }}
+                </p>
+              </template>
+            </section>
+
             <section v-if="profile.trace && profile.trace.spans.length" class="mb-3">
               <h3 class="h6">Trace waterfall</h3>
               <ul class="list-unstyled small mb-0">
@@ -1208,10 +1369,11 @@ function toggleFlow() {
               </ul>
             </section>
 
-            <section v-if="profile.notes.length">
+            <section v-if="profile.notes.length || tiersNote">
               <h3 class="h6">Notes</h3>
               <ul class="small text-muted mb-0">
                 <li v-for="(note, index) in profile.notes" :key="index">{{ note }}</li>
+                <li v-if="tiersNote">{{ tiersNote }}</li>
               </ul>
             </section>
           </div>
