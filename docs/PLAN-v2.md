@@ -134,6 +134,12 @@ controls:
 | Time to first observation | ≤ 5 minutes from adding the dependency to reading a first observation, with tracing off and no extra property | Scripted walkthrough on each sample app |
 | Honesty | No observation on any counterexample fixture; "not enough evidence" never reads as "no change" | Fixture tests per observation |
 
+The M0-3 overhead baseline (`CaptureOverheadBenchmarkTest`, opt-in) measured today's capture cost on Spring MVC, on a
+worst-case route that answers in about 0.7 ms: with BootUI on, the sample app sustains a median 83 % of the throughput
+it reaches with BootUI off, and its p99 latency rises from 1.81 ms to 2.52 ms, with tracing sampling every request in
+both configurations. Slower, realistic requests dilute this cost. The journal target above is measured on top of this
+baseline, with BootUI on in both runs, and M1 and M2 must not make the BootUI-on figure worse.
+
 ### 2.3 Gates
 
 - **After M1.** If exact correlation stays below 95 % on Spring MVC or Quarkus, fix capture before building on it.
@@ -184,7 +190,7 @@ Three design points change how v1 items are finished, without changing their v1 
 
 | Milestone | Delivers | Depends on | Effort (engineer-days, rough) | Status |
 | --- | --- | --- | --- | --- |
-| **M0 Readiness** | CI on `v2`, the correlation and overhead scenarios as baselines, and the propagation and restart spikes (§5.1, §5.8) | — | 5–8 | 🚧 In progress |
+| **M0 Readiness** | CI on `v2`, the correlation and overhead scenarios as baselines, and the propagation and restart spikes (§5.1, §5.8) | — | 5–8 | ✅ Delivered |
 | **M1 Exact correlation** (§5.1) | One correlation context on every event, with or without tracing, on all three stacks | M0; v1 wave 1 (§3.20a, §3.24a) | 40–50 | 📋 Planned |
 | **M2 Journal and Live Activity** (§5.2, §5.3) | The in-memory journal, incremental aggregates, run summaries, and Live Activity served from the journal with its unified timeline | M1; §3.22, §3.27 | 30–40 | 📋 Planned |
 | **M3 Runtime Insights** (§5.4–§5.6) | Projections, the panel, Live Activity entry points, five observations, agent tools, and the demo | M2; §3.25 | 35–45 | 📋 Planned |
@@ -199,8 +205,8 @@ M0 is split into four items:
 | --- | --- | --- |
 | M0-1 | `build.yml` runs on `v2` pushes and pull requests | ✅ Delivered |
 | M0-2 | The correlation coverage scenario on Spring MVC, Spring WebFlux, and Quarkus, recording the baseline in §1.1 | ✅ Delivered |
-| M0-3 | The capture overhead scenario, recording the baseline for the §2.2 overhead target | 📋 Planned |
-| M0-4 | The WebFlux propagation spike (§5.1) and the DevTools restart and Quarkus live-reload spike (§5.8) | 📋 Planned |
+| M0-3 | The capture overhead scenario, recording the baseline for the §2.2 overhead target | ✅ Delivered |
+| M0-4 | The WebFlux propagation spike (§5.1) and the DevTools restart and Quarkus live-reload spike (§5.8) | ✅ Delivered |
 
 ```mermaid
 graph LR
@@ -289,10 +295,14 @@ Architecture:
   `add` Actuator's `HttpExchangesFilter` calls synchronously on the request thread after `doFilter` (verified on Spring
   Boot 4.1.1). An application-provided repository is never wrapped: its exchanges keep the registry match and report
   their tier.
-- **Spring WebFlux.** The spike first confirms where `HttpExchangesWebFilter` calls `add`; a first reading of the 4.1.1
-  bytecode points to `beforeCommit`. It then tests an adapter-owned bridge from the Reactor context to the scoped
-  holder for synchronous JDBC, logging, cache, and transaction callbacks, independent of OpenTelemetry. Work the bridge
-  cannot reach is reported as unowned, never guessed.
+- **Spring WebFlux.** A BootUI WebFilter creates the request's `CorrelationContext`, stores it on the
+  `ServerWebExchange`, writes it into the Reactor context, and exposes it through a Micrometer `ThreadLocalAccessor`
+  backed by BootUI's scoped holder. BootUI contributes `spring.reactor.context-propagation=auto` as an overridable
+  default whenever exact correlation is on, not only when OpenTelemetry is present as today, so blocking JDBC, cache,
+  logging, and transaction callbacks read the request id synchronously. The BootUI-owned `HttpExchangeRepository`
+  reads it in `add`, which Spring Boot 4.1.1's `HttpExchangesWebFilter` calls inside `beforeCommit`. An
+  application-provided repository is not wrapped and keeps its fallback tier. Work outside Reactor and
+  Spring-managed execution stays unowned, never guessed.
 - **Quarkus.** `QuarkusHttpExchangeCaptureFilter` owns exchange capture, so it stamps the exchange directly, stores the
   context on the Vert.x `RoutingContext`, and restores it around worker dispatch and Mutiny hops it controls.
 - **Transactions.** `BootUiTransactionExecutionListener` pushes and pops the transaction id for blocking
@@ -589,8 +599,15 @@ Scope:
 
 - Compare the current run with the previous run, or with a chosen run: per route and statement, count, p50, and p95
   deltas, with ≥ 10 samples on each side; exception groups new in this run.
-- Keep run summaries across DevTools restarts and Quarkus live reloads in a holder loaded by the base or
-  restart-parent class loader. The M0 spike confirms both before this is built.
+- Keep run summaries across DevTools restarts and Quarkus live reloads in a tiny `bootui-run-holder` artifact whose
+  static holder keeps only bounded JDK-typed data: strings, numbers, arrays, and JDK collections, never application,
+  framework, or BootUI classes, which would pin the previous class loader. The M0-4 spike showed that a dependency jar
+  stays in DevTools' base class loader and in Quarkus's Base Runtime ClassLoader, so its state survives the next
+  application-context start by default.
+- When DevTools `restart.include`, IDE or reactor output directories, or Quarkus
+  `quarkus.class-loading.reloadable-artifacts` make the holder reloadable, the holder detects that its own class
+  loader is the reloadable one, and comparison reports that previous runs are unavailable, with the reason and the
+  baseline file as the remedy.
 - Mark a comparison `NOT_COMPARABLE`, with the reason first, when the active profiles, datasource URL shape, or cache
   enablement differ; list configuration differences as limitations.
 - Offer an opt-in `bootui.runtime-journal.baseline-file` that writes one run summary into the build output directory
@@ -684,8 +701,8 @@ Quarkus, or JSON dependency.
 
 | Capability | Spring MVC | Spring WebFlux | Quarkus |
 | --- | --- | --- | --- |
-| Request id without tracing | Filter and scoped holder | Reactor context bridge, per the spike | Vert.x context |
-| Exact exchange → request | BootUI-owned repository; registry match for application repositories | Per the spike | Direct |
+| Request id without tracing | Filter and scoped holder | Reactor context and a `ThreadLocalAccessor`, with automatic context propagation | Vert.x context |
+| Exact exchange → request | BootUI-owned repository; registry match for application repositories | Same, stamped at `beforeCommit` | Direct |
 | SQL transaction id | ✓ | Blocking transactions only; no R2DBC | Unavailable: no transaction capture |
 | SQL durations | ✓ | ✓ | ORM statements unknown; JDBC ✓ |
 | Cache events | ✓ | ✓ | Unavailable: no cache capture |
@@ -694,7 +711,7 @@ Quarkus, or JSON dependency.
 | `route-time-breakdown`, `n-plus-one-hotspots`, `exception-hotspots`, `unowned-work` | ✓ | ✓ | ✓ (SQL share unknown for ORM statements) |
 | `transaction-hold` | ✓ | ✓ (blocking) | Unavailable |
 | `change-impact` | Bean graph | Bean graph | ArC injection edges |
-| Run comparison across reloads | DevTools restart, per the spike | Same | Live reload, per the spike |
+| Run comparison across reloads | DevTools restart | DevTools restart | Live reload |
 | `anonymous-data-reach` | With Spring Security | With Spring Security | Where security capture proves authentication |
 
 Each unavailable cell is returned as availability with a reason and documented in `docs/QUARKUS-SUPPORT.md` and
@@ -739,13 +756,14 @@ Every v2 item follows PLAN.md §4, "Every item", and the Runtime Insights panel 
 
 | Risk | Item | Impact | Mitigation |
 | --- | --- | --- | --- |
-| Context propagation fails across Reactor, Vert.x, or async boundaries | §5.1 | High | Spikes in M0, adapter-owned bridges, and honest "unowned" results instead of guesses |
+| Context propagation fails across Reactor, Vert.x, or async boundaries | §5.1 | High | The M0-4 spike proved the Reactor path; adapter-owned bridges, and honest "unowned" results instead of guesses |
+| Automatic Reactor context propagation is JVM-global and changes every Reactor chain | §5.1 | Medium | Contribute it only as an overridable default, never disable it, and measure its cost in the overhead scenario |
 | Contexts leak between requests on pooled or virtual threads | §5.1 | High | Scopes that restore the previous context, and tests on reused, virtual, scheduler, and worker threads |
 | Capture overhead on JDBC and logging hot paths | §5.1, §5.2 | High | Aggregation on the dispatcher, budgets pinned by tests, a `sources` allowlist, and one switch to disable |
 | Observations mislead on small or biased samples | §5.5–§5.9 | High | Minimums, tier floors, aggregates counted before eviction, counterexample fixtures, and the external-validity gate |
 | A less-masked result survives an exposure change | §5.2, §5.5 | High | Read-time exposure and projections keyed by exposure generation |
 | Moving Live Activity onto the journal regresses it | §5.3 | Medium | Parity tests against the 1.x feed before retiring the poller |
-| The restart-surviving holder breaks class loading or leaks | §5.8 | Medium | Spike first, a bounded holder of plain JDK types, and the opt-in file as a fallback |
+| The restart-surviving holder breaks class loading or leaks | §5.8 | Medium | A separate holder artifact of plain JDK types, proven by the M0-4 spike, with an explicit unavailable state and the opt-in file as a fallback |
 | No user feedback before 2.0.0 | §4.3 | High | External validation, a recorded demo, early-adopter builds, and a feedback discussion (§2.4) |
 | `v2` drifts from `main` | §4.2 | Medium | Weekly merges and CI on `v2` from M0 |
 | A 1.x patch cannot be released after 2.0.0 | §4.3 | High | The release workflow change in M4, with the integrity guard in lockstep |

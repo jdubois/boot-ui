@@ -282,6 +282,14 @@ back-to-back, or sent simultaneously. Each runner writes its report and the raw 
 ./mvnw -B -ntp -pl bootui-quarkus-integration-tests/otel test -Dtest=BootUiQuarkusCorrelationCoverageTest
 ```
 
+The capture overhead benchmark (`CaptureOverheadBenchmarkTest`) compares the Spring MVC sample app's throughput and
+latency with BootUI on and off. Timings depend on the machine, so it is opt-in and never a CI gate. It takes about
+three minutes and writes its report to `target/capture-overhead/`:
+
+```bash
+./mvnw -B -ntp -pl bootui-spring-sample-app test -Dtest=CaptureOverheadBenchmarkTest -Dbootui.benchmark=true
+```
+
 The Architecture ThreadFactory exemption also has packaged-runtime regressions. The Spring check runs at
 `verify`, after the executable jar is repackaged; it scans nested resources and Java 27 bytecode with an intentionally
 older host ASM alongside ArchUnit's embedded reader, and verifies that the engine does not bundle another ASM copy.
