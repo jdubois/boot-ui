@@ -56,6 +56,15 @@ class WebFluxApiConformanceTest extends AbstractBootUiApiConformanceTest {
         return Set.of("SampleReactiveErrorHandler", "SampleErrorController");
     }
 
+    /**
+     * The sample's security chain rejects unmapped paths before Actuator's exchange filter records them, so
+     * the route probe uses a permitted, templated endpoint whose path value is the probe marker.
+     */
+    @Override
+    protected String routeProbePath() {
+        return applicationPath() + "/api/greetings/conformance-route-probe-4711";
+    }
+
     @Override
     protected String expectedPanelsResource() {
         return "/io/github/jdubois/bootui/conformance/expected-panels-webflux.json";

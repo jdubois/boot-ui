@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.MissingNode;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.ActionContract;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.JsonType;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.ReadContract;
@@ -129,6 +130,26 @@ public abstract class AbstractBootUiApiConformanceTest {
 
     protected Set<String> unsupportedReadContracts() {
         return Set.of();
+    }
+
+    /**
+     * The host application's own root path, such as a servlet context path, WebFlux base path, or Quarkus
+     * root path, with no trailing slash. Tests that send application traffic prefix it, so the request
+     * reaches the application rather than falling outside its mount.
+     */
+    protected String applicationPath() {
+        return "";
+    }
+
+    /**
+     * An application request the route-ranking contract sends and then looks up. It must contain
+     * {@code conformance-route-probe}, reach the application without credentials so its exchange is recorded,
+     * and end in the path value {@code 4711}, which no route may carry. An unmapped path suits stacks that
+     * record a 404; a stack whose security chain rejects unmapped paths before exchange capture names a
+     * permitted, templated endpoint instead.
+     */
+    protected String routeProbePath() {
+        return applicationPath() + "/conformance-route-probe/4711";
     }
 
     /** Browser-visible UI mount, including any host application root path. */
@@ -1891,13 +1912,29 @@ public abstract class AbstractBootUiApiConformanceTest {
                 isPanelUsableInLiveManifest("http-exchanges"),
                 "http-exchanges panel is not available in this environment");
         String marker = "conformance-route-probe";
-        probe().get("/" + marker + "/4711");
+        probe().get(routeProbePath());
 
-        Response list = probe().get(api("/http-exchanges?q=" + marker));
-        assertThat(list.status()).as("GET /http-exchanges?q= status").isEqualTo(200);
-        assumeTrue(
-                isNull(list.json().path("unavailableReason")), "HTTP exchanges are not recorded in this environment");
-        JsonNode exchange = list.json().path("exchanges").path(0);
+        // Spring WebFlux records an exchange once the response has completed, so it can land a moment after
+        // the client has read the response; poll briefly rather than race the recorder.
+        JsonNode exchange = MissingNode.getInstance();
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (true) {
+            Response list = probe().get(api("/http-exchanges?q=" + marker));
+            assertThat(list.status()).as("GET /http-exchanges?q= status").isEqualTo(200);
+            assumeTrue(
+                    isNull(list.json().path("unavailableReason")),
+                    "HTTP exchanges are not recorded in this environment");
+            exchange = list.json().path("exchanges").path(0);
+            if (exchange.isObject() || System.nanoTime() > deadline) {
+                break;
+            }
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
         assertThat(exchange.isObject()).as("the probe request is recorded").isTrue();
         String route = exchange.path("route").asText("");
         assertThat(route)
