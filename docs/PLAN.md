@@ -5,9 +5,15 @@
 BootUI adds a safe, local-only developer console to a running application, shipping on **Spring Boot 4 (servlet and
 WebFlux starters) and Quarkus (an extension)** from one shared, framework-neutral engine that serves the same Vue UI and
 the same `/bootui/api/**` contract on every runtime. The released surface covers 60 panels across runtime introspection,
-configuration, database migrations, services, diagnostics, project health, and developer tooling. A **MySQL**
-operational sibling to PostgreSQL is delivered (§3.17); the planned **MongoDB** operational view (§3.5) remains
-a separate workstream.
+configuration, databases, services, diagnostics, project health, and developer tooling, and MCP tools and the `bootui`
+command-line interface reach the same diagnostics without a browser.
+
+The next workstream deepens diagnostics rather than widening coverage. It shapes evidence BootUI already captures so it
+reads the way developers investigate: every entry point anchors a correlated timeline, logs link to the execution that
+wrote them, entities read as summary → runs → timeline, and failure evidence outlives routine traffic. Each item builds
+on existing capture points and retained evidence, adding only bounded metadata and explicit, on-demand local reads.
+Sampling, quotas, remote ingestion, alerting integrations, and personal-data capture stay out of scope, because BootUI
+remains local-only, bounded, and network-free on render. Three new service panels follow that workstream (§2).
 
 The priorities for every item below remain unchanged:
 
@@ -17,115 +23,104 @@ The priorities for every item below remain unchanged:
 4. A polished but simple UI.
 5. Testable architecture.
 
-Each new panel must:
+Every item, whether a new panel or an enhancement to an existing one, must:
 
 - be **read-only or read-mostly**, with any mutating control explicitly confirmation-gated like the existing Cache
   clear action;
 - **fail closed** when its required classes, beans, Actuator endpoints, or data are unavailable, returning stable empty
   DTOs and a clear unavailable reason;
 - route any sensitive property names, headers, addresses, or values through the existing masking and value-exposure model;
-- ship with backend slice/edge-case tests, `/bootui/api/panels` availability wiring, docs, router ordering, and sample-app
-  Playwright coverage in sync.
+- ship with backend and edge-case tests, availability wiring, documentation, and browser coverage in sync (§4).
 
-## 2. Roadmap status and next workstream
+## 2. Roadmap status and order of work
 
-MySQL's bounded operational view is **delivered**, with Oracle MySQL 8.4.6 live coverage through JDBC on all three
-stacks. Its source/runtime acceptance and browser integration are verified (§3.17).
-MariaDB remains a separate unsupported follow-up.
+Section numbers are stable identifiers. Code comments and other documents cite them, so a number is never reused or
+renumbered, and delivered or dropped items leave gaps. An item is either 📋 Planned, with its full specification in §3,
+or ✅ Delivered, condensed into the [delivered](#delivered) table with its behavior documented under `docs/features/`.
+The pull request that ships an item moves it to that table.
 
-MongoDB remains the next planned feature workstream. BootUI already recognizes Spring Data MongoDB repositories in the
-Spring Data panel, but it has no framework-neutral operational view of MongoDB clients, topology, databases,
-collections, or indexes, and the existing JDBC/Flyway/Liquibase panels cannot represent those concepts. The new panel
-will therefore be additive rather than an extension of the SQL-specific panels.
+### Order of work
 
-A second, diagnostics-focused workstream (§3.20–§3.26) shapes already-captured evidence so it reads the way developers
-investigate: every entry point anchors a correlated timeline, logs link to the execution that wrote them, entities read
-as summary → runs → timeline, and failure evidence outlives routine traffic. Sampling, quotas, remote ingestion,
-alerting integrations, and personal-data capture stay out of scope, because BootUI remains local-only, bounded, and
-network-free on render. Each item builds on existing capture points and retained evidence, adding only bounded metadata
-and explicit, on-demand local reads.
+Work proceeds in waves. Items in one wave are independent of each other, and a wave starts once the items it depends on
+have shipped. Each row is one pull request.
 
-| Priority | Feature                  | Group    | Primary data source                    | Mutation? | Status  |
-| -------- | ------------------------ | -------- | -------------------------------------- | --------- | ------- |
-| Delivered | MySQL operational view  | Database | Existing application JDBC datasources | No application-data mutation; explicit read | Delivered |
-| Next     | MongoDB operational view | Database | Spring/Quarkus MongoDB client adapters | No        | Planned |
-| Planned  | Declarative HTTP client registry | Services | Spring HTTP clients / Quarkus REST Client metadata | No | Planned |
-| Planned  | gRPC | Services | Spring gRPC / Quarkus gRPC registries and metrics | No | Planned |
-| Planned  | Spring Batch | Services | Spring Batch `JobExplorer` / `JobRepository` | No | Planned |
-| Planned  | Correlation-ID filtering | Diagnostics | Existing request and Live Activity capture | No (capture only) | Planned |
-| Planned  | Data access map | Database | Existing SQL Trace evidence, route attribution, and JPA metamodel | No | Planned |
-| Planned  | Structured violation locations | Advisors | Existing advisor scans, ArchUnit source locations, and local source lookup | No | Planned |
-| Planned  | Execution-context profiles | Overview | Existing scheduled-run and messaging capture | No (capture only) | Planned |
-| Planned  | Log correlation | Diagnostics | Existing Logback appender and Quarkus log handler | No (capture only) | Planned |
-| Planned  | Route performance rankings | Diagnostics | Existing HTTP exchange and route-template evidence | No | Planned |
-| Planned  | Scheduled task run history | Services | Existing `ScheduledTaskRunStore` | No | Planned |
-| Planned  | Failure-preserving retention and ignore rules | Diagnostics | Existing bounded capture buffers | No (capture only) | Planned |
-| Planned  | Agent-ready profiles and exception export | Developer tools | Existing profiler and exception store | No | Planned |
-| Planned  | Source context for application frames | Diagnostics | Exception frames and the local source lookup shared with §3.19 | No | Planned |
-| Delivered | Fault Tolerance | Services | Resilience4j / Spring Retry / SmallRye Fault Tolerance | No (capture only) | Delivered |
-| Delivered | WebSocket endpoints | Services | Spring WebSocket/STOMP / Quarkus WebSockets Next | No (capture only) | Delivered |
-| Delivered | Error-contract catalogue | Services | Spring exception handlers / Quarkus exception mappers | No | Delivered |
-| Delivered | Slow-SQL ranking and URI attribution | Database | Existing SQL Trace and HTTP exchange evidence | No | Delivered |
-| Delivered | Meter provenance and explanation | Diagnostics | Existing meter registry and curated catalogue | No | Delivered |
-| Delivered | Cache tiering and hit ratios | Services | Existing cache managers and native statistics | No | Delivered |
-| Delivered | Command-line endpoint, `bootui` CLI and Command Line panel | Developer tools | Existing MCP tool catalog and dispatcher | No (same policy as MCP) | Delivered |
+| Wave | Item                                            | Panels                                                | Depends on            |
+| ---- | ----------------------------------------------- | ----------------------------------------------------- | --------------------- |
+| 0    | §3.27 Log exposure policy                       | Log Tail, Dev Services                                | —                     |
+| 1    | §3.24a Failure-preserving retention             | HTTP Exchanges, SQL Trace, REST Client                | —                     |
+| 1    | §3.20a Shared profile assembler                 | Live Activity                                         | —                     |
+| 1    | §3.22 Route performance rankings                | HTTP Exchanges, Live Activity                         | —                     |
+| 1    | §3.19 Structured violation locations            | Architecture, REST API, Hibernate                     | —                     |
+| 2    | §3.20b Scheduled-run profiles                   | Live Activity                                         | §3.20a                |
+| 2    | §3.20c Consumed-message profiles                | Live Activity                                         | §3.20a                |
+| 2    | §3.24b Capture ignore rules                     | HTTP Exchanges, Live Activity, SQL Trace, REST Client | §3.24a                |
+| 2    | §3.26 Source context for application frames     | Exceptions                                            | §3.19                 |
+| 2    | §3.25 Agent-ready profiles and exception export | Live Activity, Exceptions                             | §3.20a                |
+| 2    | §3.14 Correlation-ID filtering                  | Live Activity, HTTP Exchanges                         | —                     |
+| 2    | §3.18 Data access map                           | SQL Trace                                             | —                     |
+| 3    | §3.23 Scheduled task run history                | Scheduled Tasks                                       | §3.20b, §3.22         |
+| 3    | §3.21 Log correlation                           | Log Tail, Live Activity                               | §3.27, §3.20b, §3.20c |
+| 4    | §3.6 Declarative HTTP client registry           | New panel (Services)                                  | —                     |
+| 4    | §3.8 gRPC                                       | New panel (Services)                                  | —                     |
+| 4    | §3.9 Spring Batch                               | New panel (Services)                                  | —                     |
+
+- **Wave 0** closes a safety gap: log text is the one captured application text that bypasses the value-exposure
+  policy. Safety is the first priority, so it ships before anything else.
+- **Wave 1** builds the shared pieces that later items reuse: the tiered capture buffer, the generalized profile
+  assembler, one percentile helper and slowest-request KPI, and the violation location model with its source locator.
+- **Wave 2** builds directly on wave 1 or improves existing evidence independently. §3.14 lands before §3.21 so log
+  correlation can match configured correlation identifiers from the start. §3.25's `get_execution_profile` tool
+  follows §3.20b, and its source excerpts follow §3.26, as small follow-up pull requests.
+- **Wave 3** joins several earlier items.
+- **Wave 4** adds new service panels. Each brings a new optional integration with its own gating and sample coverage,
+  so they follow the diagnostics work, which builds on evidence BootUI already captures. They depend neither on earlier
+  items nor on each other.
+
+```mermaid
+graph LR
+  S27["3.27 Log exposure"] --> S21["3.21 Log correlation"]
+  S20a["3.20a Shared assembler"] --> S20b["3.20b Scheduled runs"]
+  S20a --> S20c["3.20c Consumed messages"]
+  S20a --> S25["3.25 Agent export"]
+  S20b --> S21
+  S20c --> S21
+  S20b --> S23["3.23 Run history"]
+  S22["3.22 Route rankings"] --> S23
+  S24a["3.24a Retention"] --> S24b["3.24b Ignore rules"]
+  S19["3.19 Violation locations"] --> S26["3.26 Source context"]
+  S14["3.14 Correlation IDs"] -.-> S21
+  S20b -.-> S25
+  S26 -.-> S25
+```
+
+Dashed edges are optional: the later item ships without the earlier one and gains a capability once it lands.
+
+### Delivered
+
+| §    | Item                                                        | Release | Documentation                                                           |
+| ---- | ----------------------------------------------------------- | ------- | ----------------------------------------------------------------------- |
+| 3.7  | Fault Tolerance panel                                       | 1.15.0  | [Fault Tolerance](features/services.md#fault-tolerance)                 |
+| 3.10 | WebSockets panel                                            | 1.15.0  | [WebSockets](features/services.md#websockets)                           |
+| 3.11 | Error-contract catalogue in REST API and Exceptions         | 1.15.0  | [Declared error contract](features/advisors.md#declared-error-contract) |
+| 3.12 | Slow-SQL ranking and route attribution in SQL Trace         | 1.15.0  | [SQL Trace rankings](features/database.md#rankings)                     |
+| 3.15 | Meter provenance and explanation in Metrics                 | 1.15.0  | [Metrics](features/runtime.md#metrics)                                  |
+| 3.16 | Cache tiering and hit ratios                                | 1.15.0  | [Tiering and hit ratios](features/services.md#tiering-and-hit-ratios)   |
+| —    | Command-line endpoint, `bootui` CLI, and Command Line panel | 1.16.0  | [Command Line](features/developer-tools.md#command-line), [CLI](CLI.md) |
+| 3.17 | MySQL operational view, tested on Oracle MySQL 8.4 LTS      | 1.18.0  | [MySQL](features/database.md#mysql)                                     |
+
+Earlier deliveries were removed from this plan when they shipped; `CHANGELOG.md` records every release. MariaDB support
+in the MySQL panel remains an unsupported follow-up outside this roadmap.
+
+### Dropped
+
+- **MongoDB operational view** (formerly §3.5), dropped on 2026-09-30. BootUI plans no MongoDB client, topology,
+  database, collection, or index view. The Spring Data panel still lists MongoDB repositories, and Dev Services still
+  shows MongoDB service connections.
 
 ## 3. Feature specifications
 
-### 3.5 MongoDB operational view — Database 📋 Planned
-
-BootUI already detects Spring Data MongoDB repository metadata under the existing Spring Data panel. This new panel
-addresses a different question: "Which MongoDB clients and data structures is this running application connected to, and
-which operational risks should I review?" It must not force document-database concepts into JDBC connection-pool, SQL
-Trace, Flyway, or Liquibase contracts.
-
-Scope:
-
-- Add one shared `mongodb` panel and `/bootui/api/mongodb/**` contract for Spring servlet, Spring WebFlux, and Quarkus.
-- On initial load, report only locally available client/configuration metadata and inspection state. Do not contact a
-  MongoDB server merely because the route rendered.
-- Provide an explicit **Inspect** action that reads a bounded snapshot of reachable server/topology information,
-  databases, collections, and indexes. Results must be capped and paged where cardinality can grow, and a permissions
-  failure for one database or collection must be reported against that target without discarding the rest of the
-  snapshot.
-- Surface read-only review prompts for high-value, evidence-based issues such as missing indexes for declared repository
-  metadata where this can be determined safely, unexpectedly large unindexed collections, or unsafe development
-  configuration. Do not infer a finding when the server or required metadata is unavailable.
-- Support named/multiple clients and both supported driver styles where the host framework exposes them, while returning
-  the same stable DTOs and UI on every adapter.
-
-Architecture:
-
-- Put report assembly, bounds, ordering, and advisory policy in a JSON-free, framework-neutral engine service. Define a
-  neutral MongoDB provider SPI; adapters translate their native driver metadata into core records.
-- Keep MongoDB driver imports out of the engine. Spring wiring must be classpath/bean-gated. Quarkus wiring must be
-  capability-gated and exclude the optional driver-dependent provider classes when the MongoDB extension is absent, using
-  the existing Hibernate/Cache/Flyway/Liquibase optional-dependency pattern.
-- Treat client settings as live policy inputs where they can change at runtime. Never serialize credentials, raw
-  connection strings, authentication sources, TLS key material, document values, or arbitrary command responses; route
-  displayable addresses and settings through the existing exposure/masking policy.
-
-Out of scope for the first release:
-
-- Browsing, searching, editing, inserting, or deleting documents.
-- An arbitrary MongoDB shell or command runner.
-- Creating or dropping databases, collections, or indexes.
-- Query tracing/profiling, change-stream capture, schema inference from stored documents, or migration tooling.
-- Replacing the Spring Data repository panel; its existing MongoDB repository metadata remains a complementary
-  Spring-specific view.
-
-Acceptance criteria:
-
-- With no supported MongoDB client/extension, the panel is unavailable with a framework-correct setup hint and no
-  optional driver classloading failure.
-- Opening the panel performs no MongoDB network call. Only the explicit Inspect action contacts configured servers, and
-  the shared localhost/write guard plus panel read-only policy protects that action even though it does not mutate data.
-- Inspection uses configurable timeouts and hard caps, returns partial results with explicit per-target errors, and never
-  exposes document contents or secrets.
-- Spring servlet, Spring WebFlux, and Quarkus run the same conformance contract and render the same fixture shape for
-  equivalent MongoDB metadata.
-- The sample applications cover absent-client, unreachable-server, insufficient-permission, empty-database, and
-  multi-client states without requiring MongoDB for the default Docker-free test path.
+Planned items only, in section-number order. §2 gives the order of work, and items with delivery slices ship as
+several pull requests.
 
 ### 3.6 Declarative HTTP client registry — Services 📋 Planned
 
@@ -185,81 +180,6 @@ Acceptance criteria:
 - Sample applications and fixtures cover absent clients, multiple named clients, unresolved placeholders, masked URLs,
   inherited defaults, client-specific overrides, and ambiguous builder-derived clients without requiring external
   services.
-
-### 3.7 Fault Tolerance — Services ✅ Completed
-
-**Shipped.** The `fault-tolerance` panel is available on Spring MVC, Spring WebFlux, and Quarkus over a shared
-`GET /bootui/api/fault-tolerance` contract and a framework-neutral `FaultToleranceService` fed by the
-`FaultTolerancePolicyProvider` SPI. Spring contributes Resilience4j (all six registries, read live so lazily created
-entries appear) and Spring Retry `@Retryable` metadata; Quarkus contributes SmallRye Fault Tolerance annotations
-captured from the Jandex index at build time with MicroProfile Fault Tolerance configuration overrides resolved at
-runtime. A bounded, metadata-only `FaultToleranceEventRecorder` feeds both the panel's event feed and Live Activity's
-new `FAULT_TOLERANCE` entry type. Everything is capture-only: no policy is ever opened, closed, reset, or otherwise
-mutated by BootUI. SmallRye publishes no per-call event stream, so on Quarkus only circuit-breaker state transitions
-(for breakers carrying `@CircuitBreakerName`) are captured and per-policy counters are reported as absent rather than
-invented.
-
-BootUI exposes raw metrics that fault tolerance libraries may publish, but it does not explain which protections apply
-to each operation, their current runtime state, or why a call was retried, rejected, or short-circuited. This panel
-provides one cross-platform view over Resilience4j and Spring Retry on Spring, and SmallRye Fault Tolerance on
-Quarkus.
-
-Scope:
-
-- Add one shared `fault-tolerance` panel and stable `/bootui/api/fault-tolerance/**` contract for Spring servlet, Spring
-  WebFlux, and Quarkus.
-- Discover configured circuit breakers, retries, rate limiters, bulkheads, and time limiters, including annotation-driven
-  and registry-backed definitions where the library exposes them safely.
-- Report the protected bean/class and method, policy type, effective configuration, configuration provenance, and current
-  runtime state. Include bounded success, failure, retry, rejection, timeout, and short-circuit counts where native
-  registries or metrics expose them.
-- Show circuit-breaker state (`CLOSED`, `OPEN`, `HALF_OPEN`, or an explicit adapter-specific/unknown state), retry limits
-  and delay policy, rate-limit capacity and refresh policy, bulkhead concurrency/queue limits, and timeout thresholds.
-- Capture bounded, metadata-only fault tolerance events and feed them into Live Activity as a `FAULT_TOLERANCE` entry
-  type. Include policy name/type, protected operation, outcome, attempt number where applicable, duration, and safe
-  failure category; never capture method arguments, return values, payloads, or raw exception messages.
-- Correlate events to an originating request through the existing trace-id or safe adapter-specific correlation path when
-  available. Background and asynchronously detached events remain top-level rather than being matched heuristically.
-- Support multiple named registries and policies while returning the same stable DTOs and UI on every adapter.
-
-Architecture:
-
-- Put DTO assembly, normalization, ordering, bounds, state mapping, and event-to-Live-Activity mapping in JSON-free,
-  framework-neutral engine services behind neutral fault tolerance metadata and event provider SPIs.
-- Keep Resilience4j, Spring Retry, and SmallRye Fault Tolerance types in optional adapter providers. Gate each provider on
-  its dependency, registry/bean presence, and native framework capability so absent libraries cannot cause classloading
-  failures.
-- Prefer native registries, event publishers, retry listeners, and metrics over wrapping application beans or replacing
-  interceptors. Any listener registration must compose with application listeners, remain pass-through/fail-open, and be
-  removed or disabled when capture is disabled.
-- Treat policy configuration and panel enablement as live inputs where supported. Hash or omit high-cardinality operation
-  identifiers when necessary, route displayable values through the exposure policy, and keep event buffers independently
-  bounded so fault tolerance traffic cannot evict unrelated Live Activity sources.
-
-Out of scope for the first release:
-
-- Opening, closing, or resetting circuit breakers; changing retry, rate-limit, bulkhead, or timeout configuration.
-- Invoking protected operations, generating synthetic failures, or probing downstream services.
-- Capturing method arguments, return values, request/response bodies, message payloads, or raw exception messages.
-- Reimplementing fault tolerance behavior or creating a BootUI abstraction that application code depends on.
-- Inferring a policy or runtime state when a framework does not expose sufficient metadata.
-
-Acceptance criteria:
-
-- Opening the panel performs no protected call, network request, state transition, or policy mutation.
-- Equivalent Resilience4j, Spring Retry, and SmallRye policies produce the same core response shape, with unsupported
-  policy types or fields represented explicitly rather than guessed.
-- Applications without a supported fault tolerance library load normally and show a framework-correct unavailable or empty
-  state without optional classloading failures.
-- Listener and event capture composes with application-owned listeners/interceptors, remains pass-through on BootUI
-  failures, and stops cleanly when the panel or capture is disabled.
-- Live Activity shows bounded metadata-only retry, rejection, timeout, short-circuit, and breaker-transition events, with
-  request correlation only when supported by retained evidence.
-- No method argument, return value, payload, credential, raw exception message, or unbounded operation identifier reaches
-  the response or event buffer.
-- Sample applications and fixtures cover absent libraries, multiple named policies, inherited and overridden
-  configuration, every supported policy type, state transitions, exhausted retries, rate-limit rejection, bulkhead
-  rejection, timeout, disabled capture, and unavailable adapter capabilities without external services.
 
 ### 3.8 gRPC — Services 📋 Planned
 
@@ -326,8 +246,11 @@ Acceptance criteria:
 ### 3.9 Spring Batch — Services 📋 Planned
 
 BootUI shows scheduled task definitions and runs, but it does not expose Spring Batch jobs, executions, step progress, or
-failure outcomes. Spring Batch already retains this operational history through `JobExplorer` and `JobRepository`, making
-it available for a strictly read-only Spring panel without adding capture or controlling jobs.
+failure outcomes. When batch metadata is stored in a database, Spring Batch already retains this operational history in
+its `JobRepository`, making it available for a strictly read-only Spring panel without adding capture or controlling
+jobs. Spring Boot 4 ships Spring Batch 6, in which `JobRepository` extends the now-deprecated `JobExplorer`,
+`JobOperator` extends the now-deprecated `JobLauncher`, and the default job repository is resourceless: it keeps no
+execution history unless JDBC-backed metadata (`spring-boot-batch-jdbc`) is configured.
 
 Scope:
 
@@ -343,6 +266,8 @@ Scope:
   its instances, executions, and steps.
 - Treat running executions as live data and refresh their progress without creating a separate recorder or Live Activity
   event source.
+- With a resourceless job repository, report that execution history is not retained and how to enable it, rather than
+  showing an empty history that reads as "no runs".
 
 Architecture:
 
@@ -350,8 +275,10 @@ Architecture:
   framework-neutral engine service behind a neutral batch metadata provider SPI.
 - Keep Spring Batch types in a classpath- and bean-gated Spring provider. Both servlet and WebFlux adapters use the same
   provider and controller contract; Quarkus wires only explicit unavailability metadata.
-- Query `JobExplorer` for read-only history and use repository metadata only where necessary to explain configuration.
-  Never call `JobLauncher`, `JobOperator`, `JobRepository` mutation methods, or application job beans.
+- Read history only through the query methods `JobRepository` inherits from `JobExplorer`, and use repository metadata
+  only where necessary to explain configuration. Do not depend on a separate `JobExplorer` bean, which Spring Batch 6
+  no longer requires. Never call `JobOperator` or `JobLauncher`, `JobRepository` create, update, or delete methods, or
+  application job beans.
 - Route parameter names/values, exit descriptions, and failure details through the exposure and masking policy. Bound
   queries and response cardinality before loading step details so a large batch repository cannot exhaust the application.
 
@@ -368,227 +295,15 @@ Acceptance criteria:
 - Opening or refreshing the panel never launches, stops, restarts, abandons, or otherwise mutates a job execution.
 - Spring servlet and Spring WebFlux return the same stable DTOs and paging behavior for equivalent Spring Batch metadata;
   Quarkus reports a clear not-applicable reason.
-- Applications without Spring Batch or without a `JobExplorer` load normally and show a framework-correct unavailable
-  state without optional classloading failures.
+- Applications without Spring Batch or without a `JobRepository` load normally and show a framework-correct unavailable
+  state without optional classloading failures. A resourceless repository shows the history-not-retained state.
 - Large job repositories remain bounded through server-side paging and filtering, and running execution progress refreshes
   without loading unrelated history.
 - Job parameters, exit descriptions, and failure summaries respect masking and exposure policy; execution-context values,
   item payloads, and full stack traces never reach the response.
-- Sample applications and fixtures cover absent Batch support, empty repositories, multiple jobs and instances, running,
-  completed, stopped, and failed executions, step skip/rollback counts, masked parameters, long failure descriptions, and
-  high-cardinality paging without external services.
-
-### 3.10 WebSocket endpoints — Services ✅ Delivered
-
-BootUI's Mappings panel explains request/response HTTP routes, but long-lived WebSocket endpoints, STOMP message mappings,
-active sessions, subscriptions, and frame activity remain invisible. This panel provides a bounded, metadata-only view
-over Spring WebSocket/STOMP and Quarkus WebSockets Next without capturing message payloads or feeding the general Live
-Activity stream.
-
-Scope:
-
-- Add one shared `websockets` panel and stable `/bootui/api/websockets/**` contract for Spring servlet, Spring WebFlux,
-  and Quarkus when their supported WebSocket integration is present.
-- Discover Spring WebSocket handlers, STOMP endpoints, `@MessageMapping` destinations, broker prefixes, and application
-  destination prefixes, plus Quarkus WebSockets Next endpoints, paths, callback methods, and supported message types.
-- Report each endpoint's normalized path/destination, implementation class and method, direction/callback type, declared
-  subprotocols, handshake policy metadata, and interceptor/filter names where exposed safely.
-- Show active session counts by endpoint and bounded session metadata using opaque stable session identifiers, connection
-  time, last-activity time, negotiated subprotocol, and safe local/remote transport metadata.
-- Show bounded subscriptions for STOMP and equivalent framework-exposed channel/topic registrations, grouped by endpoint
-  and destination without exposing user/session principals or arbitrary subscription headers.
-- Capture recent metadata-only inbound and outbound frame activity: endpoint, opaque session id, direction, frame/message
-  type, destination where applicable, payload size, timestamp, duration, and success/failure category. Never capture
-  payload bytes/text or arbitrary headers.
-- Keep recent frame activity in the WebSocket panel's independent bounded buffer; do not add a WebSocket event type to
-  Live Activity in the first release.
-
-Architecture:
-
-- Put DTO assembly, endpoint normalization, ordering, bounds, session identity hashing, and activity aggregation in
-  JSON-free, framework-neutral engine services behind neutral WebSocket metadata, session, and activity provider SPIs.
-- Keep Spring WebSocket/STOMP and Quarkus WebSockets Next types in optional adapter providers. Gate each provider on its
-  dependency, beans, and Quarkus capability so absent integrations cannot cause classloading failures.
-- Prefer native endpoint registries, lifecycle hooks, channel interceptors, and connection callbacks. Capture must compose
-  with application interceptors, preserve dispatch order and backpressure, remain pass-through/fail-open, and add no
-  payload decoding or copying.
-- Route endpoint paths, destinations, transport metadata, and failure categories through the exposure policy. Hash session
-  identifiers, omit principals and arbitrary headers, and enforce independent limits for endpoints, sessions,
-  subscriptions, and activity before serialization.
-
-Out of scope for the first release:
-
-- Sending frames, opening or closing sessions, subscribing/unsubscribing clients, or disconnecting users.
-- Capturing payload text/bytes, application objects, arbitrary headers, authentication tokens, principals, cookies, or
-  query-string values.
-- Acting as a WebSocket client, broker, proxy, replay tool, or protocol debugger.
-- Adding WebSocket activity to Live Activity or correlating individual frames to HTTP requests heuristically.
-- Supporting third-party WebSocket stacks that bypass the framework-managed Spring or Quarkus integration.
-
-Acceptance criteria:
-
-- Opening the panel establishes no connection, sends no frame, changes no subscription, and does not close an application
-  session.
-- Equivalent Spring and Quarkus endpoints, sessions, and activity produce the same core response shape, with
-  framework-specific unavailable fields represented explicitly.
-- Applications without supported WebSocket integration load normally and show a framework-correct unavailable state
-  without optional classloading failures.
-- Capture composes with application interceptors/callbacks, preserves dispatch and backpressure behavior, remains
-  pass-through on BootUI failures, and stops cleanly when disabled.
-- Payloads, arbitrary headers, principals, credentials, cookies, raw session identifiers, and secret query values never
-  enter the buffer or response.
-- Endpoint, session, subscription, and activity cardinality is independently bounded with visible truncation, and WebSocket
-  traffic cannot evict another panel's retained data.
-- Sample applications and fixtures cover absent support, Spring STOMP, Spring native handlers, Quarkus WebSockets Next,
-  multiple endpoints, active/closed sessions, subscriptions, inbound/outbound text and binary metadata, failures,
-  disabled capture, and high-cardinality truncation without external services.
-
-### 3.11 Error-contract catalogue — REST API and Exceptions ✅ Delivered
-
-Delivered as a declaration-only catalogue on the existing REST API panel
-(`GET /bootui/api/rest-api/error-contract`), a conservative Exceptions cross-link, and three evidence-based
-REST API advisor rules (`RAPI-ERR-009`, `RAPI-ERR-010`, `RAPI-ERR-011`). Spring MVC, Spring WebFlux, and
-Quarkus are all supported; Quarkus discovery is captured from the build-time Jandex index because no
-runtime enumeration of resolved mappers exists.
-
-BootUI's Exceptions panel shows failures that have occurred, while the REST API panel explains declared endpoints. Neither
-shows which exception handlers define the application's error contract, which status and body shape each handler returns,
-or whether endpoints have consistent and safe failure responses. This enhancement adds the catalogue to REST API and
-cross-links retained failures from Exceptions rather than creating another panel.
-
-Scope:
-
-- Extend the existing REST API contract and UI with a stable, pageable error-contract catalogue for Spring servlet,
-  Spring WebFlux, and Quarkus; keep the existing panel id, route, enablement, and read-only policy.
-- Discover Spring `@ControllerAdvice`, `@RestControllerAdvice`, and `@ExceptionHandler` methods, plus Jakarta REST
-  `@Provider` `ExceptionMapper` implementations on Quarkus.
-- Report each handled exception type, declaring component and method, precedence/scope, resolved or declared HTTP status,
-  produced media types, and safely inferred response-body category.
-- Identify RFC 9457 `ProblemDetail`/problem-details usage and framework-native equivalents without instantiating handlers
-  or executing application code.
-- Resolve handler precedence and applicability where the framework exposes enough metadata. Ambiguous or dynamic mappings
-  remain explicitly unresolved rather than being assigned a guessed handler.
-- Cross-link an Exceptions entry to its declared handler and REST API error contract when exception type and retained
-  request evidence allow safe attribution; unmatched and ambiguous failures remain unlinked.
-- Add evidence-based REST API advisor findings for endpoint exception types with no declared mapping, inconsistent error
-  body categories or media types across related controllers, and configurations that may expose stack traces or raw
-  exception details.
-
-Architecture:
-
-- Put normalized DTO assembly, ordering, paging, handler precedence, body-category classification, cross-linking, and
-  advisory policy in JSON-free, framework-neutral engine services behind a neutral error-contract provider SPI.
-- Keep Spring MVC/WebFlux resolver types and Quarkus/Jakarta REST mapper types in thin adapter providers. Use native
-  handler registries and metadata where available, with classpath and capability gates for optional integrations.
-- Reuse the REST API panel and Exceptions data already retained by BootUI. Do not invoke handlers, synthesize requests,
-  throw exceptions, or add another exception-capture path.
-- Report only declaration metadata: component, method, exception, status, body category, and media types are Java type
-  and constant names read from the application's own declarations, so they carry no property values and are shown
-  verbatim, exactly as the Mappings and Beans panels already show type names. Retained failure details stay behind the
-  Exceptions panel's existing masking and exposure policy; the catalogue adds a reference to a declaration and never a
-  new value. Advisor findings must cite concrete configuration or declaration evidence and avoid claims based solely on
-  the absence of observed failures.
-
-Out of scope for the first release:
-
-- Invoking exception handlers, generating failures, replaying requests, or validating response bodies over the network.
-- Capturing additional exception payloads, response bodies, stack traces, or method arguments.
-- Editing handler precedence, status mappings, serialization, stack-trace settings, or application error configuration.
-- Full static control-flow analysis to prove every exception an endpoint may throw.
-- Inferring dynamic handler behavior or arbitrary response schemas by executing application code.
-
-Acceptance criteria:
-
-- Opening the REST API error-contract view invokes no handler, sends no request, and does not alter exception resolution.
-- Equivalent Spring servlet, Spring WebFlux, and Quarkus mappings produce the same core response shape, with dynamic or
-  unsupported fields explicitly unresolved.
-- Applications without advice or exception mappers show a clear empty state without optional classloading failures.
-- Handler precedence and scope distinguish global and controller-specific mappings, including ambiguous mappings, without
-  inventing certainty.
-- Exceptions cross-links appear only when retained evidence safely identifies a declared handler; ambiguous and unmatched
-  failures do not create false relationships.
-- Advisor findings identify only evidence-backed unmapped exceptions, inconsistent contracts, or unsafe detail exposure,
-  with clear remediation and no raw stack trace or sensitive response content in the report.
-- Sample applications and fixtures cover global/local handlers, inheritance, precedence, multiple exception types,
-  `ProblemDetail`, custom response bodies, Quarkus exception mappers, ambiguous/dynamic status, unmapped retained
-  exceptions, inconsistent contracts, safe/unsafe stack-trace settings, and high-cardinality paging.
-
-### 3.12 Slow-SQL ranking and URI attribution — SQL Trace ✅ Shipped
-
-Shipped as `GET /bootui/api/sql-trace/insights` on Spring MVC, Spring WebFlux, and Quarkus, plus the two new SQL Trace
-panel sections and the `DB-RUNTIME-001` Database advisor rule. Ranking, normalization, bounding, attribution, and
-advisory policy live in the framework-neutral engine (`SqlStatementNormalizer`, `SqlStatementRanking`,
-`RoutePathMasker`, `SqlRouteAttribution`, `SqlTraceInsightsService`); the adapters only supply inbound-request evidence
-they already captured. Correlation is trace-id first, then serving thread on Spring MVC only, then time window, and each
-tier requires a unique candidate — Spring WebFlux and Quarkus advertise `TRACE_ID` + `TIME_WINDOW` only, and Quarkus
-matches the captured path against the application's declared `@Path` routes, because RESTEasy Reactive registers one
-catch-all Vert.x route and so exposes no per-request template; only an unmatched path falls back to a masked path, and
-`routeSource` reports which was used. Executions that cannot be placed
-stay in explicit unattributed/ambiguous buckets. See `docs/SPECIFICATION.md` §5.17.6,
-`docs/DATABASE-ADVISOR-CHECKS.md` (`DB-RUNTIME-001`), and the SQL Trace section of `docs/features/database.md`.
-
-
-SQL Trace shows retained statements chronologically and already detects N+1 patterns, but it does not rank normalized
-statements by cumulative cost or explain which inbound request routes are responsible for that database work. This
-enhancement derives both views from BootUI's existing bounded SQL and HTTP evidence and adds a conservative Database
-advisor rule for likely string-concatenated SQL.
-
-Scope:
-
-- Extend the existing SQL Trace contract and UI with top-N rankings by cumulative duration, maximum duration, execution
-  count, average duration, error count, and available percentile estimates; keep the existing panel id, route,
-  enablement, capture controls, and retention settings.
-- Normalize statements using the existing SQL normalization and masking rules so equivalent parameterized executions
-  aggregate without exposing bound values.
-- Attribute a statement execution to an inbound request using the existing trace-id-first, then safe serving-thread and
-  time-window correlation used by Transactions. WebFlux and Quarkus must use trace context where thread affinity is not
-  reliable.
-- Group attributed work by normalized route template when available, falling back to a masked method/path only when it is
-  safe and unambiguous. Never group by raw query string or path parameter value.
-- Show per-route database totals, top normalized statements, statement count, error count, and share of retained database
-  time, with deep links between the route ranking and filtered SQL Trace entries.
-- Keep unattributed and ambiguously attributed executions visible in explicit buckets rather than forcing a request
-  relationship.
-- Add an evidence-based Database advisor rule for statements that appear to embed dynamic literal values instead of bind
-  parameters, with clear confidence and limitations so generated SQL and legitimate constants do not become categorical
-  findings.
-
-Architecture:
-
-- Put ranking, aggregation, normalization, bounds, route attribution, and advisory policy in JSON-free,
-  framework-neutral engine services over the existing SQL Trace and HTTP exchange DTOs/recorders.
-- Reuse existing adapter trace-id providers and request-correlation evidence. Do not add JDBC wrappers, request
-  interceptors, SQL parsing dependencies, or a second statement recorder.
-- Compute rankings over the bounded retained window and state that window explicitly; results are diagnostic evidence, not
-  lifetime database metrics.
-- Route SQL, route templates, paths, and error metadata through the existing masking and exposure policy. Bound ranked
-  groups and route/statement cross-products before serialization to prevent high-cardinality workloads from expanding the
-  response.
-
-Out of scope for the first release:
-
-- Database-side execution plans, table statistics, index recommendations, or active query profiling.
-- Capturing bind values, request query strings, path parameters, request/response bodies, or additional SQL text.
-- Persisting rankings beyond the existing SQL Trace retention window.
-- Claiming causal request attribution when trace/thread/time evidence is absent or ambiguous.
-- Automatically rewriting SQL or treating the concatenated-SQL heuristic as proof of a vulnerability.
-
-Acceptance criteria:
-
-- The ranking uses only retained SQL Trace evidence and adds no database call, JDBC interception, or request capture.
-- Equivalent Spring servlet, Spring WebFlux, and Quarkus evidence produces the same ranking and attribution DTOs, with
-  adapter-specific unavailable correlation represented explicitly.
-- Aggregate counts and durations reconcile with the retained statements in the selected window, including truncation and
-  clear handling of ties.
-- Route attribution uses trace context where available, refuses ambiguous thread/time matches, and never exposes query
-  strings or path-parameter values.
-- Normalization aggregates equivalent parameterized statements without merging materially different statements or
-  exposing literals removed by masking policy.
-- The concatenated-SQL advisor reports only evidence-backed candidates with confidence and limitations, and never exposes
-  captured literal values in its evidence.
-- Sample applications and fixtures cover repeated and one-off statements, ties, errors, N+1 overlap, trace-correlated and
-  thread-correlated requests, WebFlux context shifts, ambiguous/unattributed work, route templates, masked paths,
-  high-cardinality truncation, and likely/false-positive concatenated SQL patterns.
+- Sample applications and fixtures cover absent Batch support, resourceless and JDBC-backed repositories, empty
+  repositories, multiple jobs and instances, running, completed, stopped, and failed executions, step skip/rollback
+  counts, masked parameters, long failure descriptions, and high-cardinality paging without external services.
 
 ### 3.14 Correlation-ID filtering — Live Activity 📋 Planned
 
@@ -620,7 +335,8 @@ Architecture:
   filter, WebFlux filter, Quarkus route filter, or request-body read.
 - Keep the bounded raw identifier only where required for exposure-controlled rendering and clipboard use; use a
   one-way-derived lookup identity for matching and child propagation so filtering does not require broadcasting raw values
-  in every activity DTO.
+  in every activity DTO. Derive it with a keyed hash under a per-process random key, so short or sequential identifiers
+  cannot be recovered by hashing likely candidates.
 - Apply the live exposure and masking policy at response assembly time. Never log identifiers, include them in error
   messages, use them as metric labels, or place them in URLs/query strings generated by BootUI.
 
@@ -650,179 +366,6 @@ Acceptance criteria:
 - Tests cover built-in/custom names, mixed casing, multiple IDs, duplicate headers, reserved/invalid names, empty and
   overlong values, masking and live exposure changes, copy denial/success, exact/non-match filtering, child propagation,
   eviction, and equivalent behavior on all three adapters.
-
-### 3.15 Meter provenance and explanation — Metrics ✅ Shipped
-
-**Status: completed.** Shipped in the existing Metrics panel (see `docs/features/runtime.md` → *Metrics*): meters are grouped by
-provenance, explanations are sourced from the registry first and a curated, versioned catalogue second, and
-`GET /bootui/api/metrics` gained `group`, `provenance`, and `explanation` filters plus `groups` and `catalogueVersion`,
-identically on Spring MVC, Spring WebFlux, and Quarkus.
-
-The Metrics panel is close to a raw registry dump: it shows meter names, tags, and values without explaining which
-integration contributed a family, what the measurements mean, or how related meters should be read together. This
-enhancement groups meters by evidence-backed provenance and combines native descriptions with a curated BootUI catalogue
-for common integrations.
-
-Scope:
-
-- Extend the existing Metrics contract and UI with provenance groups and concise meter-family explanations on Spring
-  servlet, Spring WebFlux, and Quarkus; keep the existing panel id, route, enablement, and read-only policy.
-- Group related meters into integration families such as JVM, process, system, HTTP server/client, datasource pools,
-  caches, messaging, resilience, gRPC, and framework/runtime metrics when names and native metadata provide sufficient
-  evidence.
-- Show each group's contributor/integration, meter count, available description coverage, common tag keys, base units,
-  and a short explanation of what the family measures and how to interpret its principal counters, gauges, timers, and
-  distributions.
-- Prefer the registry's native meter description and base unit for an individual meter. Use a curated, versioned BootUI
-  catalogue to explain well-known meter families when native descriptions are absent or too narrow.
-- Mark explanation source and confidence (`NATIVE`, `CURATED`, or `UNKNOWN`) and preserve unmatched/custom meters in an
-  explicit **Application / unclassified** group rather than assigning guessed provenance.
-- Add group, provenance, and explanation-availability filters while preserving existing meter-name and tag filtering.
-
-Architecture:
-
-- Put family matching, provenance classification, explanation lookup, ordering, and bounds in JSON-free,
-  framework-neutral engine services over existing neutral meter metadata.
-- Keep the curated catalogue as versioned project data keyed by stable meter-family patterns, with tests against supported
-  Spring Boot, Micrometer, Quarkus, and common integration naming conventions.
-- Use native descriptions and base units from existing registries; do not instantiate binders, register meters, scrape
-  external endpoints, or infer contributors from current numeric values.
-- Bound family-pattern evaluation and group cardinality, and route meter/tag names and descriptions through the existing
-  exposure policy. Never include tag values in catalogue matching or explanations.
-
-Out of scope for the first release:
-
-- Changing meter registration, tags, histograms, percentiles, exporters, or observation configuration.
-- Querying Prometheus, OTLP backends, or any external monitoring system.
-- Generating alerts, health claims, SLOs, or recommendations from current metric values.
-- Exhaustively documenting arbitrary application-defined meters or third-party naming conventions without stable evidence.
-- Assigning provenance from tag values, stack traces, classpath presence alone, or speculative name similarity.
-
-Acceptance criteria:
-
-- Opening the enhanced Metrics view registers no meter or binder and performs no external scrape or network request.
-- Equivalent meter metadata produces the same provenance and explanation DTOs across Spring servlet, Spring WebFlux, and
-  Quarkus.
-- Native descriptions take precedence and are visibly distinguished from curated explanations; unknown meters remain
-  unclassified without invented documentation.
-- Curated family matching is deterministic, versioned, and tested against naming collisions so application meters with
-  similar prefixes are not silently misclassified.
-- Group counts reconcile with the filtered meter set, every meter belongs to exactly one group, and high-cardinality
-  registries remain bounded and pageable.
-- Tag values do not influence provenance and no sensitive tag value is copied into an explanation.
-- Fixtures cover native/curated/unknown descriptions, common integration families, naming collisions, custom meters,
-  missing units, renamed/versioned families, filters, high cardinality, and equivalent adapter output.
-
-### 3.16 Cache tiering and hit ratios — Cache ✅ Implemented
-
-The Cache panel shows cache managers and aggregate topology, but a multi-level or composed cache can still appear as one
-opaque manager and provider statistics are not explained consistently. This provider-agnostic enhancement exposes
-framework-available tier structure and native per-cache effectiveness metrics without adding invalidation capture or
-provider-specific promises.
-
-**Shipped.** `CacheTierDto`/`CacheStatisticsDto` extend the core Cache contract, the engine
-`CacheStatisticsAssembler` owns every ratio, sanitization, provenance and bounding rule, and the adapters return raw
-metadata only through classloading-gated inspectors (`SpringCacheInspectors` for the JDK map, Caffeine, Redis and
-no-op cases; `QuarkusCacheProvider` for `io.quarkus.cache.CaffeineCache`). Quarkus's public cache API exposes no
-statistics accessor, so its tiers report counters as honestly unavailable — see `docs/QUARKUS-SUPPORT.md`.
-
-Scope:
-
-- Extend the existing Cache contract and UI with hierarchical manager/cache/tier metadata and native statistics on Spring
-  servlet, Spring WebFlux, and any Quarkus cache integration that exposes equivalent metadata; keep the existing panel id,
-  route, enablement, read-only policy, and existing clear-action policy.
-- Report each cache manager's implementation type, wrapping/composition structure, declared caches, dynamic-cache state,
-  and safely discoverable backing tiers.
-- Represent each tier with a stable identity, implementation category, local/distributed classification when explicitly
-  exposed, configured maximum size/expiry policy where available, and parent/child order.
-- Show per-cache and per-tier native request, hit, miss, put, eviction, removal, load-success/failure, and size statistics
-  where exposed, plus derived hit/miss ratios only when their source counters share compatible semantics and windows.
-- Label every statistic with source, scope, and availability so application-lifetime provider counters are not confused
-  with BootUI's bounded Cache activity recorder.
-- Preserve opaque managers and caches in the report when their implementation does not expose tiers or statistics rather
-  than using reflection heuristics to invent structure.
-
-Architecture:
-
-- Extend the framework-neutral Cache DTOs and engine assembly with bounded hierarchical tier and statistic records,
-  deterministic ordering, safe ratio derivation, and explicit provenance.
-- Extend existing cache adapter/provider SPIs to return only metadata and native statistics they can access through public,
-  supported APIs. Do not import provider libraries into core/engine or hard-code first-release support for named vendors.
-- Keep optional provider/framework types in gated adapter implementations and report unsupported capabilities honestly.
-  Do not use deep reflection into internal cache implementations or trigger cache creation while discovering topology.
-- Reuse existing masking, manager/cache enablement, and clear-action policy. Bound managers, caches, tiers, and statistic
-  series before serialization and refresh live native counters without resetting them.
-
-Out of scope for the first release:
-
-- Capturing distributed invalidation events or adding another Cache/Live Activity event type.
-- Reading, browsing, searching, exporting, warming, or mutating cache entries beyond the panel's existing clear action.
-- Enabling provider statistics, resetting counters, changing expiry/size/tiering configuration, or forcing cache creation.
-- Promising tier discovery or hit ratios for providers that do not expose compatible public metadata.
-- Inferring local/distributed state, tier order, or counter semantics from implementation names alone.
-
-Acceptance criteria:
-
-- Opening or refreshing the panel creates no cache, loads no entry, enables/resets no statistic, and performs no network
-  request.
-- Equivalent exposed tier and statistic metadata produces the same core DTOs across adapters; unsupported providers or
-  fields remain explicitly unavailable.
-- Opaque and dynamically created cache managers render safely without deep reflection, classloading failures, or invented
-  tier structure.
-- Derived ratios are shown only for compatible counters with a known denominator and scope, including correct handling of
-  zero requests, unavailable counters, and counter resets.
-- Existing clear actions retain their current confirmation, enablement, and read-only behavior; this enhancement adds no
-  new mutation.
-- High-cardinality managers/caches/tiers/statistics are bounded with visible truncation and deterministic ordering.
-- Fixtures cover single-tier, composed, opaque, dynamic, local/distributed-declared, statistics-present/absent, zero/reset
-  counters, incompatible scopes, adapter unavailability, existing clear policy, and high-cardinality truncation.
-
-### 3.17 MySQL operational view — Database ✅ Delivered
-
-Delivered scope: one `mysql` panel beside PostgreSQL, backed by the framework-neutral engine and existing JDBC
-datasource discovery. Spring MVC, WebFlux with JDBC, and Quarkus with JDBC share one report, policy, and agent
-surface. Oracle MySQL 8.4 LTS is the tested server line, using 8.4.6 with Spring Connector/J 9.7.0 / HikariCP 7.0.2
-and Quarkus Connector/J 9.6.0 / Agroal 3.0.1. No MariaDB, other-line, or compatible-server certification is implied.
-
-- Covers all eight areas: vital signs, sessions/blocking, normalized statements, indexes, tables, InnoDB, basic local
-  replication, and curated settings. Sections retain usable evidence with explicit denied/disabled/failed reasons,
-  scope labels, unknown values, estimates, and row-cap limitations.
-- `GET /bootui/api/mysql`, `get_mysql_report`, and `bootui db mysql report` read only the sanitized cache.
-  `POST /bootui/api/mysql/read`, `mysql_read`, and `bootui db mysql read` explicitly collect through one shared
-  single-flight admission. No SQL on page load, discovery, or cache invalidation after exposure-policy changes.
-- Keeps collection read-only, bounded, and fail-closed, preserving application transactions and pooled connection state.
-  Enforces global/panel read-only, localhost/Host/cross-site policy, and optional-dependency safety on all adapters.
-- No scores or advisor recommendations, application rows, raw/sample/session SQL, lock key values, automatic
-  instrumentation changes, maintenance, query plans, or topology/precise replication-lag claims.
-
-The [feature contract](features/database.md#mysql) and [properties](PROPERTIES.md#mysql) specify defaults,
-permissions, exact decimal-string counters, scope, and troubleshooting. The 15-second cooperative read,
-5-second SELECT, 2-second metadata-lock, and 400-character text bounds are verified. The at-most-7-second JDBC
-network guard separately covers control/SHOW I/O; pool acquisition remains application-controlled.
-
-Verified source/runtime acceptance:
-
-- [x] Pinned MySQL 8.4.6 live tests prove every collector, restricted grants/active roles, disabled instrumentation,
-      timeouts, and safe pool cleanup; required scenarios execute rather than skip.
-- [x] Available and unavailable MVC/WebFlux/Quarkus REST, MCP, and CLI contracts agree, including no-SQL cached reads,
-      exposure invalidation, partial results, exact numeric strings, and policy/busy responses.
-- [x] All seven Spring live suites, including the four MVC/WebFlux × default/custom-mount HTTP cases, pass.
-      Quarkus custom-mount REST/MCP/CLI and Agroal physical connection eviction pass.
-- [x] Global digest collection does not require thread instrumentation, and cap-only partial results do not suggest
-      source failure; unit and genuine MySQL regressions verify both.
-- [x] Generated CLI manifest, Vue unit/navigation checks, optional sample setups, and screenshot are integrated.
-- [x] The Java 17 coverage reactor and focused final runtime regressions pass.
-
-Final integration follow-through:
-
-- [x] Complete the four full browser suites against the integrated change; all 80 MySQL browser cases pass
-      across Spring MVC, Spring WebFlux, custom mounts, and Quarkus.
-- [x] Rebuild documentation after final content synchronization.
-
-Mocks and a green H2-only conformance run do not establish MySQL support. See
-[live MySQL contributor validation](https://github.com/jdubois/boot-ui/blob/main/CONTRIBUTING.md#live-mysql-validation)
-for the executable commands.
-This feature does not replace or expand the MongoDB scope above.
 
 ### 3.18 Data access map — SQL Trace 📋 Planned
 
@@ -857,8 +400,11 @@ Scope:
 - Open on a **By table** view with the search field first, and offer a **Matrix** view of routes by tables. Cells pair
   letters (`R`, `C`, `U`, `D`, `M`) with accessible text so meaning never relies on color alone, and deep-link into the
   filtered execution list exactly as the existing rankings do.
-- Expose the same report and filters through a read-only MCP tool and generated CLI command, for example
-  `get_sql_data_access` and `bootui sql data-access`, so an agent can check which routes a table change affects.
+- Expose the report through a read-only `get_sql_data_access` MCP tool and generated `bootui sql data-access` command,
+  so an agent can check which routes a table change affects. The tool reuses the existing `QUERY_LIMIT` schema, with
+  `query` as the exact table name and `limit` bounding the tables returned. Route and access filters stay REST and UI
+  only in the first release, because a new `McpToolSchema` needs CLI binding changes and older published `bootui`
+  binaries could not pass the new arguments.
 
 Architecture:
 
@@ -1070,15 +616,26 @@ Acceptance criteria:
   invocations, a request and a consumed message sharing one trace, consumed and sent messages, Quarkus fire-time
   windows, masked children, truncation, and all three adapters.
 
+Delivery slices, each one pull request with its own tests and documentation:
+
+- **§3.20a Shared profile assembler.** Generalize `RequestProfileAssembler` into the shared engine assembler with the
+  cross-anchor trace-uniqueness guard, and add REST client and cache evidence to request profiles and **Copy profile**.
+  It adds no anchor, and HTTP profiles keep today's correlation policy.
+- **§3.20b Scheduled-run profiles.** Add the trace-id field to `ScheduledTaskRunStore.Run`, serve
+  `GET /bootui/api/activity/execution/{id}` for `SCHEDULED` anchors, nest their children, add nested scheduled-run
+  evidence to request profiles, and report Quarkus fire-time windows as approximate.
+- **§3.20c Consumed-message profiles.** Add the start, thread, and trace-id fields to the Kafka, RabbitMQ, and JMS
+  consumed records, extend the execution endpoint to consumed `MESSAGING` anchors, and nest message sends by trace id.
+
 ### 3.21 Log correlation — Log Tail and Live Activity 📋 Planned
 
 Log Tail captures log lines through `BootUiLogAppender`, a Logback appender, on Spring and through
 `QuarkusLogTailHandler`, a root `java.util.logging` handler, on Quarkus, both into the shared `LogTailBuffer`. Each
 `LogLineDto` carries only a timestamp, level, logger, message, and thread. A log line therefore cannot be tied to the
 request or execution that wrote it, and a warning never appears in Live Activity next to the SQL and exceptions it
-explains. Log messages are also not routed through the exposure policy today. This enhancement stamps log lines with
-correlation evidence at capture time, applies the exposure policy to them, and surfaces warnings and errors as a Live
-Activity signal.
+explains. This enhancement stamps log lines with correlation evidence at capture time and surfaces warnings and errors
+as a Live Activity signal. It builds on §3.27, which applies the exposure policy to log messages, and on §3.20's
+execution anchors.
 
 Scope:
 
@@ -1091,20 +648,20 @@ Scope:
 - Never copy §3.14 correlation identifiers automatically. When §3.14 lands, a configured key that holds one is matched
   through §3.14's one-way lookup identity, and its raw value is shown only where §3.14's exposure rules allow it.
 - Add server-side filters to `GET /bootui/api/log-tail/recent` for minimum level, logger prefix, trace id, and text. The
-  SSE stream only gains the new fields.
+  SSE stream only gains the new fields. `get_log_tail` keeps its `NONE` schema, so the filters are REST and UI only.
 - Add a `LOG` signal to Live Activity for `WARN` and above, with the threshold set by `bootui.activity.log-level`,
   bound on every adapter. Nest it under its request or execution by trace id, then by serving thread within the request
   window on Spring MVC.
 - Include correlated log lines in request and execution profiles (§3.20), and link each Log Tail row that has a trace id
   to its profile and Traces entry.
-- Apply the exception-message exposure rule to log messages and context values at read time, in Log Tail, Live Activity,
-  profiles, and `get_log_tail`: `MASKED` scrubs secret-like assignments, `METADATA_ONLY` omits messages and context
-  values, and `FULL` shows them verbatim.
+- Apply §3.27's exposure rule to context values, and to log messages wherever they newly appear: Live Activity, request
+  and execution profiles, and **Copy profile**. `METADATA_ONLY` omits context values as well as messages.
 
 Architecture:
 
 - Keep the capture adapters thin. `BootUiLogAppender` and `QuarkusLogTailHandler` copy only allowlisted keys and a trace
-  id into a neutral record, and the engine owns bounds, masking, filtering, and activity mapping.
+  id into a neutral record, and the engine owns bounds, filtering, and activity mapping, reusing §3.27's read path for
+  masking.
 - Link a log line that carries a throwable to the exception it produced through a per-event identity shared at capture
   time by the Log Tail and exception log handlers (`BootUiLogAppender` and `BootUiExceptionLogAppender` on Spring,
   `QuarkusLogTailHandler` and `QuarkusExceptionLogHandler` on Quarkus). The log record keeps the exception-group id the
@@ -1128,8 +685,8 @@ Acceptance criteria:
   Spring MVC the serving-thread tier works without tracing.
 - Keys outside the allowlist never reach the buffer, secret-looking key names are rejected even when configured, and no
   correlation identifier is copied without explicit configuration.
-- Messages and context values honor `MASKED`, `METADATA_ONLY`, and `FULL`, and a live exposure change applies without a
-  restart.
+- Context values, and messages in Live Activity and profiles, honor `MASKED`, `METADATA_ONLY`, and `FULL` exactly as
+  Log Tail does under §3.27, and a live exposure change applies without a restart.
 - `LOG` entries respect the configured threshold and the Live Activity cap, and disabling Log Tail removes the signal.
 - An error logged with a throwable does not produce duplicate activity entries.
 - Existing Log Tail clients keep working, because the new DTO fields are additive and nullable.
@@ -1153,15 +710,18 @@ Scope:
 - Resolve templates exactly as SQL route attribution does — framework template, then the application's declared
   mappings, then a masked path — and report which source was used.
 - Label Live Activity's slowest-request KPI with its resolved route template, and link it to that route's summary row.
+  Spring MVC computes this KPI in `LiveActivityService`, while Spring WebFlux and Quarkus compute it in the engine
+  `LiveActivityAssembler`; compute it once, in the engine, for all three stacks.
 - State the evidence window inline: retained exchanges, buffer size, evictions, oldest retained exchange, and hidden
   BootUI exchanges.
-- Add a read-only `get_http_routes` MCP tool and `bootui http routes` CLI command.
+- Add a read-only `get_http_routes` MCP tool, on the existing `LIMIT` schema, and a `bootui http routes` CLI command.
 
 Architecture:
 
 - Put grouping, ranking, percentiles, bounds, and window reporting in a framework-neutral engine service over existing
-  exchange evidence. Reuse `RouteTemplateResolver` and `RoutePathMasker`, and extract the nearest-rank percentile logic
-  that `SqlStatementAggregate` and `LiveActivityAssembler` each implement into one shared helper.
+  exchange evidence. Reuse `RouteTemplateResolver` and `RoutePathMasker`, and extract the percentile logic that
+  `SqlStatementAggregate`, `LiveActivityAssembler`, and Spring MVC's `LiveActivityService` each implement into one
+  shared helper, beside the shared slowest-request KPI.
 - On Spring, take the framework template from the existing `HttpExchangeTraceRegistry`, which `RequestCorrelationFilter`
   and `ReactiveHttpExchangeTraceFilter` already populate. On Quarkus, resolve it from declared JAX-RS mappings through
   `QuarkusMappingProvider`, as SQL Trace does.
@@ -1178,6 +738,8 @@ Acceptance criteria:
 
 - Route counts and durations reconcile with the retained, visible exchanges in the window.
 - Equivalent exchanges produce the same route summary on all three adapters, with the route source reported.
+- The slowest-request KPI, its p50 and p95, and its route label are identical on all three adapters for equivalent
+  evidence.
 - Ambiguous declared mappings produce no template, and a masked path never exposes a path-parameter value.
 - High-cardinality routes are bounded with a visible truncation count and deterministic tie ordering.
 - BootUI's own exchanges stay out of the summary while `bootui.monitoring.exclude-self` is on.
@@ -1196,7 +758,7 @@ Scope:
 - Per task: retained run count, failure count, average, p95, and maximum duration, last run time and outcome, and the
   last failure's exception class and exposure-governed message.
 - The next scheduled execution when the framework exposes it, and an explicit unavailable state when it does not.
-- A per-task drill-down of recent runs, newest first, each linking to its execution profile (§3.20) or Live Activity
+- A per-task drill-down of recent runs, newest first, each linking to its execution profile (§3.20b) or Live Activity
   entry.
 - An explicit **Unmatched runs** group for runs whose identifier matches no listed definition, instead of dropping them.
 - Filters for task name, outcome, and slow runs. The slow threshold is a new
@@ -1213,7 +775,7 @@ Architecture:
   keyed by the runnable identifier both already share. Reuse the shared percentile helper from §3.22.
 - Keep the DTO change additive: each definition gains a nullable run summary, and the report gains the window and
   unmatched runs.
-- Apply the exception-message exposure rule to failure messages.
+- Apply the shared exposure helper from §3.27, the same rule Exceptions uses, to failure messages.
 
 Out of scope for the first release:
 
@@ -1244,8 +806,13 @@ enhancement keeps failure evidence longer than routine evidence and lets develop
 Scope:
 
 - Reserve a bounded, configurable share of each BootUI-owned HTTP exchange, SQL Trace, and REST Client buffer for failed
-  or slow records: 5xx responses, failed statements, failed and error-response calls, and records over each panel's
+  or slow records: 5xx responses, failed statements, failed and error-response calls, and records over the buffer's
   slow threshold. The reservation comes out of existing capacity, never extra memory.
+- Classify slow records with the existing `bootui.sql-trace.slow-query-threshold-millis` and
+  `bootui.rest-client-trace.slow-call-threshold-millis`, and, for exchanges, `bootui.activity.request-slow-threshold-ms`.
+  That last property is bound on Spring MVC only today, while Spring WebFlux and Quarkus use a fixed 500 ms in the engine
+  assembler: bind it on every adapter with one documented default, which also sets the `SLOW` severity of their
+  `REQUEST` entries. A threshold of `0` disables slow classification for that buffer, so only failures are reserved.
 - Evict routine records first. The reserved share evicts its own oldest record only when it is full.
 - Report retained, reserved, and evicted counts per buffer, so no panel implies its window is complete.
 - Add `bootui.monitoring.ignore-paths`, a list of path patterns whose requests are not captured as exchanges, Live
@@ -1254,6 +821,9 @@ Scope:
 - Define one pattern grammar for every adapter: path-only patterns anchored at `/`, matched case-sensitively against
   the decoded, normalized request path below the context path, never the query string, where `*` matches within one
   segment and `**` matches any number of segments. An invalid pattern is reported in the panel and matches nothing.
+- Keep SQL and REST client work done while serving an ignored request out of **Unattributed**. For each ignored
+  request, retain only its correlation evidence — trace id, serving thread, time window, and matched pattern, never the
+  exchange — in a bounded buffer, so route attribution reports that work in an explicit **Ignored routes** bucket.
 - On Spring, keep BootUI's own requests out of the application's slots while `bootui.monitoring.exclude-self` is on, as
   Quarkus already does.
 - Apply these capture-time guarantees only where BootUI owns recording: SQL Trace, REST Client, Quarkus exchanges, and
@@ -1283,11 +853,23 @@ Acceptance criteria:
 - Retained records never exceed the configured capacity, and reported counts reconcile with buffer contents.
 - Ignored paths produce no exchange, Live Activity request, or route-ranking entry, while a 5xx on an ignored path is
   still captured. The same pattern matches the same paths on every adapter, and an invalid pattern matches nothing.
+- SQL and REST client work done while serving an ignored request appears under **Ignored routes**, never under
+  **Unattributed** or another route.
+- Spring MVC, Spring WebFlux, and Quarkus classify slow exchanges with the same threshold.
 - BootUI's own traffic no longer displaces application exchanges on Spring while `exclude-self` is on.
 - An application-provided repository or filter is never replaced, its retention is labelled as application-managed,
   and ignore rules apply to it at read time.
-- Tests cover classification, eviction order under mixed load, a capacity of one, valid and invalid patterns,
-  self-filter interaction, and all three adapters.
+- Tests cover classification, eviction order under mixed load, a capacity of one, disabled slow thresholds, valid and
+  invalid patterns, ignored-route attribution, self-filter interaction, and all three adapters.
+
+Delivery slices, each one pull request with its own tests and documentation:
+
+- **§3.24a Failure-preserving retention.** The tiered engine buffer, the BootUI-owned Spring `HttpExchangeRepository`
+  that keeps BootUI's own requests out of application slots, the request slow threshold on every adapter, and the
+  retained, reserved, and evicted counts.
+- **§3.24b Capture ignore rules.** `bootui.monitoring.ignore-paths`, the shared pattern grammar and matcher, capture-time
+  dropping where BootUI owns recording, read-time filtering for application-provided repositories, and the
+  **Ignored routes** attribution bucket.
 
 ### 3.25 Agent-ready profiles and exception export — Developer tools 📋 Planned
 
@@ -1299,8 +881,10 @@ missing tools and one consistent, already-masked Markdown export that a develope
 Scope:
 
 - Add a read-only `get_request_profile` MCP tool that takes an activity entry id and returns the same
-  `RequestProfileDto` as `GET /bootui/api/activity/request/{id}`, exposed as `bootui activity profile <id>`.
-- Once §3.20 lands, add `get_execution_profile`, exposed as `bootui activity execution <id>`.
+  `RequestProfileDto` as `GET /bootui/api/activity/request/{id}`, exposed as `bootui request-profile <id>`.
+- Once §3.20b lands, add `get_execution_profile`, exposed as `bootui execution-profile <id>`.
+- Keep both commands at the top level: `bootui activity` is already the `get_live_activity` command, and a CLI path may
+  not be both a command and the parent of another.
 - Add an additive `exceptionGroupId` to `RequestProfileExceptionDto`, so a profile can reach each exception's detail.
 - Add **Copy for AI** to the Exceptions detail and the profiler drawer. It produces one Markdown document with the
   summary, exception type and exposure-governed message, the cause chain with application frames marked, recent
@@ -1395,59 +979,154 @@ Acceptance criteria:
 - Out-of-range line numbers and generated, lambda, or synthetic frames produce no excerpt rather than a wrong one.
 - The **Open in** links match §3.19's behavior exactly, and open the correct file and line.
 - Tests cover Maven and Gradle layouts, Kotlin sources, multi-module projects launched from the reactor root, archive
-  classes, and availability on all three adapters.
+  classes, and availability on all three adapters. Masking fixtures cover Java text blocks and unicode escapes, and
+  Kotlin raw strings, string templates, and nested block comments.
 
-## 4. Cross-cutting work for every new panel
+### 3.27 Log exposure policy — Log Tail and Dev Services 📋 Planned
 
-For each feature above, the following must move together, consistent with the existing panel-registration process:
+Log text is the one captured application text that bypasses BootUI's value-exposure policy. The Exceptions panel scrubs
+secret-like `key=value` assignments from exception messages under the default `MASKED` mode, omits them under
+`METADATA_ONLY`, and shows them verbatim only under `FULL`. Log Tail returns `LogLineDto.message` exactly as captured on
+every surface — `GET /bootui/api/log-tail/recent`, the SSE stream, `get_log_tail`, and `bootui logs tail` — so a line
+that logs a password assignment is shown in full under the default mode. Spring's Dev Services container logs
+(`GET /bootui/api/dev-services/{id}/logs`) are returned the same way. This item closes the gap on its own, ahead of the
+rest of the plan, and §3.21 builds on it.
 
-- Stable BootUI DTOs in `bootui-core` for all browser-facing responses.
-- A framework-neutral engine service and SPI where the data source differs by runtime, plus thin Spring MVC/WebFlux and
-  Quarkus HTTP adapters. Keep optional framework/driver types in gated adapter classes.
-- Panel registration in `BootUiPanels` and per-adapter `/bootui/api/panels` availability wiring, including the
-  disabled/unavailable sidebar state. Append new action-capable panels last to keep index-coupled tests stable.
-- A Vue 3 route and panel with empty/unavailable states, server-side filtering/paging where lists can be large, and the
-  shared masking-aware rendering.
-- Per-panel enable/disable and read-only properties, documented in `docs/PROPERTIES.md`.
-- Backend slice and edge-case tests, frontend unit tests, and sample-app Playwright coverage. Update the hard-coded panel
-  counts/indices in `PanelsControllerTests`, `BootUiAutoConfigurationTests`, `PanelAccessFilterTests` (action-capable
-  panels only), `routes.test.js`, and e2e `app-shell.spec.js`.
-- Documentation updates in `docs/features/`, `docs/PROPERTIES.md`, `docs/SPECIFICATION.md`, and the relevant platform
-  support document, plus screenshots at the project's standard size.
+Scope:
+
+- Apply the exception-message exposure rule to Log Tail messages on every surface: the recent snapshot, the SSE stream
+  including its replayed backlog, `get_log_tail`, and the CLI. `MASKED` scrubs secret-like assignments, `METADATA_ONLY`
+  omits the message while keeping timestamp, level, logger, and thread, and `FULL` shows it verbatim.
+- Apply the same rule to Dev Services container log text on Spring MVC and Spring WebFlux. Quarkus serves no container
+  logs and keeps its current `409` response.
+- Evaluate the policy at read time, so a live exposure change applies to retained lines and open streams without a
+  restart, and capture cost stays unchanged.
+- Show in the Log Tail panel when messages are omitted by policy, so an omitted message never reads as an empty line.
+
+Architecture:
+
+- Move the secret-assignment pattern out of `ExceptionsService` into one engine helper shared by Exceptions, Log Tail,
+  and Dev Services, so the three surfaces mask identically and a pattern fix reaches all of them.
+- Keep `LogTailBuffer` as raw bounded storage. Map each line through the helper in one engine read path that Spring
+  MVC's `LogTailController`, WebFlux's `ReactiveLogTailController`, and Quarkus's `LogTailResource` call for snapshots
+  and streamed lines alike. The MCP tools and the CLI already read through those adapters, so they inherit the rule.
+- `LogLineDto.message` becomes nullable, as exception messages already are. The Vue panel's rendering and severity
+  filter handle a missing message.
+
+Out of scope for the first release:
+
+- Detecting secrets beyond the shared assignment pattern, such as bare tokens or credentials embedded in connection
+  strings. Improvements belong in the shared helper and reach every surface at once.
+- Masking at capture time, or changing what the Logback appender and the Quarkus log handler capture.
+- MDC values, structured arguments, and correlation, which §3.21 owns.
+
+Acceptance criteria:
+
+- Under `MASKED`, no password, token, or API-key assignment in a logged message reaches any Log Tail or Dev Services
+  response on Spring MVC, Spring WebFlux, or Quarkus, including the SSE backlog, `get_log_tail`, and `bootui logs tail`.
+- Under `METADATA_ONLY`, no message text is returned and the panel says why. Under `FULL`, messages are verbatim.
+- Changing `bootui.expose-values` at runtime changes the next snapshot and the next streamed line without a restart.
+- Exceptions output is unchanged after the pattern moves into the shared helper.
+- Tests cover every exposure mode, `bootui.mask-secrets=false`, null and multi-line messages, the SSE backlog and live
+  lines, MCP and CLI output, and all three adapters.
+
+## 4. Cross-cutting work
+
+Most planned items extend existing panels; only §3.6, §3.8, and §3.9 add panels. Consistency tests enforce much of the
+lists below, so a missed step fails the build rather than drifting silently.
+
+### Every item
+
+- Put policy, bounds, ordering, and assembly in the framework-neutral engine. Keep the Spring MVC, Spring WebFlux, and
+  Quarkus adapters thin, and keep optional framework or driver types in gated adapter classes.
+- Keep `bootui-core` DTO changes additive and nullable, so older browsers, MCP clients, and published `bootui` binaries
+  keep working. Update the panel's `BootUiApiContractCatalog` entry to its real DTO fields;
+  `availablePanelsMatchTheirDtoFamilyContracts` fails when the declared shape drifts.
+- Route every displayed value through the live `ExposurePolicy` and `SecretMasker`, and bound every list with a visible
+  truncation count.
+- Bind new properties on every adapter where the capability exists — Spring's `BootUiProperties` and the Quarkus
+  `BootUiEngineProducer` configuration lookups — and document them in `docs/PROPERTIES.md`, including its
+  framework-specific table when a stack lacks one. A plain-integer millisecond threshold takes the suffix its namespace
+  already uses: `-ms` under `bootui.activity.*`, and `-millis` under `bootui.sql-trace.*`, `bootui.rest-client-trace.*`,
+  and `bootui.transactions.*`. A new namespace uses `-millis`, the majority form.
+- Move a new or changed MCP tool in lockstep: `McpToolCatalog` and `McpToolDescriptions`, the Spring MVC
+  `BootUiMcpTools`, WebFlux `ReactiveBootUiMcpTools`, and Quarkus `QuarkusMcpTools`, a `CliCommandPaths` entry, the
+  regenerated `bootui-cli/src/main/resources/bootui-tools.json`, the tool lists in `docs/AI-AGENTS.md`,
+  `docs/features/developer-tools.md`, and `docs/SPECIFICATION.md`, plus `docs/CLI.md` and `skills/bootui/SKILL.md`.
+  `ToolManifestGeneratorTests` and `mcpToolCatalogIsDocumentedInEveryCanonicalToolList` enforce most of this.
+- Reuse an existing `McpToolSchema`: `NONE`, `LIMIT`, `QUERY_LIMIT`, `ID`, or `RULE_VIOLATIONS`. The published CLI binds
+  options by schema name, so a new schema needs `ToolManifest` and `CommandTree` changes, and older `bootui` binaries
+  cannot pass its arguments. An item that needs one says so in its specification.
+- Choose CLI command paths that are unique and never a prefix of another path. `bootui activity`, for example, is
+  already a command, so it cannot also be the parent of `bootui activity profile`.
+- Update `docs/features/`, the relevant `docs/SPECIFICATION.md` section, `docs/WEBFLUX-SUPPORT.md` and
+  `docs/QUARKUS-SUPPORT.md` where stack behavior differs, and the matching `docs/*-CHECKS.md` for any advisor change.
+- Cover the change with engine and adapter tests, conformance, frontend unit tests, and the Spring MVC, Spring WebFlux,
+  and Quarkus browser suites.
+
+### Adding a panel
+
+In addition:
+
+- Register the panel in `BootUiPanels` — id, title, action capability, and API prefix — and in the conformance manifests
+  `expected-panels-spring.json`, `expected-panels-webflux.json`, and `expected-panels-quarkus.json`, in catalog order.
+  `BackendPanelCatalogConsistencyTest` fails when they disagree.
+- Wire `/bootui/api/panels` availability in Spring's `PanelsController` and Quarkus's `PanelsResource`, plus any
+  build-time capability, with an honest unavailable or not-applicable reason on stacks that lack the capability.
+- Add the Vue route in `routes.js`, which owns sidebar group and navigation order, with empty and unavailable states and
+  server-side paging for large lists.
+- Add a `BootUiApiContractCatalog` read contract, action contracts for any action endpoint, and the endpoint rows in
+  `docs/SPECIFICATION.md` §6.4.
+- Document `bootui.panels.<id>.enabled`, and `.read-only` for an action-capable panel, in the `docs/PROPERTIES.md` panel
+  access matrix.
+- Add a `# `/`## <title>` heading under `docs/features/`, the title in the `docs/SPECIFICATION.md` navigation group
+  list, the panel in the `docs/QUARKUS-SUPPORT.md` counts and classification table, and, when Quarkus lacks it, in
+  `docs/FRAMEWORK-SUPPORT.md`. `routes.test.js` and `BackendPanelCatalogConsistencyTest` check these.
+- Add a screenshot entry to `capture-docs-screenshots.mjs`, its image under `docs/images/`, and its embed under
+  `docs/features/`, at the project's standard size.
+- Add the panel to the Spring e2e `allPanelLinks` list and sidebar group counts, and to the Quarkus e2e
+  `PANEL_HEADINGS` map.
 
 ## 5. Risks
 
-| Risk                                                              | Feature(s) | Impact | Mitigation                                                                                                    |
-| ----------------------------------------------------------------- | ---------- | ------ | ------------------------------------------------------------------------------------------------------------- |
-| Optional Actuator endpoints, libraries, beans, or servers missing | all        | Medium | Internal bridges, classpath/bean gating, stable empty DTOs, and clear unavailable reasons per panel.          |
-| MongoDB inspection leaks credentials/documents or performs surprising network work | 3.5 | High | Never expose documents or raw connection strings; initial render is network-free; inspection is explicit, bounded, timed out, masked, and read-only. |
-| MongoDB optional drivers break applications without the extension | 3.5 | High | Keep driver types in adapter-only providers and use Spring classpath gates plus Quarkus capability/exclusion build steps. |
-| Large MongoDB catalog or partial permissions make inspection slow or misleading | 3.5 | Medium | Hard caps, paging, configurable timeouts, partial-result DTOs, and per-target permission errors. |
-| Scope creep beyond the planned MongoDB inventory/advisor surface | 3.5 | High | Keep document browsing, arbitrary commands, writes, tracing, and migrations out of the first release. |
-| Lexical table extraction misreads SQL and invents or misses access | 3.18 | High | Per-statement extraction status, an explicit unresolved bucket, no CTE/alias/function ever reported as a table, and a fixture corpus of Hibernate and vendor SQL. |
-| The data access map is read as a complete CRUD matrix | 3.18 | Medium | Label every view as observed in the retained window, show the window, evictions, and exclusions inline, and add no static inference. |
-| Location lists drift from violation text or break older clients | 3.19 | Medium | Derive text and location from one retained record, keep fields additive, and test alignment on every advisor, sample, and page. |
-| Source-path lookup slows scans or reads unexpected files | 3.19 | Medium | Reuse the existing bounded lookup and budgets, run it only during explicit scans, never follow symlinks, and never resolve archives. |
-| IDE links send local paths somewhere unexpected | 3.19 | Low | Off by default, fixed IDE URL-scheme presets only, and no custom or web templates. |
-| Correlation over-claims which request or execution caused a record | 3.20, 3.21 | Medium | Tiered, labelled correlation with a unique-candidate rule; ambiguous work stays top-level. |
-| Log messages, MDC values, exports, or source excerpts leak secrets | 3.21, 3.25, 3.26 | High | Explicitly configured MDC keys, read-time exposure policy, omission under `METADATA_ONLY`, literal and comment stripping for source under `MASKED`, and exports built only from masked DTOs. |
-| New capture fields slow application hot paths | 3.20, 3.21, 3.24 | Medium | Copy only data already at hand at existing hooks, with bounded copies and fail-open capture. |
-| Reserved retention hides recent routine traffic | 3.24 | Low | Reserve a bounded share of existing capacity and report retained, reserved, and evicted counts. |
-| Source reads escape the project tree | 3.26 | High | Reuse §3.19's bounded module and source-set lookup, refuse symlinks and archives, and read only one resolved file on open or export. |
+| Risk                                                                                       | Feature(s)       | Impact | Mitigation                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------ | ---------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Optional Actuator endpoints, libraries, beans, or servers missing                          | all              | Medium | Internal bridges, classpath/bean gating, stable empty DTOs, and clear unavailable reasons per panel.                                                                                      |
+| Scope creep beyond each item's first release                                               | all              | High   | Treat each item's out-of-scope list as binding, and move new ideas to a later plan revision.                                                                                              |
+| Log Tail or container logs show secrets under the default `MASKED` mode                    | 3.27             | High   | One read-time rule shared with Exceptions, message omission under `METADATA_ONLY`, and tests on every surface and adapter.                                                                |
+| Client discovery instantiates lazy clients, mutates builders, or resolves hosts            | 3.6              | High   | Read registrations and bean definitions only, never request a lazy bean, add no interceptor, and perform no DNS lookup.                                                                   |
+| Base URLs or proxy settings leak credentials                                               | 3.6              | High   | Always strip user-info and secret query values, and never serialize TLS or proxy secrets, in every exposure mode.                                                                         |
+| gRPC discovery creates channels, enables reflection, or loads absent `io.grpc` classes     | 3.8              | High   | Read existing registries and metrics only, and gate providers on classpath, beans, and Quarkus capabilities.                                                                              |
+| Batch history reads slow the application, or read as empty under a resourceless repository | 3.9              | Medium | Bounded, paged `JobRepository` queries, and an explicit history-not-retained state for the resourceless repository.                                                                       |
+| Correlation-ID lookup identities are reversed for short or sequential identifiers          | 3.14             | Medium | Derive lookup identities with a keyed hash under a per-process random key, never a plain hash.                                                                                            |
+| Lexical table extraction misreads SQL and invents or misses access                         | 3.18             | High   | Per-statement extraction status, an explicit unresolved bucket, no CTE/alias/function ever reported as a table, and a fixture corpus of Hibernate and vendor SQL.                         |
+| The data access map is read as a complete CRUD matrix                                      | 3.18             | Medium | Label every view as observed in the retained window, show the window, evictions, and exclusions inline, and add no static inference.                                                      |
+| Location lists drift from violation text or break older clients                            | 3.19             | Medium | Derive text and location from one retained record, keep fields additive, and test alignment on every advisor, sample, and page.                                                           |
+| Source-path lookup slows scans or reads unexpected files                                   | 3.19             | Medium | Reuse the existing bounded lookup and budgets, run it only during explicit scans, never follow symlinks, and never resolve archives.                                                      |
+| IDE links send local paths somewhere unexpected                                            | 3.19, 3.26       | Low    | Off by default, fixed IDE URL-scheme presets only, and no custom or web templates.                                                                                                        |
+| Correlation over-claims which request or execution caused a record                         | 3.20, 3.21       | Medium | Tiered, labelled correlation with a unique-candidate rule; ambiguous work stays top-level.                                                                                                |
+| MDC values, exports, or source excerpts leak secrets                                       | 3.21, 3.25, 3.26 | High   | Explicitly configured MDC keys, §3.27's read-time rule, omission under `METADATA_ONLY`, literal and comment stripping for source under `MASKED`, and exports built only from masked DTOs. |
+| New capture fields slow application hot paths                                              | 3.20, 3.21, 3.24 | Medium | Copy only data already at hand at existing hooks, with bounded copies and fail-open capture.                                                                                              |
+| Route percentiles over a small or evicted window read as service-level metrics             | 3.22             | Medium | Show the sample count and evidence window beside every percentile, and compute only over retained exchanges.                                                                              |
+| Runs whose identifier differs from their definition's are dropped or misattributed         | 3.23             | Medium | An explicit **Unmatched runs** group, and identifier fixtures on every adapter.                                                                                                           |
+| Unified slow thresholds change existing `SLOW` severities                                  | 3.23, 3.24       | Low    | One documented default per threshold, recorded in `CHANGELOG.md` as a behavior change.                                                                                                    |
+| Reserved retention hides recent routine traffic                                            | 3.24             | Low    | Reserve a bounded share of existing capacity and report retained, reserved, and evicted counts.                                                                                           |
+| Ignore rules hide needed evidence or misfile work from ignored requests                    | 3.24             | Medium | Empty by default, 5xx always captured, invalid patterns reported, and an explicit **Ignored routes** attribution bucket.                                                                  |
+| `MASKED` source excerpts leak a literal because the lexer mis-tokenizes Java or Kotlin     | 3.26             | High   | Omit the excerpt whenever lexing is incomplete, and test Java text blocks and unicode escapes and Kotlin raw strings, string templates, and nested comments.                              |
+| Source reads escape the project tree                                                       | 3.26             | High   | Reuse §3.19's bounded module and source-set lookup, refuse symlinks and archives, and read only one resolved file on open or export.                                                      |
 
 ## 6. Validation checklist
 
-Run after each feature lands and before any release that includes it:
+Run after each item lands and before any release that includes it:
 
-- [ ] `./mvnw -B -ntp clean install` passes.
-- [ ] The UI build is executed automatically by Maven.
-- [ ] The new panel loads and handles empty/unavailable data with a clear reason.
-- [ ] The new panel masks sensitive values and respects the value-exposure mode.
-- [ ] `/bootui/api/panels` reports the panel's availability and the sidebar dims it when unavailable.
-- [ ] Server-side filtering/paging works for any high-cardinality list.
+- [ ] `./mvnw -B -ntp clean install` passes, including the Maven-driven UI build.
+- [ ] `./mvnw -B -ntp spotless:check` and the frontend and e2e `npm run format:check` scripts pass.
+- [ ] The Spring MVC, Spring WebFlux, and Quarkus browser suites pass.
+- [ ] The new or changed surface loads and handles empty or unavailable data with a clear reason.
+- [ ] It masks sensitive values and respects each value-exposure mode, including live changes.
+- [ ] `/bootui/api/panels` reports availability honestly on every stack, and the sidebar dims an unavailable panel.
+- [ ] Server-side filtering and paging work for every high-cardinality list.
 - [ ] Any mutating action is confirmation-gated and disabled by default.
-- [ ] Backend slice/edge-case tests, frontend unit tests, and sample-app Playwright coverage exist for the panel.
-- [ ] `docs/features/`, `docs/PROPERTIES.md`, `docs/SPECIFICATION.md`, and the relevant platform support document
-      describe the new surface, with screenshots at the standard size.
+- [ ] The documentation and MCP/CLI surfaces listed in §4 describe the change, with screenshots at the standard size.
 - [ ] Spring Boot stays disabled in `prod`/`production` unless explicitly enabled; Quarkus remains production-dark in
       normal launch mode; and every adapter rejects non-local requests.

@@ -650,7 +650,7 @@ public class LiveActivityService {
      * framework-neutral {@link KafkaActivityEntries#toEntry(CapturedMessage)} so the Quarkus adapter
      * renders every Kafka entry byte-for-byte identically. Unlike {@code SQL}/{@code EXCEPTION}/{@code
      * SECURITY}, no request-parent correlation is attempted yet (BootUI has no trace id on the
-     * producer/consumer thread today), so every entry is top-level; see {@code docs/PLAN.md} §3.4 for
+     * producer/consumer thread today), so every entry is top-level; see {@code docs/PLAN.md} §3.20 for
      * the nesting this can grow into once messaging spans carry a correlation id. Duration is only known
      * for consumed messages (the producer callback carries no send-start timestamp).
      */

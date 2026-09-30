@@ -12,7 +12,7 @@ import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessa
  *
  * <p>Unlike {@code SQL}/{@code EXCEPTION}/{@code SECURITY} entries, no request-parent correlation is
  * attempted (BootUI has no trace id on the producer/consumer thread for Kafka today), so every entry is
- * top-level; see {@code docs/PLAN.md} §3.4 for the nesting this can grow into once messaging spans carry
+ * top-level; see {@code docs/PLAN.md} §3.20 for the nesting this can grow into once messaging spans carry
  * a correlation id. Duration is only known for consumed messages (the producer callback carries no
  * send-start timestamp).
  */

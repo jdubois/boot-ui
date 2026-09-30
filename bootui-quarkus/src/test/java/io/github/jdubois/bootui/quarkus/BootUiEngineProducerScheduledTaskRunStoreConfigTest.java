@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
  * Pins the {@code bootui.activity.max-scheduled-task-runs} MicroProfile {@link Config} binding used by
  * {@link BootUiEngineProducer#scheduledTaskRunStore(Config)}. The key name and default (200) are kept
  * unified with the Spring adapter's {@code BootUiProperties.Activity.getMaxScheduledTaskRuns()}, so the
- * same config key sizes the buffer identically on both frameworks (see {@code docs/PLAN.md} §3.4).
+ * same config key sizes the buffer identically on both frameworks (see {@code docs/PROPERTIES.md}).
  */
 class BootUiEngineProducerScheduledTaskRunStoreConfigTest {
 

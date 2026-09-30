@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * Framework-neutral, in-memory, bounded ring buffer of {@code @Scheduled} task <em>executions</em>
  * (start/success/failure/duration), feeding the {@code SCHEDULED} entries in the Live Activity
- * merged stream (see {@code docs/PLAN.md} §3.4). This is a companion to the existing, purely-static
+ * merged stream (see {@code docs/features/overview.md}). This is a companion to the existing, purely-static
  * {@link ScheduledTasksService} (which only lists task <em>definitions</em>): this store instead
  * captures what actually ran.
  *

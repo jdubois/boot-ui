@@ -342,7 +342,7 @@ to Spring, nesting as a `REQUEST` child via the same trace-id join.
 **Cache (`CACHE`) is not captured on Quarkus.** The Spring servlet and WebFlux adapters feed a `CacheActivityRecorder` by
 decorating `CacheManager` beans, but `quarkus-cache`'s built-in interceptors cast the resolved cache to an internal,
 non-public `AbstractCache` type. A Spring-style decorator has no comparable runtime interception seam, so the
-`cacheHitRatioPercent` KPI always renders `null` on this adapter (see `docs/PLAN.md` §3.4).
+`cacheHitRatioPercent` KPI always renders `null` on this adapter.
 
 :::
 
