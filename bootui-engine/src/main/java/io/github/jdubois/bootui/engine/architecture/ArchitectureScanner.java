@@ -3,21 +3,26 @@ package io.github.jdubois.bootui.engine.architecture;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
+import io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureReport;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureScanStatusDto;
 import io.github.jdubois.bootui.core.dto.ArchitectureSeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorLocations;
 import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitSourceLocations;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
@@ -48,6 +53,8 @@ public final class ArchitectureScanner {
     private final Clock clock;
     private final List<ArchitectureRule> rules;
     private final Function<JavaClasses, ArchitectureGeneratedCode.Result> generatedCodeResolver;
+    private final BiFunction<JavaClasses, Collection<AdvisorViolationLocationDto>, AdvisorLocations.Resolution>
+            sourceLocations;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
     private final AdvisorScanState<ArchitectureReport> violationState =
             new AdvisorScanState<>(ArchitectureReport::withViolationDetails);
@@ -76,6 +83,26 @@ public final class ArchitectureScanner {
             Clock clock,
             List<ArchitectureRule> rules,
             Function<JavaClasses, ArchitectureGeneratedCode.Result> generatedCodeResolver) {
+        this(
+                basePackagesSupplier,
+                importer,
+                platform,
+                clock,
+                rules,
+                generatedCodeResolver,
+                ArchUnitSourceLocations::resolve);
+    }
+
+    ArchitectureScanner(
+            Supplier<List<String>> basePackagesSupplier,
+            ArchitectureClassImporter importer,
+            ArchitecturePlatform platform,
+            Clock clock,
+            List<ArchitectureRule> rules,
+            Function<JavaClasses, ArchitectureGeneratedCode.Result> generatedCodeResolver,
+            BiFunction<JavaClasses, Collection<AdvisorViolationLocationDto>, AdvisorLocations.Resolution>
+                    sourceLocations) {
+        this.sourceLocations = sourceLocations;
         this.basePackagesSupplier = basePackagesSupplier;
         this.importer = importer;
         this.platform = platform;
@@ -212,6 +239,7 @@ public final class ArchitectureScanner {
             }
             usable |= context.evidence().usable();
         }
+        results = completeLocations(classes, results, collector);
         long errors = results.stream()
                 .filter(result -> ArchitectureRuleSupport.ERROR.equals(result.status()))
                 .count();
@@ -249,6 +277,20 @@ public final class ArchitectureScanner {
                 results.size(),
                 results,
                 new AdvisorEvidenceDto(usable, errors == 0 && unreported.isEmpty(), limitations));
+    }
+
+    /**
+     * Resolves source paths and verifies lines once, after every rule, for the samples and the retained details
+     * alike. Only an explicit scan reaches this; detail reads serve the published records unchanged.
+     */
+    private List<ArchitectureRuleResultDto> completeLocations(
+            JavaClasses classes, List<ArchitectureRuleResultDto> results, AdvisorViolationCollector collector) {
+        return AdvisorLocations.complete(
+                collector,
+                results,
+                ArchitectureRuleResultDto::sampleLocations,
+                ArchitectureRuleResultDto::withSampleLocations,
+                located -> sourceLocations.apply(classes, located));
     }
 
     private List<String> basePackages() {

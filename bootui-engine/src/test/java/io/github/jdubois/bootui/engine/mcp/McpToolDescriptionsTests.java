@@ -30,6 +30,24 @@ class McpToolDescriptionsTests {
     }
 
     @Test
+    void onlyLocatedAdvisorsAdvertiseStructuredViolationLocations() {
+        for (Function<String, String> provider :
+                List.<Function<String, String>>of(McpToolDescriptions::spring, McpToolDescriptions::quarkus)) {
+            for (String advisor : List.of("architecture", "rest_api", "hibernate")) {
+                for (String tool : List.of(advisor + "_scan", "get_" + advisor + "_report")) {
+                    assertThat(provider.apply(tool))
+                            .contains("sampleLocations", "sourcePath", "LINE, MEMBER or CLASS", "locationNotes");
+                }
+                assertThat(provider.apply("get_" + advisor + "_rule_violations"))
+                        .contains("locations list aligns index-for-index with violations");
+            }
+            for (String advisor : List.of("spring", "memory", "security", "database_advisor")) {
+                assertThat(provider.apply("get_" + advisor + "_report")).doesNotContain("sampleLocations");
+            }
+        }
+    }
+
+    @Test
     void advisorDescriptionsDistinguishSamplesRetentionAndCachedPagination() {
         for (String advisor :
                 List.of("architecture", "hibernate", "spring", "rest_api", "memory", "security", "database_advisor")) {

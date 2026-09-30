@@ -3,22 +3,27 @@ package io.github.jdubois.bootui.engine.restapi;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import io.github.jdubois.bootui.core.dto.AdvisorEvidenceDto;
 import io.github.jdubois.bootui.core.dto.AdvisorRuleViolationsDto;
+import io.github.jdubois.bootui.core.dto.AdvisorViolationLocationDto;
 import io.github.jdubois.bootui.core.dto.RestApiReport;
 import io.github.jdubois.bootui.core.dto.RestApiRuleResultDto;
 import io.github.jdubois.bootui.core.dto.RestApiScanStatusDto;
 import io.github.jdubois.bootui.core.dto.RestApiSeverityCountDto;
 import io.github.jdubois.bootui.engine.action.ActionOperations;
 import io.github.jdubois.bootui.engine.action.SingleFlightAction;
+import io.github.jdubois.bootui.engine.advisor.AdvisorLocations;
 import io.github.jdubois.bootui.engine.advisor.AdvisorScanState;
 import io.github.jdubois.bootui.engine.advisor.AdvisorViolationCollector;
+import io.github.jdubois.bootui.engine.archunit.ArchUnitSourceLocations;
 import io.github.jdubois.bootui.engine.support.SeverityOrder;
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BiFunction;
 import java.util.function.BooleanSupplier;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
@@ -54,6 +59,8 @@ public final class RestApiScanner {
     private final BooleanSupplier globalVersioningConfigured;
     private final Clock clock;
     private final List<RestApiRule> rules;
+    private final BiFunction<JavaClasses, Collection<AdvisorViolationLocationDto>, AdvisorLocations.Resolution>
+            sourceLocations;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
     private final AdvisorScanState<RestApiReport> state = new AdvisorScanState<>(RestApiReport::withViolationDetails);
 
@@ -79,6 +86,26 @@ public final class RestApiScanner {
             BooleanSupplier globalVersioningConfigured,
             Clock clock,
             List<RestApiRule> rules) {
+        this(
+                basePackagesSupplier,
+                importer,
+                openApiAnnotationsPresent,
+                globalVersioningConfigured,
+                clock,
+                rules,
+                ArchUnitSourceLocations::resolve);
+    }
+
+    RestApiScanner(
+            Supplier<List<String>> basePackagesSupplier,
+            RestApiClassImporter importer,
+            BooleanSupplier openApiAnnotationsPresent,
+            BooleanSupplier globalVersioningConfigured,
+            Clock clock,
+            List<RestApiRule> rules,
+            BiFunction<JavaClasses, Collection<AdvisorViolationLocationDto>, AdvisorLocations.Resolution>
+                    sourceLocations) {
+        this.sourceLocations = sourceLocations;
         this.basePackagesSupplier = basePackagesSupplier;
         this.importer = importer;
         this.openApiAnnotationsPresent = openApiAnnotationsPresent;
@@ -240,7 +267,8 @@ public final class RestApiScanner {
                 model.thrownExceptions(),
                 model.framework(),
                 new RestApiEvaluationEvidence(),
-                collector);
+                collector,
+                model.locations());
         context.evidence().observations(!model.incomplete(), openApi != null, versioning != null);
 
         List<RestApiRuleResultDto> results = new ArrayList<>();
@@ -257,6 +285,14 @@ public final class RestApiScanner {
                     || !context.evidence().evaluated() && !RestApiRuleSupport.ERROR.equals(result.status());
             results.add(result);
         }
+        // Source paths and verified lines are resolved once, here, during the explicit scan only.
+        JavaClasses imported = classes;
+        results = AdvisorLocations.complete(
+                collector,
+                results,
+                RestApiRuleResultDto::sampleLocations,
+                RestApiRuleResultDto::withSampleLocations,
+                located -> sourceLocations.apply(imported, located));
 
         return report(
                 failures.isEmpty() ? "SCANNED" : "PARTIAL",

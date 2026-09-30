@@ -49,7 +49,8 @@ public final class AdvisorScanState<R> {
                 index.total(),
                 index.retained(),
                 index.retentionLimit(),
-                index.retained() < index.total());
+                index.retained() < index.total(),
+                index.locationNotes());
         R published = Objects.requireNonNull(
                 withMetadata.apply(report, metadata), "Advisor metadata projection must return a report.");
         completed = new Completed<>(published, metadata, index);
@@ -103,15 +104,18 @@ public final class AdvisorScanState<R> {
         }
 
         int pageLimit = limit == null ? DEFAULT_PAGE_LIMIT : Math.min(limit, MAX_PAGE_LIMIT);
-        PagedList.Result<String> page = PagedList.from(rule.details(), offset == null ? 0 : offset, pageLimit);
+        PagedList.Result<AdvisorViolation> page =
+                PagedList.from(rule.violations(), offset == null ? 0 : offset, pageLimit);
+        // Text and location are cut from the same retained records, so the two lists stay aligned on every page.
         return new AdvisorRuleViolationsDto(
                 snapshot.metadata().scanId(),
                 ruleId,
                 rule.violationCount(),
-                rule.details().size(),
-                rule.details().size() < rule.violationCount(),
-                page.items(),
-                page.page());
+                rule.violations().size(),
+                rule.violations().size() < rule.violationCount(),
+                AdvisorViolation.texts(page.items()),
+                page.page(),
+                AdvisorViolation.locations(page.items()));
     }
 
     private record Completed<R>(

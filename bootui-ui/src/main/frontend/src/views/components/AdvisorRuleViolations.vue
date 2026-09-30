@@ -1,6 +1,8 @@
 <script setup>
 import {computed, nextTick, ref, useId} from 'vue'
 import {rangeLabel, useAdvisorRuleViolations} from '../../utils/useAdvisorRuleViolations.js'
+import {formatLocation, openInHref, presetLabel, useOpenInPreference} from '../../utils/sourceLocation.js'
+import {useCopyToClipboard} from '../../utils/useCopyToClipboard.js'
 import SpinnerButton from './SpinnerButton.vue'
 
 const props = defineProps({
@@ -13,6 +15,20 @@ const props = defineProps({
 const {page, loading, error, stale, announcement, available, load, retry, backToSamples} =
   useAdvisorRuleViolations(props)
 const samples = computed(() => props.rule.sampleViolations || [])
+// Locations are aligned index-for-index with their texts, or absent altogether.
+const rows = computed(() => {
+  const texts = page.value ? page.value.violations || [] : samples.value
+  const locations = page.value ? page.value.locations : props.rule.sampleLocations
+  const aligned = Array.isArray(locations) && locations.length === texts.length ? locations : []
+  return texts.map((text, index) => {
+    const location = aligned[index] || null
+    const label = formatLocation(location)
+    return {text, location: label ? location : null, label}
+  })
+})
+const {openIn} = useOpenInPreference()
+const {copiedKey, copyToClipboard} = useCopyToClipboard()
+const openInLabel = computed(() => presetLabel(openIn.value))
 const hasMoreThanSamples = computed(() => props.rule.violationCount > samples.value.length)
 const regionId = `advisor-violations-${useId()}`
 const heading = ref(null)
@@ -37,6 +53,17 @@ async function showSamples() {
   backToSamples()
   await nextTick()
   viewButton.value?.$el.focus()
+}
+
+async function copyLocation(row, index) {
+  const copied = await copyToClipboard(row.label, copyKey(index))
+  announcement.value = copied
+    ? `Copied location ${row.label}.`
+    : 'Unable to copy the location. Clipboard access is unavailable.'
+}
+
+function copyKey(index) {
+  return `${page.value ? page.value.page.offset : 'sample'}-${index}`
 }
 
 async function refreshCachedReport() {
@@ -82,9 +109,29 @@ async function refreshCachedReport() {
       </button>
     </div>
     <div :id="regionId" :aria-labelledby="`${regionId}-label`">
-      <ul v-if="(page ? page.violations : samples).length" class="small mb-0">
-        <li v-for="(violation, index) in page ? page.violations : samples" :key="index" class="font-monospace">
-          {{ violation }}
+      <ul v-if="rows.length" class="small mb-0">
+        <li v-for="(row, index) in rows" :key="index">
+          <span class="font-monospace">{{ row.text }}</span>
+          <span v-if="row.location" class="advisor-violation-location d-flex flex-wrap align-items-center gap-1">
+            <i class="bi bi-geo-alt text-muted" aria-hidden="true"></i>
+            <a
+              v-if="openInHref(row.location, openIn)"
+              :href="openInHref(row.location, openIn)"
+              class="font-monospace"
+              :aria-label="`Open ${row.label} in ${openInLabel}`"
+              >{{ row.label }}</a
+            >
+            <span v-else class="font-monospace text-muted">{{ row.label }}</span>
+            <button
+              type="button"
+              class="btn btn-link btn-sm p-0 advisor-copy-location"
+              :aria-label="`Copy location ${row.label}`"
+              @click="copyLocation(row, index)"
+            >
+              <i :class="['bi', copiedKey === copyKey(index) ? 'bi-check-lg' : 'bi-clipboard']" aria-hidden="true"></i>
+              {{ copiedKey === copyKey(index) ? 'Copied' : 'Copy location' }}
+            </button>
+          </span>
         </li>
       </ul>
       <p v-else-if="page" class="small text-muted mb-0">No retained violations on this page.</p>
@@ -145,6 +192,21 @@ async function refreshCachedReport() {
 <style scoped>
 .advisor-rule-violations li {
   overflow-wrap: anywhere;
+}
+
+.advisor-violation-location {
+  font-size: 0.8125rem;
+}
+
+.advisor-copy-location {
+  font-size: inherit;
+  vertical-align: baseline;
+}
+
+.advisor-violation-location a:focus-visible,
+.advisor-copy-location:focus-visible {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: 2px;
 }
 
 .advisor-rule-violations [tabindex='-1']:focus-visible {

@@ -93,6 +93,28 @@ describe('Architecture', () => {
     ])
   })
 
+  it('offers the Open in preference and explains missing source paths beside located results', async () => {
+    const located = ruleResult('ARCH-CODE-001', 'Standard streams', 'LOW', 'VIOLATION', 1)
+    located.sampleLocations = [
+      {className: 'com.example.Printer', memberName: 'print', kind: 'METHOD', sourceFile: 'Printer.java', line: 9}
+    ]
+    const report = architectureReport([located])
+    report.violationDetails = {
+      scanId: 'scan',
+      total: 1,
+      retained: 1,
+      retentionLimit: 10000,
+      truncated: false,
+      locationNotes: ['1 class(es) were loaded from an archive, so they have no local source path.']
+    }
+    const wrapper = await mountWithReport(report)
+
+    expect(wrapper.find('select').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Open locations in')
+    expect(wrapper.text()).toContain('1 class(es) were loaded from an archive, so they have no local source path.')
+    expect(wrapper.text()).toContain('com.example.Printer#print (Printer.java:9)')
+  })
+
   it('shows an empty violation state when every evaluated rule passes', async () => {
     const wrapper = await mountWithReport(
       architectureReport([ruleResult('ARCH-CODE-004', 'Passing informational rule', 'INFO', 'PASS')], 0)

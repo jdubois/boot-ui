@@ -121,6 +121,22 @@ class BootUiQuarkusHibernateAdvisorTest {
         assertThat(violationIds)
                 .as("the eager @ManyToOne on Product triggers the eager-fetch advisory")
                 .contains("HIB-FETCH-001");
+        JsonNode eager = null;
+        for (JsonNode result : scanned.path("results")) {
+            if ("HIB-FETCH-001".equals(result.path("id").asText())) eager = result;
+        }
+        assertThat(eager.path("sampleLocations")).hasSameSizeAs(eager.path("sampleViolations"));
+        JsonNode category = eager.path("sampleLocations").get(0);
+        assertThat(category.path("className").asText()).isEqualTo("org.acme.hibdemo.Product");
+        assertThat(category.path("memberName").asText()).isEqualTo("category");
+        assertThat(category.path("kind").asText()).isEqualTo("FIELD");
+        assertThat(category.path("precision").asText()).isEqualTo("MEMBER");
+        assertThat(category.path("line").isNull()).isTrue();
+        assertThat(category.path("sourceFile").asText()).isEqualTo("Product.java");
+        assertThat(java.nio.file.Path.of(category.path("sourcePath").asText()))
+                .as("the entity's source path resolves during the explicit scan on Quarkus")
+                .isRegularFile()
+                .endsWith(java.nio.file.Path.of("src", "main", "java", "org", "acme", "hibdemo", "Product.java"));
         assertThat(violationIds)
                 .as("Open-Session-in-View (HIB-CONFIG-001) must stay inert on Quarkus — there is no OSIV, so the"
                         + " observation reports it not applicable")

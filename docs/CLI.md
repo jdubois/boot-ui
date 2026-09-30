@@ -187,6 +187,12 @@ while :; do
 done
 ```
 
+Architecture, REST API, and Hibernate pages also carry `locations`, aligned index-for-index with `violations` (a `null`
+entry has no location): each gives `className`, `memberName`, `kind`, `sourceFile`, `line`, `sourcePath`, and
+`precision`, so a script can open the file without parsing the text, for example with
+`jq -r '.locations[] | select(.) | "\(.sourcePath):\(.line)"'`. Reports carry the same list as `sampleLocations` and
+explain a missing path in `violationDetails.locationNotes`. See [violation locations](features/advisors.md#violation-locations).
+
 `page.total` and `page.matched` both count retained details for this rule; `violationCount` remains the real count.
 Always inspect `truncated`: a terminal page is not proof that all counted details were retained. Reports expose
 `violationDetails` with `scanId`, `total`, `retained`, `retentionLimit`, and `truncated`. The default retention

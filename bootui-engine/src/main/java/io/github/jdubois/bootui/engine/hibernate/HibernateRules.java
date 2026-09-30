@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.engine.hibernate;
 
 import io.github.jdubois.bootui.core.dto.HibernateRuleResultDto;
+import io.github.jdubois.bootui.engine.advisor.AdvisorFindings;
+import io.github.jdubois.bootui.engine.advisor.AdvisorViolation;
 import io.github.jdubois.bootui.engine.support.KotlinReflection;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Constructor;
@@ -56,18 +58,30 @@ abstract class AbstractHibernateRule implements HibernateRule {
     }
 
     HibernateRuleResultDto violation(HibernateContext context, List<String> details) {
-        if (!details.isEmpty()) context.retainViolations(definition.id(), details);
-        return details.isEmpty() ? pass() : HibernateRuleSupport.violation(definition, details);
+        return violation(context, null, details);
     }
 
     HibernateRuleResultDto violation(HibernateContext context, String severityOverride, List<String> details) {
-        if (!details.isEmpty()) context.retainViolations(definition.id(), details);
-        return details.isEmpty() ? pass() : HibernateRuleSupport.violation(definition, severityOverride, details);
+        return record(context, severityOverride, AdvisorViolation.withoutLocations(details));
     }
 
     HibernateRuleResultDto violation(HibernateContext context, String severityOverride, String detail) {
-        context.retainViolations(definition.id(), List.of(detail));
-        return HibernateRuleSupport.violation(definition, severityOverride, List.of(detail));
+        return record(context, severityOverride, List.of(AdvisorViolation.of(detail)));
+    }
+
+    HibernateRuleResultDto violation(HibernateContext context, AdvisorFindings details) {
+        return violation(context, null, details);
+    }
+
+    HibernateRuleResultDto violation(HibernateContext context, String severityOverride, AdvisorFindings details) {
+        return record(context, severityOverride, details.list());
+    }
+
+    private HibernateRuleResultDto record(
+            HibernateContext context, String severityOverride, List<AdvisorViolation> details) {
+        if (details.isEmpty()) return pass();
+        List<AdvisorViolation> samples = context.retainViolations(definition.id(), details);
+        return HibernateRuleSupport.violation(definition, severityOverride, details.size(), samples);
     }
 }
 
@@ -177,8 +191,8 @@ final class HibernateRuleModelSupport {
      * {@code JOIN FETCH} targets a collection association declared directly on the query root. Shared by HIB-FETCH-003
      * (which reports these as violations) and HIB-CONFIG-016 (which uses their presence to pick a dynamic severity).
      */
-    static List<String> paginatedCollectionFetchFindings(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+    static AdvisorFindings paginatedCollectionFetchFindings(HibernateContext context) {
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateRepositoryModel repository : context.repositories()) {
             for (HibernateRepositoryMethodModel method : repository.methods()) {
                 if (!method.hasPageableParameter() || method.nativeQuery() || method.query() == null) {
@@ -204,7 +218,9 @@ final class HibernateRuleModelSupport {
                             context.missingEvidence(HibernateEvidenceGap.QUERY_HINT, method);
                             continue;
                         }
-                        details.add(method.description() + " pages a collection JOIN FETCH path " + path + ".");
+                        details.add(
+                                method.description() + " pages a collection JOIN FETCH path " + path + ".",
+                                HibernateLocations.of(method));
                     }
                 }
             }
@@ -314,18 +330,22 @@ final class EagerFetchRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute : context.targets(
                     entity.attributes(), candidate -> candidate.isAssociation() || candidate.isElementCollection())) {
                 Annotation association = attribute.associationAnnotation();
                 if (association != null && "EAGER".equals(attribute.annotationValueName(association, "fetch"))) {
-                    details.add(attribute.description() + " is mapped as FetchType.EAGER.");
+                    details.add(
+                            attribute.description() + " is mapped as FetchType.EAGER.",
+                            HibernateLocations.of(attribute));
                 }
                 Annotation elementCollection = attribute.elementCollectionAnnotation();
                 if (elementCollection != null
                         && "EAGER".equals(attribute.annotationValueName(elementCollection, "fetch"))) {
-                    details.add(attribute.description() + " is an @ElementCollection mapped as FetchType.EAGER.");
+                    details.add(
+                            attribute.description() + " is an @ElementCollection mapped as FetchType.EAGER.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -357,7 +377,7 @@ final class IdentityIdentifierRule extends AbstractHibernateRule {
                         "spring.jpa.properties.hibernate.jdbc.batch_size", "hibernate.jdbc.batch_size");
         if (batchSize != null && batchSize > 1)
             return skipped("HIB-ID-006 owns the observed insert-batching conflict.");
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), candidate -> candidate.generatedValueAnnotation() != null)) {
@@ -367,7 +387,9 @@ final class IdentityIdentifierRule extends AbstractHibernateRule {
                 }
                 String strategy = attribute.annotationValueName(generatedValue, "strategy");
                 if ("IDENTITY".equals(strategy)) {
-                    details.add(attribute.description() + " uses GenerationType.IDENTITY.");
+                    details.add(
+                            attribute.description() + " uses GenerationType.IDENTITY.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -394,7 +416,7 @@ final class TableIdentifierRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), candidate -> candidate.generatedValueAnnotation() != null)) {
@@ -404,7 +426,8 @@ final class TableIdentifierRule extends AbstractHibernateRule {
                 }
                 String strategy = attribute.annotationValueName(generatedValue, "strategy");
                 if ("TABLE".equals(strategy)) {
-                    details.add(attribute.description() + " uses GenerationType.TABLE.");
+                    details.add(
+                            attribute.description() + " uses GenerationType.TABLE.", HibernateLocations.of(attribute));
                 }
             }
         }
@@ -429,18 +452,22 @@ final class SequenceAllocationSizeRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             Annotation entitySequence = entity.annotation("jakarta.persistence.SequenceGenerator");
             if (entitySequence != null) context.evidence().markApplicable(true);
             if (allocationSizeIsOne(entitySequence, entity)) {
-                details.add(entity.name() + " declares @SequenceGenerator(allocationSize=1).");
+                details.add(
+                        entity.name() + " declares @SequenceGenerator(allocationSize=1).",
+                        HibernateLocations.of(entity));
             }
             for (HibernateAttributeModel attribute : context.targets(
                     entity.attributes(), candidate -> candidate.sequenceGeneratorAnnotation() != null)) {
                 Annotation sequenceGenerator = attribute.sequenceGeneratorAnnotation();
                 if (allocationSizeIsOne(sequenceGenerator, entity)) {
-                    details.add(attribute.description() + " declares @SequenceGenerator(allocationSize=1).");
+                    details.add(
+                            attribute.description() + " declares @SequenceGenerator(allocationSize=1).",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -476,7 +503,7 @@ final class UnidirectionalOneToManyRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), HibernateAttributeModel::isOneToMany)) {
@@ -487,7 +514,8 @@ final class UnidirectionalOneToManyRule extends AbstractHibernateRule {
                 String mappedBy = attribute.annotationStringValue(oneToMany, "mappedBy");
                 if ((mappedBy == null || mappedBy.isBlank()) && !attribute.hasJoinColumn()) {
                     details.add(
-                            attribute.description() + " is unidirectional @OneToMany without mappedBy or @JoinColumn.");
+                            attribute.description() + " is unidirectional @OneToMany without mappedBy or @JoinColumn.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -514,7 +542,7 @@ final class ManyToManyListRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), HibernateAttributeModel::isManyToMany)) {
@@ -522,10 +550,12 @@ final class ManyToManyListRule extends AbstractHibernateRule {
                     String ordering = attribute.hasOrderColumn()
                             ? " with @OrderColumn; preserve the order only when it is domain-significant."
                             : " without @OrderColumn.";
-                    details.add(attribute.description()
-                            + " is @ManyToMany and declared as a List"
-                            + ordering
-                            + " Consider a link entity when link lifecycle or attributes matter.");
+                    details.add(
+                            attribute.description()
+                                    + " is @ManyToMany and declared as a List"
+                                    + ordering
+                                    + " Consider a link entity when link lifecycle or attributes matter.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -550,13 +580,15 @@ final class ManyToManyRemoveCascadeRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), HibernateAttributeModel::isManyToMany)) {
                 Annotation manyToMany = attribute.manyToManyAnnotation();
                 if (manyToMany != null && hasRemoveCascade(attribute, manyToMany)) {
-                    details.add(attribute.description() + " cascades REMOVE/ALL across @ManyToMany.");
+                    details.add(
+                            attribute.description() + " cascades REMOVE/ALL across @ManyToMany.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -586,13 +618,15 @@ final class ManyToOneRemoveCascadeRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), candidate -> candidate.manyToOneAnnotation() != null)) {
                 Annotation manyToOne = attribute.manyToOneAnnotation();
                 if (manyToOne != null && hasRemoveCascade(attribute, manyToOne)) {
-                    details.add(attribute.description() + " cascades REMOVE/ALL across @ManyToOne.");
+                    details.add(
+                            attribute.description() + " cascades REMOVE/ALL across @ManyToOne.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -682,12 +716,12 @@ final class TablePerClassInheritanceRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.targets(context.entities())) {
             Annotation inheritance = entity.annotation("jakarta.persistence.Inheritance");
             String strategy = entity.annotationValueName(inheritance, "strategy");
             if ("TABLE_PER_CLASS".equals(strategy)) {
-                details.add(entity.name() + " uses InheritanceType.TABLE_PER_CLASS.");
+                details.add(entity.name() + " uses InheritanceType.TABLE_PER_CLASS.", HibernateLocations.of(entity));
             }
         }
         return violation(context, details);
@@ -712,7 +746,7 @@ final class NotFoundIgnoreRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute : context.targets(
                     entity.attributes(),
@@ -720,7 +754,9 @@ final class NotFoundIgnoreRule extends AbstractHibernateRule {
                             || candidate.annotation("org.hibernate.annotations.NotFound") != null)) {
                 Annotation notFound = attribute.annotation("org.hibernate.annotations.NotFound");
                 if ("IGNORE".equals(attribute.annotationValueName(notFound, "action"))) {
-                    details.add(attribute.description() + " uses @NotFound(action=IGNORE).");
+                    details.add(
+                            attribute.description() + " uses @NotFound(action=IGNORE).",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -743,11 +779,13 @@ final class OptionalPersistentAttributeRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute : context.targets(entity.attributes())) {
                 if (attribute.isOptionalAttribute()) {
-                    details.add(attribute.description() + " is mapped as java.util.Optional.");
+                    details.add(
+                            attribute.description() + " is mapped as java.util.Optional.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -773,7 +811,7 @@ final class OrdinalEnumRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), HibernateAttributeModel::isEnumAttribute)) {
@@ -787,9 +825,11 @@ final class OrdinalEnumRule extends AbstractHibernateRule {
                 if (enumerated == null
                         && !activeConverter
                         && !HibernateRuleModelSupport.hasEnumeratedValue(attribute)) {
-                    details.add(attribute.description()
-                            + " has no explicit enum storage annotation; review converters and effective"
-                            + " mapping before assuming ORDINAL.");
+                    details.add(
+                            attribute.description()
+                                    + " has no explicit enum storage annotation; review converters and effective"
+                                    + " mapping before assuming ORDINAL.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -813,7 +853,7 @@ final class ExplicitOrdinalEnumRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), HibernateAttributeModel::isEnumAttribute)) {
@@ -822,7 +862,9 @@ final class ExplicitOrdinalEnumRule extends AbstractHibernateRule {
                         && enumerated != null
                         && !HibernateRuleModelSupport.hasEnumeratedValue(attribute)
                         && "ORDINAL".equals(attribute.annotationValueName(enumerated, "value"))) {
-                    details.add(attribute.description() + " explicitly uses EnumType.ORDINAL.");
+                    details.add(
+                            attribute.description() + " explicitly uses EnumType.ORDINAL.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -905,14 +947,16 @@ final class MissingBatchFetchRule extends AbstractHibernateRule {
         }
         Map<String, HibernateEntityModel> entitiesByJavaType =
                 HibernateRuleModelSupport.entitiesByJavaType(context.entities());
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateAttributeModel attribute : candidates) {
             if (isCoveredByBatchSize(attribute, entitiesByJavaType)) {
                 continue;
             }
-            details.add(attribute.description()
-                    + " can initialize through secondary selects without a global batch-fetch size or"
-                    + " applicable @BatchSize.");
+            details.add(
+                    attribute.description()
+                            + " can initialize through secondary selects without a global batch-fetch size or"
+                            + " applicable @BatchSize.",
+                    HibernateLocations.of(attribute));
         }
         return violation(context, details);
     }
@@ -1210,7 +1254,7 @@ final class InClausePaddingRule extends AbstractHibernateRule {
         if (padding) {
             return pass();
         }
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateRepositoryMethodModel method : methods) {
             String query = HibernateQueryShape.lexical(method.query());
             if (query == null || HibernateQueryShape.root(context, method, false) == null) continue;
@@ -1221,7 +1265,9 @@ final class InClausePaddingRule extends AbstractHibernateRule {
                                     .matcher(query)
                                     .find());
             if (bound && hasInPredicate(query)) {
-                details.add(method.description() + " has a collection parameter in an IN predicate.");
+                details.add(
+                        method.description() + " has a collection parameter in an IN predicate.",
+                        HibernateLocations.of(method));
             }
         }
         return violation(context, details);
@@ -1448,11 +1494,13 @@ final class EqualsHashCodePairRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.targets(context.entities())) {
             if (entity.overridesEquals() != entity.overridesHashCode()) {
-                details.add(entity.name() + " overrides "
-                        + (entity.overridesEquals() ? "equals but not hashCode." : "hashCode but not equals."));
+                details.add(
+                        entity.name() + " overrides "
+                                + (entity.overridesEquals() ? "equals but not hashCode." : "hashCode but not equals."),
+                        HibernateLocations.of(entity));
             }
         }
         return violation(context, details);
@@ -1476,7 +1524,7 @@ final class OptimisticLockingDynamicUpdateRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.targets(
                 context.entities(),
                 candidate -> candidate.annotationInHierarchy("org.hibernate.annotations.OptimisticLocking") != null)) {
@@ -1484,7 +1532,9 @@ final class OptimisticLockingDynamicUpdateRule extends AbstractHibernateRule {
             String type = entity.annotationValueName(optimisticLocking, "type");
             if (("DIRTY".equals(type) || "ALL".equals(type))
                     && entity.annotationInHierarchy("org.hibernate.annotations.DynamicUpdate") == null) {
-                details.add(entity.name() + " uses @OptimisticLocking(" + type + ") without @DynamicUpdate.");
+                details.add(
+                        entity.name() + " uses @OptimisticLocking(" + type + ") without @DynamicUpdate.",
+                        HibernateLocations.of(entity));
             }
         }
         return violation(context, details);
@@ -1510,13 +1560,15 @@ final class LobLazyFetchRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), HibernateAttributeModel::isLob)) {
                 if (attribute.isLob() && !attribute.hasBasicLazy() && context.isHibernateEnhancementEnabled(entity)) {
-                    details.add(attribute.description()
-                            + " is annotated with @Lob but does not declare @Basic(fetch = LAZY).");
+                    details.add(
+                            attribute.description()
+                                    + " is annotated with @Lob but does not declare @Basic(fetch = LAZY).",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -1542,7 +1594,7 @@ final class LazyBasicWithoutEnhancementRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.targets(
                 context.entities(),
                 candidate -> candidate.attributes().stream().anyMatch(HibernateAttributeModel::hasBasicLazy))) {
@@ -1551,8 +1603,10 @@ final class LazyBasicWithoutEnhancementRule extends AbstractHibernateRule {
             }
             for (HibernateAttributeModel attribute : entity.attributes()) {
                 if (attribute.hasBasicLazy()) {
-                    details.add(attribute.description()
-                            + " declares @Basic(fetch = LAZY), but the entity is not bytecode enhanced.");
+                    details.add(
+                            attribute.description()
+                                    + " declares @Basic(fetch = LAZY), but the entity is not bytecode enhanced.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -1578,7 +1632,7 @@ final class CollectionFetchJoinAnnotationRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), HibernateAttributeModel::isCollectionAssociation)) {
@@ -1587,7 +1641,9 @@ final class CollectionFetchJoinAnnotationRule extends AbstractHibernateRule {
                 }
                 Annotation fetch = attribute.fetchAnnotation();
                 if (fetch != null && "JOIN".equals(attribute.annotationValueName(fetch, "value"))) {
-                    details.add(attribute.description() + " is a collection mapped with @Fetch(FetchMode.JOIN).");
+                    details.add(
+                            attribute.description() + " is a collection mapped with @Fetch(FetchMode.JOIN).",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -1613,7 +1669,7 @@ final class SubselectCollectionFetchRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), HibernateAttributeModel::isCollectionAssociation)) {
@@ -1622,9 +1678,11 @@ final class SubselectCollectionFetchRule extends AbstractHibernateRule {
                 }
                 Annotation fetch = attribute.fetchAnnotation();
                 if (fetch != null && "SUBSELECT".equals(attribute.annotationValueName(fetch, "value"))) {
-                    details.add(attribute.description()
-                            + " uses @Fetch(FetchMode.SUBSELECT); verify that owner and collection"
-                            + " cardinalities stay bounded.");
+                    details.add(
+                            attribute.description()
+                                    + " uses @Fetch(FetchMode.SUBSELECT); verify that owner and collection"
+                                    + " cardinalities stay bounded.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -1651,7 +1709,7 @@ final class GeneratedValueWithoutStrategyRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute : context.targets(
                     entity.attributes(),
@@ -1675,7 +1733,9 @@ final class GeneratedValueWithoutStrategyRule extends AbstractHibernateRule {
                 }
                 String strategy = attribute.annotationValueName(generated, "strategy");
                 if (strategy == null || "AUTO".equals(strategy)) {
-                    details.add(attribute.description() + " uses @GeneratedValue without an explicit strategy.");
+                    details.add(
+                            attribute.description() + " uses @GeneratedValue without an explicit strategy.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -1702,7 +1762,7 @@ final class UuidIdentifierGeneratorRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), candidate -> candidate.hasId() && candidate.isUuidType())) {
@@ -1710,9 +1770,11 @@ final class UuidIdentifierGeneratorRule extends AbstractHibernateRule {
                     continue;
                 }
                 if (attribute.hasGeneratedValue() && !attribute.hasUuidGenerator()) {
-                    details.add(attribute.description()
-                            + " uses a supported generated UUID without a declared Hibernate generator style;"
-                            + " effective style and index locality are not observed.");
+                    details.add(
+                            attribute.description()
+                                    + " uses a supported generated UUID without a declared Hibernate generator style;"
+                                    + " effective style and index locality are not observed.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -1739,15 +1801,17 @@ final class ElementCollectionListOrderRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), HibernateAttributeModel::isElementCollection)) {
                 if (attribute.isElementCollection() && attribute.isListAttribute() && !attribute.hasOrderColumn()) {
-                    details.add(attribute.description() + " is an @ElementCollection List without @OrderColumn"
-                            + (attribute.hasOrderBy()
-                                    ? " (its @OrderBy only affects read-time ordering and does not fix this)."
-                                    : "."));
+                    details.add(
+                            attribute.description() + " is an @ElementCollection List without @OrderColumn"
+                                    + (attribute.hasOrderBy()
+                                            ? " (its @OrderBy only affects read-time ordering and does not fix this)."
+                                            : "."),
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -1773,12 +1837,14 @@ final class FinalEntityRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.targets(context.entities())) {
             if (entity.isFinalClass() && !context.isHibernateEnhancementEnabled(entity)) {
-                details.add(entity.name()
-                        + " is declared final and is not proven bytecode-enhanced, so Hibernate cannot create"
-                        + " subclass proxies for lazy to-one associations.");
+                details.add(
+                        entity.name()
+                                + " is declared final and is not proven bytecode-enhanced, so Hibernate cannot create"
+                                + " subclass proxies for lazy to-one associations.",
+                        HibernateLocations.of(entity));
             }
         }
         return violation(context, details);
@@ -1802,7 +1868,7 @@ final class StringColumnLengthRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute : context.targets(
                     entity.attributes(),
@@ -1815,7 +1881,9 @@ final class StringColumnLengthRule extends AbstractHibernateRule {
                 String columnDefinition =
                         column == null ? null : attribute.annotationStringValue(column, "columnDefinition");
                 if (length == null && (columnDefinition == null || columnDefinition.isBlank())) {
-                    details.add(attribute.description() + " is a String column without an explicit length.");
+                    details.add(
+                            attribute.description() + " is a String column without an explicit length.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -1840,7 +1908,7 @@ final class BigDecimalPrecisionRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), HibernateAttributeModel::isBigDecimalType)) {
@@ -1852,7 +1920,8 @@ final class BigDecimalPrecisionRule extends AbstractHibernateRule {
                 Integer scale = column == null ? null : attribute.annotationIntValue(column, "scale");
                 if (precision == null || precision == 0 || scale == null) {
                     details.add(
-                            attribute.description() + " is a BigDecimal column without explicit precision and scale.");
+                            attribute.description() + " is a BigDecimal column without explicit precision and scale.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -1879,12 +1948,14 @@ final class LegacyDateTimeRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute : context.targets(entity.attributes())) {
                 if (attribute.isLegacyTemporalType()) {
-                    details.add(attribute.description() + " uses legacy temporal type "
-                            + attribute.rawType().getName() + "; prefer a java.time type.");
+                    details.add(
+                            attribute.description() + " uses legacy temporal type "
+                                    + attribute.rawType().getName() + "; prefer a java.time type.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -1910,7 +1981,7 @@ final class ManyToOneOptionalRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), candidate -> candidate.manyToOneAnnotation() != null)) {
@@ -1928,8 +1999,10 @@ final class ManyToOneOptionalRule extends AbstractHibernateRule {
                 }
                 Boolean nullable = attribute.annotationBooleanValue(joinColumn, "nullable");
                 if (Boolean.FALSE.equals(nullable)) {
-                    details.add(attribute.description()
-                            + " is @ManyToOne with @JoinColumn(nullable=false) but optional=true; set optional=false.");
+                    details.add(
+                            attribute.description()
+                                    + " is @ManyToOne with @JoinColumn(nullable=false) but optional=true; set optional=false.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -1960,7 +2033,7 @@ final class PublicPersistentFieldRule extends AbstractHibernateRule {
                 : HibernateRuleModelSupport.isPanacheFieldAccessRewriteActive()) {
             return pass();
         }
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute : context.targets(
                     entity.attributes(), candidate -> candidate.fieldMember() && !candidate.isTransient())) {
@@ -1971,7 +2044,9 @@ final class PublicPersistentFieldRule extends AbstractHibernateRule {
                         && attribute.fieldMember()
                         && !attribute.isTransient()
                         && !isKotlinPropertyBackingField(entity, attribute)) {
-                    details.add(attribute.description() + " is exposed as a public field.");
+                    details.add(
+                            attribute.description() + " is exposed as a public field.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -2027,7 +2102,7 @@ final class ModifyingClearAutomaticallyRule extends AbstractHibernateRule {
         if (context.repositories().isEmpty()) {
             return skipped("No repository metadata was detected.");
         }
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateRepositoryModel repository : context.repositories()) {
             for (HibernateRepositoryMethodModel method : repository.methods()) {
                 if (!method.modifying()
@@ -2042,7 +2117,9 @@ final class ModifyingClearAutomaticallyRule extends AbstractHibernateRule {
                     String flushDetail = method.modifyingFlushesAutomatically()
                             ? " flushAutomatically=true does not clear stale managed entities."
                             : "";
-                    details.add(method.description() + " is @Modifying without clearAutomatically." + flushDetail);
+                    details.add(
+                            method.description() + " is @Modifying without clearAutomatically." + flushDetail,
+                            HibernateLocations.of(method));
                 }
             }
         }
@@ -2073,14 +2150,16 @@ final class StreamReturningMethodRule extends AbstractHibernateRule {
         if (context.repositories().isEmpty()) {
             return skipped("No repository metadata was detected.");
         }
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateRepositoryModel repository : context.repositories()) {
             for (HibernateRepositoryMethodModel method : context.targets(
                     repository.methods(),
                     candidate -> !context.observed() || candidate.evidence().verifiedQueryMethod())) {
                 if (method.returnsStream()
                         && (!context.observed() || method.evidence().verifiedQueryMethod())) {
-                    details.add(method.description() + " returns Stream; confirm callers run it inside a transaction.");
+                    details.add(
+                            method.description() + " returns Stream; confirm callers run it inside a transaction.",
+                            HibernateLocations.of(method));
                 }
             }
         }
@@ -2109,7 +2188,7 @@ final class NativePagedQueryCountRule extends AbstractHibernateRule {
         if (context.repositories().isEmpty()) {
             return skipped("No repository metadata was detected.");
         }
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateRepositoryModel repository : context.repositories()) {
             for (HibernateRepositoryMethodModel method : repository.methods()) {
                 if (!method.nativeQuery()
@@ -2123,7 +2202,9 @@ final class NativePagedQueryCountRule extends AbstractHibernateRule {
                 }
                 context.evidence().markApplicable(true);
                 if (!method.hasCountQuery()) {
-                    details.add(method.description() + " is a native paged @Query without countQuery.");
+                    details.add(
+                            method.description() + " is a native paged @Query without countQuery.",
+                            HibernateLocations.of(method));
                 }
             }
         }
@@ -2152,7 +2233,7 @@ final class DerivedDeleteByQueryRule extends AbstractHibernateRule {
         if (context.repositories().isEmpty()) {
             return skipped("No repository metadata was detected.");
         }
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateRepositoryModel repository : context.repositories()) {
             for (HibernateRepositoryMethodModel method : repository.methods()) {
                 if (method.isDerivedDeleteMethod() && !method.hasQuery()) {
@@ -2161,8 +2242,10 @@ final class DerivedDeleteByQueryRule extends AbstractHibernateRule {
                         context.missingEvidence(HibernateEvidenceGap.DERIVED_QUERY, method);
                         continue;
                     }
-                    details.add(method.description()
-                            + " is a derived delete query; consider an explicit @Modifying bulk delete.");
+                    details.add(
+                            method.description()
+                                    + " is a derived delete query; consider an explicit @Modifying bulk delete.",
+                            HibernateLocations.of(method));
                 }
             }
         }
@@ -2195,7 +2278,7 @@ final class BulkUpdateVersionRule extends AbstractHibernateRule {
         if (context.repositories().isEmpty()) {
             return skipped("No repository metadata was detected.");
         }
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateRepositoryModel repository : context.repositories()) {
             for (HibernateRepositoryMethodModel method : repository.methods()) {
                 if (!method.modifying()
@@ -2229,8 +2312,10 @@ final class BulkUpdateVersionRule extends AbstractHibernateRule {
                                         target.query(), target.alias(), versionAttr.name()))) {
                     continue;
                 }
-                details.add(method.description() + " performs a bulk UPDATE on versioned entity " + entity.name()
-                        + " without advancing its version attribute.");
+                details.add(
+                        method.description() + " performs a bulk UPDATE on versioned entity " + entity.name()
+                                + " without advancing its version attribute.",
+                        HibernateLocations.of(method));
             }
         }
         return violation(context, details);
@@ -2404,7 +2489,7 @@ final class CacheAssociationCoverageRule extends AbstractHibernateRule {
         }
         Map<String, HibernateEntityModel> byJavaType = HibernateRuleModelSupport.entitiesByJavaType(context.entities());
         context.evidence().markApplicable(false);
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             if (!entity.isJpaCacheable() && !entity.hasHibernateCacheAnnotation()) {
                 continue;
@@ -2423,7 +2508,9 @@ final class CacheAssociationCoverageRule extends AbstractHibernateRule {
                     continue;
                 }
                 if (!target.isJpaCacheable() && !target.hasHibernateCacheAnnotation()) {
-                    details.add(attribute.description() + " references uncached entity " + target.name() + ".");
+                    details.add(
+                            attribute.description() + " references uncached entity " + target.name() + ".",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -2453,7 +2540,7 @@ final class ReadOnlyCacheOnWritableEntityRule extends AbstractHibernateRule {
                 && !context.required(
                         context.factorySettings().secondLevelCache(), HibernateEvidenceGap.FACTORY_SETTING))
             return skipped("Unit second-level cache is disabled.");
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         context.evidence().markApplicable(false);
         for (HibernateEntityModel entity :
                 context.targets(context.entities(), candidate -> candidate.hibernateCacheUsageName() != null)) {
@@ -2462,9 +2549,11 @@ final class ReadOnlyCacheOnWritableEntityRule extends AbstractHibernateRule {
                 continue;
             }
             if (entity.hasVersionAttribute() || entity.hasDynamicUpdate()) {
-                details.add(entity.name()
-                        + " uses @Cache(usage=READ_ONLY) but appears to be writable (@Version or"
-                        + " @DynamicUpdate present).");
+                details.add(
+                        entity.name()
+                                + " uses @Cache(usage=READ_ONLY) but appears to be writable (@Version or"
+                                + " @DynamicUpdate present).",
+                        HibernateLocations.of(entity));
             }
         }
         return violation(context, details);
@@ -2492,14 +2581,16 @@ final class ImmutableEntityCacheStrategyRule extends AbstractHibernateRule {
                 && !context.required(
                         context.factorySettings().secondLevelCache(), HibernateEvidenceGap.FACTORY_SETTING))
             return skipped("Unit second-level cache is disabled.");
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         context.evidence().markApplicable(false);
         for (HibernateEntityModel entity : context.targets(
                 context.entities(),
                 candidate -> candidate.isImmutable() && candidate.hibernateCacheUsageName() != null)) {
             String usage = entity.hibernateCacheUsageName();
             if (entity.isImmutable() && usage != null && !"READ_ONLY".equals(usage) && !"NONE".equals(usage)) {
-                details.add(entity.name() + " is @Immutable but uses @Cache(usage=" + usage + ").");
+                details.add(
+                        entity.name() + " is @Immutable but uses @Cache(usage=" + usage + ").",
+                        HibernateLocations.of(entity));
             }
         }
         return violation(context, details);
@@ -2525,7 +2616,7 @@ final class FailOnPaginationOverCollectionFetchRule extends AbstractHibernateRul
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> riskyQueries = HibernateRuleModelSupport.paginatedCollectionFetchFindings(context);
+        AdvisorFindings riskyQueries = HibernateRuleModelSupport.paginatedCollectionFetchFindings(context);
         if (context.hasHibernateCollectionFetchPaginationFix()) {
             if (!riskyQueries.isEmpty()) return violation(context, HibernateRuleSupport.HIGH, riskyQueries);
             return skipped("SQL-side pagination and runtime hints are not proven by the Hibernate version.");
@@ -2545,8 +2636,7 @@ final class FailOnPaginationOverCollectionFetchRule extends AbstractHibernateRul
                     + " require in-memory collection-fetch limiting.");
             return violation(context, HibernateRuleSupport.INFO, details);
         }
-        details.addAll(riskyQueries);
-        return violation(context, HibernateRuleSupport.HIGH, details);
+        return violation(context, HibernateRuleSupport.HIGH, riskyQueries);
     }
 }
 
@@ -2718,7 +2808,7 @@ final class NonOwningOneToOneEnhancementRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.targets(
                 context.entities(),
                 candidate -> candidate.attributes().stream()
@@ -2735,8 +2825,10 @@ final class NonOwningOneToOneEnhancementRule extends AbstractHibernateRule {
                 if (mappedBy != null
                         && !mappedBy.isBlank()
                         && "LAZY".equals(attribute.annotationValueName(oneToOne, "fetch"))) {
-                    details.add(attribute.description()
-                            + " is a non-owning @OneToOne but bytecode enhancement is disabled.");
+                    details.add(
+                            attribute.description()
+                                    + " is a non-owning @OneToOne but bytecode enhancement is disabled.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -2769,7 +2861,7 @@ final class MissingForeignKeyIndexRule extends AbstractHibernateRule {
                     "Schema indexes are not managed by Hibernate; migration-managed indexes cannot be verified from"
                             + " JPA annotations.");
         }
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         context.evidence().markApplicable(false);
         List<String> unresolved = new ArrayList<>();
         for (HibernateEntityModel entity : context.entities()) {
@@ -2792,8 +2884,10 @@ final class MissingForeignKeyIndexRule extends AbstractHibernateRule {
                 boolean anyLeadingIndexed = fkColumns.stream().anyMatch(leadingIndexColumns::contains);
                 if (!anyLeadingIndexed) {
                     String reported = fkColumns.get(0);
-                    details.add(attribute.description() + " is a foreign key (" + reported
-                            + ") with no JPA-declared index leading on that column.");
+                    details.add(
+                            attribute.description() + " is a foreign key (" + reported
+                                    + ") with no JPA-declared index leading on that column.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -2924,14 +3018,16 @@ final class LegacyWhereAnnotationRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.targets(context.entities())) {
             if (entity.annotationInHierarchy(WHERE) != null || entity.annotationInHierarchy(WHERE_JOIN_TABLE) != null) {
-                details.add(entity.name() + " uses a legacy @Where restriction.");
+                details.add(entity.name() + " uses a legacy @Where restriction.", HibernateLocations.of(entity));
             }
             for (HibernateAttributeModel attribute : entity.attributes()) {
                 if (attribute.annotation(WHERE) != null || attribute.annotation(WHERE_JOIN_TABLE) != null) {
-                    details.add(attribute.description() + " uses a legacy @Where restriction.");
+                    details.add(
+                            attribute.description() + " uses a legacy @Where restriction.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -2962,7 +3058,7 @@ final class PrimitiveIdentifierOrVersionRule extends AbstractHibernateRule {
     @SuppressWarnings("java:S1872")
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             if (HibernateRuleModelSupport.implementsPersistable(entity.javaType())) continue;
             boolean applicable = context.repositories().stream()
@@ -2977,9 +3073,11 @@ final class PrimitiveIdentifierOrVersionRule extends AbstractHibernateRule {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), HibernateAttributeModel::hasVersion)) {
                 if (attribute.hasVersion() && attribute.rawType().isPrimitive()) {
-                    details.add(attribute.description() + " uses primitive "
-                            + attribute.rawType().getName()
-                            + "; standard Spring Data JPA newness falls back to identifier inspection.");
+                    details.add(
+                            attribute.description() + " uses primitive "
+                                    + attribute.rawType().getName()
+                                    + "; standard Spring Data JPA newness falls back to identifier inspection.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -3019,7 +3117,7 @@ final class AssignedIdPersistableRule extends AbstractHibernateRule {
                 .filter(repository -> !context.observed() || repository.standardJpaNewness())
                 .map(HibernateRepositoryModel::domainType)
                 .collect(java.util.stream.Collectors.toSet());
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             if (context.observed()
                     && context.repositories().stream()
@@ -3053,9 +3151,11 @@ final class AssignedIdPersistableRule extends AbstractHibernateRule {
                 continue;
             }
             if (!HibernateRuleModelSupport.implementsPersistable(entity.javaType())) {
-                details.add(entity.name()
-                        + " has an assigned identifier and no nullable @Version; standard Spring Data save"
-                        + " uses identifier newness unless Persistable is implemented.");
+                details.add(
+                        entity.name()
+                                + " has an assigned identifier and no nullable @Version; standard Spring Data save"
+                                + " uses identifier newness unless Persistable is implemented.",
+                        HibernateLocations.of(entity));
             }
         }
         return violation(context, details);
@@ -3084,7 +3184,7 @@ final class EagerToOneFetchJoinRule extends AbstractHibernateRule {
         if (context.repositories().isEmpty()) {
             return skipped("No repository metadata was detected.");
         }
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateRepositoryModel repository : context.repositories()) {
             for (HibernateRepositoryMethodModel method : repository.methods()) {
                 if (method.nativeQuery() || !method.hasQuery() || !method.returnsMultiple()) {
@@ -3109,8 +3209,10 @@ final class EagerToOneFetchJoinRule extends AbstractHibernateRule {
                     }
                 }
                 if (!uncovered.isEmpty()) {
-                    details.add(method.description() + " selects whole entities but does not JOIN FETCH eager to-one "
-                            + String.join(", ", uncovered) + "; secondary loads are possible, not measured.");
+                    details.add(
+                            method.description() + " selects whole entities but does not JOIN FETCH eager to-one "
+                                    + String.join(", ", uncovered) + "; secondary loads are possible, not measured.",
+                            HibernateLocations.of(method));
                 }
             }
         }
@@ -3167,7 +3269,7 @@ final class EntityProjectionQueryRule extends AbstractHibernateRule {
         if (context.repositories().isEmpty()) {
             return skipped("No repository metadata was detected.");
         }
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateRepositoryModel repository : context.repositories()) {
             for (HibernateRepositoryMethodModel method : repository.methods()) {
                 if (method.nativeQuery() || !method.hasQuery()) {
@@ -3183,9 +3285,11 @@ final class EntityProjectionQueryRule extends AbstractHibernateRule {
                 context.evidence().markApplicable(true);
                 if (HibernateRuleModelSupport.selectsWholeRootEntity(method.query())
                         && HibernateQueryShape.entityRoot(context, method) != null) {
-                    details.add(method.description()
-                            + " returns whole entities from a paged/streamed @Query; consider a DTO/interface"
-                            + " projection.");
+                    details.add(
+                            method.description()
+                                    + " returns whole entities from a paged/streamed @Query; consider a DTO/interface"
+                                    + " projection.",
+                            HibernateLocations.of(method));
                 }
             }
         }
@@ -3213,7 +3317,7 @@ final class MissingVersionRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.targets(context.entities())) {
             if (entity.hasVersionAttribute()
                     || entity.annotationInHierarchy("org.hibernate.annotations.Immutable") != null) {
@@ -3225,9 +3329,11 @@ final class MissingVersionRule extends AbstractHibernateRule {
                 continue;
             }
             if (hasMutableState(entity)) {
-                details.add(entity.name()
-                        + " has mutable persistent state but no @Version field, so concurrent updates can"
-                        + " silently overwrite one another.");
+                details.add(
+                        entity.name()
+                                + " has mutable persistent state but no @Version field, so concurrent updates can"
+                                + " silently overwrite one another.",
+                        HibernateLocations.of(entity));
             }
         }
         return violation(context, details);
@@ -3268,7 +3374,7 @@ final class NaturalIdCandidateRule extends AbstractHibernateRule {
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.targets(context.entities())) {
             boolean hasNaturalId =
                     entity.attributes().stream().anyMatch(attribute -> attribute.annotation(NATURAL_ID) != null);
@@ -3278,18 +3384,22 @@ final class NaturalIdCandidateRule extends AbstractHibernateRule {
             for (HibernateAttributeModel attribute : entity.attributes()) {
                 Annotation column = attribute.columnAnnotation();
                 if (column != null && Boolean.TRUE.equals(attribute.annotationBooleanValue(column, "unique"))) {
-                    details.add(attribute.description()
-                            + " is a unique column with no @NaturalId attribute on this entity; if it is a"
-                            + " business key (email, ISBN, order number, ...), consider"
-                            + " org.hibernate.annotations.NaturalId.");
+                    details.add(
+                            attribute.description()
+                                    + " is a unique column with no @NaturalId attribute on this entity; if it is a"
+                                    + " business key (email, ISBN, order number, ...), consider"
+                                    + " org.hibernate.annotations.NaturalId.",
+                            HibernateLocations.of(attribute));
                 }
             }
             Set<String> tableUniqueColumns = tableUniqueConstraintColumns(entity.javaType());
             if (!tableUniqueColumns.isEmpty()) {
-                details.add(entity.name() + " declares a @Table unique constraint on column(s) "
-                        + String.join(", ", tableUniqueColumns)
-                        + " with no @NaturalId attribute; if this is a business key, consider"
-                        + " org.hibernate.annotations.NaturalId.");
+                details.add(
+                        entity.name() + " declares a @Table unique constraint on column(s) "
+                                + String.join(", ", tableUniqueColumns)
+                                + " with no @NaturalId attribute; if this is a business key, consider"
+                                + " org.hibernate.annotations.NaturalId.",
+                        HibernateLocations.of(entity));
             }
         }
         return violation(context, details);
@@ -3357,7 +3467,7 @@ final class IdentityDisablesBatchingRule extends AbstractHibernateRule {
                     "hibernate.jdbc.batch_size is not configured with a positive value, so there is no insert batching"
                             + " for IDENTITY generation to disable.");
         }
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         context.evidence().markApplicable(false);
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
@@ -3367,10 +3477,12 @@ final class IdentityDisablesBatchingRule extends AbstractHibernateRule {
                     continue;
                 }
                 if ("IDENTITY".equals(attribute.annotationValueName(generatedValue, "strategy"))) {
-                    details.add(attribute.description()
-                            + " uses GenerationType.IDENTITY, so Hibernate cannot batch its inserts despite"
-                            + " hibernate.jdbc.batch_size="
-                            + batchSize + ".");
+                    details.add(
+                            attribute.description()
+                                    + " uses GenerationType.IDENTITY, so Hibernate cannot batch its inserts despite"
+                                    + " hibernate.jdbc.batch_size="
+                                    + batchSize + ".",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
@@ -3491,7 +3603,7 @@ final class UnidirectionalOneToManyJoinColumnRule extends AbstractHibernateRule 
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> details = new ArrayList<>();
+        AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), HibernateAttributeModel::isOneToMany)) {
@@ -3506,9 +3618,11 @@ final class UnidirectionalOneToManyJoinColumnRule extends AbstractHibernateRule 
                 if (!attribute.hasJoinColumn() || isReadOnlyJoinColumn(attribute)) {
                     continue;
                 }
-                details.add(attribute.description()
-                        + " is a writable unidirectional @OneToMany with join columns; inspect possible extra"
-                        + " UPDATE statements for the effective mapping.");
+                details.add(
+                        attribute.description()
+                                + " is a writable unidirectional @OneToMany with join columns; inspect possible extra"
+                                + " UPDATE statements for the effective mapping.",
+                        HibernateLocations.of(attribute));
             }
         }
         return violation(context, details);

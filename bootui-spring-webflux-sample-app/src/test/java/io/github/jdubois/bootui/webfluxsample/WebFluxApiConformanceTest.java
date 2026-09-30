@@ -47,6 +47,11 @@ class WebFluxApiConformanceTest extends AbstractBootUiApiConformanceTest {
     int port;
 
     @Override
+    protected boolean expectsResolvedSourcePaths() {
+        return true;
+    }
+
+    @Override
     protected String baseUrl() {
         return "http://localhost:" + port;
     }

@@ -103,6 +103,17 @@ Intentional inapplicability is different: retired emissions, unsupported framewo
 responses return `SKIPPED` where necessary and do **not** automatically make the scan partial. `SCANNED` means analysis
 completed within this bounded model, not that every runtime endpoint or behavior was enumerated.
 
+### Violation locations
+
+Each finding about one handler method, exception handler or mapper, throwing endpoint, or controller carries that
+element's [violation location](features/advisors.md#violation-locations), recorded from the same ArchUnit element the
+bounded model was built from: the method with its first recorded line, or the controller class. It works the same for
+Spring MVC, Spring WebFlux, JAX-RS, and Kotlin controllers. Findings that name several handlers (RAPI-MAP-002 duplicate
+routes, RAPI-ERR-010 conflicting error-body categories) and application-wide findings (versioning, pagination
+vocabulary, missing error handling) carry no location. The source path is resolved during the explicit scan through
+the Architecture advisor's [module and source-set lookup](ARCHITECTURE-CHECKS.md#violation-locations); finding text,
+counts, and status never depend on it.
+
 ## What BootUI does not do
 
 - It does not modify, compile, instrument, or execute application code during a scan.

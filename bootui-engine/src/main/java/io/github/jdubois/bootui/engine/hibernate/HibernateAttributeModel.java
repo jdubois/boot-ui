@@ -21,7 +21,8 @@ public record HibernateAttributeModel(
         String persistentAttributeType,
         boolean publicMember,
         boolean fieldMember,
-        List<Annotation> annotations) {
+        List<Annotation> annotations,
+        String javaMemberName) {
 
     private static final String BASIC = "jakarta.persistence.Basic";
     private static final String BATCH_SIZE = "org.hibernate.annotations.BatchSize";
@@ -52,6 +53,27 @@ public record HibernateAttributeModel(
         annotations = List.copyOf(annotations);
     }
 
+    public HibernateAttributeModel(
+            String entityName,
+            String name,
+            Class<?> rawType,
+            Type genericType,
+            String persistentAttributeType,
+            boolean publicMember,
+            boolean fieldMember,
+            List<Annotation> annotations) {
+        this(
+                entityName,
+                name,
+                rawType,
+                genericType,
+                persistentAttributeType,
+                publicMember,
+                fieldMember,
+                annotations,
+                fieldMember ? name : name != null && name.endsWith("()") ? name.substring(0, name.length() - 2) : null);
+    }
+
     static HibernateAttributeModel fromMember(String name, Member member, String persistentAttributeType) {
         RawType rawType = rawType(member);
         String entityName = member.getDeclaringClass().getName();
@@ -66,7 +88,8 @@ public record HibernateAttributeModel(
                 persistentAttributeType,
                 Modifier.isPublic(member.getModifiers()),
                 member instanceof Field,
-                annotations(member));
+                annotations(member),
+                member.getName());
     }
 
     static HibernateAttributeModel from(Field field) {
@@ -78,7 +101,8 @@ public record HibernateAttributeModel(
                 persistentAttributeType(field),
                 Modifier.isPublic(field.getModifiers()),
                 true,
-                List.of(field.getAnnotations()));
+                List.of(field.getAnnotations()),
+                field.getName());
     }
 
     static HibernateAttributeModel from(Method method) {
@@ -90,7 +114,8 @@ public record HibernateAttributeModel(
                 persistentAttributeType(method),
                 Modifier.isPublic(method.getModifiers()),
                 false,
-                List.of(method.getAnnotations()));
+                List.of(method.getAnnotations()),
+                method.getName());
     }
 
     boolean isAssociation() {

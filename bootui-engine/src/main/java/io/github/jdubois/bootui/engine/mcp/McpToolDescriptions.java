@@ -303,6 +303,10 @@ public final class McpToolDescriptions {
                     "Analyze the existing BootUI heap dump and return the resulting report. This never captures, downloads, "
                             + "or deletes a heap dump."));
 
+    /** Advisors whose findings carry structured violation locations. */
+    private static final java.util.Set<String> LOCATED_ADVISORS =
+            java.util.Set.of("architecture", "rest_api", "hibernate");
+
     private McpToolDescriptions() {}
 
     public static String spring(String name) {
@@ -419,7 +423,9 @@ public final class McpToolDescriptions {
                     + "not violationCount. If truncated, retention overflow or unavailable upstream details prevent a complete list. Verify each finding "
                     + "before changing code. Unknown rule returns 404; stale or missing snapshot returns 409: reread the "
                     + "cached report, not a new scan. On MCP -32003 byte-budget refusal, retry the same scanId and offset "
-                    + "with a smaller limit; a refusal is not an empty or completed page.";
+                    + "with a smaller limit; a refusal is not an empty or completed page. A non-empty locations list "
+                    + "aligns index-for-index with violations (a null entry has no location); an empty list means no "
+                    + "violation on the page has one.";
         }
         String description = COMMON.get(name);
         if (description == null) {
@@ -448,6 +454,12 @@ public final class McpToolDescriptions {
                 + "Use violationDetails.scanId with get_" + advisor + "_rule_violations to page cached retained "
                 + "details without scanning again. Check truncated for missing details, including retention overflow; a terminal page does not "
                 + "guarantee completeness when truncated. Verify each finding before changing code."
+                + (LOCATED_ADVISORS.contains(advisor)
+                        ? " sampleLocations aligns index-for-index with sampleViolations when non-empty (a null entry"
+                                + " has no location): className, memberName, kind, sourceFile, line, sourcePath and"
+                                + " precision (LINE, MEMBER or CLASS). Open sourcePath at line to go straight to the"
+                                + " code; violationDetails.locationNotes says why a path is missing."
+                        : "")
                 + (advisor.equals("hibernate")
                         ? " When scan.status is PARTIAL, read diagnostics (source rule id or discovery, unit, level,"
                                 + " message) for rules and units that failed or lacked evidence, and a result's"
