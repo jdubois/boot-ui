@@ -1310,7 +1310,13 @@ Features:
   `pageInfo.nextCursor`. KPIs, type counts, sources, and warnings are always computed from the live in-memory merge
   regardless of persistence — they summarize "right now", not whichever historical page happens to be browsed.
   Entries are masked before they are ever buffered or written, so persisted rows are immutable with respect to later
-  masking-policy changes.
+  masking-policy changes. A capture coordinator polls the merged feed every `bootui.activity.persistence.capture-interval`
+  and stores each entry once, remembering the ids it stored in a window of `bootui.activity.persistence.buffer-max-entries`
+  that never forgets an entry still in the feed. Records a failure-preserving buffer reserves are also remembered in a
+  second window that other entries never displace, classified by the buffers' own rule and thresholds (engine
+  `ReservedActivityEntries`): `5xx` and slow requests, including a slow `4xx` request whose severity is `WARN`; failed
+  and slow statements; and failed, `4xx`/`5xx`, and slow REST calls. A reserved record that newer entries hid and that
+  later reappears is therefore not stored twice, unless more reserved records than that window holds arrived meanwhile.
 
   On Quarkus, a dedicated `QuarkusActivityCapture` CDI bean (`@Observes StartupEvent`/`ShutdownEvent`) owns the
   capture-poller lifecycle that the Spring adapter instead wires inline in its controller constructor/`shutdown()`; the

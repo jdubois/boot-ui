@@ -85,6 +85,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Live Activity durable persistence stores a slow `4xx` request once.** A `4xx` request that reached
+  `bootui.activity.request-slow-threshold-ms` is kept in the HTTP exchange buffer's reserved share, but Live Activity
+  shows it as `WARN`, so persistence did not treat it as reserved. When newer entries pushed it out of the stream and
+  it reappeared, it was stored a second time. Persistence now recognizes reserved records by the buffers' own rules and
+  thresholds: `5xx` and slow requests, failed and slow statements, and failed, `4xx`/`5xx`, and slow REST calls. On
+  Spring MVC, Spring WebFlux, and Quarkus, the configured request slow threshold drives both the buffer and
+  persistence. Exceptions, scheduled runs, and other entries whose sources keep no reserved share no longer take
+  places in the reserved window, so a failing scheduled job cannot make persistence forget a reserved request.
+  Severities are unchanged
+  ([Failure-preserving retention](docs/features/diagnostics.md#failure-preserving-retention)).
 - **Log Tail and Dev Services container logs follow the value-exposure policy.** Log messages were returned exactly
   as captured on every surface, and Spring's Dev Services container logs verbatim, so a logged password assignment was
   shown in full under the default `MASKED` mode. Both now apply the rule exception messages already follow, through

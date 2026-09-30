@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.activity;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import java.util.List;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
@@ -22,12 +23,18 @@ public final class ActivityCaptureFactory {
      * settings.captureInterval()}. The returned poller is already running; the caller owns closing it
      * (typically registering {@link ActivityCapturePoller#close()} into whatever shutdown-hook mechanism
      * the adapter uses).
+     *
+     * @param reserved which feed entries a failure-preserving capture buffer flags for its reserved share (every
+     *     adapter passes {@code ReservedActivityEntries} built with the threshold its exchange buffer applies)
      */
     public static ActivityCapturePoller start(
-            ActivityStore store, ActivityPersistenceSettings settings, Supplier<List<ActivityEntryDto>> feed) {
+            ActivityStore store,
+            ActivityPersistenceSettings settings,
+            Predicate<ActivityEntryDto> reserved,
+            Supplier<List<ActivityEntryDto>> feed) {
         ActivitySequencer sequencer = new ActivitySequencer(settings.instanceId());
         ActivityCaptureCoordinator coordinator =
-                new ActivityCaptureCoordinator(store, sequencer, settings.bufferMaxEntries());
+                new ActivityCaptureCoordinator(store, sequencer, settings.bufferMaxEntries(), reserved);
         ActivityCapturePoller poller = new ActivityCapturePoller(coordinator, feed);
         poller.start(settings.captureInterval());
         return poller;

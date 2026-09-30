@@ -12,6 +12,8 @@ import io.github.jdubois.bootui.autoconfigure.sqltrace.SqlTraceController;
 import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.SecurityLogsController;
+import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import io.github.jdubois.bootui.core.dto.EmailMessageDto;
 import io.github.jdubois.bootui.core.dto.EmailsReport;
 import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
@@ -29,10 +31,14 @@ import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.web.LiveActivityAssembler;
+import io.github.jdubois.bootui.engine.web.ReservedActivityEntries;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
@@ -1013,6 +1019,93 @@ class LiveActivityServiceTests {
                 .findFirst()
                 .orElseThrow()
                 .sqlNPlusOneSuspected();
+    }
+
+    /**
+     * This service renders SQL and REST client entries with its own severity mapping; Live Activity persistence reads
+     * a record's reservation back from that severity, so it must agree with each recorder for every combination.
+     */
+    @Test
+    void sqlAndRestClientEntriesAreReservedExactlyWhenTheirRecorderReservesTheRecord() {
+        BootUiProperties properties = new BootUiProperties();
+        ReservedActivityEntries rule =
+                new ReservedActivityEntries(properties.getActivity().getRequestSlowThresholdMs());
+        SoftAssertions softly = new SoftAssertions();
+        for (long threshold : new long[] {0L, 100L}) {
+            for (boolean success : new boolean[] {true, false}) {
+                for (long durationMicros : new long[] {0L, 99_999L, 100_000L, 250_000L}) {
+                    SqlTraceRecorder recorder =
+                            new SqlTraceRecorder(true, true, false, false, 10, threshold, 2_000, 200, 5, 90);
+                    recorder.record(
+                            SqlTraceRecorder.StatementType.PREPARED,
+                            SqlTraceRecorder.Category.SELECT,
+                            "select * from orders where id = ?",
+                            List.of("42"),
+                            durationMicros,
+                            success,
+                            success ? null : "deadlock detected",
+                            null,
+                            0,
+                            "conn-1",
+                            "main");
+                    SqlTraceController sql = mock(SqlTraceController.class);
+                    when(sql.trace()).thenReturn(recorder.report(false));
+
+                    ActivityEntryDto entry = only(
+                            service(null, sql, null, null, null, properties).report(null, null, 0, 0), "SQL");
+
+                    softly.assertThat(rule.test(entry))
+                            .as(
+                                    "SQL success=%s, %s µs, threshold %s ms, severity %s",
+                                    success, durationMicros, threshold, entry.severity())
+                            .isEqualTo(recorder.retention().reserved() == 1);
+                }
+            }
+        }
+        for (long threshold : new long[] {0L, 1_000L}) {
+            for (boolean success : new boolean[] {true, false}) {
+                for (Integer status : new Integer[] {null, 200, 302, 404, 499, 500, 503}) {
+                    for (long durationMillis : new long[] {5L, 1_000L, 1_500L}) {
+                        RestClientTraceRecorder recorder =
+                                new RestClientTraceRecorder(true, true, false, false, 10, threshold, 2_000, 200, 5, 90);
+                        recorder.record(
+                                "GET",
+                                "http://api.example.com/items",
+                                "api.example.com",
+                                "/items",
+                                status,
+                                durationMillis,
+                                success,
+                                success ? null : "Connection refused",
+                                "RestClient",
+                                Map.of(),
+                                "main");
+                        RestClientTraceController rest = mock(RestClientTraceController.class);
+                        when(rest.trace()).thenReturn(recorder.report(true, ValueExposure.MASKED));
+
+                        ActivityEntryDto entry = only(
+                                service(null, null, rest, null, null, null, properties)
+                                        .report(null, null, 0, 0),
+                                "REST_CLIENT");
+
+                        softly.assertThat(rule.test(entry))
+                                .as(
+                                        "REST success=%s, status %s, %s ms, threshold %s ms, severity %s",
+                                        success, status, durationMillis, threshold, entry.severity())
+                                .isEqualTo(recorder.retention().reserved() == 1);
+                    }
+                }
+            }
+        }
+        softly.assertAll();
+    }
+
+    private static ActivityEntryDto only(LiveActivityReport report, String type) {
+        List<ActivityEntryDto> entries = report.entries().stream()
+                .filter(entry -> type.equals(entry.type()))
+                .toList();
+        assertThat(entries).hasSize(1);
+        return entries.get(0);
     }
 
     private LiveActivityService service(

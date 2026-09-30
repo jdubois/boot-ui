@@ -6,7 +6,9 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * Feeds an {@link ActivityStore} from Live Activity's existing merged view, without adding any new
@@ -24,11 +26,18 @@ import java.util.Set;
  * timestamp cursor cannot reliably tell two same-millisecond entries apart. An id still present in the
  * current view is never evicted from that set, so a record the source buffers keep for a long time — such as
  * a failure held in a failure-preserving buffer's reserved share — is captured exactly once while it stays
- * visible. The entries a failure-preserving buffer reserves — {@code ERROR} and {@code SLOW} entries, and
- * {@code WARN} error responses of outbound REST calls — are also remembered in a second window of the same size,
- * which other traffic never evicts, so such a record is still recognized when newer entries hide it from a
- * capped view and it later reappears, unless more reserved entries than that window holds arrived meanwhile.
- * Both sets stay bounded by the configured window plus the size of the view. The trade-off
+ * visible.</p>
+ *
+ * <p>The entries a failure-preserving buffer flags for its reserved share are also remembered in a second window of
+ * the same size, which other traffic never evicts, so such a record is still recognized when newer entries hide it
+ * from a capped view and it later reappears, unless more reserved entries than that window holds arrived meanwhile.
+ * Which entries those are is decided by the adapter-supplied rule, {@code ReservedActivityEntries} in every adapter,
+ * which applies each buffer's own classification with the same thresholds: {@code 5xx} and slow requests (including a
+ * slow {@code 4xx}, whose severity is {@code WARN}), failed and slow statements, and failed, {@code 4xx}/{@code 5xx},
+ * and slow REST calls. Entries of every other type come from buffers that evict strictly oldest first, so they only
+ * use the first window and never displace a reserved record from the second.</p>
+ *
+ * <p>Both sets stay bounded by the configured window plus the size of the view. The trade-off
  * is deliberately simple and documented: if more distinct new entries appear between two polls than the
  * configured window can hold, the oldest ones may be evicted from the "seen" set and — if also no
  * longer present in the next poll's bounded merged view — never captured. Lowering the poll interval or
@@ -39,14 +48,24 @@ public final class ActivityCaptureCoordinator {
     private final ActivityStore store;
     private final ActivitySequencer sequencer;
     private final int seenCapacity;
+    private final Predicate<ActivityEntryDto> reserved;
     private final Set<String> seenIds = new LinkedHashSet<>();
     private final Set<String> seenNotableIds = new LinkedHashSet<>();
     private final Object lock = new Object();
 
-    public ActivityCaptureCoordinator(ActivityStore store, ActivitySequencer sequencer, int seenCapacity) {
+    /**
+     * @param store where captured entries are appended
+     * @param sequencer stamps each captured entry with its instance id and sequence
+     * @param seenCapacity size of each "seen" window, clamped to at least {@code 16}
+     * @param reserved whether an entry stands for a record a failure-preserving capture buffer flags for its reserved
+     *     share, and so belongs in the second window
+     */
+    public ActivityCaptureCoordinator(
+            ActivityStore store, ActivitySequencer sequencer, int seenCapacity, Predicate<ActivityEntryDto> reserved) {
         this.store = store;
         this.sequencer = sequencer;
         this.seenCapacity = Math.max(16, seenCapacity);
+        this.reserved = Objects.requireNonNull(reserved, "reserved");
     }
 
     /**
@@ -76,7 +95,7 @@ public final class ActivityCaptureCoordinator {
                 }
                 toCapture.add(sequencer.stamp(entry));
                 seenIds.add(id);
-                if (isReservedClass(entry)) {
+                if (reserved.test(entry)) {
                     seenNotableIds.add(id);
                 }
             }
@@ -88,12 +107,18 @@ public final class ActivityCaptureCoordinator {
         }
     }
 
-    /** Whether a failure-preserving capture buffer reserves the record behind this entry. */
-    private static boolean isReservedClass(ActivityEntryDto entry) {
-        String severity = entry.severity();
-        return "ERROR".equals(severity)
-                || "SLOW".equals(severity)
-                || ("WARN".equals(severity) && "REST_CLIENT".equals(entry.type()));
+    /** Ids currently remembered in the first window, for tests of its bound. */
+    int seenCount() {
+        synchronized (lock) {
+            return seenIds.size();
+        }
+    }
+
+    /** Ids currently remembered in the reserved window, for tests of its bound. */
+    int reservedSeenCount() {
+        synchronized (lock) {
+            return seenNotableIds.size();
+        }
     }
 
     /** Evicts the oldest ids beyond the capacity, keeping every id still present in the current view. */

@@ -305,6 +305,14 @@ never reads or prunes another instance's rows. Reads merge the in-memory buffer 
 entries are visible before they are flushed, and a failed flush returns its entries to the buffer rather than losing
 them.
 
+Every `bootui.activity.persistence.capture-interval` (2 seconds by default), BootUI stores the stream entries it has not
+stored yet, so each entry is saved once. A failed or slow request, statement, or REST call that a
+[failure-preserving buffer](diagnostics.md#failure-preserving-retention) keeps longer than routine traffic is
+remembered by that buffer's own rule and threshold. That includes a slow `4xx` request, shown as `WARN`. Such a record
+is not stored twice when newer entries hide it and it later reappears. The window of remembered entries is
+`bootui.activity.persistence.buffer-max-entries` wide, so an extreme burst between two captures can still drop or
+repeat a routine entry.
+
 You do not have to edit configuration or restart to turn this on. While persistence is inactive, a "Currently saving N
 events in memory" tip appears with a **Use a database** button. If the application already has a `DataSource`, a **Use
 the existing datasource** action checks it, creates the table, and hot-switches the running instance with no dropped
@@ -323,7 +331,8 @@ or panel is read-only.
 The stream is capped by `bootui.activity.max-entries`. The slow-request threshold,
 `bootui.activity.request-slow-threshold-ms` (1,000 ms by default, `0` to disable), applies on Spring MVC, Spring
 WebFlux, and Quarkus alike: it sets the `SLOW` severity of request and scheduled-task entries, and decides which HTTP
-exchanges the [failure-preserving retention](diagnostics.md#failure-preserving-retention) keeps longer. Individual
+exchanges the [failure-preserving retention](diagnostics.md#failure-preserving-retention) keeps longer, and so which
+requests durable history remembers as kept. Individual
 sources can be turned off through their own `bootui.panels.*` toggles; a disabled source simply drops out of the
 stream.
 

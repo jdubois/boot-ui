@@ -240,6 +240,14 @@ public final class SqlTraceRecorder implements IdleReclaimable {
         return slowQueryThresholdMicros > 0 && durationMicros >= slowQueryThresholdMicros;
     }
 
+    /**
+     * Whether an execution belongs in the reserved share: it failed, or it reached the slow-query threshold. The one
+     * rule both this recorder and the Live Activity persistence capture apply.
+     */
+    public static boolean isFailedOrSlow(boolean success, boolean slow) {
+        return !success || slow;
+    }
+
     /** Remembers a {@code DataSource} bean that BootUI wrapped for tracing. */
     public void registerDataSource(String name) {
         if (name != null && !name.isBlank()) {
@@ -292,7 +300,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
                 resolveTraceId(),
                 captureParameters ? List.copyOf(parameters == null ? List.of() : parameters) : List.of(),
                 captureCallSite ? currentCallSite() : null);
-        buffer.add(entry, !entry.success() || isSlow(entry.durationMicros()));
+        buffer.add(entry, isFailedOrSlow(entry.success(), isSlow(entry.durationMicros())));
         totalCaptured.incrementAndGet();
         notifyListeners();
         enrichActiveSpan(entry.traceId());

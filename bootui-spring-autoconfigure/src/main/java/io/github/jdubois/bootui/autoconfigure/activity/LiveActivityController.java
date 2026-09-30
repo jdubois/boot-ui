@@ -35,6 +35,7 @@ import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.engine.web.ReservedActivityEntries;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -93,6 +94,7 @@ public class LiveActivityController {
     private final SwitchableActivityStore activityStore;
     private final ActivityPersistenceSettings persistenceSettings;
     private final ObjectProvider<DataSource> dataSourceProvider;
+    private final ReservedActivityEntries reservedEntries;
 
     public LiveActivityController(
             ObjectProvider<HttpExchangesController> httpExchanges,
@@ -193,17 +195,29 @@ public class LiveActivityController {
         this.activityStore = activityStore;
         this.persistenceSettings = persistenceSettings;
         this.dataSourceProvider = dataSourceProvider;
+        // The same bootui.activity.request-slow-threshold-ms the exchange repository classifies with. The repository
+        // falls back to 0 only when time-taken is not recorded, and then no exchange carries a duration to be slow.
+        this.reservedEntries =
+                new ReservedActivityEntries(properties.getActivity().getRequestSlowThresholdMs());
         if (persistenceSettings.enabled()) {
-            // Capture side of the persistence option: poll the same merged feed the panel itself reads,
-            // stamping and appending whatever has not already been captured. Reusing this.service::report
-            // (rather than re-reading the four signal sources) means self-filtering/masking/bounds are
-            // inherited identically, and no new low-level instrumentation is needed.
-            ActivityCapturePoller poller = ActivityCaptureFactory.start(
-                    activityStore,
-                    persistenceSettings,
-                    () -> service.report(null, null, 0, 0).entries());
-            unsubscribers.add(poller::close);
+            startCapture(persistenceSettings);
         }
+    }
+
+    /**
+     * Capture side of the persistence option: polls the same merged feed the panel itself reads, stamping and
+     * appending whatever has not already been captured. Reusing {@code service::report} (rather than re-reading the
+     * signal sources) means self-filtering/masking/bounds are inherited identically, and no new low-level
+     * instrumentation is needed. The poller stops with this controller.
+     */
+    ActivityCapturePoller startCapture(ActivityPersistenceSettings settings) {
+        ActivityCapturePoller poller = ActivityCaptureFactory.start(
+                activityStore,
+                settings,
+                reservedEntries,
+                () -> service.report(null, null, 0, 0).entries());
+        unsubscribers.add(poller::close);
+        return poller;
     }
 
     /**
@@ -289,11 +303,7 @@ public class LiveActivityController {
         ActivitySwitchResponse response = new ActivitySwitchService()
                 .useExistingDataSource(activityStore, persistenceSettings, dataSource, request);
         if (response.newSettings() != null) {
-            ActivityCapturePoller poller = ActivityCaptureFactory.start(
-                    activityStore,
-                    response.newSettings(),
-                    () -> service.report(null, null, 0, 0).entries());
-            unsubscribers.add(poller::close);
+            startCapture(response.newSettings());
         }
         return ResponseEntity.status(HttpStatus.valueOf(response.status())).body(response.body());
     }

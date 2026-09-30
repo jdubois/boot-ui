@@ -186,6 +186,13 @@ The share is 25% of each buffer by default. Set `bootui.http-exchanges.reserved-
 to evict strictly oldest first. A slow threshold of `0` disables slow classification for that buffer, so only failures
 are reserved.
 
+With [Live Activity durable history](overview.md#durable-history) on, persistence recognizes a reserved record by the
+same rule and slow threshold as the buffer that holds it, including a slow `4xx` request, which Live Activity shows as
+`WARN` rather than `SLOW`. A reserved record that newer entries pushed out of the stream and that later reappears is
+therefore not stored twice. Failures from sources without a reserved share, such as a failing scheduled job, do not
+count against what persistence remembers; only more than `bootui.activity.persistence.buffer-max-entries` newer
+reserved records can make it forget one.
+
 Each panel states its window above the list — records kept of the capacity, how many sit in the reserved share, and how
 many were evicted since startup — so no panel implies it holds every request. The same counts are in the `retention`
 object of each report, and therefore in `get_http_exchanges`, `get_sql_traces`, and `get_rest_client_traces` for MCP
