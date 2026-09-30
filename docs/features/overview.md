@@ -305,6 +305,16 @@ never reads or prunes another instance's rows. Reads merge the in-memory buffer 
 entries are visible before they are flushed, and a failed flush returns its entries to the buffer rather than losing
 them.
 
+Every `bootui.activity.persistence.capture-interval` (2 seconds by default), BootUI stores the stream entries it has not
+stored yet, so each entry is saved once. An entry can leave the stream and come back: newer entries push it out of the
+capped stream until they are cleared, for example when `bootui.free-on-idle` releases captured SQL, or an exception
+recurs. Failed and slow entries are therefore remembered longer, in one window per kind of entry. Requests, statements,
+and REST calls are recognized by the rule and threshold of the
+[failure-preserving buffer](diagnostics.md#failure-preserving-retention) that keeps them, which includes a slow `4xx`
+request shown as `WARN`. Each window is `bootui.activity.persistence.buffer-max-entries` wide. A routine entry that
+comes back after more entries than that were stored can be stored again, and one that an extreme burst pushes out
+before the next capture can be missed.
+
 You do not have to edit configuration or restart to turn this on. While persistence is inactive, a "Currently saving N
 events in memory" tip appears with a **Use a database** button. If the application already has a `DataSource`, a **Use
 the existing datasource** action checks it, creates the table, and hot-switches the running instance with no dropped
@@ -323,7 +333,8 @@ or panel is read-only.
 The stream is capped by `bootui.activity.max-entries`. The slow-request threshold,
 `bootui.activity.request-slow-threshold-ms` (1,000 ms by default, `0` to disable), applies on Spring MVC, Spring
 WebFlux, and Quarkus alike: it sets the `SLOW` severity of request and scheduled-task entries, and decides which HTTP
-exchanges the [failure-preserving retention](diagnostics.md#failure-preserving-retention) keeps longer. Individual
+exchanges the [failure-preserving retention](diagnostics.md#failure-preserving-retention) keeps longer, and so which
+requests durable history remembers as kept. Individual
 sources can be turned off through their own `bootui.panels.*` toggles; a disabled source simply drops out of the
 stream.
 

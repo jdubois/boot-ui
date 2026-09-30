@@ -1,6 +1,5 @@
 package io.github.jdubois.bootui.quarkus.activity;
 
-import io.github.jdubois.bootui.engine.activity.ActivityCaptureFactory;
 import io.github.jdubois.bootui.engine.activity.ActivityCapturePoller;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
@@ -22,11 +21,12 @@ import jakarta.inject.Inject;
  * no background thread, connection or bean beyond what already exists is created, exactly like the Spring
  * adapter's {@code @ConditionalOnProperty}-gated configuration.
  *
- * <p>When enabled, {@link #onStart} starts a capture poller (via {@link ActivityCaptureFactory}) that
+ * <p>When enabled, {@link #onStart} starts a capture poller (via {@link LiveActivityResource#startCapture}) that
  * polls {@link LiveActivityResource#mergedReport} on {@link ActivityPersistenceSettings#captureInterval()},
  * stamping and appending whatever it has not yet captured into the shared store. Reusing the resource's
  * own merged feed (rather than re-reading the four signal sources independently) means self-filtering,
- * masking and bounds are inherited identically to what the panel itself renders.
+ * masking and bounds are inherited identically to what the panel itself renders, and the resource remembers
+ * reserved records with its exchange buffer's own request slow threshold.
  *
  * <p>Unlike Spring — whose inferred-destroy-method convention auto-closes the {@code ActivityStore} bean
  * at context shutdown — CDI/Arc has no equivalent automatic behavior, so {@link #onStop} explicitly stops
@@ -59,10 +59,7 @@ public class QuarkusActivityCapture {
         if (!persistenceSettings.enabled()) {
             return;
         }
-        poller = ActivityCaptureFactory.start(
-                activityStore,
-                persistenceSettings,
-                () -> liveActivityResource.mergedReport(0).entries());
+        poller = liveActivityResource.startCapture(activityStore, persistenceSettings);
     }
 
     void onStop(@Observes ShutdownEvent event) {
