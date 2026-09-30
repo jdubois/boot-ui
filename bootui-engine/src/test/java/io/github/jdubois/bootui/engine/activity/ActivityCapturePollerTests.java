@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.activity;
 
+import static io.github.jdubois.bootui.engine.activity.ActivityTestFixtures.RESERVED;
 import static io.github.jdubois.bootui.engine.activity.ActivityTestFixtures.entry;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -51,7 +52,7 @@ class ActivityCapturePollerTests {
     void startPollsOnScheduleAndCapturesNewEntries() throws InterruptedException {
         RecordingStore store = new RecordingStore();
         ActivityCaptureCoordinator coordinator =
-                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 100);
+                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 100, RESERVED);
         try (ActivityCapturePoller poller =
                 new ActivityCapturePoller(coordinator, () -> List.of(entry("1", "REQUEST", 1, "OK", "a")))) {
             poller.start(Duration.ofMillis(10));
@@ -64,7 +65,7 @@ class ActivityCapturePollerTests {
     void captureNowRunsASingleTickSynchronouslyWithoutStarting() {
         RecordingStore store = new RecordingStore();
         ActivityCaptureCoordinator coordinator =
-                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 100);
+                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 100, RESERVED);
         try (ActivityCapturePoller poller =
                 new ActivityCapturePoller(coordinator, () -> List.of(entry("1", "REQUEST", 1, "OK", "a")))) {
             poller.captureNow();
@@ -77,7 +78,7 @@ class ActivityCapturePollerTests {
         AtomicInteger feedCalls = new AtomicInteger();
         RecordingStore store = new RecordingStore();
         ActivityCaptureCoordinator coordinator =
-                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 100);
+                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 100, RESERVED);
         try (ActivityCapturePoller poller = new ActivityCapturePoller(coordinator, () -> {
             feedCalls.incrementAndGet();
             return List.of();
@@ -100,7 +101,7 @@ class ActivityCapturePollerTests {
         AtomicInteger feedCalls = new AtomicInteger();
         RecordingStore store = new RecordingStore();
         ActivityCaptureCoordinator coordinator =
-                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 100);
+                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 100, RESERVED);
         ActivityCapturePoller poller = new ActivityCapturePoller(coordinator, () -> {
             feedCalls.incrementAndGet();
             return List.of();
@@ -117,7 +118,7 @@ class ActivityCapturePollerTests {
     void closeCapturesOutstandingEntriesEvenIfPollerWasNeverStarted() {
         RecordingStore store = new RecordingStore();
         ActivityCaptureCoordinator coordinator =
-                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 100);
+                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 100, RESERVED);
         ActivityCapturePoller poller =
                 new ActivityCapturePoller(coordinator, () -> List.of(entry("1", "REQUEST", 1, "OK", "a")));
         // start() was never called, so without a final capture on close() this entry would never be
@@ -130,7 +131,7 @@ class ActivityCapturePollerTests {
     void closeCapturesEntriesEvenWhenTheNextScheduledTickIsFarAway() {
         RecordingStore store = new RecordingStore();
         ActivityCaptureCoordinator coordinator =
-                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 100);
+                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 100, RESERVED);
         ActivityCapturePoller poller =
                 new ActivityCapturePoller(coordinator, () -> List.of(entry("1", "REQUEST", 1, "OK", "a")));
         // The next (first) scheduled tick is 60s away; close() must not wait for it, or "1" would be
@@ -145,7 +146,7 @@ class ActivityCapturePollerTests {
         AtomicInteger feedCalls = new AtomicInteger();
         RecordingStore store = new RecordingStore();
         ActivityCaptureCoordinator coordinator =
-                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 100);
+                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 100, RESERVED);
         try (ActivityCapturePoller poller = new ActivityCapturePoller(coordinator, () -> {
             if (feedCalls.incrementAndGet() == 1) {
                 throw new RuntimeException("simulated feed failure");
@@ -162,7 +163,7 @@ class ActivityCapturePollerTests {
     void aStoreThatThrowsDoesNotStopFuturePolling() throws InterruptedException {
         FlakyStore store = new FlakyStore();
         ActivityCaptureCoordinator coordinator =
-                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 100);
+                new ActivityCaptureCoordinator(store, new ActivitySequencer("app-1"), 100, RESERVED);
         List<ActivityEntryDto> feed = new CopyOnWriteArrayList<>();
         feed.add(entry("1", "REQUEST", 1, "OK", "a"));
         try (ActivityCapturePoller poller = new ActivityCapturePoller(coordinator, () -> feed)) {
