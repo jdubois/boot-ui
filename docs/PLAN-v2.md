@@ -195,11 +195,12 @@ Three design points change how v1 items are finished, without changing their v1 
 | --- | --- | --- | --- | --- |
 | **M0 Readiness** | CI on `v2`, the correlation and overhead scenarios as baselines, and the propagation and restart spikes (§5.1, §5.8) | — | 5–8 | ✅ Delivered |
 | **M1 Exact correlation** (§5.1) | One correlation context on every event, with or without tracing, on all three stacks | M0; v1 wave 1 (§3.20a, §3.24a) | 42–52 | 📋 Planned |
-| **M2 Journal and Live Activity** (§5.2, §5.3) | The in-memory journal, incremental aggregates, run summaries, and Live Activity served from the journal with its unified timeline | M1; §3.22, §3.27 | 33–43 | 📋 Planned |
+| **M2 Journal and Live Activity** (§5.2, §5.3, §5.11) | The in-memory journal, incremental aggregates, run summaries, resource correlation (scope readings, GC by id, CPU ledger, resource track), and Live Activity served from the journal with its unified timeline | M1; §3.22, §3.27 | 41–53 | 📋 Planned |
 | **M3 Runtime Insights** (§5.4–§5.6) | Projections, the panel, Live Activity entry points, ten observations, agent tools, and the demo | M2; §3.25 | 45–57 | 📋 Planned |
 | **M4 Change loop and 2.0 readiness** (§5.7–§5.9) | Change impact, run comparison, anonymous data reach, external validation, and the release path | M3; §3.18 | 25–35 | 📋 Planned |
 
-M0–M4 total about **150–195 engineer-days**, roughly six to eight months with two developers who also maintain 1.x.
+M0–M4 total about **158–205 engineer-days**, roughly six to eight months with two developers who also maintain 1.x.
+Opt-in JFR attribution (§5.11) is not included; it adds 6–9 engineer-days if D17 brings it into 2.0.
 The v1 foundations are estimated in their own plan. Before v1 wave 1 lands, `v2` works on M0 and the spikes.
 
 M0 is split into four items:
@@ -372,12 +373,10 @@ Scope:
   MySQL, and Database Advisor reads.
 - A journal status block (events, bytes, drops per source, evictions, oldest retained event) in Live Activity's
   persistence disclosure, and a confirmation-gated **Clear recording** action that read-only policy blocks.
-- **Per-request CPU time and allocated bytes**, read through `com.sun.management.ThreadMXBean` when a request starts
-  and ends on the same platform thread. The JVM reports neither for virtual threads (it returns `-1`, verified on JDK
-  26), nor across thread hops, so those requests record them as unavailable, with the reason, rather than zero. The
-  four reads cost about 2.5 µs per request, measured by the overhead scenario.
-- Properties under `bootui.runtime-journal.*`: `enabled`, `max-events`, `max-bytes`, `queue-capacity`, `sources`, and
-  `request-cpu` (on by default).
+- **Per-request CPU time, allocated bytes, and GC pauses**, measured by §5.11's scope readings: summed over every
+  segment a request runs on a thread, including thread hops, and unavailable, with the reason, on virtual threads.
+- Properties under `bootui.runtime-journal.*`: `enabled`, `max-events`, `max-bytes`, `queue-capacity`, and `sources`,
+  which also accepts `gc` and `resources` (§5.11).
 
 Architecture:
 
@@ -432,7 +431,8 @@ Scope:
 - Add filters for route template, run, and request id, and show work with no request under a **No request** filter,
   with its thread family and reason.
 - Extend the request profile, additively, with:
-  - a **unified timeline** of spans, SQL, transactions, cache accesses, and log lines on one axis;
+  - a **unified timeline** of spans, SQL, transactions, cache accesses, and log lines on one axis, with a GC lane
+    naming the collections that completed during the request (§5.11);
   - a **route comparison**: this request against its route's p50 and p95 from the aggregates;
   - **touched resources**: tables, transactions, caches, messages, and log lines;
   - **why this route is slow**: the route's `route-time-breakdown` observation when it exists (§5.5).
@@ -515,7 +515,7 @@ Scope:
 | `event-loop-blocking` | Blocking work on an event-loop thread: JDBC, blocking REST client calls, or waits, per route and call site, with the share of request time spent there | ≥ 3 requests; thread kind from the owning adapter (§5.1), never a name guess | Spring WebFlux and Quarkus. Spring MVC has no event loop and reports not applicable |
 | `retry-amplification` | One request multiplying downstream work through retries: attempts × calls per remote host or AI model, with failures and timeouts | ≥ 1 request with retry events | All three, where Fault Tolerance capture exists |
 | `llm-cost-by-route` | Tokens (input and output), model, latency, and errors of AI calls per route or job, and the change since the previous run | ≥ 3 AI calls per route, or one above `ai-token-threshold` | All three, where AI calls are recognized from GenAI spans |
-| `cpu-or-waiting` | Whether a route's time is CPU, allocation, or waiting: per-route CPU share and allocated bytes per request. With `route-time-breakdown`, it separates "hashing a password" from "waiting on a pool" | ≥ 5 requests measured on platform threads | All three on platform, worker, and event-loop threads. Unavailable on virtual threads, as the JVM reports no per-thread CPU there |
+| `cpu-or-waiting` | Whether a route's time is CPU, allocation, or waiting: per-route CPU share and allocated bytes per request. With `route-time-breakdown`, it separates "hashing a password" from "waiting on a pool" | ≥ 5 requests with CPU readings; a request's segments are summed across thread hops (§5.11) | All three on platform, worker, and event-loop threads. On virtual threads, only through opt-in JFR attribution (§5.11) |
 
 - Entry points where developers already look:
   - the Live Activity request profile's **why this route is slow** section (§5.3);
@@ -699,6 +699,85 @@ Acceptance criteria:
 | Neo4j CSV and OCEL 2.0 exports | ❌ Cut | Niche audiences, with documentation, conformance, and native-hint costs |
 | Embedded graph database | ❌ Cut | The storage research (Appendix A) found no insight that needs one at BootUI's volumes: bounded traversals over the PoC graph run in under a millisecond. Graph databases remain export targets, and none fits embedding (Neo4j is GPLv3, Kuzu is archived, ArcadeDB is heavy for a starter) |
 
+### 5.11 Resource correlation — Diagnostics 📋 Planned
+
+BootUI shows CPU, heap, and GC in the JVM panels, and requests in Live Activity, but never links them: nothing says
+which request allocated the most, which work outside requests burns CPU, or which collections completed while a slow
+request ran. Joining them by time is misleading under concurrency. This item links resources **by identity, not by
+timestamp**: each resource fact is attached at the moment it is measured, on the thread and in the scope that owns it,
+and time is kept only for display. The hook is §5.1's scope-based `CorrelationContext` holder, which opens and closes a
+scope whenever request work runs on a thread, so one engine change covers all three stacks.
+
+Scope, verified on JDK 27 by the resource-correlation research (Appendix A):
+
+1. **Scope readings (exact, on by default).** When a scope opens and closes on a thread, read that thread's CPU time,
+   allocated bytes, and each pause collector's collection count, and add the deltas to the request. A request that hops
+   threads sums its segments, which lifts the "same platform thread" limit. Each segment costs about 0.85 µs. The JVM
+   returns `-1` for both CPU time and allocated bytes on virtual threads, so their segments record CPU and allocation
+   as unavailable, with the reason, while still recording GC.
+2. **GC by id (exact, on by default).** A `gc` journal source built on `GarbageCollectionNotificationInfo` publishes
+   one event per collection, keyed by collector and `GcInfo.getId()`, with its cause, duration, and heap before and
+   after. That id equals the collector's collection count (verified on G1 and ZGC), so the counts read in (1) name the
+   exact collections that **completed** during a request, whenever their notification arrives (2–30 ms late).
+   Collections are classified as pauses or concurrent cycles with `MemoryCollector`'s existing logic: ZGC and
+   Shenandoah "Cycles" beans report concurrent time, never a pause. Durations are whole milliseconds.
+3. **CPU ledger (once a second).** For each Java thread, its CPU time minus what scopes already credited to requests
+   goes to its thread family, from §5.1's thread kind. Process CPU minus all Java threads is **JVM internals (GC, JIT,
+   VM)**. Requests, thread families, and JVM internals sum to process CPU, a built-in consistency check. Under an
+   allocation-heavy probe, JVM internals used 73 % of process CPU. A full sweep costs about 0.4 ms at 300 threads, so
+   the sampler caps the threads it reads per sweep.
+4. **Resource track (once a second).** Heap used and committed, heap after the last collection, process CPU,
+   allocation rate, and thread counts, in fixed rings of about 900 points in the aggregates, outside the evidence
+   budget. Each point stores the journal sequence number, which places it among events by order rather than by clock.
+5. **JFR attribution (opt-in, user-triggered, bounded).** A custom `bootui.ExecutionSegment` JFR event carries the
+   request id of each scope segment; it costs under 100 ns while no recording runs. During a **Profile resources**
+   session, bounded by `jfr.max-duration`, CPU and allocation samples are joined to segments by Java thread id and
+   interval inside JFR's own clock, virtual threads included. That lifts `cpu-or-waiting`'s virtual-thread limit and
+   adds the hot frames of a route. `jdk.CPUTimeSample` is used where available (Linux, JDK 25 and later), and the
+   report says which sampler ran. Starting JFR costs about 330 ms and 42 MB of process memory and writes a repository
+   to the temporary directory, so it never starts on its own or on page load. Its milestone is D17.
+
+Surfaces:
+
+- The request profile gains CPU time, allocated bytes, and GC pauses (count, milliseconds, and collection ids), each
+  with its availability and reason (§5.3), and a GC lane on the unified timeline.
+- Live Activity gains a resource lane and a **Work outside requests** breakdown: request work, each thread family,
+  BootUI's own threads, and JVM internals.
+- Candidate observations for M3, decided with the insight audit and D18:
+
+| Id | Observation | Minimums |
+| --- | --- | --- |
+| `gc-inflated-latency` | The share of a route's slowest requests during which a stop-the-world pause completed, with the pauses' total. Worded "a pause completed during", never "caused by" | ≥ 5 slow requests; pause collectors only |
+| `heap-growth-after-gc` | Old-generation occupancy after collections rising across the run | ≥ 3 full or mixed collections |
+
+Architecture:
+
+- A new engine `resources` package, dependency-free and classloading-safe: `SegmentMeter` (scope readings, called by the
+  §5.1 holder), `GcEventSource`, `ResourceSampler` (ledger and track, on one self-excluding BootUI daemon thread),
+  `ResourceTrack`, and `JfrAttribution` with `ExecutionSegmentEvent`. `com.sun.management` and `jdk.jfr` are reached
+  only through guarded classes that report unavailable when absent, for example on runtimes without JFR.
+- No new adapter code beyond §5.1's scopes; each adapter already classifies its threads' kind.
+- DTO changes are additive and nullable: request-profile `cpuNanos`, `allocatedBytes`, `gcPauses`, and
+  `resourceAvailability`, and a new resource-track and ledger DTO, with contract-catalog entries on all three stacks.
+- Properties: `bootui.runtime-journal.sources` gains `gc` and `resources`; `bootui.resources.sample-interval` (1 s),
+  `bootui.resources.max-threads`, and `bootui.resources.jfr.max-duration`.
+
+Out of scope for 2.0:
+
+- Per-request blame for process-wide effects: a pause is reported as completed during a request, never as its cause.
+- Continuous JFR recording, and any JFR recording started without the developer's action.
+- Native memory tracking and off-heap attribution.
+
+Acceptance criteria:
+
+- Scope arithmetic holds across thread hops, async redispatches, Reactor hops, and Vert.x worker dispatch, and virtual
+  threads report CPU and allocation as unavailable, never zero.
+- GC joins by id are exact with late and out-of-order notifications, on G1, Parallel, Serial, ZGC, and Shenandoah, and
+  concurrent cycles never count as pauses.
+- Requests, thread families, and JVM internals sum to process CPU within 1 % per ledger interval.
+- A synthetic JFR recording joins samples to the right request, including on a virtual thread.
+- The overhead scenario (§2.2) measures scope readings on and off and stays within its budget.
+
 ## 6. Architecture
 
 ```mermaid
@@ -732,9 +811,9 @@ flowchart TB
   P --> LA
 ```
 
-New engine packages: `correlation`, `journal`, and `runtimeinsights`, plus the `CorrelationContextProvider` SPI. The
-dependency direction `bootui-core <- bootui-engine <- adapters` is unchanged, and no shared module gains a Spring,
-Quarkus, or JSON dependency.
+New engine packages: `correlation`, `journal`, `resources`, and `runtimeinsights`, plus the `CorrelationContextProvider`
+SPI. The dependency direction `bootui-core <- bootui-engine <- adapters` is unchanged, and no shared module gains a
+Spring, Quarkus, or JSON dependency.
 
 ## 7. Cross-stack availability
 
@@ -754,7 +833,9 @@ Quarkus, or JSON dependency.
 | `anonymous-data-reach` | With Spring Security | With Spring Security | Where security capture proves authentication |
 | `swallowed-error-2xx`, `retry-amplification`, `llm-cost-by-route` | ✓ | ✓ | ✓ |
 | `event-loop-blocking` | Not applicable: no event loop | Reactor Netty event loops | Vert.x event loops |
-| `cpu-or-waiting` | Platform threads; unavailable with virtual threads | Event loops and schedulers; unavailable across thread hops | Worker and event-loop threads; unavailable across thread hops |
+| `cpu-or-waiting` | Platform threads, summed across hops; virtual threads through opt-in JFR | Event loops and schedulers, summed across hops | Worker and event-loop threads, summed across hops |
+| GC by id, CPU ledger, and resource track | ✓ | ✓ | ✓ |
+| JFR attribution | Where the runtime ships JFR | Same | Same |
 
 Each unavailable cell is returned as availability with a reason and documented in `docs/QUARKUS-SUPPORT.md` and
 `docs/WEBFLUX-SUPPORT.md`.
@@ -783,7 +864,9 @@ live exposure policy at read time, and never write to disk anything less masked 
 | Application thread: snapshot, envelope, and `offer` | < 2 µs p99 on a reference machine; never blocks |
 | Sample-app throughput, journal on versus off | Within 5 % |
 | Retained rows | ≤ the smaller of 32 MB and 5 % of the maximum heap, evictions counted |
-| Per-request CPU and allocation reads | About 2.5 µs per request (four `ThreadMXBean` reads), included in the overhead scenario; `request-cpu=false` removes them |
+| Scope readings (§5.11) | About 0.85 µs per scope segment, included in the overhead scenario; removing `resources` from `sources` turns them off |
+| Resource sampler (§5.11) | About 0.4 ms per second at 300 threads, on a BootUI daemon thread, with a thread cap |
+| JFR attribution (§5.11) | About 330 ms and 42 MB to start; opt-in, user-triggered, and bounded by `jfr.max-duration` |
 | Dispatcher | Sustains at least 20,000 events per second on a reference machine (the PoC produced 88), measured by the overhead scenario |
 | Projection read | ≤ 250 ms, then `PARTIAL` |
 
@@ -802,6 +885,8 @@ Every v2 item follows PLAN.md §4, "Every item", and the Runtime Insights panel 
 | Risk | Item | Impact | Mitigation |
 | --- | --- | --- | --- |
 | Context propagation fails across Reactor, Vert.x, or async boundaries | §5.1 | High | The M0-4 spike proved the Reactor path; adapter-owned bridges, and honest "unowned" results instead of guesses |
+| Resource figures read as causes, for example a GC pause blamed for a request | §5.11 | Medium | Joins by identity, "completed during" wording, process-wide effects never assigned to one request, and the ledger's sum check |
+| JFR raises the sampling rate of another recording, since JFR merges settings to the most detailed | §5.11 | Low | Opt-in and bounded sessions, and a note in the documentation and the session's report |
 | Automatic Reactor context propagation is JVM-global and changes every Reactor chain | §5.1 | Medium | Contribute it only as an overridable default, never disable it, and measure its cost in the overhead scenario |
 | Contexts leak between requests on pooled or virtual threads | §5.1 | High | Scopes that restore the previous context, and tests on reused, virtual, scheduler, and worker threads |
 | Capture overhead on JDBC and logging hot paths | §5.1, §5.2 | High | Aggregation on the dispatcher, budgets pinned by tests, a `sources` allowlist, and one switch to disable |
@@ -849,6 +934,10 @@ lands on `v2` and before 2.0.0:
 | D13 | How many previous runs are kept? | The 5 most recent, each ≤ 256 KB (§5.2) |
 | D14 | Which new insights join 2.0? | **Maintainer decision:** `swallowed-error-2xx`, `event-loop-blocking`, `retry-amplification`, `llm-cost-by-route`, and `cpu-or-waiting`; the other researched insights come after 2.0 (§5.10) |
 | D15 | Graph database or search engine? | Neither in 2.0. A graph database adds no insight at BootUI's volumes; curated cohort comparison and bounded path templates come first, with optional Lucene or embedded analytics only on demand |
+| D16 | Are the GC source, scope readings, ledger, and resource track on by default? | Open. Recommendation: yes, with the journal (D1), and removable through `sources` |
+| D17 | Is JFR attribution in 2.0? | Open. Recommendation: yes, as an opt-in M4 item, because it is the only way to measure CPU on virtual threads, which the sample apps and many Spring Boot 4 applications enable |
+| D18 | Is heap growth after GC a Runtime Insights observation, or a Memory advisor rule? | Open. Recommendation: an observation, fed by the resource track, with the Memory advisor linking to it |
+| D19 | Does the resource track survive application-context restarts, like run summaries? | Open. Recommendation: no, only its per-run totals, which join the run summary (§5.8) |
 
 ## Appendix A. Review log
 
@@ -899,6 +988,7 @@ research**).
 | Name a dispatcher throughput budget, since a single thread can become the bottleneck | Design review | Adopted (§8) |
 | Add high-value insights from runtime-analysis prior art (Sentry, Digma, BlockHound, Resilience4j, Honeycomb, pganalyze): event-loop blocking, retry amplification, LLM cost by route, swallowed 2xx errors, CPU versus waiting, pool pressure, unbounded result ramps, sensitive egress | Insights research | Five adopted for 2.0 (D14, §5.5); three deferred (§5.10) |
 | Per-thread CPU and allocation for `cpu-or-waiting` | Insights research | Adopted, with a verified limit: the JVM returns `-1` on virtual threads, reported as unavailable (§5.2) |
+| Link CPU, allocation, and GC to runtime events by identity: scope readings, GC by id, a CPU ledger, a resource track, and opt-in JFR attribution | Resource-correlation research (user-directed) | Adopted as §5.11 in M2, with D16–D19 open |
 | Store events in a graph database or a search engine for richer insights | Storage research | Rejected for 2.0 (D15): no insight needs a graph database at these volumes; cohort comparison, bounded path templates, and optional Lucene deferred (§5.10) |
 
 ## Appendix B. Proof-of-concept evidence
