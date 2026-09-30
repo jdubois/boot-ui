@@ -19,8 +19,13 @@ class JdbcActivityStoreTests {
     private static final AtomicInteger DB_COUNTER = new AtomicInteger();
 
     private DataSource newDataSource() {
+        return newDataSource(null);
+    }
+
+    private DataSource newDataSource(String h2Mode) {
         JdbcDataSource dataSource = new JdbcDataSource();
-        dataSource.setURL("jdbc:h2:mem:activity-test-" + DB_COUNTER.incrementAndGet() + ";DB_CLOSE_DELAY=-1");
+        dataSource.setURL("jdbc:h2:mem:activity-test-" + DB_COUNTER.incrementAndGet() + ";DB_CLOSE_DELAY=-1"
+                + (h2Mode == null ? "" : ";MODE=" + h2Mode));
         dataSource.setUser("sa");
         dataSource.setPassword("");
         return dataSource;
@@ -244,5 +249,94 @@ class JdbcActivityStoreTests {
 
         assertThat(suppressedDuringGetConnection.get()).isTrue();
         assertThat(BootUiJdbcCaptureGuard.isSuppressed()).isFalse();
+    }
+
+    @Test
+    void pagesWithLimitWhenTheDatabaseReportsMySql() {
+        // MySQL has no OFFSET ... FETCH FIRST row limit in any version (issue #1142).
+        RecordingDataSource mysql = new RecordingDataSource(newDataSource("MySQL"), "MySQL", false);
+        JdbcActivityStore store = new JdbcActivityStore(mysql.dataSource(), "bootui_activity");
+        for (long i = 1; i <= 3; i++) {
+            append(store, String.valueOf(i), "REQUEST", i, "OK", "entry " + i);
+        }
+
+        ActivityPage first = store.query(new ActivityQuery(INSTANCE, null, null, null, null, null, null, 2));
+        ActivityPage second =
+                store.query(new ActivityQuery(INSTANCE, null, null, null, null, null, first.nextCursor(), 2));
+
+        assertThat(first.entryDtos()).extracting(ActivityEntryDto::id).containsExactly("3", "2");
+        assertThat(second.entryDtos()).extracting(ActivityEntryDto::id).containsExactly("1");
+        assertThat(mysql.pageReads())
+                .hasSize(2)
+                .allSatisfy(sql -> assertThat(sql)
+                        .endsWith("ORDER BY occurred_at DESC, seq DESC LIMIT ?")
+                        .doesNotContain("FETCH"));
+    }
+
+    @Test
+    void createsNumberColumnsWhenTheDatabaseReportsOracle() {
+        // Oracle has no BIGINT type: CREATE TABLE fails with ORA-00902.
+        RecordingDataSource oracle = new RecordingDataSource(newDataSource("Oracle"), "Oracle", false);
+        JdbcActivityStore store = new JdbcActivityStore(oracle.dataSource(), "bootui_activity");
+        append(store, "1", "REQUEST", 1, "OK", "hello");
+
+        assertThat(store.query(ActivityQuery.firstPage(INSTANCE)).entryDtos())
+                .extracting(ActivityEntryDto::id)
+                .containsExactly("1");
+        assertThat(oracle.sql)
+                .filteredOn(sql -> sql.startsWith("CREATE TABLE"))
+                .singleElement()
+                .satisfies(ddl -> assertThat(ddl)
+                        .contains("seq NUMBER(19) NOT NULL")
+                        .contains("occurred_at NUMBER(19) NOT NULL")
+                        .contains("duration_ms NUMBER(19),")
+                        .doesNotContain("BIGINT"));
+        assertThat(oracle.pageReads())
+                .singleElement()
+                .satisfies(sql -> assertThat(sql).endsWith(" OFFSET 0 ROWS FETCH FIRST ? ROWS ONLY"));
+    }
+
+    @Test
+    void otherDatabasesKeepTheStandardDdlAndRowLimit() {
+        RecordingDataSource postgres = new RecordingDataSource(newDataSource("PostgreSQL"), "PostgreSQL", false);
+        JdbcActivityStore store = new JdbcActivityStore(postgres.dataSource(), "bootui_activity");
+        append(store, "1", "REQUEST", 1, "OK", "hello");
+        store.query(ActivityQuery.firstPage(INSTANCE));
+
+        assertThat(postgres.sql)
+                .filteredOn(sql -> sql.startsWith("CREATE TABLE"))
+                .singleElement()
+                .satisfies(
+                        ddl -> assertThat(ddl).contains("seq BIGINT NOT NULL").doesNotContain("NUMBER"));
+        assertThat(postgres.pageReads())
+                .singleElement()
+                .satisfies(sql -> assertThat(sql).endsWith(" OFFSET 0 ROWS FETCH FIRST ? ROWS ONLY"));
+    }
+
+    @Test
+    void detectsTheDialectOncePerStore() {
+        RecordingDataSource h2 = new RecordingDataSource(newDataSource(), "H2", false);
+        JdbcActivityStore store = new JdbcActivityStore(h2.dataSource(), "bootui_activity");
+
+        store.verifySchema();
+        append(store, "1", "REQUEST", 1, "OK", "hello");
+        store.query(ActivityQuery.firstPage(INSTANCE));
+        store.query(ActivityQuery.firstPage(INSTANCE));
+        store.prune(INSTANCE, 0);
+
+        assertThat(h2.productNameCalls).hasValue(1);
+    }
+
+    @Test
+    void verifySchemaFailsWhenTheDatabaseRejectsTheReadStatement() {
+        // Creating the table succeeds, as it did on MySQL before issue #1142: only the read is refused.
+        RecordingDataSource rejecting = new RecordingDataSource(newDataSource(), "H2", true);
+        JdbcActivityStore store = new JdbcActivityStore(rejecting.dataSource(), "bootui_activity");
+
+        assertThatThrownBy(store::verifySchema)
+                .isInstanceOf(ActivityStoreException.class)
+                .hasMessageContaining("read")
+                .hasRootCauseMessage("synthetic syntax error near the row limit");
+        assertThat(rejecting.sql).anySatisfy(sql -> assertThat(sql).startsWith("CREATE TABLE"));
     }
 }

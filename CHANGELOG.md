@@ -14,6 +14,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Live Activity durable persistence works on MySQL and Oracle.** On MySQL, every read used the SQL-standard
+  `OFFSET … FETCH FIRST` row limit, which MySQL rejects, so the Live Activity panel and `GET /bootui/api/activity`
+  failed once persistence was on, while rows kept piling up unread. On Oracle, the table could never be created,
+  because Oracle has no `BIGINT` type. The store now detects the database once and uses `LIMIT` on MySQL and MariaDB
+  and `NUMBER(19)` columns on Oracle. Other databases keep the same SQL, so existing tables need no migration. The
+  **Use the existing datasource** switch now also checks that the table can be read before it switches, so a
+  database that rejects the query is reported as a failed switch instead of breaking the panel. This applies to
+  Spring MVC, Spring WebFlux, and Quarkus
+  ([#1142](https://github.com/jdubois/boot-ui/issues/1142)).
 - **Spring MVC Log Tail streams no longer throw on a worker thread when a client disconnects or the application
   stops.** When the servlet container had already failed the async request, the stream worker still tried to
   complete the `SseEmitter`. Tomcat rejected that with an uncaught `IllegalStateException`, and the session could
