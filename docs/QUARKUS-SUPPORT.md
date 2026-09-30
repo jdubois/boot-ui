@@ -385,7 +385,7 @@ panel as available even though Reactive Messaging capture is not wired.
 
 :::
 
-::: details Why the per-request profiler (`GET /bootui/api/activity/request/{id}`) is trace-id-only on Quarkus
+::: details Why the per-request profiler (`GET /bootui/api/activity/request/{id}`) is reduced on Quarkus
 
 Spring's `/activity/request/{id}` profiler is a Symfony-style join across SQL, exceptions, security audit events, REST
 client calls, cache accesses, the distributed trace, and timing for one request — not CPU/flame-graph sampling. Every
@@ -401,25 +401,26 @@ belong to it exactly, even with no distributed tracing at all (`threadMatched` i
 `RequestProfileSecurityDto`/carried by `RequestProfileExceptionDto`'s `thread`). Quarkus's Vert.x event-loop-plus-worker
 model has no equivalent "the one thread that served this request" identity — handling can hop across the event loop and
 one or more worker threads. Tiers 2-4 therefore have nothing to key on and are **not ported** (investigated and correctly
-ruled out as infeasible; see the PR that shipped this trace-id-only profiler).
+ruled out as infeasible; see the PR that shipped the first, trace-id-only version of this profiler).
 
 Tier 1, however, **is** portable and **is now implemented**. The same trace-id stamping that powers the
 `LiveActivityAssembler` nesting above feeds the shared engine `ExecutionProfileAssembler` — the same class that serves
-the profile on Spring MVC and Spring WebFlux — with trace-id-only capabilities. When the requested exchange carries a
-trace id, the endpoint gathers every SQL/exception/security entry and REST Client Reactive call sharing that exact
-trace id and returns `available: true` with `sqlCorrelationApproximate: false` and `approximate: false` (trace-id
-matching is exact, unlike Spring's time-window heuristics) plus a `notes` entry disclosing that this is a reduced,
-trace-id-only profile. `correlationTiers` reports the serving-thread and time-window tiers unavailable, and the cache
+the profile on Spring MVC and Spring WebFlux — with trace-id-only capabilities, which also include the exact
+`REQUEST_ID` tier (`docs/PLAN-v2.md` §5.1). When the requested exchange carries BootUI's request id or a trace id, the
+endpoint gathers every SQL statement, security event, and REST Client Reactive call carrying its request id, then every
+signal sharing its exact trace id, including exceptions, and returns `available: true` with
+`sqlCorrelationApproximate: false` and `approximate: false` (both matches are exact, unlike Spring's time-window
+heuristics) plus a `notes` entry disclosing that this is a reduced profile. `correlationTiers` reports the serving-thread and time-window tiers unavailable, and the cache
 section reports that Quarkus has no cache-access capture seam. `threadMatched` always reports `false` (Quarkus has no thread-identity concept), while
 `principalMatched` on `RequestProfileSecurityDto` **is** honestly computed by comparing principals. Ambiguous trace ids
 (shared by more than one captured request, such as an application calling its own endpoint through a REST client)
 render an `available: true` profile with empty correlated lists plus notes counting the signals left unattributed,
-never a hard failure or cross-request leak. When the exchange has no trace id at all — OpenTelemetry
-absent, or the request predates `quarkus-opentelemetry` — the endpoint honestly returns `available: false` with a clear
+never a hard failure or cross-request leak. The request id still decides first, so such a request keeps its own
+stamped signals. Only when the exchange carries neither id does the endpoint return `available: false` with a clear
 reason (`RequestProfileDto.unavailable(...)`) rather than fabricating a partial result. In the main feed,
-`ActivityEntryDto.profileable` is computed adapter-side in `LiveActivityResource`: `true` for request entries with a
-resolvable trace id, `false` otherwise; the shared engine's own `profileable` default is untouched, so Spring is
-unaffected.
+`LiveActivityResource` marks a request entry `profileable` through the engine's shared
+`LiveActivityAssembler.withExactProfiles`: `true` when its exchange carries either id, `false` otherwise. Spring WebFlux
+uses the same rule, and Spring MVC is unaffected.
 
 :::
 
@@ -722,7 +723,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 - **Reactive capture fidelity.** Vert.x-based request/exchange/SQL capture must be verified to match the servlet panels'
   detail (timing, headers, correlation). Correlation is now resolved via the OpenTelemetry trace id: Live Activity nests
   SQL/exceptions/security events under their request, and stamps `securedPrincipal`, when `quarkus-opentelemetry` is
-  present. The per-request profile drill-down is now implemented too, but in reduced, trace-id-only form. Spring's
+  present. The per-request profile drill-down is now implemented too, but in reduced form (request id and trace id only). Spring's
   time-window/thread-based tiers lean on servlet thread-per-request serving-thread identity that the Vert.x model has no
   equivalent for, so they remain deliberately unported (§5.3 has the detailed reasoning).
 - **Module naming & coordinates.** New shared/adapter modules keep `com.julien-dubois.bootui:*` coordinates and
@@ -774,7 +775,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | REST API            | **done**    | Rebuild | REST conventions engine          | JAX-RS handler-model builder                |
 | Database Connection Pools | **done**    | Rebuild | Pool model                       | `DataSourcePoolProvider` → Agroal           |
 | SQL Trace           | **done**    | Rebuild | SQL trace model                  | `SqlTraceSource` → Agroal/JDBC              |
-| Live Activity       | **done**    | Rebuild | Activity model                   | `RequestCaptureSource` → Vert.x; OTel trace-id correlation + trace-id-only profile drill-down; optional JDBC persistence backend via `QuarkusActivityCapture` (unconditional producers, identical to Spring); Kafka and RabbitMQ messaging capture via SmallRye `Outgoing`/`IncomingInterceptor` feeding the shared transport recorders; captured email (`MAIL`) reuses the shared `EmailCaptureService` directly, no separate capture needed |
+| Live Activity       | **done**    | Rebuild | Activity model                   | `RequestCaptureSource` → Vert.x; request-id and OTel trace-id correlation + reduced profile drill-down; optional JDBC persistence backend via `QuarkusActivityCapture` (unconditional producers, identical to Spring); Kafka and RabbitMQ messaging capture via SmallRye `Outgoing`/`IncomingInterceptor` feeding the shared transport recorders; captured email (`MAIL`) reuses the shared `EmailCaptureService` directly, no separate capture needed |
 | HTTP Exchanges      | **done**    | Rebuild | Exchange model                   | `HttpExchangeProvider` → Vert.x             |
 | Exceptions          | **done**    | Rebuild | Exception model                   | log handler + Vert.x failure handler + `PreExceptionMapperHandlerBuildItem` |
 | Security Logs       | **done**    | Rebuild | Audit model                      | `AuditEventProvider` → CDI events           |

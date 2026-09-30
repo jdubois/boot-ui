@@ -3,6 +3,7 @@ import {describe, expect, it} from 'vitest'
 import {
   cacheAccessSummary,
   childTierLabel,
+  securityEventExact,
   profileSections,
   restCallSummary,
   tierLabel,
@@ -11,6 +12,15 @@ import {
 } from './requestProfile.js'
 
 describe('requestProfile helpers', () => {
+  it('labels the request-id tier and treats a request-id security match as exact', () => {
+    expect(tierLabel('REQUEST_ID')).toBe('request id')
+    const section = {childTiers: ['REQUEST_ID', 'TIME_WINDOW']}
+    expect(securityEventExact(section, {threadMatched: false}, 0)).toBe(true)
+    expect(securityEventExact(section, {threadMatched: false}, 1)).toBe(false)
+    expect(securityEventExact(section, {threadMatched: true}, 1)).toBe(true)
+    expect(securityEventExact(undefined, {threadMatched: false}, 0)).toBe(false)
+  })
+
   it('labels every correlation tier and ignores unknown ones', () => {
     expect(tierLabel('TRACE_ID')).toBe('trace id')
     expect(tierLabel('SERVING_THREAD')).toBe('serving thread')

@@ -1593,8 +1593,9 @@ Acceptance criteria:
 - Retention is failure-preserving: `bootui.rest-client-trace.reserved-share-percent` (default 25) of the buffer is
   reserved for the most recent failed, `4xx`/`5xx`, and slow calls, routine calls are evicted first, and the report's
   `retention` object states the kept, reserved, and evicted counts.
-- Recent calls surface in Live Activity as `REST_CLIENT` entries. Spring MVC uses trace-id-first/serving-thread-second
-  correlation; Quarkus and WebFlux use trace id only because neither reactive runtime has a thread-per-request model.
+- Recent calls surface in Live Activity as `REST_CLIENT` entries. Every stack first matches BootUI's request id; Spring
+  MVC then uses trace-id-first/serving-thread-second correlation, and Quarkus and WebFlux use the trace id only because
+  neither reactive runtime has a thread-per-request model.
 - The dedicated panel is available on Spring MVC and Quarkus. Quarkus keeps it visible whenever the optional capability
   is present (proxies are initialized lazily), renders a no-proxy message until instrumentation occurs, and refreshes via
   its JAX-RS SSE stream. WebFlux captures calls for Live Activity but still has no dedicated panel.

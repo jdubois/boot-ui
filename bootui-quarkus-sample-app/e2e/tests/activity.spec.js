@@ -5,10 +5,10 @@ import {expect, test} from './fixtures.js'
  * Live Activity (Quarkus).
  *
  * Quarkus now has a per-request profile drawer too (`GET /bootui/api/activity/request/{id}` — see the shared
- * `ExecutionProfileAssembler`), but it is a deliberately *reduced*, trace-id-only profile: unlike Spring's
- * tiered profiler (trace id, then method+path+time-window+thread heuristics), Quarkus's reactive
- * event-loop/worker model has no per-request serving-thread identity to fall back on, so a request only
- * ever profiles when it carries a distributed trace id, SQL/security correlation is always exact (never
+ * `ExecutionProfileAssembler`), but it is a deliberately *reduced* profile: unlike Spring's tiered profiler
+ * (request id and trace id, then method+path+time-window+thread heuristics), Quarkus's reactive
+ * event-loop/worker model has no per-request serving-thread identity to fall back on, so a request profiles
+ * by BootUI's request id or its distributed trace id only, SQL/security correlation is always exact (never
  * "approximate", and never thread-matched), and the drawer surfaces explicit reduced-profile notes instead
  * of Spring's exact/approximate badges. The dedicated profile-drawer tests below assert exactly that
  * reduced (not absent, not full-parity) behavior.
@@ -119,7 +119,7 @@ test.describe('Live Activity view (Quarkus)', () => {
     await expect(secureRow.locator('.activity-principal-tag')).toContainText('admin')
   })
 
-  test('opens a per-request profile drawer with a reduced, trace-id-only profile', async ({openView, page}) => {
+  test('opens a per-request profile drawer with a reduced profile', async ({openView, page}) => {
     // product-search always runs SQL, so the request reliably has SQL to correlate in the drawer.
     const search = await page.request.get('/api/sample/product-search')
     expect(search.ok()).toBeTruthy()
@@ -137,7 +137,7 @@ test.describe('Live Activity view (Quarkus)', () => {
     await expect(drawer).toContainText('/api/sample/product-search')
 
     // Quarkus's reduced profile has no time-window/thread heuristic to fall back on, so a
-    // trace-id-correlated SQL execution is always "exact", never the "approximate" fallback Spring's
+    // request-id- or trace-id-correlated SQL execution is always "exact", never the "approximate" fallback Spring's
     // fuller profiler can show.
     await expect(drawer.getByText('exact', {exact: true})).toBeVisible()
     await expect(drawer.getByText('approximate', {exact: true})).toHaveCount(0)
@@ -145,7 +145,7 @@ test.describe('Live Activity view (Quarkus)', () => {
     // The reduced-profile explanation is real, load-bearing UI copy (ExecutionProfileAssembler's notes),
     // not an internal implementation detail — a developer reads this to know why Quarkus's profile is
     // narrower than Spring's.
-    await expect(drawer).toContainText('reduced, trace-id-only profile')
+    await expect(drawer).toContainText('This is a reduced profile')
 
     // The REST client section is present, and the cache section honestly reports that Quarkus has no
     // cache-access capture seam; the serving-thread and time-window tiers are reported unavailable.

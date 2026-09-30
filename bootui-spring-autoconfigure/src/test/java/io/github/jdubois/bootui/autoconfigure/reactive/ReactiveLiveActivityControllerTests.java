@@ -1046,7 +1046,7 @@ class ReactiveLiveActivityControllerTests {
                     .singleElement()
                     .satisfies(section -> assertThat(section.available()).isFalse());
             assertThat(profile.correlationTiers())
-                    .filteredOn(tier -> !"TRACE_ID".equals(tier.tier()))
+                    .filteredOn(tier -> !List.of("REQUEST_ID", "TRACE_ID").contains(tier.tier()))
                     .allSatisfy(tier -> assertThat(tier.available()).isFalse());
         }
     }

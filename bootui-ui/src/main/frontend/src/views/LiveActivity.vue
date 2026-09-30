@@ -20,6 +20,7 @@ import {
   childTierLabel,
   profileSections,
   restCallSummary,
+  securityEventExact,
   tierLabel,
   unavailableTiersText
 } from '../utils/requestProfile.js'
@@ -578,7 +579,7 @@ function renderProfileReport() {
     lines.push(`Security events${tierSuffix(meta.SECURITY, true)}:`)
     for (const [index, event] of p.security.entries()) {
       const principal = event.principal ? ` · ${event.principal}` : ''
-      const match = event.threadMatched ? ' (exact)' : ''
+      const match = securityEventExact(meta.SECURITY, event, index) ? ' (exact)' : ''
       lines.push(`  ${event.type}${principal}${match}${childTierSuffix(meta.SECURITY, index)}`)
     }
     pushTruncation(lines, meta.SECURITY)
@@ -1362,9 +1363,9 @@ function toggleFlow() {
                 <code>{{ event.type }}</code>
                 <span v-if="event.principal" class="text-muted"> · {{ event.principal }}</span>
                 <span
-                  v-if="event.threadMatched"
+                  v-if="securityEventExact(sections.SECURITY, event, index)"
                   class="badge text-bg-success ms-1"
-                  title="Correlated exactly by the request's serving thread"
+                  title="Correlated exactly by the request's serving thread or its BootUI request id"
                 >
                   exact
                 </span>

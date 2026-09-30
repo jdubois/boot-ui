@@ -36,7 +36,7 @@ test.describe('Live Activity view', () => {
     await expect(drawer).toContainText('Request profile')
     await expect(drawer).toContainText('/api/sample/product-search')
 
-    // The SQL-backed request is correlated exactly by its serving thread (no distributed trace id
+    // The SQL-backed request is correlated exactly by BootUI's request id (no distributed trace id
     // required), so the drawer shows the "exact" badge rather than the "approximate" fallback.
     await expect(drawer.getByText('exact', {exact: true})).toBeVisible()
     await expect(drawer.getByText('approximate', {exact: true})).toHaveCount(0)
@@ -49,7 +49,7 @@ test.describe('Live Activity view', () => {
     // /products reads through the sample-products cache on the request thread, and
     // /quarkus-secure-products calls the companion Quarkus app, which is not running in this suite, so
     // the outbound RestClient call fails fast but is still captured on the request thread. Both correlate
-    // exactly: by the trace id the sample's tracer stamps, or else by the serving thread.
+    // exactly: by BootUI's request id, stamped on both when they are recorded.
     const products = await page.request.get('/api/sample/products')
     expect(products.ok()).toBeTruthy()
     const crossService = await page.request.get('/api/sample/quarkus-secure-products')
@@ -64,7 +64,7 @@ test.describe('Live Activity view', () => {
     await expect(drawer).toBeVisible()
     const cache = drawer.locator('section', {has: page.getByRole('heading', {name: /^Cache accesses/})})
     await expect(cache).toContainText('sample-products')
-    await expect(cache.locator('.activity-tier')).toHaveText(/^(trace id|serving thread)$/)
+    await expect(cache.locator('.activity-tier')).toHaveText('request id')
     await expect(drawer.getByRole('heading', {name: /^REST client calls/})).toBeVisible()
     await drawer.getByRole('button', {name: 'Close'}).click()
     await expect(drawer).toHaveCount(0)
@@ -77,16 +77,16 @@ test.describe('Live Activity view', () => {
     await expect(drawer).toBeVisible()
     const rest = drawer.locator('section', {has: page.getByRole('heading', {name: /^REST client calls/})})
     await expect(rest).toContainText('/api/secure/products → failed')
-    await expect(rest.locator('.activity-tier')).toHaveText(/^(trace id|serving thread)$/)
+    await expect(rest.locator('.activity-tier')).toHaveText('request id')
     await expect(drawer.getByRole('button', {name: /Copy profile/})).toBeVisible()
     await drawer.getByRole('button', {name: 'Close'}).click()
     await expect(drawer).toHaveCount(0)
   })
 
-  test('correlates a security event to the request exactly by serving thread', async ({openView, page}) => {
-    // An authenticated, SQL-backed admin request publishes an AUTHENTICATION_SUCCESS audit event on
-    // the request's serving thread, so the profiler can pin it to this exact request rather than to
-    // any other concurrent request that happens to share the principal.
+  test('correlates a security event to the request exactly by its request id', async ({openView, page}) => {
+    // An authenticated, SQL-backed admin request publishes an AUTHENTICATION_SUCCESS audit event while
+    // the request is served, stamped with its BootUI request id, so the profiler can pin it to this exact
+    // request rather than to any other concurrent request that happens to share the principal.
     const secure = await page.request.get('/api/secure/products', {
       headers: {Authorization: 'Basic ' + Buffer.from('admin:admin').toString('base64')}
     })
@@ -105,7 +105,7 @@ test.describe('Live Activity view', () => {
     const security = drawer.locator('section', {has: page.getByRole('heading', {name: 'Security events'})})
     await expect(security).toBeVisible({timeout: 15_000})
     await expect(security).toContainText('AUTHENTICATION_SUCCESS')
-    // Captured on the request's own serving thread, so the event is badged exact, not just principal.
+    // Stamped with the request's own id, so the event is badged exact, not just principal.
     await expect(security.getByText('exact', {exact: true})).toBeVisible()
 
     await drawer.getByRole('button', {name: 'Close'}).click()

@@ -1,7 +1,6 @@
 package io.github.jdubois.bootui.quarkus.web;
 
 import io.github.jdubois.bootui.core.ValueExposure;
-import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import io.github.jdubois.bootui.core.dto.ActivityPageInfo;
 import io.github.jdubois.bootui.core.dto.ActivityPersistenceOptionDto;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchRequest;
@@ -122,11 +121,11 @@ import javax.sql.DataSource;
  * MVC also correlates by serving thread and time window, which relies on its synchronous
  * one-thread-per-request servlet model and has no reliable Quarkus equivalent, so this resource reports
  * those tiers unavailable rather than inferring them. A REQUEST entry from
- * {@link #activity} is marked {@code profileable} by this resource, as a thin post-processing step over the
- * shared assembler's output, iff its exchange carries a resolvable trace id — the exact (and only) signal
- * {@link #request} can correlate on; every other entry, and every request without one, stays
- * non-profileable. Spring's controller/correlator computes its own {@code profileable} semantics
- * independently and is unaffected by this adapter-only step. Read-only (the profile drill-down only reads
+ * {@link #activity} is marked {@code profileable} through the engine's shared
+ * {@link LiveActivityAssembler#withExactProfiles} iff its exchange carries BootUI's request id or a resolvable
+ * trace id — the exact signals {@link #request} can correlate on; every other entry, and every request with
+ * neither, stays non-profileable. Spring MVC's controller/correlator computes its own {@code profileable}
+ * semantics independently. Read-only (the profile drill-down only reads
  * already-captured signals), plus the SSE change-notification stream {@code /stream} that ticks whenever
  * any merged source changes (a new HTTP exchange, a captured {@code @Scheduled} execution, a Kafka message,
  * or a captured email) so the shared Vue panel's auto-refresh toggle works identically to Spring.
@@ -373,21 +372,9 @@ public class LiveActivityResource {
                         : List.<FaultToleranceEventRecorder.CapturedEvent>of(),
                 faultToleranceAvailable);
 
-        // Adapter-side post-processing over the shared assembler's output — not a change to the engine's
-        // own `profileable` default (which stays `false` for every entry it builds, unaffected by this
-        // step and by extension unaffected on Spring too): a REQUEST entry is profileable here iff its
-        // exchange carries a resolvable trace id, since that is the exact (and only) signal #request can
-        // correlate on.
-        List<ActivityEntryDto> entries = new ArrayList<>(report.entries().size());
-        for (ActivityEntryDto entry : report.entries()) {
-            boolean profileable = "REQUEST".equals(entry.type())
-                    && entry.correlationId() != null
-                    && !entry.correlationId().isBlank();
-            entries.add(profileable ? withProfileable(entry) : entry);
-        }
-
-        return new LiveActivityReport(
-                report.available(), entries, report.typeCounts(), report.kpis(), report.sources(), report.warnings());
+        // A REQUEST entry is profileable when its exchange carries a trace id or BootUI's request id, the exact
+        // signals the reduced profile correlates on. The engine owns the rule, shared with the other reactive stack.
+        return LiveActivityAssembler.withExactProfiles(report, requests == null ? List.of() : requests.exchanges());
     }
 
     /**
@@ -619,26 +606,6 @@ public class LiveActivityResource {
             }
         }
         return details;
-    }
-
-    private static ActivityEntryDto withProfileable(ActivityEntryDto entry) {
-        return new ActivityEntryDto(
-                entry.id(),
-                entry.type(),
-                entry.timestamp(),
-                entry.severity(),
-                entry.summary(),
-                entry.detail(),
-                entry.durationMs(),
-                entry.correlationId(),
-                entry.method(),
-                entry.path(),
-                entry.status(),
-                entry.thread(),
-                true,
-                entry.parentId(),
-                entry.securedPrincipal(),
-                entry.sqlNPlusOneSuspected());
     }
 
     /** SQL trace snapshot for one request cycle: entries plus whether the source is present and feeding. */

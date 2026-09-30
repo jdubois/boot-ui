@@ -199,6 +199,23 @@ class LiveActivityAssemblerTests {
     }
 
     @Test
+    void aRequestIsProfileableWithoutHeuristicsWhenItCarriesATraceIdOrARequestId() {
+        HttpExchangesReport requests = requests(
+                stamped("0123456789abcdef", null),
+                request("req-traced", "/orders", "trace-a", 1_000L),
+                request("req-bare", "/orders", null, 1_000L));
+        LiveActivityReport report = LiveActivityAssembler.withExactProfiles(
+                reportOf(requests, List.of(stampedSql(10, "0123456789abcdef", null))), requests.exchanges());
+
+        assertThat(entry(report, "0123456789abcdef").profileable()).isTrue();
+        assertThat(entry(report, "req-traced").profileable()).isTrue();
+        assertThat(entry(report, "req-bare").profileable())
+                .as("a request with neither id has nothing exact to profile by")
+                .isFalse();
+        assertThat(entry(report, "sql-10").profileable()).isFalse();
+    }
+
+    @Test
     void anUnknownRequestIdFallsBackToTheTraceId() {
         HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
         List<SqlTraceEntryDto> sql = List.of(stampedSql(10, "0000000000000000", "trace-a"));

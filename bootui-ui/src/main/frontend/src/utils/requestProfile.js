@@ -2,12 +2,14 @@
 // profile payload, so nothing here reads, captures, or sends anything.
 
 const TIER_LABELS = {
+  REQUEST_ID: 'request id',
   TRACE_ID: 'trace id',
   SERVING_THREAD: 'serving thread',
   TIME_WINDOW: 'time window'
 }
 
 const TIER_TITLES = {
+  REQUEST_ID: 'Correlated exactly by the BootUI request id stamped when the signal was recorded',
   TRACE_ID: 'Correlated exactly by a trace id that no other captured request carries',
   SERVING_THREAD: "Correlated exactly by the request's serving thread within its window",
   TIME_WINDOW: 'Matched by time window only, so it may include or miss signals under concurrent requests'
@@ -76,6 +78,18 @@ function truncationText(section, shown) {
  * @param {number | string} index
  * @returns {string}
  */
+/**
+ * Whether a profiled security event belongs to the request exactly: emitted on its serving thread, or carrying its
+ * BootUI request id.
+ * @param {any} section
+ * @param {any} event
+ * @param {number | string} index
+ * @returns {boolean}
+ */
+export function securityEventExact(section, event, index) {
+  return Boolean(event?.threadMatched) || section?.childTiers?.[Number(index)] === 'REQUEST_ID'
+}
+
 export function childTierLabel(section, index) {
   if (!section?.mixedTiers) return ''
   return tierLabel(section.childTiers?.[Number(index)])

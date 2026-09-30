@@ -591,6 +591,53 @@ public final class LiveActivityAssembler {
     }
 
     /**
+     * Marks each {@code REQUEST} entry profileable when its exchange carries a trace id or a BootUI request id, the
+     * exact signals {@link ExecutionProfileAssembler} correlates on for an adapter without serving-thread or
+     * time-window tiers (Spring WebFlux and Quarkus). Every other entry is returned unchanged.
+     *
+     * @param report the assembled report
+     * @param exchanges the captured exchanges the report was assembled from
+     */
+    public static LiveActivityReport withExactProfiles(LiveActivityReport report, List<HttpExchangeDto> exchanges) {
+        Set<String> stampedRequestIds = new HashSet<>();
+        for (HttpExchangeDto exchange : exchanges == null ? List.<HttpExchangeDto>of() : exchanges) {
+            String stamped = BlankStrings.blankToNull(exchange.requestId());
+            if (stamped != null && stamped.equals(exchange.id())) {
+                stampedRequestIds.add(stamped);
+            }
+        }
+        List<ActivityEntryDto> entries = new ArrayList<>(report.entries().size());
+        for (ActivityEntryDto entry : report.entries()) {
+            boolean profileable = TYPE_REQUEST.equals(entry.type())
+                    && (BlankStrings.blankToNull(entry.correlationId()) != null
+                            || stampedRequestIds.contains(entry.id()));
+            entries.add(profileable && !entry.profileable() ? profileable(entry) : entry);
+        }
+        return new LiveActivityReport(
+                report.available(), entries, report.typeCounts(), report.kpis(), report.sources(), report.warnings());
+    }
+
+    private static ActivityEntryDto profileable(ActivityEntryDto entry) {
+        return new ActivityEntryDto(
+                entry.id(),
+                entry.type(),
+                entry.timestamp(),
+                entry.severity(),
+                entry.summary(),
+                entry.detail(),
+                entry.durationMs(),
+                entry.correlationId(),
+                entry.method(),
+                entry.path(),
+                entry.status(),
+                entry.thread(),
+                true,
+                entry.parentId(),
+                entry.securedPrincipal(),
+                entry.sqlNPlusOneSuspected());
+    }
+
+    /**
      * The REQUEST entry a child nests under: the request whose BootUI request id it carries, which is exact, else the
      * single request sharing its trace id, else none.
      */

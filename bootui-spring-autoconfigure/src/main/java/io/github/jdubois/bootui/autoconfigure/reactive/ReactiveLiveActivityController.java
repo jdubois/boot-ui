@@ -9,7 +9,6 @@ import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
 import io.github.jdubois.bootui.core.ValueExposure;
-import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import io.github.jdubois.bootui.core.dto.ActivityPageInfo;
 import io.github.jdubois.bootui.core.dto.ActivityPersistenceOptionDto;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchRequest;
@@ -83,9 +82,9 @@ import reactor.core.publisher.Flux;
  * that have no equivalent on Reactor Netty's event-loop model), this controller reuses the
  * framework-neutral {@link LiveActivityAssembler} the Quarkus adapter already validated for exactly this
  * constraint, and serves the per-request profile through the shared {@link ExecutionProfileAssembler} with
- * {@link ProfileCapabilities#traceIdOnly() trace-id-only capabilities}: correlation is driven purely by a
- * shared distributed trace id (see {@code TraceIdProvider}), and a request with no trace id simply renders
- * flat/unprofileable rather than guessing.
+ * {@link ProfileCapabilities#traceIdOnly() trace-id-only capabilities}: correlation is driven purely by exact
+ * identities, BootUI's request id and a shared distributed trace id (see {@code TraceIdProvider}), and a request
+ * with neither simply renders flat/unprofileable rather than guessing.
  *
  * <p>All nine signal sources are read directly from the already-reactive, already-masked/self-filtered
  * beans this adapter wires for their own panels — {@link HttpExchangesController} (HTTP requests, shared
@@ -457,20 +456,9 @@ public class ReactiveLiveActivityController {
                 faultToleranceCaptured,
                 faultToleranceAvailable);
 
-        // Adapter-side post-processing over the shared assembler's output, mirroring the Quarkus adapter
-        // exactly: a REQUEST entry is profileable here iff its exchange carries a resolvable trace id,
-        // since that is the exact (and only) signal #request can correlate on. This does not change the
-        // engine's own `profileable` default (always false), nor the servlet controller's independent
-        // computation.
-        List<ActivityEntryDto> entries = new ArrayList<>(report.entries().size());
-        for (ActivityEntryDto entry : report.entries()) {
-            boolean profileable = "REQUEST".equals(entry.type())
-                    && entry.correlationId() != null
-                    && !entry.correlationId().isBlank();
-            entries.add(profileable ? withProfileable(entry) : entry);
-        }
-        return new LiveActivityReport(
-                report.available(), entries, report.typeCounts(), report.kpis(), report.sources(), report.warnings());
+        // A REQUEST entry is profileable when its exchange carries a trace id or BootUI's request id, the exact
+        // signals the reduced profile correlates on. The engine owns the rule, shared with the other reactive stack.
+        return LiveActivityAssembler.withExactProfiles(report, requests == null ? List.of() : requests.exchanges());
     }
 
     private HttpExchangesReport requestsReport() {
@@ -688,26 +676,6 @@ public class ReactiveLiveActivityController {
             // Trace not found or filtered out; correlation simply has no trace tier.
             return null;
         }
-    }
-
-    private static ActivityEntryDto withProfileable(ActivityEntryDto entry) {
-        return new ActivityEntryDto(
-                entry.id(),
-                entry.type(),
-                entry.timestamp(),
-                entry.severity(),
-                entry.summary(),
-                entry.detail(),
-                entry.durationMs(),
-                entry.correlationId(),
-                entry.method(),
-                entry.path(),
-                entry.status(),
-                entry.thread(),
-                true,
-                entry.parentId(),
-                entry.securedPrincipal(),
-                entry.sqlNPlusOneSuspected());
     }
 
     /** SQL trace snapshot for one request cycle: entries plus whether the source is present and feeding. */

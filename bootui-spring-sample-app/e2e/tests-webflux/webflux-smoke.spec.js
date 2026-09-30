@@ -152,7 +152,7 @@ test.describe('BootUI on Spring WebFlux', () => {
     await expect(page.locator('.activity-table')).toBeVisible()
   })
 
-  test('profiles a traced request with trace-id-only tiers on the reactive stack', async ({page, request, baseURL}) => {
+  test('profiles a traced request with exact tiers only on the reactive stack', async ({page, request, baseURL}) => {
     // The reactive sample runs no tracer, so an inbound W3C traceparent is what gives the exchange the
     // trace id the reactive profiler correlates on. The serving-thread and time-window tiers stay
     // unavailable on an event loop, and the drawer says so instead of guessing.
@@ -175,7 +175,7 @@ test.describe('BootUI on Spring WebFlux', () => {
 
     const drawer = page.locator('.activity-drawer')
     await expect(drawer).toBeVisible()
-    await expect(drawer).toContainText('reduced, trace-id-only profile')
+    await expect(drawer).toContainText('This is a reduced profile')
     await expect(drawer.getByRole('heading', {name: /^REST client calls/})).toBeVisible()
     await expect(drawer.getByRole('heading', {name: /^Cache accesses/})).toBeVisible()
     await expect(drawer).toContainText('Serving thread and time window correlation are unavailable on this adapter')
@@ -183,6 +183,25 @@ test.describe('BootUI on Spring WebFlux', () => {
 
     await page.keyboard.press('Escape')
     await expect(drawer).toHaveCount(0)
+  })
+
+  test("profiles a request's SQL exactly by its BootUI request id", async ({request, baseURL}) => {
+    // BootUI's own request id follows the request across Reactor hops to its blocking SQL, and it decides
+    // before the trace id, so the SQL is correlated by it whether or not the request is traced.
+    const notes = await request.get(`${baseURL}/api/notes`)
+    expect(notes.ok()).toBeTruthy()
+
+    const activity = await request.get(`${baseURL}/bootui/api/activity`)
+    const entry = (await activity.json()).entries.find(
+      (candidate) => candidate.type === 'REQUEST' && candidate.path === '/api/notes'
+    )
+    expect(entry?.profileable).toBe(true)
+
+    const profile = await (await request.get(`${baseURL}/bootui/api/activity/request/${entry.id}`)).json()
+    expect(profile.available).toBe(true)
+    expect(profile.approximate).toBe(false)
+    expect(profile.sql.length).toBeGreaterThan(0)
+    expect(profile.sections.find((section) => section.type === 'SQL').tier).toBe('REQUEST_ID')
   })
 
   test('raw Spring Security panel exposes reactive chains and mappings without blocking', async ({

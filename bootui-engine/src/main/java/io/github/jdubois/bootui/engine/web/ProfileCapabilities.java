@@ -39,7 +39,7 @@ public record ProfileCapabilities(
     /** Whether the adapter provides {@code tier}. */
     public boolean provides(CorrelationTier tier) {
         return switch (tier) {
-            case TRACE_ID -> true;
+            case REQUEST_ID, TRACE_ID -> true;
             case SERVING_THREAD -> servingThreads != null;
             case TIME_WINDOW -> timeWindow;
         };

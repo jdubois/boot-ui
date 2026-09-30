@@ -11,7 +11,7 @@ import java.net.URL;
 import org.junit.jupiter.api.Test;
 
 /**
- * Proves the reduced, trace-id-only per-request profile drill-down ({@code GET
+ * Proves the reduced per-request profile drill-down ({@code GET
  * /bootui/api/activity/request/{id}}) end to end, with real OpenTelemetry context propagation. This is the
  * Quarkus analogue of Spring's Symfony-style profiler, deliberately narrower: Spring's tiered correlator
  * falls back to HTTP method+path+time-window+thread heuristics when no trace id is present, relying on its
@@ -68,11 +68,11 @@ class BootUiQuarkusLiveActivityProfileTest {
                 .as("the correlated SQL entry must be the SELECT the probe issued")
                 .containsIgnoringCase("select");
 
-        assertThat(anyNoteContains(profile, "reduced, trace-id-only"))
-                .as("the profile must honestly disclose it is a reduced, trace-id-only correlation")
+        assertThat(anyNoteContains(profile, "reduced profile"))
+                .as("the profile must honestly disclose it is a reduced correlation")
                 .isTrue();
-        assertThat(anyNoteContains(profile, "SQL is correlated exactly by trace id"))
-                .as("the profile must explain the SQL correlation is exact, not heuristic")
+        assertThat(anyNoteContains(profile, "SQL statements carrying this request's BootUI request id"))
+                .as("the profile must explain the SQL correlation is exact, by request id before the trace id")
                 .isTrue();
 
         assertThat(profile.path("approximate").asBoolean(true))
@@ -80,7 +80,7 @@ class BootUiQuarkusLiveActivityProfileTest {
                 .isFalse();
         assertThat(section(profile, "SQL").path("tier").asText())
                 .as("the SQL section is labelled with the tier that correlated it")
-                .isEqualTo("TRACE_ID");
+                .isEqualTo("REQUEST_ID");
         assertThat(profile.path("restCalls").isArray())
                 .as("the profile carries a REST client section")
                 .isTrue();
@@ -90,10 +90,11 @@ class BootUiQuarkusLiveActivityProfileTest {
         assertThat(section(profile, "CACHE").path("unavailableReason").asText(""))
                 .contains("not available on Quarkus");
         for (JsonNode tier : profile.path("correlationTiers")) {
-            boolean traceId = "TRACE_ID".equals(tier.path("tier").asText());
+            boolean exact = "REQUEST_ID".equals(tier.path("tier").asText())
+                    || "TRACE_ID".equals(tier.path("tier").asText());
             assertThat(tier.path("available").asBoolean())
-                    .as("only the trace-id tier is provable on Quarkus: %s", tier)
-                    .isEqualTo(traceId);
+                    .as("only the request-id and trace-id tiers are provable on Quarkus: %s", tier)
+                    .isEqualTo(exact);
         }
     }
 

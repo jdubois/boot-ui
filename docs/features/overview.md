@@ -199,6 +199,7 @@ tier that correlated it, and the whole profile is marked approximate whenever a 
 
 | Tier           | How it matches                                                              | Adapters             | Labelled        |
 | -------------- | --------------------------------------------------------------------------- | -------------------- | --------------- |
+| Request id     | The BootUI request id stamped on the signal when it was recorded            | All                  | **exact**       |
 | Trace id       | A trace id that exactly one captured request carries                        | All                  | **exact**       |
 | Serving thread | The one worker thread that served the request, inside its window            | Spring MVC           | **exact**       |
 | Time window    | The request's time window — plus method and path for exceptions, and the principal for security events | Spring MVC | **approximate** |
@@ -206,9 +207,10 @@ tier that correlated it, and the whole profile is marked approximate whenever a 
 One shared engine assembler builds the profile on every adapter, so identical evidence produces an identical profile.
 A servlet request runs start-to-finish on one worker thread that serves only one request at a time, so work on that
 thread is unambiguously its own. Spring WebFlux and Quarkus serve requests on shared event-loop and worker threads, so
-their profiles correlate by trace id only and list the serving-thread and time-window tiers as unavailable rather than
-guessing. For SQL, the time-window fallback applies only when no statement matched a trace id or the serving thread —
-two genuinely concurrent identical requests, or SQL run on an async thread. On Spring MVC, exceptions still match the
+their profiles correlate by request id and trace id only and list the serving-thread and time-window tiers as
+unavailable rather than guessing. A request there is profileable when it carries either id, so it is profileable without
+tracing too. Every signal except exceptions carries the request id. For SQL, the time-window fallback applies only when
+no statement matched a request id, a trace id, or the serving thread. On Spring MVC, exceptions still match the
 request's method, path, and window; a trace id or the serving thread then settles which request threw them.
 
 Security audit events follow the same rule: matched by time window and principal, but pinned exactly to the serving
