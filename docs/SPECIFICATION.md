@@ -1051,8 +1051,9 @@ Features:
 - Stream new log events with Server-Sent Events.
 - Pause, resume, clear, and filter by severity in the browser.
 - Apply the value-exposure rule that exception messages follow to every message when it is read: mask secret-like
-  assignments under `MASKED`, omit the message and set `messageOmitted` under `METADATA_ONLY`, and return it verbatim
-  under `FULL` or with `bootui.mask-secrets=false`.
+  assignments and the credential after an authorization scheme, keeping the scheme, under `MASKED`, omit the message
+  and set `messageOmitted` under `METADATA_ONLY`, and return it verbatim under `FULL` or with
+  `bootui.mask-secrets=false`.
 
 Acceptance criteria:
 
@@ -2362,9 +2363,9 @@ Features:
   - Testcontainers.
   - connection details.
 - Show sanitized connection details.
-- Show bounded logs when a bean-backed Testcontainers service exposes them, masking secret-like assignments under
-  `MASKED` before the tail is cut, omitting them under `METADATA_ONLY` with `logsOmitted` set, and returning them
-  verbatim only under `FULL` or with `bootui.mask-secrets=false`.
+- Show bounded logs when a bean-backed Testcontainers service exposes them, masking secret-like assignments and
+  authorization credentials under `MASKED` before the tail is cut, omitting them under `METADATA_ONLY` with
+  `logsOmitted` set, and returning them verbatim only under `FULL` or with `bootui.mask-secrets=false`.
 - Show a restart action for bean-backed services only when explicitly enabled with
   `bootui.dev-services.restart-enabled=true`.
 - Skip lazy, prototype, abstract, or otherwise uninitialized service beans instead of creating them from a read-only

@@ -128,6 +128,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stay registered. The container's completion, timeout, or error callback now cancels any pending completion, and a
   concurrent rejection no longer prevents the session from being released.
 
+### Security
+
+- **Log, exception, and container-log masking now covers the credential after an authorization scheme.** Under the
+  default `bootui.expose-values=MASKED`, the shared rule masked only the first word after a secret-like key, so
+  `Authorization: Bearer <token>` hid the word `Bearer` and showed the token. The credential is now masked and the
+  key and scheme stay visible: `Authorization: Bearer ******`, `"authorization": "Basic ******"`, or
+  `Proxy-Authorization: Digest ******`, including every parameter of a Digest, OAuth, or AWS signature credential and
+  the `Authorization=[Bearer ...]` and `Authorization:"Bearer ..."` forms that header maps print. After an
+  `authorization` key, a scheme BootUI does not recognize is masked together with its credential. A token-shaped
+  `Bearer` credential is masked even with no key before it, as in `sending Bearer ******`, while prose such as
+  `missing Bearer token` is unchanged. This changes Log Tail messages on every surface, exception messages, and Spring
+  Dev Services container logs alike, on Spring MVC, Spring WebFlux, and Quarkus. `METADATA_ONLY`, `FULL`,
+  `bootui.mask-secrets=false`, and every other secret-like assignment behave as before
+  ([Log message exposure](docs/features/diagnostics.md#log-message-exposure), follows
+  [#1150](https://github.com/jdubois/boot-ui/pull/1150)).
+
 ## [1.19.0] - 2026-09-25
 
 Maintenance release focused on accurate diagnostics. JVM Tuning and Live Memory now mask secrets passed as JVM

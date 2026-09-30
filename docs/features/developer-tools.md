@@ -196,13 +196,14 @@ would have to be created just for inspection, and reports those skips as warning
 BootUI masks discovered connection details, such as credentials embedded in a JDBC URL, before they reach the browser.
 Container log output, bounded by `bootui.dev-services.log-tail-bytes`, follows the same exposure rule as
 [Log Tail](diagnostics.md#log-message-exposure): under the default `bootui.expose-values=MASKED` secret-like
-assignments such as `POSTGRES_PASSWORD=...` are masked before the tail is cut, under `METADATA_ONLY` the logs are not
+assignments such as `POSTGRES_PASSWORD=...` and the credential after an authorization scheme, as in
+`Authorization: Bearer ******`, are masked before the tail is cut, under `METADATA_ONLY` the logs are not
 read and the panel says they are omitted by policy, and only `FULL` or `bootui.mask-secrets=false` shows them verbatim.
 
-::: warning Masking covers assignments, not every secret
-Only the first word of a secret-like `key=value` or `key: value` assignment is masked in container logs. A service that
-prints a bare token, a credential inside a connection string, or a token after an authorization scheme such as
-`Bearer` to its own logs still surfaces it here.
+::: warning Masking covers recognizable secrets, not every secret
+Container logs are masked only where a secret has a recognizable shape: the first word of a secret-like `key=value` or
+`key: value` assignment, and the credential after an authorization scheme. A service that prints a bare token without
+a `Bearer` scheme, or a credential inside a connection string, to its own logs still surfaces it here.
 :::
 
 On Quarkus the panel reports the framework's native Dev Services, the containers it auto-starts for dev and test. The

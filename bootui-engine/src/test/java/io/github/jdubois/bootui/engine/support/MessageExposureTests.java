@@ -1,11 +1,21 @@
 package io.github.jdubois.bootui.engine.support;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
+import static org.junit.jupiter.params.provider.Arguments.arguments;
 
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
+import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class MessageExposureTests {
 
@@ -93,10 +103,9 @@ class MessageExposureTests {
     }
 
     @Test
-    void masksOnlyTheFirstValueTokenSoACredentialAfterAnAuthSchemeIsNotCovered() {
-        // A known limitation of the pattern shared with Exceptions, documented rather than silently widened here.
+    void masksTheCredentialAfterAnAuthorizationSchemeKeepingTheScheme() {
         assertThat(MessageExposure.maskSecretAssignments("Authorization: Bearer abc.def"))
-                .isEqualTo("Authorization: ****** abc.def");
+                .isEqualTo("Authorization: Bearer ******");
     }
 
     @Test
@@ -104,6 +113,298 @@ class MessageExposureTests {
         String text = "Started Application in 1.2 seconds (process running for 1.5)";
 
         assertThat(MessageExposure.maskSecretAssignments(text)).isSameAs(text);
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "Bearer",
+                "bearer",
+                "BEARER",
+                "Basic",
+                "basic",
+                "BASIC",
+                "Digest",
+                "digest",
+                "Negotiate",
+                "negotiate",
+                "NTLM",
+                "ntlm",
+                "Ntlm",
+                "Token",
+                "token",
+                "TOKEN",
+                "DPoP",
+                "dpop",
+                "OAuth",
+                "oauth",
+                "AWS4-HMAC-SHA256",
+                "aws4-hmac-sha256",
+                "SCRAM-SHA-1",
+                "SCRAM-SHA-256",
+                "HOBA",
+                "Mutual",
+                "vapid",
+                "GNAP",
+                "PrivateToken",
+                "Concealed"
+            })
+    void masksTheCredentialAfterEveryRecognizedSchemeInAnyCase(String scheme) {
+        String credential = "c9-" + Integer.toHexString(scheme.hashCode()) + "/x+Y==";
+
+        assertThat(MessageExposure.maskSecretAssignments("Authorization: " + scheme + " " + credential))
+                .isEqualTo("Authorization: " + scheme + " ******")
+                .doesNotContain(credential);
+    }
+
+    @ParameterizedTest
+    @MethodSource("authorizationKeyShapes")
+    void masksTheCredentialInEveryCommonShapeOfAnAuthorizationKey(String text, String expected, String secret) {
+        assertThat(MessageExposure.maskSecretAssignments(text))
+                .isEqualTo(expected)
+                .doesNotContain(secret);
+    }
+
+    static Stream<Arguments> authorizationKeyShapes() {
+        return Stream.of(
+                arguments("Authorization: Bearer tok-1", "Authorization: Bearer ******", "tok-1"),
+                arguments("authorization=Basic dXNlcjpwYXNz", "authorization=Basic ******", "dXNlcjpwYXNz"),
+                arguments(
+                        "Proxy-Authorization: Negotiate YIIGhgYJKoZIhvcSAQICAQBu==",
+                        "Proxy-Authorization: Negotiate ******",
+                        "YIIGhg"),
+                arguments("{\"authorization\": \"Bearer tok-1\"}", "{\"authorization\": \"Bearer ******\"}", "tok-1"),
+                arguments("{'Authorization': 'Bearer tok-1'}", "{'Authorization': 'Bearer ******'}", "tok-1"),
+                arguments(
+                        "[Authorization:\"Bearer tok-1\", Accept:\"*/*\"]",
+                        "[Authorization:\"Bearer ******\", Accept:\"*/*\"]",
+                        "tok-1"),
+                arguments(
+                        "{Authorization=[Bearer tok-1], Accept=[*/*]}",
+                        "{Authorization=[Bearer ******], Accept=[*/*]}",
+                        "tok-1"),
+                arguments("{\"authorization\":[\"Bearer tok-1\"]}", "{\"authorization\":[\"Bearer ******\"]}", "tok-1"),
+                arguments(
+                        "DefaultHttpHeaders[authorization: bearer tok-1, host: api]",
+                        "DefaultHttpHeaders[authorization: bearer ******, host: api]",
+                        "tok-1"),
+                arguments("Authorization:Bearer tok-1", "Authorization:Bearer ******", "tok-1"),
+                arguments(
+                        "authorization = Bearer\ttok-1 (expired)", "authorization = Bearer\t****** (expired)", "tok-1"),
+                arguments("-H 'Authorization: Bearer tok-1'", "-H 'Authorization: Bearer ******'", "tok-1"),
+                arguments("X-Auth-Token: Bearer tok-1", "X-Auth-Token: Bearer ******", "tok-1"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("parameterListCredentials")
+    void masksEveryParameterOfADigestStyleCredential(String text, String expected) {
+        assertThat(MessageExposure.maskSecretAssignments(text))
+                .isEqualTo(expected)
+                .doesNotContain("Mufasa", "6629fae4", "tnnArxj06c", "fe5f80f77d");
+    }
+
+    static Stream<Arguments> parameterListCredentials() {
+        return Stream.of(
+                arguments(
+                        "Authorization: Digest username=\"Mufasa\", realm=\"http-auth@example.org\", "
+                                + "uri=\"/dir/index.html\", algorithm=SHA-256, nonce=\"7ypf/xlj9XXwfDPEoM4URrv/xwf94Bc\", "
+                                + "nc=00000001, cnonce=\"f2/wE4q74E6zIJEtWaHKaf5wv/H5Qzzp\", qop=auth, "
+                                + "response=\"6629fae49393a05397450978507c4ef1\", opaque=\"FQhe/qaU925kfnzjCev0ciny7QMk\" "
+                                + "for GET /dir/index.html",
+                        "Authorization: Digest ****** for GET /dir/index.html"),
+                arguments(
+                        "Authorization: OAuth oauth_consumer_key=\"Mufasa\", oauth_nonce=\"kYjzVBB8Y0ZFabxSWbWo\", "
+                                + "oauth_signature=\"tnnArxj06cWHq44gCs1OSKk%2FjY%3D\", "
+                                + "oauth_signature_method=\"HMAC-SHA1\", oauth_version=\"1.0\"",
+                        "Authorization: OAuth ******"),
+                arguments(
+                        "Authorization: AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/iam/aws4_request, "
+                                + "SignedHeaders=content-type;host;x-amz-date, "
+                                + "Signature=fe5f80f77d5fa3beca038a248ff027d0445342fe2855ddc963176630326f1024",
+                        "Authorization: AWS4-HMAC-SHA256 ******"),
+                arguments(
+                        "authorization: Token token=\"6629fae4\", nonce=\"def\"; retrying",
+                        "authorization: Token ******; retrying"),
+                arguments(
+                        "[Authorization:\"Digest username=\"Mufasa\", response=\"6629fae4\"\", Accept:\"*/*\"]",
+                        "[Authorization:\"Digest ******\", Accept:\"*/*\"]"),
+                arguments(
+                        "{\"authorization\":\"Digest username=\\\"Mufasa\\\", response=\\\"6629fae4\\\"\"}",
+                        "{\"authorization\":\"Digest ******\"}"),
+                arguments(
+                        "Authorization: Digest username=\"Mufasa\", response=\"6629fae4",
+                        "Authorization: Digest ******"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("unrecognizedSchemes")
+    void masksAnUnrecognizedSchemeWordTogetherWithItsCredentialAfterAnAuthorizationKey(
+            String text, String expected, String secret) {
+        // A custom scheme cannot be told apart from a bare credential followed by more text, so neither is shown.
+        assertThat(MessageExposure.maskSecretAssignments(text))
+                .isEqualTo(expected)
+                .doesNotContain(secret);
+    }
+
+    static Stream<Arguments> unrecognizedSchemes() {
+        return Stream.of(
+                arguments("Authorization: SSWS 00QCjAl4MlV-WPXM", "Authorization: ******", "00QCjAl4MlV"),
+                arguments(
+                        "authorization=ApiKey dGVzdDp0ZXN0 accepted", "authorization=****** accepted", "dGVzdDp0ZXN0"),
+                arguments(
+                        "Proxy-Authorization: Bot MTk4NjIyNDgzNDcxOTI1MjQ4.Cl2FMQ",
+                        "Proxy-Authorization: ******",
+                        "MTk4NjIy"),
+                arguments(
+                        "Authorization: SharedAccessSignature sr=sb%3A%2F%2Fns&sig=c2lnbmF0dXJl%3D&se=1700000000",
+                        "Authorization: ******", "c2lnbmF0dXJl"),
+                arguments("Authorization: abc123 rejected", "Authorization: ******", "abc123"));
+    }
+
+    @Test
+    void keepsMaskingTheFirstValueTokenWhenNoCredentialFollowsTheScheme() {
+        assertThat(MessageExposure.maskSecretAssignments("Authorization: Bearer"))
+                .isEqualTo("Authorization: ******");
+        assertThat(MessageExposure.maskSecretAssignments("Authorization: Bearer "))
+                .isEqualTo("Authorization: ****** ");
+        assertThat(MessageExposure.maskSecretAssignments("Authorization: Bearer\nnext line"))
+                .isEqualTo("Authorization: ******\nnext line");
+        assertThat(MessageExposure.maskSecretAssignments("Authorization: Bearer, retrying"))
+                .isEqualTo("Authorization: ******, retrying");
+        assertThat(MessageExposure.maskSecretAssignments("Authorization: basic-4"))
+                .isEqualTo("Authorization: ******");
+    }
+
+    @ParameterizedTest
+    @MethodSource("bareBearerCredentials")
+    void masksATokenShapedCredentialAfterABareBearer(String text, String expected, String secret) {
+        assertThat(MessageExposure.maskSecretAssignments(text))
+                .isEqualTo(expected)
+                .doesNotContain(secret);
+    }
+
+    static Stream<Arguments> bareBearerCredentials() {
+        return Stream.of(
+                arguments(
+                        "sending Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln to api",
+                        "sending Bearer ****** to api",
+                        "eyJhbGci"),
+                arguments("retry with bearer 0123abcd", "retry with bearer ******", "0123abcd"),
+                arguments("BEARER abcdefghijklmnopqrst", "BEARER ******", "abcdefghijklmnopqrst"),
+                arguments(
+                        "Bearer ghp_16C7e42F292c6912E7710c838347Ae178B4a, attempt 2",
+                        "Bearer ******, attempt 2",
+                        "ghp_16C7e42F"),
+                arguments("token was Bearer dGVzdC10b2tlbi0xMjM0NQ==.", "token was Bearer ******.", "dGVzdC10b2tlbi0x"),
+                arguments(
+                        "{\\\"Authorization\\\":\\\"Bearer eyJhbGciOiJIUzI1NiJ9.e30.c2ln\\\"}",
+                        "{\\\"Authorization\\\":\\\"Bearer ******\\\"}",
+                        "eyJhbGci"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "Missing Bearer token.",
+                "Bearer authentication failed for /api",
+                "WWW-Authenticate: Bearer realm=\"api\", error=\"invalid_token\"",
+                "Expected Bearer <token> in the Authorization header",
+                "Bearer abc123",
+                "OAuth2Bearer 0123456789abcdef",
+                "token_type=bearer",
+                "Basic auth is enabled"
+            })
+    void leavesProseAboutAuthorizationSchemesAlone(String text) {
+        assertThat(MessageExposure.maskSecretAssignments(text)).isSameAs(text);
+    }
+
+    @Test
+    void masksAuthorizationCredentialsOnEveryLineOfMultiLineText() {
+        String text = "GET /api/orders\nAuthorization: Bearer tok-1\r\nProxy-Authorization: Basic dXNlcjpwYXNz\n"
+                + "password=pw-2\nretried with Bearer eyJhbGciOiJIUzI1NiJ9.e30.c2ln\n\tat Foo.bar(Foo.java:1)";
+
+        assertThat(MessageExposure.maskSecretAssignments(text))
+                .isEqualTo("GET /api/orders\nAuthorization: Bearer ******\r\nProxy-Authorization: Basic ******\n"
+                        + "password=******\nretried with Bearer ******\n\tat Foo.bar(Foo.java:1)")
+                .doesNotContain("tok-1", "dXNlcjpwYXNz", "pw-2", "eyJhbGci");
+    }
+
+    @Test
+    void masksAuthorizationCredentialsOnlyUnderTheMaskedMode() {
+        String text = "Authorization: Bearer tok-1, then Bearer eyJhbGciOiJIUzI1NiJ9.e30.c2ln";
+
+        assertThat(MessageExposure.current(policy(ValueExposure.MASKED, true)).apply(text))
+                .isEqualTo("Authorization: Bearer ******, then Bearer ******");
+        assertThat(MessageExposure.current(policy(null, true)).apply(text))
+                .isEqualTo("Authorization: Bearer ******, then Bearer ******");
+        assertThat(MessageExposure.current(policy(ValueExposure.FULL, true)).apply(text))
+                .isSameAs(text);
+        assertThat(MessageExposure.current(policy(ValueExposure.MASKED, false)).apply(text))
+                .isSameAs(text);
+        assertThat(MessageExposure.current(policy(ValueExposure.METADATA_ONLY, true))
+                        .apply(text))
+                .isNull();
+    }
+
+    @Test
+    void masksEveryOtherAssignmentExactlyAsThePreviousRuleDid() {
+        // Everything but a scheme credential, or an authorization value followed by more text on its line.
+        Pattern previous = Pattern.compile(
+                "(?i)([\"']?(?:password|passwd|pwd|secret|token|api[-_]?key|apikey|authorization|credential|"
+                        + "access[-_]?key|client[-_]?secret|private[-_]?key)[\"']?\\s*[=:]\\s*[\"']?)([^\\s\"',;&)]+)");
+        List<String> corpus = List.of(
+                SECRETS,
+                "first line\nclient_secret=cs-1\n\tat Foo.bar(Foo.java:1)\nAuthorization: abc123\nlast",
+                "{\"apiKey\": \"ak-1\", 'client_secret':'cs-2', \"token\":\"t-3\"}",
+                "Access-Key = ak5, private_key=pk6; pwd=(x) passwd:  p7&next=1",
+                "password: correct horse battery staple",
+                "token: tok-1 retry token=tok-2,token=tok-3",
+                "authorization=abc123\nAUTHORIZATION:xyz\nauthorization: 'q-1'",
+                "multi\nline token: tok-3\nAuthorization: basic-4",
+                "Authorization: Bearer\nnext line",
+                "Authorization: Bearer, retrying",
+                "credential=c1 x-api-key: k2 apikey=k3 access_key=k4 client-secret=k5",
+                "Started Application in 1.2 seconds (process running for 1.5)",
+                "");
+
+        for (String text : corpus) {
+            assertThat(MessageExposure.maskSecretAssignments(text))
+                    .as(text)
+                    .isEqualTo(previous.matcher(text).replaceAll(result -> result.group(1) + "******"));
+        }
+    }
+
+    @Test
+    void masksAdversarialInputInLinearTime() {
+        int size = 500_000;
+        List<String> inputs = List.of(
+                "Authorization: Digest " + "a=b, ".repeat(size / 5),
+                "Authorization: Digest a=b" + ",a=".repeat(size / 3),
+                "authorization: " + "bearer ".repeat(size / 7),
+                "Bearer ".repeat(size / 7),
+                ("bearer" + " ".repeat(1_000)).repeat(size / 1_006),
+                "authorization: basic" + " ".repeat(size) + ",",
+                "Authorization: Digest a=\"" + "x".repeat(size),
+                "authorization: digest a=\"".repeat(size / 24),
+                "Authorization: " + "x ".repeat(size / 2),
+                "authorization" + " ".repeat(size) + "x",
+                "password password=".repeat(size / 18));
+
+        for (String input : inputs) {
+            assertTimeoutPreemptively(
+                    Duration.ofSeconds(10),
+                    () -> MessageExposure.maskSecretAssignments(input),
+                    () -> "masking " + input.substring(0, 40) + "... took too long");
+        }
+        assertTimeoutPreemptively(
+                Duration.ofSeconds(10),
+                () -> assertThat(MessageExposure.maskSecretAssignments(
+                                "Authorization: Bearer " + "a".repeat(size) + "=="))
+                        .isEqualTo("Authorization: Bearer ******"));
+        assertTimeoutPreemptively(
+                Duration.ofSeconds(10),
+                () -> assertThat(MessageExposure.maskSecretAssignments("sent Bearer " + "a".repeat(size)))
+                        .isEqualTo("sent Bearer ******"));
     }
 
     private static ExposurePolicy policy(ValueExposure exposure, boolean maskSecrets) {
