@@ -76,13 +76,14 @@ jobs:
       - name: Build all modules with coverage
         run: ./mvnw -T 1C -B -ntp -Pcoverage clean install
 
-      - name: Require executed MySQL collector and Spring HTTP tests
+      - name: Require executed MySQL collector, Spring HTTP, and activity store tests
         run: >
           python3 .github/scripts/check-mysql-live-tests.py
           bootui-spring-autoconfigure/target/surefire-reports
           MySqlExecutionLiveTests MySqlPermissionsLiveTests MySqlCollectorsLiveTests
           MySqlReplicationLiveTests MySqlDigestOverflowLiveTests MySqlPerformanceSchemaOffLiveTests
           MySqlInstrumentationLiveTests MySqlIdentifierCaseLiveTests MySqlHttpLiveTests
+          MySqlActivityStoreLiveTests
 
       - name: Run MySQL Quarkus HTTP contract
         run: >

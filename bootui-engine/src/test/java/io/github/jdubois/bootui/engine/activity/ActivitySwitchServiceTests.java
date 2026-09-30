@@ -141,6 +141,23 @@ class ActivitySwitchServiceTests {
     }
 
     @Test
+    void readPathRejectionIsReportedAsAnErrorWithoutSwitchingTheStore() {
+        // Before issue #1142 was fixed, a MySQL datasource created the table fine, the switch reported success, and
+        // every later Live Activity read failed. The switch now proves the read path before switching.
+        SwitchableActivityStore store = new SwitchableActivityStore(new InMemoryActivityStore(200));
+        DataSource rejectingReads = new RecordingDataSource(newDataSource(), "H2", true).dataSource();
+
+        ActivitySwitchResponse response = service.useExistingDataSource(
+                store, disabledSettings(), rejectingReads, new ActivitySwitchRequest(true));
+
+        assertThat(response.status()).isEqualTo(500);
+        assertThat(response.body().status()).isEqualTo("failed");
+        assertThat(response.body().message()).contains("read the activity table");
+        assertThat(response.newSettings()).isNull();
+        assertThat(store.persistent()).isFalse();
+    }
+
+    @Test
     void raceLossAgainstAConcurrentSwitchReportsAlreadyActiveAndClosesTheUnusedDurableStore() {
         // Simulates two concurrent "Use the existing datasource" requests: this attempt sees a
         // not-yet-persistent store when it checks (so it proceeds to build a durable store), but loses
