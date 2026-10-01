@@ -108,6 +108,13 @@ final class SecurityModel {
 
         private static final long HSTS_MIN_MAX_AGE_SECONDS = 31536000L; // HstsHeaderWriter's own 1-year default
 
+        static final List<String> INTERACTIVE_LOGIN_FILTERS = List.of(
+                "UsernamePasswordAuthenticationFilter",
+                "OAuth2LoginAuthenticationFilter",
+                "OneTimeTokenAuthenticationFilter",
+                "WebAuthnAuthenticationFilter",
+                "Saml2WebSsoAuthenticationFilter");
+
         FilterChainModel {
             filterNames = List.copyOf(filterNames);
             headerWriterNames = headerWriterNames == null ? List.of() : List.copyOf(headerWriterNames);
@@ -338,15 +345,19 @@ final class SecurityModel {
             if (hasFilter("SessionManagementFilter")) {
                 return true;
             }
-            boolean interactiveLogin = hasFilter("UsernamePasswordAuthenticationFilter")
-                    || hasFilterContaining("OAuth2LoginAuthenticationFilter");
-            return interactiveLogin;
+            return hasInteractiveLoginFilter();
+        }
+
+        /**
+         * Spring Security's own browser login mechanisms, each of which establishes an HTTP-session login:
+         * form, OAuth2/OIDC, one-time-token, passkey (WebAuthn) and SAML 2.0 login.
+         */
+        boolean hasInteractiveLoginFilter() {
+            return INTERACTIVE_LOGIN_FILTERS.stream().anyMatch(this::hasFilter);
         }
 
         boolean browserCredentials() {
-            return hasFilter("UsernamePasswordAuthenticationFilter")
-                    || hasFilter("OAuth2LoginAuthenticationFilter")
-                    || hasFilter("RememberMeAuthenticationFilter");
+            return hasInteractiveLoginFilter() || hasFilter("RememberMeAuthenticationFilter");
         }
 
         boolean isFormOrBasic() {
@@ -500,7 +511,8 @@ final class SecurityModel {
             List<AuthorizationMapping> mappings,
             Boolean bearerSavesSession,
             boolean httpsRedirect,
-            boolean csrfKnown) {
+            boolean csrfKnown,
+            boolean passkeySessionStrategyMissing) {
         ChainDetails(
                 boolean filtersKnown,
                 boolean headersKnown,
@@ -510,6 +522,27 @@ final class SecurityModel {
                 Boolean bearerSavesSession,
                 boolean httpsRedirect) {
             this(filtersKnown, headersKnown, unconditional, matcher, mappings, bearerSavesSession, httpsRedirect, true);
+        }
+
+        ChainDetails(
+                boolean filtersKnown,
+                boolean headersKnown,
+                boolean unconditional,
+                MatcherFacts matcher,
+                List<AuthorizationMapping> mappings,
+                Boolean bearerSavesSession,
+                boolean httpsRedirect,
+                boolean csrfKnown) {
+            this(
+                    filtersKnown,
+                    headersKnown,
+                    unconditional,
+                    matcher,
+                    mappings,
+                    bearerSavesSession,
+                    httpsRedirect,
+                    csrfKnown,
+                    false);
         }
 
         ChainDetails {

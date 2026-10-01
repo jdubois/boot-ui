@@ -366,6 +366,29 @@ record SecurityContext(
         return null;
     }
 
+    /**
+     * The application's value for {@code key}, ignoring DevTools' development-only defaults. Sources are read in
+     * precedence order with their own key lookup, so non-canonical relaxed spellings outside the environment-variable
+     * source are not resolved.
+     */
+    String applicationProperty(String key) {
+        if (!(environment instanceof ConfigurableEnvironment configurable)) return firstProperty(key);
+        for (PropertySource<?> source : configurable.getPropertySources()) {
+            if (ConfigurationPropertySources.isAttachedConfigurationPropertySource(source)
+                    || SecurityEnvironmentSnapshot.isDevToolsDefaults(environment, source)) continue;
+            Object value = source.getProperty(key);
+            if (value == null) continue;
+            String text = value instanceof String string
+                    ? SecurityEnvironmentSnapshot.supportedText(string)
+                    : value instanceof String[] array
+                            ? SecurityEnvironmentSnapshot.supportedText(String.join(",", array))
+                            : null;
+            if (text == null) throw new SecurityActuatorObservation.ObservationLimitException();
+            if (!text.isBlank()) return text.trim();
+        }
+        return null;
+    }
+
     boolean isPropertyTrue(String... keys) {
         String value = firstProperty(keys);
         return value != null && "true".equalsIgnoreCase(value);
