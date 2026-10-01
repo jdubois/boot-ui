@@ -15,7 +15,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `ARCH-SPRING-024` (HIGH) flags legacy `javax.annotation.PostConstruct`/`PreDestroy`, and `javax.inject.Inject` or
   `javax.annotation.Resource` on beans, which neither Spring Framework 7 nor Quarkus 3 recognizes. Both run on Spring
   MVC, Spring WebFlux, and Quarkus, and the field-injection rules no longer report the same fields
-  ([#PRNUM](https://github.com/jdubois/boot-ui/pull/PRNUM)).
+  ([#1165](https://github.com/jdubois/boot-ui/pull/1165)).
 
 - **Failure-preserving retention for HTTP Exchanges, SQL Trace, and REST Client.** Each BootUI-owned capture buffer
   now reserves a share of its existing capacity, 25% by default, for the most recent failed and slow records: `5xx`
@@ -67,7 +67,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Quarkus, where `java.util.logging` is a built-in logging API. The self-invocation, proxyability, and lifecycle-callback
   rules now also cover Spring Framework 7 `@Retryable` and `@ConcurrencyLimit`, Spring Retry, and method security
   annotations such as `@PreAuthorize`, whose self-invocation skips the authorization check
-  ([#PRNUM](https://github.com/jdubois/boot-ui/pull/PRNUM)).
+  ([#1165](https://github.com/jdubois/boot-ui/pull/1165)).
 
 - **One request slow threshold on every stack.** `bootui.activity.request-slow-threshold-ms` (default 1,000 ms) is now
   honored by Spring WebFlux and Quarkus as well as Spring MVC. It sets the `SLOW` severity of Live Activity `REQUEST`
@@ -114,7 +114,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `ARCH-CODE-015` no longer asks `@Bean` or CDI producer holders and composed stereotypes such as `@AutoConfiguration` to
   become final utility classes. `ARCH-MOD-001` reports each internal-package access with its own description and source
   line instead of repeating one class-level line, and `ARCH-SPRING-022` now says that Quarkus 3 also ignores
-  `javax.transaction.Transactional` ([#PRNUM](https://github.com/jdubois/boot-ui/pull/PRNUM)).
+  `javax.transaction.Transactional` ([#1165](https://github.com/jdubois/boot-ui/pull/1165)).
 
 - **Live Activity durable persistence stores a failed or slow entry once, including a slow `4xx` request.**
   Persistence remembers the entries it stored in a bounded window. An entry that newer entries pushed out of Spring
