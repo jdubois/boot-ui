@@ -90,6 +90,11 @@ class SpringRuntimeJournalTest {
         assertThat(route.statusClasses().get(1)).isEqualTo(3);
         assertThat(route.childCounts().get(JournalSource.SQL)).isGreaterThanOrEqualTo(3);
         assertThat(route.statements()).isNotEmpty();
+        assertThat(route.childCounts().get(JournalSource.TRANSACTION))
+                .as("product-search runs in a Spring transaction")
+                .isGreaterThanOrEqualTo(3);
+        assertThat(aggregates.snapshot().transactionalMethods())
+                .anySatisfy(method -> assertThat(method.transactions()).isGreaterThanOrEqualTo(3));
         assertThat(aggregates.snapshot().routes())
                 .extracting(RouteStats::route)
                 .noneMatch(name -> name.contains("/bootui"));

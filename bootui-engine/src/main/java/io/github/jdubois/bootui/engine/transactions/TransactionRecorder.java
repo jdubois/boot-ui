@@ -3,7 +3,15 @@ package io.github.jdubois.bootui.engine.transactions;
 import io.github.jdubois.bootui.core.dto.TransactionEntryDto;
 import io.github.jdubois.bootui.core.dto.TransactionReport;
 import io.github.jdubois.bootui.core.dto.TransactionStatsDto;
+import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.engine.journal.TransactionPayload;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -38,7 +46,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * heuristic {@code SqlTraceRecorder} itself falls back to when no trace id is available, applied here
  * rather than duplicated.</p>
  */
-public final class TransactionRecorder implements IdleReclaimable {
+public final class TransactionRecorder implements IdleReclaimable, RuntimeEventPublisher {
 
     /** Outcome of a completed transaction boundary. */
     public enum Status {
@@ -71,6 +79,8 @@ public final class TransactionRecorder implements IdleReclaimable {
 
     private final Map<Long, ActiveTransaction> active = new ConcurrentHashMap<>();
     private final ThreadLocal<Deque<Long>> threadStack = ThreadLocal.withInitial(ArrayDeque::new);
+    private final CorrelationSource correlation = new CorrelationSource();
+    private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
 
     public TransactionRecorder(
             boolean enabled,
@@ -100,6 +110,14 @@ public final class TransactionRecorder implements IdleReclaimable {
         if (changed) {
             notifyListeners();
         }
+    }
+
+    /**
+     * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives each recorded transaction right after this
+     * recorder retains it. {@code null} restores the default, which publishes nothing.
+     */
+    public void setRuntimeEventSink(RuntimeEventSink journal) {
+        this.journal = journal == null ? RuntimeEventSink.NONE : journal;
     }
 
     public int getMaxEntries() {
@@ -147,7 +165,9 @@ public final class TransactionRecorder implements IdleReclaimable {
                 parentId,
                 thread,
                 traceId,
-                System.currentTimeMillis());
+                System.currentTimeMillis(),
+                System.nanoTime(),
+                correlation.current());
         active.put(id, transaction);
         stack.addLast(id);
         return id;
@@ -209,7 +229,28 @@ public final class TransactionRecorder implements IdleReclaimable {
             }
         }
         totalCaptured.incrementAndGet();
+        CorrelationContext context = transaction.context();
+        journal.offer(new RuntimeEvent(
+                JournalSource.TRANSACTION,
+                transaction.startTimestamp(),
+                System.nanoTime() - transaction.startNanos(),
+                context.requestId(),
+                context.executionId(),
+                transaction.traceId() != null ? transaction.traceId() : context.traceId(),
+                context.spanId(),
+                transaction.thread(),
+                null,
+                status != Status.COMMITTED || isSlow(duration),
+                new TransactionPayload(transaction.methodName(), status == Status.ROLLED_BACK)));
         notifyListeners();
+    }
+
+    /**
+     * Installs where this recorder reads the request or execution a transaction belongs to, when it begins
+     * ({@code docs/PLAN-v2.md} §5.1). The default is the thread's correlation scope.
+     */
+    public void setCorrelationContextProvider(CorrelationContextProvider provider) {
+        correlation.set(provider);
     }
 
     /**
@@ -390,5 +431,7 @@ public final class TransactionRecorder implements IdleReclaimable {
             Long parentId,
             String thread,
             String traceId,
-            long startTimestamp) {}
+            long startTimestamp,
+            long startNanos,
+            CorrelationContext context) {}
 }

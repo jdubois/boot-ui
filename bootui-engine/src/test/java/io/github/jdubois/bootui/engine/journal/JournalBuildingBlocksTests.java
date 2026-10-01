@@ -95,6 +95,18 @@ class JournalBuildingBlocksTests {
     }
 
     @Test
+    void logEventsAreRecordedFromWarnUpAndKeepABoundedTemplate() {
+        assertThat(LogPayload.isRecorded("WARN")).isTrue();
+        assertThat(LogPayload.isRecorded("ERROR")).isTrue();
+        assertThat(LogPayload.isRecorded("FATAL")).isTrue();
+        assertThat(LogPayload.isRecorded("SEVERE")).isTrue();
+        assertThat(LogPayload.isRecorded("INFO")).isFalse();
+        assertThat(LogPayload.isRecorded(null)).isFalse();
+        assertThat(new LogPayload("l", "WARN", "x".repeat(800), null).template())
+                .hasSize(LogPayload.MAX_TEMPLATE_LENGTH);
+    }
+
+    @Test
     void anEventKnowsHowItIsCorrelatedAndWhatItRetains() {
         RuntimeEvent byRequest = RuntimeEvent.of(
                 JournalSource.SQL, 1, 1, CorrelationContext.forRequest("r1"), "worker", null, false, () -> 100);

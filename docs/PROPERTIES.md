@@ -638,9 +638,10 @@ BootUI 2.0's runtime journal records every runtime event once, in a bounded in-m
 aggregates per route, statement, exception group, transactional method, and thread family
 ([PLAN-v2.md](PLAN-v2.md) §5.2). Recording never blocks a request: events wait in a bounded queue for one BootUI
 daemon thread, and an event the queue cannot take is dropped and counted. HTTP requests, SQL statements, exception
-occurrences, security events, REST client calls, cache accesses, messages, and scheduled runs are recorded today;
-transactions, logs, and the `gc` and `resources` sources follow. Payloads hold no bind values, keys, message bodies,
-exception messages, or principals. Nothing is written to disk. The same keys and defaults apply on Spring and Quarkus.
+occurrences, security events, REST client calls, cache accesses, messages, scheduled runs, transactions (Spring),
+and application `WARN` and `ERROR` log events are recorded today; the `gc` and `resources` sources follow. Payloads hold
+no bind values, keys, message bodies, exception or log messages, or principals: a log event keeps its unformatted
+template only. Nothing is written to disk. The same keys and defaults apply on Spring and Quarkus.
 
 | Property                               | Default                                  | Description |
 | -------------------------------------- | ---------------------------------------- | ----------- |

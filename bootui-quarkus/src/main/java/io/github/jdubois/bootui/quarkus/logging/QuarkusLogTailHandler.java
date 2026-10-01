@@ -1,8 +1,14 @@
 package io.github.jdubois.bootui.quarkus.logging;
 
 import io.github.jdubois.bootui.core.dto.LogLineDto;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.LogPayload;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
+import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.text.MessageFormat;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
@@ -22,10 +28,21 @@ public final class QuarkusLogTailHandler extends Handler {
 
     private final LogTailBuffer buffer;
     private final InternalPackageMatcher internalPackages;
+    private final RuntimeEventSink journal;
 
     public QuarkusLogTailHandler(LogTailBuffer buffer, InternalPackageMatcher internalPackages) {
+        this(buffer, internalPackages, null);
+    }
+
+    /**
+     * @param journal the runtime journal, which receives each {@code WARN} and {@code ERROR} event with its template
+     *     and the request it was logged in ({@code docs/PLAN-v2.md} §5.2); {@code null} publishes nothing
+     */
+    public QuarkusLogTailHandler(
+            LogTailBuffer buffer, InternalPackageMatcher internalPackages, RuntimeEventSink journal) {
         this.buffer = buffer;
         this.internalPackages = internalPackages;
+        this.journal = journal == null ? RuntimeEventSink.NONE : journal;
     }
 
     @Override
@@ -37,12 +54,41 @@ public final class QuarkusLogTailHandler extends Handler {
         if (internalPackages.matchesName(logger)) {
             return;
         }
+        String level = QuarkusLoggerProvider.canonicalName(record.getLevel());
         buffer.add(new LogLineDto(
                 record.getMillis(),
-                QuarkusLoggerProvider.canonicalName(record.getLevel()),
+                level,
                 logger == null ? "ROOT" : logger,
                 formatMessage(record),
                 Thread.currentThread().getName()));
+        if (LogPayload.isRecorded(level)) {
+            publish(record, logger, level);
+        }
+    }
+
+    private void publish(LogRecord record, String logger, String level) {
+        try {
+            CorrelationContext context = QuarkusRequestCorrelation.current();
+            Throwable thrown = record.getThrown();
+            journal.offer(new RuntimeEvent(
+                    JournalSource.LOG,
+                    record.getMillis(),
+                    -1,
+                    context.requestId(),
+                    context.executionId(),
+                    context.traceId(),
+                    context.spanId(),
+                    Thread.currentThread().getName(),
+                    null,
+                    "ERROR".equals(level) || "FATAL".equals(level),
+                    new LogPayload(
+                            logger == null ? "ROOT" : logger,
+                            level,
+                            record.getMessage(),
+                            thrown == null ? null : thrown.getClass().getName())));
+        } catch (RuntimeException ex) {
+            // Recording never disturbs the application's logging.
+        }
     }
 
     private static String formatMessage(LogRecord record) {

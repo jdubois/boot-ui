@@ -25,6 +25,7 @@ import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsListenerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsProducerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.journal.RuntimeEventPublisherInstaller;
+import io.github.jdubois.bootui.autoconfigure.journal.RuntimeJournalLogAppender;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaConsumerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaProducerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.liquibase.SpringLiquibaseProvider;
@@ -74,6 +75,7 @@ import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.hibernate.HibernateStatisticsService;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
@@ -214,6 +216,22 @@ public class BootUiEngineConfiguration {
         aggregates.setDeclaredRoutes(DeclaredRouteTemplates.caching(mappingProvider));
         journal.addListener(aggregates);
         return aggregates;
+    }
+
+    /**
+     * Records application {@code WARN} and {@code ERROR} log events in the runtime journal ({@code docs/PLAN-v2.md}
+     * §5.2), when Logback is the logger. Gated on Logback's class, so an application on another logging backend loads
+     * nothing here.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "ch.qos.logback.classic.LoggerContext")
+    static class RuntimeJournalLogConfiguration {
+
+        /** {@code null}, which Spring registers as an empty bean, when the {@code log} source is off. */
+        @Bean
+        RuntimeJournalLogAppender bootUiRuntimeJournalLogAppender(RuntimeJournal journal) {
+            return journal.settings().records(JournalSource.LOG) ? RuntimeJournalLogAppender.install(journal) : null;
+        }
     }
 
     /** The phase markers of recent requests ({@code docs/PLAN-v2.md} §5.1), shared by both web stacks. */

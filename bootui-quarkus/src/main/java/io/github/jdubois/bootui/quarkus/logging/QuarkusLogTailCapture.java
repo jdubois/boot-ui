@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.quarkus.logging;
 
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.quarkus.runtime.ShutdownEvent;
@@ -23,11 +24,18 @@ import java.util.logging.Logger;
 public class QuarkusLogTailCapture {
 
     private final LogTailBuffer buffer;
+    private final RuntimeJournal journal;
     private QuarkusLogTailHandler handler;
 
-    @Inject
     public QuarkusLogTailCapture(LogTailBuffer buffer) {
+        this(buffer, null);
+    }
+
+    /** @param journal the runtime journal, which also receives {@code WARN} and {@code ERROR} events, or {@code null} */
+    @Inject
+    public QuarkusLogTailCapture(LogTailBuffer buffer, RuntimeJournal journal) {
         this.buffer = buffer;
+        this.journal = journal;
     }
 
     void onStart(@Observes StartupEvent event) {
@@ -42,7 +50,8 @@ public class QuarkusLogTailCapture {
                 new InternalPackageMatcher(List.of(
                         "io.github.jdubois.bootui.quarkus",
                         "io.github.jdubois.bootui.engine",
-                        "io.github.jdubois.bootui.core")));
+                        "io.github.jdubois.bootui.core")),
+                journal);
         root.addHandler(handler);
     }
 

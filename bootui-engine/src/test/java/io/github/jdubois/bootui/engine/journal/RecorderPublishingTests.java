@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.security.CapturedSecurityEvent;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
+import io.github.jdubois.bootui.engine.transactions.TransactionRecorder;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -141,6 +142,29 @@ class RecorderPublishingTests {
         assertThat(event.payload()).isEqualTo(new SecurityPayload("AUTHENTICATION_FAILURE"));
         assertThat(SecurityPayload.isFailure("AUTHORIZATION_DENIED")).isTrue();
         assertThat(SecurityPayload.isFailure("AUTHENTICATION_SUCCESS")).isFalse();
+    }
+
+    @Test
+    void transactionsPublishTheirMethodRollbackAndTheRequestTheyBeganIn() {
+        TransactionRecorder recorder = new TransactionRecorder(true, true, 10, 100, 100, null);
+        recorder.setRuntimeEventSink(published::add);
+
+        inRequest(() -> {
+            long committed = recorder.beginTransaction("OrderService.place", false, null, "worker-1", null);
+            recorder.completeTransaction(committed, TransactionRecorder.Status.COMMITTED, null);
+            long rolledBack = recorder.beginTransaction("OrderService.cancel", false, null, "worker-1", null);
+            recorder.completeTransaction(rolledBack, TransactionRecorder.Status.ROLLED_BACK, "boom");
+        });
+
+        assertThat(published).hasSize(2).allSatisfy(event -> {
+            assertThat(event.source()).isEqualTo(JournalSource.TRANSACTION);
+            assertThat(event.requestId()).isEqualTo(REQUEST.requestId());
+            assertThat(event.durationNanos()).isNotNegative();
+        });
+        assertThat(published.get(0).payload()).isEqualTo(new TransactionPayload("OrderService.place", false));
+        assertThat(published.get(0).failedOrSlow()).isFalse();
+        assertThat(published.get(1).payload()).isEqualTo(new TransactionPayload("OrderService.cancel", true));
+        assertThat(published.get(1).failedOrSlow()).isTrue();
     }
 
     @Test
