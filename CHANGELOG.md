@@ -62,7 +62,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   value; `SEC-SESSION-002` no longer flags production apps with direct TLS; `SEC-OAUTH-004` is production-only like its
   reactive twin; `SEC-HEAD-002` drops from HIGH to MEDIUM and `SEC-HEAD-007` rises from LOW to MEDIUM to match WebFlux;
   and the WebFlux framing and CSP reviews (`SEC-RXF-HEAD-002`, `SEC-RXF-HEAD-004`) no longer flag bearer-only API
-  chains ([Security checks](docs/SECURITY-CHECKS.md)).
+  chains ([Security checks](docs/SECURITY-CHECKS.md), [#1173](https://github.com/jdubois/boot-ui/pull/1173)).
 - **Memory advisor audit: fewer, more reliable findings.** The advisor now evaluates 32 rules. Five noisy rules are
   retired and their IDs are never reused: `MEM-HEAP-007` (committed heap above usage, which flagged normal GC headroom
   and every equal `-Xms`/`-Xmx`), `MEM-FOOTPRINT-004` (host swap, not attributable to the JVM), `MEM-POOL-006` (JIT
