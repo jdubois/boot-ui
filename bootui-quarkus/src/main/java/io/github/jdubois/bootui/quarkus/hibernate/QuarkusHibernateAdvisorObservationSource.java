@@ -89,7 +89,6 @@ public final class QuarkusHibernateAdvisorObservationSource implements Hibernate
                 .toList();
         HibernateApplicationFacts facts = new HibernateApplicationFacts(
                 profiles,
-                HibernateApplicationFacts.OpenInView.NOT_APPLICABLE,
                 false,
                 org.jboss.logging.Logger.getLogger("org.hibernate.SQL").isDebugEnabled(),
                 org.jboss.logging.Logger.getLogger("org.hibernate.orm.jdbc.bind")

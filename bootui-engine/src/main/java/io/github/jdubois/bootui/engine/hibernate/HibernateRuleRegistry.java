@@ -39,8 +39,9 @@ final class HibernateRuleRegistry {
             new LegacyDateTimeRule(),
             new ManyToOneOptionalRule(),
             new NonOwningOneToOneEnhancementRule(),
-            new LegacyWhereAnnotationRule(),
             new UnidirectionalOneToManyJoinColumnRule(),
+            new EmbeddableSetEqualityRule(),
+            new PostgresLobRule(),
 
             // Entity design
             new EqualsHashCodePairRule(),
@@ -50,6 +51,7 @@ final class HibernateRuleRegistry {
             new AssignedIdPersistableRule(),
             new MissingVersionRule(),
             new NaturalIdCandidateRule(),
+            new TemporalVersionRule(),
 
             // Query
             new ModifyingClearAutomaticallyRule(),
@@ -61,7 +63,6 @@ final class HibernateRuleRegistry {
             new MultipleCollectionJoinFetchRule(),
             new BulkUpdateVersionRule(),
             // Configuration
-            new OpenInViewRule(),
             new LazyLoadNoTransRule(),
             new JdbcBatchSizeRule(),
             new OrderedBatchingRule(),
