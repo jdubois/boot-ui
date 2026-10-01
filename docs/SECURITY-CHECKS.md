@@ -1,7 +1,7 @@
 # Security checks
 
 The Security panel runs a fixed, on-demand ruleset against the host application's Spring Security configuration:
-**54 servlet rules** and **25 reactive rules**. It inspects recognized, already-created filter chains and supported
+**54 servlet rules** and **26 reactive rules**. It inspects recognized, already-created filter chains and supported
 configuration metadata. It does not execute application authorization managers, custom matchers, decoders, credential
 providers or CORS/header callbacks to infer security decisions, initialize lazy application beans, intercept live
 traffic, or modify security configuration. Credentials, keys and session identifiers never belong in findings.
@@ -193,7 +193,7 @@ Dismissed rules remove all of their findings from the score.
 ### SEC-AUTHZ-004 - Catch-all filter chains should be ordered last
 
 - **Severity**: INFO
-- **Detects**: A structurally unconditional, method-agnostic chain precedes later chains. A GET-only `/**` matcher is not a global catch-all. Typed composites retain unknown branches; rendered descriptions are never used to prove coverage.
+- **Detects**: A structurally unconditional, method-agnostic chain precedes later chains. Spring Security 7 already rejects a non-last `anyRequest()` chain at startup (`UnreachableFilterChainException`), so in practice this reaches equivalent matchers such as a method-agnostic `/**`. A GET-only `/**` matcher is not a global catch-all. Typed composites retain unknown branches; rendered descriptions are never used to prove coverage.
 - **Recommendation**: Give earlier chains an explicit securityMatcher and keep the catch-all (any request) chain last by @Order.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/configuration/java.html#_multiple_httpsecurity_instances>
 
@@ -209,7 +209,7 @@ Dismissed rules remove all of their findings from the score.
 ### SEC-CSRF-001 - CSRF protection should stay on for browser-automatic credentials
 
 - **Severity**: HIGH
-- **Detects**: Interactive form/OAuth2 login or remember-me credentials are configured without a `CsrfFilter`. Browser-credential relevance is independent of session persistence; `STATELESS` and simultaneous bearer authentication do not erase browser login or remember-me credentials. Custom CSRF matching remains unknown.
+- **Detects**: Interactive browser login (form, OAuth2/OIDC, one-time-token, passkey/WebAuthn or SAML 2.0) or remember-me credentials are configured without a `CsrfFilter`. Browser-credential relevance is independent of session persistence; `STATELESS` and simultaneous bearer authentication do not erase browser login or remember-me credentials. Custom CSRF matching remains unknown.
 - **Recommendation**: Keep CSRF protection for automatically submitted browser credentials; header-bearer-only APIs have different applicability.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html>
 
@@ -225,15 +225,15 @@ Dismissed rules remove all of their findings from the score.
 ### SEC-SESSION-001 - Session fixation protection should be enabled
 
 - **Severity**: HIGH
-- **Detects**: Recognized authentication-filter or session-management strategies explicitly disable session fixation protection. Modern form-login defaults use per-filter strategies without installing `SessionManagementFilter`; custom or unreadable strategies remain unknown.
-- **Recommendation**: Use the default changeSessionId (or migrateSession) session-fixation strategy instead of none().
+- **Detects**: Recognized login-filter or session-management strategies skip session-fixation protection. Modern form, one-time-token and SAML 2.0 login use per-filter strategies without installing `SessionManagementFilter`. Spring Security 7.1's `webAuthn()` configurer applies no session-authentication strategy to `WebAuthnAuthenticationFilter`, so a session-backed passkey login keeps `NullAuthenticatedSessionStrategy`: the session id and CSRF token are not rotated at login. That case is reported with its own message rather than as an application `none()` opt-out; a passkey filter whose security context is not stored in the HTTP session is not a target. Custom or unreadable strategies remain unknown.
+- **Recommendation**: Use the default changeSessionId (or migrateSession) strategy instead of none(). For `webAuthn()`, register an `ObjectPostProcessor<WebAuthnAuthenticationFilter>` that sets a composite strategy (`ChangeSessionIdAuthenticationStrategy` plus `CsrfAuthenticationStrategy`, and any configured concurrency control).
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/authentication/session-management.html>
 
 ### SEC-SESSION-002 - Session cookie should set the Secure flag
 
 - **Severity**: MEDIUM
-- **Detects**: Reviews explicit `server.servlet.session.cookie.secure=false`, or absence of an explicit Secure override in production with observed session usage. An unset flag can derive Secure from the request; this is not proof that every emitted cookie is insecure. Custom cookie implementations and external transport behavior are not established by this property.
-- **Recommendation**: Set server.servlet.session.cookie.secure=true so the session cookie is only sent over HTTPS.
+- **Detects**: A production profile with observed session usage, no direct TLS or chain-local HTTPS redirect, and a session cookie that is not forced Secure (`server.servlet.session.cookie.secure` unset or `false`). Tomcat and Jetty mark cookies issued over HTTPS requests Secure regardless of this property, so direct TLS satisfies the check; behind a TLS-terminating proxy the container may see plain HTTP requests. Outside production, an explicit `false` is left to the Pentesting advisor (PT-A02-004). Custom cookie implementations are not observed.
+- **Recommendation**: Set server.servlet.session.cookie.secure=true when TLS terminates before the application, so the session cookie is only sent over HTTPS.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html>
 
 ### SEC-SESSION-003 - Session cookie should set the HttpOnly flag
@@ -243,11 +243,11 @@ Dismissed rules remove all of their findings from the score.
 - **Recommendation**: Keep server.servlet.session.cookie.http-only=true to mitigate cookie theft via XSS.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html>
 
-### SEC-SESSION-004 - Session cookie should declare a SameSite policy
+### SEC-SESSION-004 - Review SameSite=None on the session cookie
 
 - **Severity**: LOW
-- **Detects**: Reviews explicit servlet session-cookie SameSite configuration. An unset property in a session-using chain is **SKIPPED** because effective container and browser defaults are not observed; it is not a missing-policy violation.
-- **Recommendation**: Set server.servlet.session.cookie.same-site=Lax (or Strict) to reduce cross-site request exposure.
+- **Detects**: Explicit `server.servlet.session.cookie.same-site=none` on a session-using application, which lets browsers attach the session cookie to cross-site requests. Unset, `omitted`, `lax` and `strict` are not findings; unset relies on browser defaults (Tomcat 11 writes no attribute) and is not proof of protection. `None` combined with `secure=false` is the Pentesting advisor's PT-A02-006. Before this revision the rule could only pass or skip, which degraded every session-using scan to partial.
+- **Recommendation**: Keep None only for intentional cross-site delivery (for example embedded or SAML POST flows) with Secure and CSRF protection; otherwise use Lax or Strict.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html>
 
 > **Retired: SEC-SESSION-005.** Leaving the timeout property unset still applies Boot's documented 30-minute
@@ -289,8 +289,8 @@ Dismissed rules remove all of their findings from the score.
 
 ### SEC-HEAD-002 - X-Frame-Options (clickjacking protection) should stay enabled
 
-- **Severity**: HIGH
-- **Detects**: A browser-credential chain lacks an effective recognized framing restriction. An enforcing `frame-ancestors` directive overrides X-Frame-Options even when permissive (`*`); XFO is an alternative only when that enforcing directive is known to be absent. An empty ancestor source list blocks all framing, like `'none'`. Report-only CSP does not override XFO or provide enforcement. Unknown policies cannot establish safe XFO fallback. Arbitrary API chains are not assumed to serve documents; unsupported or multiple enforcing writers remain unknown.
+- **Severity**: MEDIUM
+- **Detects**: A browser-credential chain lacks an effective recognized framing restriction. An enforcing `frame-ancestors` directive overrides X-Frame-Options even when permissive (`*`); XFO is an alternative only when that enforcing directive is known to be absent. An empty ancestor source list blocks all framing, like `'none'`. Report-only CSP does not override XFO or provide enforcement. Unknown policies cannot establish safe XFO fallback. Arbitrary API chains are not assumed to serve documents; unsupported or multiple enforcing writers remain unknown. MEDIUM matches the reactive SEC-RXF-HEAD-002: framing protection is on by default, so this reviews an explicit opt-out whose exploitation needs user interaction.
 - **Recommendation**: Use a restrictive enforcing `frame-ancestors` policy, or keep `XFrameOptionsHeaderWriter` (DENY/SAMEORIGIN) when that directive is absent. Verify the actual delivered policy separately.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-frame-options>
 
@@ -318,8 +318,8 @@ Dismissed rules remove all of their findings from the score.
 
 ### SEC-HEAD-007 - Security response headers should not be globally disabled
 
-- **Severity**: LOW
-- **Detects**: A browser-credential chain installs no Spring `HeaderWriterFilter`. This does not prove all delivered security headers are absent: custom filters and external infrastructure can provide them. Individual missing-writer checks avoid repeating this same absence penalty.
+- **Severity**: MEDIUM
+- **Detects**: A browser-credential chain installs no Spring `HeaderWriterFilter`. This does not prove all delivered security headers are absent: custom filters and external infrastructure can provide them. Individual missing-writer checks avoid repeating this same absence penalty, so this carries MEDIUM (like the reactive SEC-RXF-HEAD-005) rather than scoring lower than disabling a single header.
 - **Recommendation**: Remove headers().disable(); keep the default HeaderWriterFilter so security headers are emitted, and only tune individual writers you do not need.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html>
 
@@ -366,12 +366,9 @@ Raw origins and origin patterns are not copied into findings.
 - **Recommendation**: Correct rejected literal-wildcard configuration and restrict credentialed origin patterns to explicitly trusted origins. Whether a browser sends credentials also depends on its cookie/authentication rules.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/integrations/cors.html>
 
-### SEC-CORS-003 - CORS should be wired through the security filter chain
-
-- **Severity**: INFO
-- **Detects**: Reviews attached CORS handling rather than unrelated source beans. Dynamic or MVC-managed handling, or differing attachments across chains, remains **SKIPPED** because intended origin scope and external handling are unknown; absence is not automatically a violation.
-- **Recommendation**: Enable .cors(...) on the HttpSecurity so preflight handling is consistent with the security chain rather than MVC-only.
-- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/integrations/cors.html>
+> **Retired: SEC-CORS-003.** Its implementation could only pass or skip: attached CORS handling it could not
+> resolve was never a finding, and the skips only degraded scans to partial. The other CORS rules already keep
+> unknown attached sources incomplete. The ID remains reserved.
 
 > **Retired: SEC-CORS-004.** Spring supports reflecting requested methods/headers for an allowed origin.
 > This does not independently bypass the origin trust boundary. A narrow allowlist can be useful design guidance,
@@ -462,12 +459,10 @@ management-context authorization remain unknown. No endpoint discoverer, operati
 
 ## OAuth2 / JWT resource server
 
-### SEC-OAUTH-001 - Resource server must validate tokens via JWT issuer/JWK or opaque-token introspection
-
-- **Severity**: HIGH
-- **Detects**: Recognizes JWT decoders and opaque-token introspectors attached to supported active providers, including inline configuration. Missing global beans or properties do not establish missing validation. Custom resolvers, unsupported managers, and unreadable attachment remain **SKIPPED**, without executing token validation or network callbacks.
-- **Recommendation**: Configure spring.security.oauth2.resourceserver.jwt.issuer-uri (or jwk-set-uri / a JwtDecoder bean) for JWT resource servers, or spring.security.oauth2.resourceserver.opaquetoken.introspection-uri (or a custom OpaqueTokenIntrospector bean) for opaque-token resource servers, so incoming bearer tokens are actually verified.
-- **Learn more**: <https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/index.html>
+> **Retired: SEC-OAUTH-001.** It could only pass or skip. Spring Security 7.1's
+> `OAuth2ResourceServerConfigurer` fails startup unless `jwt()`, `opaqueToken()` or an
+> `AuthenticationManagerResolver` is configured, and `jwt()` requires a decoder; custom resolvers, managers and
+> hand-built bearer filters stay opaque to passive inspection either way. The ID remains reserved.
 
 ### SEC-OAUTH-002 - Validate the JWT audience claim
 
@@ -486,9 +481,23 @@ management-context authorization remain unknown. No endpoint discoverer, operati
 ### SEC-OAUTH-004 - JWT issuer and JWK endpoints should use HTTPS
 
 - **Severity**: HIGH
-- **Detects**: Detects `spring.security.oauth2.resourceserver.jwt.issuer-uri` or `jwk-set-uri` using plain HTTP. Discovery metadata or signing keys fetched without transport authentication can be modified by an active network attacker.
+- **Detects**: A production profile with `spring.security.oauth2.resourceserver.jwt.issuer-uri` or `jwk-set-uri` using plain HTTP (surrounding whitespace ignored). Discovery metadata or signing keys fetched without transport authentication can be modified by an active network attacker. Like SEC-RXF-OAUTH2-003, development profiles are not flagged, so a local `http://localhost` identity provider is not a finding.
 - **Recommendation**: Use HTTPS issuer and JWK endpoints with certificate validation enabled; reserve HTTP endpoints for isolated test environments.
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc8414.html#section-3.3>
+
+### SEC-OAUTH-005 - Opaque-token introspection must use HTTPS
+
+- **Severity**: HIGH
+- **Detects**: A production profile with `spring.security.oauth2.resourceserver.opaquetoken.introspection-uri` using plain HTTP. Bearer tokens and the resource server's client credentials cross this channel. Servlet parity with SEC-RXF-OAUTH2-004; only the property name is reported and no introspection occurs. A custom introspector that ignores the property is not observed.
+- **Recommendation**: Use an HTTPS introspection endpoint and validate the authorization server certificate.
+- **Learn more**: <https://www.rfc-editor.org/rfc/rfc7662.html#section-4>
+
+### SEC-OAUTH-006 - OAuth2 client provider endpoints must use HTTPS
+
+- **Severity**: HIGH
+- **Detects**: A production profile with a `spring.security.oauth2.client.provider.<id>` `authorization-uri`, `token-uri`, `jwk-set-uri` or `user-info-uri` using plain HTTP, where the provider is referenced by a client registration (`registration.<id>.provider`, or a registration with the same id). The token endpoint receives the client secret and authorization code; JWK-set and user-info responses establish the user's identity. Provider and registration ids are discovered only from bounded native map-backed configuration sources, so environment-variable-only providers are not enumerated. `issuer-uri` belongs to the Pentesting advisor (PT-A07-006). Only property names are reported.
+- **Recommendation**: Use HTTPS for every OAuth2 client provider endpoint and keep certificate validation enabled; reserve HTTP providers for isolated local development.
+- **Learn more**: <https://www.rfc-editor.org/rfc/rfc6749.html#section-3.2>
 
 ## Configuration hygiene
 
@@ -574,10 +583,10 @@ map is verified; opaque backing maps remain barriers. Random-value sources block
 are never sampled. Unsupported individual values block their own keys rather than unrelated configuration; unknown
 source inventories still make affected checks incomplete.
 
-The current 25-rule catalog removes two duplicate authorization-filter absence checks and adds a structurally
-supported chain-ordering advisory. Previously retired `SEC-RXF-OAUTH2-001` (unrelated validator-bean inference) and
+The current 26-rule catalog removes two duplicate authorization-filter absence checks, adds a structurally
+supported chain-ordering advisory, and adds OAuth2 client provider endpoint transport (`SEC-RXF-OAUTH2-005`). Previously retired `SEC-RXF-OAUTH2-001` (unrelated validator-bean inference) and
 `SEC-RXF-CONFIG-001` (unsupported `spring.security.debug` property) remain reserved; neither is revived.
-The advisor distinguishes actual reactive form/OIDC login from OAuth client grant machinery, Basic credentials
+The advisor distinguishes actual reactive form, one-time-token and OAuth2/OIDC login from OAuth client grant machinery, Basic credentials
 from header-only bearer credentials, and observed framework defaults from custom/unknown behavior.
 
 ### SEC-RXF-AUTHZ-001 - Every reactive filter chain should enforce authorization
@@ -611,7 +620,7 @@ Custom dynamic ordering remains inconclusive; no matcher or `Ordered.getOrder()`
 ### SEC-RXF-CSRF-001 - Reactive OAuth2/OIDC or formLogin() chains should enable CSRF protection
 
 - **Severity**: HIGH
-- **Detects**: A fully observed chain with an actual OAuth2 login filter (including Spring's OIDC session-registry variant) or Spring's form-login authentication converter has no `CsrfWebFilter`. OAuth2 authorization-code client grants alone are not login.
+- **Detects**: A fully observed chain with an actual OAuth2 login filter (including Spring's OIDC session-registry variant), or Spring's form-login or one-time-token authentication converter, has no `CsrfWebFilter`. OAuth2 authorization-code client grants alone are not login.
 - **Recommendation**: Keep CSRF enabled for browser login chains; configure the appropriate reactive token repository.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/reactive/exploits/csrf.html>
 
@@ -656,7 +665,7 @@ Spring separately rejects `allowedOrigins="*"` with credentials; that invalid co
 ### SEC-RXF-HEAD-002 - X-Frame-Options header should be set in reactive chains
 
 - **Severity**: MEDIUM
-- **Detects**: A fully inspected header configuration lacks effective framing protection. A known enforcing `frame-ancestors` directive overrides X-Frame-Options, so `frame-ancestors *` is flagged even alongside `X-Frame-Options: DENY`. X-Frame-Options remains an alternative only when the enforcing directive is known absent; report-only framing does not override it.
+- **Detects**: A chain with an observed interactive browser login (form, one-time-token or OAuth2/OIDC) has a fully inspected header configuration without effective framing protection. Bearer-only and Basic API chains are not assumed to serve documents, matching servlet SEC-HEAD-002. A known enforcing `frame-ancestors` directive overrides X-Frame-Options, so `frame-ancestors *` is flagged even alongside `X-Frame-Options: DENY`. X-Frame-Options remains an alternative only when the enforcing directive is known absent; report-only framing does not override it.
 - **Recommendation**: For browser documents, keep `XFrameOptionsServerHttpHeadersWriter` or enforce a restrictive framing policy. Supported single-header static equivalents are recognized; custom/conditional writers or ambiguous same-header composition remain inconclusive.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/reactive/exploits/headers.html#webflux-headers-frame-options>
 
@@ -670,7 +679,7 @@ Spring separately rejects `allowedOrigins="*"` with credentials; that invalid co
 ### SEC-RXF-HEAD-004 - Review Content-Security-Policy enforcement for reactive browser chains
 
 - **Severity**: LOW
-- **Detects**: A fully inspected Spring Security header configuration has no CSP or only a report-only policy. Spring's unconfigured native CSP writer emits no header and does not establish a policy. An enforcing policy alongside report-only monitoring is valid in either writer order.
+- **Detects**: A chain with an observed interactive browser login (form, one-time-token or OAuth2/OIDC) has a fully inspected Spring Security header configuration with no CSP or only a report-only policy. Bearer-only and Basic API chains are no longer flagged, matching servlet SEC-HEAD-003. Spring's unconfigured native CSP writer emits no header and does not establish a policy. An enforcing policy alongside report-only monitoring is valid in either writer order.
 - **Recommendation**: For browser-facing responses, define a tailored enforcing CSP; keep report-only mode bounded to rollout/monitoring.
 - **Learn more**: <https://docs.spring.io/spring-security/reference/reactive/exploits/headers.html#webflux-headers-csp>
 
@@ -759,6 +768,13 @@ inconclusive rather than assumed to inherit application-chain policy.
 - **Recommendation**: Use HTTPS and validate the authorization server certificate.
 - **Learn more**: <https://www.rfc-editor.org/rfc/rfc7662.html#section-4>
 
+### SEC-RXF-OAUTH2-005 - OAuth2 client provider endpoints must use HTTPS in reactive production applications
+
+- **Severity**: HIGH
+- **Detects**: A production profile with a registration-linked `spring.security.oauth2.client.provider.<id>` `authorization-uri`, `token-uri`, `jwk-set-uri` or `user-info-uri` using plain HTTP, discovered from bounded native configuration maps like SEC-OAUTH-006. `issuer-uri` belongs to the Pentesting advisor (PT-A07-006). Only property names are reported.
+- **Recommendation**: Use HTTPS for every OAuth2 client provider endpoint and keep certificate validation enabled; reserve HTTP providers for isolated local development.
+- **Learn more**: <https://www.rfc-editor.org/rfc/rfc6749.html#section-3.2>
+
 ### SEC-RXF-CONFIG-002 - Review HTTPS enforcement for reactive production applications
 
 - **Severity**: MEDIUM
@@ -802,6 +818,11 @@ The accuracy review uses the project's exact framework baseline, not generic ass
 - [DAO provider defaults](https://github.com/spring-projects/spring-security/blob/7.1.1/core/src/main/java/org/springframework/security/authentication/dao/DaoAuthenticationProvider.java)
   and [session management](https://github.com/spring-projects/spring-security/blob/7.1.1/docs/modules/ROOT/pages/servlet/authentication/session-management.adoc)
   define effective password/session defaults independently of incidental bean/filter presence.
+- [WebAuthn configurer](https://github.com/spring-projects/spring-security/blob/7.1.1/config/src/main/java/org/springframework/security/config/annotation/web/configurers/WebAuthnConfigurer.java)
+  builds `WebAuthnAuthenticationFilter` without the shared session-authentication strategy, unlike the
+  [one-time-token](https://github.com/spring-projects/spring-security/blob/7.1.1/config/src/main/java/org/springframework/security/config/annotation/web/configurers/ott/OneTimeTokenLoginConfigurer.java)
+  and SAML 2.0 login configurers; [OAuth2 resource-server validation](https://github.com/spring-projects/spring-security/blob/7.1.1/config/src/main/java/org/springframework/security/config/annotation/web/configurers/oauth2/server/resource/OAuth2ResourceServerConfigurer.java)
+  rejects a bearer filter without JWT or opaque-token configuration at startup.
 - [Reactive HTTP security](https://github.com/spring-projects/spring-security/blob/7.1.1/config/src/main/java/org/springframework/security/config/web/server/ServerHttpSecurity.java)
   defines Basic, form/OIDC login, context repositories and filter installation.
 - [Actuator access resolution](https://github.com/spring-projects/spring-boot/blob/v4.1.1/module/spring-boot-actuator-autoconfigure/src/main/java/org/springframework/boot/actuate/autoconfigure/endpoint/PropertiesEndpointAccessResolver.java)

@@ -66,7 +66,7 @@ class ReactiveSecurityBootstrapTests {
                             sourceTypes, capturedTypes, observation, report)
                     .isEqualTo("SCANNED");
             assertThat(report.analysisErrors()).isEmpty();
-            assertThat(report.rulesEvaluated()).isEqualTo(25);
+            assertThat(report.rulesEvaluated()).isEqualTo(26);
             assertThat(report.filterChainsAnalyzed()).isEqualTo(1);
             assertThat(observation.environment().suspectedHardcodedSecretKeys()).contains("security.audit.password");
             assertThat(report.toString()).doesNotContain("bootstrap-test-literal");

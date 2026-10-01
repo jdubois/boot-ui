@@ -60,7 +60,22 @@ public final class SecurityRuntimeHints implements RuntimeHintsRegistrar {
             "org.springframework.security.oauth2.server.resource.web.OAuth2ProtectedResourceMetadataFilter",
             "org.springframework.security.oauth2.client.web.OAuth2LoginAuthenticationFilter",
             "org.springframework.security.oauth2.client.web.OAuth2AuthorizationCodeGrantFilter",
-            "org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestRedirectFilter");
+            "org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestRedirectFilter",
+            // Spring Security 7 first-party login mechanisms: one-time tokens, passkeys and SAML 2.0.
+            "org.springframework.security.web.authentication.ott.OneTimeTokenAuthenticationFilter",
+            "org.springframework.security.web.authentication.ott.GenerateOneTimeTokenFilter",
+            "org.springframework.security.web.authentication.ui.DefaultOneTimeTokenSubmitPageGeneratingFilter",
+            "org.springframework.security.web.webauthn.authentication.WebAuthnAuthenticationFilter",
+            "org.springframework.security.web.webauthn.authentication.PublicKeyCredentialRequestOptionsFilter",
+            "org.springframework.security.web.webauthn.registration.WebAuthnRegistrationFilter",
+            "org.springframework.security.web.webauthn.registration.PublicKeyCredentialCreationOptionsFilter",
+            "org.springframework.security.web.webauthn.registration.DefaultWebAuthnRegistrationPageGeneratingFilter",
+            "org.springframework.security.saml2.provider.service.web.authentication.Saml2WebSsoAuthenticationFilter",
+            "org.springframework.security.saml2.provider.service.web.Saml2WebSsoAuthenticationRequestFilter",
+            "org.springframework.security.saml2.provider.service.web.Saml2MetadataFilter",
+            "org.springframework.security.saml2.provider.service.web.authentication.logout.Saml2LogoutRequestFilter",
+            "org.springframework.security.saml2.provider.service.web.authentication.logout.Saml2LogoutResponseFilter",
+            "org.springframework.security.config.annotation.web.configurers.saml2.Saml2LogoutConfigurer$Saml2RelyingPartyInitiatedLogoutFilter");
 
     private static final String[] SHARED_TYPES = {
         "org.springframework.core.env.AbstractEnvironment",

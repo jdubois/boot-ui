@@ -4,7 +4,7 @@ import java.util.List;
 
 final class ReactiveSecurityRuleRegistry {
 
-    static final int RULE_COUNT = 25;
+    static final int RULE_COUNT = 26;
 
     private static final List<ReactiveSecurityRule> ACTIVE_RULES = List.of(
             // Authorization
@@ -35,6 +35,7 @@ final class ReactiveSecurityRuleRegistry {
             new ReactiveJwtStaticKeyRule(),
             new ReactiveInsecureJwtMetadataUrlRule(),
             new ReactiveInsecureOpaqueTokenIntrospectionUrlRule(),
+            new ReactiveInsecureOAuth2ClientEndpointRule(),
             // Configuration hygiene
             new ReactiveHttpsEnforcementRule(),
             new ReactiveHardcodedSecretPropertyRule(),

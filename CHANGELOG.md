@@ -49,6 +49,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Spring Security advisor audited against Spring Security 7.1.1.** Spring Security 7's passkey (`webAuthn()`),
+  one-time-token and SAML 2.0 login filters are now recognized framework filters and browser-login credentials on
+  Spring MVC, so those chains are assessed by the CSRF, framing, CSP and session checks instead of being left
+  incomplete; WebFlux one-time-token login is recognized the same way. `SEC-SESSION-001` now reports session-backed
+  passkey login, whose 7.1 configurer applies no session-authentication strategy (no session-id or CSRF-token rotation
+  at login), with its own message and an `ObjectPostProcessor` remediation. New HIGH, production-only rules flag plain
+  HTTP opaque-token introspection on Spring MVC (`SEC-OAUTH-005`, parity with `SEC-RXF-OAUTH2-004`) and plain HTTP
+  OAuth2 client provider authorization, token, JWK-set and user-info endpoints on both stacks (`SEC-OAUTH-006`,
+  `SEC-RXF-OAUTH2-005`; the WebFlux catalogue now has 26 rules). `SEC-CORS-003` and `SEC-OAUTH-001`, which could only
+  pass or skip, are retired. `SEC-SESSION-004` now reviews explicit `SameSite=None` instead of skipping every unset
+  value; `SEC-SESSION-002` no longer flags production apps with direct TLS; `SEC-OAUTH-004` is production-only like its
+  reactive twin; `SEC-HEAD-002` drops from HIGH to MEDIUM and `SEC-HEAD-007` rises from LOW to MEDIUM to match WebFlux;
+  and the WebFlux framing and CSP reviews (`SEC-RXF-HEAD-002`, `SEC-RXF-HEAD-004`) no longer flag bearer-only API
+  chains ([Security checks](docs/SECURITY-CHECKS.md)).
+
 - **One request slow threshold on every stack.** `bootui.activity.request-slow-threshold-ms` (default 1,000 ms) is now
   honored by Spring WebFlux and Quarkus as well as Spring MVC. It sets the `SLOW` severity of Live Activity `REQUEST`
   and `SCHEDULED` entries and decides which exchanges are kept longer. Spring WebFlux and Quarkus previously used a

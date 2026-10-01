@@ -52,7 +52,7 @@ class SecurityRulesTests {
         SecurityRuleResultDto result = new HeaderWritersDisabledRule().evaluate(singleChain(chain));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
-        assertThat(result.severity()).isEqualTo("LOW");
+        assertThat(result.severity()).isEqualTo("MEDIUM");
     }
 
     @Test
@@ -86,6 +86,58 @@ class SecurityRulesTests {
         SecurityRuleResultDto result = new FrameOptionsRule().evaluate(singleChain(chain));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("MEDIUM");
+    }
+
+    // --- Spring Security 7 first-party login filters ---------------------------------------
+
+    @Test
+    void passkeyOneTimeTokenAndSamlLoginAreBrowserCredentialsForCsrf() {
+        for (String login : List.of(
+                "WebAuthnAuthenticationFilter",
+                "OneTimeTokenAuthenticationFilter",
+                "Saml2WebSsoAuthenticationFilter")) {
+            FilterChainModel chain = chain("any request", List.of("HeaderWriterFilter", login, "AuthorizationFilter"));
+
+            assertThat(chain.browserCredentials()).as(login).isTrue();
+            assertThat(chain.isStateful()).as(login).isTrue();
+            assertThat(new CsrfDisabledStatefulRule()
+                            .evaluate(singleChain(chain))
+                            .status())
+                    .as(login)
+                    .isEqualTo(SecurityRuleSupport.VIOLATION);
+        }
+    }
+
+    @Test
+    void passkeySessionFixationFindingNamesTheFrameworkDefaultNotAnApplicationOptOut() {
+        FilterChainModel chain = new FilterChainModel(
+                0,
+                "any request",
+                List.of("WebAuthnAuthenticationFilter", "CsrfFilter", "AuthorizationFilter"),
+                null,
+                Boolean.TRUE,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                Boolean.FALSE,
+                null,
+                null,
+                new SecurityModel.ChainDetails(true, true, true, null, List.of(), null, false, true, true));
+
+        SecurityRuleResultDto result = new SessionFixationRule().evaluate(singleChain(chain));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("HIGH");
+        assertThat(result.sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("passkey (webAuthn())")
+                .doesNotContain("sessionFixation().none()");
     }
 
     @Test
@@ -487,78 +539,6 @@ class SecurityRulesTests {
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
 
-    // --- SEC-OAUTH-001: JWT and opaque-token resource servers must validate tokens ----------
-
-    @Test
-    void resourceServerValidationPassesWhenNoBearerChainIsPresent() {
-        FilterChainModel chain = chain(
-                "any request",
-                List.of("SecurityContextHolderFilter", "UsernamePasswordAuthenticationFilter", "AuthorizationFilter"));
-
-        SecurityRuleResultDto result = new ResourceServerValidationRule().evaluate(singleChain(chain));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
-    }
-
-    @Test
-    void resourceServerValidationRemainsUnknownWithoutAttachedMetadata() {
-        FilterChainModel chain = chain(
-                "any request",
-                List.of("SecurityContextHolderFilter", "BearerTokenAuthenticationFilter", "AuthorizationFilter"));
-
-        SecurityRuleResultDto result =
-                new ResourceServerValidationRule().evaluate(context(List.of(chain), new MockEnvironment()));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.SKIPPED);
-        assertThat(result.severity()).isEqualTo("HIGH");
-    }
-
-    @Test
-    void resourceServerValidationDoesNotTrustUnattachedIssuerProperty() {
-        FilterChainModel chain = chain(
-                "any request",
-                List.of("SecurityContextHolderFilter", "BearerTokenAuthenticationFilter", "AuthorizationFilter"));
-        MockEnvironment environment = new MockEnvironment()
-                .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "https://issuer.example.com");
-
-        SecurityRuleResultDto result =
-                new ResourceServerValidationRule().evaluate(context(List.of(chain), environment));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.SKIPPED);
-    }
-
-    @Test
-    void resourceServerValidationDoesNotTrustUnattachedIntrospectionProperty() {
-        // Verified false-positive fix: BearerTokenAuthenticationFilter is installed identically for
-        // .oauth2ResourceServer(oauth2 -> oauth2.jwt(...)) and .opaqueToken(...), so an opaque-token
-        // resource server configured only via the introspection-uri property must also pass.
-        FilterChainModel chain = chain(
-                "any request",
-                List.of("SecurityContextHolderFilter", "BearerTokenAuthenticationFilter", "AuthorizationFilter"));
-        MockEnvironment environment = new MockEnvironment()
-                .withProperty(
-                        "spring.security.oauth2.resourceserver.opaquetoken.introspection-uri",
-                        "https://issuer.example.com/introspect");
-
-        SecurityRuleResultDto result =
-                new ResourceServerValidationRule().evaluate(context(List.of(chain), environment));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.SKIPPED);
-    }
-
-    @Test
-    void resourceServerValidationPassesWithOpaqueTokenIntrospectorBeanPresent() {
-        FilterChainModel chain = chain(
-                "any request",
-                List.of("SecurityContextHolderFilter", "BearerTokenAuthenticationFilter", "AuthorizationFilter"));
-
-        SecurityRuleResultDto result = new ResourceServerValidationRule()
-                .evaluate(contextWithOpaqueTokenIntrospector(
-                        List.of(chain), List.of("com.example.CustomOpaqueTokenIntrospector"), new MockEnvironment()));
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
-    }
-
     // --- SEC-OAUTH-002: custom decoder is advisory ------------------------------------------
 
     @Test
@@ -761,18 +741,6 @@ class SecurityRulesTests {
         SecurityRuleResultDto result = new BroadCorsOriginPatternRule().evaluate(customCorsSourceOnly());
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.SKIPPED);
-    }
-
-    @Test
-    void corsSourcePassesWhenSpringSecurityInstallsPreFlightRequestFilter() {
-        FilterChainModel chain = chain("any request", List.of("PreFlightRequestFilter", "AuthorizationFilter"));
-        CorsConfigModel cors =
-                new CorsConfigModel("/**", List.of("https://example.com"), List.of(), List.of("GET"), List.of(), false);
-        SecurityContext context = context(List.of(chain), List.of(), List.of(cors), List.of(), new MockEnvironment());
-
-        SecurityRuleResultDto result = new CorsNotInSecurityChainRule().evaluate(context);
-
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
 
     // --- SEC-AUTHZ-002 / 003: stop over-claiming blanket permitAll --------------------------
@@ -1179,15 +1147,69 @@ class SecurityRulesTests {
     }
 
     @Test
-    void explicitlyFalseSessionCookieSecureStillFiresForStatelessChain() {
+    void explicitlyFalseSessionCookieSecureOutsideProductionIsLeftToPentesting() {
         MockEnvironment environment =
                 new MockEnvironment().withProperty("server.servlet.session.cookie.secure", "false");
         FilterChainModel chain =
-                chain("any request", List.of("BearerTokenAuthenticationFilter", "AuthorizationFilter"));
+                chain("any request", List.of("UsernamePasswordAuthenticationFilter", "AuthorizationFilter"));
 
         SecurityRuleResultDto result = new SessionCookieSecureRule().evaluate(context(List.of(chain), environment));
 
-        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    @Test
+    void sessionCookieSecureReviewsProductionWithoutDirectTls() {
+        FilterChainModel chain =
+                chain("any request", List.of("UsernamePasswordAuthenticationFilter", "AuthorizationFilter"));
+        MockEnvironment unset = new MockEnvironment();
+        unset.setActiveProfiles("prod");
+        MockEnvironment explicitFalse =
+                new MockEnvironment().withProperty("server.servlet.session.cookie.secure", "false");
+        explicitFalse.setActiveProfiles("prod");
+        MockEnvironment forced = new MockEnvironment().withProperty("server.servlet.session.cookie.secure", "true");
+        forced.setActiveProfiles("prod");
+        MockEnvironment directTls = new MockEnvironment().withProperty("server.ssl.bundle", "web");
+        directTls.setActiveProfiles("prod");
+
+        SessionCookieSecureRule rule = new SessionCookieSecureRule();
+
+        assertThat(rule.evaluate(context(List.of(chain), unset)).status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(rule.evaluate(context(List.of(chain), explicitFalse)).sampleViolations())
+                .singleElement()
+                .asString()
+                .contains("explicitly false");
+        assertThat(rule.evaluate(context(List.of(chain), forced)).status()).isEqualTo(SecurityRuleSupport.PASS);
+        // Tomcat and Jetty mark cookies issued over HTTPS requests Secure regardless of the property.
+        assertThat(rule.evaluate(context(List.of(chain), directTls)).status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    // --- SEC-SESSION-004: SameSite=None review ---------------------------------------------
+
+    @Test
+    void sameSiteNoneIsReviewedButUnsetLaxAndPentestOwnedCombinationAreNot() {
+        FilterChainModel chain =
+                chain("any request", List.of("UsernamePasswordAuthenticationFilter", "AuthorizationFilter"));
+        SessionCookieSameSiteRule rule = new SessionCookieSameSiteRule();
+
+        SecurityRuleResultDto none = rule.evaluate(context(
+                List.of(chain),
+                new MockEnvironment().withProperty("server.servlet.session.cookie.same-site", " None ")));
+        SecurityRuleResultDto unset = rule.evaluate(context(List.of(chain), new MockEnvironment()));
+        SecurityRuleResultDto lax = rule.evaluate(context(
+                List.of(chain), new MockEnvironment().withProperty("server.servlet.session.cookie.same-site", "lax")));
+        SecurityRuleResultDto noneWithoutSecure = rule.evaluate(context(
+                List.of(chain),
+                new MockEnvironment()
+                        .withProperty("server.servlet.session.cookie.same-site", "none")
+                        .withProperty("server.servlet.session.cookie.secure", "false")));
+
+        assertThat(none.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(none.severity()).isEqualTo("LOW");
+        assertThat(unset.status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(lax.status()).isEqualTo(SecurityRuleSupport.PASS);
+        // None with secure=false is the Pentesting advisor's PT-A02-006.
+        assertThat(noneWithoutSecure.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
 
     // --- SEC-AUTH-008: hideUserNotFoundExceptions should stay enabled -----------------------
@@ -1398,13 +1420,87 @@ class SecurityRulesTests {
     @Test
     void insecureIssuerUriFires() {
         MockEnvironment environment = new MockEnvironment()
-                .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", "http://issuer.example.com");
+                .withProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri", " http://issuer.example.com");
+        environment.setActiveProfiles("prod");
 
         SecurityRuleResultDto result = new InsecureJwtMetadataUrlRule().evaluate(context(environment));
 
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
         assertThat(result.sampleViolations())
                 .containsExactly("spring.security.oauth2.resourceserver.jwt.issuer-uri uses plain HTTP.");
+    }
+
+    @Test
+    void localDevelopmentIssuerUriIsNotAProductionTransportFinding() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty(
+                        "spring.security.oauth2.resourceserver.jwt.issuer-uri", "http://localhost:8180/realms/dev");
+
+        SecurityRuleResultDto result = new InsecureJwtMetadataUrlRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    // --- SEC-OAUTH-005: opaque-token introspection transport ---------------------------------
+
+    @Test
+    void plainHttpIntrospectionIsHighOnlyInProduction() {
+        String key = "spring.security.oauth2.resourceserver.opaquetoken.introspection-uri";
+        MockEnvironment production = new MockEnvironment().withProperty(key, "http://auth.example.com/introspect");
+        production.setActiveProfiles("prod");
+        MockEnvironment secure = new MockEnvironment().withProperty(key, "https://auth.example.com/introspect");
+        secure.setActiveProfiles("prod");
+        MockEnvironment development = new MockEnvironment().withProperty(key, "http://localhost:8180/introspect");
+        InsecureIntrospectionUrlRule rule = new InsecureIntrospectionUrlRule();
+
+        SecurityRuleResultDto violation = rule.evaluate(context(production));
+
+        assertThat(violation.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(violation.severity()).isEqualTo("HIGH");
+        assertThat(violation.sampleViolations()).containsExactly(key + " uses plain HTTP.");
+        assertThat(violation.toString()).doesNotContain("auth.example.com");
+        assertThat(rule.evaluate(context(secure)).status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(rule.evaluate(context(development)).status()).isEqualTo(SecurityRuleSupport.PASS);
+    }
+
+    // --- SEC-OAUTH-006: OAuth2 client provider endpoint transport ----------------------------
+
+    @Test
+    void plainHttpClientProviderEndpointsAreReportedOnlyWhenLinkedToARegistration() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("spring.security.oauth2.client.registration.corp-login.provider", "corp")
+                .withProperty("spring.security.oauth2.client.registration.corp-login.client-id", "app")
+                .withProperty("spring.security.oauth2.client.provider.corp.token-uri", "http://idp.example.com/token")
+                .withProperty("spring.security.oauth2.client.provider.corp.authorization-uri", "https://idp/auth")
+                .withProperty("spring.security.oauth2.client.provider.corp.userInfoUri", "http://idp.example.com/me")
+                .withProperty("spring.security.oauth2.client.provider.corp.issuer-uri", "http://idp.example.com")
+                .withProperty("spring.security.oauth2.client.provider.unused.token-uri", "http://other/token")
+                .withProperty("spring.security.oauth2.client.registration.selfnamed.client-id", "app")
+                .withProperty("spring.security.oauth2.client.provider.selfnamed.jwk-set-uri", "http://keys/jwks");
+        environment.setActiveProfiles("prod");
+
+        SecurityRuleResultDto result = new InsecureOAuth2ClientEndpointRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(result.severity()).isEqualTo("HIGH");
+        assertThat(result.sampleViolations())
+                .containsExactlyInAnyOrder(
+                        "spring.security.oauth2.client.provider.corp.token-uri uses plain HTTP.",
+                        "spring.security.oauth2.client.provider.corp.userInfoUri uses plain HTTP.",
+                        "spring.security.oauth2.client.provider.selfnamed.jwk-set-uri uses plain HTTP.");
+        assertThat(String.join(" ", result.sampleViolations()))
+                .doesNotContain("idp.example.com", "issuer-uri", "unused");
+    }
+
+    @Test
+    void plainHttpClientProviderEndpointsAreNotFlaggedInDevelopment() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("spring.security.oauth2.client.registration.local.client-id", "app")
+                .withProperty("spring.security.oauth2.client.provider.local.token-uri", "http://localhost:8180/token");
+
+        SecurityRuleResultDto result = new InsecureOAuth2ClientEndpointRule().evaluate(context(environment));
+
+        assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
 
     @Test
@@ -1917,31 +2013,6 @@ class SecurityRulesTests {
                 hideUserNotFoundExceptionsDisabled,
                 opaqueTokenIntrospectorTypes,
                 generatedUserDetailsManagerPresent,
-                environment);
-    }
-
-    /**
-     * Combines custom filter chains with a set of discovered {@code OpaqueTokenIntrospector} bean
-     * types -- used only to test SEC-OAUTH-001's opaque-token-bean detection path, which neither of
-     * the overloads above can express together.
-     */
-    private static SecurityContext contextWithOpaqueTokenIntrospector(
-            List<FilterChainModel> chains, List<String> opaqueTokenIntrospectorTypes, Environment environment) {
-        return new SecurityContext(
-                chains,
-                List.of(),
-                List.of(),
-                false,
-                List.of(),
-                false,
-                false,
-                false,
-                false,
-                List.of(),
-                false,
-                false,
-                opaqueTokenIntrospectorTypes,
-                false,
                 environment);
     }
 
