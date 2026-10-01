@@ -307,6 +307,23 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
         listeners.remove(listener);
     }
 
+    /**
+     * Calls {@code onChange} on the dispatcher after each batch of recorded events, so a view can refresh when the
+     * journal records anything, whichever source it came from ({@code docs/PLAN-v2.md} §5.3). BootUI's own work is
+     * never recorded, so a view's refresh never triggers another.
+     *
+     * @return the action that stops the calls
+     */
+    public Runnable subscribe(Runnable onChange) {
+        JournalListener listener = entries -> {
+            if (!entries.isEmpty()) {
+                onChange.run();
+            }
+        };
+        addListener(listener);
+        return () -> removeListener(listener);
+    }
+
     /** The retained events, newest first. */
     public List<JournalEntry> entries() {
         return ring.newestFirst();

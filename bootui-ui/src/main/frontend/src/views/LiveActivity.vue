@@ -76,6 +76,13 @@ const typeFilter = ref('')
 const severityFilter = ref('')
 const textFilter = ref('')
 const errorsOnly = ref(false)
+// Where the feed comes from: '' leaves it to bootui.activity.feed-source, 'journal' asks for the feed rendered from the
+// runtime journal, which alone can filter by route, request id, and work outside any request (docs/PLAN-v2.md §5.3).
+const feedSource = ref('')
+const routeFilter = ref('')
+const requestIdFilter = ref('')
+const noRequestOnly = ref(false)
+const fromJournal = computed(() => feedSource.value === 'journal')
 
 // "Use a database" disclosure: reveals setup documentation (and, when a DataSource is already
 // configured, the "Use the existing datasource" switch action) next to the title. Collapsed by
@@ -131,6 +138,12 @@ function activityUrl(extra = {}) {
       errorsOnly: errorsOnly.value
     })
     for (const [key, value] of Object.entries(filterParams)) params.set(key, value)
+  }
+  if (fromJournal.value) {
+    params.set('source', 'journal')
+    if (routeFilter.value.trim()) params.set('route', routeFilter.value.trim())
+    if (requestIdFilter.value.trim()) params.set('requestId', requestIdFilter.value.trim())
+    if (noRequestOnly.value) params.set('noRequest', 'true')
   }
   for (const [key, value] of Object.entries(extra)) {
     if (value != null) params.set(key, value)
@@ -663,6 +676,7 @@ function restoreFilters() {
   if (saved.severity === '' || SEVERITIES.includes(saved.severity)) severityFilter.value = saved.severity
   if (typeof saved.text === 'string') textFilter.value = saved.text
   if (typeof saved.errorsOnly === 'boolean') errorsOnly.value = saved.errorsOnly
+  if (saved.source === '' || saved.source === 'journal') feedSource.value = saved.source
 }
 
 function persistFilters() {
@@ -670,7 +684,8 @@ function persistFilters() {
     type: typeFilter.value,
     severity: severityFilter.value,
     text: textFilter.value,
-    errorsOnly: errorsOnly.value
+    errorsOnly: errorsOnly.value,
+    source: feedSource.value
   })
 }
 
@@ -689,6 +704,19 @@ watch([typeFilter, severityFilter, textFilter, errorsOnly], () => {
   if (filterReloadTimer) clearTimeout(filterReloadTimer)
   filterReloadTimer = setTimeout(refreshNow, 300)
 })
+
+// The journal's filters run on the server, so changing one reloads the feed.
+watch([feedSource, routeFilter, requestIdFilter, noRequestOnly], () => {
+  persistFilters()
+  olderEntries.value = []
+  olderPageInfo.value = null
+  if (filterReloadTimer) clearTimeout(filterReloadTimer)
+  filterReloadTimer = setTimeout(refreshNow, 300)
+})
+
+const hasJournalFilters = computed(
+  () => fromJournal.value && (!!routeFilter.value.trim() || !!requestIdFilter.value.trim() || noRequestOnly.value)
+)
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
@@ -709,6 +737,9 @@ function clearFilters() {
   severityFilter.value = ''
   textFilter.value = ''
   errorsOnly.value = false
+  routeFilter.value = ''
+  requestIdFilter.value = ''
+  noRequestOnly.value = false
 }
 
 function toggleFlow() {
@@ -1041,7 +1072,45 @@ function toggleFlow() {
             <input id="activity-errors-only" v-model="errorsOnly" class="form-check-input" type="checkbox" />
             <label class="form-check-label small" for="activity-errors-only">Errors only</label>
           </div>
-          <button v-if="hasActiveFilters" class="btn btn-sm btn-outline-secondary" type="button" @click="clearFilters">
+          <div>
+            <label class="form-label small mb-1" for="activity-feed-source">Recorded by</label>
+            <select id="activity-feed-source" v-model="feedSource" class="form-select form-select-sm">
+              <option value="">Default</option>
+              <option value="journal">Runtime journal</option>
+            </select>
+          </div>
+          <template v-if="fromJournal">
+            <div>
+              <label class="form-label small mb-1" for="activity-route-filter">Route</label>
+              <input
+                id="activity-route-filter"
+                v-model="routeFilter"
+                type="search"
+                class="form-control form-control-sm"
+                placeholder="GET /api/orders/{id}"
+              />
+            </div>
+            <div>
+              <label class="form-label small mb-1" for="activity-request-filter">Request id</label>
+              <input
+                id="activity-request-filter"
+                v-model="requestIdFilter"
+                type="search"
+                class="form-control form-control-sm"
+                placeholder="Request id"
+              />
+            </div>
+            <div class="form-check mb-1">
+              <input id="activity-no-request" v-model="noRequestOnly" class="form-check-input" type="checkbox" />
+              <label class="form-check-label small" for="activity-no-request">No request</label>
+            </div>
+          </template>
+          <button
+            v-if="hasActiveFilters || hasJournalFilters"
+            class="btn btn-sm btn-outline-secondary"
+            type="button"
+            @click="clearFilters"
+          >
             Clear
           </button>
           <div class="ms-auto">

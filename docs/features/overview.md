@@ -361,6 +361,13 @@ same JVM, as after a DevTools restart or a Quarkus live reload, BootUI keeps a s
 why none can be kept when BootUI itself is reloaded with the application. The journal is sized and scoped by the
 `bootui.runtime-journal.*` [properties](../PROPERTIES.md#runtime-journal).
 
+**Recorded by** chooses where the feed comes from. **Default** follows `bootui.activity.feed-source`, which merges each
+panel's own buffer unless set to `journal`. **Runtime journal** renders the feed from the journal: every child nests
+under its request, scheduled run, or consumed message by id, transactions and log events appear as rows, and three
+more filters apply on the server: a **Route** such as `GET /api/orders/{id}`, with its requests' children, a **Request
+id**, and **No request**, which keeps only work outside any request. Rows from the journal carry metadata only: no
+exception or log messages and no principals. The feed refreshes whenever the journal records anything.
+
 ### Safety and limits
 
 The panel inherits BootUI's full safety model — loopback filter, Host allow-list, cross-site write defenses, value

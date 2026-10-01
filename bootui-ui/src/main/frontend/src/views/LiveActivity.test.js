@@ -176,6 +176,51 @@ describe('LiveActivity', () => {
     expect(wrapper.find('#activity-runtime-journal').exists()).toBe(true)
   })
 
+  it('asks for the runtime journal feed with its route, request, and no-request filters only when chosen', async () => {
+    vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
+    try {
+      safeLocalStorage.removeItem('bootui.activity.filters')
+      const fetchMock = stubFetch(activityReport(), requestProfile())
+      vi.stubGlobal('fetch', fetchMock)
+      const feedUrls = () =>
+        fetchMock.mock.calls
+          .map(([url]) => url)
+          .filter((url) => url === 'api/activity' || url.startsWith('api/activity?'))
+
+      wrapper = mountLiveActivity()
+      await flushPromises()
+
+      expect(feedUrls().every((url) => !url.includes('source='))).toBe(true)
+      expect(wrapper.find('#activity-route-filter').exists()).toBe(false)
+
+      await wrapper.get('#activity-feed-source').setValue('journal')
+      await wrapper.get('#activity-route-filter').setValue('GET /api/orders/{id}')
+      await wrapper.get('#activity-no-request').setValue(true)
+      vi.advanceTimersByTime(400)
+      await flushPromises()
+
+      const last = new URLSearchParams(feedUrls().at(-1).split('?')[1])
+      expect(last.get('source')).toBe('journal')
+      expect(last.get('route')).toBe('GET /api/orders/{id}')
+      expect(last.get('noRequest')).toBe('true')
+      expect(last.has('requestId')).toBe(false)
+
+      await wrapper
+        .findAll('button')
+        .find((button) => button.text() === 'Clear')
+        .trigger('click')
+      vi.advanceTimersByTime(400)
+      await flushPromises()
+      const cleared = new URLSearchParams(feedUrls().at(-1).split('?')[1])
+      expect(cleared.get('source')).toBe('journal')
+      expect(cleared.has('route')).toBe(false)
+      expect(cleared.has('noRequest')).toBe(false)
+    } finally {
+      vi.useRealTimers()
+      safeLocalStorage.removeItem('bootui.activity.filters')
+    }
+  })
+
   it('keeps filters usable when browser storage reads and writes are denied', async () => {
     vi.stubGlobal('localStorage', {
       getItem() {

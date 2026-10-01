@@ -16,6 +16,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,25 @@ class RuntimeJournalTests {
     @AfterEach
     void closeJournals() {
         journals.forEach(RuntimeJournal::close);
+    }
+
+    @Test
+    void aSubscriberIsToldOfEachRecordedBatchUntilItUnsubscribes() {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        AtomicInteger changes = new AtomicInteger();
+        Runnable unsubscribe = journal.subscribe(changes::incrementAndGet);
+
+        journal.dispatchPending();
+        assertThat(changes).as("an empty batch is no change").hasValue(0);
+        journal.offer(sql(1, false));
+        journal.offer(sql(2, false));
+        journal.dispatchPending();
+        assertThat(changes).hasValue(1);
+
+        unsubscribe.run();
+        journal.offer(sql(3, false));
+        journal.dispatchPending();
+        assertThat(changes).hasValue(1);
     }
 
     @Test

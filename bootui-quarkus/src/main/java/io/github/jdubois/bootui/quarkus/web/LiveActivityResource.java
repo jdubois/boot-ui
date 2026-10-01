@@ -594,7 +594,18 @@ public class LiveActivityResource {
                                                 emailChangeSource()),
                                         restClientChangeSource()),
                                 sqlChangeSource()),
-                        combined(exceptionStore::subscribe, faultToleranceChangeSource())));
+                        combined(
+                                combined(exceptionStore::subscribe, faultToleranceChangeSource()),
+                                journalChangeSource())));
+    }
+
+    /**
+     * Ticks the merged stream whenever the runtime journal records a batch, so a log event or any other source only
+     * the journal records refreshes the panel too ({@code docs/PLAN-v2.md} §5.3).
+     */
+    private SseStreams.ChangeSource journalChangeSource() {
+        return onChange ->
+                journal != null && journal.isResolvable() ? journal.get().subscribe(onChange) : () -> {};
     }
 
     /**

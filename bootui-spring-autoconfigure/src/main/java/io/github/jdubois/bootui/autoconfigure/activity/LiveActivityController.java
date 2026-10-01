@@ -325,6 +325,10 @@ public class LiveActivityController {
     public void setRuntimeJournal(RuntimeJournal journal, JournalAggregates aggregates) {
         this.runtimeJournal = new RuntimeJournalService(journal, aggregates);
         this.journalReports = journalReports(journal, aggregates);
+        if (journal != null) {
+            // Ticks the stream for every source the journal records, transactions and log events included.
+            unsubscribers.add(journal.subscribe(changeStream::signal));
+        }
     }
 
     private JournalActivityReports journalReports(RuntimeJournal journal, JournalAggregates aggregates) {
