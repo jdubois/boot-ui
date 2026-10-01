@@ -109,8 +109,13 @@ class BootUiQuarkusLiveActivitySecurityCorrelationTest {
                 .as("the SECURITY entry must nest under its owning request")
                 .isEqualTo(requestId);
 
+        // The default feed reads the runtime journal and lists it as its one source; the panel buffers list theirs.
+        Response buffers = probe().get("/bootui/api/activity?source=buffers");
+        assertThat(buffers.status())
+                .as("GET /bootui/api/activity?source=buffers status")
+                .isEqualTo(200);
         boolean securitySourceListed = false;
-        for (JsonNode source : activity.json().path("sources")) {
+        for (JsonNode source : buffers.json().path("sources")) {
             securitySourceListed = securitySourceListed || "security".equals(source.asText());
         }
         assertThat(securitySourceListed)
