@@ -929,6 +929,17 @@ class ArchitectureRulesTests {
     }
 
     @Test
+    void noFieldInjectionRuleKeepsReportingAnnotatedJavaFieldsEvenWithAMatchingConstructorParameter() {
+        // The constructor-property exemption is Kotlin-only (#1175): javac never copies a parameter annotation onto
+        // a field, so a Java field carrying @Value was written there by the developer.
+        ArchitectureRuleResultDto result = evaluate(new NoFieldInjectionRule(), JavaFieldAndConstructorValueBean.class);
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(1);
+        assertThat(result.sampleViolations()).singleElement().asString().contains("name");
+    }
+
+    @Test
     void noFieldInjectionRuleDoesNotFlagStandardJakartaInjectionAnnotations() {
         // Regression guard for the ARCH-SPRING-001 narrowing: plain jakarta.inject.Inject / @Resource
         // field injection (the idiomatic CDI/Quarkus style) must never trip Spring's own field-injection
@@ -1843,6 +1854,16 @@ class ArchitectureRulesTests {
 
         ConstructorInjectedBean(ExampleService service) {
             this.service = service;
+        }
+    }
+
+    private static class JavaFieldAndConstructorValueBean {
+
+        @Value("${some.name}")
+        private final String name;
+
+        JavaFieldAndConstructorValueBean(@Value("${some.name}") String name) {
+            this.name = name;
         }
     }
 

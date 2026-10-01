@@ -2,15 +2,19 @@ package io.github.jdubois.bootui.engine.architecture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.jdubois.bootui.core.dto.ArchitectureRuleResultDto;
 import io.github.jdubois.bootui.engine.architecture.kotlinfixtures.LegacyDateParameterMapper;
 import io.github.jdubois.bootui.engine.architecture.kotlinfixtures.LegacyTicketMapper;
+import io.github.jdubois.bootui.engine.architecture.kotlininjectionfixtures.KotlinConstructorInjectedComponent;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 
 /**
  * Pins the Kotlin-awareness of the Architecture rules against bytecode a real Kotlin compiler
@@ -21,6 +25,9 @@ import org.junit.jupiter.params.provider.EnumSource;
 class KotlinArchitectureRulesTests {
 
     private static final String KOTLIN_FIXTURES = "io.github.jdubois.bootui.engine.architecture.kotlinfixtures";
+
+    private static final String KOTLIN_INJECTION_FIXTURES =
+            "io.github.jdubois.bootui.engine.architecture.kotlininjectionfixtures";
 
     private ArchitectureContext context() {
         JavaClasses classes = new ClassFileImporter().importPackages(KOTLIN_FIXTURES);
@@ -162,6 +169,32 @@ class KotlinArchitectureRulesTests {
         ArchitectureRuleResultDto result = evaluate(new UtilityClassesShouldBeFinalWithPrivateConstructorRule());
 
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
+    }
+
+    @Test
+    void constructorPropertyInjectionIsNotFieldInjectionButKotlinFieldInjectionStillIs() {
+        JavaClasses classes = new ClassFileImporter().importPackages(KOTLIN_INJECTION_FIXTURES);
+        // Guard against a vacuous pass: the compiler really copied the constructor-property annotations onto the
+        // backing fields, which is the bytecode that used to be reported (#1175).
+        JavaClass constructorInjected = classes.get(KotlinConstructorInjectedComponent.class);
+        assertThat(constructorInjected.getField("sessionNamespace").isAnnotatedWith(Value.class))
+                .isTrue();
+        assertThat(constructorInjected.getField("retries").isAnnotatedWith(Value.class))
+                .isTrue();
+        assertThat(constructorInjected.getField("fallbackRepository").isAnnotatedWith(Autowired.class))
+                .isTrue();
+
+        ArchitectureRuleResultDto result = new NoFieldInjectionRule()
+                .evaluate(new ArchitectureContext(
+                        classes, List.of(KOTLIN_INJECTION_FIXTURES), ArchitecturePlatform.SPRING));
+
+        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
+        assertThat(result.violationCount()).isEqualTo(3);
+        assertThat(result.sampleViolations())
+                .allSatisfy(violation -> assertThat(violation).contains("KotlinFieldInjectedComponent"))
+                .anySatisfy(violation -> assertThat(violation).contains("KotlinFieldInjectedComponent.repository>"))
+                .anySatisfy(violation -> assertThat(violation).contains("KotlinFieldInjectedComponent.bodyProperty>"))
+                .anySatisfy(violation -> assertThat(violation).contains("KotlinFieldInjectedComponent.mismatched>"));
     }
 
     @Test
