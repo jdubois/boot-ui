@@ -16,7 +16,8 @@ enum GraalVmCategory {
     CLASSPATH_SCANNING("Classpath scanning"),
     SPRING_AOT("Spring AOT"),
     SECURITY_PROVIDERS("Security providers"),
-    JMX("JMX");
+    JMX("JMX"),
+    RUNTIME_BEHAVIOR("Runtime behavior");
 
     private final String label;
 

@@ -995,7 +995,8 @@ Purpose: run local OWASP-oriented hygiene checks without turning BootUI into an 
 
 Data sources:
 
-- Passive Spring application-context or Quarkus CORS/OIDC/TLS metadata.
+- Passive Spring application-context metadata. Quarkus CORS, OIDC, and TLS configuration belongs to the Security
+  panel (`QS-*`), so Quarkus scans rely on the synthetic responses.
 - Spring MVC request-mapping and servlet-security metadata when available. WebFlux and Quarkus report this inventory as
   unavailable rather than empty/clean.
 - At most one `GET` and one `OPTIONS` request to literal `127.0.0.1`, targeting a deliberately unlikely host-application

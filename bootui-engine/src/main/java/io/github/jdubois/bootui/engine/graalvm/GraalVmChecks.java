@@ -8,14 +8,19 @@ import com.tngtech.archunit.core.domain.AccessTarget.MethodCallTarget;
 import com.tngtech.archunit.core.domain.JavaAnnotation;
 import com.tngtech.archunit.core.domain.JavaCall;
 import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaCodeUnit;
 import com.tngtech.archunit.core.domain.JavaConstructorCall;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.domain.JavaModifier;
+import com.tngtech.archunit.core.domain.JavaType;
+import com.tngtech.archunit.core.domain.ReferencedClassObject;
 import com.tngtech.archunit.lang.ArchRule;
 import io.github.jdubois.bootui.core.dto.GraalVmFindingDto;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -108,14 +113,50 @@ final class ReflectionUsageCheck extends AbstractArchUnitGraalVmCheck {
             "setFloat",
             "setDouble");
 
+    // Spring's reflection facades perform the JDK lookup or access inside Spring on a method parameter, so the
+    // application's call site is the only place the target is visible. Optional-dependency probes such as
+    // ClassUtils.isPresent and accessibility helpers such as ReflectionUtils.makeAccessible are deliberately absent.
+    private static final Map<String, Set<String>> SPRING_REFLECTION_FACADES = Map.of(
+            "org.springframework.util.ReflectionUtils",
+            Set.of(
+                    "findField",
+                    "findMethod",
+                    "getField",
+                    "setField",
+                    "invokeMethod",
+                    "getDeclaredMethods",
+                    "getAllDeclaredMethods",
+                    "getUniqueDeclaredMethods",
+                    "doWithFields",
+                    "doWithLocalFields",
+                    "doWithMethods",
+                    "doWithLocalMethods",
+                    "accessibleConstructor"),
+            "org.springframework.util.ClassUtils",
+            Set.of(
+                    "forName",
+                    "resolveClassName",
+                    "getMethod",
+                    "getMethodIfAvailable",
+                    "getConstructorIfAvailable",
+                    "getStaticMethod"),
+            "org.springframework.beans.BeanUtils",
+            Set.of(
+                    "instantiateClass",
+                    "findMethod",
+                    "findDeclaredMethod",
+                    "getPropertyDescriptors",
+                    "getPropertyDescriptor",
+                    "copyProperties"));
+
     ReflectionUsageCheck() {
         super(new GraalVmCheckDefinition(
                 "GRAAL-REFLECT-001",
                 "Reflective API usage may need reflection metadata",
                 GraalVmCategory.REFLECTION,
                 "MEDIUM",
-                "Detects calls to reflection APIs that require metadata when their targets are not constant (Class.forName/arrayType/member lookups, Method.invoke, Constructor.newInstance, and Field value access). Reflective metadata accessors such as Field.getName() are intentionally ignored.",
-                "Review the actual target members and existing Spring AOT or dependency hints before adding registrations in reachability-metadata.json or Spring RuntimeHints. Spring AOT covers supported framework contracts, not every reflective operation performed by a Spring-managed bean.",
+                "Detects calls to reflection APIs that require metadata when their targets are not resolved during native-image analysis (Class.forName/arrayType/member lookups, Method.invoke, Constructor.newInstance, Field value access) and the Spring facades that perform the same lookups on their arguments (ReflectionUtils, ClassUtils.forName/getMethod*, BeanUtils.instantiateClass/copyProperties/property descriptors). Reflective metadata accessors such as Field.getName(), ClassUtils.isPresent, and ReflectionUtils.makeAccessible are intentionally ignored, as is Spring AOT-generated code.",
+                "Review the actual target members and existing Spring AOT or dependency hints before adding registrations in reachability-metadata.json or Spring RuntimeHints. Spring AOT covers supported framework contracts, not every reflective operation performed by a Spring-managed bean. BeanUtils.copyProperties and property-descriptor lookups find no accessors on an unregistered type, so a copy can silently do nothing; register those types for method invocation (for example with @RegisterReflection or @RegisterReflectionForBinding).",
                 "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
     }
 
@@ -126,9 +167,16 @@ final class ReflectionUsageCheck extends AbstractArchUnitGraalVmCheck {
                 .callMethodWhere(new DescribedPredicate<JavaMethodCall>("a reflection API method is called") {
                     @Override
                     public boolean test(JavaMethodCall call) {
+                        if (SpringAotGeneratedCode.isGenerated(call.getOriginOwner())) {
+                            return false;
+                        }
                         MethodCallTarget target = call.getTarget();
                         String owner = target.getOwner().getName();
                         String name = target.getName();
+                        Set<String> facadeMethods = SPRING_REFLECTION_FACADES.get(owner);
+                        if (facadeMethods != null) {
+                            return facadeMethods.contains(name);
+                        }
                         if ("java.lang.Class".equals(owner)) {
                             return CLASS_LOOKUPS.contains(name);
                         }
@@ -195,7 +243,7 @@ final class ResourceAccessCheck extends AbstractArchUnitGraalVmCheck {
                 "Runtime resource loading may need resource metadata",
                 GraalVmCategory.RESOURCES,
                 "LOW",
-                "Detects calls to Class/ClassLoader getResource/getResources/getResourceAsStream and Module.getResourceAsStream, whose resources must be embedded in the native image. Native Image can automatically register Class.getResource/getResourceAsStream only when both the receiver class and resource name are constant; runtime-computed names need metadata.",
+                "Detects calls to Class/ClassLoader getResource/getResources/getResourceAsStream and Module.getResourceAsStream, plus Spring classpath resource handles (new ClassPathResource(...)) and ResourcePatternResolver.getResources(...) pattern lookups, whose resources must be embedded in the native image. Native Image can automatically register Class.getResource/getResourceAsStream only when both the receiver class and resource name are constant; names passed through Spring's resource abstraction are resolved later and need metadata unless Spring Boot's built-in hints (application configuration, banner, messages, logging configuration) already cover them. Pattern lookups only see resources that were embedded.",
                 "Register the loaded resource paths (as globs) in reachability-metadata.json, or for application code register them with Spring's RuntimeHints (RuntimeHints.resources() via @ImportRuntimeHints) so native-image bundles them. Native-image resource URLs use the resource: scheme, so open their streams instead of treating URL.getFile() as a filesystem path.",
                 "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
     }
@@ -204,18 +252,29 @@ final class ResourceAccessCheck extends AbstractArchUnitGraalVmCheck {
     ArchRule rule(GraalVmContext context) {
         return noClasses()
                 .should()
-                .callMethodWhere(new DescribedPredicate<JavaMethodCall>("a resource is loaded by name") {
+                .callCodeUnitWhere(new DescribedPredicate<JavaCall<?>>("a resource is loaded by name") {
                     @Override
-                    public boolean test(JavaMethodCall call) {
-                        MethodCallTarget target = call.getTarget();
+                    public boolean test(JavaCall<?> call) {
+                        if (SpringAotGeneratedCode.isGenerated(call.getOriginOwner())) {
+                            return false;
+                        }
+                        CodeUnitCallTarget target = call.getTarget();
                         String name = target.getName();
+                        JavaClass owner = target.getOwner();
+                        if ("<init>".equals(name)) {
+                            return "org.springframework.core.io.ClassPathResource".equals(owner.getName());
+                        }
+                        if ("getResources".equals(name)
+                                && owner.isAssignableTo(
+                                        "org.springframework.core.io.support.ResourcePatternResolver")) {
+                            return true;
+                        }
                         if (!"getResource".equals(name)
                                 && !"getResources".equals(name)
                                 && !"resources".equals(name)
                                 && !"getResourceAsStream".equals(name)) {
                             return false;
                         }
-                        JavaClass owner = target.getOwner();
                         return owner.isAssignableTo(Class.class)
                                 || owner.isAssignableTo(ClassLoader.class)
                                 || "java.lang.Module".equals(owner.getName());
@@ -336,97 +395,6 @@ final class ClassLoaderUsageCheck extends AbstractArchUnitGraalVmCheck {
 }
 
 /**
- * Flags deep reflection that bypasses access checks: {@code AccessibleObject.setAccessible} /
- * {@code trySetAccessible} and {@code MethodHandles.privateLookupIn}. Native-image must be told about
- * the affected members so they stay reachable and (where written) writable.
- */
-final class DeepReflectionCheck extends AbstractArchUnitGraalVmCheck {
-
-    private static final Set<String> ACCESSIBLE_METHODS = Set.of("setAccessible", "trySetAccessible");
-
-    DeepReflectionCheck() {
-        super(new GraalVmCheckDefinition(
-                "GRAAL-REFLECT-003",
-                "Deep reflection (setAccessible / private lookups) may need reflection metadata",
-                GraalVmCategory.REFLECTION,
-                "MEDIUM",
-                "Detects deep reflection that bypasses access checks: AccessibleObject.setAccessible/trySetAccessible and MethodHandles.privateLookupIn, which native-image must be told about to keep the members reachable.",
-                "Register the accessed members under reflection in reachability-metadata.json and ensure the required module opens are configured; prefer public APIs over deep reflection.",
-                "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
-    }
-
-    @Override
-    ArchRule rule(GraalVmContext context) {
-        return noClasses()
-                .should()
-                .callMethodWhere(new DescribedPredicate<JavaMethodCall>("a deep-reflection method is called") {
-                    @Override
-                    public boolean test(JavaMethodCall call) {
-                        MethodCallTarget target = call.getTarget();
-                        String owner = target.getOwner().getName();
-                        String name = target.getName();
-                        if ("java.lang.invoke.MethodHandles".equals(owner)) {
-                            return "privateLookupIn".equals(name);
-                        }
-                        return ACCESSIBLE_METHODS.contains(name)
-                                && target.getOwner().isAssignableTo("java.lang.reflect.AccessibleObject");
-                    }
-                })
-                .as("Classes should not use deep reflection without reflection metadata");
-    }
-}
-
-/**
- * Flags reflective annotation queries on reflected members ({@code Method} / {@code Field} /
- * {@code Constructor} / {@code Parameter}). Native-image only retains those annotations when the
- * element is registered for reflection. Reads on {@code java.lang.Class} are intentionally ignored as
- * too common to be actionable.
- */
-final class AnnotationReflectionCheck extends AbstractArchUnitGraalVmCheck {
-
-    private static final Set<String> ANNOTATION_LOOKUPS = Set.of(
-            "getAnnotation",
-            "getAnnotations",
-            "getDeclaredAnnotation",
-            "getDeclaredAnnotations",
-            "getAnnotationsByType",
-            "getDeclaredAnnotationsByType",
-            "isAnnotationPresent");
-
-    AnnotationReflectionCheck() {
-        super(new GraalVmCheckDefinition(
-                "GRAAL-REFLECT-004",
-                "Reflective annotation access may need reflection metadata",
-                GraalVmCategory.REFLECTION,
-                "LOW",
-                "Detects reflective annotation queries on reflected members (Method, Field, Constructor, Parameter), whose annotations native-image only retains when the element is registered for reflection.",
-                "Register the inspected members under reflection in reachability-metadata.json so their annotations are available at run time.",
-                "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
-    }
-
-    @Override
-    ArchRule rule(GraalVmContext context) {
-        return noClasses()
-                .should()
-                .callMethodWhere(new DescribedPredicate<JavaMethodCall>("annotations are read reflectively") {
-                    @Override
-                    public boolean test(JavaMethodCall call) {
-                        MethodCallTarget target = call.getTarget();
-                        if (!ANNOTATION_LOOKUPS.contains(target.getName())) {
-                            return false;
-                        }
-                        String ownerName = target.getOwner().getName();
-                        return "java.lang.reflect.Method".equals(ownerName)
-                                || "java.lang.reflect.Field".equals(ownerName)
-                                || "java.lang.reflect.Constructor".equals(ownerName)
-                                || "java.lang.reflect.Parameter".equals(ownerName);
-                    }
-                })
-                .as("Classes should not read annotations from reflected members without reflection metadata");
-    }
-}
-
-/**
  * Flags calls to {@code Unsafe.allocateInstance(Class)} on {@code sun.misc.Unsafe} or
  * {@code jdk.internal.misc.Unsafe}. Unsafe allocation constructs an instance without invoking any
  * constructor, bypassing the construction path that native-image's reachability analysis tracks, so
@@ -441,7 +409,7 @@ final class UnsafeAllocateInstanceCheck extends AbstractArchUnitGraalVmCheck {
                 "Unsafe.allocateInstance bypasses construction and needs unsafeAllocated metadata",
                 GraalVmCategory.REFLECTION,
                 "MEDIUM",
-                "Detects calls to Unsafe.allocateInstance(Class) on sun.misc.Unsafe or jdk.internal.misc.Unsafe. This constructs an instance without invoking any constructor, which bypasses the construction path native-image's reachability analysis tracks; without metadata this throws MissingReflectionRegistrationError at run time.",
+                "Detects calls to Unsafe.allocateInstance(Class) on sun.misc.Unsafe or jdk.internal.misc.Unsafe. This constructs an instance without invoking any constructor, which bypasses the construction path native-image's reachability analysis tracks; without unsafeAllocated metadata the allocation fails at run time (a MissingReflectionRegistrationError under exact reachability handling).",
                 "Register the allocated type under reflection in reachability-metadata.json with \"unsafeAllocated\": true (in addition to its normal type registration), or replace Unsafe.allocateInstance with a public constructor or factory method where possible.",
                 "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
     }
@@ -557,9 +525,9 @@ final class RuntimeClassGenerationCheck extends AbstractArchUnitGraalVmCheck {
                 "Runtime class generation needs experimental native-image support",
                 GraalVmCategory.CLASS_GENERATION,
                 "HIGH",
-                "Detects runtime bytecode/class generation (ClassLoader/MethodHandles.Lookup/Unsafe defineClass methods, CGLIB, ByteBuddy, Javassist). Experimental runtime loading depends on the exact GraalVM release: 25.0.0 documents only trivial classes without fields or methods. The tracing agent's experimental Predefined Classes mode is also constrained and requires previously observed, stable bytecode.",
-                "Prefer Spring AOT or another build-time generator, or replace generated types with statically compiled equivalents. If generation cannot be avoided, validate the exact workload and experimental options against the shipped GraalVM distribution; current development-branch documentation is not a compatibility guarantee for GraalVM 25.",
-                "https://github.com/oracle/graal/blob/vm-25.0.0/substratevm/docs/runtime-class-loading.md"));
+                "Detects runtime bytecode/class generation (ClassLoader/MethodHandles.Lookup/Unsafe defineClass methods, CGLIB, ByteBuddy, Javassist). A default native image cannot define new classes at run time. GraalVM 25.0.x documents experimental runtime loading only for trivial classes; the GraalVM 25.1+ feature releases add experimental run-time class loading (-H:+RuntimeClassLoading; interpreted, with optional -H:+GraalJITCompileAtRuntime from 25.3) with documented limits such as no parallel class loading, no reloading of classes already included in the image, and no fallback for members the analysis removed from image classes (often requiring -H:Preserve=package=...).",
+                "Prefer Spring AOT or another build-time generator, or replace generated types with statically compiled equivalents. If generation cannot be avoided, validate the exact workload with the experimental run-time class loading options of the GraalVM release you ship, or the agent's Predefined Classes mode for stable bytecode; neither is a general compatibility guarantee.",
+                "https://github.com/oracle/graal/blob/graal-25.4.4.1.1/substratevm/docs/runtime-class-loading.md"));
     }
 
     @Override
@@ -676,7 +644,7 @@ final class ActiveSerializationCheck extends AbstractArchUnitGraalVmCheck {
                 GraalVmCategory.SERIALIZATION,
                 "MEDIUM",
                 "Detects calls to ObjectOutputStream.writeObject / ObjectInputStream.readObject, i.e. types serialized via the JDK serialization protocol at run time, which native-image must be told about explicitly.",
-                "Add every serialized type as a reflection entry with \"serializable\": true in reachability-metadata.json (or use Spring RuntimeHints serialization registration), or prefer a format that does not need build-time registration.",
+                "Add every serialized type as a reflection entry with \"serializable\": true in reachability-metadata.json (or use Spring RuntimeHints serialization registration), or prefer a format that does not need build-time registration. Native Image also registers the exact classes named in a compile-time-constant ObjectInputFilter.Config.createFilter(\"pkg.SerializableClass;!*;\") pattern (package wildcards do not register), which restricts deserialization on the JVM as well.",
                 "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
     }
 
@@ -880,8 +848,8 @@ final class SpringAotConditionedBeansCheck implements GraalVmCheck {
             "Environment-sensitive bean conditions freeze selection at AOT build time",
             GraalVmCategory.SPRING_AOT,
             "MEDIUM",
-            "Detects @Profile, @ConditionalOnProperty, @ConditionalOnBooleanProperty, custom @Conditional, or property-only @ConditionalOnExpression on application configuration/components and @Bean methods. Spring AOT evaluates these conditions at build time; deliberate @AutoConfiguration classes and classpath-only Spring Boot conditions are excluded.",
-            "Ensure the profiles and properties active during the AOT build (native-image compilation) match the intended production configuration, or restructure the configuration to use explicit build-time selection rather than runtime conditions.",
+            "Detects @Profile, @ConditionalOnProperty, @ConditionalOnBooleanProperty, @ConditionalOnCloudPlatform, @ConditionalOnThreading, custom @Conditional, or property-only @ConditionalOnExpression on application configuration/components and @Bean methods. Spring AOT evaluates these conditions at build time, so bean selection is frozen by the build machine's profiles, properties, environment variables, and Java version; deliberate @AutoConfiguration classes and classpath/bean-only Spring Boot conditions are excluded.",
+            "Ensure the profiles, properties, and platform active during the AOT build (native-image compilation) match the intended production configuration — for example set spring.main.cloud-platform and spring.threads.virtual.enabled explicitly for the build — or restructure the configuration to use explicit build-time selection rather than runtime conditions.",
             "https://docs.spring.io/spring-framework/reference/core/aot.html");
 
     @Override
@@ -928,7 +896,7 @@ final class SpringAotConditionSupport {
             "org.springframework.stereotype.Repository",
             "org.springframework.stereotype.Controller",
             "org.springframework.web.bind.annotation.RestController");
-    private static final String BEAN_ANNOTATION = "org.springframework.context.annotation.Bean";
+    static final String BEAN_ANNOTATION = "org.springframework.context.annotation.Bean";
     private static final String AUTO_CONFIGURATION = "org.springframework.boot.autoconfigure.AutoConfiguration";
     private static final String PROFILE = "org.springframework.context.annotation.Profile";
     private static final String CONDITIONAL = "org.springframework.context.annotation.Conditional";
@@ -939,6 +907,9 @@ final class SpringAotConditionSupport {
     private static final String CONDITIONAL_ON_EXPRESSION =
             "org.springframework.boot.autoconfigure.condition.ConditionalOnExpression";
     private static final String BOOT_CONDITION_PACKAGE = "org.springframework.boot.autoconfigure.condition.";
+    // Spring Boot conditions that read the deployment environment rather than the classpath or bean registry.
+    private static final List<String> ENVIRONMENT_BOOT_CONDITIONS = List.of(
+            BOOT_CONDITION_PACKAGE + "ConditionalOnCloudPlatform", BOOT_CONDITION_PACKAGE + "ConditionalOnThreading");
 
     private SpringAotConditionSupport() {}
 
@@ -1014,6 +985,11 @@ final class SpringAotConditionSupport {
                     || annotationType.isMetaAnnotatedWith(CONDITIONAL_ON_EXPRESSION)) {
                 return true;
             }
+            for (String environmentCondition : ENVIRONMENT_BOOT_CONDITIONS) {
+                if (environmentCondition.equals(name) || annotationType.isMetaAnnotatedWith(environmentCondition)) {
+                    return true;
+                }
+            }
             if (!name.startsWith(BOOT_CONDITION_PACKAGE) && annotationType.isMetaAnnotatedWith(CONDITIONAL)) {
                 return true;
             }
@@ -1021,7 +997,7 @@ final class SpringAotConditionSupport {
         return false;
     }
 
-    private static boolean isSpringComponent(JavaClass javaClass) {
+    static boolean isSpringComponent(JavaClass javaClass) {
         for (String annotation : SPRING_COMPONENT_ANNOTATIONS) {
             if (javaClass.isAnnotatedWith(annotation) || javaClass.isMetaAnnotatedWith(annotation)) {
                 return true;
@@ -1259,9 +1235,9 @@ final class SecurityProviderCheck extends AbstractArchUnitGraalVmCheck {
                 "Runtime security-provider registration needs native-image review",
                 GraalVmCategory.SECURITY_PROVIDERS,
                 "MEDIUM",
-                "Detects calls to Security.addProvider / Security.insertProviderAt. Native Image automatically analyzes security services present at build time, but adding a new provider at run time is restricted and can require provider-specific reachability and initialization support.",
-                "Prefer providers configured at image build time and follow the provider's Native Image integration guide. For migration testing, review GraalVM's --future-defaults=run-time-initialize-security-providers behavior before relying on runtime registration.",
-                "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
+                "Detects calls to Security.addProvider / Security.insertProviderAt. Native Image captures the provider list and order at build time, and by default new security providers cannot be registered at run time; only provider instances already present in the image can be reordered.",
+                "Configure the provider statically in the build-time provider list (java.security) and follow the provider's Native Image integration guide; re-inserting an instance obtained from Security.getProvider to change the order is supported. With --future-defaults=run-time-initialize-security-providers (or all / run-time-initialize-jdk) the provider list is constructed at run time; validate that mode before relying on runtime registration.",
+                "https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/JCASecurityServices/"));
     }
 
     @Override
@@ -1283,21 +1259,24 @@ final class SecurityProviderCheck extends AbstractArchUnitGraalVmCheck {
 }
 
 /**
- * Flags JMX usage: {@code ManagementFactory.getPlatformMBeanServer} and
- * {@code MBeanServer.registerMBean}. JMX is disabled by default in native images and requires
- * {@code --enable-monitoring=jmxserver} plus additional metadata.
+ * Flags JMX operations whose native-image behavior depends on monitoring options or metadata: MBean
+ * registration and attribute/operation access, JMX proxies, remote connector servers, and remote clients.
+ * Obtaining the platform MBeanServer alone is not flagged because Native Image substitutes an in-process
+ * server that works without {@code --enable-monitoring}.
  */
 final class JmxUsageCheck extends AbstractArchUnitGraalVmCheck {
+
+    private static final Set<String> MBEAN_ACCESS = Set.of("getAttribute", "getAttributes", "setAttribute", "invoke");
 
     JmxUsageCheck() {
         super(
                 new GraalVmCheckDefinition(
                         "GRAAL-JMX-001",
-                        "JMX usage requires --enable-monitoring in the native image",
+                        "JMX MBeans and connectors need native-image monitoring and metadata review",
                         GraalVmCategory.JMX,
                         "LOW",
-                        "Detects calls to ManagementFactory.getPlatformMBeanServer and MBeanServer.registerMBean. Native-image JMX support is experimental and disabled by default; server, client, and JVM-statistics capabilities are enabled explicitly with --enable-monitoring.",
-                        "Add --enable-monitoring=jmxserver (and jmxclient/jvmstat if required). Register each standard MBean interface as reflection proxy metadata (a reflection type whose value is {\"proxy\":[\"com.example.FooMBean\"]}) and register any reflectively accessed implementation members.",
+                        "Detects MBeanServer.registerMBean, MBean attribute/operation access through an MBeanServerConnection, JMX.newMBeanProxy/newMXBeanProxy, remote connector servers (JMXConnectorServerFactory.newJMXConnectorServer), and remote clients (JMXConnectorFactory.connect/newJMXConnector, ManagementFactory.newPlatformMXBeanProxy and the MBeanServerConnection overloads of getPlatformMXBean(s)). ManagementFactory.getPlatformMBeanServer() alone is not flagged: Native Image substitutes an in-process MBeanServer. Standard MBean introspection and JMX proxies are reflective, platform-bean attributes are only readable through the MBeanServer when their interface methods are registered, and without --enable-monitoring=jmxclient the remote-client ManagementFactory methods silently return null or an empty list instead of failing.",
+                        "Add --enable-monitoring=jmxserver for remote management and jmxclient for outgoing connections (jvmstat for discovery). Register each standard MBean interface for reflection and as a structured proxy type such as {\"type\":{\"proxy\":[\"com.example.FooMBean\"]}}; notification-emitting proxies need the ordered interfaces [\"com.example.FooMBean\",\"javax.management.NotificationEmitter\"]. Register the interface methods of any platform MXBean whose attributes you read through the MBeanServer.",
                         "https://www.graalvm.org/latest/reference-manual/native-image/guides/build-and-run-native-executable-with-remote-jmx/"));
     }
 
@@ -1305,21 +1284,39 @@ final class JmxUsageCheck extends AbstractArchUnitGraalVmCheck {
     ArchRule rule(GraalVmContext context) {
         return noClasses()
                 .should()
-                .callMethodWhere(
-                        new DescribedPredicate<JavaMethodCall>("JMX server is obtained or an MBean is registered") {
-                            @Override
-                            public boolean test(JavaMethodCall call) {
-                                MethodCallTarget target = call.getTarget();
-                                String name = target.getName();
-                                if ("getPlatformMBeanServer".equals(name)
-                                        && "java.lang.management.ManagementFactory"
-                                                .equals(target.getOwner().getName())) {
+                .callMethodWhere(new DescribedPredicate<JavaMethodCall>("a JMX MBean, proxy, or connector is used") {
+                    @Override
+                    public boolean test(JavaMethodCall call) {
+                        MethodCallTarget target = call.getTarget();
+                        String name = target.getName();
+                        JavaClass owner = target.getOwner();
+                        String ownerName = owner.getName();
+                        switch (ownerName) {
+                            case "javax.management.JMX":
+                                return "newMBeanProxy".equals(name) || "newMXBeanProxy".equals(name);
+                            case "javax.management.remote.JMXConnectorServerFactory":
+                                return "newJMXConnectorServer".equals(name);
+                            case "javax.management.remote.JMXConnectorFactory":
+                                return "connect".equals(name) || "newJMXConnector".equals(name);
+                            case "java.lang.management.ManagementFactory":
+                                if ("newPlatformMXBeanProxy".equals(name)) {
                                     return true;
                                 }
-                                return "registerMBean".equals(name)
-                                        && target.getOwner().isAssignableTo("javax.management.MBeanServer");
-                            }
-                        })
+                                List<JavaClass> parameters = target.getRawParameterTypes();
+                                return ("getPlatformMXBean".equals(name) || "getPlatformMXBeans".equals(name))
+                                        && !parameters.isEmpty()
+                                        && "javax.management.MBeanServerConnection"
+                                                .equals(parameters.get(0).getName());
+                            default:
+                                break;
+                        }
+                        if ("registerMBean".equals(name)) {
+                            return owner.isAssignableTo("javax.management.MBeanServer");
+                        }
+                        return MBEAN_ACCESS.contains(name)
+                                && owner.isAssignableTo("javax.management.MBeanServerConnection");
+                    }
+                })
                 .as("Classes should not use JMX without native-image monitoring configuration");
     }
 }
@@ -1388,8 +1385,8 @@ final class ForeignFunctionUsageCheck extends AbstractArchUnitGraalVmCheck {
                 GraalVmCategory.NATIVE_ACCESS,
                 "LOW",
                 "Detects calls to java.lang.foreign.Linker.downcallHandle or upcallStub. These calls create native downcalls/upcalls whose FunctionDescriptor layouts may need foreign metadata. Merely referencing Linker, MemorySegment, or Arena without creating a call handle is intentionally not flagged.",
-                "Register the native down/upcall descriptors under foreign in reachability-metadata.json, or confine native interop behind a boundary that can be described for the native image.",
-                "https://www.graalvm.org/latest/reference-manual/native-image/metadata/"));
+                "Register the native down/upcall descriptors under foreign in reachability-metadata.json, and pass --enable-native-access for the module performing restricted operations (ALL-UNNAMED for class-path code). FFM support is enabled by default in GraalVM 25 native images; metadata and native-access permission solve separate problems.",
+                "https://www.graalvm.org/latest/reference-manual/native-image/native-code-interoperability/ffm-api/"));
     }
 
     static boolean isForeignLinkerCall(String ownerName, String methodName) {
@@ -1409,5 +1406,456 @@ final class ForeignFunctionUsageCheck extends AbstractArchUnitGraalVmCheck {
                     }
                 })
                 .as("Classes should not use the Foreign Function Linker without native-image foreign metadata");
+    }
+}
+
+/**
+ * Flags bean retrieval with explicit constructor or factory-method arguments
+ * ({@code BeanFactory.getBean(String|Class, Object...)} and {@code ObjectProvider.getObject(Object...)}).
+ * Spring AOT generates an instance supplier per bean; explicit arguments bypass it, so the matching
+ * constructor is found reflectively and supplier-based field/method injection is skipped.
+ */
+final class ExplicitArgumentBeanRetrievalCheck extends AbstractArchUnitGraalVmCheck {
+
+    ExplicitArgumentBeanRetrievalCheck() {
+        super(new GraalVmCheckDefinition(
+                "SPRING-AOT-006",
+                "Explicit-argument bean retrieval may bypass AOT instance suppliers",
+                GraalVmCategory.SPRING_AOT,
+                "MEDIUM",
+                "Detects BeanFactory.getBean(String, Object...), BeanFactory.getBean(Class, Object...), and ObjectProvider.getObject(Object...) calls outside Spring AOT-generated code. Spring AOT translates bean creation into generated instance suppliers; creating a bean with custom arguments bypasses that supplier, so the matching constructor or factory method is introspected reflectively (hints that AOT cannot infer) and autowiring on fields and methods, which the supplier performs, is skipped. Whether a call actually passes arguments and creates a bean is not observable statically.",
+                "Replace prototype beans created with custom arguments by a manual factory pattern: a regular bean whose method creates the instance with new, taking the runtime arguments and its injected collaborators. If explicit-argument retrieval must stay, use constructor injection only on the target bean and register invocation hints for the constructor or factory method that Spring selects.",
+                "https://docs.spring.io/spring-framework/reference/core/aot.html#aot.bestpractices.custom-arguments"));
+    }
+
+    @Override
+    ArchRule rule(GraalVmContext context) {
+        return noClasses()
+                .should()
+                .callMethodWhere(
+                        new DescribedPredicate<JavaMethodCall>("a bean is retrieved with explicit creation arguments") {
+                            @Override
+                            public boolean test(JavaMethodCall call) {
+                                if (SpringAotGeneratedCode.isGenerated(call.getOriginOwner())) {
+                                    return false;
+                                }
+                                MethodCallTarget target = call.getTarget();
+                                List<JavaClass> parameters = target.getRawParameterTypes();
+                                String name = target.getName();
+                                if ("getBean".equals(name)
+                                        && parameters.size() == 2
+                                        && parameters.get(1).isEquivalentTo(Object[].class)
+                                        && (parameters.get(0).isEquivalentTo(String.class)
+                                                || parameters.get(0).isEquivalentTo(Class.class))) {
+                                    return target.getOwner()
+                                            .isAssignableTo("org.springframework.beans.factory.BeanFactory");
+                                }
+                                return "getObject".equals(name)
+                                        && parameters.size() == 1
+                                        && parameters.get(0).isEquivalentTo(Object[].class)
+                                        && target.getOwner()
+                                                .isAssignableTo("org.springframework.beans.factory.ObjectProvider");
+                            }
+                        })
+                .as("Classes should not create beans with explicit arguments under Spring AOT");
+    }
+}
+
+/**
+ * Flags {@code BeanDefinitionRegistryPostProcessor} beans that Spring AOT keeps in the generated runtime
+ * context: stereotype-annotated implementations and {@code @Bean} methods returning one. Such a processor
+ * runs during the AOT build and again when the native executable starts, unless it is also an AOT processor
+ * that Spring implicitly excludes.
+ */
+final class RegistryPostProcessorReplayCheck implements GraalVmCheck {
+
+    private static final String REGISTRY_POST_PROCESSOR =
+            "org.springframework.beans.factory.support.BeanDefinitionRegistryPostProcessor";
+    private static final String INITIALIZATION_AOT_PROCESSOR =
+            "org.springframework.beans.factory.aot.BeanFactoryInitializationAotProcessor";
+    private static final String REGISTRATION_AOT_PROCESSOR =
+            "org.springframework.beans.factory.aot.BeanRegistrationAotProcessor";
+
+    private static final GraalVmCheckDefinition DEFINITION = new GraalVmCheckDefinition(
+            "SPRING-AOT-007",
+            "Bean-definition registry post-processors may run again under AOT",
+            GraalVmCategory.SPRING_AOT,
+            "MEDIUM",
+            "Detects BeanDefinitionRegistryPostProcessor beans declared by the application (a Spring stereotype class, or a @Bean method returning one) that do not also implement BeanFactoryInitializationAotProcessor or BeanRegistrationAotProcessor, which Spring AOT implicitly excludes from the generated context. Spring AOT invokes such a processor at build time and the generated context invokes it again at run time: at best it repeats work already captured in the generated bean definitions, at worst re-registering a definition fails startup with BeanDefinitionOverrideException under Spring Boot's default spring.main.allow-bean-definition-overriding=false. Processors registered programmatically are not observed.",
+            "Prefer an ImportBeanDefinitionRegistrar imported with @Import, or Spring Framework 7's BeanRegistrar, which Spring AOT processes as part of configuration parsing. If the post-processor must stay a bean, also implementing BeanFactoryInitializationAotProcessor excludes it from the runtime context; Spring then initializes it and its dependencies during AOT processing, and its contribution must reproduce any effect that the generated bean definitions do not already capture (return null only when none remains).",
+            "https://docs.spring.io/spring-framework/reference/core/aot.html#aot.bestpractices.bean-registration");
+
+    @Override
+    public GraalVmCheckDefinition definition() {
+        return DEFINITION;
+    }
+
+    @Override
+    public GraalVmFindingDto evaluate(GraalVmContext context) {
+        try {
+            List<String> samples = new ArrayList<>();
+            int count = 0;
+            for (JavaClass javaClass : context.classes()) {
+                if (SpringAotGeneratedCode.isGenerated(javaClass)) {
+                    continue;
+                }
+                if (!javaClass.isInterface()
+                        && !javaClass.getModifiers().contains(JavaModifier.ABSTRACT)
+                        && SpringAotConditionSupport.isSpringComponent(javaClass)
+                        && replaysAtRuntime(javaClass)) {
+                    count++;
+                    addSample(
+                            samples,
+                            javaClass.getName() + " is a BeanDefinitionRegistryPostProcessor Spring component");
+                }
+                for (JavaMethod method : javaClass.getMethods()) {
+                    if (method.isAnnotatedWith(SpringAotConditionSupport.BEAN_ANNOTATION)
+                            && replaysAtRuntime(method.getRawReturnType())) {
+                        count++;
+                        addSample(
+                                samples,
+                                javaClass.getName() + "." + method.getName()
+                                        + " @Bean method returns a BeanDefinitionRegistryPostProcessor");
+                    }
+                }
+            }
+            return count == 0
+                    ? GraalVmCheckSupport.ok(DEFINITION)
+                    : GraalVmCheckSupport.review(DEFINITION, count, samples);
+        } catch (RuntimeException | LinkageError ex) {
+            return GraalVmCheckSupport.error(DEFINITION, "Check could not be evaluated: " + ex.getMessage());
+        }
+    }
+
+    private static boolean replaysAtRuntime(JavaClass type) {
+        return type.isAssignableTo(REGISTRY_POST_PROCESSOR)
+                && !type.isAssignableTo(INITIALIZATION_AOT_PROCESSOR)
+                && !type.isAssignableTo(REGISTRATION_AOT_PROCESSOR);
+    }
+
+    private static void addSample(List<String> samples, String sample) {
+        if (samples.size() < GraalVmCheckSupport.maxSampleOccurrences()) {
+            samples.add(GraalVmCheckSupport.detail(sample));
+        }
+    }
+}
+
+/**
+ * Flags Spring Cloud {@code @RefreshScope} on Spring components and {@code @Bean} methods. Spring Cloud
+ * documents that context refresh is not supported for Spring AOT transformations and native images.
+ */
+final class RefreshScopeCheck implements GraalVmCheck {
+
+    private static final String REFRESH_SCOPE = "org.springframework.cloud.context.config.annotation.RefreshScope";
+    private static final String SCOPE = "org.springframework.context.annotation.Scope";
+
+    private static final GraalVmCheckDefinition DEFINITION = new GraalVmCheckDefinition(
+            "SPRING-AOT-008",
+            "Refresh-scoped bean declarations are not supported under Spring AOT",
+            GraalVmCategory.SPRING_AOT,
+            "MEDIUM",
+            "Detects Spring components and @Bean methods annotated or meta-annotated with Spring Cloud's @RefreshScope, or declared with @Scope(\"refresh\"). Spring Cloud does not support context refresh for Spring AOT transformations and native images and requires spring.cloud.refresh.enabled=false for them; that property also removes the auto-configured refresh scope these declarations rely on, so in-process refresh does not exist in the native executable. Whether a declaration is active in the AOT build is not observable statically.",
+            "For the native build, set spring.cloud.refresh.enabled=false and do not ship refresh-scoped beans: bind their configuration at startup and restart the native executable to apply configuration changes. Refresh scope can remain in JVM deployments that still rely on it.",
+            "https://docs.spring.io/spring-cloud-commons/reference/spring-cloud-commons/application-context-services.html#refresh-scope");
+
+    @Override
+    public GraalVmCheckDefinition definition() {
+        return DEFINITION;
+    }
+
+    @Override
+    public GraalVmFindingDto evaluate(GraalVmContext context) {
+        try {
+            List<String> samples = new ArrayList<>();
+            int count = 0;
+            for (JavaClass javaClass : context.classes()) {
+                if (SpringAotConditionSupport.isSpringComponent(javaClass)
+                        && refreshScoped(javaClass.getAnnotations())) {
+                    count++;
+                    addSample(samples, javaClass.getName() + " is a @RefreshScope Spring component");
+                }
+                for (JavaMethod method : javaClass.getMethods()) {
+                    if (method.isAnnotatedWith(SpringAotConditionSupport.BEAN_ANNOTATION)
+                            && refreshScoped(method.getAnnotations())) {
+                        count++;
+                        addSample(samples, javaClass.getName() + "." + method.getName() + " is a @RefreshScope @Bean");
+                    }
+                }
+            }
+            return count == 0
+                    ? GraalVmCheckSupport.ok(DEFINITION)
+                    : GraalVmCheckSupport.review(DEFINITION, count, samples);
+        } catch (RuntimeException | LinkageError ex) {
+            return GraalVmCheckSupport.error(DEFINITION, "Check could not be evaluated: " + ex.getMessage());
+        }
+    }
+
+    private static boolean refreshScoped(Iterable<? extends JavaAnnotation<?>> annotations) {
+        for (JavaAnnotation<?> annotation : annotations) {
+            JavaClass type = annotation.getRawType();
+            if (REFRESH_SCOPE.equals(type.getName()) || type.isMetaAnnotatedWith(REFRESH_SCOPE)) {
+                return true;
+            }
+            if (SCOPE.equals(type.getName())
+                    && ("refresh".equals(annotation.get("value").orElse(null))
+                            || "refresh".equals(annotation.get("scopeName").orElse(null)))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void addSample(List<String> samples, String sample) {
+        if (samples.size() < GraalVmCheckSupport.maxSampleOccurrences()) {
+            samples.add(GraalVmCheckSupport.detail(sample));
+        }
+    }
+}
+
+/**
+ * Flags application classes that override {@code finalize()} with a non-trivial body. Native Image never
+ * invokes finalizers, so cleanup placed there silently does not run.
+ */
+final class FinalizerCheck implements GraalVmCheck {
+
+    private static final GraalVmCheckDefinition DEFINITION = new GraalVmCheckDefinition(
+            "GRAAL-JDK-003",
+            "finalize() overrides are never invoked in native images",
+            GraalVmCategory.RUNTIME_BEHAVIOR,
+            "MEDIUM",
+            "Detects application classes, including abstract base classes, that declare a non-static, non-private void finalize() whose body does more than call super.finalize(). Native Image does not invoke finalizers, so cleanup placed there silently never runs in the native executable even though it still runs on the JVM.",
+            "Release resources through an explicit lifecycle (AutoCloseable with try-with-resources, or a Spring destroy callback). Use java.lang.ref.Cleaner, or weak references with a reference queue, only as a safety net for resources a caller may forget to close.",
+            "https://www.graalvm.org/jdk25/reference-manual/native-image/metadata/Compatibility/");
+
+    @Override
+    public GraalVmCheckDefinition definition() {
+        return DEFINITION;
+    }
+
+    @Override
+    public GraalVmFindingDto evaluate(GraalVmContext context) {
+        try {
+            List<String> samples = new ArrayList<>();
+            int count = 0;
+            for (JavaClass javaClass : context.classes()) {
+                if (javaClass.isInterface()) {
+                    continue;
+                }
+                for (JavaMethod method : javaClass.getMethods()) {
+                    if (isFinalizer(method) && !isTrivial(method)) {
+                        count++;
+                        if (samples.size() < GraalVmCheckSupport.maxSampleOccurrences()) {
+                            samples.add(GraalVmCheckSupport.detail(javaClass.getName() + " overrides finalize()"));
+                        }
+                    }
+                }
+            }
+            return count == 0
+                    ? GraalVmCheckSupport.ok(DEFINITION)
+                    : GraalVmCheckSupport.review(DEFINITION, count, samples);
+        } catch (RuntimeException | LinkageError ex) {
+            return GraalVmCheckSupport.error(DEFINITION, "Check could not be evaluated: " + ex.getMessage());
+        }
+    }
+
+    private static boolean isFinalizer(JavaMethod method) {
+        Set<JavaModifier> modifiers = method.getModifiers();
+        return "finalize".equals(method.getName())
+                && method.getRawParameterTypes().isEmpty()
+                && "void".equals(method.getRawReturnType().getName())
+                && !modifiers.contains(JavaModifier.STATIC)
+                && !modifiers.contains(JavaModifier.PRIVATE)
+                && !modifiers.contains(JavaModifier.ABSTRACT);
+    }
+
+    private static boolean isTrivial(JavaMethod method) {
+        if (!method.getFieldAccesses().isEmpty()
+                || !method.getConstructorCallsFromSelf().isEmpty()) {
+            return false;
+        }
+        for (JavaMethodCall call : method.getMethodCallsFromSelf()) {
+            MethodCallTarget target = call.getTarget();
+            if (!"finalize".equals(target.getName())
+                    || !target.getRawParameterTypes().isEmpty()) {
+                return false;
+            }
+        }
+        return true;
+    }
+}
+
+/**
+ * Flags application types bound programmatically by Jackson or Spring's HTTP clients from a method body,
+ * which Spring AOT does not infer binding hints for. A target is associated with a binding call only when
+ * its class literal sits on the same source line as a call overload taking a {@code Class}, and types
+ * already covered by an observable binding hint are skipped.
+ */
+final class ProgrammaticBindingCheck implements GraalVmCheck {
+
+    private static final Map<String, Set<String>> BINDING_APIS = Map.of(
+            "com.fasterxml.jackson.databind.ObjectMapper",
+                    Set.of("readValue", "readValues", "convertValue", "treeToValue", "readerFor"),
+            "com.fasterxml.jackson.databind.ObjectReader", Set.of("readValue", "readValues", "treeToValue", "forType"),
+            "tools.jackson.databind.ObjectMapper",
+                    Set.of("readValue", "readValues", "convertValue", "treeToValue", "readerFor"),
+            "tools.jackson.databind.ObjectReader", Set.of("readValue", "readValues", "treeToValue", "forType"),
+            "org.springframework.web.client.RestOperations",
+                    Set.of(
+                            "getForObject",
+                            "getForEntity",
+                            "postForObject",
+                            "postForEntity",
+                            "patchForObject",
+                            "exchange"),
+            "org.springframework.web.client.RestClient$ResponseSpec", Set.of("body", "toEntity"),
+            "org.springframework.web.reactive.function.client.WebClient$ResponseSpec",
+                    Set.of("bodyToMono", "bodyToFlux", "toEntity", "toEntityList", "toEntityFlux"),
+            "org.springframework.web.reactive.function.client.ClientResponse",
+                    Set.of("bodyToMono", "bodyToFlux", "toEntity", "toEntityList"));
+
+    private static final String REQUEST_MAPPING = "org.springframework.web.bind.annotation.RequestMapping";
+    private static final String HTTP_EXCHANGE = "org.springframework.web.service.annotation.HttpExchange";
+    private static final String REGISTER_FOR_BINDING =
+            "org.springframework.aot.hint.annotation.RegisterReflectionForBinding";
+    private static final String RUNTIME_HINTS_REGISTRAR = "org.springframework.aot.hint.RuntimeHintsRegistrar";
+
+    private static final GraalVmCheckDefinition DEFINITION = new GraalVmCheckDefinition(
+            "GRAAL-REFLECT-006",
+            "Programmatically bound application types may need binding hints",
+            GraalVmCategory.REFLECTION,
+            "MEDIUM",
+            "Detects application types passed as a class literal to Jackson (ObjectMapper/ObjectReader readValue, convertValue, treeToValue, readerFor, forType) or to Spring's RestTemplate, RestClient, and WebClient body-conversion methods inside a method body. Spring AOT infers binding hints for @RequestMapping and @HttpExchange signatures, not for these calls, so without reflection metadata for constructors, fields, and accessors a native image can bind an empty object or fail to find a creator. Types appearing in an application @RequestMapping/@HttpExchange signature, named by @RegisterReflectionForBinding, or referenced by an application RuntimeHintsRegistrar are skipped. A type counts only when its class literal is on the same source line as the call; serialization of instances, ParameterizedTypeReference/TypeReference targets, and hints in JSON metadata files are not observed.",
+            "Annotate the calling class or method with @RegisterReflectionForBinding(Target.class), which also registers the types its properties expose, or register binding hints through BindingReflectionHintsRegistrar in a RuntimeHintsRegistrar. Exercise the call in the native executable before relying on it.",
+            "https://docs.spring.io/spring-framework/reference/core/aot.html#aot.hints.register-reflection");
+
+    @Override
+    public GraalVmCheckDefinition definition() {
+        return DEFINITION;
+    }
+
+    @Override
+    public GraalVmFindingDto evaluate(GraalVmContext context) {
+        try {
+            Set<String> hinted = hintedTypes(context);
+            List<String> samples = new ArrayList<>();
+            int count = 0;
+            for (JavaClass javaClass : context.classes()) {
+                if (SpringAotGeneratedCode.isGenerated(javaClass)) {
+                    continue;
+                }
+                for (JavaCodeUnit codeUnit : javaClass.getCodeUnits()) {
+                    for (JavaMethodCall call : codeUnit.getMethodCallsFromSelf()) {
+                        if (!isBindingCall(call.getTarget())) {
+                            continue;
+                        }
+                        for (ReferencedClassObject literal : codeUnit.getReferencedClassObjects()) {
+                            String target = literal.getValue().getName();
+                            if (literal.getLineNumber() == call.getLineNumber()
+                                    && context.classes().contain(target)
+                                    && !hinted.contains(target)) {
+                                count++;
+                                if (samples.size() < GraalVmCheckSupport.maxSampleOccurrences()) {
+                                    samples.add(GraalVmCheckSupport.detail(javaClass.getName() + "."
+                                            + codeUnit.getName()
+                                            + " binds " + target + " through "
+                                            + call.getTarget().getName()
+                                            + "() (" + javaClass.getSimpleName() + ".java:" + call.getLineNumber()
+                                            + ")"));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return count == 0
+                    ? GraalVmCheckSupport.ok(DEFINITION)
+                    : GraalVmCheckSupport.review(DEFINITION, count, samples);
+        } catch (RuntimeException | LinkageError ex) {
+            return GraalVmCheckSupport.error(DEFINITION, "Check could not be evaluated: " + ex.getMessage());
+        }
+    }
+
+    private static boolean isBindingCall(MethodCallTarget target) {
+        boolean takesClass = false;
+        for (JavaClass parameter : target.getRawParameterTypes()) {
+            if (parameter.isEquivalentTo(Class.class)) {
+                takesClass = true;
+                break;
+            }
+        }
+        if (!takesClass) {
+            return false;
+        }
+        JavaClass owner = target.getOwner();
+        for (Map.Entry<String, Set<String>> api : BINDING_APIS.entrySet()) {
+            if (api.getValue().contains(target.getName()) && owner.isAssignableTo(api.getKey())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Set<String> hintedTypes(GraalVmContext context) {
+        Set<String> hinted = new HashSet<>();
+        for (JavaClass javaClass : context.classes()) {
+            addBindingAnnotationTypes(javaClass, javaClass.getAnnotations(), hinted);
+            if (!javaClass.isInterface() && javaClass.isAssignableTo(RUNTIME_HINTS_REGISTRAR)) {
+                for (JavaCodeUnit codeUnit : javaClass.getCodeUnits()) {
+                    for (ReferencedClassObject literal : codeUnit.getReferencedClassObjects()) {
+                        hinted.add(literal.getValue().getName());
+                    }
+                }
+            }
+            for (JavaMethod method : javaClass.getMethods()) {
+                addBindingAnnotationTypes(null, method.getAnnotations(), hinted);
+                if (isWebContract(method)) {
+                    for (JavaClass involved : method.getReturnType().getAllInvolvedRawTypes()) {
+                        hinted.add(involved.getName());
+                    }
+                    for (JavaType parameter : method.getParameterTypes()) {
+                        for (JavaClass involved : parameter.getAllInvolvedRawTypes()) {
+                            hinted.add(involved.getName());
+                        }
+                    }
+                }
+            }
+        }
+        return hinted;
+    }
+
+    private static boolean isWebContract(JavaMethod method) {
+        return method.isAnnotatedWith(REQUEST_MAPPING)
+                || method.isMetaAnnotatedWith(REQUEST_MAPPING)
+                || method.isAnnotatedWith(HTTP_EXCHANGE)
+                || method.isMetaAnnotatedWith(HTTP_EXCHANGE);
+    }
+
+    private static void addBindingAnnotationTypes(
+            JavaClass annotatedType, Iterable<? extends JavaAnnotation<?>> annotations, Set<String> hinted) {
+        for (JavaAnnotation<?> annotation : annotations) {
+            if (!REGISTER_FOR_BINDING.equals(annotation.getRawType().getName())) {
+                continue;
+            }
+            int before = hinted.size();
+            for (String attribute : List.of("value", "classes")) {
+                annotation.get(attribute).ifPresent(value -> {
+                    if (value instanceof JavaClass[] classes) {
+                        for (JavaClass type : classes) {
+                            hinted.add(type.getName());
+                        }
+                    }
+                });
+            }
+            for (String attribute : List.of("classNames")) {
+                annotation.get(attribute).ifPresent(value -> {
+                    if (value instanceof String[] names) {
+                        hinted.addAll(List.of(names));
+                    }
+                });
+            }
+            if (hinted.size() == before && annotatedType != null) {
+                hinted.add(annotatedType.getName());
+            }
+        }
     }
 }

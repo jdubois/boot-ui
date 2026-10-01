@@ -7,16 +7,21 @@ import com.tngtech.archunit.core.importer.ClassFileImporter;
 import io.github.jdubois.bootui.core.dto.GraalVmFindingDto;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ActiveSerializer;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.AnnotationReader;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.AotExcludedRegistryPostProcessor;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.AotFriendlyBeanRegistrar;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.AsyncClasspathDiscovery;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.AutoConfigurationExpression;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.BindingClient;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.BooleanPropertyConfiguration;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.CglibProxyGenerator;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ClassGraphScanner;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ClasspathConditionConfiguration;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ClasspathScanner;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.CleanComponent;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.CloudPlatformConfiguration;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.CompilerUser;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.ControllerOrderDto;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.CustomArgumentBeanUser;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.CustomConditionedConfiguration;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.DeepReflector;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.DevOnlyConfiguration;
@@ -25,23 +30,39 @@ import io.github.jdubois.bootui.engine.graalvm.fixtures.DynamicMBeanUser;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ExpressionConfiguration;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.FieldMetadataReader;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.FieldValueAccessor;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.FinalizerGuard;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.FinalizingResource;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.GeneratedInstanceSupplierRegistrar;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.GeneratedSecondaryContextCreator;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.HintedOrderDto;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.InstanceSupplierRegistrar;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.IntentionalAutoConfiguration;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.JmxRemoteClient;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.JmxUser;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.JndiOnlyConfiguration;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.LocalMxBeanReader;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.MBeanRegistrar;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.MessagesLoader;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.MethodHandleClassLookup;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.MethodHandleUser;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ModuleResourceLoader;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.NativeLoader;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.NativeMethodHolder;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.OptionalDependencyProbe;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.OrderController;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.OrderDto;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.PassiveClasspathMetadata;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.PlainBeanLookup;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.PropertyExpressionConfiguration;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ProxyClassFactory;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.QuotedAtExpressionConfiguration;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ReflectionMetadataLookup;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ReflectionsScanner;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.RefreshScopedBeans;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.RefreshScopedComponent;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.RefreshScopedNonBean;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.RegistryPostProcessorConfiguration;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.ReplayingRegistryPostProcessor;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.ResourceLoader;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.RuntimeClassGenerator;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.RuntimeSingletonRegistrar;
@@ -51,8 +72,11 @@ import io.github.jdubois.bootui.engine.graalvm.fixtures.SecondaryContextCreator;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.SecurityProviderRegistrar;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.SecurityProviderSubclass;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.SpelUser;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.SpringReflectionFacadeUser;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.SpringResourceLoader;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.StandardMBeanSubclass;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.SupplierBeanDefiner;
+import io.github.jdubois.bootui.engine.graalvm.fixtures.UnregisteredRegistryPostProcessor;
 import io.github.jdubois.bootui.engine.graalvm.fixtures.UnrelatedSupplierHolder;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -87,9 +111,8 @@ class GraalVmChecksTests {
                 .containsExactly(
                         "GRAAL-REFLECT-001",
                         "GRAAL-REFLECT-002",
-                        "GRAAL-REFLECT-003",
-                        "GRAAL-REFLECT-004",
                         "GRAAL-REFLECT-005",
+                        "GRAAL-REFLECT-006",
                         "GRAAL-PROXY-001",
                         "GRAAL-RES-001",
                         "GRAAL-RES-002",
@@ -100,12 +123,16 @@ class GraalVmChecksTests {
                         "GRAAL-CLASSGEN-001",
                         "GRAAL-JDK-001",
                         "GRAAL-JDK-002",
+                        "GRAAL-JDK-003",
                         "GRAAL-SCAN-001",
                         "SPRING-AOT-001",
                         "SPRING-AOT-002",
                         "SPRING-AOT-003",
                         "SPRING-AOT-005",
                         "SPRING-AOT-004",
+                        "SPRING-AOT-006",
+                        "SPRING-AOT-007",
+                        "SPRING-AOT-008",
                         "GRAAL-SPEL-001",
                         "GRAAL-MH-001",
                         "GRAAL-SEC-001",
@@ -114,7 +141,15 @@ class GraalVmChecksTests {
                         "GRAAL-FFM-001")
                 .doesNotHaveDuplicates();
         assertThat(ids).filteredOn(id -> id.startsWith("GRAAL-")).hasSize(22);
-        assertThat(ids).filteredOn(id -> id.startsWith("SPRING-AOT-")).hasSize(5);
+        assertThat(ids).filteredOn(id -> id.startsWith("SPRING-AOT-")).hasSize(8);
+        assertThat(ids)
+                .as("retired IDs are never reused")
+                .doesNotContain(
+                        "GRAAL-REFLECT-003",
+                        "GRAAL-REFLECT-004",
+                        "GRAAL-SERVICE-001",
+                        "GRAAL-INIT-001",
+                        "GRAAL-INIT-002");
     }
 
     private GraalVmFindingDto evaluate(GraalVmCheck check, Class<?>... classes) {
@@ -137,22 +172,15 @@ class GraalVmChecksTests {
     }
 
     @Test
-    void deepReflectionCheckDetectsSetAccessible() {
-        GraalVmFindingDto finding = evaluate(new DeepReflectionCheck(), DeepReflector.class);
-        assertThat(finding.id()).isEqualTo("GRAAL-REFLECT-003");
-        assertThat(finding.status()).isEqualTo("REVIEW");
-        assertThat(evaluate(new DeepReflectionCheck(), CleanComponent.class).status())
-                .isEqualTo("OK");
-    }
-
-    @Test
-    void annotationReflectionCheckDetectsMemberAnnotationReads() {
-        GraalVmFindingDto finding = evaluate(new AnnotationReflectionCheck(), AnnotationReader.class);
-        assertThat(finding.id()).isEqualTo("GRAAL-REFLECT-004");
-        assertThat(finding.status()).isEqualTo("REVIEW");
-        assertThat(evaluate(new AnnotationReflectionCheck(), CleanComponent.class)
-                        .status())
-                .isEqualTo("OK");
+    void retiredDeepReflectionAndAnnotationChecksDoNotReappear() {
+        // GRAAL-REFLECT-003/004 were retired: setAccessible and member-annotation reads need no metadata of
+        // their own, and the member lookups that do are covered by GRAAL-REFLECT-001 and GRAAL-MH-001.
+        for (GraalVmCheck check : GraalVmCheckRegistry.activeChecks()) {
+            assertThat(evaluate(check, DeepReflector.class, AnnotationReader.class)
+                            .status())
+                    .as(check.definition().id())
+                    .isEqualTo("OK");
+        }
     }
 
     @Test
@@ -189,6 +217,10 @@ class GraalVmChecksTests {
         assertThat(evaluate(new ResourceAccessCheck(), ModuleResourceLoader.class)
                         .status())
                 .isEqualTo("REVIEW");
+        GraalVmFindingDto spring = evaluate(new ResourceAccessCheck(), SpringResourceLoader.class);
+        assertThat(spring.status()).isEqualTo("REVIEW");
+        // new ClassPathResource(...) and ResourcePatternResolver.getResources(...).
+        assertThat(spring.occurrenceCount()).isEqualTo(2);
         assertThat(evaluate(new ResourceAccessCheck(), CleanComponent.class).status())
                 .isEqualTo("OK");
     }
@@ -218,6 +250,59 @@ class GraalVmChecksTests {
     }
 
     @Test
+    void reflectionUsageCheckDetectsSpringReflectionFacades() {
+        GraalVmFindingDto finding = evaluate(new ReflectionUsageCheck(), SpringReflectionFacadeUser.class);
+        assertThat(finding.status()).isEqualTo("REVIEW");
+        // findMethod, invokeMethod, ClassUtils.forName, and BeanUtils.copyProperties.
+        assertThat(finding.occurrenceCount()).isEqualTo(4);
+        assertThat(finding.recommendation()).contains("copyProperties", "@RegisterReflectionForBinding");
+        assertThat(evaluate(new ReflectionUsageCheck(), OptionalDependencyProbe.class)
+                        .status())
+                .isEqualTo("OK");
+    }
+
+    @Test
+    void reflectionUsageCheckIgnoresSpringAotGeneratedCode() {
+        assertThat(evaluate(new ReflectionUsageCheck(), Sample__BeanDefinitions.class)
+                        .status())
+                .isEqualTo("OK");
+    }
+
+    @Test
+    void programmaticBindingCheckFlagsUnhintedApplicationTypesOnTheBindingLine() {
+        JavaClasses classes = new ClassFileImporter()
+                .importClasses(
+                        BindingClient.class,
+                        OrderDto.class,
+                        HintedOrderDto.class,
+                        ControllerOrderDto.class,
+                        OrderController.class,
+                        CleanComponent.class);
+        GraalVmFindingDto finding = evaluate(new ProgrammaticBindingCheck(), classes);
+        assertThat(finding.id()).isEqualTo("GRAAL-REFLECT-006");
+        assertThat(finding.severity()).isEqualTo("MEDIUM");
+        assertThat(finding.status()).isEqualTo("REVIEW");
+        // Only OrderDto: String is not an application type, CleanComponent is not on a binding line,
+        // HintedOrderDto has @RegisterReflectionForBinding, and ControllerOrderDto is in a handler signature.
+        assertThat(finding.occurrenceCount()).isEqualTo(1);
+        assertThat(finding.sampleOccurrences())
+                .singleElement()
+                .asString()
+                .contains(OrderDto.class.getName(), "getForObject");
+    }
+
+    @Test
+    void programmaticBindingCheckReportsControllerDtosWhenNoHandlerSignatureCoversThem() {
+        JavaClasses classes = new ClassFileImporter()
+                .importClasses(BindingClient.class, OrderDto.class, HintedOrderDto.class, ControllerOrderDto.class);
+        assertThat(evaluate(new ProgrammaticBindingCheck(), classes).occurrenceCount())
+                .isEqualTo(2);
+        assertThat(evaluate(new ProgrammaticBindingCheck(), CleanComponent.class)
+                        .status())
+                .isEqualTo("OK");
+    }
+
+    @Test
     void dynamicProxyCheckDetectsGetProxyClass() {
         GraalVmFindingDto finding = evaluate(new DynamicProxyCheck(), ProxyClassFactory.class);
         assertThat(finding.id()).isEqualTo("GRAAL-PROXY-001");
@@ -232,8 +317,9 @@ class GraalVmChecksTests {
         assertThat(finding.id()).isEqualTo("GRAAL-CLASSGEN-001");
         assertThat(finding.severity()).isEqualTo("HIGH");
         assertThat(finding.status()).isEqualTo("REVIEW");
-        assertThat(finding.description()).contains("25.0.0", "only trivial classes without fields or methods");
-        assertThat(finding.recommendation()).contains("shipped GraalVM distribution", "not a compatibility guarantee");
+        assertThat(finding.description()).contains("25.0.x", "-H:+RuntimeClassLoading", "no parallel class loading");
+        assertThat(finding.recommendation())
+                .contains("GraalVM release you ship", "neither is a general compatibility guarantee");
         assertThat(evaluate(new RuntimeClassGenerationCheck(), CglibProxyGenerator.class)
                         .status())
                 .isEqualTo("REVIEW");
@@ -438,6 +524,75 @@ class GraalVmChecksTests {
     }
 
     @Test
+    void springAotConditionedBeansCheckCoversCloudPlatformAndThreadingButNotJndi() {
+        GraalVmFindingDto finding = evaluate(new SpringAotConditionedBeansCheck(), CloudPlatformConfiguration.class);
+        assertThat(finding.status()).isEqualTo("REVIEW");
+        // The class-level cloud-platform condition and the @ConditionalOnThreading bean method, not the JNDI bean.
+        assertThat(finding.occurrenceCount()).isEqualTo(2);
+        assertThat(finding.sampleOccurrences()).noneMatch(sample -> sample.contains("jndiLookup"));
+        assertThat(evaluate(new SpringAotConditionedBeansCheck(), JndiOnlyConfiguration.class)
+                        .status())
+                .isEqualTo("OK");
+    }
+
+    @Test
+    void explicitArgumentBeanRetrievalCheckFlagsOnlyArgumentOverloads() {
+        GraalVmFindingDto finding = evaluate(new ExplicitArgumentBeanRetrievalCheck(), CustomArgumentBeanUser.class);
+        assertThat(finding.id()).isEqualTo("SPRING-AOT-006");
+        assertThat(finding.severity()).isEqualTo("MEDIUM");
+        assertThat(finding.status()).isEqualTo("REVIEW");
+        assertThat(finding.occurrenceCount()).isEqualTo(3);
+        assertThat(evaluate(new ExplicitArgumentBeanRetrievalCheck(), PlainBeanLookup.class)
+                        .status())
+                .isEqualTo("OK");
+    }
+
+    @Test
+    void registryPostProcessorReplayCheckFlagsRetainedBeansOnly() {
+        GraalVmFindingDto component =
+                evaluate(new RegistryPostProcessorReplayCheck(), ReplayingRegistryPostProcessor.class);
+        assertThat(component.id()).isEqualTo("SPRING-AOT-007");
+        assertThat(component.severity()).isEqualTo("MEDIUM");
+        assertThat(component.status()).isEqualTo("REVIEW");
+        assertThat(evaluate(new RegistryPostProcessorReplayCheck(), RegistryPostProcessorConfiguration.class)
+                        .occurrenceCount())
+                .isEqualTo(1);
+        assertThat(evaluate(new RegistryPostProcessorReplayCheck(), AotExcludedRegistryPostProcessor.class)
+                        .status())
+                .isEqualTo("OK");
+        assertThat(evaluate(new RegistryPostProcessorReplayCheck(), UnregisteredRegistryPostProcessor.class)
+                        .status())
+                .isEqualTo("OK");
+    }
+
+    @Test
+    void refreshScopeCheckFlagsRefreshScopedBeanDeclarations() {
+        GraalVmFindingDto component = evaluate(new RefreshScopeCheck(), RefreshScopedComponent.class);
+        assertThat(component.id()).isEqualTo("SPRING-AOT-008");
+        assertThat(component.severity()).isEqualTo("MEDIUM");
+        assertThat(component.status()).isEqualTo("REVIEW");
+        // @RefreshScope and @Scope("refresh") bean methods, not the prototype-scoped one.
+        assertThat(evaluate(new RefreshScopeCheck(), RefreshScopedBeans.class).occurrenceCount())
+                .isEqualTo(2);
+        assertThat(evaluate(new RefreshScopeCheck(), RefreshScopedNonBean.class).status())
+                .isEqualTo("OK");
+    }
+
+    @Test
+    void finalizerCheckFlagsCleanupButNotGuardsOrSuperOnlyOverrides() {
+        GraalVmFindingDto finding = evaluate(new FinalizerCheck(), FinalizingResource.class);
+        assertThat(finding.id()).isEqualTo("GRAAL-JDK-003");
+        assertThat(finding.severity()).isEqualTo("MEDIUM");
+        assertThat(finding.category()).isEqualTo("Runtime behavior");
+        assertThat(finding.status()).isEqualTo("REVIEW");
+        assertThat(evaluate(new FinalizerCheck(), FinalizerGuard.class, FinalizerGuard.SuperOnly.class)
+                        .status())
+                .isEqualTo("OK");
+        assertThat(evaluate(new FinalizerCheck(), CleanComponent.class).status())
+                .isEqualTo("OK");
+    }
+
+    @Test
     void systemJavaCompilerCheckDetectsRuntimeCompilerLookup() {
         GraalVmFindingDto finding = evaluate(new SystemJavaCompilerCheck(), CompilerUser.class);
         assertThat(finding.id()).isEqualTo("GRAAL-JDK-001");
@@ -509,11 +664,22 @@ class GraalVmChecksTests {
     }
 
     @Test
-    void jmxUsageCheckDetectsGetPlatformMBeanServer() {
-        GraalVmFindingDto finding = evaluate(new JmxUsageCheck(), JmxUser.class);
-        assertThat(finding.id()).isEqualTo("GRAAL-JMX-001");
-        assertThat(finding.severity()).isEqualTo("LOW");
-        assertThat(finding.status()).isEqualTo("REVIEW");
+    void jmxUsageCheckDetectsRegistrationAndRemoteClientsButNotThePlatformServer() {
+        GraalVmFindingDto registration = evaluate(new JmxUsageCheck(), MBeanRegistrar.class);
+        assertThat(registration.id()).isEqualTo("GRAAL-JMX-001");
+        assertThat(registration.severity()).isEqualTo("LOW");
+        assertThat(registration.status()).isEqualTo("REVIEW");
+        assertThat(registration.occurrenceCount()).isEqualTo(1);
+
+        GraalVmFindingDto remote = evaluate(new JmxUsageCheck(), JmxRemoteClient.class);
+        assertThat(remote.status()).isEqualTo("REVIEW");
+        // connect(...) and the MBeanServerConnection overload of getPlatformMXBean; the local overload is ignored.
+        assertThat(remote.occurrenceCount()).isEqualTo(2);
+        assertThat(remote.description()).contains("silently return null");
+
+        assertThat(evaluate(new JmxUsageCheck(), JmxUser.class).status()).isEqualTo("OK");
+        assertThat(evaluate(new JmxUsageCheck(), LocalMxBeanReader.class).status())
+                .isEqualTo("OK");
         assertThat(evaluate(new JmxUsageCheck(), CleanComponent.class).status()).isEqualTo("OK");
     }
 
