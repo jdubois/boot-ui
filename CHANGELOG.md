@@ -59,7 +59,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `HIB-MAP-017` is now documented. `HIB-CONFIG-016` reports the disabled pagination guard once at INFO instead of
   repeating `HIB-FETCH-003`'s queries at HIGH, `HIB-FETCH-005` drops to LOW and skips JDBC locators, `HIB-MAP-014`
   drops to LOW, `HIB-CONFIG-013` only applies to types bound through the JVM time zone, and stale learn-more links now
-  point at the current guides. The catalog has 72 active rules ([Hibernate checks](docs/HIBERNATE-CHECKS.md)).
+  point at the current guides. The catalog has 72 active rules ([Hibernate checks](docs/HIBERNATE-CHECKS.md),
+  [#1172](https://github.com/jdubois/boot-ui/pull/1172)).
 - **One request slow threshold on every stack.** `bootui.activity.request-slow-threshold-ms` (default 1,000 ms) is now
   honored by Spring WebFlux and Quarkus as well as Spring MVC. It sets the `SLOW` severity of Live Activity `REQUEST`
   and `SCHEDULED` entries and decides which exchanges are kept longer. Spring WebFlux and Quarkus previously used a
