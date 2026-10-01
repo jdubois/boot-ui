@@ -85,10 +85,19 @@ class RequestCorrelationFilterTests {
         assertThat(graphql.thread()).isEqualTo(Thread.currentThread().getName());
         assertThat(graphql.durationNanos()).isNotNegative();
         assertThat(graphql.failedOrSlow()).isFalse();
-        assertThat(graphql.payload())
+        assertThat(withoutResources(graphql.payload()))
                 .isEqualTo(new HttpPayload("POST", "/graphql", "/graphql", "query ProductList", 201));
         assertThat(published.get(1).failedOrSlow()).isTrue();
-        assertThat(published.get(1).payload()).isEqualTo(new HttpPayload("GET", "/api/boom", null, null, 500));
+        assertThat(withoutResources(published.get(1).payload()))
+                .isEqualTo(new HttpPayload("GET", "/api/boom", null, null, 500));
+    }
+
+    /** The payload without its measured resources, which every published request carries (docs/PLAN-v2.md §5.11). */
+    private static HttpPayload withoutResources(Object payload) {
+        HttpPayload http = (HttpPayload) payload;
+        assertThat(http.resources()).as("the request's measured resources").isNotNull();
+        assertThat(http.resources().segments()).isPositive();
+        return new HttpPayload(http.method(), http.path(), http.routeTemplate(), http.operation(), http.status());
     }
 
     @Test

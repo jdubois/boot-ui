@@ -8,6 +8,8 @@ import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.resources.ResourceUsage;
+import io.github.jdubois.bootui.engine.resources.SegmentMeter;
 import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
@@ -128,6 +130,9 @@ public class QuarkusHttpExchangeCaptureFilter {
         if (phases != null) {
             phases.begin(requestId);
         }
+        if (journal.records(JournalSource.RESOURCES)) {
+            SegmentMeter.shared().begin(requestId);
+        }
         HttpServerRequest request = rc.request();
         Map<String, List<String>> requestHeaders = headers(request.headers());
         String traceId = currentTraceId();
@@ -136,6 +141,8 @@ public class QuarkusHttpExchangeCaptureFilter {
             long durationNanos = System.nanoTime() - startNanos;
             long durationMs = durationNanos / 1_000_000L;
             HttpServerResponse response = rc.response();
+            // Ends the request's measurement (docs/PLAN-v2.md §5.11), closing the segment its worker left open.
+            ResourceUsage resources = SegmentMeter.shared().take(requestId);
             journal.offer(new RuntimeEvent(
                     JournalSource.HTTP,
                     started.toEpochMilli(),
@@ -148,7 +155,7 @@ public class QuarkusHttpExchangeCaptureFilter {
                     null,
                     RequestSlowThreshold.isFailedOrSlow(
                             response.getStatusCode(), durationMs, buffer.slowThresholdMillis()),
-                    new HttpPayload(request.method().name(), path, null, null, response.getStatusCode())));
+                    new HttpPayload(request.method().name(), path, null, null, response.getStatusCode(), resources)));
             buffer.record(new CapturedHttpExchange(
                     started,
                     request.method().name(),

@@ -5,7 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.core.dto.MappingDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.AggregatesSnapshot;
+import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteResources;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
+import io.github.jdubois.bootui.engine.resources.GcPauseRange;
+import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.util.ArrayList;
@@ -208,6 +211,53 @@ class JournalAggregatesTests {
     }
 
     @Test
+    void aRoutesResourcesSumOnlyItsFullyMeasuredRequestsAndCountTheOthers() {
+        publish(httpEvent("r1", resourced(new ResourceUsage(4_000_000, 1_000, 2, 0, null, 0, List.of(), false))));
+        publish(httpEvent("r2", resourced(new ResourceUsage(6_000_000, 3_000, 1, 0, null, 0, List.of(), false))));
+        publish(httpEvent(
+                "r3",
+                resourced(new ResourceUsage(
+                        1_000_000, 500, 2, 1, ResourceUsage.Unmeasured.VIRTUAL_THREAD, 0, List.of(), false))));
+        publish(httpEvent(
+                "r4",
+                resourced(
+                        new ResourceUsage(0, 0, 1, 1, ResourceUsage.Unmeasured.VIRTUAL_THREAD, 0, List.of(), false))));
+        publish(httpEvent("r5", new HttpPayload("GET", "/api/orders", "/api/orders", null, 200)));
+
+        RouteResources resources = aggregates.snapshot().routes().get(0).resources();
+
+        assertThat(resources.measuredRequests()).isEqualTo(2);
+        assertThat(resources.cpuNanos()).isEqualTo(10_000_000);
+        assertThat(resources.allocatedBytes()).isEqualTo(4_000);
+        assertThat(resources.partialRequests()).isEqualTo(1);
+        assertThat(resources.unmeasuredRequests()).isEqualTo(1);
+    }
+
+    @Test
+    void gcPausesJoinTheirRequestsByIdWhetherTheirEventArrivesBeforeOrAfterTheRequest() {
+        publish(gc("G1 Young Generation", 41, 7));
+        publish(httpEvent(
+                "r1",
+                resourced(new ResourceUsage(
+                        1, 1, 1, 0, null, 2, List.of(new GcPauseRange("G1 Young Generation", 40, 42)), false))));
+        publish(gc("G1 Young Generation", 42, 5));
+        publish(gc("G1 Young Generation", 43, 100));
+        publish(gc("ZGC Major Cycles", 7, 900));
+
+        RouteResources resources = aggregates.snapshot().routes().get(0).resources();
+
+        assertThat(resources.gcPauses()).isEqualTo(2);
+        assertThat(resources.requestsWithGcPause()).isEqualTo(1);
+        assertThat(resources.gcPauseNanos())
+                .as("collections 41 (before) and 42 (after), never 43 or a concurrent cycle")
+                .isEqualTo(12_000_000);
+        assertThat(aggregates.snapshot().threadFamilies())
+                .as("a collection is no thread family's work")
+                .isEmpty();
+        assertThat(aggregates.snapshot().run().events()).containsEntry(JournalSource.GC, 4L);
+    }
+
+    @Test
     void clearingDropsEveryAggregate() {
         publish(http("r1", "/api/orders", 200, 1_000));
 
@@ -217,6 +267,32 @@ class JournalAggregatesTests {
         assertThat(snapshot.routes()).isEmpty();
         assertThat(snapshot.run().events()).isEmpty();
         assertThat(snapshot.run().firstEpochMillis()).isNull();
+    }
+
+    private static HttpPayload resourced(ResourceUsage usage) {
+        return new HttpPayload("GET", "/api/orders", "/api/orders", null, 200, usage);
+    }
+
+    private static RuntimeEvent gc(String collector, long id, long millis) {
+        return new RuntimeEvent(
+                JournalSource.GC,
+                1_000,
+                millis * 1_000_000,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                new GcPayload(
+                        collector,
+                        id,
+                        "end of minor GC",
+                        "G1 Evacuation Pause",
+                        !collector.contains("Cycles"),
+                        2_000,
+                        1_000));
     }
 
     private void publish(RuntimeEvent event) {

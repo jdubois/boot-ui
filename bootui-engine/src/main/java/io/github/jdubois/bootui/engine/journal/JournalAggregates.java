@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.engine.journal;
 
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.resources.GcPauseRange;
+import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.engine.sqltrace.SqlStatementNormalizer;
@@ -27,6 +29,10 @@ import java.util.function.Supplier;
  * At most {@value #MAX_PENDING_REQUESTS} requests are held; beyond that, the oldest is dropped and counted as
  * unattributed, as is a request whose HTTP event never arrives.</p>
  *
+ * <p>A request's GC pauses join the {@code GC} events by collector and id ({@code docs/PLAN-v2.md} §5.11). A collection
+ * whose notification arrives after the request was folded waits, up to {@value #MAX_AWAITED_COLLECTIONS} of them, and
+ * adds its pause to the request's route when it arrives.</p>
+ *
  * <p>The dispatcher updates the aggregates under their monitor, and readers take an immutable {@link #snapshot()}.</p>
  */
 public final class JournalAggregates implements JournalListener {
@@ -42,6 +48,9 @@ public final class JournalAggregates implements JournalListener {
     public static final int MAX_PENDING_REQUESTS = 4_096;
     static final int MAX_FINGERPRINTS_PER_REQUEST = 64;
     static final int MAX_GROUPS_PER_REQUEST = 16;
+    static final int MAX_AWAITED_COLLECTIONS = 4_096;
+    static final int MAX_RECENT_COLLECTIONS = 4_096;
+    static final int MAX_JOINED_COLLECTIONS_PER_REQUEST = 64;
 
     private static final int SOURCES = JournalSource.values().length;
 
@@ -53,6 +62,8 @@ public final class JournalAggregates implements JournalListener {
             new CappedMap<>(MAX_TRANSACTIONAL_METHODS, TransactionalMethod::new);
     private final CappedMap<ThreadFamily> threadFamilies = new CappedMap<>(MAX_THREAD_FAMILIES, ThreadFamily::new);
     private final LinkedHashMap<String, PendingRequest> pending = new LinkedHashMap<>();
+    private final Map<String, Long> recentPauses = bounded(MAX_RECENT_COLLECTIONS);
+    private final Map<String, List<String>> awaitedPauses = bounded(MAX_AWAITED_COLLECTIONS);
     private final long[] runCounts = new long[SOURCES];
     private final long[] runNanos = new long[SOURCES];
     private long firstEpochMillis = Long.MAX_VALUE;
@@ -102,10 +113,14 @@ public final class JournalAggregates implements JournalListener {
         runNanos[source] += Math.max(0, event.durationNanos());
         firstEpochMillis = Math.min(firstEpochMillis, event.epochMillis());
         lastEpochMillis = Math.max(lastEpochMillis, event.epochMillis());
+        RuntimeEventPayload payload = event.payload();
+        if (payload instanceof GcPayload gc) {
+            collected(gc, Math.max(0, event.durationNanos()));
+            return;
+        }
         if (event.requestId() == null && event.executionId() == null) {
             threadFamilies.get(ThreadFamilies.of(event.thread())).add(event);
         }
-        RuntimeEventPayload payload = event.payload();
         if (event.source() == JournalSource.HTTP && payload instanceof HttpPayload http) {
             if (http.status() >= 500) {
                 failedRequests++;
@@ -113,6 +128,10 @@ public final class JournalAggregates implements JournalListener {
             String label = routeOf(http);
             Route route = routes.get(label);
             route.add(event, http.status());
+            if (http.resources() != null) {
+                route.resources(http.resources());
+                joinPauses(http.resources(), label, route);
+            }
             PendingRequest children = event.requestId() == null ? null : pending.remove(event.requestId());
             if (children != null) {
                 route.fold(children, label, this);
@@ -139,6 +158,59 @@ public final class JournalAggregates implements JournalListener {
         } else if (payload instanceof ConnectionPayload connection && children != null) {
             children.connectionWaitNanos += connection.waitNanos();
         }
+    }
+
+    /** Adds a collection's pause to the routes of the requests already folded that it completed during. */
+    private void collected(GcPayload gc, long pauseNanos) {
+        if (!gc.pause() || gc.collector() == null) {
+            return;
+        }
+        String key = collectionKey(gc.collector(), gc.gcId());
+        recentPauses.put(key, pauseNanos);
+        List<String> labels = awaitedPauses.remove(key);
+        if (labels != null) {
+            for (String label : labels) {
+                routes.get(label).gcPauseNanos += pauseNanos;
+            }
+        }
+    }
+
+    /**
+     * Adds the pauses of the collections a request's segments saw complete to its route: now for the collections whose
+     * events already arrived, and when they arrive for the others.
+     */
+    private void joinPauses(ResourceUsage usage, String label, Route route) {
+        int joined = 0;
+        for (GcPauseRange range : usage.gcPauseRanges()) {
+            for (long id = range.afterId() + 1; id <= range.lastId(); id++) {
+                if (joined++ >= MAX_JOINED_COLLECTIONS_PER_REQUEST) {
+                    return;
+                }
+                String key = collectionKey(range.collector(), id);
+                Long pauseNanos = recentPauses.get(key);
+                if (pauseNanos != null) {
+                    route.gcPauseNanos += pauseNanos;
+                } else {
+                    awaitedPauses
+                            .computeIfAbsent(key, ignored -> new ArrayList<>(1))
+                            .add(label);
+                }
+            }
+        }
+    }
+
+    private static String collectionKey(String collector, long id) {
+        return collector + '#' + id;
+    }
+
+    /** A map that keeps its {@code max} most recently inserted entries. */
+    private static <V> Map<String, V> bounded(int max) {
+        return new LinkedHashMap<>() {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, V> eldest) {
+                return size() > max;
+            }
+        };
     }
 
     /** The route label of a request, such as {@code GET /api/orders/{id}}, as HTTP route rankings name it. */
@@ -179,6 +251,8 @@ public final class JournalAggregates implements JournalListener {
         transactionalMethods.clear();
         threadFamilies.clear();
         pending.clear();
+        recentPauses.clear();
+        awaitedPauses.clear();
         Arrays.fill(runCounts, 0);
         Arrays.fill(runNanos, 0);
         firstEpochMillis = Long.MAX_VALUE;
@@ -263,6 +337,30 @@ public final class JournalAggregates implements JournalListener {
         private final long[] childNanos = new long[SOURCES];
         private final CappedMap<long[]> statements = new CappedMap<>(MAX_FINGERPRINTS_PER_ROUTE, () -> new long[1]);
         private long connectionWaitNanos;
+        private long measuredRequests;
+        private long partialRequests;
+        private long unmeasuredRequests;
+        private long cpuNanos;
+        private long allocatedBytes;
+        private long gcPauses;
+        private long requestsWithGcPause;
+        private long gcPauseNanos;
+
+        void resources(ResourceUsage usage) {
+            switch (usage.availability()) {
+                case AVAILABLE -> {
+                    measuredRequests++;
+                    cpuNanos += usage.cpuNanos();
+                    allocatedBytes += usage.allocatedBytes();
+                }
+                case PARTIAL -> partialRequests++;
+                case UNAVAILABLE -> unmeasuredRequests++;
+            }
+            gcPauses += usage.gcPauses();
+            if (usage.gcPauses() > 0) {
+                requestsWithGcPause++;
+            }
+        }
 
         void add(RuntimeEvent event, int status) {
             latency.recordNanos(event.durationNanos());
@@ -294,7 +392,16 @@ public final class JournalAggregates implements JournalListener {
                     bySource(childCounts),
                     bySource(childNanos),
                     Collections.unmodifiableMap(statementCounts),
-                    connectionWaitNanos);
+                    connectionWaitNanos,
+                    new RouteResources(
+                            measuredRequests,
+                            partialRequests,
+                            unmeasuredRequests,
+                            cpuNanos,
+                            allocatedBytes,
+                            gcPauses,
+                            requestsWithGcPause,
+                            gcPauseNanos));
         }
     }
 
@@ -398,6 +505,7 @@ public final class JournalAggregates implements JournalListener {
      * One route, keyed as {@code METHOD route}: its requests, status classes ({@code 1xx} to {@code 5xx}), latency, the count and time of its
      * requests' children per source, how many statements each fingerprint ran in it, and how long its requests waited
      * to obtain database connections. The time of its {@code CONNECTION} children is how long they held them.
+     * {@code resources} is what its requests' segments measured (§5.11).
      */
     public record RouteStats(
             String route,
@@ -407,7 +515,41 @@ public final class JournalAggregates implements JournalListener {
             Map<JournalSource, Long> childCounts,
             Map<JournalSource, Long> childNanos,
             Map<String, Long> statements,
-            long connectionWaitNanos) {}
+            long connectionWaitNanos,
+            RouteResources resources) {
+
+        public RouteStats {
+            resources = resources == null ? RouteResources.NONE : resources;
+        }
+    }
+
+    /**
+     * What a route's requests' segments measured ({@code docs/PLAN-v2.md} §5.11). CPU time and allocated bytes sum only
+     * the {@code measuredRequests}, whose every segment was measured, so their averages are exact; requests with some
+     * or no segments measured, such as those on virtual threads, are counted, never summed as zero.
+     *
+     * @param measuredRequests requests whose every segment was measured
+     * @param partialRequests requests with some segments the JVM did not measure
+     * @param unmeasuredRequests requests with no measured segment
+     * @param cpuNanos CPU time of the measured requests
+     * @param allocatedBytes bytes allocated by the measured requests
+     * @param gcPauses pause collections that completed during the route's requests
+     * @param requestsWithGcPause requests during which at least one pause collection completed
+     * @param gcPauseNanos the pauses of those collections, joined by id from the {@code GC} events received so far
+     */
+    public record RouteResources(
+            long measuredRequests,
+            long partialRequests,
+            long unmeasuredRequests,
+            long cpuNanos,
+            long allocatedBytes,
+            long gcPauses,
+            long requestsWithGcPause,
+            long gcPauseNanos) {
+
+        /** A route whose requests carried no measurement, as when the {@code resources} source is off. */
+        public static final RouteResources NONE = new RouteResources(0, 0, 0, 0, 0, 0, 0, 0);
+    }
 
     /** One literal-free statement fingerprint: its executions, failures, latency, and executions per call site. */
     public record StatementStats(

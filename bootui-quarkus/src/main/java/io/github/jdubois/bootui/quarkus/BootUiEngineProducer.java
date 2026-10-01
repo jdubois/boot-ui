@@ -280,6 +280,7 @@ public class BootUiEngineProducer {
         journal.setCorrelationContextProvider(QuarkusRequestCorrelation::current);
         journal.setThreadKindClassifier(new QuarkusThreadKinds());
         journal.addListener(aggregates);
+        journal.startGcSource();
         return journal;
     }
 

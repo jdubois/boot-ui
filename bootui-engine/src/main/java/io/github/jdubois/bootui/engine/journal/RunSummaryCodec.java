@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.journal;
 
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.AggregatesSnapshot;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.ExceptionGroupStats;
+import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteResources;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RunStats;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.StatementStats;
@@ -35,7 +36,7 @@ final class RunSummaryCodec {
 
     private static final int MAGIC = 0x42555253;
 
-    private static final int VERSION = 1;
+    private static final int VERSION = 2;
 
     private RunSummaryCodec() {}
 
@@ -82,7 +83,16 @@ final class RunSummaryCodec {
                 in.sourceMap(),
                 in.sourceMap(),
                 in.stringMap(),
-                in.number()));
+                in.number(),
+                new RouteResources(
+                        in.number(),
+                        in.number(),
+                        in.number(),
+                        in.number(),
+                        in.number(),
+                        in.number(),
+                        in.number(),
+                        in.number())));
         List<StatementStats> statements = in.list(
                 () -> new StatementStats(in.string(), in.number(), in.number(), in.histogram(), in.stringMap()));
         List<ExceptionGroupStats> groups =
@@ -117,6 +127,15 @@ final class RunSummaryCodec {
             body.sourceMap(route.childNanos());
             body.stringMap(route.statements());
             body.number(route.connectionWaitNanos());
+            RouteResources resources = route.resources();
+            body.number(resources.measuredRequests());
+            body.number(resources.partialRequests());
+            body.number(resources.unmeasuredRequests());
+            body.number(resources.cpuNanos());
+            body.number(resources.allocatedBytes());
+            body.number(resources.gcPauses());
+            body.number(resources.requestsWithGcPause());
+            body.number(resources.gcPauseNanos());
         }
         body.number(aggregates.statements().size());
         for (StatementStats statement : aggregates.statements()) {
@@ -199,7 +218,8 @@ final class RunSummaryCodec {
                         route.childCounts(),
                         route.childNanos(),
                         top(route.statements(), limit),
-                        route.connectionWaitNanos()));
+                        route.connectionWaitNanos(),
+                        route.resources()));
         List<StatementStats> statements = top(
                 aggregates.statements(),
                 StatementStats::executions,

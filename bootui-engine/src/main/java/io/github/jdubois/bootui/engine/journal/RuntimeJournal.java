@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.journal;
 import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.correlation.ThreadKinds;
+import io.github.jdubois.bootui.engine.resources.GcEventSource;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.ThreadKindClassifier;
@@ -74,6 +75,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
     private final ThreadKinds threadKinds = new ThreadKinds();
     private final Thread dispatcher;
     private final AtomicBoolean closed = new AtomicBoolean();
+    private GcEventSource gcSource;
     private volatile boolean running;
 
     /** A journal whose dispatcher starts now, when {@code settings} enable it. */
@@ -144,6 +146,20 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
         return event.thread().equals(Thread.currentThread().getName())
                 ? event.withThreadKind(threadKinds.current())
                 : event;
+    }
+
+    /**
+     * Starts the {@code gc} source, which publishes one event per completed collection until the journal closes
+     * ({@code docs/PLAN-v2.md} §5.11). Does nothing when the journal is disabled, does not record {@code gc}, has no
+     * dispatcher, or already started it.
+     *
+     * @return whether the source listens to at least one collector
+     */
+    public synchronized boolean startGcSource() {
+        if (gcSource == null && dispatcher != null && !closed.get() && settings.records(JournalSource.GC)) {
+            gcSource = GcEventSource.start(this);
+        }
+        return gcSource != null && gcSource.collectors() > 0;
     }
 
     /** Installs this stack's classifier of the thread an event is offered on; {@code null} restores the default. */
@@ -327,6 +343,11 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
             return;
         }
         running = false;
+        synchronized (this) {
+            if (gcSource != null) {
+                gcSource.close();
+            }
+        }
         if (dispatcher != null) {
             dispatcher.interrupt();
             try {

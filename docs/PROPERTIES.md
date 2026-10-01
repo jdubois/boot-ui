@@ -639,9 +639,11 @@ aggregates per route, statement, exception group, transactional method, and thre
 ([PLAN-v2.md](PLAN-v2.md) §5.2). Recording never blocks a request: events wait in a bounded queue for one BootUI
 daemon thread, and an event the queue cannot take is dropped and counted. HTTP requests, SQL statements, exception
 occurrences, security events, REST client calls, cache accesses, messages, scheduled runs, transactions (Spring),
-logical database connections (how long each was waited for and held), and application `WARN` and `ERROR` log events
-are recorded today; the `gc` and `resources` sources follow. Payloads hold
-no bind values, keys, message bodies, exception or log messages, or principals: a log event keeps its unformatted
+logical database connections (how long each was waited for and held), application `WARN` and `ERROR` log events, and
+garbage collections (`gc`) are recorded. The `resources` source measures each request's CPU time, allocated bytes, and
+the collections that completed while it ran, summed over every thread its work ran on ([PLAN-v2.md](PLAN-v2.md)
+§5.11). The JVM does not measure virtual threads, so a request served on one reports its CPU time and allocated bytes
+as unavailable or partial, never as zero. Payloads hold no bind values, keys, message bodies, exception or log messages, or principals: a log event keeps its unformatted
 template only. Nothing is written to disk. The same keys and defaults apply on Spring and Quarkus.
 
 | Property                               | Default                                  | Description |

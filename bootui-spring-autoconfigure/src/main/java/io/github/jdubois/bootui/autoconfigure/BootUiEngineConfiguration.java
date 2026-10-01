@@ -201,6 +201,7 @@ public class BootUiEngineConfiguration {
         RuntimeJournal journal =
                 new RuntimeJournal(properties.getRuntimeJournal().toSettings(), run);
         journal.setThreadKindClassifier(threadKinds.getIfUnique());
+        journal.startGcSource();
         return journal;
     }
 

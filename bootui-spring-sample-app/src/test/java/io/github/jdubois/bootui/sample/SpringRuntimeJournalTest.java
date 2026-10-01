@@ -4,17 +4,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
 import io.github.jdubois.bootui.engine.journal.ApplicationFrames;
+import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
+import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -37,6 +41,9 @@ class SpringRuntimeJournalTest {
 
     @LocalServerPort
     int port;
+
+    @Value("${spring.threads.virtual.enabled:false}")
+    boolean virtualThreads;
 
     @Autowired
     RuntimeJournal journal;
@@ -63,6 +70,55 @@ class SpringRuntimeJournalTest {
         assertThat(boom.statusClasses().get(4)).isPositive();
         assertThat(aggregates.snapshot().exceptionGroups())
                 .anySatisfy(group -> assertThat(group.routes()).containsKey("GET /api/sample/boom"));
+    }
+
+    @Test
+    void eachRequestCarriesItsMeasuredResourcesOrWhyTheJvmCouldNotMeasureThem() throws Exception {
+        BootUiHttpProbe probe = new BootUiHttpProbe("http://localhost:" + port);
+
+        for (int i = 0; i < 2; i++) {
+            assertThat(probe.get("/api/sample/products").status()).isEqualTo(200);
+        }
+        assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
+
+        List<ResourceUsage> usages = journal.entries().stream()
+                .filter(entry -> entry.event().payload() instanceof HttpPayload http
+                        && "/api/sample/products".equals(http.path()))
+                .map(entry -> ((HttpPayload) entry.event().payload()).resources())
+                .toList();
+        assertThat(usages).hasSizeGreaterThanOrEqualTo(2).doesNotContainNull();
+        if (virtualThreads && Runtime.version().feature() >= 21) {
+            // spring.threads.virtual.enabled serves each request on a virtual thread, which the JVM does not measure.
+            assertThat(usages).allSatisfy(usage -> {
+                assertThat(usage.availability()).isEqualTo(ResourceUsage.Availability.UNAVAILABLE);
+                assertThat(usage.unmeasuredReason()).isEqualTo(ResourceUsage.Unmeasured.VIRTUAL_THREAD);
+            });
+            assertThat(route("GET /api/sample/products").resources().unmeasuredRequests())
+                    .isGreaterThanOrEqualTo(2);
+        } else {
+            assertThat(usages).allSatisfy(usage -> {
+                assertThat(usage.availability()).isEqualTo(ResourceUsage.Availability.AVAILABLE);
+                assertThat(usage.cpuNanos()).isPositive();
+                assertThat(usage.allocatedBytes()).isPositive();
+            });
+            assertThat(route("GET /api/sample/products").resources().measuredRequests())
+                    .isGreaterThanOrEqualTo(2);
+        }
+    }
+
+    @Test
+    void everyCollectionIsRecordedAsAGcEvent() throws Exception {
+        long before = journal.status().accepted().getOrDefault(JournalSource.GC, 0L);
+
+        System.gc();
+        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (journal.status().accepted().getOrDefault(JournalSource.GC, 0L) == before
+                && System.nanoTime() < deadline) {
+            Thread.sleep(20);
+        }
+
+        assertThat(journal.status().accepted().getOrDefault(JournalSource.GC, 0L))
+                .isGreaterThan(before);
     }
 
     private RouteStats route(String name) {

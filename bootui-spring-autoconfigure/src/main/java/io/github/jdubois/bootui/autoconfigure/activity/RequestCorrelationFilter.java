@@ -11,6 +11,8 @@ import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.engine.resources.ResourceUsage;
+import io.github.jdubois.bootui.engine.resources.SegmentMeter;
 import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import jakarta.servlet.DispatcherType;
@@ -130,6 +132,9 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
         if (phases != null) {
             phases.begin(correlation.requestId());
         }
+        if (journal.records(JournalSource.RESOURCES)) {
+            SegmentMeter.shared().begin(correlation.requestId());
+        }
         try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(correlation)) {
             recordAround(request, response, chain, correlation);
         }
@@ -163,6 +168,9 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
             int status = threw ? 500 : response.getStatus();
             boolean failedOrSlow = RequestSlowThreshold.isFailedOrSlow(status, end - start, requestSlowThresholdMs);
             String decodedPath = decodedPath(path);
+            // Ends the request's measurement (docs/PLAN-v2.md §5.11): an async request's later dispatches are not
+            // counted, as its HTTP event, published here, does not time them either.
+            ResourceUsage resources = SegmentMeter.shared().take(requestId);
             traceRegistry.record(
                     new HttpExchangeTrace(start, end, method, decodedPath, traceId, routeTemplate, requestId),
                     failedOrSlow);
@@ -182,7 +190,8 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
                             decodedPath,
                             routeTemplate,
                             phases == null ? null : phases.operationOf(requestId),
-                            status)));
+                            status,
+                            resources)));
         }
     }
 

@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.correlation;
 
+import io.github.jdubois.bootui.engine.resources.SegmentMeter;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 
 /**
@@ -13,6 +14,10 @@ import io.github.jdubois.bootui.spi.CorrelationContext;
  *
  * <p>The holder is a plain {@link ThreadLocal}, which is also per virtual thread. It stores nothing for
  * {@link CorrelationContext#NONE}, so a thread with no open scope retains no value.</p>
+ *
+ * <p>Every change of context also tells the {@link SegmentMeter} which request the thread now works for, so a
+ * request's CPU time, allocated bytes, and GC pauses are measured over exactly the segments its scopes cover
+ * ({@code docs/PLAN-v2.md} §5.11).</p>
  */
 public final class BootUiCorrelation {
 
@@ -47,8 +52,10 @@ public final class BootUiCorrelation {
         CorrelationContext previous = current();
         if (context == null || context.isEmpty()) {
             CURRENT.remove();
+            SegmentMeter.shared().switchTo(null);
         } else {
             CURRENT.set(context);
+            SegmentMeter.shared().switchTo(context.requestId());
         }
         return previous;
     }

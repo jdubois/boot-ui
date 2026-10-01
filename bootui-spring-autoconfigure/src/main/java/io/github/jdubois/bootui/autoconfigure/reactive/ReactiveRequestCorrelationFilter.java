@@ -9,6 +9,8 @@ import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.engine.resources.ResourceUsage;
+import io.github.jdubois.bootui.engine.resources.SegmentMeter;
 import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.util.concurrent.atomic.AtomicReference;
@@ -116,6 +118,9 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
         }
         long startNanos = System.nanoTime();
         long start = System.currentTimeMillis();
+        if (sink.records(JournalSource.RESOURCES)) {
+            SegmentMeter.shared().begin(correlation.requestId());
+        }
         AtomicReference<Throwable> failure = new AtomicReference<>();
         return chain.doOnError(failure::set).doFinally(signal -> {
             try {
@@ -128,6 +133,7 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
                 }
                 ServerHttpRequest request = exchange.getRequest();
                 String requestId = correlation.requestId();
+                ResourceUsage resources = SegmentMeter.shared().take(requestId);
                 RequestPhases requestPhases = phases;
                 sink.offer(new RuntimeEvent(
                         JournalSource.HTTP,
@@ -151,7 +157,8 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
                                         : request.getURI().getPath(),
                                 ReactiveHttpExchangeTraceFilter.routeTemplate(exchange),
                                 requestPhases == null ? null : requestPhases.operationOf(requestId),
-                                status)));
+                                status,
+                                resources)));
             } catch (RuntimeException ex) {
                 // Publishing never disturbs the response.
             }

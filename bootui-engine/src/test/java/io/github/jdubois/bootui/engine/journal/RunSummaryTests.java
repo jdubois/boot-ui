@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.AggregatesSnapshot;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.StatementStats;
+import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.util.ArrayList;
 import java.util.List;
@@ -67,6 +68,8 @@ class RunSummaryTests {
         assertThat(route.childNanos()).isEqualTo(originalRoute.childNanos());
         assertThat(route.statements()).isEqualTo(originalRoute.statements());
         assertThat(route.connectionWaitNanos()).isEqualTo(2_000);
+        assertThat(route.resources()).isEqualTo(originalRoute.resources());
+        assertThat(route.resources().cpuNanos()).isEqualTo(11_500_000);
         assertSameHistogram(route.latency(), originalRoute.latency());
         StatementStats statement = copy.statements().get(0);
         assertThat(statement.callSites()).containsEntry("OrderRepository.find:42", 2L);
@@ -276,7 +279,13 @@ class RunSummaryTests {
                 "http-nio-8080-exec-1",
                 null,
                 status >= 500,
-                new HttpPayload("GET", route, route, null, status));
+                new HttpPayload(
+                        "GET",
+                        route,
+                        route,
+                        null,
+                        status,
+                        new ResourceUsage(nanos / 2, 4_096, 1, 0, null, 1, List.of(), false)));
     }
 
     private static RuntimeEvent sql(String requestId, String fingerprint, long nanos, String callSite) {

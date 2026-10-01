@@ -4,12 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteResources;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -31,6 +33,9 @@ class WebFluxRuntimeJournalTest {
 
     @LocalServerPort
     int port;
+
+    @Value("${spring.threads.virtual.enabled:false}")
+    boolean virtualThreads;
 
     @Autowired
     RuntimeJournal journal;
@@ -79,6 +84,18 @@ class WebFluxRuntimeJournalTest {
         assertThat(route.childCounts().get(JournalSource.CONNECTION))
                 .as("each request's logical connections, published when released")
                 .isGreaterThanOrEqualTo(3);
+        RouteResources resources = route.resources();
+        if (virtualThreads && Runtime.version().feature() >= 21) {
+            // Each request's event-loop segments are measured, but its JDBC work hops to boundedElastic, which
+            // spring.threads.virtual.enabled runs on virtual threads that the JVM does not measure (§5.11).
+            assertThat(resources.partialRequests()).as(resources.toString()).isEqualTo(3);
+        } else {
+            assertThat(resources.measuredRequests())
+                    .as("each request's segments, summed across its Reactor hops: " + resources)
+                    .isEqualTo(3);
+            assertThat(resources.cpuNanos()).isPositive();
+            assertThat(resources.allocatedBytes()).isPositive();
+        }
         assertThat(journal.entries())
                 .filteredOn(entry -> entry.event().source() == JournalSource.HTTP)
                 .isNotEmpty()

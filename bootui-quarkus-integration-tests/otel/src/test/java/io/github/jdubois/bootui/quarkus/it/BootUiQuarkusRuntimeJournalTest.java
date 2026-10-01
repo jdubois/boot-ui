@@ -2,11 +2,13 @@ package io.github.jdubois.bootui.quarkus.it;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.spi.ThreadKind;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
@@ -81,6 +83,27 @@ class BootUiQuarkusRuntimeJournalTest {
     }
 
     @Test
+    void aBlockingRequestsCpuCoversItsWorkerSegment() throws Exception {
+        String body = body("/it/cpu");
+        long workerCpuNanos = Long.parseLong(body.substring(0, body.indexOf(':')));
+        assertThat(body).as("served on a worker thread").contains("executor-thread");
+
+        ResourceUsage usage = awaitResources("/it/cpu");
+
+        assertThat(usage.availability()).isEqualTo(ResourceUsage.Availability.AVAILABLE);
+        assertThat(usage.segments())
+                .as("the event loop's segment and the worker's")
+                .isGreaterThanOrEqualTo(2);
+        assertThat(usage.cpuNanos()).isGreaterThanOrEqualTo(workerCpuNanos);
+        assertThat(usage.allocatedBytes()).isPositive();
+        assertThat(aggregates.snapshot().routes())
+                .filteredOn(route -> route.route().equals("GET /it/cpu"))
+                .singleElement()
+                .satisfies(route ->
+                        assertThat(route.resources().measuredRequests()).isPositive());
+    }
+
+    @Test
     void anExceptionFoldsIntoTheRouteThatThrewIt() throws Exception {
         assertThat(status("/it/boom")).isEqualTo(500);
         assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
@@ -92,6 +115,33 @@ class BootUiQuarkusRuntimeJournalTest {
                     assertThat(route.childCounts()).containsKey(JournalSource.EXCEPTION);
                     assertThat(route.statusClasses().get(4)).isPositive();
                 });
+    }
+
+    private ResourceUsage awaitResources(String path) throws Exception {
+        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (System.nanoTime() < deadline) {
+            assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
+            ResourceUsage usage = journal.entries().stream()
+                    .filter(entry -> entry.event().payload() instanceof HttpPayload http
+                            && path.equals(http.path())
+                            && http.resources() != null)
+                    .map(entry -> ((HttpPayload) entry.event().payload()).resources())
+                    .findFirst()
+                    .orElse(null);
+            if (usage != null) {
+                return usage;
+            }
+            Thread.sleep(20);
+        }
+        throw new AssertionError("no measured HTTP event for " + path);
+    }
+
+    private String body(String path) throws Exception {
+        URI uri = baseUrl.toURI().resolve(path);
+        HttpResponse<String> response = HttpClient.newHttpClient()
+                .send(HttpRequest.newBuilder(uri).GET().build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(200);
+        return response.body();
     }
 
     private int status(String path) throws Exception {

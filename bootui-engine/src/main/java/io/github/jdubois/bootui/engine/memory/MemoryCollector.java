@@ -162,21 +162,9 @@ final class MemoryCollector {
                 perCollectorCounts);
     }
 
-    /**
-     * Returns {@code true} for GarbageCollectorMXBeans that report concurrent (non-STW) cycle time.
-     * Their collection time runs while the application is still executing, so including it in an
-     * "overhead" percentage produces inflated, misleading results for concurrent collectors such as
-     * ZGC, Shenandoah, and G1 concurrent marking.
-     */
+    /** See {@link GcCollectorKinds#isConcurrentCycleBean}. */
     static boolean isConcurrentCycleBean(String name) {
-        if (name == null) {
-            return false;
-        }
-        String lower = name.toLowerCase(java.util.Locale.ROOT);
-        // "cycles" covers: ZGC Cycles, ZGC Major Cycles, ZGC Minor Cycles, Shenandoah Cycles.
-        // G1 Concurrent GC records its remark/cleanup VM operations, so its elapsed time remains
-        // relevant to a stop-the-world overhead metric.
-        return lower.contains("cycles") || "concurrentmarksweep".equals(lower);
+        return GcCollectorKinds.isConcurrentCycleBean(name);
     }
 
     private MemoryData collectMemory() {
