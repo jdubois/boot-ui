@@ -3,14 +3,19 @@ package io.github.jdubois.bootui.engine.journal;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalClearRequest;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalClearResult;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalStatusDto;
+import io.github.jdubois.bootui.core.dto.RuntimeResourcePointDto;
+import io.github.jdubois.bootui.core.dto.RuntimeResourceTotalsDto;
+import io.github.jdubois.bootui.core.dto.RuntimeResourcesDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunSummaryDto;
+import io.github.jdubois.bootui.engine.resources.ResourceTrack;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * The runtime journal's status block and its <b>Clear recording</b> action ({@code docs/PLAN-v2.md} §5.2), shared by
- * every adapter so they report the same shape and outcomes. Read-only policy blocks the action before it reaches this
+ * The runtime journal's status block, its resource track (§5.11), and its <b>Clear recording</b> action
+ * ({@code docs/PLAN-v2.md} §5.2), shared by every adapter so they report the same shape and outcomes. Read-only policy blocks the action before it reaches this
  * service, through the {@code activity} panel's access rules.
  */
 public final class RuntimeJournalService {
@@ -19,6 +24,9 @@ public final class RuntimeJournalService {
             "Clear recording requires confirm=true because it drops every recorded event and aggregate of this run.";
 
     static final String DISABLED = "The runtime journal is disabled (bootui.runtime-journal.enabled=false).";
+
+    static final String RESOURCES_OFF =
+            "The runtime journal does not record the resources source (bootui.runtime-journal.sources).";
 
     private final RuntimeJournal journal;
     private final JournalAggregates aggregates;
@@ -66,6 +74,58 @@ public final class RuntimeJournalService {
                 status.droppedTotal(),
                 previousRuns(status.runId()),
                 history.unavailableReason());
+    }
+
+    /**
+     * The run's resource track and CPU ledger ({@code docs/PLAN-v2.md} §5.11), or why the sampler does not run.
+     */
+    public RuntimeResourcesDto resources() {
+        if (journal == null || !journal.settings().enabled()) {
+            return unavailableResources(DISABLED);
+        }
+        if (aggregates == null || !journal.resourceSamplerRunning()) {
+            return unavailableResources(RESOURCES_OFF);
+        }
+        ResourceTrack track = aggregates.resourceTrack();
+        List<RuntimeResourcePointDto> points = new ArrayList<>();
+        for (ResourceTrack.Point point : track.points()) {
+            List<Long> families = new ArrayList<>();
+            for (long part : point.familyCpuNanos()) {
+                families.add(part);
+            }
+            points.add(new RuntimeResourcePointDto(
+                    point.epochMillis(),
+                    point.sequence(),
+                    point.intervalNanos(),
+                    point.processCpuNanos(),
+                    point.requestCpuNanos(),
+                    point.internalCpuNanos(),
+                    families,
+                    point.unreadThreads(),
+                    point.heapUsedBytes(),
+                    point.heapCommittedBytes(),
+                    point.heapAfterGcBytes(),
+                    point.allocatedBytes(),
+                    point.liveThreads(),
+                    point.daemonThreads()));
+        }
+        ResourceTrack.Totals totals = track.totals();
+        return new RuntimeResourcesDto(
+                true,
+                null,
+                track.families(),
+                points,
+                new RuntimeResourceTotalsDto(
+                        totals.sweeps(),
+                        totals.processCpuNanos(),
+                        totals.requestCpuNanos(),
+                        totals.internalCpuNanos(),
+                        totals.familyCpuNanos()));
+    }
+
+    private static RuntimeResourcesDto unavailableResources(String reason) {
+        return new RuntimeResourcesDto(
+                false, reason, List.of(), List.of(), new RuntimeResourceTotalsDto(0, 0, 0, 0, Map.of()));
     }
 
     /** The kept summaries of the runs before this one, newest first. */

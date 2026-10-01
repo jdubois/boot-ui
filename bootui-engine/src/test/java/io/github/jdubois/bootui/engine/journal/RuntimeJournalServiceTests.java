@@ -4,8 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.RuntimeJournalClearRequest;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalStatusDto;
+import io.github.jdubois.bootui.core.dto.RuntimeResourcesDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.resources.ResourceSettings;
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import java.time.Duration;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -24,6 +27,45 @@ class RuntimeJournalServiceTests {
     @AfterEach
     void close() {
         journal.close();
+    }
+
+    @Test
+    void resourcesSayWhyTheSamplerDoesNotRun() {
+        assertThat(new RuntimeJournalService(null, null).resources().unavailableReason())
+                .isEqualTo(RuntimeJournalService.DISABLED);
+
+        RuntimeResourcesDto resources = service.resources();
+
+        assertThat(resources.available()).isFalse();
+        assertThat(resources.unavailableReason()).isEqualTo(RuntimeJournalService.RESOURCES_OFF);
+        assertThat(resources.points()).isEmpty();
+        assertThat(resources.totals().sweeps()).isZero();
+    }
+
+    @Test
+    void resourcesReportTheSamplersPointsInFamilyOrderAndTheRunsTotals() throws Exception {
+        JournalAggregates sampled = new JournalAggregates();
+        try (RuntimeJournal running = new RuntimeJournal(RuntimeJournalSettings.defaults(), RunIdentity.start())) {
+            assertThat(running.startResourceSampler(
+                            new ResourceSettings(Duration.ofMillis(100), 500), sampled.resourceTrack()))
+                    .isTrue();
+            long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+            while (sampled.resourceTrack().points().size() < 2 && System.nanoTime() < deadline) {
+                Thread.sleep(25);
+            }
+
+            RuntimeResourcesDto resources = new RuntimeJournalService(running, sampled).resources();
+
+            assertThat(resources.available()).isTrue();
+            assertThat(resources.unavailableReason()).isNull();
+            assertThat(resources.points()).hasSizeGreaterThanOrEqualTo(2).allSatisfy(point -> {
+                assertThat(point.familyCpuNanos())
+                        .hasSizeLessThanOrEqualTo(resources.families().size());
+                assertThat(point.heapUsedBytes()).isPositive();
+            });
+            assertThat(resources.totals().sweeps())
+                    .isGreaterThanOrEqualTo(resources.points().size());
+        }
     }
 
     @Test

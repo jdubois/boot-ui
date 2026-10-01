@@ -389,6 +389,20 @@ public final class BootUiApiContractCatalog {
                     "previousRuns", JsonType.ARRAY,
                     "previousRunsUnavailable", JsonType.NULLABLE_STRING));
 
+    /**
+     * The run's resource track and CPU ledger, a detail read of the {@code activity} panel ({@code docs/PLAN-v2.md}
+     * §5.11), kept out of {@link #reads()} like {@link #runtimeJournal()}.
+     */
+    private static final ReadContract RUNTIME_RESOURCES = read(
+            "activity",
+            "/activity/resources",
+            fields(
+                    "available", JsonType.BOOLEAN,
+                    "unavailableReason", JsonType.NULLABLE_STRING,
+                    "families", JsonType.ARRAY,
+                    "points", JsonType.ARRAY,
+                    "totals", JsonType.OBJECT));
+
     private static final List<ActionContract> ACTIONS = buildActions();
 
     private BootUiApiContractCatalog() {}
@@ -411,6 +425,11 @@ public final class BootUiApiContractCatalog {
     /** The runtime journal's status block, a detail read of the {@code activity} panel. */
     public static ReadContract runtimeJournal() {
         return RUNTIME_JOURNAL;
+    }
+
+    /** The resource track's read contract ({@code docs/PLAN-v2.md} §5.11). */
+    public static ReadContract runtimeResources() {
+        return RUNTIME_RESOURCES;
     }
 
     public static List<ActionContract> actions() {

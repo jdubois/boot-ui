@@ -27,6 +27,7 @@ import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalClearRequest;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalClearResult;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalStatusDto;
+import io.github.jdubois.bootui.core.dto.RuntimeResourcesDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
@@ -324,6 +325,12 @@ public class ReactiveLiveActivityController {
     @GetMapping("/journal")
     public RuntimeJournalStatusDto journal() {
         return runtimeJournal.status();
+    }
+
+    /** The run's resource track and CPU ledger ({@code docs/PLAN-v2.md} §5.11). */
+    @GetMapping("/resources")
+    public RuntimeResourcesDto resources() {
+        return runtimeJournal.resources();
     }
 
     /** <b>Clear recording</b>: drops the run's recorded events and aggregates, when confirmed. */

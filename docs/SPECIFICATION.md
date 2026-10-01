@@ -2707,6 +2707,7 @@ Initial endpoints:
 | `/bootui/api/activity/use-existing-datasource` | POST | Hot-switch Live Activity from in-memory to the existing `DataSource` (confirmation-gated) |
 | `/bootui/api/activity/journal`               | GET    | The runtime journal's status: retained events and bytes against their bounds, events recorded and dropped per source, and the previous runs whose summaries are kept |
 | `/bootui/api/activity/journal/clear`         | POST   | **Clear recording**: drop the run's recorded events and aggregates (confirmation-gated, blocked by read-only policy) |
+| `/bootui/api/activity/resources`             | GET    | The run's resource track and CPU ledger: one point per sweep (process CPU split into requests, thread families, and the JVM's own work; heap; allocation; threads) and the run's totals, or why the sampler does not run |
 | `/bootui/api/email`                          | GET    | Captured outgoing email summaries and content-policy status                             |
 | `/bootui/api/kafka`                          | GET    | Bounded Kafka producer and consumer activity                                            |
 | `/bootui/api/rabbitmq`                       | GET    | Bounded RabbitMQ publisher and consumer activity                                        |

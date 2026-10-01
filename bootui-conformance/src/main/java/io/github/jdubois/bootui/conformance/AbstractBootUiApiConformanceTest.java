@@ -1519,6 +1519,40 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void runtimeResourcesReportOneShapeWithABalancedLedger() {
+        assumeTrue(isPanelUsableInLiveManifest("activity"), "activity panel is not available in this environment");
+        ReadContract contract = BootUiApiContractCatalog.runtimeResources();
+
+        Response response = probe().get(api(contract.relativePath()));
+
+        assertThat(response.status())
+                .as("GET %s status", contract.relativePath())
+                .isEqualTo(200);
+        List<String> failures = new ArrayList<>();
+        assertJsonContract("runtime resources", contract, response.json(), failures);
+        assertThat(failures).as("runtime resources contract").isEmpty();
+        JsonNode resources = response.json();
+        assertThat(resources.path("available").asBoolean(false))
+                .as("the resources source is on by default: %s", resources.path("unavailableReason"))
+                .isTrue();
+        int families = resources.path("families").size();
+        for (JsonNode point : resources.path("points")) {
+            assertThat(point.path("familyCpuNanos").size()).isLessThanOrEqualTo(families);
+            long process = point.path("processCpuNanos").asLong();
+            if (process >= 0) {
+                long parts = point.path("requestCpuNanos").asLong()
+                        + point.path("internalCpuNanos").asLong();
+                for (JsonNode family : point.path("familyCpuNanos")) {
+                    parts += family.asLong();
+                }
+                assertThat(parts)
+                        .as("a point's CPU parts sum to the process's CPU")
+                        .isEqualTo(process);
+            }
+        }
+    }
+
+    @Test
     void requestProfileKeepsOneBackwardCompatibleShapeForAnUnknownRequest() {
         // The profile drill-down is a detail read of Live Activity, so the root-read sweep never reaches it.
         // An id that was never captured must answer 200 with the canonical unavailable profile, and every

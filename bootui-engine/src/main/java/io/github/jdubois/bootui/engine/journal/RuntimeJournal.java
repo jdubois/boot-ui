@@ -183,6 +183,11 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
         return resourceSampler != null && !closed.get();
     }
 
+    /** Whether the resource sampler runs: it was started and the journal has not closed. */
+    public synchronized boolean resourceSamplerRunning() {
+        return resourceSampler != null && !closed.get();
+    }
+
     /** The sequence number of the last event the dispatcher processed in this run, {@code 0} before the first. */
     public long lastSequence() {
         return lastSequence.get();
