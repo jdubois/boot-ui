@@ -121,7 +121,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `include-stacktrace` to `always`, which made SPRING-WEB-004 report three MEDIUM findings on every IDE run. Those
   defaults are now ignored like BootUI's own Actuator defaults; values the application configures are still reported.
   SPRING-WEB-004 and SPRING-MGMT-003 also accept every spelling Boot's lenient enum binding accepts, such as
-  `ON_PARAM` or `whenauthorized`, instead of reporting an analysis error ([#1164](https://github.com/jdubois/boot-ui/pull/1164)).
+  `ON_PARAM` or `whenauthorized`, instead of reporting an analysis error
+  ([#1164](https://github.com/jdubois/boot-ui/pull/1164)).
 
 - **Live Activity durable persistence stores a failed or slow entry once, including a slow `4xx` request.**
   Persistence remembers the entries it stored in a bounded window. An entry that newer entries pushed out of Spring
