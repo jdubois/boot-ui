@@ -20,6 +20,7 @@ import org.springframework.kafka.test.context.EmbeddedKafka;
             "spring.autoconfigure.exclude=" + AbstractSpringCorrelationScenario.DEV_EXCLUSIONS_WITHOUT_KAFKA,
             "spring.kafka.consumer.group-id=correlation-scenario",
             "spring.kafka.consumer.auto-offset-reset=earliest",
+            AbstractSpringCorrelationScenario.EMBEDDED_KAFKA_BROKERS,
             "spring.datasource.url=jdbc:h2:mem:bootui_correlation;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false",
             "bootui.show-banner=false",
             "bootui.overrides-file=target/correlation-coverage/application-bootui.properties",
@@ -29,7 +30,7 @@ import org.springframework.kafka.test.context.EmbeddedKafka;
 @EmbeddedKafka(
         partitions = 1,
         topics = AbstractSpringCorrelationScenario.ORDERS_TOPIC,
-        bootstrapServersProperty = "spring.kafka.bootstrap-servers")
+        bootstrapServersProperty = AbstractSpringCorrelationScenario.EMBEDDED_KAFKA_BROKERS_PROPERTY)
 @Import(CorrelationScenarioRoutes.class)
 class SpringCorrelationCoverageTest extends AbstractSpringCorrelationScenario {
 

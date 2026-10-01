@@ -31,6 +31,17 @@ abstract class AbstractSpringCorrelationScenario extends AbstractCorrelationCove
 
     static final String ORDERS_TOPIC = SampleKafkaConfiguration.ORDERS_TOPIC;
 
+    /**
+     * The system property the embedded broker publishes its address under. spring-kafka-test sets it for the rest of
+     * the JVM and defaults it to {@code spring.kafka.bootstrap-servers}, which would leak into every later test, so the
+     * scenario names its own.
+     */
+    static final String EMBEDDED_KAFKA_BROKERS_PROPERTY = "bootui.correlation-scenario.kafka-brokers";
+
+    /** Points Kafka at the embedded broker. */
+    static final String EMBEDDED_KAFKA_BROKERS =
+            "spring.kafka.bootstrap-servers=${" + EMBEDDED_KAFKA_BROKERS_PROPERTY + "}";
+
     @LocalServerPort
     int port;
 
