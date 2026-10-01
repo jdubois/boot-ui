@@ -33,19 +33,14 @@ final class HibernateObservationFixtures {
                 declarations.firstProperty("hibernate.jdbc.time_zone", "spring.jpa.properties.hibernate.jdbc.time_zone")
                         != null,
                 integer(declarations, "hibernate.jdbc.fetch_size", 0),
-                false);
+                false,
+                "postgresql".equals(declarations.firstProperty("bootui.test.dialect")));
     }
 
     static HibernateApplicationFacts application(TestEnvironment values) {
         HibernateContext context = new HibernateContext(List.of(), List.of(), values.lookup(), values.activeProfiles());
-        HibernateApplicationFacts.OpenInView osiv = context.isOpenInViewApplicable()
-                ? Boolean.TRUE.equals(context.booleanProperty("spring.jpa.open-in-view"))
-                        ? HibernateApplicationFacts.OpenInView.ENABLED
-                        : HibernateApplicationFacts.OpenInView.DISABLED
-                : HibernateApplicationFacts.OpenInView.NOT_APPLICABLE;
         return new HibernateApplicationFacts(
                 values.activeProfiles(),
-                osiv,
                 context.isPropertyTrue("spring.jpa.defer-datasource-initialization"),
                 context.isStatementLoggingEnabled(),
                 context.isBindParameterLoggingEnabled(),

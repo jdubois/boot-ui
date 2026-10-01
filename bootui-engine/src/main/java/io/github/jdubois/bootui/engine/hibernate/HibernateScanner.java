@@ -36,7 +36,6 @@ import java.util.function.Supplier;
  */
 public final class HibernateScanner {
 
-    public static final String OPEN_IN_VIEW_APPLICABLE_PROPERTY = "bootui.internal.hibernate.open-in-view-applicable";
     public static final String BYTECODE_ENHANCEMENT_VERIFIED_PROPERTY =
             "bootui.internal.hibernate.bytecode-enhancement-verified";
 
@@ -214,7 +213,6 @@ public final class HibernateScanner {
         }
         HibernateApplicationFacts globalApp = new HibernateApplicationFacts(
                 app.activeProfiles(),
-                app.openInView(),
                 app.deferredDatasourceInitialization(),
                 logging,
                 app.bindLoggerEnabled(),

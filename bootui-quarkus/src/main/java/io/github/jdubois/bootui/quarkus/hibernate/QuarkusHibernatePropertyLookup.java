@@ -70,8 +70,6 @@ public final class QuarkusHibernatePropertyLookup implements Function<String, St
 
     static final String LEGACY_GENERATION_KEY = "quarkus.hibernate-orm.database.generation";
 
-    private static final String OPEN_IN_VIEW_KEY = "spring.jpa.open-in-view";
-
     // The engine's HibernateContext exposes bind-parameter-value logging as the neutral property key
     // "logging.level.org.hibernate.orm.jdbc.bind", checked for a "trace" value (Hibernate's own
     // JdbcBindingLogging only ever logs bound values when Logger.isTraceEnabled()). Quarkus offers a
@@ -169,16 +167,8 @@ public final class QuarkusHibernatePropertyLookup implements Function<String, St
 
     @Override
     public String apply(String key) {
-        if (HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY.equals(key)) {
-            return "false";
-        }
         if (HibernateScanner.BYTECODE_ENHANCEMENT_VERIFIED_PROPERTY.equals(key)) {
             return "true";
-        }
-        if (OPEN_IN_VIEW_KEY.equals(key)) {
-            // Quarkus has no Open-Session-in-View; report its effective state so HIB-CONFIG-001 passes
-            // rather than assuming Spring Boot's enabled-by-default.
-            return "false";
         }
         if (BIND_PARAMETER_LOGGING_KEY.equals(key)) {
             return isBindParameterLoggingEnabled() ? "trace" : raw(key);
