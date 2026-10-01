@@ -17,7 +17,6 @@ record SpringObservations(
     enum Fact {
         OVERRIDING,
         CIRCULAR,
-        LAZY_DEFINITIONS,
         ASYNC_SELECTION,
         ASYNC_QUEUE_CAPACITY,
         SCHEDULER_POOL_SIZE,
@@ -34,7 +33,13 @@ record SpringObservations(
         JDBC_KIND,
         R2DBC_KIND,
         ENDPOINTS,
-        TOMCAT_VIRTUAL_EXECUTOR
+        TOMCAT_VIRTUAL_EXECUTOR,
+        JACKSON2_AUTOCONFIGURATION,
+        PROPERTIES_MIGRATOR,
+        JAVA_FEATURE_VERSION,
+        MULTIPART_MAX_REQUEST_SIZE,
+        MULTIPART_MAX_FILE_SIZE,
+        MULTIPART_DISABLED
     }
 
     enum AsyncSelection {

@@ -28,7 +28,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 
 class SpringScannerTests {
 
-    private static final int RULE_COUNT = 38;
+    private static final int RULE_COUNT = 41;
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-06T10:00:00Z"), ZoneOffset.UTC);
     private final ApplicationContextRunner taskRunner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(TaskExecutionAutoConfiguration.class));

@@ -13,13 +13,18 @@ import org.springframework.boot.context.properties.source.ConfigurationPropertyS
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.EnumerablePropertySource;
 import org.springframework.core.env.Environment;
+import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.PropertySource;
 
-/** Bounded binding, including a host-only view without mutating the application's environment. */
+/**
+ * Bounded binding, including a host-only view (without BootUI's own Actuator defaults or DevTools' development
+ * property defaults) that never mutates the application's environment.
+ */
 final class SpringProperties {
     static final int MAX_NAMES = 10_000;
     static final int MAX_SOURCES = 100;
     static final int MAX_TEXT = 4096;
+    private static final String DEVTOOLS_DEFAULTS = "devtools";
 
     private SpringProperties() {}
 
@@ -81,6 +86,9 @@ final class SpringProperties {
             if (ConfigurationPropertySources.isAttachedConfigurationPropertySource(source)) {
                 continue;
             }
+            if (host && isDevToolsDefaults(source)) {
+                continue;
+            }
             if (result.size() >= MAX_SOURCES) {
                 throw new InspectionFailure("Property-source inspection limit reached.");
             }
@@ -133,6 +141,14 @@ final class SpringProperties {
             }
         }
         return result;
+    }
+
+    /**
+     * DevTools' development-only defaults (for example error stack traces) are added as a {@code devtools} map source
+     * while a restart is active; they are not the application's own configuration.
+     */
+    private static boolean isDevToolsDefaults(PropertySource<?> source) {
+        return DEVTOOLS_DEFAULTS.equals(source.getName()) && source.getClass() == MapPropertySource.class;
     }
 
     private static Object read(PropertySource<?> source, String key, boolean host) {

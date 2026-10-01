@@ -36,8 +36,8 @@ provider coverage.
 
 ### The same ruleset on MVC and WebFlux
 
-Servlet OSIV guidance is inapplicable on WebFlux, and the two [reactive rules](#reactive-webflux-only) are inapplicable
-on MVC.
+Servlet OSIV and servlet multipart guidance are inapplicable on WebFlux, and the two
+[reactive rules](#reactive-webflux-only) are inapplicable on MVC.
 
 Virtual-thread advice distinguishes Boot task execution from reactive event loops, because Boot's virtual-thread switch
 does not switch Reactor's shared `boundedElastic` scheduler. Client advice distinguishes observable Boot settings from
@@ -109,9 +109,9 @@ findings from the score.
 ### SPRING-WIRING-007 - Prefer RestClient over RestTemplate
 
 - **Severity**: LOW
-- **Detects**: A `RestTemplate` bean is defined; this is not proof it is used. Framework 7 documentation directs new synchronous client work toward `RestClient`, without establishing a removal date or a compiler deprecation warning for every supported version.
+- **Detects**: A `RestTemplate` bean is defined; this is not proof it is used. `RestTemplate` is in maintenance mode: Framework 7.0 (BootUI's baseline is 7.0.9) does not annotate it `@Deprecated`, but Framework 7.1 deprecates it for removal in 8.0 ([spring-framework#36574](https://github.com/spring-projects/spring-framework/issues/36574)).
 - **Recommendation**: Prefer an injected Boot `RestClient.Builder` when migrating so common settings and customizations are preserved. Retain `RestTemplate` where a dependency still requires it.
-- **Learn more**: <https://docs.spring.io/spring-framework/reference/integration/rest-clients.html>
+- **Learn more**: <https://docs.spring.io/spring-framework/reference/integration/rest-clients.html#migrating-to-restclient>
 
 ### SPRING-WIRING-008 - Avoid components in the default package
 
@@ -129,13 +129,6 @@ findings from the score.
 
 ## Configuration
 
-### SPRING-CONFIG-001 - Consider lazy initialization for large contexts
-
-- **Severity**: INFO
-- **Detects**: A large context has non-lazy definitions and no explicit lazy-initialization opt-out. The more-than-300-definition threshold filters noise; it is not a measured startup-cost threshold, and the global property does not prove every bean's initialization state.
-- **Recommendation**: If startup matters, measure before evaluating lazy initialization. Consider delayed wiring failures, first-use latency and heap sizing; preserve deliberately eager infrastructure. An explicit `spring.main.lazy-initialization=false` suppresses this optional prompt.
-- **Learn more**: <https://docs.spring.io/spring-boot/reference/features/spring-application.html>
-
 ### SPRING-CONFIG-002 - Disable global debug or trace logging
 
 - **Severity**: LOW
@@ -146,8 +139,8 @@ findings from the score.
 ### SPRING-CONFIG-003 - Remove renamed or deleted Spring Boot 4 properties
 
 - **Severity**: MEDIUM
-- **Detects**: Source-verified renamed/removed properties for Boot 4.1.1, including old server error and encoding keys, Undertow, HTTP clients, Mongo connection keys, tracing export, Redis sessions, Mongo session auto-configuration, and `spring.codec.max-in-memory-size` / `spring.codec.log-request-details` (now `spring.http.codecs.*`). A properties migrator or host integration can still translate a legacy key; the finding does not assert it has no effect everywhere.
-- **Live-property exceptions**: `spring.dao.exceptiontranslation.enabled` is still read by JDBC transaction-manager auto-configuration. `server.servlet.encoding.mapping`, Jackson stream versus JSON feature groups, and unrelated `spring.data.mongodb` GridFS/index settings remain distinct live configuration and are not indiscriminately renamed.
+- **Detects**: Source-verified renamed/removed properties for Boot 4.1.1, including old server error and encoding keys, Undertow, HTTP clients, Mongo connection, health and metrics keys, tracing export, OTLP logging/tracing export, OpenTelemetry/Brave/Zipkin tracing keys, Wavefront (end-of-life), `server.use-forward-headers`, Redis sessions, Mongo session auto-configuration, RabbitMQ `retry.max-attempts` (now `retry.max-retries`, which counts retries after the first attempt), Kafka `retry.topic.backoff.random` (now the `jitter` duration), Jackson 2-era `spring.jackson.parser.*` / `spring.jackson.generator.*`, template-engine `*.enabled` switches, `spring.neo4j.pool.metrics-enabled`, Boot 4.1's removed `spring.data.redis.lettuce.cluster.refresh.adaptive`, and `spring.codec.max-in-memory-size` / `spring.codec.log-request-details` (now `spring.http.codecs.*`). Each entry was checked against Boot 4.1.1's configuration metadata (`level: error`) and the absence of a remaining source reader. A properties migrator or host integration can still translate a legacy key; the finding does not assert it has no effect everywhere.
+- **Live-property exceptions**: `spring.dao.exceptiontranslation.enabled` is still read by JDBC transaction-manager auto-configuration, even though Boot's metadata marks it replaced by `spring.persistence.exceptiontranslation.enabled`. OTLP **metrics** keys under `management.otlp.metrics.*` remain live. `server.servlet.encoding.mapping`, Jackson stream versus JSON feature groups, and unrelated `spring.data.mongodb` GridFS/index settings remain distinct live configuration and are not indiscriminately renamed.
 - **Recommendation**: Update each key to its Spring Boot 4 equivalent (the spring-boot-properties-migrator module lists the replacements at startup) and remove keys for dropped features.
 - **Learn more**: <https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide>
 
@@ -171,6 +164,20 @@ findings from the score.
 - **Detects**: Applicable Jackson 3 configuration requests Jackson 2-compatible defaults with `spring.jackson.use-jackson2-defaults=true`. This is not a switch to the Jackson 2 implementation, and the compatibility setting has no established removal deadline.
 - **Recommendation**: Document the intended payload contract and add compatibility tests before changing defaults. Keeping compatible serialization can be intentional; removing this setting is not mandatory.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/json.html>
+
+### SPRING-CONFIG-007 - Review the deprecated Jackson 2 auto-configuration
+
+- **Severity**: LOW
+- **Detects**: Boot's `spring-boot-jackson2` auto-configuration (`Jackson2AutoConfiguration`) is registered in the running context. Boot 4.0 ships this module only as a migration stop-gap, `@Deprecated(forRemoval = true)` with removal planned for Boot 4.3. The check reads the auto-configuration's bean-definition name, so it identifies the active module, not which mapper serializes HTTP payloads. A future rename would make it a silent pass, not a false finding.
+- **Recommendation**: Identify what pulls `spring-boot-jackson2`, then migrate its `spring.jackson2.*` settings and `Jackson2ObjectMapperBuilderCustomizer` beans to the Jackson 3 equivalents (`spring.jackson.*`, `JsonMapperBuilderCustomizer`) with payload compatibility tests.
+- **Learn more**: <https://docs.spring.io/spring-boot/reference/features/json.html#features.json.jackson2>
+
+### SPRING-CONFIG-008 - Remove the properties migrator after migrating
+
+- **Severity**: INFO
+- **Detects**: `spring-boot-properties-migrator` is on the classpath (its listener class is resolvable without initialization; the module registers itself through `spring.factories`). It is a temporary upgrade aid that reports legacy keys at startup and can temporarily remap renamed ones. An ongoing migration is expected; the scan does not establish which keys are currently translated.
+- **Recommendation**: Fix the keys the migrator reports at startup and any SPRING-CONFIG-003 findings, then remove the dependency and verify configuration-dependent behavior after a restart.
+- **Learn more**: <https://docs.spring.io/spring-boot/upgrading.html#upgrading.to-feature>
 
 ## Profiles and environment
 
@@ -225,6 +232,13 @@ findings from the score.
 - **Recommendation**: Review queue capacity, rejection/backpressure and downstream limits together. An unbounded queue prevents maximum pool size from serving as a normal expansion control; virtual threads are not admission control.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/features/task-execution-and-scheduling.html>
 
+### SPRING-PERF-007 - Review virtual threads on a JDK before 24
+
+- **Severity**: INFO
+- **Detects**: `spring.threads.virtual.enabled=true` with applicable MVC or Boot task-execution evidence (the same gate as SPRING-PERF-001) on JDK 21-23. Before [JEP 491](https://openjdk.org/jeps/491) (JDK 24), blocking inside `synchronized` pins the carrier thread and the scheduler does not compensate, so heavy pinned blocking can starve carriers. This is a runtime-version review prompt, not observed pinning; reactive event loops are unaffected.
+- **Recommendation**: Prefer JDK 24 or later (25 is LTS) for virtual threads. Otherwise load-test with JFR `jdk.VirtualThreadPinned` events and review libraries that block inside `synchronized`; the absence of events under light load does not prove safety. Disabling virtual threads is not required.
+- **Learn more**: <https://openjdk.org/jeps/491>
+
 ### SPRING-CACHE-001 - Review concurrent-map cache bounds
 
 - **Severity**: INFO
@@ -258,7 +272,9 @@ findings from the score.
 ### SPRING-WEB-004 - Review configured error-detail disclosure
 
 - **Severity**: MEDIUM
-- **Detects**: Current `spring.web.error.*` settings request detail disclosure (`always` or caller-controlled `on-param`, or `include-exception=true`) in Boot's fallback error handling. This does not characterize every custom error response. Legacy `server.error.*` keys belong to SPRING-CONFIG-003; deliberate development defaults and custom handling need separate context.
+- **Detects**: Application-configured `spring.web.error.*` settings request detail disclosure (`always` or caller-controlled `on-param`, in any spelling Boot's lenient enum binding accepts, or `include-exception=true`) in Boot's fallback error handling. This does not characterize every custom error response. Legacy `server.error.*` keys belong to SPRING-CONFIG-003.
+- **DevTools defaults ignored**: while a DevTools restart is active, DevTools adds a low-priority `devtools` property source that sets `include-binding-errors`, `include-message` and `include-stacktrace` to `always` for local development. Those defaults are not the application's configuration and are ignored, like BootUI's own Actuator defaults; an application value still wins and is still reported.
+- **Overlap**: The Security advisor's SEC-CONFIG-005 reviews the same settings, but only when Spring Security filter chains exist; this rule also covers applications without Spring Security.
 - **Recommendation**: Use `never` for stacktrace/message/binding-error details and false for exception inclusion where details must stay private. `on-param` is not an authorization boundary.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html>
 
@@ -275,6 +291,13 @@ findings from the score.
 - **Detects**: An explicit Tomcat thread cap alongside positively observed applicable virtual-thread executor configuration on a supporting JDK. A Tomcat factory type and a property alone do not prove the selected executor; custom/unknown routing and non-Tomcat servers are unevaluated.
 - **Recommendation**: Review/remove the cap when the observed executor no longer uses it. Preserve deliberate admission limits elsewhere; virtual threads do not bound request concurrency.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html>
+
+### SPRING-WEB-008 - Review an unlimited multipart request size
+
+- **Severity**: LOW
+- **Detects**: On Spring MVC, the multipart configuration that Boot's already-created `DispatcherServletRegistrationBean` carries has a negative (unlimited) maximum request size. Boot defaults to 1MB per file and 10MB per request, so this requires explicit configuration such as `spring.servlet.multipart.max-request-size=-1` or a custom `MultipartConfigElement`. A finite total request size with an unlimited per-file size is still bounded and passes. Parts above the in-memory threshold are written to disk; proxy and container limits are not observed, and Tomcat's form-post limit does not bound file parts. Disabled multipart passes; a missing, lazy or custom registration is unevaluated. WebFlux is inapplicable: its multipart model differs and is not given a parity claim.
+- **Recommendation**: Configure a workload-appropriate `spring.servlet.multipart.max-request-size` (and `max-file-size`), and enforce request-body limits at the edge too. No universal size is prescribed.
+- **Learn more**: <https://docs.spring.io/spring-boot/how-to/spring-mvc.html#howto.spring-mvc.multipart-file-uploads>
 
 ## Data and persistence
 
@@ -303,7 +326,7 @@ findings from the score.
 
 The access-aware rules follow Boot 4.1.1: endpoint settings override global defaults, then `max-permitted` caps access. Typed conversion accepts Boot-supported spellings such as `readonly` and legacy `enabled=on`. Empty values that bind to null inherit the next policy level; two non-null typed `access` and legacy `enabled` values at the same scope conflict rather than silently taking precedence. Both heapdump and shutdown default to access `none`. A valid empty include falls back to `health`; excludes win. Invalid binding is not silently treated as empty.
 
-Host configuration is distinguished from BootUI's low-priority management defaults. Exposure/access observations do not establish authorization or public reachability; a separate management port is not itself an access control, and disabling endpoint discovery does not disable routes.
+Host configuration is distinguished from BootUI's low-priority management defaults. The Security advisor's SEC-ACT-* rules review overlapping exposure, but that panel exists only when Spring Security filter chains are present; these rules keep Actuator exposure visible for applications without Spring Security. Exposure/access observations do not establish authorization or public reachability; a separate management port is not itself an access control, and disabling endpoint discovery does not disable routes.
 
 ### SPRING-MGMT-001 - Avoid exposing all Actuator endpoints
 
@@ -322,7 +345,7 @@ Host configuration is distinguished from BootUI's low-priority management defaul
 ### SPRING-MGMT-003 - Do not always show Actuator values or health details
 
 - **Severity**: MEDIUM
-- **Detects**: Host-configured `show-values=always` or health `show-details=always` on applicable readable endpoints. These settings govern disclosure to callers allowed to access the endpoint, not authorization itself; health details and raw configuration values are distinct.
+- **Detects**: Host-configured `show-values=always` or health `show-details=always` on applicable readable endpoints, in any spelling Boot's lenient enum binding accepts (for example `WHEN_AUTHORIZED` or `whenauthorized` are valid, not analysis errors). These settings govern disclosure to callers allowed to access the endpoint, not authorization itself; health details and raw configuration values are distinct.
 - **Only host configuration**: BootUI contributes `management.endpoint.health.show-details=always` itself, as a lowest-priority default, so its own Health panel works. That contribution is ignored here, so the rule reports only what the application configured.
 - **Recommendation**: Prefer `never` when details are unnecessary, or `when-authorized` with deliberate endpoint roles and authorization configuration. Review sanitization separately.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/actuator/endpoints.html#actuator.endpoints.sanitization>
@@ -356,15 +379,15 @@ Both rules in this category are `SKIPPED` unconditionally on a servlet (Spring M
 
 ## Rule summary
 
-The Spring Advisor ships **38 active rules** across eight categories: 37 retained/corrected rules and one new rule after the Boot 4.1.1 audit. Declared severities are **0 CRITICAL**, **1 HIGH**, **12 MEDIUM**, **8 LOW** and **17 INFO**. Profile names and management-port equality do not escalate severities.
+The Spring Advisor ships **41 active rules** across eight categories. The October 2026 audit retired SPRING-CONFIG-001, corrected SPRING-CONFIG-003, SPRING-WIRING-007, SPRING-WEB-004 and SPRING-MGMT-003, and added SPRING-CONFIG-007, SPRING-CONFIG-008, SPRING-PERF-007 and SPRING-WEB-008. Declared severities are **0 CRITICAL**, **1 HIGH**, **12 MEDIUM**, **10 LOW** and **18 INFO**. Profile names and management-port equality do not escalate severities.
 
 | Category | Rules |
 | --- | --- |
 | Bean wiring | SPRING-WIRING-001 ... SPRING-WIRING-009 |
-| Configuration | SPRING-CONFIG-001 ... SPRING-CONFIG-006 |
+| Configuration | SPRING-CONFIG-002 ... SPRING-CONFIG-008 |
 | Profiles and environment | SPRING-PROFILE-002, SPRING-PROFILE-003 |
-| Performance and concurrency | SPRING-PERF-001 ... SPRING-PERF-003, SPRING-PERF-005, SPRING-PERF-006, SPRING-CACHE-001 |
-| Web and HTTP | SPRING-WEB-001 ... SPRING-WEB-005, SPRING-WEB-007 |
+| Performance and concurrency | SPRING-PERF-001 ... SPRING-PERF-003, SPRING-PERF-005 ... SPRING-PERF-007, SPRING-CACHE-001 |
+| Web and HTTP | SPRING-WEB-001 ... SPRING-WEB-005, SPRING-WEB-007, SPRING-WEB-008 |
 | Data and persistence | SPRING-JPA-001, SPRING-DATA-001, SPRING-DATA-002 |
 | Actuator and management | SPRING-MGMT-001 ... SPRING-MGMT-004 |
 | Reactive (WebFlux only) | SPRING-REACTIVE-001, SPRING-REACTIVE-003 |
@@ -378,6 +401,7 @@ These IDs remain reserved. Existing dismissals are preserved without migration o
 | SPRING-PROFILE-001 | Require an explicit active profile | Profiles are optional; configured default profiles and profile-free external configuration are valid. |
 | SPRING-PERF-004 | Hikari default may bottleneck virtual threads | Property absence cannot establish an unreviewed/undersized pool. Explicitly writing the default 10 changes no runtime behavior; size against database capacity and observed load. |
 | SPRING-WEB-006 | Forwarded headers from a production profile | A profile name cannot establish a trusted proxy. Changing header trust needs deployment evidence. |
+| SPRING-CONFIG-001 | Consider lazy initialization for large contexts | More than 300 bean definitions is not a startup-cost measurement and is exceeded by almost every web, Actuator and data application (BootUI's own beans included). Boot advises against enabling lazy initialization by default because it delays failures and first-request work. |
 | SPRING-REACTIVE-002 | Increase the default codec buffer | A safe bounded default is not a defect, and `spring.codec.*` is stale in Boot 4. The new unlimited-aggregation check addresses a different condition. |
 
 ## Audit sources and limitations
@@ -388,6 +412,7 @@ The audit targets **Spring Boot 4.1.1 / Spring Framework 7.0.9**. Version-pinned
 - [Boot execution/scheduling guidance](https://github.com/spring-projects/spring-boot/blob/v4.1.1/documentation/spring-boot-docs/src/docs/antora/modules/reference/pages/features/task-execution-and-scheduling.adoc), [executor configuration](https://github.com/spring-projects/spring-boot/blob/v4.1.1/core/spring-boot-autoconfigure/src/main/java/org/springframework/boot/autoconfigure/task/TaskExecutorConfigurations.java), [Reactor schedulers](https://projectreactor.io/docs/core/release/reference/coreFeatures/schedulers.html), and [JEP 491](https://openjdk.org/jeps/491).
 - [Application/lazy-initialization tradeoffs](https://github.com/spring-projects/spring-boot/blob/v4.1.1/documentation/spring-boot-docs/src/docs/antora/modules/reference/pages/features/spring-application.adoc), [JSON support](https://github.com/spring-projects/spring-boot/blob/v4.1.1/documentation/spring-boot-docs/src/docs/antora/modules/reference/pages/features/json.adoc), [client configuration](https://github.com/spring-projects/spring-boot/blob/v4.1.1/documentation/spring-boot-docs/src/docs/antora/modules/reference/pages/io/rest-client.adoc), and [webserver guidance](https://github.com/spring-projects/spring-boot/blob/v4.1.1/documentation/spring-boot-docs/src/docs/antora/modules/how-to/pages/webserver.adoc).
 - [Endpoint access resolver](https://github.com/spring-projects/spring-boot/blob/v4.1.1/module/spring-boot-actuator-autoconfigure/src/main/java/org/springframework/boot/actuate/autoconfigure/endpoint/PropertiesEndpointAccessResolver.java), [include/exclude filter](https://github.com/spring-projects/spring-boot/blob/v4.1.1/module/spring-boot-actuator-autoconfigure/src/main/java/org/springframework/boot/actuate/autoconfigure/endpoint/expose/IncludeExcludeEndpointFilter.java), [web endpoint defaults](https://github.com/spring-projects/spring-boot/blob/v4.1.1/module/spring-boot-actuator-autoconfigure/src/main/java/org/springframework/boot/actuate/autoconfigure/endpoint/web/WebEndpointAutoConfiguration.java), [heapdump](https://github.com/spring-projects/spring-boot/blob/v4.1.1/module/spring-boot-actuator/src/main/java/org/springframework/boot/actuate/management/HeapDumpWebEndpoint.java), and [shutdown](https://github.com/spring-projects/spring-boot/blob/v4.1.1/module/spring-boot-actuator/src/main/java/org/springframework/boot/actuate/context/ShutdownEndpoint.java).
+- [Boot 4.1.1 configuration metadata](https://github.com/spring-projects/spring-boot/tree/v4.1.1/module) (`additional-spring-configuration-metadata.json`, `level: error` deprecations), the [Boot 4.0 migration guide](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide), [4.1 release notes](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.1-Release-Notes), [DevTools property defaults](https://github.com/spring-projects/spring-boot/blob/v4.1.1/core/spring-boot-autoconfigure/src/main/resources/META-INF/spring-devtools.properties), [Jackson 2 auto-configuration](https://github.com/spring-projects/spring-boot/blob/v4.1.1/module/spring-boot-jackson2/src/main/java/org/springframework/boot/jackson2/autoconfigure/Jackson2AutoConfiguration.java), [multipart configuration](https://github.com/spring-projects/spring-boot/blob/v4.1.1/module/spring-boot-servlet/src/main/java/org/springframework/boot/servlet/autoconfigure/MultipartProperties.java), [lenient enum binding](https://github.com/spring-projects/spring-boot/blob/v4.1.1/core/spring-boot/src/main/java/org/springframework/boot/convert/LenientObjectToEnumConverterFactory.java), and [RestTemplate deprecation](https://github.com/spring-projects/spring-framework/issues/36574).
 - [Codec properties](https://github.com/spring-projects/spring-boot/blob/v4.1.1/module/spring-boot-http-codec/src/main/java/org/springframework/boot/http/codec/autoconfigure/HttpCodecsProperties.java), [Framework codec limits](https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-web/src/main/java/org/springframework/http/codec/CodecConfigurer.java), [servlet OSIV conditions](https://github.com/spring-projects/spring-boot/blob/v4.1.1/module/spring-boot-jpa/src/main/java/org/springframework/boot/jpa/autoconfigure/JpaBaseConfiguration.java), [Hikari 7.0.2 defaults](https://github.com/brettwooldridge/HikariCP/blob/HikariCP-7.0.2/src/main/java/com/zaxxer/hikari/HikariConfig.java), and [Hikari pool-sizing guidance](https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing).
 
 The scan does not execute arbitrary application code to discover every custom client, scheduler, datasource wrapper, endpoint supplier or security chain. It cannot infer workload demand, authorization or network reachability from property presence. INFO opportunities explain these limits rather than declaring every default suboptimal.
