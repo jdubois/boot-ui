@@ -25,6 +25,46 @@ class MemoryCollectorTests {
     }
 
     @Test
+    void latestGcEventIgnoresConcurrentCycleBeansThatOverlapTheApplication() {
+        MemoryCollector.LastGcEvent latest = MemoryCollector.latestGcEvent(List.of(
+                new MemoryCollector.LastGcEventCandidate(5_000, 2_400, "ZGC Major Cycles"),
+                new MemoryCollector.LastGcEventCandidate(4_900, 1, "ZGC Major Pauses"),
+                new MemoryCollector.LastGcEventCandidate(6_000, 1_800, "Shenandoah Cycles")));
+
+        assertThat(latest.collectorName()).isEqualTo("ZGC Major Pauses");
+        assertThat(latest.durationMillis()).isEqualTo(1);
+        assertThat(MemoryCollector.latestGcEvent(
+                                List.of(new MemoryCollector.LastGcEventCandidate(5_000, 2_400, "ZGC Cycles")))
+                        .durationMillis())
+                .isEqualTo(-1);
+    }
+
+    @Test
+    void gcFillerRowsAreNotApplicationHeapContent() {
+        String raw = """
+                 num     #instances         #bytes  class name (module)
+                -------------------------------------------------------
+                   1:          1000        8000000  [B (java.base@27)
+                   2:           200        3000000  [Ljdk.internal.vm.FillerElement; (java.base@27)
+                   3:            10        1000000  Ljdk.internal.vm.FillerArray; (java.base@21)
+                   4:             5         500000  Ljava.internal.vm.FillerArray; (java.base@19)
+                   5:            50            800  jdk.internal.vm.FillerObject (java.base@27)
+                   6:           100           1600  java.lang.String (java.base@27)
+                Total          1365       12502400
+                """;
+
+        List<io.github.jdubois.bootui.core.dto.HeapClassHistogramEntryDto> rows = MemoryCollector.parseHistogram(raw);
+
+        assertThat(rows)
+                .extracting(io.github.jdubois.bootui.core.dto.HeapClassHistogramEntryDto::className)
+                .containsExactly("byte[]", "java.lang.String");
+        MemoryContext context =
+                new MemoryCollector(() -> null, () -> raw, ContainerMemoryLimitDetector.disabled()).collect();
+        assertThat(context.heapContent().totalBytes()).isEqualTo(8_001_600L);
+        assertThat(context.heapContent().totalInstances()).isEqualTo(1_100L);
+    }
+
+    @Test
     void cgroupLimitAndCurrentUsageShareTheSamePathReader() throws Exception {
         Path limit = tempDir.resolve("memory.max");
         Path current = tempDir.resolve("memory.current");
