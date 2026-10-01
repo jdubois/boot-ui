@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.activity;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -33,9 +34,18 @@ import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
 import io.github.jdubois.bootui.engine.activity.StoredActivityEntry;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
+import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.journal.HttpPayload;
+import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
+import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -354,6 +364,97 @@ class LiveActivityControllerTests {
         // Neither threshold makes the repository reserve that request, so it is routine and captured again.
         assertThat(capturesOfAHiddenSlowClientError(raised)).isEqualTo(2);
         assertThat(capturesOfAHiddenSlowClientError(disabled)).isEqualTo(2);
+    }
+
+    @Test
+    void withTheJournalAsFeedSourcePersistenceIsWrittenByAJournalSubscriberOnceTheJournalIsInstalled()
+            throws Exception {
+        List<StoredActivityEntry> captured = new CopyOnWriteArrayList<>();
+        SwitchableActivityStore store = new SwitchableActivityStore(new ActivityStore() {
+            @Override
+            public void appendBatch(List<StoredActivityEntry> entries) {
+                captured.addAll(entries);
+            }
+
+            @Override
+            public ActivityPage query(ActivityQuery query) {
+                return ActivityPage.EMPTY;
+            }
+        });
+        BootUiProperties properties = new BootUiProperties();
+        properties.getActivity().setFeedSource("journal");
+        LiveActivityController controller =
+                controllerWithExchanges(empty(HttpExchangesController.class), store, properties);
+        RuntimeJournal journal = new RuntimeJournal(RuntimeJournalSettings.defaults(), RunIdentity.start());
+        try {
+            assertThat(controller.startPersistence(persistenceSettings(true, "instance-j", Duration.ofHours(1), 16)))
+                    .as("waits for the journal")
+                    .isNull();
+
+            controller.setRuntimeJournal(journal, new JournalAggregates());
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.SQL,
+                    1_000,
+                    1_000_000,
+                    CorrelationContext.forRequest("r1"),
+                    "t",
+                    null,
+                    false,
+                    new SqlPayload("select 1", null, "db", false)));
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.HTTP,
+                    1_000,
+                    2_000_000,
+                    CorrelationContext.forRequest("r1"),
+                    "t",
+                    null,
+                    false,
+                    new HttpPayload("GET", "/a", "/a", null, 200)));
+            assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+
+            assertThat(captured)
+                    .extracting(
+                            stored -> stored.entry().type(),
+                            stored -> stored.entry().parentId())
+                    .containsExactlyInAnyOrder(tuple("SQL", "r1"), tuple("REQUEST", null));
+            assertThat(captured)
+                    .allSatisfy(stored -> assertThat(stored.instanceId()).isEqualTo("instance-j"));
+        } finally {
+            controller.shutdown();
+            journal.close();
+        }
+    }
+
+    @Test
+    void aJournalCaptureTheJournalNeverArrivedForStartsWithThePollerOnRefresh() {
+        List<StoredActivityEntry> captured = new CopyOnWriteArrayList<>();
+        SwitchableActivityStore store = new SwitchableActivityStore(new ActivityStore() {
+            @Override
+            public void appendBatch(List<StoredActivityEntry> entries) {
+                captured.addAll(entries);
+            }
+
+            @Override
+            public ActivityPage query(ActivityQuery query) {
+                return ActivityPage.EMPTY;
+            }
+        });
+        HttpExchangesController exchanges = mock(HttpExchangesController.class);
+        when(exchanges.exchanges(null, null, null, null, null))
+                .thenReturn(exchangesReport(List.of(exchange("ok-1", 1_000L, 200, 5L))));
+        BootUiProperties properties = new BootUiProperties();
+        properties.getActivity().setFeedSource("journal");
+        LiveActivityController controller = controllerWithExchanges(provider(exchanges), store, properties);
+
+        assertThat(controller.startPersistence(persistenceSettings(true, "instance-k", Duration.ofHours(1), 16)))
+                .isNull();
+        controller.afterPropertiesSet();
+        controller.shutdown();
+
+        assertThat(captured)
+                .as("the poller started on refresh, and its last pass on shutdown captured the buffered exchange")
+                .extracting(stored -> stored.entry().id())
+                .contains("ok-1");
     }
 
     /**

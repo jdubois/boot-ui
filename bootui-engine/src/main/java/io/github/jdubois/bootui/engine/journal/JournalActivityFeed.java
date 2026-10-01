@@ -35,7 +35,8 @@ import java.util.function.Supplier;
  *
  * <p>Entries carry only what the journal records: templates, statements as retained, types, and classes, never bind
  * values, principals, or exception and log messages (§8). A {@code REQUEST} entry's id is its request id, which the
- * profile drill-down resolves; every other entry's id is its journal event id. Logical connections and garbage
+ * profile drill-down resolves; a scheduled run's or consumed message's id is its execution id; every other entry's id
+ * is its journal event id. Logical connections and garbage
  * collections are not feed rows: they appear in the request profile and the resource views.</p>
  */
 public final class JournalActivityFeed {
@@ -97,8 +98,8 @@ public final class JournalActivityFeed {
             RuntimeEvent event = entry.event();
             if (event.source() == JournalSource.HTTP && event.requestId() != null) {
                 requests.put(event.requestId(), entry);
-            } else if (opensExecution(event) && event.requestId() == null) {
-                executions.putIfAbsent(event.executionId(), eventId.apply(entry));
+            } else if (opensExecution(event)) {
+                executions.putIfAbsent(event.executionId(), event.executionId());
             }
             if (event.payload() instanceof SqlPayload sql && event.requestId() != null && isSelect(sql.sql())) {
                 selectsByRequest
@@ -109,7 +110,7 @@ public final class JournalActivityFeed {
 
         List<Row> rows = new ArrayList<>(entries.size());
         for (JournalEntry entry : entries) {
-            ActivityEntryDto rendered = render(entry, eventId, requests, executions, selectsByRequest, routes);
+            ActivityEntryDto rendered = render(entry, eventId, requests, executions, selectsByRequest, routes, false);
             if (rendered != null) {
                 rows.add(new Row(entry, rendered));
             }
@@ -248,11 +249,14 @@ public final class JournalActivityFeed {
             Map<String, JournalEntry> requests,
             Map<String, String> executions,
             Map<String, Map<String, Integer>> selectsByRequest,
-            RouteTemplateResolver routes) {
+            RouteTemplateResolver routes,
+            boolean byIdentity) {
         RuntimeEvent event = journal.event();
         RuntimeEventPayload payload = event.payload();
-        String id = eventId.apply(journal);
-        String parentId = parentOf(event, id, requests, executions);
+        // A scheduled run or consumed message is identified by its execution id, as a request is by its request id,
+        // so its children can name it before it is recorded.
+        String id = opensExecution(event) ? event.executionId() : eventId.apply(journal);
+        String parentId = parentOf(event, requests, executions, byIdentity);
         Long durationMs = millis(event);
         if (payload instanceof HttpPayload http) {
             Map<String, Integer> selects = selectsByRequest.get(event.requestId());
@@ -483,25 +487,66 @@ public final class JournalActivityFeed {
                 sqlNPlusOneSuspected);
     }
 
-    /** The id of the entry {@code event} nests under: its request's, else its execution's, else none. */
+    /**
+     * The id of the entry {@code event} nests under: its request's, else its execution's, else none. The live feed names
+     * only a parent it shows; {@code byIdentity} names it whether or not it was recorded yet, for rows persisted as
+     * they are recorded.
+     */
     private static String parentOf(
-            RuntimeEvent event, String id, Map<String, JournalEntry> requests, Map<String, String> executions) {
-        if (event.source() == JournalSource.HTTP) {
+            RuntimeEvent event,
+            Map<String, JournalEntry> requests,
+            Map<String, String> executions,
+            boolean byIdentity) {
+        if (event.source() == JournalSource.HTTP || opensExecution(event)) {
             return null;
         }
         if (event.requestId() != null) {
-            return requests.containsKey(event.requestId()) ? event.requestId() : null;
+            return byIdentity || requests.containsKey(event.requestId()) ? event.requestId() : null;
         }
         if (event.executionId() != null) {
-            String execution = executions.get(event.executionId());
-            return execution == null || execution.equals(id) ? null : execution;
+            return byIdentity || executions.containsKey(event.executionId()) ? event.executionId() : null;
         }
         return null;
     }
 
+    /**
+     * Renders one batch of newly recorded events for persistence, newest first ({@code docs/PLAN-v2.md} §5.3). Each row
+     * names its parent by identity, since a request or execution is recorded after its children. {@code pendingSelects}
+     * carries each open request's {@code SELECT} counts from batch to batch, so its N+1 flag is set when it completes;
+     * the caller bounds it.
+     */
+    public List<ActivityEntryDto> renderForCapture(
+            List<JournalEntry> batch,
+            Function<JournalEntry, String> eventId,
+            Map<String, Map<String, Integer>> pendingSelects) {
+        RouteTemplateResolver routes = resolver();
+        for (JournalEntry entry : batch) {
+            RuntimeEvent event = entry.event();
+            if (event.payload() instanceof SqlPayload sql && event.requestId() != null && isSelect(sql.sql())) {
+                pendingSelects
+                        .computeIfAbsent(event.requestId(), id -> new HashMap<>())
+                        .merge(whitespaceNormalized(sql.sql()), 1, Integer::sum);
+            }
+        }
+        List<Row> rows = new ArrayList<>(batch.size());
+        for (JournalEntry entry : batch) {
+            ActivityEntryDto rendered = render(entry, eventId, Map.of(), Map.of(), pendingSelects, routes, true);
+            if (rendered != null) {
+                rows.add(new Row(entry, rendered));
+            }
+            if (entry.event().source() == JournalSource.HTTP && entry.event().requestId() != null) {
+                pendingSelects.remove(entry.event().requestId());
+            }
+        }
+        rows.sort(Comparator.comparingLong((Row row) -> row.entry().timestamp())
+                .thenComparingLong(row -> row.journal().sequence())
+                .reversed());
+        return rows.stream().map(Row::entry).toList();
+    }
+
     /** Whether {@code event} is the entry of an execution: a scheduled run or a consumed message. */
     private static boolean opensExecution(RuntimeEvent event) {
-        if (event.executionId() == null) {
+        if (event.executionId() == null || event.requestId() != null) {
             return false;
         }
         return event.payload() instanceof ScheduledPayload

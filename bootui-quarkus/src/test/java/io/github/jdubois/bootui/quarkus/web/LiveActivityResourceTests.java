@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.core.dto.ActivityPersistenceOptionDto;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchRequest;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchResult;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
+import io.github.jdubois.bootui.engine.activity.ActivityCapture;
 import io.github.jdubois.bootui.engine.activity.ActivityCapturePoller;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
@@ -17,12 +18,20 @@ import io.github.jdubois.bootui.engine.activity.BufferedActivityStore;
 import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
 import io.github.jdubois.bootui.engine.activity.StoredActivityEntry;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
+import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.email.CapturedEmail;
 import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.email.EmailStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
+import io.github.jdubois.bootui.engine.journal.HttpPayload;
+import io.github.jdubois.bootui.engine.journal.JournalActivityCapture;
+import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
@@ -33,6 +42,7 @@ import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.smallrye.config.PropertiesConfigSource;
 import io.smallrye.config.SmallRyeConfig;
 import io.smallrye.config.SmallRyeConfigBuilder;
@@ -328,6 +338,67 @@ class LiveActivityResourceTests {
         return captured.stream()
                 .filter(stored -> slowNotFoundId.equals(stored.entry().id()))
                 .count();
+    }
+
+    @Test
+    void withTheJournalAsFeedSourcePersistenceIsWrittenByAJournalSubscriber() throws Exception {
+        List<StoredActivityEntry> captured = new CopyOnWriteArrayList<>();
+        SwitchableActivityStore store = new SwitchableActivityStore(new ActivityStore() {
+            @Override
+            public void appendBatch(List<StoredActivityEntry> entries) {
+                captured.addAll(entries);
+            }
+
+            @Override
+            public ActivityPage query(ActivityQuery query) {
+                return ActivityPage.EMPTY;
+            }
+        });
+        SmallRyeConfig config = config(Map.of("bootui.activity.feed-source", "journal"));
+        LiveActivityResource resource = resourceWith(
+                store,
+                disabledSettings(),
+                unsatisfiedDataSource(),
+                new HttpExchangeBuffer(10),
+                unsatisfiedEmailCaptureService(),
+                new KafkaActivityRecorder(true, true, 200, 16),
+                config);
+        resource.setFeedSource(config);
+        RuntimeJournal journal = new RuntimeJournal(RuntimeJournalSettings.defaults(), RunIdentity.start());
+        resource.setRuntimeJournal(new SatisfiedInstance<>(journal), new SatisfiedInstance<>(new JournalAggregates()));
+        ActivityPersistenceSettings settings = new ActivityPersistenceSettings(
+                true,
+                ActivityPersistenceSettings.DataSourceMode.SHARED,
+                null,
+                null,
+                null,
+                null,
+                "bootui_activity",
+                Duration.ofSeconds(5),
+                16,
+                Duration.ofDays(7),
+                "instance-q",
+                Duration.ofHours(1));
+        try (ActivityCapture capture = resource.startPersistence(store, settings)) {
+            assertThat(capture).isInstanceOf(JournalActivityCapture.class);
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.HTTP,
+                    1_000,
+                    2_000_000,
+                    CorrelationContext.forRequest("r1"),
+                    "vert.x-eventloop-thread-0",
+                    null,
+                    false,
+                    new HttpPayload("GET", "/a", null, null, 200)));
+            assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+        } finally {
+            journal.close();
+        }
+
+        assertThat(captured).singleElement().satisfies(stored -> {
+            assertThat(stored.entry().id()).isEqualTo("r1");
+            assertThat(stored.instanceId()).isEqualTo("instance-q");
+        });
     }
 
     private static void clear(HttpExchangeBuffer buffer) {

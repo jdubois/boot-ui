@@ -22,6 +22,7 @@ import io.github.jdubois.bootui.core.dto.RuntimeJournalClearRequest;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalClearResult;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalStatusDto;
 import io.github.jdubois.bootui.core.dto.RuntimeResourcesDto;
+import io.github.jdubois.bootui.engine.activity.ActivityCapture;
 import io.github.jdubois.bootui.engine.activity.ActivityCaptureFactory;
 import io.github.jdubois.bootui.engine.activity.ActivityCapturePoller;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
@@ -36,6 +37,7 @@ import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.journal.ActivityFeedSource;
+import io.github.jdubois.bootui.engine.journal.JournalActivityCapture;
 import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalActivityReports;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
@@ -46,12 +48,15 @@ import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
+import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.web.ReservedActivityEntries;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Supplier;
 import javax.sql.DataSource;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.audit.AuditEvent;
@@ -97,7 +102,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  */
 @RestController
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/activity")
-public class LiveActivityController {
+public class LiveActivityController implements InitializingBean {
 
     private final LiveActivityService service;
     private final LiveActivityCorrelator correlator;
@@ -112,6 +117,9 @@ public class LiveActivityController {
     private final BootUiProperties properties;
     private final ActivityFeedSource feedSource;
     private volatile JournalActivityReports journalReports;
+    private volatile RuntimeJournal captureJournal;
+    private volatile Supplier<RouteTemplateResolver> captureRoutes;
+    private volatile ActivityPersistenceSettings deferredCapture;
     private volatile RequestJournalProfiles requestJournalProfiles;
 
     public LiveActivityController(
@@ -221,7 +229,53 @@ public class LiveActivityController {
         this.reservedEntries =
                 new ReservedActivityEntries(properties.getActivity().getRequestSlowThresholdMs());
         if (persistenceSettings.enabled()) {
-            startCapture(persistenceSettings);
+            startPersistence(persistenceSettings);
+        }
+    }
+
+    /**
+     * Starts writing Live Activity's durable history from the same source the feed reads ({@code docs/PLAN-v2.md}
+     * §5.3): the runtime journal's subscriber when {@code bootui.activity.feed-source=journal}, otherwise the poller of
+     * the panel buffers. The journal is installed after this controller is built, so a journal capture asked for
+     * before then starts when it is installed, or with the poller once this controller is initialized without one.
+     *
+     * @return the running capture, or {@code null} when it waits for the journal
+     */
+    ActivityCapture startPersistence(ActivityPersistenceSettings settings) {
+        if (feedSource == ActivityFeedSource.JOURNAL) {
+            RuntimeJournal current = captureJournal;
+            if (current == null) {
+                deferredCapture = settings;
+                return null;
+            }
+            if (current.settings().enabled()) {
+                JournalActivityCapture capture = JournalActivityCapture.start(
+                        activityStore,
+                        settings,
+                        reservedEntries,
+                        current,
+                        new JournalActivityFeed(
+                                properties.getActivity().getRequestSlowThresholdMs(),
+                                properties.getActivity().getNPlusOneThreshold(),
+                                captureRoutes),
+                        properties::isPanelEnabled);
+                unsubscribers.add(capture::close);
+                return capture;
+            }
+        }
+        return startCapture(settings);
+    }
+
+    /**
+     * Starts a capture the journal never arrived for with the poller, once every setter has run. An initialization
+     * callback rather than a context event, so this lazy controller is still created only when first used.
+     */
+    @Override
+    public void afterPropertiesSet() {
+        ActivityPersistenceSettings settings = deferredCapture;
+        if (settings != null) {
+            deferredCapture = null;
+            startCapture(settings);
         }
     }
 
@@ -327,6 +381,13 @@ public class LiveActivityController {
     @Autowired(required = false)
     public void setRuntimeJournal(RuntimeJournal journal, JournalAggregates aggregates) {
         this.runtimeJournal = new RuntimeJournalService(journal, aggregates);
+        this.captureJournal = journal;
+        this.captureRoutes = aggregates == null ? null : aggregates.declaredRoutes();
+        ActivityPersistenceSettings deferred = deferredCapture;
+        if (deferred != null && journal != null) {
+            deferredCapture = null;
+            startPersistence(deferred);
+        }
         this.journalReports = journalReports(journal, aggregates);
         this.requestJournalProfiles = new RequestJournalProfiles(
                 journal,
@@ -410,7 +471,7 @@ public class LiveActivityController {
         ActivitySwitchResponse response = new ActivitySwitchService()
                 .useExistingDataSource(activityStore, persistenceSettings, dataSource, request);
         if (response.newSettings() != null) {
-            startCapture(response.newSettings());
+            startPersistence(response.newSettings());
         }
         return ResponseEntity.status(HttpStatus.valueOf(response.status())).body(response.body());
     }

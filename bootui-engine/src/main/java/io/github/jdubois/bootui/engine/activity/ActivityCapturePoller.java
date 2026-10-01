@@ -22,7 +22,7 @@ import java.util.function.Supplier;
  * {@link #start(Duration)} once, typically right after the {@link ActivityStore} it feeds is created.
  * {@link #close()} stops the scheduler; it does not close the underlying store.</p>
  */
-public final class ActivityCapturePoller implements AutoCloseable {
+public final class ActivityCapturePoller implements ActivityCapture {
 
     private static final System.Logger log = System.getLogger(ActivityCapturePoller.class.getName());
 

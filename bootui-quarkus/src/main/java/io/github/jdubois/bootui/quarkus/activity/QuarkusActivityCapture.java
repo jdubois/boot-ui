@@ -1,6 +1,6 @@
 package io.github.jdubois.bootui.quarkus.activity;
 
-import io.github.jdubois.bootui.engine.activity.ActivityCapturePoller;
+import io.github.jdubois.bootui.engine.activity.ActivityCapture;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.quarkus.web.LiveActivityResource;
@@ -21,7 +21,7 @@ import jakarta.inject.Inject;
  * no background thread, connection or bean beyond what already exists is created, exactly like the Spring
  * adapter's {@code @ConditionalOnProperty}-gated configuration.
  *
- * <p>When enabled, {@link #onStart} starts a capture poller (via {@link LiveActivityResource#startCapture}) that
+ * <p>When enabled, {@link #onStart} starts a capture poller (via {@link LiveActivityResource#startPersistence}) that
  * polls {@link LiveActivityResource#mergedReport} on {@link ActivityPersistenceSettings#captureInterval()},
  * stamping and appending whatever it has not yet captured into the shared store. Reusing the resource's
  * own merged feed (rather than re-reading the four signal sources independently) means self-filtering,
@@ -43,7 +43,7 @@ public class QuarkusActivityCapture {
     private final SwitchableActivityStore activityStore;
     private final ActivityPersistenceSettings persistenceSettings;
     private final LiveActivityResource liveActivityResource;
-    private ActivityCapturePoller poller;
+    private ActivityCapture poller;
 
     @Inject
     public QuarkusActivityCapture(
@@ -59,7 +59,7 @@ public class QuarkusActivityCapture {
         if (!persistenceSettings.enabled()) {
             return;
         }
-        poller = liveActivityResource.startCapture(activityStore, persistenceSettings);
+        poller = liveActivityResource.startPersistence(activityStore, persistenceSettings);
     }
 
     void onStop(@Observes ShutdownEvent event) {

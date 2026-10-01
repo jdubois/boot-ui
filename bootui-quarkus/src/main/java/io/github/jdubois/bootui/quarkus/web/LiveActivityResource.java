@@ -19,6 +19,7 @@ import io.github.jdubois.bootui.core.dto.RuntimeJournalStatusDto;
 import io.github.jdubois.bootui.core.dto.RuntimeResourcesDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
+import io.github.jdubois.bootui.engine.activity.ActivityCapture;
 import io.github.jdubois.bootui.engine.activity.ActivityCaptureFactory;
 import io.github.jdubois.bootui.engine.activity.ActivityCapturePoller;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
@@ -33,6 +34,7 @@ import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
 import io.github.jdubois.bootui.engine.journal.ActivityFeedSource;
+import io.github.jdubois.bootui.engine.journal.JournalActivityCapture;
 import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalActivityReports;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
@@ -181,7 +183,7 @@ public class LiveActivityResource {
     private final ExecutionProfileAssembler profileAssembler = new ExecutionProfileAssembler();
     private final SecurityLogsService securityLogs = new SecurityLogsService();
     private final AtomicInteger openStreams = new AtomicInteger();
-    private volatile ActivityCapturePoller switchPoller;
+    private volatile ActivityCapture switchPoller;
     private Supplier<RouteTemplateResolver> declaredRoutes = RouteTemplateResolver::empty;
     private ActivityFeedSource feedSource = ActivityFeedSource.DEFAULT;
 
@@ -265,7 +267,7 @@ public class LiveActivityResource {
      * only succeeds when the store was not already persistent.
      */
     void onStop(@Observes ShutdownEvent event) {
-        ActivityCapturePoller poller = switchPoller;
+        ActivityCapture poller = switchPoller;
         if (poller != null) {
             poller.close();
             switchPoller = null;
@@ -428,7 +430,7 @@ public class LiveActivityResource {
         ActivitySwitchResponse response = new ActivitySwitchService()
                 .useExistingDataSource(activityStore, persistenceSettings, dataSource, request);
         if (response.newSettings() != null) {
-            switchPoller = startCapture(activityStore, response.newSettings());
+            switchPoller = startPersistence(activityStore, response.newSettings());
         }
         return Response.status(response.status()).entity(response.body()).build();
     }
@@ -440,6 +442,35 @@ public class LiveActivityResource {
      * the returned poller.
      */
     public ActivityCapturePoller startCapture(ActivityStore store, ActivityPersistenceSettings settings) {
+        return startPoller(store, settings);
+    }
+
+    /**
+     * Starts writing Live Activity's durable history from the same source the feed reads ({@code docs/PLAN-v2.md}
+     * §5.3): the runtime journal's subscriber when {@code bootui.activity.feed-source=journal} and the journal records,
+     * otherwise the poller of {@link #mergedReport}. Shared by {@code QuarkusActivityCapture} at startup and by the
+     * runtime switch; the caller owns closing the returned capture.
+     */
+    public ActivityCapture startPersistence(ActivityStore store, ActivityPersistenceSettings settings) {
+        RuntimeJournal current = journal != null && journal.isResolvable() ? journal.get() : null;
+        if (feedSource == ActivityFeedSource.JOURNAL
+                && current != null
+                && current.settings().enabled()) {
+            return JournalActivityCapture.start(
+                    store,
+                    settings,
+                    reservedEntries,
+                    current,
+                    new JournalActivityFeed(
+                            buffer.slowThresholdMillis(),
+                            SqlTraceGrouping.DEFAULT_N_PLUS_ONE_THRESHOLD,
+                            declaredRoutes),
+                    panel -> panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel));
+        }
+        return startPoller(store, settings);
+    }
+
+    private ActivityCapturePoller startPoller(ActivityStore store, ActivityPersistenceSettings settings) {
         return ActivityCaptureFactory.start(
                 store, settings, reservedEntries, () -> mergedReport(0).entries());
     }

@@ -106,6 +106,7 @@ class JournalActivityFeedTests {
                 feed.render(entries, EVENT_ID, "run", Filter.NONE, 0).entries();
 
         ActivityEntryDto scheduled = only(rendered, "SCHEDULED");
+        assertThat(scheduled.id()).isEqualTo("e1");
         assertThat(scheduled.severity()).as("2 s against the 1 s threshold").isEqualTo("SLOW");
         assertThat(scheduled.parentId()).isNull();
         assertThat(only(rendered, "SQL").parentId()).isEqualTo(scheduled.id());
@@ -202,12 +203,14 @@ class JournalActivityFeedTests {
         assertThat(ids(new Filter(null, null, 0, "/api/orders/{id}", null, null, false)))
                 .containsExactly("r2", "run-3");
         assertThat(ids(new Filter(null, null, 0, null, null, "r2", false))).containsExactly("r2", "run-3");
-        assertThat(ids(new Filter(null, null, 0, null, null, null, true))).containsExactly("run-6", "run-5");
+        assertThat(ids(new Filter(null, null, 0, null, null, null, true)))
+                .as("a scheduled run is identified by its execution id")
+                .containsExactly("run-6", "e1");
         assertThat(ids(new Filter(null, null, 0, null, "another-run", null, false)))
                 .isEmpty();
         assertThat(ids(new Filter(null, null, 0, null, "run", null, false))).hasSize(6);
         assertThat(ids(new Filter("sql", "error", 0, null, null, null, false))).containsExactly("run-3");
-        assertThat(ids(new Filter(null, null, 1_003, null, null, null, false))).containsExactly("run-6", "run-5");
+        assertThat(ids(new Filter(null, null, 1_003, null, null, null, false))).containsExactly("run-6", "e1");
         assertThat(feed.render(entries, EVENT_ID, "run", Filter.NONE, 2).entries())
                 .hasSize(2);
     }
