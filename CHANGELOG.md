@@ -94,7 +94,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `http:`, or `https:` script sources (MEDIUM) and an enforced CSP that restricts no scripts, such as a
   `frame-ancestors`-only policy (LOW). `PT-A05-043` is MEDIUM only when the management listener binds more broadly
   than a narrowed `server.address`, which Spring Boot does not inherit, and LOW otherwise. `PT-A05-011` rates an
-  unversioned `Server` header INFO ([Pentesting checks](docs/PENTEST-CHECKS.md#pentesting-advisor-audit-2026)).
+  unversioned `Server` header INFO ([#1166](https://github.com/jdubois/boot-ui/pull/1166),
+  [Pentesting checks](docs/PENTEST-CHECKS.md#pentesting-advisor-audit-2026)).
 
 ### Fixed
 
