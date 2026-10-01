@@ -250,6 +250,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Vulnerabilities no longer scans test-only libraries listed in a CycloneDX SBOM.** The CycloneDX Gradle plugin
+  lists test-classpath libraries by default, marked `cdx:maven:package:test=true`; Spring MVC and WebFlux took them as
+  application dependencies, so a test-only `freemarker` or a newer test-only `jackson-databind` was reported vulnerable
+  although no such JAR shipped. Components marked that way, or with CycloneDX `scope: "excluded"`, and the components
+  nested in them, are now left out of the inventory unless the archive census finds their JAR on the classpath, so a
+  mislabeled SBOM still cannot hide a shipped library ([#1177](https://github.com/jdubois/boot-ui/issues/1177)).
 - **The REST API advisor reads Quarkus REST `@ResponseStatus` and `@ResponseHeader`.** A `@POST @ResponseStatus(201)`
   creation method is no longer reported as using the default status, and a declared `Location` or `Retry-After`
   header satisfies `RAPI-RESP-008` and `RAPI-ERR-007`. Versioned `/v3/...` API handlers are no longer mistaken for
