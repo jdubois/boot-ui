@@ -2112,14 +2112,16 @@ const hibernate = {
       "Prefer SEQUENCE with allocationSize and Hibernate's pooled optimizer when the database supports sequences."
     ),
     hibernateResult(
-      'HIB-CONFIG-001',
-      'Open Session in View should be disabled',
-      'Configuration',
+      'HIB-MAP-023',
+      'Set element collections of embeddables need equals and hashCode',
+      'Mapping',
       'MEDIUM',
-      "Detects spring.jpa.open-in-view=true, including Spring Boot's default when the property is not set.",
+      'Detects @ElementCollection Set attributes whose @Embeddable element class does not override both equals and hashCode.',
       1,
-      ['spring.jpa.open-in-view=true is enabled.'],
-      'Set spring.jpa.open-in-view=false and fetch data inside transactional service boundaries.'
+      [
+        'io.github.jdubois.bootui.sample.Product#dimensions is a Set of @Embeddable Dimension, which does not override equals and hashCode; Hibernate rewrites the whole collection table when the owner is flushed.'
+      ],
+      "Implement equals and hashCode over the embeddable's value state, or use a record."
     ),
     hibernateResult(
       'HIB-FETCH-002',

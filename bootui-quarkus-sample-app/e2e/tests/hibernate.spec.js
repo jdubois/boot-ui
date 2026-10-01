@@ -34,7 +34,16 @@ test.describe('Hibernate advisor (Quarkus)', () => {
     }
     expect(report.entitiesAnalyzed).toBeGreaterThan(0)
     expect(new Set(report.results.map((result) => result.id)).size).toBe(report.results.length)
-    for (const id of ['HIB-FETCH-004', 'HIB-MAP-012', 'HIB-MAP-019', 'HIB-ENTITY-003', 'HIB-ENTITY-004']) {
+    for (const id of [
+      'HIB-FETCH-004',
+      'HIB-MAP-012',
+      'HIB-MAP-017',
+      'HIB-MAP-019',
+      'HIB-MAP-021',
+      'HIB-ENTITY-003',
+      'HIB-ENTITY-004',
+      'HIB-CONFIG-001'
+    ]) {
       expect(report.results.map((result) => result.id)).not.toContain(id)
     }
     expect(report.results.some((result) => result.id.startsWith('HIB-QUERY-'))).toBe(false)
@@ -76,13 +85,14 @@ test.describe('Hibernate advisor (Quarkus)', () => {
     await expect(fetchRow).toContainText('Eager fetching should stay explicit and bounded')
   })
 
-  test('recommends lazy basic loading with bytecode enhancement', async ({openView, page}) => {
+  test('flags @Lob large-object storage on PostgreSQL instead of lazy-loading advice', async ({openView, page}) => {
     await openView('hibernate', 'Hibernate')
 
     await page.getByRole('button', {name: 'Run Hibernate checks'}).click()
 
-    const lobFetchRow = page.locator('.list-group-item', {hasText: 'HIB-FETCH-005'})
-    await expect(lobFetchRow).toContainText('Enhanced @Lob attributes should be loaded lazily', {timeout: 20_000})
-    await expect(lobFetchRow).toContainText('SampleAuditEntry#payload is annotated with @Lob')
+    const lobRow = page.locator('.list-group-item', {hasText: 'HIB-MAP-024'})
+    await expect(lobRow).toContainText('@Lob on PostgreSQL stores values as large objects', {timeout: 20_000})
+    await expect(lobRow).toContainText('SampleAuditEntry#payload is @Lob on PostgreSQL')
+    await expect(page.locator('.list-group-item', {hasText: 'HIB-FETCH-005'})).toHaveCount(0)
   })
 })

@@ -57,16 +57,13 @@ import org.springframework.data.domain.Page;
 
 class HibernateScannerTests {
 
-    private static final int RULE_COUNT = 71;
+    private static final int RULE_COUNT = 72;
     private static final String AFFECTED_HIBERNATE_VERSION = "7.3.9.Final";
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-06-04T10:00:00Z"), ZoneOffset.UTC);
 
     @Test
     void scanReportsHibernateMappingAndConfigurationFindings() {
-        TestEnvironment environment = new TestEnvironment()
-                .withProperty(HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY, "true")
-                .withProperty("spring.jpa.hibernate.ddl-auto", "update")
-                .withProperty("spring.jpa.open-in-view", "true");
+        TestEnvironment environment = new TestEnvironment().withProperty("spring.jpa.hibernate.ddl-auto", "update");
         HibernateScanner scanner = scanner(environment, ProblemOrder.class);
 
         HibernateReport report = scanner.scan();
@@ -78,7 +75,6 @@ class HibernateScannerTests {
                 .extracting(result -> result.id())
                 .contains(
                         "HIB-FETCH-001",
-                        "HIB-CONFIG-001",
                         "HIB-ID-001",
                         "HIB-MAP-001",
                         "HIB-MAP-002",
@@ -268,7 +264,10 @@ class HibernateScannerTests {
                         "HIB-MAP-012",
                         "HIB-ENTITY-003",
                         "HIB-ENTITY-004",
+                        "HIB-MAP-017",
                         "HIB-MAP-019",
+                        "HIB-MAP-021",
+                        "HIB-CONFIG-001",
                         "HIB-CONFIG-008",
                         "HIB-CONFIG-010",
                         "HIB-CONFIG-011",
@@ -289,8 +288,10 @@ class HibernateScannerTests {
         assertThat(queryResult.sampleViolations())
                 .anySatisfy(sample -> assertThat(sample).contains("findPageWithTags", "o.tags"));
         assertThat(configResult.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
-        // A risky paginated collection fetch exists, so the missing safety net is escalated to HIGH.
-        assertThat(configResult.severity()).isEqualTo(HibernateRuleSupport.HIGH);
+        // HIB-FETCH-003 owns the risky query; the missing guard is one configuration prompt, not a second HIGH.
+        assertThat(configResult.severity()).isEqualTo(HibernateRuleSupport.INFO);
+        assertThat(configResult.violationCount()).isEqualTo(1);
+        assertThat(configResult.sampleViolations()).noneMatch(sample -> sample.contains("findPageWithTags"));
     }
 
     @Test
@@ -299,13 +300,15 @@ class HibernateScannerTests {
             HibernateContext context = collectionFetchPaginationContext(version);
 
             HibernateRuleResultDto queryResult = new CollectionJoinFetchPageableRule().evaluate(context);
-            HibernateRuleResultDto configResult = new FailOnPaginationOverCollectionFetchRule().evaluate(context);
-
             assertThat(queryResult.status()).isNotEqualTo(HibernateRuleSupport.VIOLATION);
             assertThat(context.evidence().requiredUnknown()).isTrue();
-            assertThat(configResult.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
-            assertThat(configResult.sampleViolations())
-                    .anySatisfy(sample -> assertThat(sample).contains("not proven"));
+
+            HibernateRuleResultDto configResult = new FailOnPaginationOverCollectionFetchRule().evaluate(context);
+            // The guard still covers dialects that cannot push the limit into SQL, so it stays a single INFO
+            // prompt rather than re-listing the hint-dependent query that HIB-FETCH-003 left undecided.
+            assertThat(configResult.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
+            assertThat(configResult.severity()).isEqualTo(HibernateRuleSupport.INFO);
+            assertThat(configResult.sampleViolations()).noneMatch(sample -> sample.contains("findPageWithTags"));
         }
     }
 
