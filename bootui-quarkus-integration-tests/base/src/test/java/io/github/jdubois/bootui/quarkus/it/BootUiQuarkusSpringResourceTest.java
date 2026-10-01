@@ -49,7 +49,14 @@ class BootUiQuarkusSpringResourceTest {
                 .as("any application advisor finding must be a Quarkus QA-* rule, never a Spring one")
                 .allMatch(id -> id.startsWith("QA-"))
                 .contains("QA-CDI-003", "QA-CDI-004")
-                .doesNotContain("QA-CDI-001", "QA-CFG-001", "QA-RX-001", "QA-SCH-001", "QA-PROD-001", "QA-PROF-001", "QA-DB-001");
+                .doesNotContain(
+                        "QA-CDI-001",
+                        "QA-CFG-001",
+                        "QA-RX-001",
+                        "QA-SCH-001",
+                        "QA-PROD-001",
+                        "QA-PROF-001",
+                        "QA-DB-001");
 
         Response cached = probe().get("/bootui/api/spring");
         assertThat(cached.json().path("scan").path("status").asText()).isEqualTo("PARTIAL");

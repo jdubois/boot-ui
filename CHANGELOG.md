@@ -49,6 +49,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Quarkus advisor audit: client-proxy field rule, production bind logging, fewer false positives.** A second audit
+  against Quarkus 3.33 and CDI 4.1 retires `QA-CDI-001` and adds `QA-CDI-004` (MEDIUM): a public instance field on any
+  normal-scoped bean — application, request, session or custom scope — is a CDI definition error that ArC tolerates,
+  and access through an injected reference reaches the shared client proxy rather than the current instance. Final
+  atomics and concurrent collections are no longer exempt there, and `QA-CDI-002` now covers singleton REST resources
+  only. New `QA-CFG-005` (HIGH) reports build-time Hibernate bind-parameter logging that a production build would
+  package. `QA-CFG-004` also detects the deprecated `database.generation.create-schemas` and `halt-on-error` keys and
+  names each replacement. An explicit `quarkus.http.enable-compression=false` now suppresses `QA-WEB-001`,
+  `QA-WEB-002` drops from MEDIUM to LOW, and the compression and shutdown rules prefer a visible `%prod.` declaration,
+  fixing a `QA-WEB-004` false positive in development mode; they now report incomplete production coverage there
+  like the other production rules. The advisor has 14 rules
+  ([Quarkus checks](docs/QUARKUS-ADVISOR-CHECKS.md#second-audit-disposition), PR_LINK).
 - **One request slow threshold on every stack.** `bootui.activity.request-slow-threshold-ms` (default 1,000 ms) is now
   honored by Spring WebFlux and Quarkus as well as Spring MVC. It sets the `SLOW` severity of Live Activity `REQUEST`
   and `SCHEDULED` entries and decides which exchanges are kept longer. Spring WebFlux and Quarkus previously used a

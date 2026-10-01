@@ -44,8 +44,8 @@ class QuarkusAppScannerTest {
             "QA-WEB-002",
             "QA-WEB-003",
             "QA-WEB-004");
-    private static final Set<String> RETIRED_RULES = Set.of(
-            "QA-CDI-001", "QA-CFG-001", "QA-RX-001", "QA-SCH-001", "QA-PROD-001", "QA-PROF-001", "QA-DB-001");
+    private static final Set<String> RETIRED_RULES =
+            Set.of("QA-CDI-001", "QA-CFG-001", "QA-RX-001", "QA-SCH-001", "QA-PROD-001", "QA-PROF-001", "QA-DB-001");
 
     private static final class Snap {
         QuarkusAppMetadata metadata = new QuarkusAppMetadata(

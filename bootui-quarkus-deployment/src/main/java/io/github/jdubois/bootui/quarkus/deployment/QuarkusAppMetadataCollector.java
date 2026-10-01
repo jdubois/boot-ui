@@ -165,9 +165,7 @@ final class QuarkusAppMetadataCollector {
                     continue;
                 }
                 String resolvedScope = scope.equals(APPLICATION) ? "APPLICATION" : normal ? "NORMAL" : "SINGLETON";
-                String rule = normal
-                        ? "QA-CDI-004"
-                        : resources.contains(entry.getKey()) ? "QA-CDI-002" : "QA-CDI-003";
+                String rule = normal ? "QA-CDI-004" : resources.contains(entry.getKey()) ? "QA-CDI-002" : "QA-CDI-003";
                 try {
                     Set<FieldKey> injected = new HashSet<>();
                     for (InjectionPointInfo point : bean.getAllInjectionPoints()) {

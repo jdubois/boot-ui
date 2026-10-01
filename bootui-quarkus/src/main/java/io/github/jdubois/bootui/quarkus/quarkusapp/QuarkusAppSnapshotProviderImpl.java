@@ -153,7 +153,8 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                     String legacy = raw(build, LEGACY_BIND_PARAMETERS, true);
                     if (current != null || legacy != null) {
                         // Quarkus ORs both global build-time flags.
-                        boolean enabled = (current != null && booleanValue(current).equals("true"))
+                        boolean enabled = (current != null
+                                        && booleanValue(current).equals("true"))
                                 || (legacy != null && booleanValue(legacy).equals("true"));
                         add(
                                 "QA-CFG-005",

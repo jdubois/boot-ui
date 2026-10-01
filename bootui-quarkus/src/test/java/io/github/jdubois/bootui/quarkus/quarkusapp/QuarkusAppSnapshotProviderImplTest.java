@@ -162,8 +162,7 @@ class QuarkusAppSnapshotProviderImplTest {
         assertThat(QuarkusAppSnapshotProviderImpl.isLegacyGeneration(
                         "quarkus.hibernate-orm.\"a.b\".database.generation.create-schemas"))
                 .isTrue();
-        assertThat(QuarkusAppSnapshotProviderImpl.isLegacyGeneration(
-                        "quarkus.hibernate-orm.database.generation.other"))
+        assertThat(QuarkusAppSnapshotProviderImpl.isLegacyGeneration("quarkus.hibernate-orm.database.generation.other"))
                 .isFalse();
         assertThat(QuarkusAppSnapshotProviderImpl.isLegacyGeneration(
                         "quarkus.hibernate-orm.scripts.generation.create-target"))
@@ -315,8 +314,7 @@ class QuarkusAppSnapshotProviderImplTest {
 
     @Test
     void visibleProductionCompressionDeclarationWinsInDevelopment() {
-        QuarkusAppSnapshot enabled =
-                snapshot("dev", Map.of("%prod.quarkus.http.enable-compression", "true"));
+        QuarkusAppSnapshot enabled = snapshot("dev", Map.of("%prod.quarkus.http.enable-compression", "true"));
         assertThat(values(enabled, "QA-WEB-001")).containsExactly("enabled");
         assertThat(enabled.settings())
                 .filteredOn(setting -> setting.ruleId().equals("QA-WEB-001"))

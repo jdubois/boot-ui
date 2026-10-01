@@ -25,7 +25,11 @@ class BootUiQuarkusAppMetadataEvidenceTest {
                         tuple(ResolvedApplicationBeans.Stereotyped.class.getName(), "exposed", "APPLICATION", false),
                         tuple(ResolvedApplicationBeans.Stereotyped.class.getName(), "mutable", "APPLICATION", false),
                         tuple(ResolvedApplicationBeans.Stereotyped.class.getName(), "atomic", "APPLICATION", false),
-                        tuple(ResolvedApplicationBeans.ParameterResource.class.getName(), "requestState", "NORMAL", true),
+                        tuple(
+                                ResolvedApplicationBeans.ParameterResource.class.getName(),
+                                "requestState",
+                                "NORMAL",
+                                true),
                         tuple(ResolvedApplicationBeans.DefaultResource.class.getName(), "shared", "SINGLETON", true),
                         tuple(ResolvedApplicationBeans.ContextResource.class.getName(), "shared", "SINGLETON", true));
     }
