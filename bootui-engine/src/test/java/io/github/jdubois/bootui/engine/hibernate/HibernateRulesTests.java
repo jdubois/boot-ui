@@ -23,8 +23,6 @@ import jakarta.persistence.IdClass;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToMany;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.MapsId;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.OrderBy;
@@ -48,7 +46,6 @@ import org.hibernate.annotations.Fetch;
 import org.hibernate.annotations.FetchMode;
 import org.hibernate.annotations.Immutable;
 import org.hibernate.annotations.NaturalId;
-import org.hibernate.annotations.Where;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Persistable;
@@ -793,77 +790,6 @@ class HibernateRulesTests {
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
     }
 
-    // --- HIB-CONFIG-001 -----------------------------------------------------
-
-    @Test
-    void openInViewRuleFlagsExplicitTrue() {
-        TestEnvironment environment = new TestEnvironment()
-                .withProperty(HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY, "true")
-                .withProperty("spring.jpa.open-in-view", "true");
-
-        HibernateRuleResultDto result = new OpenInViewRule().evaluate(context(environment));
-
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
-        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.MEDIUM);
-    }
-
-    @Test
-    void openInViewRuleDoesNotGuessActivationFromUnsetProperty() {
-        TestEnvironment environment =
-                new TestEnvironment().withProperty(HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY, "true");
-
-        HibernateRuleResultDto result = new OpenInViewRule().evaluate(context(environment));
-
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
-        assertThat(result.sampleViolations()).containsExactly("Open Session in View activation is unknown.");
-    }
-
-    @Test
-    void openInViewRulePassesWhenExplicitlyDisabled() {
-        TestEnvironment environment = new TestEnvironment()
-                .withProperty(HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY, "true")
-                .withProperty("spring.jpa.open-in-view", "false");
-
-        HibernateRuleResultDto result = new OpenInViewRule().evaluate(context(environment));
-
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
-    }
-
-    @Test
-    void openInViewRuleStaysMediumInProduction() {
-        TestEnvironment environment = new TestEnvironment()
-                .withProperty(HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY, "true")
-                .withProperty("spring.jpa.open-in-view", "true");
-        environment.setActiveProfiles("prod");
-
-        HibernateRuleResultDto result = new OpenInViewRule().evaluate(context(environment));
-
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
-        assertThat(result.severity()).isEqualTo(HibernateRuleSupport.MEDIUM);
-    }
-
-    @Test
-    void openInViewRuleKeepsUnknownActivationUnknownInProduction() {
-        TestEnvironment environment =
-                new TestEnvironment().withProperty(HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY, "true");
-        environment.setActiveProfiles("prod");
-
-        HibernateRuleResultDto result = new OpenInViewRule().evaluate(context(environment));
-
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
-    }
-
-    @Test
-    void openInViewRuleSkipsOutsideServletApplications() {
-        TestEnvironment environment = new TestEnvironment()
-                .withProperty(HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY, "false")
-                .withProperty("spring.jpa.open-in-view", "true");
-
-        HibernateRuleResultDto result = new OpenInViewRule().evaluate(context(environment));
-
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
-    }
-
     // --- HIB-FETCH-005 / HIB-FETCH-007 -------------------------------------
 
     @Test
@@ -1222,77 +1148,6 @@ class HibernateRulesTests {
                 new NonOwningOneToOneEnhancementRule().evaluate(context(environment, InverseOneToOneEntity.class));
 
         assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
-    }
-
-    // --- HIB-MAP-019 --------------------------------------------------------
-
-    @Test
-    void missingForeignKeyIndexRulePassesWhenInferredColumnLeadsIndex() {
-        TestEnvironment environment = new TestEnvironment().withProperty("hibernate.hbm2ddl.auto", "create");
-        HibernateRuleResultDto result =
-                new MissingForeignKeyIndexRule().evaluate(context(environment, IndexedOwnerEntity.class));
-
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
-    }
-
-    @Test
-    void missingForeignKeyIndexRuleFlagsWhenColumnIsNotLeadingIndexColumn() {
-        TestEnvironment environment = new TestEnvironment().withProperty("hibernate.hbm2ddl.auto", "update");
-        HibernateRuleResultDto result =
-                new MissingForeignKeyIndexRule().evaluate(context(environment, NonLeadingIndexEntity.class));
-
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
-        assertThat(result.sampleViolations())
-                .anySatisfy(sample -> assertThat(sample).contains("customer_id"));
-    }
-
-    @Test
-    void missingForeignKeyIndexRuleSkipsMigrationManagedSchemas() {
-        HibernateRuleResultDto result =
-                new MissingForeignKeyIndexRule().evaluate(context(new TestEnvironment(), NonLeadingIndexEntity.class));
-
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.SKIPPED);
-    }
-
-    @Test
-    void missingForeignKeyIndexRuleRecognizesJakartaDropAndCreate() {
-        TestEnvironment environment = new TestEnvironment()
-                .withProperty("jakarta.persistence.schema-generation.database.action", "drop-and-create");
-
-        HibernateRuleResultDto result =
-                new MissingForeignKeyIndexRule().evaluate(context(environment, NonLeadingIndexEntity.class));
-
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
-    }
-
-    @Test
-    void missingForeignKeyIndexRuleSkipsImplicitJoinColumnNames() {
-        TestEnvironment environment = new TestEnvironment().withProperty("hibernate.hbm2ddl.auto", "create");
-
-        HibernateRuleResultDto result =
-                new MissingForeignKeyIndexRule().evaluate(context(environment, ImplicitJoinColumnEntity.class));
-
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
-    }
-
-    @Test
-    void missingForeignKeyIndexRuleSkipsSharedPrimaryKeyAssociations() {
-        TestEnvironment environment = new TestEnvironment().withProperty("hibernate.hbm2ddl.auto", "create");
-
-        HibernateRuleResultDto result =
-                new MissingForeignKeyIndexRule().evaluate(context(environment, SharedPrimaryKeyEntity.class));
-
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.PASS);
-    }
-
-    // --- HIB-MAP-021 --------------------------------------------------------
-
-    @Test
-    void legacyWhereRuleFlagsRemovedWhereAnnotation() {
-        HibernateRuleResultDto result =
-                new LegacyWhereAnnotationRule().evaluate(context(new TestEnvironment(), LegacyWhereEntity.class));
-
-        assertThat(result.status()).isEqualTo(HibernateRuleSupport.VIOLATION);
     }
 
     // --- HIB-CACHE-003 ------------------------------------------------------
@@ -2048,55 +1903,6 @@ class HibernateRulesTests {
 
         @Enumerated(EnumType.ORDINAL)
         TestStatus status;
-    }
-
-    @Entity
-    @Table(indexes = @jakarta.persistence.Index(name = "idx_customer", columnList = "customer_id"))
-    static class IndexedOwnerEntity {
-        @Id
-        Long id;
-
-        @ManyToOne
-        @JoinColumn(name = "customer_id")
-        Child customer;
-    }
-
-    @Entity
-    @Table(indexes = @jakarta.persistence.Index(name = "idx_composite", columnList = "tenant_id, customer_id"))
-    static class NonLeadingIndexEntity {
-        @Id
-        Long id;
-
-        @ManyToOne
-        @JoinColumn(name = "customer_id")
-        Child customer;
-    }
-
-    @Entity
-    static class SharedPrimaryKeyEntity {
-        @Id
-        Long id;
-
-        @OneToOne
-        @MapsId
-        @JoinColumn(name = "id")
-        Child child;
-    }
-
-    @Entity
-    static class ImplicitJoinColumnEntity {
-        @Id
-        Long id;
-
-        @ManyToOne
-        Child customer;
-    }
-
-    @Entity
-    @Where(clause = "deleted = false")
-    static class LegacyWhereEntity {
-        @Id
-        Long id;
     }
 
     @Entity

@@ -644,8 +644,8 @@ fetch pagination, unsafe cascades, cache misconfiguration, and risky `ddl-auto` 
 not a verdict: it never intercepts queries, invokes repositories, executes SQL, or modifies mappings. See
 [HIBERNATE-CHECKS.md](../HIBERNATE-CHECKS.md) for the full catalogue and remediation links.
 
-The catalog has 71 active rules; five declaration-only or structurally duplicated checks are retired without reusing
-their identifiers. Unavailable required observations and rule failures yield `PARTIAL` while retaining valid findings.
+The catalog has 72 active rules; eight declaration-only, unreachable, or cross-advisor duplicated checks are retired
+without reusing their identifiers (Open Session in View is reviewed by the Spring advisor's SPRING-JPA-001). Unavailable required observations and rule failures yield `PARTIAL` while retaining valid findings.
 The scan message distinguishes attempted-rule coverage from successful evaluation, and the report's `diagnostics` array
 (shown as **Scan diagnostics** in the panel, returned unchanged by REST, MCP and `bootui hibernate report --json`, and
 summarized as a table in the CLI's human-readable output) names every failed or
@@ -658,16 +658,14 @@ plans are not fully reconstructed.
 
 ::: details On Quarkus
 
-The panel runs the same 71-rule registry and report contract when `quarkus-hibernate-orm` is present. Entities are
+The panel runs the same 72-rule registry and report contract when `quarkus-hibernate-orm` is present. Entities are
 discovered from the live JPA `EntityManagerFactory` metamodel (across all persistence units, de-duplicated by identity),
 and most mapping/identifier/fetch rules apply unchanged. Spring Data query rules skip when repository metadata is
-unavailable instead of reporting a clean result. Four platform differences are worth noting:
+unavailable instead of reporting a clean result. Three platform differences are worth noting:
 
 - **Effective factory settings are unit-scoped.** Live native options include integration defaults and programmatic
   settings; named units do not inherit the first factory's values. Native property translation supplements appropriate
   declaration/application facts but is not proof of effective factory state.
-- **Spring Open-Session-in-View is inapplicable.** The Spring-specific rule does not fire on Quarkus. Spring requires
-  actual activation evidence rather than inferring activation solely from a missing property.
 - **Bytecode enhancement is always enabled.** Quarkus enhances every entity unconditionally at build time with no
   opt-out, so known-absent-enhancement findings do not fire with the verified adapter capability.
 - **Panache active-record entities are handled specially** (see below).

@@ -9,7 +9,6 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservation;
-import io.github.jdubois.bootui.engine.hibernate.HibernateApplicationFacts;
 import io.github.jdubois.bootui.engine.hibernate.HibernateFactorySettings;
 import io.github.jdubois.bootui.engine.hibernate.HibernateObservationDiagnostic;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
@@ -110,8 +109,6 @@ class QuarkusHibernateAdvisorObservationSourceTest {
                         .isEqualTo(unit.label().equals("inventory") ? 25 : 1);
                 assertThat(unit.settings().queryCache()).isEqualTo(unit.label().equals("inventory"));
             });
-            assertThat(observation.application().openInView())
-                    .isEqualTo(HibernateApplicationFacts.OpenInView.NOT_APPLICABLE);
         }
     }
 
