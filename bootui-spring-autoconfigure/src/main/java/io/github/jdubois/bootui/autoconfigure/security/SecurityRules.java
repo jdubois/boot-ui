@@ -602,8 +602,8 @@ final class SessionFixationRule extends AbstractSecurityRule {
                 "Session fixation protection should be enabled",
                 SecurityCategory.SESSION,
                 "HIGH",
-                "Detects recognized authentication-filter or session-management strategies explicitly disabling fixation protection. Modern defaults do not require a SessionManagementFilter.",
-                "Use the default changeSessionId (or migrateSession) session-fixation strategy instead of none().",
+                "Detects recognized login-filter or session-management strategies skipping fixation protection, including Spring Security 7.1 passkey login, whose webAuthn() configurer applies no session-authentication strategy.",
+                "Use the default changeSessionId (or migrateSession) strategy instead of none(). For webAuthn(), register an ObjectPostProcessor<WebAuthnAuthenticationFilter> that sets a composite SessionAuthenticationStrategy (ChangeSessionIdAuthenticationStrategy plus CsrfAuthenticationStrategy, and any configured concurrency control).",
                 "https://docs.spring.io/spring-security/reference/servlet/authentication/session-management.html"));
     }
 
@@ -619,7 +619,12 @@ final class SessionFixationRule extends AbstractSecurityRule {
             if (chain.sessionFixationDisabled() != null) {
                 determinable = true;
                 if (Boolean.TRUE.equals(chain.sessionFixationDisabled())) {
-                    details.add(chain.describe() + " disables session-fixation protection (sessionFixation().none()).");
+                    details.add(
+                            chain.details().passkeySessionStrategyMissing()
+                                    ? chain.describe()
+                                            + " uses session-backed passkey (webAuthn()) login, whose Spring Security 7.1 configurer applies no session-authentication strategy; the session id and CSRF token are not rotated at login."
+                                    : chain.describe()
+                                            + " disables session-fixation protection (sessionFixation().none()).");
                 }
             }
         }
@@ -638,25 +643,27 @@ final class SessionCookieSecureRule extends AbstractSecurityRule {
                 "Session cookie should set the Secure flag",
                 SecurityCategory.SESSION,
                 "MEDIUM",
-                "Reviews explicit Secure=false or lack of an explicit Secure override in production. Unset may derive Secure from each request.",
-                "Set server.servlet.session.cookie.secure=true so the session cookie is only sent over HTTPS.",
+                "Reviews production session-using chains without direct TLS or chain redirects whose session cookie is not forced Secure. Containers mark cookies issued over HTTPS requests Secure regardless of this property.",
+                "Set server.servlet.session.cookie.secure=true when TLS terminates before the application, so the session cookie is only sent over HTTPS.",
                 "https://docs.spring.io/spring-boot/reference/web/servlet.html"));
     }
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        if (!context.applies(context.hasStatefulChain() && context.isProductionProfileActive())
+                || context.isTlsConfigured()) {
+            return pass();
+        }
         String value = context.firstProperty("server.servlet.session.cookie.secure");
-        context.applies(context.hasStatefulChain());
-        if ("false".equalsIgnoreCase(String.valueOf(value))) {
-            return violation(context, List.of("server.servlet.session.cookie.secure is explicitly false."));
+        if ("true".equalsIgnoreCase(String.valueOf(value).trim())) {
+            return pass();
         }
-        if (value == null && context.isProductionProfileActive() && context.hasStatefulChain()) {
-            return violation(
-                    context,
-                    List.of(
-                            "No explicit Secure override is set; verify HTTPS request/container cookie behavior in production."));
-        }
-        return pass();
+        return violation(
+                context,
+                List.of(
+                        value == null
+                                ? "No direct TLS is configured and the session cookie is not forced Secure; behind a TLS-terminating proxy the container sees plain HTTP requests."
+                                : "No direct TLS is configured and server.servlet.session.cookie.secure is explicitly false."));
     }
 }
 
@@ -688,11 +695,11 @@ final class SessionCookieSameSiteRule extends AbstractSecurityRule {
     SessionCookieSameSiteRule() {
         super(new SecurityRuleDefinition(
                 "SEC-SESSION-004",
-                "Session cookie should declare a SameSite policy",
+                "Review SameSite=None on the session cookie",
                 SecurityCategory.SESSION,
                 "LOW",
-                "Reviews explicit session-cookie SameSite configuration. An unset property leaves container and browser behavior unknown, not a violation.",
-                "Set server.servlet.session.cookie.same-site=Lax (or Strict) to reduce cross-site request exposure.",
+                "Reviews explicit server.servlet.session.cookie.same-site=none, which lets browsers attach the session cookie to cross-site requests. Unset, omitted, Lax and Strict are not findings; None combined with secure=false belongs to the Pentesting advisor.",
+                "Keep None only for intentional cross-site delivery (for example embedded or SAML POST flows) with Secure and CSRF protection; otherwise use Lax or Strict.",
                 "https://docs.spring.io/spring-boot/reference/web/servlet.html"));
     }
 
@@ -702,10 +709,15 @@ final class SessionCookieSameSiteRule extends AbstractSecurityRule {
             return pass();
         }
         String value = context.firstProperty("server.servlet.session.cookie.same-site");
-        if (value == null) {
-            return skipped("SameSite is not explicit; effective container and browser defaults are not observed.");
+        if (value == null
+                || !"none".equalsIgnoreCase(value.trim())
+                || context.isPropertyFalse("server.servlet.session.cookie.secure")) {
+            return pass();
         }
-        return pass();
+        return violation(
+                context,
+                List.of(
+                        "server.servlet.session.cookie.same-site=none sends the session cookie on cross-site requests; confirm cross-site delivery is intended."));
     }
 }
 
@@ -845,7 +857,7 @@ final class FrameOptionsRule extends AbstractSecurityRule {
                         "SEC-HEAD-002",
                         "X-Frame-Options (clickjacking protection) should stay enabled",
                         SecurityCategory.HEADERS,
-                        "HIGH",
+                        "MEDIUM",
                         "Reviews browser-credential chains without an effective recognized framing restriction. Enforcing frame-ancestors overrides X-Frame-Options, even when permissive; unknown CSP cannot establish safe fallback.",
                         "Use a restrictive enforcing frame-ancestors policy, or keep XFrameOptionsHeaderWriter when that directive is absent. Review actual delivered policy separately.",
                         "https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html#servlet-headers-frame-options"));
@@ -944,7 +956,7 @@ final class HeaderWritersDisabledRule extends AbstractSecurityRule {
                 "SEC-HEAD-007",
                 "Security response headers should not be globally disabled",
                 SecurityCategory.HEADERS,
-                "LOW",
+                "MEDIUM",
                 "Detects a browser-credential chain without Spring's HeaderWriterFilter. Custom filters and external infrastructure may supply headers.",
                 "Remove headers().disable(); keep the default HeaderWriterFilter so security headers are emitted, and only tune individual writers you do not need.",
                 "https://docs.spring.io/spring-security/reference/servlet/exploits/headers.html"));
@@ -1118,34 +1130,6 @@ final class CorsWildcardWithCredentialsRule extends AbstractSecurityRule {
                     "A custom CorsConfigurationSource is present and cannot be introspected for wildcard origins with credentials.");
         }
         return violation(context, details);
-    }
-}
-
-final class CorsNotInSecurityChainRule extends AbstractSecurityRule {
-
-    CorsNotInSecurityChainRule() {
-        super(new SecurityRuleDefinition(
-                "SEC-CORS-003",
-                "CORS should be wired through the security filter chain",
-                SecurityCategory.CORS,
-                "INFO",
-                "Reviews attached CORS handling rather than unused source beans. Dynamic, MVC-managed, or differing chain attachments remain unknown.",
-                "Enable .cors(...) on the HttpSecurity so preflight handling is consistent with the security chain rather than MVC-only.",
-                "https://docs.spring.io/spring-security/reference/servlet/integrations/cors.html"));
-    }
-
-    @Override
-    SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        if (context.customCorsSourcePresent()) return skipped("Attached CORS handling is dynamic or MVC-managed.");
-        if (!context.applies(context.corsSourcePresent())) return pass();
-        if (context.chains().stream()
-                .anyMatch(chain -> chain.details().filtersKnown()
-                        && !chain.hasFilter("CorsFilter")
-                        && !chain.hasFilter("PreFlightRequestFilter"))) {
-            return skipped(
-                    "CORS attachment differs across chains; external handling and intended origin scope are unknown.");
-        }
-        return pass();
     }
 }
 
@@ -1530,40 +1514,6 @@ final class ActuatorShowValuesRule extends AbstractSecurityRule {
 // OAuth2 / JWT resource server
 // ---------------------------------------------------------------------------
 
-final class ResourceServerValidationRule extends AbstractSecurityRule {
-
-    ResourceServerValidationRule() {
-        super(new SecurityRuleDefinition(
-                "SEC-OAUTH-001",
-                "Resource server must validate tokens via JWT issuer/JWK or opaque-token introspection",
-                SecurityCategory.OAUTH2,
-                "HIGH",
-                "Recognizes JWT decoders and opaque-token introspectors attached to supported active providers."
-                        + " Missing global beans or properties do not establish missing validation; unsupported attachment remains unknown.",
-                "Configure spring.security.oauth2.resourceserver.jwt.issuer-uri (or jwk-set-uri / a JwtDecoder bean)"
-                        + " for JWT resource servers, or"
-                        + " spring.security.oauth2.resourceserver.opaquetoken.introspection-uri (or a custom"
-                        + " OpaqueTokenIntrospector bean) for opaque-token resource servers, so incoming bearer"
-                        + " tokens are actually verified.",
-                "https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/index.html"));
-    }
-
-    @Override
-    SecurityRuleResultDto evaluateRule(SecurityContext context) {
-        boolean bearerChain = context.chains().stream()
-                .anyMatch(chain -> chain.hasFilterContaining("BearerTokenAuthenticationFilter"));
-        if (!context.applies(bearerChain)) {
-            return pass();
-        }
-        if (!context.jwtDecoderTypes().isEmpty()
-                || !context.opaqueTokenIntrospectorTypes().isEmpty()) {
-            return pass();
-        }
-        return skipped(
-                "Inline decoder, introspector or resolver attachment is not readable; missing global beans do not imply missing validation.");
-    }
-}
-
 final class JwtAudienceValidationRule extends AbstractSecurityRule {
 
     JwtAudienceValidationRule() {
@@ -1603,25 +1553,84 @@ final class InsecureJwtMetadataUrlRule extends AbstractSecurityRule {
                 "JWT issuer and JWK endpoints should use HTTPS",
                 SecurityCategory.OAUTH2,
                 "HIGH",
-                "Detects an issuer-uri or jwk-set-uri that uses plain HTTP. Discovery metadata or signing keys fetched without transport authentication can be modified by an active network attacker.",
+                "Detects a production profile with an issuer-uri or jwk-set-uri that uses plain HTTP. Discovery metadata or signing keys fetched without transport authentication can be modified by an active network attacker.",
                 "Use HTTPS issuer and JWK endpoints with certificate validation enabled; reserve HTTP endpoints for isolated test environments.",
                 "https://www.rfc-editor.org/rfc/rfc8414.html#section-3.3"));
     }
 
     @Override
     SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        if (!context.isProductionProfileActive()) {
+            return pass();
+        }
         List<String> details = new ArrayList<>();
         addIfInsecureUrl(context, details, "spring.security.oauth2.resourceserver.jwt.issuer-uri");
         addIfInsecureUrl(context, details, "spring.security.oauth2.resourceserver.jwt.jwk-set-uri");
         return violation(context, details);
     }
 
-    private static void addIfInsecureUrl(SecurityContext context, List<String> details, String key) {
+    static void addIfInsecureUrl(SecurityContext context, List<String> details, String key) {
         String value = context.firstProperty(key);
         context.applies(value != null);
-        if (value != null && value.toLowerCase(Locale.ROOT).startsWith("http://")) {
+        if (value != null && value.trim().toLowerCase(Locale.ROOT).startsWith("http://")) {
             details.add(key + " uses plain HTTP.");
         }
+    }
+}
+
+final class InsecureIntrospectionUrlRule extends AbstractSecurityRule {
+
+    InsecureIntrospectionUrlRule() {
+        super(new SecurityRuleDefinition(
+                "SEC-OAUTH-005",
+                "Opaque-token introspection must use HTTPS",
+                SecurityCategory.OAUTH2,
+                "HIGH",
+                "Detects a production profile with spring.security.oauth2.resourceserver.opaquetoken.introspection-uri using plain HTTP. Bearer tokens and the resource server's client credentials cross this channel. Only the property name is reported; no introspection occurs.",
+                "Use an HTTPS introspection endpoint and validate the authorization server certificate.",
+                "https://www.rfc-editor.org/rfc/rfc7662.html#section-4"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        if (!context.isProductionProfileActive()) {
+            return pass();
+        }
+        List<String> details = new ArrayList<>();
+        InsecureJwtMetadataUrlRule.addIfInsecureUrl(
+                context, details, "spring.security.oauth2.resourceserver.opaquetoken.introspection-uri");
+        return violation(context, details);
+    }
+}
+
+final class InsecureOAuth2ClientEndpointRule extends AbstractSecurityRule {
+
+    InsecureOAuth2ClientEndpointRule() {
+        super(new SecurityRuleDefinition(
+                "SEC-OAUTH-006",
+                "OAuth2 client provider endpoints must use HTTPS",
+                SecurityCategory.OAUTH2,
+                "HIGH",
+                "Detects a production profile with a registration-linked spring.security.oauth2.client.provider.<id> authorization-uri, token-uri, jwk-set-uri or user-info-uri using plain HTTP. The token endpoint receives the client secret and authorization code; JWK and user-info responses establish identity. Provider issuer-uri belongs to the Pentesting advisor. Only property names are reported.",
+                "Use HTTPS for every OAuth2 client provider endpoint and keep certificate validation enabled; reserve HTTP providers for isolated local development.",
+                "https://www.rfc-editor.org/rfc/rfc6749.html#section-3.2"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(SecurityContext context) {
+        if (!context.isProductionProfileActive()) {
+            return pass();
+        }
+        OAuth2ClientEndpoints.Result endpoints = OAuth2ClientEndpoints.observe(context.environment());
+        context.applies(endpoints.linkedEndpointPresent());
+        if (endpoints.plainHttpKeys().isEmpty() && !context.required(endpoints.complete())) {
+            return skipped("OAuth2 client provider inventory exceeded supported observation limits.");
+        }
+        return violation(
+                context,
+                endpoints.plainHttpKeys().stream()
+                        .map(key -> key + " uses plain HTTP.")
+                        .toList());
     }
 }
 
@@ -1719,7 +1728,7 @@ final class ErrorResponseDisclosureRule extends AbstractSecurityRule {
                 "Error responses should not leak stack traces or internal messages",
                 SecurityCategory.CONFIGURATION,
                 "MEDIUM",
-                "Reviews Boot 4 spring.web.error inclusion settings that are unconditional or caller-enabled; custom error responses are not observed.",
+                "Reviews application-configured Boot 4 spring.web.error inclusion settings that are unconditional or caller-enabled. DevTools' development-only defaults are ignored; custom error responses are not observed.",
                 "Use 'never' for sensitive error details. The 'on-param' mode is caller-controlled, not a confidentiality boundary.",
                 "https://docs.spring.io/spring-boot/reference/web/servlet.html#web.servlet.spring-mvc.error-handling"));
     }
@@ -1730,7 +1739,7 @@ final class ErrorResponseDisclosureRule extends AbstractSecurityRule {
         context.applies(!context.chains().isEmpty());
         for (String suffix : List.of("include-stacktrace", "include-message", "include-binding-errors")) {
             String key = "spring.web.error." + suffix;
-            String value = context.firstProperty(key);
+            String value = context.applicationProperty(key);
             if (value != null && Set.of("always", "on-param", "on_param").contains(value.toLowerCase(Locale.ROOT))) {
                 details.add(
                         key + " permits inclusion of internal error details, unconditionally or by caller request.");

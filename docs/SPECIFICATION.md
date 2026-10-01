@@ -27,8 +27,8 @@ BootUI currently targets:
 Maturity is stated honestly: the **Spring Boot servlet adapter is complete** (all panels). The **Spring Boot WebFlux
 adapter** reuses the same engine and serves the large majority of panels unmodified or over a rebuilt reactive capture
 layer, including **Live Activity** (all nine signal types merge identically to the servlet adapter — see
-`docs/WEBFLUX-SUPPORT.md` §6.4), plus the raw Spring Security panel and the WebFlux-native 25-rule Security advisor; the
-raw Spring Security panel, the WebFlux-native 25-rule Security advisor, and REST Client capture over instrumented
+`docs/WEBFLUX-SUPPORT.md` §6.4), plus the raw Spring Security panel and the WebFlux-native 26-rule Security advisor; the
+raw Spring Security panel, the WebFlux-native 26-rule Security advisor, and REST Client capture over instrumented
 `WebClient` instances; HTTP Sessions is not applicable to a reactive,
 container-session-free stack — see `docs/WEBFLUX-SUPPORT.md` for the current per-panel status. The **Quarkus adapter
 is being built out**, with panels lighting up as the shared engine grows; see `docs/QUARKUS-SUPPORT.md` for the
@@ -999,7 +999,8 @@ Purpose: run local OWASP-oriented hygiene checks without turning BootUI into an 
 
 Data sources:
 
-- Passive Spring application-context or Quarkus CORS/OIDC/TLS metadata.
+- Passive Spring application-context metadata. Quarkus CORS, OIDC, and TLS configuration belongs to the Security
+  panel (`QS-*`), so Quarkus scans rely on the synthetic responses.
 - Spring MVC request-mapping and servlet-security metadata when available. WebFlux and Quarkus report this inventory as
   unavailable rather than empty/clean.
 - At most one `GET` and one `OPTIONS` request to literal `127.0.0.1`, targeting a deliberately unlikely host-application
@@ -1952,16 +1953,18 @@ Data sources:
   `SYS_CONTEXT('USERENV', ...)`, scoped to the connected session's `CURRENT_SCHEMA`, with no elevated privilege, no
   application-row query, no database link, and no production `ojdbc` dependency.
 - The Hibernate/JPA metamodel, when available, for cross-referencing explicitly named entity tables (including
-  `@SecondaryTable`), columns, foreign keys and unique constraints with observed schema metadata.
+  `@SecondaryTable`), columns, foreign keys, unique constraints, numeric precision/scale and `IDENTITY` key generation
+  with observed schema metadata.
 
 Features:
 
 - Run an explicit, read-only scan over a fixed generic ruleset covering missing primary keys, foreign-key columns
   without known supporting access paths, exact index-definition overlap, foreign-key/referenced-column domain
-  discrepancies, redundant unique indexes, duplicate foreign key constraints and narrow auto-generated primary keys.
+  discrepancies, redundant unique indexes, duplicate foreign key constraints, narrow auto-generated primary keys and
+  MySQL/MariaDB/Oracle invisible or ignored indexes.
   These are contextual structural reviews, not workload or business-intent verdicts.
 - Augment the generic scan for PostgreSQL with invalid-index (excluding an index still building `CONCURRENTLY`),
-  sequence-exhaustion, `NOT VALID` constraint, and missing-replica-identity checks; for MySQL/MariaDB with
+  sequence-exhaustion, `NOT VALID` constraint, missing-replica-identity and unlogged-table checks; for MySQL/MariaDB with
   non-InnoDB-engine, non-`utf8mb4`, and `AUTO_INCREMENT`-exhaustion checks; and for Oracle with unusable-index,
   disabled/unvalidated-constraint, and sequence/identity-exhaustion checks. A driver-reported "Oracle" product name is
   confirmed against the server's version banner before Oracle augmentation runs, since some Oracle-compatible

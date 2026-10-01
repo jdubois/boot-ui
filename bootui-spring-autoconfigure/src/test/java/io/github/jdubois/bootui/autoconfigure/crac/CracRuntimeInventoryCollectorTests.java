@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.sql.DataSource;
+import liquibase.integration.spring.SpringLiquibase;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.rabbit.connection.CachingConnectionFactory;
 import org.springframework.aop.TargetSource;
@@ -17,6 +18,9 @@ import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.jdbc.HikariCheckpointRestoreLifecycle;
+import org.springframework.boot.jdbc.autoconfigure.ApplicationDataSourceScriptDatabaseInitializer;
+import org.springframework.boot.jdbc.init.DataSourceScriptDatabaseInitializer;
+import org.springframework.boot.sql.init.DatabaseInitializationSettings;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
 import org.springframework.cache.support.NoOpCacheManager;
@@ -25,11 +29,13 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.SpringProperties;
+import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.jms.connection.SingleConnectionFactory;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
+import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.scheduling.concurrent.SimpleAsyncTaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
@@ -83,7 +89,11 @@ class CracRuntimeInventoryCollectorTests {
                         || name.startsWith("org.springframework.amqp.")
                         || name.startsWith("org.springframework.kafka.")
                         || name.startsWith("org.springframework.jms.")
-                        || name.startsWith("jakarta.jms.")) {
+                        || name.startsWith("jakarta.jms.")
+                        || name.startsWith("jakarta.persistence.")
+                        || name.startsWith("org.hibernate.")
+                        || name.startsWith("liquibase.")
+                        || name.startsWith("org.springframework.boot.flyway.")) {
                     throw new ClassNotFoundException(name);
                 }
                 return super.loadClass(name, resolve);
@@ -99,6 +109,7 @@ class CracRuntimeInventoryCollectorTests {
             assertThat(inventory.available()).isTrue();
             assertThat(inventory.managedConnectionPoolBeans()).isEmpty();
             assertThat(inventory.connectionPoolBeans()).isEmpty();
+            assertThat(inventory.startupDatabaseAccess()).isEmpty();
         }
     }
 
@@ -171,6 +182,98 @@ class CracRuntimeInventoryCollectorTests {
                     .hasSize(2)
                     .anySatisfy(issue -> assertThat(issue).contains("second", "allowPoolSuspension=false"))
                     .allSatisfy(issue -> assertThat(issue).contains("pairing is unverified"));
+        }
+    }
+
+    @Test
+    void reportsStartupDatabaseAccessWithoutExposingTheJdbcUrl() {
+        try (AnnotationConfigApplicationContext context =
+                startupDatabaseContext("jdbc:postgresql://db.example:5432/app?password=do-not-expose", Map.of())) {
+            context.getBeanFactory().registerSingleton("liquibase", new SpringLiquibase());
+
+            CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(context);
+
+            assertThat(inventory.startupDatabaseAccess())
+                    .hasSize(2)
+                    .anyMatch(text -> text.startsWith("Liquibase liquibase"))
+                    .anyMatch(text -> text.startsWith("Hibernate boot JDBC metadata access entityManagerFactory"))
+                    .allMatch(text -> text.endsWith("without an in-memory JDBC URL: dataSource"))
+                    .noneMatch(text -> text.contains("postgresql") || text.contains("do-not-expose"));
+        }
+    }
+
+    @Test
+    void disallowedHibernateMetadataStillReportsSchemaManagement() {
+        try (AnnotationConfigApplicationContext context = startupDatabaseContext(
+                "jdbc:postgresql://db.example/app",
+                Map.of(
+                        "hibernate.boot.allow_jdbc_metadata_access",
+                        "DISALLOW",
+                        "hibernate.hbm2ddl.auto",
+                        "validate"))) {
+            CracRuntimeInventory inventory = CracRuntimeInventoryCollector.collect(context);
+
+            assertThat(inventory.startupDatabaseAccess())
+                    .singleElement()
+                    .asString()
+                    .startsWith("Hibernate schema management hibernate.hbm2ddl.auto=validate");
+        }
+        try (AnnotationConfigApplicationContext context = startupDatabaseContext(
+                "jdbc:postgresql://db.example/app",
+                Map.of("hibernate.boot.allow_jdbc_metadata_access", "false", "hibernate.hbm2ddl.auto", "none"))) {
+            assertThat(CracRuntimeInventoryCollector.collect(context).startupDatabaseAccess())
+                    .isEmpty();
+        }
+    }
+
+    @Test
+    void inMemoryDatabasesDoNotReportStartupDatabaseAccess() {
+        try (AnnotationConfigApplicationContext context = startupDatabaseContext("JDBC:H2:MEM:test", Map.of())) {
+            context.getBeanFactory().registerSingleton("liquibase", new SpringLiquibase());
+
+            assertThat(CracRuntimeInventoryCollector.collect(context).startupDatabaseAccess())
+                    .isEmpty();
+        }
+        assertThat(CracRuntimeInventoryCollector.isInMemoryJdbcUrl("jdbc:hsqldb:mem:test"))
+                .isTrue();
+        assertThat(CracRuntimeInventoryCollector.isInMemoryJdbcUrl("jdbc:derby:memory:test"))
+                .isTrue();
+        assertThat(CracRuntimeInventoryCollector.isInMemoryJdbcUrl("jdbc:h2:file:./data/test"))
+                .isFalse();
+        assertThat(CracRuntimeInventoryCollector.isInMemoryJdbcUrl("jdbc:h2:tcp://localhost/test"))
+                .isFalse();
+    }
+
+    @Test
+    void schemaInitializersReportBundledScriptsAndApplicationScriptsOnlyWhenAlways() {
+        for (String mode : List.of("embedded", "always")) {
+            try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+                context.getEnvironment()
+                        .getPropertySources()
+                        .addFirst(new MapPropertySource("test", Map.of("spring.sql.init.mode", mode)));
+                HikariDataSource dataSource = new HikariDataSource();
+                dataSource.setJdbcUrl("jdbc:postgresql://db.example/app");
+                context.registerBean("dataSource", HikariDataSource.class, () -> dataSource);
+                context.refresh();
+                DatabaseInitializationSettings settings = new DatabaseInitializationSettings();
+                context.getBeanFactory()
+                        .registerSingleton("batchInitializer", new BundledScriptsInitializer(dataSource, settings));
+                context.getBeanFactory()
+                        .registerSingleton(
+                                "applicationInitializer",
+                                new ApplicationDataSourceScriptDatabaseInitializer(dataSource, settings));
+
+                List<String> access =
+                        CracRuntimeInventoryCollector.collect(context).startupDatabaseAccess();
+
+                assertThat(access)
+                        .anyMatch(text -> text.startsWith("schema initializer with bundled scripts batchInitializer"));
+                if ("always".equals(mode)) {
+                    assertThat(access).hasSize(2).anyMatch(text -> text.contains("spring.sql.init.mode=always"));
+                } else {
+                    assertThat(access).hasSize(1);
+                }
+            }
         }
     }
 
@@ -549,6 +652,28 @@ class CracRuntimeInventoryCollectorTests {
         @Override
         public Class<?> getObjectType() {
             return HikariDataSource.class;
+        }
+    }
+
+    private static AnnotationConfigApplicationContext startupDatabaseContext(
+            String jdbcUrl, Map<String, Object> jpaProperties) {
+        AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
+        context.registerBean("dataSource", HikariDataSource.class, () -> {
+            HikariDataSource dataSource = new HikariDataSource();
+            dataSource.setJdbcUrl(jdbcUrl);
+            return dataSource;
+        });
+        context.refresh();
+        // Registered without initialization callbacks: the factory never builds an EntityManagerFactory.
+        LocalContainerEntityManagerFactoryBean factory = new LocalContainerEntityManagerFactoryBean();
+        factory.setJpaPropertyMap(jpaProperties);
+        context.getBeanFactory().registerSingleton("entityManagerFactory", factory);
+        return context;
+    }
+
+    static class BundledScriptsInitializer extends DataSourceScriptDatabaseInitializer {
+        BundledScriptsInitializer(DataSource dataSource, DatabaseInitializationSettings settings) {
+            super(dataSource, settings);
         }
     }
 

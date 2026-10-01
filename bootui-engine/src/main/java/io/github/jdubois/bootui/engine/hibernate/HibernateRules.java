@@ -188,8 +188,8 @@ final class HibernateRuleModelSupport {
 
     /**
      * Returns one detail per Spring Data repository method that pages (Pageable parameter) a JPQL query whose
-     * {@code JOIN FETCH} targets a collection association declared directly on the query root. Shared by HIB-FETCH-003
-     * (which reports these as violations) and HIB-CONFIG-016 (which uses their presence to pick a dynamic severity).
+     * {@code JOIN FETCH} targets a collection association declared directly on the query root, as HIB-FETCH-003
+     * findings.
      */
     static AdvisorFindings paginatedCollectionFetchFindings(HibernateContext context) {
         AdvisorFindings details = new AdvisorFindings();
@@ -315,17 +315,16 @@ final class HibernateRuleModelSupport {
 final class EagerFetchRule extends AbstractHibernateRule {
 
     EagerFetchRule() {
-        super(
-                new HibernateRuleDefinition(
-                        "HIB-FETCH-001",
-                        "Eager fetching should stay explicit and bounded",
-                        HibernateCategory.FETCHING,
-                        "HIGH",
-                        "Detects JPA associations and @ElementCollection attributes mapped with FetchType.EAGER,"
-                                + " including default-eager to-one associations.",
-                        "Prefer LAZY mappings and fetch required graphs or collection values explicitly with joins,"
-                                + " entity graphs, or DTO queries.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching"));
+        super(new HibernateRuleDefinition(
+                "HIB-FETCH-001",
+                "Eager fetching should stay explicit and bounded",
+                HibernateCategory.FETCHING,
+                "HIGH",
+                "Detects JPA associations and @ElementCollection attributes mapped with FetchType.EAGER,"
+                        + " including default-eager to-one associations.",
+                "Prefer LAZY mappings and fetch required graphs or collection values explicitly with joins,"
+                        + " entity graphs, or DTO queries.",
+                "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching"));
     }
 
     @Override
@@ -366,7 +365,7 @@ final class IdentityIdentifierRule extends AbstractHibernateRule {
                                 + " stronger finding when this unit has a batch size above one.",
                         "Keep IDENTITY when it fits the database and workload. Consider sequence allocation where"
                                 + " supported and insert batching matters.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-generators"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-generators"));
     }
 
     @Override
@@ -411,7 +410,7 @@ final class TableIdentifierRule extends AbstractHibernateRule {
                         "Compare generator and pooling choices against the database and insert workload. The"
                                 + " declaration does not demonstrate contention, and pooled table allocation may be"
                                 + " intentional.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-generators"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-generators"));
     }
 
     @Override
@@ -447,7 +446,7 @@ final class SequenceAllocationSizeRule extends AbstractHibernateRule {
                         "Detects @SequenceGenerator declarations with allocationSize=1.",
                         "Review which generator is actually selected before tuning allocation; larger allocations"
                                 + " require optimizer/schema interoperability and are not universally mandatory.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-generators-sequence"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-generators-sequence"));
     }
 
     @Override
@@ -498,7 +497,7 @@ final class UnidirectionalOneToManyRule extends AbstractHibernateRule {
                                 + " on the parent so the child's foreign key owns the relationship. If a unidirectional"
                                 + " mapping is intentional, add @JoinColumn to drop the join table (note the extra UPDATE"
                                 + " statements flagged by HIB-MAP-020).",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#associations-one-to-many"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#associations-one-to-many"));
     }
 
     @Override
@@ -537,7 +536,7 @@ final class ManyToManyListRule extends AbstractHibernateRule {
                         "Preserve domain ordering and benchmark mutation behavior. Consider Set only when its"
                                 + " uniqueness semantics fit, or a link entity when the relationship has its own"
                                 + " attributes or lifecycle.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#associations-many-to-many"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#associations-many-to-many"));
     }
 
     @Override
@@ -547,13 +546,9 @@ final class ManyToManyListRule extends AbstractHibernateRule {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), HibernateAttributeModel::isManyToMany)) {
                 if (attribute.isManyToMany() && attribute.isListAttribute() && !attribute.hasOrderColumn()) {
-                    String ordering = attribute.hasOrderColumn()
-                            ? " with @OrderColumn; preserve the order only when it is domain-significant."
-                            : " without @OrderColumn.";
                     details.add(
                             attribute.description()
-                                    + " is @ManyToMany and declared as a List"
-                                    + ordering
+                                    + " is @ManyToMany and declared as a List without @OrderColumn."
                                     + " Consider a link entity when link lifecycle or attributes matter.",
                             HibernateLocations.of(attribute));
                 }
@@ -566,16 +561,15 @@ final class ManyToManyListRule extends AbstractHibernateRule {
 final class ManyToManyRemoveCascadeRule extends AbstractHibernateRule {
 
     ManyToManyRemoveCascadeRule() {
-        super(
-                new HibernateRuleDefinition(
-                        "HIB-MAP-004",
-                        "Many-to-many associations should not cascade remove",
-                        HibernateCategory.MAPPING,
-                        "HIGH",
-                        "Detects @ManyToMany mappings whose cascade list contains REMOVE or ALL.",
-                        "Remove REMOVE/ALL cascades from many-to-many associations; model the join table as an entity"
-                                + " when lifecycle ownership is needed.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#pc-cascade"));
+        super(new HibernateRuleDefinition(
+                "HIB-MAP-004",
+                "Many-to-many associations should not cascade remove",
+                HibernateCategory.MAPPING,
+                "HIGH",
+                "Detects @ManyToMany mappings whose cascade list contains REMOVE or ALL.",
+                "Remove REMOVE/ALL cascades from many-to-many associations; model the join table as an entity"
+                        + " when lifecycle ownership is needed.",
+                "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#pc-cascade"));
     }
 
     @Override
@@ -604,16 +598,15 @@ final class ManyToManyRemoveCascadeRule extends AbstractHibernateRule {
 final class ManyToOneRemoveCascadeRule extends AbstractHibernateRule {
 
     ManyToOneRemoveCascadeRule() {
-        super(
-                new HibernateRuleDefinition(
-                        "HIB-MAP-005",
-                        "Many-to-one associations should not cascade remove",
-                        HibernateCategory.MAPPING,
-                        "HIGH",
-                        "Detects @ManyToOne mappings whose cascade list contains REMOVE or ALL.",
-                        "Remove REMOVE/ALL cascades from many-to-one associations so deletes do not propagate from"
-                                + " children to shared parents.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#pc-cascade"));
+        super(new HibernateRuleDefinition(
+                "HIB-MAP-005",
+                "Many-to-one associations should not cascade remove",
+                HibernateCategory.MAPPING,
+                "HIGH",
+                "Detects @ManyToOne mappings whose cascade list contains REMOVE or ALL.",
+                "Remove REMOVE/ALL cascades from many-to-one associations so deletes do not propagate from"
+                        + " children to shared parents.",
+                "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#pc-cascade"));
     }
 
     @Override
@@ -651,13 +644,13 @@ final class OneToOneWithoutMapsIdRule extends AbstractHibernateRule {
                         "Detects owning-side @OneToOne mappings that do not use @MapsId.",
                         "Use @MapsId for dependent one-to-one entities when the child row has the same lifecycle and"
                                 + " identifier as the parent.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-derived"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-derived"));
     }
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        List<String> dependentDetails = new ArrayList<>();
-        List<String> plainDetails = new ArrayList<>();
+        AdvisorFindings dependentDetails = new AdvisorFindings();
+        AdvisorFindings plainDetails = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
                     context.targets(entity.attributes(), candidate -> candidate.oneToOneAnnotation() != null)) {
@@ -670,20 +663,23 @@ final class OneToOneWithoutMapsIdRule extends AbstractHibernateRule {
                     continue;
                 }
                 if (hasDependentSignal(attribute, oneToOne)) {
-                    dependentDetails.add(attribute.description()
-                            + " is an owning @OneToOne that looks lifecycle-dependent (optional=false or"
-                            + " cascade REMOVE/ALL) but does not use @MapsId.");
+                    dependentDetails.add(
+                            attribute.description()
+                                    + " is an owning @OneToOne that looks lifecycle-dependent (optional=false or"
+                                    + " cascade REMOVE/ALL) but does not use @MapsId.",
+                            HibernateLocations.of(attribute));
                 } else {
-                    plainDetails.add(attribute.description()
-                            + " is an owning @OneToOne without @MapsId; consider a shared primary key when the"
-                            + " child shares the parent's lifecycle and identifier.");
+                    plainDetails.add(
+                            attribute.description()
+                                    + " is an owning @OneToOne without @MapsId; consider a shared primary key when the"
+                                    + " child shares the parent's lifecycle and identifier.",
+                            HibernateLocations.of(attribute));
                 }
             }
         }
         if (!dependentDetails.isEmpty()) {
-            List<String> all = new ArrayList<>(dependentDetails);
-            all.addAll(plainDetails);
-            return violation(context, HibernateRuleSupport.MEDIUM, all);
+            for (AdvisorViolation plain : plainDetails.list()) dependentDetails.add(plain.text(), plain.location());
+            return violation(context, HibernateRuleSupport.MEDIUM, dependentDetails);
         }
         return violation(context, HibernateRuleSupport.LOW, plainDetails);
     }
@@ -711,7 +707,7 @@ final class TablePerClassInheritanceRule extends AbstractHibernateRule {
                         "Evaluate the polymorphic query workload before changing inheritance strategy. Subtype-only"
                                 + " access can make TABLE_PER_CLASS intentional; the declaration does not prove expensive"
                                 + " queries are executed.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#entity-inheritance"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#entity-inheritance"));
     }
 
     @Override
@@ -741,7 +737,7 @@ final class NotFoundIgnoreRule extends AbstractHibernateRule {
                                 + " resolution.",
                         "Fix referential integrity or model optional data explicitly instead of suppressing missing"
                                 + " target rows.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#associations-not-found"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#associations-not-found"));
     }
 
     @Override
@@ -774,7 +770,7 @@ final class OptionalPersistentAttributeRule extends AbstractHibernateRule {
                 "MEDIUM",
                 "Detects mapped attributes declared as java.util.Optional.",
                 "Map the underlying nullable type and expose Optional from a non-persistent getter if desired.",
-                "https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2"));
+                "https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2.html#a19"));
     }
 
     @Override
@@ -872,47 +868,6 @@ final class ExplicitOrdinalEnumRule extends AbstractHibernateRule {
     }
 }
 
-final class OpenInViewRule extends AbstractHibernateRule {
-
-    @Override
-    public boolean applicationWide() {
-        return true;
-    }
-
-    OpenInViewRule() {
-        super(
-                new HibernateRuleDefinition(
-                        "HIB-CONFIG-001",
-                        "Open Session in View should be disabled",
-                        HibernateCategory.CONFIGURATION,
-                        "MEDIUM",
-                        "Reviews positively observed Open Session in View activation in Spring servlet applications."
-                                + " An absent property alone does not prove activation or JDBC connection lifetime.",
-                        "Set spring.jpa.open-in-view=false and fetch data inside transactional service boundaries.",
-                        "https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.jpa-and-spring-data.open-in-view"));
-    }
-
-    @Override
-    HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        if (!context.isOpenInViewApplicable()) {
-            return skipped("Open Session in View is not applicable outside a Spring servlet web application.");
-        }
-        Boolean value = context.booleanProperty("spring.jpa.open-in-view");
-        if (value == null) {
-            context.missingEvidence(HibernateEvidenceGap.APPLICATION_SETTING);
-            return skipped("Open Session in View activation is unknown.");
-        }
-        if (Boolean.FALSE.equals(value)) {
-            return pass();
-        }
-        return violation(
-                context,
-                HibernateRuleSupport.MEDIUM,
-                "Open Session in View is active; a persistence context may remain available outside service"
-                        + " transactions.");
-    }
-}
-
 final class MissingBatchFetchRule extends AbstractHibernateRule {
 
     MissingBatchFetchRule() {
@@ -927,7 +882,7 @@ final class MissingBatchFetchRule extends AbstractHibernateRule {
                         "Set a bounded hibernate.default_batch_fetch_size or targeted @BatchSize for associations"
                                 + " traversed across multiple owner rows; use explicit fetch plans or paged queries for a"
                                 + " single oversized collection.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching-batch"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching-batch"));
     }
 
     @Override
@@ -1008,7 +963,7 @@ final class CollectionJoinFetchPageableRule extends AbstractHibernateRule {
                         "Detects Spring Data JPQL queries that combine Pageable with a collection JOIN FETCH.",
                         "Page root ids first, then fetch the required collection graph in a second query inside the"
                                 + " same transaction.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#hql-fetching"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#hql-explicit-fetch-join"));
     }
 
     @Override
@@ -1023,16 +978,15 @@ final class CollectionJoinFetchPageableRule extends AbstractHibernateRule {
 final class LazyLoadNoTransRule extends AbstractHibernateRule {
 
     LazyLoadNoTransRule() {
-        super(
-                new HibernateRuleDefinition(
-                        "HIB-CONFIG-003",
-                        "Lazy loading outside transactions should stay disabled",
-                        HibernateCategory.CONFIGURATION,
-                        "HIGH",
-                        "Detects hibernate.enable_lazy_load_no_trans=true.",
-                        "Remove this setting and fetch required data inside transaction boundaries with explicit fetch"
-                                + " plans or DTO queries.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching"));
+        super(new HibernateRuleDefinition(
+                "HIB-CONFIG-003",
+                "Lazy loading outside transactions should stay disabled",
+                HibernateCategory.CONFIGURATION,
+                "HIGH",
+                "Detects hibernate.enable_lazy_load_no_trans=true.",
+                "Remove this setting and fetch required data inside transaction boundaries with explicit fetch"
+                        + " plans or DTO queries.",
+                "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching"));
     }
 
     @Override
@@ -1058,7 +1012,7 @@ final class JdbcBatchSizeRule extends AbstractHibernateRule {
                                 + " into one JDBC batch.",
                         "Benchmark a bounded JDBC batch size for write workloads; no single batch size is optimal for"
                                 + " every application.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#batch-session-batch"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#batch-session-batch"));
     }
 
     @Override
@@ -1084,7 +1038,7 @@ final class OrderedBatchingRule extends AbstractHibernateRule {
                         "Detects configured JDBC batching without hibernate.order_inserts and hibernate.order_updates.",
                         "Benchmark insert/update ordering: grouping can improve batches but sorting also has a cost."
                                 + " Factory defaults do not prove per-session behavior.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#batch-session-batch"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#batch-session-batch"));
     }
 
     @Override
@@ -1125,7 +1079,7 @@ final class SlowQueryLogRule extends AbstractHibernateRule {
                         "Detects missing Hibernate slow-query threshold configuration.",
                         "Configure a bounded slow-query threshold in development and staging profiles to surface"
                                 + " expensive SQL early.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#statistics"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#settings-hibernate.log_slow_query"));
     }
 
     @Override
@@ -1145,16 +1099,15 @@ final class SlowQueryLogRule extends AbstractHibernateRule {
 final class HibernateStatisticsRule extends AbstractHibernateRule {
 
     HibernateStatisticsRule() {
-        super(
-                new HibernateRuleDefinition(
-                        "HIB-CONFIG-007",
-                        "Hibernate statistics should be enabled when tuning",
-                        HibernateCategory.CONFIGURATION,
-                        "INFO",
-                        "Detects hibernate.generate_statistics not being enabled for the current environment.",
-                        "Enable statistics in development or performance-test profiles when investigating query"
-                                + " counts, cache efficiency, and fetch plans.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#statistics"));
+        super(new HibernateRuleDefinition(
+                "HIB-CONFIG-007",
+                "Hibernate statistics should be enabled when tuning",
+                HibernateCategory.CONFIGURATION,
+                "INFO",
+                "Detects hibernate.generate_statistics not being enabled for the current environment.",
+                "Enable statistics in development or performance-test profiles when investigating query"
+                        + " counts, cache efficiency, and fetch plans.",
+                "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#statistics"));
     }
 
     @Override
@@ -1181,7 +1134,7 @@ final class ProviderDisablesAutocommitRule extends AbstractHibernateRule {
                         "Consider hibernate.connection.provider_disables_autocommit=true only for verified"
                                 + " resource-local handling when the provider guarantees auto-commit is disabled."
                                 + " Framework property presence does not establish that guarantee.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#database-connectionprovider"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#database-connectionprovider"));
     }
 
     @Override
@@ -1235,7 +1188,7 @@ final class InClausePaddingRule extends AbstractHibernateRule {
                                 + " hibernate.query.in_clause_parameter_padding is disabled.",
                         "Enable IN-clause parameter padding when variable-length IN predicates are common and the"
                                 + " database benefits from plan reuse.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#configurations-query"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#settings-hibernate.query.in_clause_parameter_padding"));
     }
 
     @Override
@@ -1293,7 +1246,7 @@ final class QueryCacheRegionFactoryRule extends AbstractHibernateRule {
                                 + " absence is not a failure.",
                         "Provide a supported query-cache region service or disable query caching; measure cacheable"
                                 + " query use and entity caching independently.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#caching-query"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#caching-query"));
     }
 
     @Override
@@ -1331,18 +1284,17 @@ final class QueryCacheRegionFactoryRule extends AbstractHibernateRule {
 final class CacheableWithoutCacheStrategyRule extends AbstractHibernateRule {
 
     CacheableWithoutCacheStrategyRule() {
-        super(
-                new HibernateRuleDefinition(
-                        "HIB-CONFIG-011",
-                        "Review effective cache concurrency strategy",
-                        HibernateCategory.CONFIGURATION,
-                        "MEDIUM",
-                        "Provider defaults can supply a valid access strategy without @Cache. This check skips when"
-                                + " effective eligibility/access strategy is unavailable and never requires an annotation"
-                                + " solely for explicitness.",
-                        "Review provider-selected entity eligibility, access strategy and data mutability before"
-                                + " adding annotations or changing cache use.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#caching"));
+        super(new HibernateRuleDefinition(
+                "HIB-CONFIG-011",
+                "Review effective cache concurrency strategy",
+                HibernateCategory.CONFIGURATION,
+                "MEDIUM",
+                "Provider defaults can supply a valid access strategy without @Cache. This check skips when"
+                        + " effective eligibility/access strategy is unavailable and never requires an annotation"
+                        + " solely for explicitness.",
+                "Review provider-selected entity eligibility, access strategy and data mutability before"
+                        + " adding annotations or changing cache use.",
+                "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#caching"));
     }
 
     @Override
@@ -1489,7 +1441,7 @@ final class EqualsHashCodePairRule extends AbstractHibernateRule {
                         "Detects entities that override equals without hashCode, or hashCode without equals.",
                         "Implement equals and hashCode as a pair, and review generated identifier semantics before"
                                 + " using entities in sets or maps.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#mapping-model-pojo-equalshashcode"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#mapping-model-pojo-equalshashcode"));
     }
 
     @Override
@@ -1519,7 +1471,7 @@ final class OptimisticLockingDynamicUpdateRule extends AbstractHibernateRule {
                         "Detects Hibernate @OptimisticLocking(DIRTY/ALL) without @DynamicUpdate.",
                         "Add @DynamicUpdate when using versionless optimistic locking so UPDATE statements include the"
                                 + " intended changed columns.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#locking-optimistic-versionless"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#locking-optimistic-versionless"));
     }
 
     @Override
@@ -1549,22 +1501,30 @@ final class LobLazyFetchRule extends AbstractHibernateRule {
                         "HIB-FETCH-005",
                         "Enhanced @Lob attributes should be loaded lazily",
                         HibernateCategory.FETCHING,
-                        "MEDIUM",
-                        "Detects @Lob attributes that remain eager on entities where Hibernate bytecode enhancement"
-                                + " can honor @Basic(fetch=LAZY).",
+                        "LOW",
+                        "Detects materialized @Lob attributes (for example String or byte[]) that remain eager on"
+                                + " entities where Hibernate bytecode enhancement can honor @Basic(fetch=LAZY). JDBC"
+                                + " Blob/Clob locators are excluded; the benefit depends on payload size and access.",
                         "On bytecode-enhanced entities, annotate infrequently accessed @Lob attributes with"
                                 + " @Basic(fetch = FetchType.LAZY). Without enhancement, do not add the annotation:"
                                 + " Hibernate cannot defer the column load.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching-basics-lazy"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#BytecodeEnhancement-lazy-loading"));
     }
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        boolean postgresql = context.observed()
+                && Boolean.TRUE.equals(context.factorySettings().postgresql());
         AdvisorFindings details = new AdvisorFindings();
         for (HibernateEntityModel entity : context.entities()) {
             for (HibernateAttributeModel attribute :
-                    context.targets(entity.attributes(), HibernateAttributeModel::isLob)) {
-                if (attribute.isLob() && !attribute.hasBasicLazy() && context.isHibernateEnhancementEnabled(entity)) {
+                    context.targets(entity.attributes(), candidate -> candidate.isLob() && !isLocator(candidate))) {
+                // On PostgreSQL, HIB-MAP-024 recommends removing @Lob from the same attribute instead.
+                if (postgresql && PostgresLobRule.reports(attribute)) continue;
+                if (attribute.isLob()
+                        && !isLocator(attribute)
+                        && !attribute.hasBasicLazy()
+                        && context.isHibernateEnhancementEnabled(entity)) {
                     details.add(
                             attribute.description()
                                     + " is annotated with @Lob but does not declare @Basic(fetch = LAZY).",
@@ -1573,6 +1533,13 @@ final class LobLazyFetchRule extends AbstractHibernateRule {
             }
         }
         return violation(context, details);
+    }
+
+    /** JDBC LOB locators are not materialized when the owning row is hydrated, so lazy loading adds little. */
+    private static boolean isLocator(HibernateAttributeModel attribute) {
+        Class<?> type = attribute.rawType();
+        return type != null
+                && (java.sql.Blob.class.isAssignableFrom(type) || java.sql.Clob.class.isAssignableFrom(type));
     }
 }
 
@@ -1589,7 +1556,7 @@ final class LazyBasicWithoutEnhancementRule extends AbstractHibernateRule {
                                 + " available.",
                         "Enable Hibernate bytecode enhancement so lazy basic attributes can defer their columns, or"
                                 + " remove the ineffective LAZY declaration.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching-basics-lazy"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#BytecodeEnhancement-lazy-loading"));
     }
 
     @Override
@@ -1627,7 +1594,7 @@ final class CollectionFetchJoinAnnotationRule extends AbstractHibernateRule {
                                 + " query fetch plan and does not prove an unbounded result.",
                         "Prefer @Fetch(FetchMode.SELECT), explicit entity queries, or DTO projections, and request"
                                 + " JOIN FETCH only on the specific query that needs the graph.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching-strategies"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching-strategies"));
     }
 
     @Override
@@ -1664,7 +1631,7 @@ final class SubselectCollectionFetchRule extends AbstractHibernateRule {
                                 + " applicable owner-loading group, not every owner in the persistence context.",
                         "Use SUBSELECT only for bounded owner sets. Prefer an explicit entity query or DTO projection"
                                 + " when the collection can be large or when only a subset is needed.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching-fetchmode-subselect"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching-fetchmode-subselect"));
     }
 
     @Override
@@ -1704,7 +1671,7 @@ final class GeneratedValueWithoutStrategyRule extends AbstractHibernateRule {
                                 + " Panache identifiers are excluded.",
                         "Keep AUTO when provider selection fits the database and workload. Choose an explicit strategy"
                                 + " only after reviewing the effective generator and portability requirements.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-generators-auto"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-generators-auto"));
     }
 
     @Override
@@ -1757,7 +1724,7 @@ final class UuidIdentifierGeneratorRule extends AbstractHibernateRule {
                         "JPA-generated UUIDs are supported. Review the selected generator and benchmark index locality"
                                 + " only when relevant; a proprietary annotation is not required and its presence does not"
                                 + " prove ordering.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-generators-uuid"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#identifiers-generators-uuid"));
     }
 
     @Override
@@ -1796,7 +1763,7 @@ final class ElementCollectionListOrderRule extends AbstractHibernateRule {
                         "Choose list, ordered-list or set semantics from domain requirements and measure"
                                 + " representative mutations. Do not add competing ordering annotations merely to satisfy"
                                 + " a check.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#collections-list"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#collections-list"));
     }
 
     @Override
@@ -1832,7 +1799,7 @@ final class FinalEntityRule extends AbstractHibernateRule {
                 "Use non-final types when subclass proxies are needed. Verify emitted Kotlin classes: the JPA plugin"
                         + " enables no-arg and all-open together starting at 2.3.20; older versions require separate"
                         + " all-open setup. Enhancement is checked independently.",
-                "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#entity"));
+                "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#entity"));
     }
 
     @Override
@@ -1863,7 +1830,7 @@ final class StringColumnLengthRule extends AbstractHibernateRule {
                         + " validation, converters and XML overrides are not verified.",
                 "Review domain constraints and actual schema ownership before specifying column length; an annotation"
                         + " is not application validation.",
-                "https://jakarta.ee/specifications/persistence/3.1/jakarta-persistence-spec-3.1.html#a2128"));
+                "https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2.html#a14330"));
     }
 
     @Override
@@ -1898,12 +1865,13 @@ final class BigDecimalPrecisionRule extends AbstractHibernateRule {
                 "HIB-MAP-014",
                 "BigDecimal columns should declare precision and scale",
                 HibernateCategory.MAPPING,
-                "MEDIUM",
-                "Detects BigDecimal attributes without @Column(precision=..., scale=...), which falls back to provider"
-                        + " defaults that vary by database.",
+                "LOW",
+                "Detects BigDecimal attributes without @Column(precision=..., scale=...). When Hibernate generates the"
+                        + " schema it then falls back to its dialect defaults (commonly numeric(38,2)), which can round"
+                        + " stored values; migration-managed columns are not affected by the annotation.",
                 "Review domain precision and actual schema mapping. Zero/default precision can be intentional; mapping"
                         + " annotations neither validate values nor define application rounding.",
-                "https://jakarta.ee/specifications/persistence/3.1/jakarta-persistence-spec-3.1.html#a2128"));
+                "https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2.html#a14330"));
     }
 
     @Override
@@ -1943,7 +1911,7 @@ final class LegacyDateTimeRule extends AbstractHibernateRule {
                         "Choose a semantically equivalent java.time type while preserving date, instant and zone"
                                 + " requirements. Not every java.time type is zone-aware; @Temporal is deprecated in"
                                 + " Persistence 3.2.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#basic-mapping-temporal"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#basic-temporal"));
     }
 
     @Override
@@ -1976,7 +1944,7 @@ final class ManyToOneOptionalRule extends AbstractHibernateRule {
                                 + " allows optional=true (the default).",
                         "Align association optionality with the intended foreign-key nullability. This annotation"
                                 + " consistency check does not establish secondary-select or proxy behavior.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#associations-many-to-one"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#associations-many-to-one"));
     }
 
     @Override
@@ -2023,7 +1991,7 @@ final class PublicPersistentFieldRule extends AbstractHibernateRule {
                                 + " Verified Panache transformations and Kotlin accessor-backed fields are excluded.",
                         "Prefer controlled access where it protects invariants; preserve framework-supported field"
                                 + " access and verify actual enhancement behavior.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#entity-pojo-accessors"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#entity-pojo-accessors"));
     }
 
     @Override
@@ -2215,17 +2183,18 @@ final class NativePagedQueryCountRule extends AbstractHibernateRule {
 final class DerivedDeleteByQueryRule extends AbstractHibernateRule {
 
     DerivedDeleteByQueryRule() {
-        super(new HibernateRuleDefinition(
-                "HIB-QUERY-004",
-                "Derived deleteBy methods load entities before deletion",
-                HibernateCategory.QUERY,
-                "MEDIUM",
-                "Detects derived deleteBy.../removeBy... repository methods. Spring Data implements them by selecting"
-                        + " matching entities first and then deleting them one by one, which is expensive on large result"
-                        + " sets.",
-                "Review cardinality before replacing entity-by-entity deletion. Bulk queries change lifecycle"
-                        + " callbacks and cascade semantics and require deliberate persistence-context handling.",
-                "https://docs.spring.io/spring-data/jpa/reference/jpa/query-methods.html#jpa.query-methods.modifying"));
+        super(
+                new HibernateRuleDefinition(
+                        "HIB-QUERY-004",
+                        "Derived deleteBy methods load entities before deletion",
+                        HibernateCategory.QUERY,
+                        "MEDIUM",
+                        "Detects derived deleteBy.../removeBy... repository methods. Spring Data implements them by selecting"
+                                + " matching entities first and then deleting them one by one, which is expensive on large result"
+                                + " sets.",
+                        "Review cardinality before replacing entity-by-entity deletion. Bulk queries change lifecycle"
+                                + " callbacks and cascade semantics and require deliberate persistence-context handling.",
+                        "https://docs.spring.io/spring-data/jpa/reference/jpa/query-methods.html#jpa.modifying-queries.derived-delete"));
     }
 
     @Override
@@ -2270,7 +2239,7 @@ final class BulkUpdateVersionRule extends AbstractHibernateRule {
                                 + " the version with a numeric increment, a type-compatible CURRENT_TIMESTAMP assignment, or a"
                                 + " fresh version parameter. Parameter values, type compatibility, and actual version changes"
                                 + " are not verified.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#batch-bulk-hql-update-delete"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#batch-bulk-hql-update-delete"));
     }
 
     @Override
@@ -2369,21 +2338,21 @@ final class JdbcTimeZoneRule extends AbstractHibernateRule {
                         "Review applicable JDBC temporal binding",
                         HibernateCategory.CONFIGURATION,
                         "LOW",
-                        "Reviews a known absent JDBC time-zone setting only when temporal mappings exist. Driver,"
-                                + " converter and per-query binding semantics remain unobserved.",
+                        "Reviews a known absent JDBC time-zone setting only when timestamp or time mappings that"
+                                + " Hibernate binds through a JDBC Calendar exist (LocalDateTime, LocalTime, OffsetTime,"
+                                + " java.util.Date, Calendar). Instant, LocalDate and zoned/offset date-times are"
+                                + " excluded; driver and converter semantics remain unobserved.",
                         "Choose time-zone handling consistent with the mapped temporal types and database; do not"
                                 + " prescribe UTC without reviewing application semantics.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#basic-datetime-timezone"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#settings-hibernate.jdbc.time_zone"));
     }
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
         if (context.entities().stream()
                 .flatMap(entity -> entity.attributes().stream())
-                .noneMatch(attribute -> attribute.rawType() != null
-                        && (attribute.rawType().getName().startsWith("java.time.")
-                                || java.util.Date.class.isAssignableFrom(attribute.rawType())))) {
-            return skipped("No temporal mappings were observed.");
+                .noneMatch(attribute -> isZoneSensitive(attribute.rawType()))) {
+            return skipped("No temporal mappings bound through the JDBC time zone were observed.");
         }
         String value =
                 context.firstProperty("spring.jpa.properties.hibernate.jdbc.time_zone", "hibernate.jdbc.time_zone");
@@ -2391,6 +2360,19 @@ final class JdbcTimeZoneRule extends AbstractHibernateRule {
             return violation(context, List.of("hibernate.jdbc.time_zone is not configured."));
         }
         return pass();
+    }
+
+    /**
+     * Types whose default JDBC binding uses the JVM zone unless hibernate.jdbc.time_zone supplies a Calendar.
+     * Instant binds as UTC, and LocalDate and zoned or offset date-times do not use that Calendar.
+     */
+    private static boolean isZoneSensitive(Class<?> type) {
+        if (type == null) return false;
+        if (type == java.time.LocalDateTime.class
+                || type == java.time.LocalTime.class
+                || type == java.time.OffsetTime.class
+                || java.util.Calendar.class.isAssignableFrom(type)) return true;
+        return java.util.Date.class.isAssignableFrom(type) && !java.sql.Date.class.isAssignableFrom(type);
     }
 }
 
@@ -2407,7 +2389,7 @@ final class HibernateBuiltinPoolRule extends AbstractHibernateRule {
                                 + " built-in testing pool.",
                         "Use a managed, monitored connection pool for shared workloads; stale pool_size properties do"
                                 + " not establish which provider is active.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#database-connectionprovider"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#database-connectionprovider"));
     }
 
     @Override
@@ -2436,17 +2418,18 @@ final class DeferDatasourceInitializationRule extends AbstractHibernateRule {
     }
 
     DeferDatasourceInitializationRule() {
-        super(new HibernateRuleDefinition(
-                "HIB-CONFIG-015",
-                "Deferred script initialization should have an intentional order",
-                HibernateCategory.CONFIGURATION,
-                "INFO",
-                "Detects spring.jpa.defer-datasource-initialization=true, which moves script-based datasource"
-                        + " initialization until after JPA initialization.",
-                "Verify that script-based initialization has the intended owner and order. This setting is valid with"
-                        + " schema validation or externally managed schemas when scripts intentionally seed an existing"
-                        + " schema.",
-                "https://docs.spring.io/spring-boot/reference/data/sql.html#data.sql.datasource.initialization"));
+        super(
+                new HibernateRuleDefinition(
+                        "HIB-CONFIG-015",
+                        "Deferred script initialization should have an intentional order",
+                        HibernateCategory.CONFIGURATION,
+                        "INFO",
+                        "Detects spring.jpa.defer-datasource-initialization=true, which moves script-based datasource"
+                                + " initialization until after JPA initialization.",
+                        "Verify that script-based initialization has the intended owner and order. This setting is valid with"
+                                + " schema validation or externally managed schemas when scripts intentionally seed an existing"
+                                + " schema.",
+                        "https://docs.spring.io/spring-boot/how-to/data-initialization.html#howto.data-initialization.using-basic-sql-scripts"));
     }
 
     @Override
@@ -2475,7 +2458,7 @@ final class CacheAssociationCoverageRule extends AbstractHibernateRule {
                                 + " a workload-specific second-level-cache optimization, not a correctness requirement.",
                         "Measure cache hit rates and access patterns before caching associated entities or collection"
                                 + " roles. Leave mutable or low-hit targets uncached when that better fits the workload.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#caching-entity"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#caching-entity"));
     }
 
     @Override
@@ -2531,7 +2514,7 @@ final class ReadOnlyCacheOnWritableEntityRule extends AbstractHibernateRule {
                                 + " is enabled. @Immutable versioned entities are exempt; actual writes are not observed.",
                         "Confirm intended mutability and provider behavior before choosing a strategy. Cache"
                                 + " strategies do not automatically detect external database writers.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#caching-entity-cache-mapping"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#caching-mappings"));
     }
 
     @Override
@@ -2572,7 +2555,7 @@ final class ImmutableEntityCacheStrategyRule extends AbstractHibernateRule {
                         "Detects @Immutable entities using a mutable second-level cache concurrency strategy.",
                         "Consider READ_ONLY when it simplifies intentionally immutable cached data; do not remove"
                                 + " @Immutable solely to satisfy an advisory.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#caching-entity-cache-mapping"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#caching-mappings"));
     }
 
     @Override
@@ -2605,38 +2588,29 @@ final class FailOnPaginationOverCollectionFetchRule extends AbstractHibernateRul
                         "HIB-CONFIG-016",
                         "Fail on pagination over collection fetch",
                         HibernateCategory.CONFIGURATION,
-                        "HIGH",
-                        "Reviews the observed unit pagination guard and eligible limited collection-fetch queries."
-                                + " Neither version nor guard alone certifies SQL pushdown; an explicit Hibernate 7.4"
-                                + " limitInMemory hint may override the guard.",
-                        "Consider fail-fast collection-fetch pagination where supported, inspect query-specific hints,"
-                                + " and page root IDs first when SQL-side limiting is unavailable.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#collections-fetching"));
+                        "INFO",
+                        "Reviews the unit's fail-fast guard for limited queries that fetch-join a collection and would"
+                                + " otherwise be limited in memory. HIB-FETCH-003 owns the individual repository queries;"
+                                + " an explicit Hibernate 7.4 limitInMemory hint bypasses this guard.",
+                        "Consider hibernate.query.fail_on_pagination_over_collection_fetch=true so a limited collection"
+                                + " fetch that cannot be paginated in SQL fails fast instead of loading every matching row.",
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#settings-hibernate.query.fail_on_pagination_over_collection_fetch"));
     }
 
     @Override
     HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        AdvisorFindings riskyQueries = HibernateRuleModelSupport.paginatedCollectionFetchFindings(context);
-        if (context.hasHibernateCollectionFetchPaginationFix()) {
-            if (!riskyQueries.isEmpty()) return violation(context, HibernateRuleSupport.HIGH, riskyQueries);
-            return skipped("SQL-side pagination and runtime hints are not proven by the Hibernate version.");
-        }
-        if (context.hibernateVersion().major() == null) {
-            context.missingEvidence(HibernateEvidenceGap.HIBERNATE_VERSION);
-            return skipped("Owning unit Hibernate version is unknown.");
-        }
+        context.evidence().markApplicable(!context.entities().isEmpty());
         if (context.isPropertyTrue(
                 "spring.jpa.properties.hibernate.query.fail_on_pagination_over_collection_fetch",
                 "hibernate.query.fail_on_pagination_over_collection_fetch")) {
             return pass();
         }
-        List<String> details = new ArrayList<>();
-        if (riskyQueries.isEmpty()) {
-            details.add("The factory pagination guard is disabled; consider a fail-fast guard for queries that would"
-                    + " require in-memory collection-fetch limiting.");
-            return violation(context, HibernateRuleSupport.INFO, details);
-        }
-        return violation(context, HibernateRuleSupport.HIGH, riskyQueries);
+        return violation(
+                context,
+                HibernateRuleSupport.INFO,
+                "The factory pagination guard is disabled, so a limited query that fetch-joins a collection and"
+                        + " cannot be paginated in SQL is limited in memory with a warning instead of failing fast."
+                        + " HIB-FETCH-003 reports the affected repository queries it can resolve.");
     }
 }
 
@@ -2652,7 +2626,7 @@ final class FormatSqlInProductionRule extends AbstractHibernateRule {
                         "Detects hibernate.format_sql=true while SQL logging is enabled in a production profile.",
                         "Disable hibernate.format_sql when verbose SQL logging is enabled in production to avoid"
                                 + " formatting every logged statement.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#configurations-logging"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#settings-hibernate.format_sql"));
     }
 
     @Override
@@ -2720,7 +2694,7 @@ final class SqlCommentsRule extends AbstractHibernateRule {
                                 + " statement-cache cardinality; actual text variability is not observed.",
                         "Retain SQL comments when their observability benefit justifies any measured overhead. Stable"
                                 + " comments do not necessarily increase statement-cache cardinality.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#configurations-logging"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#settings-hibernate.use_sql_comments"));
     }
 
     @Override
@@ -2759,7 +2733,7 @@ final class OracleJdbcFetchSizeRule extends AbstractHibernateRule {
         if (fetchSize != null && fetchSize > 10) {
             return pass();
         }
-        String configured = fetchSize == null ? "not configured" : "set to " + fetchSize;
+        String configured = fetchSize == null || fetchSize <= 0 ? "not configured" : "set to " + fetchSize;
         return violation(
                 context,
                 List.of("Oracle was detected and hibernate.jdbc.fetch_size is " + configured
@@ -2803,7 +2777,7 @@ final class NonOwningOneToOneEnhancementRule extends AbstractHibernateRule {
                                 + " secondary-load behavior depends on the mapping and query plan.",
                         "Enable bytecode enhancement, or replace the bidirectional @OneToOne with a shared primary key"
                                 + " (@MapsId) and a unidirectional mapping.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#BytecodeEnhancement-lazy-loading"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#BytecodeEnhancement-lazy-loading"));
     }
 
     @Override
@@ -2836,205 +2810,6 @@ final class NonOwningOneToOneEnhancementRule extends AbstractHibernateRule {
     }
 }
 
-final class MissingForeignKeyIndexRule extends AbstractHibernateRule {
-
-    MissingForeignKeyIndexRule() {
-        super(new HibernateRuleDefinition(
-                "HIB-MAP-019",
-                "Missing foreign key indexes",
-                HibernateCategory.MAPPING,
-                "INFO",
-                "Detects owning foreign key associations whose join column is not the leading column of any @Index"
-                        + " declared on the entity's @Table mapping.",
-                "Declare the foreign key column as the leading column of an @Index in @Table so the schema generator"
-                        + " creates it; if you manage schema with Flyway/Liquibase, make sure the migration creates the"
-                        + " index. Unindexed foreign keys slow down joins and parent deletes.",
-                "https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2.html"));
-    }
-
-    // Optional JPA type: compare by class name instead of hard-referencing a class that may be absent at runtime.
-    @SuppressWarnings("java:S1872")
-    @Override
-    HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        if (!context.managesSchemaIndexes()) {
-            return skipped(
-                    "Schema indexes are not managed by Hibernate; migration-managed indexes cannot be verified from"
-                            + " JPA annotations.");
-        }
-        AdvisorFindings details = new AdvisorFindings();
-        context.evidence().markApplicable(false);
-        List<String> unresolved = new ArrayList<>();
-        for (HibernateEntityModel entity : context.entities()) {
-            Set<String> leadingIndexColumns;
-            try {
-                leadingIndexColumns = leadingIndexColumns(entity.javaType());
-            } catch (RuntimeException ex) {
-                context.missingEvidence(HibernateEvidenceGap.ENTITY_METADATA, entity.name());
-                unresolved.add(entity.name() + " (@Table index metadata could not be resolved)");
-                continue;
-            }
-            for (HibernateAttributeModel attribute : context.targets(entity.attributes(), this::isOwningToOne)) {
-                if (!isOwningToOne(attribute)) {
-                    continue;
-                }
-                List<String> fkColumns = foreignKeyColumns(attribute);
-                if (fkColumns.isEmpty()) {
-                    continue;
-                }
-                boolean anyLeadingIndexed = fkColumns.stream().anyMatch(leadingIndexColumns::contains);
-                if (!anyLeadingIndexed) {
-                    String reported = fkColumns.get(0);
-                    details.add(
-                            attribute.description() + " is a foreign key (" + reported
-                                    + ") with no JPA-declared index leading on that column.",
-                            HibernateLocations.of(attribute));
-                }
-            }
-        }
-        if (!details.isEmpty()) {
-            return violation(context, details);
-        }
-        if (!unresolved.isEmpty()) {
-            return skipped("Foreign key index metadata could not be resolved for: " + String.join(", ", unresolved));
-        }
-        return pass();
-    }
-
-    private boolean isOwningToOne(HibernateAttributeModel attribute) {
-        if (attribute.hasMapsId()) {
-            return false;
-        }
-        if (attribute.manyToOneAnnotation() != null) {
-            return true;
-        }
-        Annotation oneToOne = attribute.oneToOneAnnotation();
-        if (oneToOne == null) {
-            return false;
-        }
-        String mappedBy = attribute.annotationStringValue(oneToOne, "mappedBy");
-        return mappedBy == null || mappedBy.isBlank();
-    }
-
-    private List<String> foreignKeyColumns(HibernateAttributeModel attribute) {
-        List<String> columns = new ArrayList<>();
-        Annotation joinColumn = attribute.joinColumnAnnotation();
-        if (joinColumn != null) {
-            String name = attribute.annotationStringValue(joinColumn, "name");
-            if (name != null && !name.isBlank()) {
-                columns.add(normalizeIdentifier(name));
-            }
-            return columns;
-        }
-        Annotation joinColumns = attribute.annotation("jakarta.persistence.JoinColumns");
-        if (joinColumns != null) {
-            for (String name : joinColumnsNames(joinColumns)) {
-                if (name != null && !name.isBlank()) {
-                    columns.add(normalizeIdentifier(name));
-                }
-            }
-            return columns;
-        }
-        return columns;
-    }
-
-    private List<String> joinColumnsNames(Annotation joinColumns) {
-        List<String> names = new ArrayList<>();
-        try {
-            Object value = joinColumns.annotationType().getMethod("value").invoke(joinColumns);
-            if (value instanceof Annotation[] entries) {
-                for (Annotation entry : entries) {
-                    Object name = entry.annotationType().getMethod("name").invoke(entry);
-                    names.add(name instanceof String s ? s : null);
-                }
-            }
-        } catch (ReflectiveOperationException | RuntimeException ignored) {
-            // Treat an unreadable @JoinColumns as no declared names so the inferred fallback applies.
-        }
-        return names;
-    }
-
-    private Set<String> leadingIndexColumns(Class<?> javaType) {
-        Set<String> leading = new HashSet<>();
-        Class<?> current = javaType;
-        while (current != null && current != Object.class) {
-            for (Annotation ann : current.getDeclaredAnnotations()) {
-                if (!"jakarta.persistence.Table".equals(ann.annotationType().getName())) {
-                    continue;
-                }
-                try {
-                    Annotation[] indexes = (Annotation[])
-                            ann.annotationType().getMethod("indexes").invoke(ann);
-                    for (Annotation index : indexes) {
-                        String columnList = (String)
-                                index.annotationType().getMethod("columnList").invoke(index);
-                        if (columnList == null || columnList.isBlank()) {
-                            continue;
-                        }
-                        String first = normalizeIndexColumn(columnList.split(",")[0]);
-                        if (!first.isEmpty()) {
-                            leading.add(first);
-                        }
-                    }
-                } catch (ReflectiveOperationException ex) {
-                    throw new IllegalStateException(ex);
-                }
-            }
-            current = current.getSuperclass();
-        }
-        return leading;
-    }
-
-    private String normalizeIndexColumn(String column) {
-        return normalizeIdentifier(column.replaceFirst("(?i)\\s+(ASC|DESC)\\s*$", ""));
-    }
-
-    private String normalizeIdentifier(String identifier) {
-        String normalized = identifier.trim();
-        if ((normalized.startsWith("\"") && normalized.endsWith("\""))
-                || (normalized.startsWith("`") && normalized.endsWith("`"))
-                || (normalized.startsWith("[") && normalized.endsWith("]"))) {
-            normalized = normalized.substring(1, normalized.length() - 1);
-        }
-        return normalized.toLowerCase(Locale.ROOT);
-    }
-}
-
-final class LegacyWhereAnnotationRule extends AbstractHibernateRule {
-
-    private static final String WHERE = "org.hibernate.annotations.Where";
-    private static final String WHERE_JOIN_TABLE = "org.hibernate.annotations.WhereJoinTable";
-
-    LegacyWhereAnnotationRule() {
-        super(new HibernateRuleDefinition(
-                "HIB-MAP-021",
-                "Legacy @Where restrictions should be migrated",
-                HibernateCategory.MAPPING,
-                "MEDIUM",
-                "Detects Hibernate @Where and @WhereJoinTable mappings, deprecated in ORM 6.3 and removed in ORM 7.",
-                "Replace static restrictions with @SQLRestriction/@SQLJoinTableRestriction, or use @SoftDelete for"
-                        + " supported soft-delete mappings.",
-                "https://docs.jboss.org/hibernate/orm/7.0/migration-guide/migration-guide.html"));
-    }
-
-    @Override
-    HibernateRuleResultDto evaluateRule(HibernateContext context) {
-        AdvisorFindings details = new AdvisorFindings();
-        for (HibernateEntityModel entity : context.targets(context.entities())) {
-            if (entity.annotationInHierarchy(WHERE) != null || entity.annotationInHierarchy(WHERE_JOIN_TABLE) != null) {
-                details.add(entity.name() + " uses a legacy @Where restriction.", HibernateLocations.of(entity));
-            }
-            for (HibernateAttributeModel attribute : entity.attributes()) {
-                if (attribute.annotation(WHERE) != null || attribute.annotation(WHERE_JOIN_TABLE) != null) {
-                    details.add(
-                            attribute.description() + " uses a legacy @Where restriction.",
-                            HibernateLocations.of(attribute));
-                }
-            }
-        }
-        return violation(context, details);
-    }
-}
-
 final class PrimitiveIdentifierOrVersionRule extends AbstractHibernateRule {
 
     PrimitiveIdentifierOrVersionRule() {
@@ -3050,7 +2825,7 @@ final class PrimitiveIdentifierOrVersionRule extends AbstractHibernateRule {
                         "Review the repository's actual save/persist/merge policy when nullable version detection is"
                                 + " needed. Do not replace valid primitive IDs merely to satisfy a generic Hibernate"
                                 + " warning.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#entity-pojo-identifier"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#entity-pojo-identifier"));
     }
 
     // Optional Jakarta Persistence type: compare by class name instead of hard-referencing a class that may be
@@ -3176,7 +2951,7 @@ final class EagerToOneFetchJoinRule extends AbstractHibernateRule {
                                 + " counts are not measured.",
                         "JOIN FETCH the eager to-one association in the query, or map it FetchType.LAZY (see"
                                 + " HIB-FETCH-001) and fetch it explicitly only where needed.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching-strategies"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching-strategies"));
     }
 
     @Override
@@ -3309,10 +3084,10 @@ final class MissingVersionRule extends AbstractHibernateRule {
                         "Detects mutable mapped entities (entities with non-identifier persistent state) that do not"
                                 + " declare a @Version attribute and do not opt into Hibernate versionless optimistic"
                                 + " locking or @Immutable.",
-                        "Add a @Version attribute (for example a Long or Instant) so concurrent updates fail fast"
+                        "Add a numeric @Version attribute (for example a Long) so concurrent updates fail fast"
                                 + " instead of silently overwriting each other; skip this only for append-only, read-only,"
-                                + " or reference data.",
-                        "https://jakarta.ee/specifications/persistence/3.1/apidocs/jakarta.persistence/jakarta/persistence/version"));
+                                + " or reference data. Timestamp versions are less reliable (see HIB-ENTITY-010).",
+                        "https://jakarta.ee/specifications/persistence/3.2/apidocs/jakarta.persistence/jakarta/persistence/version"));
     }
 
     @Override
@@ -3455,7 +3230,7 @@ final class IdentityDisablesBatchingRule extends AbstractHibernateRule {
                                 + " read each generated key back immediately.",
                         "Switch IDENTITY identifiers to SEQUENCE with a pooled allocationSize so Hibernate can batch"
                                 + " inserts, or drop the JDBC batch size expectation for these entities.",
-                        "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#batch-session-batch"));
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#batch-session-batch"));
     }
 
     @Override
@@ -3725,5 +3500,231 @@ final class MultipleCollectionJoinFetchRule extends AbstractHibernateRule {
             return violation(context, all);
         }
         return violation(context, collectionDetails);
+    }
+}
+
+final class TemporalVersionRule extends AbstractHibernateRule {
+
+    TemporalVersionRule() {
+        super(
+                new HibernateRuleDefinition(
+                        "HIB-ENTITY-010",
+                        "Prefer a numeric @Version over a timestamp",
+                        HibernateCategory.ENTITY_DESIGN,
+                        "INFO",
+                        "Detects @Version attributes typed as a date or time on mutable entities. Hibernate documents"
+                                + " timestamps as a less reliable optimistic-locking mechanism than version numbers: updates"
+                                + " within the clock or column precision can produce the same value.",
+                        "Prefer an Integer or Long version and keep a separate audit timestamp when the modification time is"
+                                + " needed. Timestamp versions remain supported; keep one when its precision and clock source"
+                                + " are deliberate.",
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#locking-optimistic-timestamp"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        AdvisorFindings details = new AdvisorFindings();
+        for (HibernateEntityModel entity : context.targets(
+                context.entities(), candidate -> candidate.hasVersionAttribute() && !candidate.isImmutable())) {
+            for (HibernateAttributeModel attribute : entity.attributes()) {
+                if (attribute.hasVersion() && isTemporal(attribute.rawType())) {
+                    details.add(
+                            attribute.description() + " is a "
+                                    + attribute.rawType().getSimpleName()
+                                    + " @Version; timestamps are a less reliable optimistic lock than a numeric"
+                                    + " version.",
+                            HibernateLocations.of(attribute));
+                }
+            }
+        }
+        return violation(context, details);
+    }
+
+    private static boolean isTemporal(Class<?> type) {
+        return type != null
+                && (java.util.Date.class.isAssignableFrom(type)
+                        || java.util.Calendar.class.isAssignableFrom(type)
+                        || java.time.temporal.Temporal.class.isAssignableFrom(type));
+    }
+}
+
+final class EmbeddableSetEqualityRule extends AbstractHibernateRule {
+
+    EmbeddableSetEqualityRule() {
+        super(
+                new HibernateRuleDefinition(
+                        "HIB-MAP-023",
+                        "Set element collections of embeddables need equals and hashCode",
+                        HibernateCategory.MAPPING,
+                        "MEDIUM",
+                        "Detects @ElementCollection Set attributes whose @Embeddable element class does not override both"
+                                + " equals and hashCode. Hibernate compares a Set collection against a snapshot of copied"
+                                + " elements, so identity equality makes the collection look changed: it deletes and"
+                                + " re-inserts every row when the owner is flushed, and Set.remove of an equal value never"
+                                + " matches.",
+                        "Implement equals and hashCode over the embeddable's value state, or use a record. Sorted sets compare"
+                                + " through their comparator and are not reported.",
+                        "https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#embeddable-collections"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        AdvisorFindings details = new AdvisorFindings();
+        for (HibernateEntityModel entity : context.entities()) {
+            for (HibernateAttributeModel attribute :
+                    context.targets(entity.attributes(), EmbeddableSetEqualityRule::isUnsortedElementSet)) {
+                if (attribute.annotation("org.hibernate.annotations.Immutable") != null
+                        || attribute.annotation("org.hibernate.annotations.CollectionType") != null) {
+                    continue;
+                }
+                Class<?> element = elementType(attribute);
+                if (element == null) {
+                    context.missingEvidence(HibernateEvidenceGap.ENTITY_METADATA, attribute.description());
+                    continue;
+                }
+                if (!isAnnotated(element, "jakarta.persistence.Embeddable")
+                        || element.isRecord()
+                        || isAnnotated(element, "org.hibernate.annotations.Immutable")) {
+                    continue;
+                }
+                boolean equals = overrides(element, "equals", Object.class);
+                boolean hashCode = overrides(element, "hashCode");
+                if (!equals || !hashCode) {
+                    details.add(
+                            attribute.description() + " is a Set of @Embeddable " + element.getSimpleName()
+                                    + ", which does not override "
+                                    + (equals ? "hashCode" : hashCode ? "equals" : "equals and hashCode")
+                                    + "; Hibernate rewrites the whole collection table when the owner is flushed.",
+                            HibernateLocations.of(attribute));
+                }
+            }
+        }
+        return violation(context, details);
+    }
+
+    private static boolean isUnsortedElementSet(HibernateAttributeModel attribute) {
+        Class<?> type = attribute.rawType();
+        return attribute.isElementCollection()
+                && type != null
+                && java.util.Set.class.isAssignableFrom(type)
+                && !java.util.SortedSet.class.isAssignableFrom(type);
+    }
+
+    private static Class<?> elementType(HibernateAttributeModel attribute) {
+        if (attribute.genericType() instanceof java.lang.reflect.ParameterizedType parameterized
+                && parameterized.getActualTypeArguments().length == 1
+                && parameterized.getActualTypeArguments()[0] instanceof Class<?> element) {
+            return element;
+        }
+        Annotation collection = attribute.elementCollectionAnnotation();
+        try {
+            Object target = collection == null
+                    ? null
+                    : collection.annotationType().getMethod("targetClass").invoke(collection);
+            return target instanceof Class<?> type && type != void.class ? type : null;
+        } catch (ReflectiveOperationException | RuntimeException ex) {
+            return null;
+        }
+    }
+
+    private static boolean isAnnotated(Class<?> type, String annotationName) {
+        for (Annotation annotation : type.getAnnotations()) {
+            if (annotation.annotationType().getName().equals(annotationName)) return true;
+        }
+        return false;
+    }
+
+    private static boolean overrides(Class<?> type, String name, Class<?>... parameters) {
+        try {
+            return type.getMethod(name, parameters).getDeclaringClass() != Object.class;
+        } catch (NoSuchMethodException ex) {
+            return false;
+        }
+    }
+}
+
+final class PostgresLobRule extends AbstractHibernateRule {
+
+    private static final Set<Integer> LOB_TYPE_CODES =
+            Set.of(java.sql.Types.BLOB, java.sql.Types.CLOB, java.sql.Types.NCLOB);
+
+    PostgresLobRule() {
+        super(new HibernateRuleDefinition(
+                "HIB-MAP-024",
+                "@Lob on PostgreSQL stores values as large objects",
+                HibernateCategory.MAPPING,
+                "LOW",
+                "Detects @Lob String, char[] and byte[] attributes in persistence units whose observed dialect is"
+                        + " PostgreSQL. Hibernate maps them to oid large objects with LOB binding: deleting or updating"
+                        + " the row leaves the old large object behind, and a text or bytea column written by a"
+                        + " migration does not match that binding. JDBC Blob/Clob locators are not reported.",
+                "Remove @Lob unless large-object storage is intended: map long text with"
+                        + " @JdbcTypeCode(SqlTypes.LONG32VARCHAR) (text) and binary data as a plain byte[] (bytea)."
+                        + " Keep @Lob only for deliberate large-object storage, with lo_manage or vacuumlo cleanup.",
+                "https://www.postgresql.org/docs/current/lo.html"));
+    }
+
+    @Override
+    HibernateRuleResultDto evaluateRule(HibernateContext context) {
+        List<HibernateAttributeModel> candidates = context.targets(
+                context.entities().stream()
+                        .flatMap(entity -> entity.attributes().stream())
+                        .toList(),
+                PostgresLobRule::isMaterializedLob);
+        if (candidates.isEmpty()) {
+            return pass();
+        }
+        if (!context.observed()) {
+            return skipped("The persistence unit's dialect is not observed.");
+        }
+        if (!context.required(context.factorySettings().postgresql(), HibernateEvidenceGap.FACTORY_SETTING)) {
+            return skipped("The persistence unit does not use PostgreSQL.");
+        }
+        AdvisorFindings details = new AdvisorFindings();
+        for (HibernateAttributeModel attribute : candidates) {
+            Boolean lob = bindsAsLob(attribute);
+            if (lob == null) {
+                context.missingEvidence(HibernateEvidenceGap.ENTITY_METADATA, attribute.description());
+            } else if (lob) {
+                details.add(
+                        attribute.description() + " is @Lob on PostgreSQL, so Hibernate stores it as an oid large"
+                                + " object instead of text or bytea.",
+                        HibernateLocations.of(attribute));
+            }
+        }
+        return violation(context, details);
+    }
+
+    /** Whether HIB-MAP-024 can report this attribute in a PostgreSQL unit, so other LOB advice defers to it. */
+    static boolean reports(HibernateAttributeModel attribute) {
+        return isMaterializedLob(attribute) && Boolean.TRUE.equals(bindsAsLob(attribute));
+    }
+
+    private static boolean isMaterializedLob(HibernateAttributeModel attribute) {
+        Class<?> type = attribute.rawType();
+        return attribute.isLob()
+                && (type == String.class
+                        || type == char[].class
+                        || type == Character[].class
+                        || type == byte[].class
+                        || type == Byte[].class);
+    }
+
+    /** True for default LOB binding, false for an explicit non-LOB JDBC type code, null for unresolved overrides. */
+    private static Boolean bindsAsLob(HibernateAttributeModel attribute) {
+        Annotation typeCode = attribute.annotation("org.hibernate.annotations.JdbcTypeCode");
+        if (typeCode != null) {
+            Integer code = attribute.annotationIntValue(typeCode, "value");
+            return code == null ? null : LOB_TYPE_CODES.contains(code);
+        }
+        Annotation convert = attribute.annotation("jakarta.persistence.Convert");
+        boolean converted =
+                convert != null && !Boolean.TRUE.equals(attribute.annotationBooleanValue(convert, "disableConversion"));
+        if (converted
+                || attribute.annotation("org.hibernate.annotations.JdbcType") != null
+                || attribute.annotation("org.hibernate.annotations.Type") != null) {
+            return null;
+        }
+        return true;
     }
 }

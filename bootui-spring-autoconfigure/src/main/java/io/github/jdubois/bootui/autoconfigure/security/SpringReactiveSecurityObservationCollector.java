@@ -381,7 +381,9 @@ public final class SpringReactiveSecurityObservationCollector {
             if (exact(filter, SECURITY + "authentication.AuthenticationWebFilter")) {
                 Object converter = readField(filter, "authenticationConverter");
                 boolean isBasic = exact(converter, SECURITY + "authentication.ServerHttpBasicAuthenticationConverter");
-                boolean isForm = exact(converter, SECURITY + "authentication.ServerFormLoginAuthenticationConverter");
+                // One-time-token login is an interactive browser login with the same session and CSRF exposure.
+                boolean isForm = exact(converter, SECURITY + "authentication.ServerFormLoginAuthenticationConverter")
+                        || exact(converter, SECURITY + "authentication.ott.ServerOneTimeTokenAuthenticationConverter");
                 boolean isBearer = exact(
                         converter,
                         OAUTH + "server.resource.web.server.authentication.ServerBearerTokenAuthenticationConverter");
@@ -847,6 +849,15 @@ public final class SpringReactiveSecurityObservationCollector {
                     failures,
                     incomplete,
                     "SEC-RXF-ACT-005");
+            OAuth2ClientEndpoints.Result clientEndpoints = observe(
+                    () -> OAuth2ClientEndpoints.observe(environment),
+                    new OAuth2ClientEndpoints.Result(List.of(), false, false),
+                    failures,
+                    incomplete,
+                    "SEC-RXF-OAUTH2-005");
+            if (!clientEndpoints.complete()) {
+                incomplete.add("SEC-RXF-OAUTH2-005");
+            }
             return new ReactiveSecurityEnvironmentSnapshot(
                     Boolean.TRUE.equals(tls),
                     exposure == null
@@ -870,7 +881,8 @@ public final class SpringReactiveSecurityObservationCollector {
                     exposure != null && exposure.complete(),
                     failures,
                     incomplete,
-                    tls != null);
+                    tls != null,
+                    Set.copyOf(clientEndpoints.plainHttpKeys()));
         }
 
         private static <T> T observe(

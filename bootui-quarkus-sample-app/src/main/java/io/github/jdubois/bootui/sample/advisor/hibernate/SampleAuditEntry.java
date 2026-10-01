@@ -26,7 +26,8 @@ public class SampleAuditEntry {
     // Intentionally an unbounded String column to trigger HIB-MAP-013 (missing explicit length).
     private String summary;
 
-    // Intentionally @Lob without @Basic(fetch=LAZY) to trigger HIB-FETCH-005 (Lob loaded eagerly).
+    // Intentionally @Lob on PostgreSQL to trigger HIB-MAP-024 (oid large-object storage), which replaces the
+    // HIB-FETCH-005 lazy-loading prompt for the same attribute on PostgreSQL units.
     @Lob
     private String payload;
 

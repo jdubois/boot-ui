@@ -110,6 +110,22 @@ abstract class AbstractReactiveSecurityRule implements ReactiveSecurityRule {
         return violation(context, details);
     }
 
+    /**
+     * Document-header rules target chains with an observed interactive browser login (form, OAuth2/OIDC
+     * or one-time token), matching the servlet browser-credential scope. Bearer-only and Basic API
+     * chains are not assumed to serve documents; unsupported authentication metadata stays incomplete.
+     */
+    boolean browserLoginChain(ReactiveSecurityContext context, WebFilterChainObservation chain) {
+        if (!chain.hasHeaderWriterWebFilter()) {
+            return false;
+        }
+        boolean browserLogin = chain.hasObservedInteractiveLoginFilter();
+        if (!browserLogin) {
+            context.required(chain.authenticationObserved());
+        }
+        return context.applies(browserLogin);
+    }
+
     SecurityRuleResultDto headerViolation(ReactiveSecurityContext context, List<String> details) {
         boolean incomplete = !context.required(!context.chains().stream()
                 .anyMatch(chain -> !chain.filtersObserved()

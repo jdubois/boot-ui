@@ -43,7 +43,6 @@ final class SecurityRuleRegistry {
             // CORS
             new CorsWildcardOriginRule(),
             new CorsWildcardWithCredentialsRule(),
-            new CorsNotInSecurityChainRule(),
             new BroadCorsOriginPatternRule(),
             // Method security
             new MethodSecurityAnnotationsIgnoredRule(),
@@ -57,10 +56,11 @@ final class SecurityRuleRegistry {
             new ManagementPortIsolationRule(),
             new ActuatorShowValuesRule(),
             // OAuth2 / JWT resource server
-            new ResourceServerValidationRule(),
             new JwtAudienceValidationRule(),
             new JwtStaticKeyRule(),
             new InsecureJwtMetadataUrlRule(),
+            new InsecureIntrospectionUrlRule(),
+            new InsecureOAuth2ClientEndpointRule(),
             // Configuration hygiene
             new SecurityDebugRule(),
             new H2ConsoleFrameOptionsRule(),

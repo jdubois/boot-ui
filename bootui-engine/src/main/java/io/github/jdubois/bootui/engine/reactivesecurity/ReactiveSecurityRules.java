@@ -93,8 +93,9 @@ final class ReactiveCsrfDisabledLoginRule extends AbstractReactiveSecurityRule {
             if (chain.filtersObserved()
                     && context.applies(chain.hasObservedInteractiveLoginFilter())
                     && !chain.hasCsrfWebFilter()) {
-                details.add(chain.describe()
-                        + " has an OAuth2/OIDC or formLogin() login filter but no CsrfWebFilter is installed.");
+                details.add(
+                        chain.describe()
+                                + " has an OAuth2/OIDC, formLogin() or one-time-token login filter but no CsrfWebFilter is installed.");
             }
         }
         boolean complete =
@@ -298,14 +299,14 @@ final class ReactiveFrameOptionsRule extends AbstractReactiveSecurityRule {
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
-            if (context.applies(chain.hasHeaderWriterWebFilter())
-                    && chain.headerWritersObserved()
+            if (!browserLoginChain(context, chain)) continue;
+            if (chain.headerWritersObserved()
                     && chain.cspObserved()
                     && (!chain.hasFrameOptionsWriter() || chain.hasEnforcingFrameAncestorsDirective())
                     && !chain.hasEnforcingFrameAncestorsPolicy()) {
                 details.add(
                         chain.describe()
-                                + " applies security headers without effective framing protection; enforcing CSP frame-ancestors overrides X-Frame-Options.");
+                                + " has browser login and security headers without effective framing protection; enforcing CSP frame-ancestors overrides X-Frame-Options.");
             }
         }
         return headerViolation(context, details);
@@ -357,14 +358,13 @@ final class ReactiveContentSecurityPolicyRule extends AbstractReactiveSecurityRu
     SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
         List<String> details = new ArrayList<>();
         for (WebFilterChainObservation chain : context.chains()) {
-            context.applies(chain.hasHeaderWriterWebFilter());
-            if (!chain.headerWritersObserved()) {
+            if (!browserLoginChain(context, chain) || !chain.headerWritersObserved()) {
                 continue;
             }
-            if (chain.hasHeaderWriterWebFilter() && !chain.hasCspWriter()) {
+            if (!chain.hasCspWriter()) {
                 details.add(
                         chain.describe()
-                                + " applies Spring Security headers without a Content-Security-Policy; review whether this chain serves browser content.");
+                                + " has browser login and Spring Security headers without a Content-Security-Policy; review the documents it serves.");
             } else if (chain.onlyReportOnlyCsp()) {
                 details.add(
                         chain.describe()
@@ -694,6 +694,33 @@ final class ReactiveInsecureOpaqueTokenIntrospectionUrlRule extends AbstractReac
                 context,
                 List.of(
                         "spring.security.oauth2.resourceserver.opaquetoken.introspection-uri uses plain HTTP; RFC 7662 requires TLS."));
+    }
+}
+
+final class ReactiveInsecureOAuth2ClientEndpointRule extends AbstractReactiveSecurityRule {
+
+    ReactiveInsecureOAuth2ClientEndpointRule() {
+        super(new ReactiveSecurityRuleDefinition(
+                "SEC-RXF-OAUTH2-005",
+                "OAuth2 client provider endpoints must use HTTPS in reactive production applications",
+                ReactiveSecurityCategory.OAUTH2,
+                "HIGH",
+                "Detects a production profile with a registration-linked spring.security.oauth2.client.provider.<id> authorization-uri, token-uri, jwk-set-uri or user-info-uri using plain HTTP. Provider issuer-uri belongs to the Pentesting advisor. Only property names are reported.",
+                "Use HTTPS for every OAuth2 client provider endpoint and keep certificate validation enabled; reserve HTTP providers for isolated local development.",
+                "https://www.rfc-editor.org/rfc/rfc6749.html#section-3.2"));
+    }
+
+    @Override
+    SecurityRuleResultDto evaluateRule(ReactiveSecurityContext context) {
+        if (!context.applies(context.isProductionProfileActive())) {
+            return pass();
+        }
+        return violation(
+                context,
+                context.environment().oauth2ClientPlainHttpEndpoints().stream()
+                        .sorted()
+                        .map(key -> key + " uses plain HTTP.")
+                        .toList());
     }
 }
 

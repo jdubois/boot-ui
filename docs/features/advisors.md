@@ -321,7 +321,7 @@ application's own compiled classes at runtime. It detects the base package from 
 configuration, imports the classes from that package, and evaluates a fixed set of universally-sensible hygiene rules:
 package cycles between slices, general coding practices (banned APIs, unsafe patterns, naming and immutability
 conventions), and Spring stereotype/proxy heuristics (no field injection, correct layering, no self-invocation,
-proxyable annotations). See [ARCHITECTURE-CHECKS.md](../ARCHITECTURE-CHECKS.md) for the full catalogue and what each rule
+proxyable annotations, no injection or lifecycle annotations the container silently ignores). See [ARCHITECTURE-CHECKS.md](../ARCHITECTURE-CHECKS.md) for the full catalogue and what each rule
 inspects.
 
 Coding-practice checks (`ARCH-CODE-*`) exclude classes positively identified as generated, such as OpenAPI Generator's
@@ -345,8 +345,9 @@ a project-specific ArchUnit suite rather than replacing it.
 ::: details On Quarkus
 
 The panel runs the same shared ArchUnit ruleset and on-demand scan over the same report contract. Generic hygiene rules
-apply unchanged; Spring-only annotation rules find no matching classes, while Jakarta-based and proxy rules evaluate with
-Quarkus-specific semantics.
+apply unchanged, except that the `java.util.logging` check is skipped (JUL is a built-in Quarkus logging API) and
+standard-annotation field injection is reported at LOW, since it is the Quarkus idiom. Spring-only annotation rules find
+no matching classes, while Jakarta-based and proxy rules evaluate with Quarkus-specific semantics.
 
 **Quarkus proxy semantics and base-package discovery**
 
@@ -455,8 +456,10 @@ On the Quarkus adapter the framework-application advisor above is relabelled **Q
 ruleset in place of the Spring rules. It takes the same explicit, read-only approach against the running application and
 its MicroProfile `Config`, but the rules target Quarkus idioms:
 
-- Resolved CDI/Arc scopes and publicly exposed state on shared beans and REST resources.
-- Production configuration evidence, including schema actions, SQL logging and explicit in-memory storage.
+- Resolved CDI/Arc scopes: public fields on normal-scoped beans, which client proxies do not delegate, and publicly
+  exposed state on singleton beans and REST resources.
+- Production configuration evidence, including schema actions, SQL and bind-parameter logging, and explicit in-memory
+  storage.
 - Effective managed REST-client timers, HTTP compression and request-draining configuration.
 - Conditional synchronized virtual-thread pinning on the running JDK 21-23.
 
@@ -487,13 +490,15 @@ forwards to is a bean of its own, so the pool inside a `LazyConnectionDataSource
 resolved targets, named `beanName[lookupKey]`.
 
 ::: details The generic structural checks
-- A missing primary key.
+- A missing primary key, excluding framework-generated one-row identifier tables (Hibernate's `next_val` sequence
+  emulation and Spring Batch's `*_SEQ` tables).
 - A physical foreign key without a known complete leading-column access path, as a contextual review.
 - Exact ordinary-index definition overlap, not merely a shorter leading prefix.
 - A foreign-key column whose type disagrees with the column it references.
 - A redundant unique index duplicating the primary key.
 - Duplicate foreign-key constraints.
 - A narrow auto-generated primary key.
+- A MySQL invisible, MariaDB ignored or Oracle invisible index that writes still maintain.
 :::
 
 ### Bounded, honest scans
@@ -534,6 +539,7 @@ to the generic checks.
   (the classic `bigint` sequence feeding an `integer` column).
 - Constraints currently not validated, without inferring migration history.
 - A table publishing updates/deletes with no usable replica identity; INSERT-only publications are excluded.
+- An `UNLOGGED` table or leaf partition, truncated after a crash and absent from physical standbys.
 
 **MySQL/MariaDB:**
 
@@ -587,7 +593,10 @@ Hibernate metamodel is unavailable.
   comparison, without suppressing genuine table mismatches or view-name/column-name checks. If only view
   columns would be compared, the check is skipped with an informational diagnostic rather than a finding.
 - A nondefault declared `@Column(length=...)` longer than a positively bounded physical string column.
+- A positive `@Column(precision=..., scale=...)` wider than a bounded physical `DECIMAL`/`NUMERIC` column.
 - A mapped unique constraint with no physical index that genuinely enforces it.
+- An explicitly named `@Id` declaring `GenerationType.IDENTITY` whose PostgreSQL/MySQL/MariaDB column reports no
+  auto-increment, identity, default or generated value.
 
 Only entities with an *explicit* `@Table(name = ...)` are cross-referenced — entities relying on the default naming
 strategy are skipped rather than guessed. Even explicit names remain logical names subject to a physical naming
@@ -635,8 +644,8 @@ fetch pagination, unsafe cascades, cache misconfiguration, and risky `ddl-auto` 
 not a verdict: it never intercepts queries, invokes repositories, executes SQL, or modifies mappings. See
 [HIBERNATE-CHECKS.md](../HIBERNATE-CHECKS.md) for the full catalogue and remediation links.
 
-The catalog has 71 active rules; five declaration-only or structurally duplicated checks are retired without reusing
-their identifiers. Unavailable required observations and rule failures yield `PARTIAL` while retaining valid findings.
+The catalog has 72 active rules; eight declaration-only, unreachable, or cross-advisor duplicated checks are retired
+without reusing their identifiers (Open Session in View is reviewed by the Spring advisor's SPRING-JPA-001). Unavailable required observations and rule failures yield `PARTIAL` while retaining valid findings.
 The scan message distinguishes attempted-rule coverage from successful evaluation, and the report's `diagnostics` array
 (shown as **Scan diagnostics** in the panel, returned unchanged by REST, MCP and `bootui hibernate report --json`, and
 summarized as a table in the CLI's human-readable output) names every failed or
@@ -649,16 +658,14 @@ plans are not fully reconstructed.
 
 ::: details On Quarkus
 
-The panel runs the same 71-rule registry and report contract when `quarkus-hibernate-orm` is present. Entities are
+The panel runs the same 72-rule registry and report contract when `quarkus-hibernate-orm` is present. Entities are
 discovered from the live JPA `EntityManagerFactory` metamodel (across all persistence units, de-duplicated by identity),
 and most mapping/identifier/fetch rules apply unchanged. Spring Data query rules skip when repository metadata is
-unavailable instead of reporting a clean result. Four platform differences are worth noting:
+unavailable instead of reporting a clean result. Three platform differences are worth noting:
 
 - **Effective factory settings are unit-scoped.** Live native options include integration defaults and programmatic
   settings; named units do not inherit the first factory's values. Native property translation supplements appropriate
   declaration/application facts but is not proof of effective factory state.
-- **Spring Open-Session-in-View is inapplicable.** The Spring-specific rule does not fire on Quarkus. Spring requires
-  actual activation evidence rather than inferring activation solely from a missing property.
 - **Bytecode enhancement is always enabled.** Quarkus enhances every entity unconditionally at build time with no
   opt-out, so known-absent-enhancement findings do not fire with the verified adapter capability.
 - **Panache active-record entities are handled specially** (see below).
@@ -735,7 +742,7 @@ security verdict. See
 
 ### Spring WebFlux
 
-On Spring Boot WebFlux it evaluates a dedicated 25-rule `SEC-RXF-*` catalogue over a framework-neutral observation of the
+On Spring Boot WebFlux it evaluates a dedicated 26-rule `SEC-RXF-*` catalogue over a framework-neutral observation of the
 application's `SecurityWebFilterChain` beans, reactive CORS/OAuth2 beans, and security-relevant configuration. The Spring
 adapter owns collection and excludes BootUI's own permit-all chain; the shared engine owns deterministic rule evaluation
 and never receives Spring types or secret values.
@@ -746,7 +753,7 @@ and never receives Spring types or secret values.
 
 On Quarkus it runs a Quarkus-native ruleset instead, reading the application's HTTP permission policies, MicroProfile
 `Config`, and authorization-annotated endpoints: Elytron/OIDC authentication, `quarkus.http.auth.permission.*`
-authorization, TLS and transport policy, CORS (including the wildcard-origin-with-credentials trap), security response
+authorization, TLS and transport policy, forwarded-header proxy trust, CORS (including the wildcard-origin-with-credentials trap), security response
 headers, and Jakarta/Quarkus annotations including `@RolesAllowed`, `@PermissionsAllowed`, and `@AuthorizationPolicy`. It
 surfaces the same severity-ranked prompts, so the shared UI only relabels the metrics ("Permission policies" in place of
 "Filter chains"). See [QUARKUS-CHECKS.md](../QUARKUS-CHECKS.md) for the full Quarkus catalogue and remediation links.
@@ -761,14 +768,14 @@ The Pentesting panel runs explicit, local-only OWASP Top 10 2025 hygiene checks 
 BootUI's `/bootui` routes. On an explicit scan it combines bounded framework metadata with at most one `GET` and one
 `OPTIONS` request to literal `127.0.0.1` under the validated application context path; the two-second client never
 follows redirects or uses configured proxies. Checks cover missing or unsafe browser-document headers, CORS behavior,
-cookie flags, verbose error exposure, Spring Security wiring, actuator exposure, Quarkus CORS/OIDC/TLS configuration, and
-common Spring Boot hardening gaps.
+cookie flags, verbose error exposure, Spring Security wiring, actuator exposure, and common Spring Boot hardening gaps.
+Quarkus CORS, OIDC, and TLS configuration is reviewed by the Security panel (`QS-*`) rather than duplicated here.
 
 It intentionally does not crawl discovered endpoints, send SQL/XSS/destructive payloads, contact external hosts, or
 include raw response bodies, cookie values, credentials, or full issuer URLs. Findings are heuristic review prompts, not
 proof of exploitability or a replacement for a full security assessment.
 
-The 79 active checks each carry a stable identifier, OWASP 2025 category, evidence source, and recommendation.
+The 77 active checks each carry a stable identifier, OWASP 2025 category, evidence source, and recommendation.
 The panel shows **Findings by severity**, matching the other advisors, rather than a separate OWASP Top 10 coverage
 matrix. Severity bars summarize active, non-dismissed findings; category metadata is not a passing-check count.
 Failed or bounded-away evidence produces a `PARTIAL` scan. Usable known findings still score under the shared

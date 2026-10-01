@@ -27,7 +27,7 @@ final class MySqlNonInnodbEngineRule extends AbstractDatabaseAdvisorRule {
                         + "If a migration is needed, evaluate an appropriate transactional engine, dependencies "
                         + "and rewrite/locking costs first. Crash safety, locking and foreign-key support differ "
                         + "by engine; Aria may be crash-safe without supporting transactional rollback.",
-                "https://dev.mysql.com/doc/refman/8.0/en/innodb-introduction.html"));
+                "https://dev.mysql.com/doc/refman/8.4/en/innodb-introduction.html"));
     }
 
     @Override

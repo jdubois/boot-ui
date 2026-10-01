@@ -25,7 +25,7 @@ final class MySqlAutoIncrementExhaustionRule extends AbstractDatabaseAdvisorRule
                         + "for the generated column and referencing columns if required. Catalog values may be stale "
                         + "or reserved rather than committed IDs; this threshold does not predict time remaining. "
                         + "Do not reset the counter based on this snapshot.",
-                "https://dev.mysql.com/doc/refman/8.0/en/example-auto-increment.html"));
+                "https://dev.mysql.com/doc/refman/8.4/en/example-auto-increment.html"));
     }
 
     @Override

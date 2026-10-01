@@ -304,9 +304,7 @@ class BootUiEngineConfigurationTests {
 
         var configuration = new BootUiEngineConfiguration.HibernateAdvisorConfiguration();
         HibernateScanner scanner = configuration.bootUiHibernateScanner(
-                configuration.bootUiHibernateAdvisorObservationSource(
-                        beans, environment, mock(ApplicationContext.class)),
-                new BootUiProperties());
+                configuration.bootUiHibernateAdvisorObservationSource(beans, environment), new BootUiProperties());
         HibernateReport report = scanner.scan();
 
         HibernateRuleResultDto ddlAuto = report.results().stream()

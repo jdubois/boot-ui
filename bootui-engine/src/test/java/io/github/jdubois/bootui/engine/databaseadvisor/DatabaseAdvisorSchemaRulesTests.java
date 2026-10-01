@@ -2,8 +2,11 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import static io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorFixtures.column;
 import static io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorFixtures.context;
+import static io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorFixtures.expressionIndex;
+import static io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorFixtures.partialIndex;
 import static io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorFixtures.schema;
 import static io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorFixtures.table;
+import static io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorFixtures.uniqueIndex;
 import static io.github.jdubois.bootui.engine.databaseadvisor.IndexModel.Validity.VALID;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -127,7 +130,8 @@ class DatabaseAdvisorSchemaRulesTests {
                         "a > 0",
                         IndexModel.Visibility.VISIBLE,
                         IndexModel.Validity.VALID),
-                IndexModel.of("unknown", List.of("z"), false));
+                IndexModel.of("unknown", List.of("b"), false),
+                expressionIndex("expression", "lower(note)"));
         for (IndexModel index : uncertain) {
             DatabaseAdvisorContext context = context(schema("ds", Dialect.POSTGRESQL, List.of(child(List.of(index)))));
             assertThat(new MissingForeignKeyIndexRule().evaluate(context).status())
@@ -137,6 +141,83 @@ class DatabaseAdvisorSchemaRulesTests {
         assertThat(evaluate(new MissingForeignKeyIndexRule(), incomplete(child(List.of()), true, false))
                         .status())
                 .isEqualTo("SKIPPED");
+    }
+
+    @Test
+    void uncertainIndexesOverUnrelatedColumnsDoNotHideAMissingAccessPath() {
+        IndexModel gin = new IndexModel(
+                "tags_gin",
+                List.of(IndexKeyPart.column("tags", null)),
+                false,
+                "gin",
+                null,
+                IndexModel.Visibility.VISIBLE,
+                IndexModel.Validity.VALID);
+        for (IndexModel unrelated : List.of(
+                gin,
+                partialIndex("recent", List.of("created"), "created > now()"),
+                IndexModel.of("generic", List.of("z"), false))) {
+            DatabaseAdvisorContext context =
+                    context(schema("ds", Dialect.POSTGRESQL, List.of(child(List.of(unrelated)))));
+            DatabaseAdvisorRuleResultDto result = new MissingForeignKeyIndexRule().evaluate(context);
+            assertThat(result.status()).as(unrelated.name()).isEqualTo("VIOLATION");
+            assertThat(context.evaluationDiagnostics()).as(unrelated.name()).isEmpty();
+        }
+        IndexModel ginOnForeignKey = new IndexModel(
+                "a_gin",
+                List.of(IndexKeyPart.column("tags", null), IndexKeyPart.column("a", null)),
+                false,
+                "gin",
+                null,
+                IndexModel.Visibility.VISIBLE,
+                IndexModel.Validity.VALID);
+        DatabaseAdvisorContext context =
+                context(schema("ds", Dialect.POSTGRESQL, List.of(child(List.of(ginOnForeignKey)))));
+        assertThat(new MissingForeignKeyIndexRule().evaluate(context).status()).isEqualTo("SKIPPED");
+        assertThat(context.evaluationDiagnostics()).isNotEmpty();
+    }
+
+    @Test
+    void frameworkGeneratorEmulationTablesAreNotPrimaryKeyFindings() {
+        TableModel hibernateSequence = table(
+                "customer_seq", List.of(column("next_val", "bigint", Types.BIGINT)), List.of(), List.of(), List.of());
+        TableModel springBatchSequence = table(
+                "BATCH_JOB_INSTANCE_SEQ",
+                List.of(column("ID", "BIGINT", Types.BIGINT), column("UNIQUE_KEY", "CHAR", Types.CHAR)),
+                List.of(),
+                List.of(),
+                List.of(uniqueIndex("UNIQUE_KEY_UN", List.of("UNIQUE_KEY"))));
+        for (TableModel generator : List.of(hibernateSequence, springBatchSequence)) {
+            assertThat(evaluate(new MissingPrimaryKeyRule(), generator).status())
+                    .as(generator.name())
+                    .isEqualTo("SKIPPED");
+        }
+        TableModel textNextVal =
+                table("notes", List.of(column("next_val", "text", Types.VARCHAR)), List.of(), List.of(), List.of());
+        TableModel extraColumn = table(
+                "counter",
+                List.of(column("next_val", "bigint", Types.BIGINT), column("label", "text", Types.VARCHAR)),
+                List.of(),
+                List.of(),
+                List.of());
+        TableModel notASequenceName = table(
+                "batch_job",
+                List.of(column("ID", "BIGINT", Types.BIGINT), column("UNIQUE_KEY", "CHAR", Types.CHAR)),
+                List.of(),
+                List.of(),
+                List.of());
+        for (TableModel application : List.of(textNextVal, extraColumn, notASequenceName)) {
+            assertThat(evaluate(new MissingPrimaryKeyRule(), application).status())
+                    .as(application.name())
+                    .isEqualTo("VIOLATION");
+        }
+        assertThat(evaluate(
+                        new MissingPrimaryKeyRule(),
+                        hibernateSequence.withMetadata(
+                                new TableMetadata(true, true, true, true, true, List.of("truncated")))))
+                .as("a truncated column inventory cannot establish a generator table")
+                .extracting(DatabaseAdvisorRuleResultDto::status)
+                .isEqualTo("VIOLATION");
     }
 
     @Test

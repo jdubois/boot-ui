@@ -24,13 +24,16 @@ metamodel cannot be read, BootUI returns a stable empty report with an explanato
 The scan covers the mapped entities your JPA metamodel reports, which includes entities added through `@EntityScan` or
 custom persistence-unit configuration, without scanning the whole classpath.
 
-The active catalog contains 71 rules. Five retired identifiers stay documented below so old links and persisted
+The active catalog contains 72 rules. Eight retired identifiers stay documented below so old links and persisted
 dismissals keep their meaning. Retired identifiers are never reused.
 
 ### Evidence and incomplete scans
 
 Factory settings belong to their persistence unit, not to whichever factory was discovered first. The advisor reads an
 allowlisted snapshot of effective Hibernate factory options where available and attributes findings to that unit.
+Effective values come from the factory's own `SessionFactoryOptions` and SQL statement logger, so a setting the
+application never configured reads as Hibernate's effective default (for example `hibernate.use_sql_comments=false` or
+a slow-query threshold of 0) rather than as unavailable evidence. Only a failed read is unknown.
 
 Factory defaults do not establish per-session overrides, query-cache opt-in, entity-cache eligibility, or workload, and
 missing or unreadable evidence is not an observed `false`, zero, or framework default. Missing persistence-unit
@@ -140,6 +143,8 @@ Dismissing a rule removes all of its findings from the score.
   `Pageable` limit in memory after loading the full, duplicated result set instead of at the SQL level.
 - **Recommendation**: page root identifiers first, then fetch the required collection graph in a second query inside the
   same transaction.
+- **Ownership**: this rule alone reports the affected queries. HIB-CONFIG-016 reviews the unit-wide fail-fast guard
+  once, without repeating these findings.
 - **Hibernate 7.4+**: the ["Limits and fetch joins"](https://github.com/hibernate/hibernate-orm/blob/7.4/migration-guide.adoc#limits-and-fetch-joins)
   migration-guide entry documents that the limit for a paged query with a collection `JOIN FETCH` is now applied in the
   generated SQL itself; the `org.hibernate.limitInMemory` query hint restores the pre-7.4 in-memory behavior. The check
@@ -171,12 +176,14 @@ eliminate Cartesian multiplication when multiple collections are fetched togethe
 
 ### HIB-FETCH-005 - Enhanced @Lob attributes should be loaded lazily
 
-- **Severity**: MEDIUM
+- **Severity**: LOW
 - **Inspects**: persistent attributes annotated with `@Lob` on bytecode-enhanced entities.
-- **Fires when**: enhancement is available and a `@Lob` attribute does not declare
-  `@Basic(fetch = FetchType.LAZY)`.
-- **Why it matters**: infrequently used materialized CLOB/BLOB values can increase hydration cost. Locator-backed LOB
-  behavior depends on the driver and transaction; `@Lob` does not prove that the full payload is read every time.
+- **Fires when**: enhancement is available and a materialized `@Lob` attribute (for example `String` or `byte[]`) does
+  not declare `@Basic(fetch = FetchType.LAZY)`. `java.sql.Blob`, `Clob`, and `NClob` attributes are JDBC locators that
+  are not materialized when the row is hydrated, so they are not reported. On a PostgreSQL unit, an attribute that
+  HIB-MAP-024 reports is left to that rule, which recommends removing `@Lob` instead.
+- **Why it matters**: infrequently used materialized CLOB/BLOB values can increase hydration cost. The benefit depends
+  on payload size and access pattern, so this is an optimization prompt rather than a mapping defect.
 - **Recommendation**: on enhanced entities, annotate infrequently accessed `@Lob` fields with
   `@Basic(fetch = FetchType.LAZY)`.
 - **Enhancement requirement**: Hibernate ORM 7 requires bytecode enhancement to honor lazy basic attributes. This rule
@@ -453,14 +460,15 @@ for visibility scores a supported default without evidence of an incorrect mappi
 
 ### HIB-MAP-014 - BigDecimal columns should declare precision and scale
 
-- **Severity**: MEDIUM
+- **Severity**: LOW
 - **Inspects**: persistent `BigDecimal` attributes.
 - **Fires when**: `@Column(precision=..., scale=...)` is missing or precision is zero.
-- **Why it matters**: generated numeric DDL varies by database. Missing declaration or zero precision is not evidence of
-  actual rounding, and a column mapping is not input validation. Effective converters, column definitions and validation
-  metadata are not fully resolved.
-- **Recommendation**: review the actual numeric storage and required precision/scale; configure DDL and validation
-  deliberately when needed rather than assuming every default is wrong.
+- **Why it matters**: when Hibernate generates the schema, it falls back to its dialect defaults, commonly
+  `numeric(38,2)`, so stored values can be rounded to two decimals. The annotation does not affect a column created by a
+  migration, and Hibernate does not round bound values at runtime because the annotation is missing. Effective
+  converters, column definitions and validation metadata are not fully resolved.
+- **Recommendation**: declare the precision and scale the domain needs, especially when Hibernate generates DDL or a
+  tool derives migrations from the mapping. A mapping annotation is not input validation.
 
 ### HIB-MAP-015 - Date/time attributes should use java.time
 
@@ -480,6 +488,11 @@ for visibility scores a supported default without evidence of an incorrect mappi
 - **Why it matters**: the object-level optionality declaration and column-nullability declaration convey inconsistent
   intent. This does not prove a secondary SELECT occurs, and neither declaration alone verifies physical constraints.
 - **Recommendation**: set `@ManyToOne(optional=false)` whenever the join column is non-nullable.
+
+### HIB-MAP-017 - Lazy owning @OneToOne requires bytecode enhancement
+
+**Retired.** An owning one-to-one holds the foreign key, so Hibernate can create a proxy without enhancement; the check
+reported a supported lazy mapping. HIB-MAP-018 covers the inverse side, where enhancement does matter.
 
 ### HIB-MAP-018 - Review lazy inverse @OneToOne without enhancement
 
@@ -514,16 +527,11 @@ duplicate that work by assuming absent `@Index` means absent database index.
 
 ### HIB-MAP-021 - Legacy @Where restrictions should be migrated
 
-- **Severity**: MEDIUM
-- **Inspects**: entity and persistent-attribute annotations by name, without linking the optional Hibernate 6 type.
-- **Fires when**: `org.hibernate.annotations.Where` or `WhereJoinTable` is present.
-- **Why it matters**: Hibernate deprecated these annotations in ORM 6.3 and removed them in ORM 7, so mappings must be
-  migrated before or during an ORM 7 upgrade.
-- **Recommendation**: use `@SQLRestriction` / `@SQLJoinTableRestriction`, or Hibernate's `@SoftDelete` for supported
-  soft-delete mappings.
-- **Runtime scope**: this check is most useful while scanning an ORM 6.x application before migration. Removed
-  annotation types cannot be inspected reliably through reflection on ORM 7. Their absence from a live scan is not
-  evidence that the old restrictions were migrated or remain effective.
+**Retired.** Hibernate ORM 7.0 removed `@Where` and `@WhereJoinTable`, and every supported runtime uses ORM 7 (Spring
+Framework 7 requires ORM 7.1 or later; Quarkus 3.33 ships 7.2). Code cannot compile against the removed types, and an
+annotation whose type is missing at runtime is silently dropped by reflection, so the check could never fire. Migrate
+any remaining restrictions to `@SQLRestriction`, `@SQLJoinTableRestriction`, or `@SoftDelete` as part of the ORM 7
+upgrade.
 
 ### HIB-MAP-022 - Explicit ordinal enum mappings should be reviewed
 
@@ -534,6 +542,38 @@ duplicate that work by assuming absent `@Index` means absent database index.
   Persistence 3.2 also permits stable numeric codes through `@EnumeratedValue`; numeric storage is not always position.
 - **Recommendation**: prefer `STRING`, a database-native enum, or a stable-code converter. Keep `ORDINAL` only when
   append-only ordering is an explicit schema contract.
+
+### HIB-MAP-023 - Set element collections of embeddables need equals and hashCode
+
+- **Severity**: MEDIUM
+- **Inspects**: `@ElementCollection` attributes declared as `Set` (not `SortedSet`) and their `@Embeddable` element
+  class, resolved from the generic type or `targetClass`.
+- **Fires when**: the element class is neither a record nor `@Immutable` and does not override both `equals(Object)` and
+  `hashCode()` anywhere below `Object`. Attributes marked `@Immutable` or using a custom `@CollectionType` are skipped,
+  and an unresolvable element type is reported as missing evidence rather than as clean.
+- **Why it matters**: Hibernate snapshots a `Set` collection as copies of its elements and looks each current element up
+  in that snapshot. With identity equality no lookup matches, so the collection is treated as changed whenever the
+  owner is flushed: Hibernate deletes every collection row and inserts them all again, and `Set.remove` with an equal
+  value never matches. Sorted sets compare through their comparator and are not affected.
+- **Recommendation**: implement `equals` and `hashCode` over the embeddable's value state, or model it as a record.
+
+### HIB-MAP-024 - @Lob on PostgreSQL stores values as large objects
+
+- **Severity**: LOW
+- **Inspects**: `@Lob` attributes typed as `String`, `char[]`, `Character[]`, `byte[]`, or `Byte[]`, in persistence units
+  whose observed dialect is PostgreSQL (or a subclass such as PostgresPlus, but not Spanner's PostgreSQL interface).
+- **Fires when**: the attribute keeps the default LOB binding. An explicit `@JdbcTypeCode` with a non-LOB type such as
+  `SqlTypes.LONG32VARCHAR` is exempt; a converter, `@JdbcType`, or `@Type` is reported as missing evidence. A
+  `columnDefinition` does not exempt the attribute because it changes the DDL, not the binding. JDBC `Blob`/`Clob`
+  locators are intentional large-object handles and are not reported. When the dialect is unknown and `@Lob`
+  attributes exist, the rule reports missing evidence.
+- **Why it matters**: Hibernate's PostgreSQL dialect maps `@Lob` to an `oid` column and binds values through the
+  large-object API. The content lives in `pg_largeobject`, so deleting or updating the row leaves the old large object
+  behind until it is unlinked, and a `text` or `bytea` column created by a migration does not match that binding.
+- **Recommendation**: remove `@Lob` unless large-object storage is intended: map long text with
+  `@JdbcTypeCode(SqlTypes.LONG32VARCHAR)` (`text`) and binary data as a plain `byte[]` (`bytea`). Keep `@Lob` for
+  deliberate large-object storage, with the `lo_manage` trigger or `vacuumlo` cleanup. On PostgreSQL units, HIB-FETCH-005
+  does not also report the attributes this rule covers.
 
 ## Entity design
 
@@ -630,9 +670,9 @@ proves lazy loading here; safe ID-only implementations must not receive this fin
 - **Why it matters**: without optimistic version checks, concurrent read/modify/write operations can overwrite changes.
   Pessimistic locking, isolation, append-only use and external coordination may already protect the workflow; their
   absence is not inferred from annotations.
-- **Recommendation**: add a `@Version` attribute (for example a `Long` or `Instant`) so concurrent updates fail fast with
-  an optimistic-lock exception; skip this only for append-only, read-only, or reference data where lost updates cannot
-  occur.
+- **Recommendation**: add a numeric `@Version` attribute (for example a `Long`) so concurrent updates fail fast with an
+  optimistic-lock exception; skip this only for append-only, read-only, or reference data where lost updates cannot
+  occur. Hibernate documents timestamp versions as less reliable (see HIB-ENTITY-010).
 
 ### HIB-ENTITY-009 - Unique business-key columns should consider @NaturalId
 
@@ -649,6 +689,18 @@ proves lazy loading here; safe ID-only implementations must not receive this fin
   use Hibernate's natural-id resolution instead of a full query. Adding the annotation does not automatically reroute
   existing repository queries through natural-id lookup or cache APIs.
 - **Quarkus/Panache**: applies identically - this check inspects only annotation metadata via reflection.
+
+### HIB-ENTITY-010 - Prefer a numeric @Version over a timestamp
+
+- **Severity**: INFO
+- **Inspects**: `@Version` attributes and their Java type on entities that are not `@Immutable`.
+- **Fires when**: the version is a date or time type (`java.util.Date`, `Calendar`, or a `java.time` temporal such as
+  `Instant` or `LocalDateTime`).
+- **Why it matters**: Hibernate documents timestamps as a less reliable optimistic-locking mechanism than version
+  numbers. Two updates within the clock or column precision can produce the same value, and clocks can differ between
+  nodes. A timestamp version is still far better than none, and it is supported.
+- **Recommendation**: prefer an `Integer` or `Long` version and keep a separate audit timestamp when the modification
+  time is needed. Keep a timestamp version when its precision and clock source are deliberate.
 
 ## Query
 
@@ -773,17 +825,9 @@ Named and dynamic queries outside the observed metadata remain outside coverage.
 
 ### HIB-CONFIG-001 - Open Session in View should be disabled
 
-- **Severity**: MEDIUM
-- **Inspects**: adapter-provided non-eager evidence of registered OSIV interceptors or filters.
-- **Fires when**: OSIV is observed active in a Spring servlet application. A missing property or a servlet class on
-  the classpath alone does not prove activation; unavailable evidence is skipped. Severity does not escalate solely
-  because of a profile name. An interceptor bean or Boot MVC configurer alone is insufficient: an application extending
-  `WebMvcConfigurationSupport` directly can ignore that configurer, and filter beans can be disabled or unregistered.
-- **Why it matters**: lazy loading after the service transaction has completed can hide missing fetch plans and move data
-  access into the web layer. OSIV does not by itself prove a JDBC connection is held for the entire request.
-- **Recommendation**: set `spring.jpa.open-in-view=false` and fetch data inside transactional service boundaries.
-- **Applicability**: the Spring adapter supplies the servlet-context signal to the framework-neutral engine. Reactive,
-  non-web, and Quarkus applications skip this rule; Quarkus has no Open Session in View mechanism.
+**Retired.** Open Session in View is a Spring MVC application setting, not a Hibernate factory option, and the Spring
+advisor's [SPRING-JPA-001](SPRING-CHECKS.md#spring-jpa-001-review-open-session-in-view) reviews the same activation
+with richer registration evidence. Keeping both counted one observation against two advisor scores.
 
 ### HIB-CONFIG-003 - Lazy loading outside transactions should stay disabled
 
@@ -926,17 +970,18 @@ Named and dynamic queries outside the observed metadata remain outside coverage.
 ### HIB-CONFIG-013 - Review applicable JDBC temporal binding
 
 - **Severity**: LOW
-- **Inspects**: `spring.jpa.properties.hibernate.jdbc.time_zone` and `hibernate.jdbc.time_zone`.
-- **Fires when**: supported temporal mapping/binding evidence makes a JDBC-zone review applicable and no fixed zone is
-  observed. Without temporal mappings this advice is inapplicable; unavailable binding evidence is not nondeterminism.
-- **Why it matters**: some timestamp bindings depend on JVM or JDBC timezone behavior, while native/UTC Instant
-  mappings and local wall-clock values have different semantics. Missing `hibernate.jdbc.time_zone` is not universally
-  wrong.
+- **Inspects**: the owning unit's effective `hibernate.jdbc.time_zone` and the mapped temporal types.
+- **Fires when**: no JDBC time zone is configured and the unit maps a type that Hibernate binds through a JDBC
+  `Calendar`: `LocalDateTime`, `LocalTime`, `OffsetTime`, `java.util.Date` and its timestamp/time subclasses, or
+  `Calendar`. `Instant` binds as UTC, `LocalDate` and `java.sql.Date` use no calendar, and zoned or offset date-times
+  follow their time-zone storage strategy, so those types alone do not make the rule applicable.
+- **Why it matters**: without a configured zone, those bindings use the JVM default time zone, so the stored wall-clock
+  value can change when servers run in different zones. Missing `hibernate.jdbc.time_zone` is not wrong in itself;
+  driver and converter semantics remain unobserved.
 - **Recommendation**: choose temporal types and binding semantics deliberately; configure a JDBC zone where needed,
   rather than treating UTC as a universal fix for every date/time mapping.
-- **Quarkus**: `hibernate.jdbc.time_zone` maps to `quarkus.hibernate-orm.jdbc.timezone` via
-  `QuarkusHibernatePropertyLookup`, so this rule no longer false-positives when the zone is pinned with the native
-  Quarkus property name.
+- **Quarkus**: `hibernate.jdbc.time_zone` maps to `quarkus.hibernate-orm.jdbc.timezone`, and the effective factory value
+  is read directly.
 
 ### HIB-CONFIG-014 - Hibernate's built-in connection pool should not be used
 
@@ -961,23 +1006,18 @@ Named and dynamic queries outside the observed metadata remain outside coverage.
 
 ### HIB-CONFIG-016 - Fail on pagination over collection fetch
 
-- **Severity**: HIGH (INFO when only the safety-net setting is missing)
-- **Inspects**: the `hibernate.query.fail_on_pagination_over_collection_fetch` property and paginated collection
-  `JOIN FETCH` repository queries.
-- **Fires when**: supported unit/runtime/query evidence establishes an applicable missing guard. Unknown runtime or
-  guard state is not assumed to be an older unsafe configuration. Concrete query findings are counted once each;
-  explanatory summary text does not add a fictitious finding.
-- **Why it matters (Hibernate < 7.4)**: without this guard, affected runtimes can allow a paginated collection fetch join
-  to fetch the whole result set into memory instead of failing fast.
-- **Recommendation**: set `spring.jpa.properties.hibernate.query.fail_on_pagination_over_collection_fetch=true` to throw
-  an exception on covered in-memory pagination paths. The risk concerns an unbounded matching result, not necessarily
-  an entire table.
-- **Hibernate 7.4+**: collection-fetch pagination can be pushed into SQL, but dialect/query-plan fallback still matters.
-  An explicit `org.hibernate.limitInMemory=true` hint opts back into in-memory limiting and can bypass the ordinary
-  factory guard. The advisor does not certify SQL pushdown or claim the guard overrides that hint.
-- **Quarkus**: `hibernate.query.fail_on_pagination_over_collection_fetch` maps to
-  `quarkus.hibernate-orm.query.fail-on-pagination-over-collection-fetch` via `QuarkusHibernatePropertyLookup`, so this
-  rule no longer false-positives when the safety net is enabled with the native Quarkus property name.
+- **Severity**: INFO
+- **Inspects**: the owning unit's effective `hibernate.query.fail_on_pagination_over_collection_fetch` guard.
+- **Fires when**: the guard is disabled. The rule reports one configuration finding per unit and never repeats the
+  repository queries that HIB-FETCH-003 owns, so a risky query is not penalized twice.
+- **Why it matters**: when a limited query fetch-joins a collection and Hibernate cannot apply the limit in SQL, it loads
+  every matching row and limits the result in memory with only a warning. The guard turns that into an exception.
+  Hibernate 7.4 pushes the limit into SQL where the dialect supports it, but a dialect fallback still reaches the guard,
+  and an explicit `org.hibernate.limitInMemory=true` hint bypasses the guard entirely.
+- **Recommendation**: consider `hibernate.query.fail_on_pagination_over_collection_fetch=true` so these queries fail
+  fast during development, and fix the queries HIB-FETCH-003 reports.
+- **Quarkus**: maps to `quarkus.hibernate-orm.query.fail-on-pagination-over-collection-fetch`; the effective factory
+  value is read directly.
 
 ### HIB-CONFIG-017 - Disable SQL formatting in production
 
@@ -1081,4 +1121,5 @@ These are primary implementation/specification sources, not proof of a measured 
 | Cache infrastructure and defaults | [ORM 7.4.5 cache option construction](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/boot/internal/SessionFactoryOptionsBuilder.java#L444-L477), [provider strategy defaults](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/boot/model/internal/EntityBinder.java#L1838-L1882), [Quarkus ORM guide 3.33.0](https://github.com/quarkusio/quarkus/blob/3.33.0/docs/src/main/asciidoc/hibernate-orm.adoc). Cache enablement, region support and actual use are distinct. |
 | Pool selection and OSIV | [ORM 7.4.5 provider selection](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/engine/jdbc/connections/internal/ConnectionProviderInitiator.java#L134-L159), [Boot 4.1.1 OSIV activation](https://github.com/spring-projects/spring-boot/blob/v4.1.1/module/spring-boot-jpa/src/main/java/org/springframework/boot/jpa/autoconfigure/JpaBaseConfiguration.java), [Spring 7.0.9 MVC delegation](https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-webmvc/src/main/java/org/springframework/web/servlet/config/annotation/DelegatingWebMvcConfiguration.java). Property or configurer-bean presence alone is insufficient. |
 | Quarkus schema actions | [3.33.3.1 provider precedence](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/hibernate-orm/runtime/src/main/java/io/quarkus/hibernate/orm/runtime/FastBootHibernatePersistenceProvider.java#L497-L499), [3.33.3.1 action configuration](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/hibernate-orm/runtime/src/main/java/io/quarkus/hibernate/orm/runtime/HibernateOrmRuntimeConfigPersistenceUnit.java), [ORM 7.2.19 Action](https://github.com/hibernate/hibernate-orm/blob/7.2.19/hibernate-core/src/main/java/org/hibernate/tool/schema/Action.java). Jakarta create-only and Hibernate destructive create differ. |
+| Audit 2026-10 (effective settings, new rules) | [ORM 7.4.5 `SessionFactoryOptions`](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/boot/spi/SessionFactoryOptions.java) and [`SqlStatementLoggerInitiator`](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/engine/jdbc/internal/SqlStatementLoggerInitiator.java) (effective defaults, legacy slow-query key), [`PersistentSet`](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/collection/spi/PersistentSet.java) and [`CollectionEntry`](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/engine/spi/CollectionEntry.java) (HIB-MAP-023), [`PostgreSQLDialect`](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/dialect/PostgreSQLDialect.java) and [PostgreSQL large objects](https://www.postgresql.org/docs/current/lo.html) (HIB-MAP-024), [`SqmSelectionQueryImpl`](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/query/sqm/internal/SqmSelectionQueryImpl.java) (guard bypassed by `limitInMemory`), [`TimestampJdbcType`](https://github.com/hibernate/hibernate-orm/blob/7.4.5/hibernate-core/src/main/java/org/hibernate/type/descriptor/jdbc/TimestampJdbcType.java) (HIB-CONFIG-013), and the [user guide on timestamp versions](https://docs.hibernate.org/orm/current/userguide/html_single/Hibernate_User_Guide.html#locking-optimistic-timestamp) (HIB-ENTITY-010). Spring Framework 7 requires ORM 7.1+, which retires HIB-MAP-021. |
 | Kotlin and Panache | [Kotlin 2.3.20 JPA change](https://github.com/JetBrains/kotlin-web-site/blob/master/docs/topics/whatsnew/whatsnew2320.md#L395-L421), [Kotlin 2.3.10 plugin](https://github.com/JetBrains/kotlin/blob/v2.3.10/libraries/tools/kotlin-noarg/src/common/kotlin/org/jetbrains/kotlin/noarg/gradle/KotlinJpaSubplugin.kt), [Kotlin 2.3.21 plugin](https://github.com/JetBrains/kotlin/blob/v2.3.21/libraries/tools/kotlin-noarg/src/common/kotlin/org/jetbrains/kotlin/noarg/gradle/KotlinJpaSubplugin.kt), [Panache guide 3.33.0](https://github.com/quarkusio/quarkus/blob/3.33.0/docs/src/main/asciidoc/hibernate-orm-panache.adoc). Compiler output and platform transformation, not classpath presence, establish capability. |

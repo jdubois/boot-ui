@@ -80,17 +80,6 @@ class QuarkusHibernatePropertyLookupTest {
     }
 
     @Test
-    void neutralizesOpenInViewToFalseRegardlessOfConfig() {
-        // Quarkus has no Open-Session-in-View: report its effective state so HIB-CONFIG-001 passes rather than
-        // assuming Spring Boot's enabled-by-default web behaviour.
-        assertThat(lookup(Map.of()).apply("spring.jpa.open-in-view")).isEqualTo("false");
-        assertThat(lookup(Map.of("spring.jpa.open-in-view", "true")).apply("spring.jpa.open-in-view"))
-                .isEqualTo("false");
-        assertThat(lookup(Map.of()).apply(HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY))
-                .isEqualTo("false");
-    }
-
-    @Test
     void reportsHibernateBytecodeEnhancementAsAdapterVerifiedRegardlessOfConfig() {
         // Quarkus enhances every entity unconditionally at build time (HibernateOrmProcessor's
         // enhancerDomainObjects() build step is ungated) and has no config switch to disable it. This is an

@@ -43,7 +43,7 @@ class BootUiQuarkusSecurityResourceTest {
         assertThat(scan.status()).isEqualTo(200);
         JsonNode scanned = scan.json();
         assertThat(scanned.path("scan").path("status").asText()).isEqualTo("PARTIAL");
-        assertThat(scanned.path("rulesEvaluated").asInt()).isEqualTo(42);
+        assertThat(scanned.path("rulesEvaluated").asInt()).isEqualTo(45);
         assertThat(scanned.path("analysisErrors")).isEmpty();
         assertThat(ruleIds(scanned))
                 .as("a no-auth Quarkus app must flag QS-AUTH-001")

@@ -157,7 +157,7 @@ docker run --rm -p 8081:8081 -e BOOTUI_TRUST_CONTAINER_GATEWAY=AUTO jdubois/boot
 Then open <http://localhost:8081/bootui>.
 
 The reactive adapter supports every panel except HTTP Sessions, including every advisor scan and every action. A few
-are reactive equivalents rather than the servlet behaviour: the Security advisor runs its WebFlux-native 25-rule
+are reactive equivalents rather than the servlet behaviour: the Security advisor runs its WebFlux-native 26-rule
 catalogue, and the raw Spring Security panel shows the reactive `SecurityWebFilterChain` pipeline with explanations
 marked best effort. See [Framework support](FRAMEWORK-SUPPORT.md#spring-webflux).
 

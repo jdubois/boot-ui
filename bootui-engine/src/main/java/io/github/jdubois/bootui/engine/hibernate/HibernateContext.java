@@ -169,14 +169,6 @@ record HibernateContext(
         if (nativeKey.startsWith("hibernate."))
             return required(factorySettings.property(nativeKey), HibernateEvidenceGap.FACTORY_SETTING);
         return switch (key) {
-            case "spring.jpa.open-in-view" ->
-                switch (applicationFacts.openInView()) {
-                    case ENABLED -> "true";
-                    case DISABLED, NOT_APPLICABLE -> "false";
-                    case UNKNOWN -> required(null, HibernateEvidenceGap.APPLICATION_SETTING);
-                };
-            case HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY ->
-                Boolean.toString(applicationFacts.openInView() != HibernateApplicationFacts.OpenInView.NOT_APPLICABLE);
             case HibernateScanner.BYTECODE_ENHANCEMENT_VERIFIED_PROPERTY ->
                 Boolean.toString(Boolean.TRUE.equals(enhancementVerified));
             case "spring.jpa.defer-datasource-initialization" ->
@@ -335,24 +327,6 @@ record HibernateContext(
             }
         }
         return isPropertyTrue(HibernateScanner.BYTECODE_ENHANCEMENT_VERIFIED_PROPERTY) || entity.isBytecodeEnhanced();
-    }
-
-    boolean isOpenInViewApplicable() {
-        return isPropertyTrue(HibernateScanner.OPEN_IN_VIEW_APPLICABLE_PROPERTY);
-    }
-
-    boolean managesSchemaIndexes() {
-        String value = firstProperty(
-                "spring.jpa.hibernate.ddl-auto",
-                "spring.jpa.properties.hibernate.hbm2ddl.auto",
-                "hibernate.hbm2ddl.auto",
-                "jakarta.persistence.schema-generation.database.action");
-        return value != null
-                && ("create".equalsIgnoreCase(value)
-                        || "create-only".equalsIgnoreCase(value)
-                        || "create-drop".equalsIgnoreCase(value)
-                        || "drop-and-create".equalsIgnoreCase(value)
-                        || "update".equalsIgnoreCase(value));
     }
 
     boolean isSqlLoggingEnabled() {

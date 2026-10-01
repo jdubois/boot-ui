@@ -9,6 +9,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Architecture advisor reports injection and lifecycle annotations the container silently ignores.**
+  `ARCH-SPRING-023` (HIGH) flags `@Autowired`, `@Value`, or, on Spring and CDI beans, `jakarta.inject.Inject` on static
+  fields and methods, which Spring Framework 7 skips with an INFO log and Quarkus Arc ignores with a warning.
+  `ARCH-SPRING-024` (HIGH) flags legacy `javax.annotation.PostConstruct`/`PreDestroy`, and `javax.inject.Inject` or
+  `javax.annotation.Resource` on beans, which neither Spring Framework 7 nor Quarkus 3 recognizes. Both run on Spring
+  MVC, Spring WebFlux, and Quarkus, and the field-injection rules no longer report the same fields
+  ([#1165](https://github.com/jdubois/boot-ui/pull/1165)).
+
+- **Four Database advisor checks (24 → 28).** DB-SCHEMA-010 (LOW) reports MySQL invisible, MariaDB ignored and
+  Oracle invisible indexes that every write still maintains; DB-PG-005 (LOW) reports `UNLOGGED` tables and leaf
+  partitions; DB-HIB-009 (MEDIUM) reports an explicitly named `@Id` declaring `GenerationType.IDENTITY` whose
+  PostgreSQL, MySQL or MariaDB column reports no auto-increment, identity, default or generated value; and DB-HIB-010
+  (MEDIUM) reports a positive `@Column(precision, scale)` wider than the bounded physical `DECIMAL`/`NUMERIC` column,
+  which rounds or rejects values. Each was accepted by at least two of three independent model reviews
+  ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md), [#1169](https://github.com/jdubois/boot-ui/pull/1169)).
 - **Failure-preserving retention for HTTP Exchanges, SQL Trace, and REST Client.** Each BootUI-owned capture buffer
   now reserves a share of its existing capacity, 25% by default, for the most recent failed and slow records: `5xx`
   and slow exchanges, failed and slow statements, and failed, `4xx`/`5xx`, and slow calls. Routine records are evicted
@@ -49,6 +64,67 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **CRaC readiness advisor audit.** Two checks are added: `CRAC-POOL-005` reports refresh-time database access
+  (Flyway, Liquibase, Boot schema initializers, `spring.sql.init.mode=always`, or Hibernate boot metadata access and
+  schema management) next to a non-in-memory Hikari pool, which leaves connections open at a
+  `spring.context.checkpoint=onRefresh` checkpoint because the Hikari lifecycle has not started yet; it runs only when
+  the `org.crac` API or onRefresh is present, and never displays the JDBC URL. `CRAC-NET-002` reports host-name and
+  network-interface lookups retained by static initializers. `CRAC-SCHED-001` now also finds programmatic
+  `scheduleAtFixedRate` calls and `addFixedRateTask` registrations, `CRAC-RANDOM-001` is `HIGH` only for explicit
+  SecureRandom seeding (`MEDIUM` for generator fields) and covers `SplittableRandom`, `CRAC-SECRET-001` no longer
+  reports credential-named JPA entity columns, `CRAC-POOL-002` covers Kafka, Lettuce, Jedis, and Netty event-loop
+  clients, and `CRAC-CACHE-001` explains expiry across restore precisely
+  ([CRaC readiness checks](docs/CRAC-READINESS-CHECKS.md), [#1170](https://github.com/jdubois/boot-ui/pull/1170)).
+- **Spring Security advisor audited against Spring Security 7.1.1.** Spring Security 7's passkey (`webAuthn()`),
+  one-time-token and SAML 2.0 login filters are now recognized framework filters and browser-login credentials on
+  Spring MVC, so those chains are assessed by the CSRF, framing, CSP and session checks instead of being left
+  incomplete; WebFlux one-time-token login is recognized the same way. `SEC-SESSION-001` now reports session-backed
+  passkey login, whose 7.1 configurer applies no session-authentication strategy (no session-id or CSRF-token rotation
+  at login), with its own message and an `ObjectPostProcessor` remediation. New HIGH, production-only rules flag plain
+  HTTP opaque-token introspection on Spring MVC (`SEC-OAUTH-005`, parity with `SEC-RXF-OAUTH2-004`) and plain HTTP
+  OAuth2 client provider authorization, token, JWK-set and user-info endpoints on both stacks (`SEC-OAUTH-006`,
+  `SEC-RXF-OAUTH2-005`; the WebFlux catalogue now has 26 rules). `SEC-CORS-003` and `SEC-OAUTH-001`, which could only
+  pass or skip, are retired. `SEC-SESSION-004` now reviews explicit `SameSite=None` instead of skipping every unset
+  value; `SEC-SESSION-002` no longer flags production apps with direct TLS; `SEC-OAUTH-004` is production-only like its
+  reactive twin; `SEC-HEAD-002` drops from HIGH to MEDIUM and `SEC-HEAD-007` rises from LOW to MEDIUM to match WebFlux;
+  the WebFlux framing and CSP reviews (`SEC-RXF-HEAD-002`, `SEC-RXF-HEAD-004`) no longer flag bearer-only API
+  chains; and `SEC-CONFIG-005` ignores the `spring.web.error.include-*=always` development defaults DevTools adds, so
+  it no longer reports three MEDIUM findings on every DevTools run while an application value is still reported ([Security checks](docs/SECURITY-CHECKS.md), [#1173](https://github.com/jdubois/boot-ui/pull/1173)).
+- **Hibernate advisor audit against Hibernate ORM 7.** Effective factory settings are now read from the factory's own
+  options and SQL statement logger, so settings the application never configured no longer leave `HIB-CONFIG-003`,
+  `-006`, `-009`, `-013`, `-017`, `-019`, and `-020` without evidence and the scan `PARTIAL`. Three rules are added:
+  `HIB-MAP-023` (MEDIUM) for `Set` element collections of embeddables without `equals`/`hashCode`, which Hibernate
+  rewrites on every flush; `HIB-MAP-024` (LOW) for `@Lob` on PostgreSQL, which stores `oid` large objects; and
+  `HIB-ENTITY-010` (INFO) for timestamp `@Version` attributes. `HIB-CONFIG-001` is retired in favour of the Spring
+  advisor's `SPRING-JPA-001`, `HIB-MAP-021` is retired because ORM 7 removed `@Where`, and the earlier removal of
+  `HIB-MAP-017` is now documented. `HIB-CONFIG-016` reports the disabled pagination guard once at INFO instead of
+  repeating `HIB-FETCH-003`'s queries at HIGH, `HIB-FETCH-005` drops to LOW and skips JDBC locators, `HIB-MAP-014`
+  drops to LOW, `HIB-CONFIG-013` only applies to types bound through the JVM time zone, and stale learn-more links now
+  point at the current guides. The catalog has 72 active rules ([Hibernate checks](docs/HIBERNATE-CHECKS.md),
+  [#1172](https://github.com/jdubois/boot-ui/pull/1172)).
+- **Architecture advisor catalog audit.** Three rules are retired and their IDs reserved: `ARCH-CODE-005`
+  (`printStackTrace` into an explicit writer, mostly the legitimate `StringWriter` idiom), `ARCH-CODE-011` (the
+  `Interface` name suffix), and `ARCH-SPRING-005` (default-package stereotypes, which a scan can never import).
+  `ARCH-SPRING-011` is now HIGH, because Spring Framework 7 throws `IllegalArgumentException` on every call of an
+  `@Async` method with another return type, and it no longer judges private, static, or final methods of an `@Async`
+  class. `ARCH-CODE-007` is now MEDIUM, `ARCH-SPRING-002` LOW, and `ARCH-CODE-010` INFO. `ARCH-CODE-016` stays MEDIUM on
+  Spring and is LOW on Quarkus, where `@Inject` field injection is idiomatic, and `ARCH-CODE-003` no longer runs on
+  Quarkus, where `java.util.logging` is a built-in logging API. The self-invocation, proxyability, and lifecycle-callback
+  rules now also cover Spring Framework 7 `@Retryable` and `@ConcurrencyLimit`, Spring Retry, and method security
+  annotations such as `@PreAuthorize`, whose self-invocation skips the authorization check
+  ([#1165](https://github.com/jdubois/boot-ui/pull/1165)).
+- **Quarkus advisor audit: client-proxy field rule, production bind logging, fewer false positives.** A second audit
+  against Quarkus 3.33 and CDI 4.1 retires `QA-CDI-001` and adds `QA-CDI-004` (MEDIUM): a public instance field on any
+  normal-scoped bean — application, request, session or custom scope — is a CDI definition error that ArC tolerates,
+  and access through an injected reference reaches the shared client proxy rather than the current instance. Final
+  atomics and concurrent collections are no longer exempt there, and `QA-CDI-002` now covers singleton REST resources
+  only. New `QA-CFG-005` (HIGH) reports build-time Hibernate bind-parameter logging that a production build would
+  package. `QA-CFG-004` also detects the deprecated `database.generation.create-schemas` and `halt-on-error` keys and
+  names each replacement. An explicit `quarkus.http.enable-compression=false` now suppresses `QA-WEB-001`,
+  `QA-WEB-002` drops from MEDIUM to LOW, and the compression and shutdown rules prefer a visible `%prod.` declaration,
+  fixing a `QA-WEB-004` false positive in development mode; they now report incomplete production coverage there
+  like the other production rules. The advisor has 14 rules
+  ([Quarkus checks](docs/QUARKUS-ADVISOR-CHECKS.md#second-audit-disposition), [#1167](https://github.com/jdubois/boot-ui/pull/1167)).
 - **Vulnerabilities scores CVSS v4.0 and prefers it over CVSS v3.** Advisories carrying a CVSS v4.0 vector now get a
   numeric score from a port of FIRST's reference calculator, verified against it for every Base metric combination, and
   scored as published, so GitHub's frequent `E:U` Threat metric applies. When an advisory carries both versions, the v4
@@ -76,6 +152,27 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ZGC on JDK 21-23, where generational ZGC is available
   ([Memory checks](docs/MEMORY-CHECKS.md#complete-rule-audit-and-current-behavior),
   [#1162](https://github.com/jdubois/boot-ui/pull/1162)).
+- **GraalVM advisor: October 2026 audit (30 checks).** The native-image readiness advisor was re-audited against the
+  GraalVM for JDK 25 feature releases (through 25.4), Spring Framework 7.0.9, Spring Boot 4.1.1, and Spring Cloud
+  Commons, with every new or removed rule critiqued by three reviewer models. `GRAAL-REFLECT-003` (deep reflection) and
+  `GRAAL-REFLECT-004` (member annotation access) are retired because neither needs metadata of its own. Five checks are
+  added: `GRAAL-REFLECT-006` (application types bound with Jackson or Spring's HTTP clients in a method body),
+  `GRAAL-JDK-003` (`finalize()` cleanup that never runs natively), `SPRING-AOT-006` (explicit-argument `getBean`),
+  `SPRING-AOT-007` (registry post-processors replayed at run time), and `SPRING-AOT-008` (`@RefreshScope`).
+  `GRAAL-REFLECT-001` now covers Spring's `ReflectionUtils`, `ClassUtils`, and `BeanUtils` facades, `GRAAL-RES-001`
+  covers `ClassPathResource` and resource pattern lookups, `SPRING-AOT-003` covers `@ConditionalOnCloudPlatform` and
+  `@ConditionalOnThreading`, and `GRAAL-JMX-001` no longer flags `ManagementFactory.getPlatformMBeanServer()` but
+  reports MBean registration, JMX proxies, and remote connectors instead
+  ([GraalVM readiness checks](docs/GRAALVM-READINESS-CHECKS.md#october-2026-audit),
+  [#1171](https://github.com/jdubois/boot-ui/pull/1171)).
+- **Quarkus Security advisor audit (45 rules).** Three new rules: `QS-TLS-006` flags legacy TLS protocol versions in
+  HTTP SSL or TLS registry lists, `QS-OIDC-005` flags OIDC web-app tenants that disable session token encryption, and
+  `QS-PROXY-001` flags forwarded headers trusted from any address. `QS-AUTH-007` and `QS-AUTH-013` now review
+  production declarations, so `%dev`/`%test`-only embedded users are no longer reported. `QS-SESSION-001` is lowered
+  to MEDIUM. `QS-CFG-001` now also catches committed symmetric keys and inline private keys. A sole `/.*/` CORS
+  origin no longer reports `QS-CORS-002`, because Quarkus treats it as the wildcard origin with credentials
+  defaulting to `false`. Every rule links to a rule-specific section of the Quarkus 3.33 guides
+  ([#1161](https://github.com/jdubois/boot-ui/pull/1161), [Quarkus security checks](docs/QUARKUS-CHECKS.md)).
 - **One request slow threshold on every stack.** `bootui.activity.request-slow-threshold-ms` (default 1,000 ms) is now
   honored by Spring WebFlux and Quarkus as well as Spring MVC. It sets the `SLOW` severity of Live Activity `REQUEST`
   and `SCHEDULED` entries and decides which exchanges are kept longer. Spring WebFlux and Quarkus previously used a
@@ -112,8 +209,36 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Dependencies and build tooling updated**, including Vue 3.5.43 in the bundled console, the Quarkus LangChain4j BOM
   1.13.3 in the Quarkus sample app, GraalVM Native Build Tools 1.1.14, Vitest 5.0.1, jsdom 30.1.1, Prettier 3.9.8, and
   the patched `undici` 7.30.0 and `brace-expansion` transitive dependencies.
+- **The Pentesting advisor no longer duplicates Quarkus Security rules and catches weaker CSPs** (77 checks, down
+  from 79). `PT-A05-070` (Quarkus CORS configuration) and `PT-A05-072` (Quarkus TLS with plaintext HTTP) are retired
+  because the Security panel's `QS-CORS-001`/`QS-CORS-002` and `QS-TLS-001` already review that configuration on every
+  Quarkus application; `PT-A05-072` also ignored the `client-auth=required` default. `PT-A07-006` now reviews Spring
+  issuer URIs only, leaving `quarkus.oidc.auth-server-url` to `QS-TLS-004`, and Quarkus A07 coverage reads `HANDOFF`.
+  The synthetic CORS preflight still exercises Quarkus's global CORS filter. `PT-A05-060` now reports plain `data:`,
+  `http:`, or `https:` script sources (MEDIUM) and an enforced CSP that restricts no scripts, such as a
+  `frame-ancestors`-only policy (LOW). `PT-A05-043` is MEDIUM only when the management listener binds more broadly
+  than a narrowed `server.address`, which Spring Boot does not inherit, and LOW otherwise. `PT-A05-011` rates an
+  unversioned `Server` header INFO ([#1166](https://github.com/jdubois/boot-ui/pull/1166),
+  [Pentesting checks](docs/PENTEST-CHECKS.md#pentesting-advisor-audit-2026)).
 
 ### Fixed
+
+- **Fewer Architecture advisor false positives.** `ARCH-CODE-013` ignores classes compiled into `target/test-classes`
+  or `build/classes/*/test`, which are on the classpath under `spring-boot:test-run` or `bootTestRun`.
+  `ARCH-SPRING-008` no longer reports services throwing `ResponseStatusException` or other web exception types.
+  `ARCH-CODE-015` no longer asks `@Bean` or CDI producer holders and composed stereotypes such as `@AutoConfiguration` to
+  become final utility classes. `ARCH-MOD-001` reports each internal-package access with its own description and source
+  line instead of repeating one class-level line, and `ARCH-SPRING-022` now says that Quarkus 3 also ignores
+  `javax.transaction.Transactional` ([#1165](https://github.com/jdubois/boot-ui/pull/1165)).
+
+- **Database advisor false positives and hidden findings.** DB-SCHEMA-001 no longer reports the one-row identifier
+  tables Hibernate (`<entity>_seq` with a single `next_val` column, the MySQL default for `GenerationType.AUTO`) and
+  Spring Batch (`BATCH_*_SEQ`) generate without a primary key. DB-SCHEMA-002 no longer lets an unrelated GIN, partial
+  or generic-JDBC index on the same table turn every foreign key into an unknown result. DB-PG-002 treats a sequence
+  that was never read, on a role allowed to read it, as unused rather than unknown, so a fresh development database no
+  longer scans `PARTIAL`. Learn-more links now point to MySQL 8.4, the PostgreSQL primary/foreign-key docs and the
+  Jakarta Persistence 3.2 specification instead of blog posts and Wikipedia
+  ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md), [#1169](https://github.com/jdubois/boot-ui/pull/1169)).
 
 - **Quarkus Vulnerabilities coverage is no longer reported complete when the dependency model is missing or damaged.**
   A missing or blank build-time model, a malformed entry, or a runtime JAR coordinate the build step could not encode
