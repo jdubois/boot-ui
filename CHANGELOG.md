@@ -68,6 +68,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   drops to LOW, `HIB-CONFIG-013` only applies to types bound through the JVM time zone, and stale learn-more links now
   point at the current guides. The catalog has 72 active rules ([Hibernate checks](docs/HIBERNATE-CHECKS.md),
   [#1172](https://github.com/jdubois/boot-ui/pull/1172)).
+- **Quarkus advisor audit: client-proxy field rule, production bind logging, fewer false positives.** A second audit
+  against Quarkus 3.33 and CDI 4.1 retires `QA-CDI-001` and adds `QA-CDI-004` (MEDIUM): a public instance field on any
+  normal-scoped bean — application, request, session or custom scope — is a CDI definition error that ArC tolerates,
+  and access through an injected reference reaches the shared client proxy rather than the current instance. Final
+  atomics and concurrent collections are no longer exempt there, and `QA-CDI-002` now covers singleton REST resources
+  only. New `QA-CFG-005` (HIGH) reports build-time Hibernate bind-parameter logging that a production build would
+  package. `QA-CFG-004` also detects the deprecated `database.generation.create-schemas` and `halt-on-error` keys and
+  names each replacement. An explicit `quarkus.http.enable-compression=false` now suppresses `QA-WEB-001`,
+  `QA-WEB-002` drops from MEDIUM to LOW, and the compression and shutdown rules prefer a visible `%prod.` declaration,
+  fixing a `QA-WEB-004` false positive in development mode; they now report incomplete production coverage there
+  like the other production rules. The advisor has 14 rules
+  ([Quarkus checks](docs/QUARKUS-ADVISOR-CHECKS.md#second-audit-disposition), [#1167](https://github.com/jdubois/boot-ui/pull/1167)).
 - **Memory advisor audit: fewer, more reliable findings.** The advisor now evaluates 32 rules. Five noisy rules are
   retired and their IDs are never reused: `MEM-HEAP-007` (committed heap above usage, which flagged normal GC headroom
   and every equal `-Xms`/`-Xmx`), `MEM-FOOTPRINT-004` (host swap, not attributable to the JVM), `MEM-POOL-006` (JIT
@@ -82,6 +94,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ZGC on JDK 21-23, where generational ZGC is available
   ([Memory checks](docs/MEMORY-CHECKS.md#complete-rule-audit-and-current-behavior),
   [#1162](https://github.com/jdubois/boot-ui/pull/1162)).
+- **GraalVM advisor: October 2026 audit (30 checks).** The native-image readiness advisor was re-audited against the
+  GraalVM for JDK 25 feature releases (through 25.4), Spring Framework 7.0.9, Spring Boot 4.1.1, and Spring Cloud
+  Commons, with every new or removed rule critiqued by three reviewer models. `GRAAL-REFLECT-003` (deep reflection) and
+  `GRAAL-REFLECT-004` (member annotation access) are retired because neither needs metadata of its own. Five checks are
+  added: `GRAAL-REFLECT-006` (application types bound with Jackson or Spring's HTTP clients in a method body),
+  `GRAAL-JDK-003` (`finalize()` cleanup that never runs natively), `SPRING-AOT-006` (explicit-argument `getBean`),
+  `SPRING-AOT-007` (registry post-processors replayed at run time), and `SPRING-AOT-008` (`@RefreshScope`).
+  `GRAAL-REFLECT-001` now covers Spring's `ReflectionUtils`, `ClassUtils`, and `BeanUtils` facades, `GRAAL-RES-001`
+  covers `ClassPathResource` and resource pattern lookups, `SPRING-AOT-003` covers `@ConditionalOnCloudPlatform` and
+  `@ConditionalOnThreading`, and `GRAAL-JMX-001` no longer flags `ManagementFactory.getPlatformMBeanServer()` but
+  reports MBean registration, JMX proxies, and remote connectors instead
+  ([GraalVM readiness checks](docs/GRAALVM-READINESS-CHECKS.md#october-2026-audit),
+  [#1171](https://github.com/jdubois/boot-ui/pull/1171)).
 - **One request slow threshold on every stack.** `bootui.activity.request-slow-threshold-ms` (default 1,000 ms) is now
   honored by Spring WebFlux and Quarkus as well as Spring MVC. It sets the `SLOW` severity of Live Activity `REQUEST`
   and `SCHEDULED` entries and decides which exchanges are kept longer. Spring WebFlux and Quarkus previously used a
@@ -118,6 +143,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Dependencies and build tooling updated**, including Vue 3.5.43 in the bundled console, the Quarkus LangChain4j BOM
   1.13.3 in the Quarkus sample app, GraalVM Native Build Tools 1.1.14, Vitest 5.0.1, jsdom 30.1.1, Prettier 3.9.8, and
   the patched `undici` 7.30.0 and `brace-expansion` transitive dependencies.
+- **The Pentesting advisor no longer duplicates Quarkus Security rules and catches weaker CSPs** (77 checks, down
+  from 79). `PT-A05-070` (Quarkus CORS configuration) and `PT-A05-072` (Quarkus TLS with plaintext HTTP) are retired
+  because the Security panel's `QS-CORS-001`/`QS-CORS-002` and `QS-TLS-001` already review that configuration on every
+  Quarkus application; `PT-A05-072` also ignored the `client-auth=required` default. `PT-A07-006` now reviews Spring
+  issuer URIs only, leaving `quarkus.oidc.auth-server-url` to `QS-TLS-004`, and Quarkus A07 coverage reads `HANDOFF`.
+  The synthetic CORS preflight still exercises Quarkus's global CORS filter. `PT-A05-060` now reports plain `data:`,
+  `http:`, or `https:` script sources (MEDIUM) and an enforced CSP that restricts no scripts, such as a
+  `frame-ancestors`-only policy (LOW). `PT-A05-043` is MEDIUM only when the management listener binds more broadly
+  than a narrowed `server.address`, which Spring Boot does not inherit, and LOW otherwise. `PT-A05-011` rates an
+  unversioned `Server` header INFO ([#1166](https://github.com/jdubois/boot-ui/pull/1166),
+  [Pentesting checks](docs/PENTEST-CHECKS.md#pentesting-advisor-audit-2026)).
 
 ### Fixed
 
