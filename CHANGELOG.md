@@ -60,6 +60,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reports credential-named JPA entity columns, `CRAC-POOL-002` covers Kafka, Lettuce, Jedis, and Netty event-loop
   clients, and `CRAC-CACHE-001` explains expiry across restore precisely
   ([CRaC readiness checks](docs/CRAC-READINESS-CHECKS.md), [#1170](https://github.com/jdubois/boot-ui/pull/1170)).
+- **Memory advisor audit: fewer, more reliable findings.** The advisor now evaluates 32 rules. Five noisy rules are
+  retired and their IDs are never reused: `MEM-HEAP-007` (committed heap above usage, which flagged normal GC headroom
+  and every equal `-Xms`/`-Xmx`), `MEM-FOOTPRINT-004` (host swap, not attributable to the JVM), `MEM-POOL-006` (JIT
+  tier flags such as IntelliJ's `-XX:TieredStopAtLevel=1`), `MEM-THREAD-003` (peak versus current threads), and
+  `MEM-CONTENT-004` (arrays at half the heap, the normal shape of a Java heap). `MEM-HEAP-004` now reports the classic
+  `-Xmx32g`, which already disables compressed oops, using the live `MaxHeapSize`, `ObjectAlignmentInBytes`, and
+  `UseCompressedOops` options. `MEM-GC-006` no longer reports a ZGC or Shenandoah concurrent cycle as a long GC event.
+  `MEM-POOL-002` evaluates the whole code cache and the combined compiled-method segments instead of one segment that
+  HotSpot can fall back from. `MEM-FOOTPRINT-002` thread-stack reservations drop to LOW, and `MEM-POOL-003` rises to
+  MEDIUM when `-XX:+DisableExplicitGC` disables the `System.gc()` that java.nio needs to reclaim direct buffers. GC
+  filler objects (JDK 19+) are excluded from the class histogram. New INFO rule `MEM-GC-008` notes non-generational
+  ZGC on JDK 21-23, where generational ZGC is available
+  ([Memory checks](docs/MEMORY-CHECKS.md#complete-rule-audit-and-current-behavior),
+  [#1162](https://github.com/jdubois/boot-ui/pull/1162)).
 - **One request slow threshold on every stack.** `bootui.activity.request-slow-threshold-ms` (default 1,000 ms) is now
   honored by Spring WebFlux and Quarkus as well as Spring MVC. It sets the `SLOW` severity of Live Activity `REQUEST`
   and `SCHEDULED` entries and decides which exchanges are kept longer. Spring WebFlux and Quarkus previously used a
@@ -93,6 +107,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Trace attributes requests to their declared route instead of a masked path when the application has a root path.
 - **Quarkus 3.33.3.3.** The Quarkus extension, integration tests, and sample app move to Quarkus 3.33.3.3, the
   newest micro release of the 3.33 LTS stream.
+- **Dependencies and build tooling updated**, including Vue 3.5.43 in the bundled console, the Quarkus LangChain4j BOM
+  1.13.3 in the Quarkus sample app, GraalVM Native Build Tools 1.1.14, Vitest 5.0.1, jsdom 30.1.1, Prettier 3.9.8, and
+  the patched `undici` 7.30.0 and `brace-expansion` transitive dependencies.
 
 ### Fixed
 
@@ -133,7 +150,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   outbound call. Because the Spring MVC, Spring WebFlux, and Quarkus sample apps live under it, their call sites were
   always empty, including in statement rankings, N+1 groups, and Live Activity. Only BootUI's own module packages are
   now skipped, and a test fails if a new BootUI package is added without being classified.
-
 - **Live Activity durable persistence works on MySQL and Oracle.** On MySQL, every read used the SQL-standard
   `OFFSET … FETCH FIRST` row limit, which MySQL rejects, so the Live Activity panel and `GET /bootui/api/activity`
   failed once persistence was on, while rows kept piling up unread. On Oracle, the table could never be created,
@@ -143,7 +159,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   database that rejects the query is reported as a failed switch instead of breaking the panel. This applies to
   Spring MVC, Spring WebFlux, and Quarkus
   ([#1142](https://github.com/jdubois/boot-ui/issues/1142)).
-
 - **Spring MVC Log Tail streams no longer throw on a worker thread when a client disconnects or the application
   stops.** When the servlet container had already failed the async request, the stream worker still tried to
   complete the `SseEmitter`. Tomcat rejected that with an uncaught `IllegalStateException`, and the session could
