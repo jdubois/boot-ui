@@ -89,6 +89,9 @@
         <archunit.version>1.5.0</archunit.version>
         <!-- Test-scope only: compiles the engine's Kotlin advisor fixtures. No BootUI module ships Kotlin. -->
         <kotlin.version>2.4.10</kotlin.version>
+        <!-- Compile Kotlin in-process: with a per-worktree .m2 every build gets a differently-classpathed daemon that is
+             never reused and outlives the build for hours. -->
+        <kotlin.compiler.daemon>false</kotlin.compiler.daemon>
         <jacoco-maven-plugin.version>0.8.15</jacoco-maven-plugin.version>
         <central.autoPublish>true</central.autoPublish>
         <maven-antrun-plugin.version>3.2.0</maven-antrun-plugin.version>
