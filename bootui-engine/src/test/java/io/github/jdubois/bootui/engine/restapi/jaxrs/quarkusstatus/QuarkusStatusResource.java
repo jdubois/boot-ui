@@ -18,7 +18,7 @@ public class QuarkusStatusResource {
     @POST
     @ResponseStatus(201)
     public WidgetDto createGizmo(WidgetDto widget) {
-        return widget;
+        return new WidgetDto("1", "gizmo");
     }
 
     @POST
@@ -27,13 +27,13 @@ public class QuarkusStatusResource {
     @ResponseHeader(name = "X-Trace", value = "gizmo")
     @ResponseHeader(name = "Location", value = "/gizmos/1")
     public WidgetDto createLocatedGizmo(WidgetDto widget) {
-        return widget;
+        return new WidgetDto("1", "gizmo");
     }
 
     @POST
     @Path("/legacy")
     public WidgetDto addGizmo(WidgetDto widget) {
-        return widget;
+        return new WidgetDto("1", "gizmo");
     }
 
     @GET
