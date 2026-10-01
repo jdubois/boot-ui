@@ -16,6 +16,7 @@ import io.github.jdubois.bootui.core.dto.ActivityPersistenceOptionDto;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchRequest;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchResult;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
+import io.github.jdubois.bootui.core.dto.RequestJournalProfileDto;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalClearRequest;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalClearResult;
@@ -38,6 +39,7 @@ import io.github.jdubois.bootui.engine.journal.ActivityFeedSource;
 import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalActivityReports;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.RequestJournalProfiles;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalService;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
@@ -110,6 +112,7 @@ public class LiveActivityController {
     private final BootUiProperties properties;
     private final ActivityFeedSource feedSource;
     private volatile JournalActivityReports journalReports;
+    private volatile RequestJournalProfiles requestJournalProfiles;
 
     public LiveActivityController(
             ObjectProvider<HttpExchangesController> httpExchanges,
@@ -325,6 +328,12 @@ public class LiveActivityController {
     public void setRuntimeJournal(RuntimeJournal journal, JournalAggregates aggregates) {
         this.runtimeJournal = new RuntimeJournalService(journal, aggregates);
         this.journalReports = journalReports(journal, aggregates);
+        this.requestJournalProfiles = new RequestJournalProfiles(
+                journal,
+                aggregates,
+                properties.getActivity().getRequestSlowThresholdMs(),
+                properties.getActivity().getNPlusOneThreshold(),
+                properties::isPanelEnabled);
         if (journal != null) {
             // Ticks the stream for every source the journal records, transactions and log events included.
             unsubscribers.add(journal.subscribe(changeStream::signal));
@@ -404,6 +413,24 @@ public class LiveActivityController {
             startCapture(response.newSettings());
         }
         return ResponseEntity.status(HttpStatus.valueOf(response.status())).body(response.body());
+    }
+
+    /**
+     * One request as the runtime journal recorded it ({@code docs/PLAN-v2.md} §5.3, §5.11): its timeline, GC pauses,
+     * measured resources, route comparison, and touched resources.
+     */
+    @GetMapping("/request/{id}/journal")
+    public RequestJournalProfileDto requestJournal(@PathVariable("id") String id) {
+        RequestJournalProfiles profiles = requestJournalProfiles;
+        return profiles == null
+                ? new RequestJournalProfiles(
+                                null,
+                                null,
+                                properties.getActivity().getRequestSlowThresholdMs(),
+                                properties.getActivity().getNPlusOneThreshold(),
+                                properties::isPanelEnabled)
+                        .profile(id)
+                : profiles.profile(id);
     }
 
     @GetMapping("/request/{id}")

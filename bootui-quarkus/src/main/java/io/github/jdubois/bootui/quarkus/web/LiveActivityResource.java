@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
+import io.github.jdubois.bootui.core.dto.RequestJournalProfileDto;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalClearRequest;
@@ -35,6 +36,7 @@ import io.github.jdubois.bootui.engine.journal.ActivityFeedSource;
 import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalActivityReports;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.RequestJournalProfiles;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalService;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
@@ -517,6 +519,23 @@ public class LiveActivityResource {
      * honest-degrade shaping to the shared engine assembler. Cache accesses have no capture seam on
      * Quarkus, so that section reports itself unavailable.
      */
+    /**
+     * One request as the runtime journal recorded it ({@code docs/PLAN-v2.md} §5.3, §5.11): its timeline, GC pauses,
+     * measured resources, route comparison, and touched resources.
+     */
+    @GET
+    @Path("/request/{id}/journal")
+    @Produces(MediaType.APPLICATION_JSON)
+    public RequestJournalProfileDto requestJournal(@PathParam("id") String id) {
+        return new RequestJournalProfiles(
+                        journal != null && journal.isResolvable() ? journal.get() : null,
+                        journalAggregates != null && journalAggregates.isResolvable() ? journalAggregates.get() : null,
+                        buffer.slowThresholdMillis(),
+                        SqlTraceGrouping.DEFAULT_N_PLUS_ONE_THRESHOLD,
+                        panel -> panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel))
+                .profile(id);
+    }
+
     @GET
     @Path("/request/{id}")
     @Produces(MediaType.APPLICATION_JSON)

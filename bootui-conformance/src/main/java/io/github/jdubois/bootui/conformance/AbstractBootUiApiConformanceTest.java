@@ -1547,6 +1547,47 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void requestJournalProfileKeepsOneShapeForAnUnknownAndARecordedRequest() throws InterruptedException {
+        assumeTrue(isPanelUsableInLiveManifest("activity"), "activity panel is not available in this environment");
+        ReadContract contract = BootUiApiContractCatalog.requestJournalProfile();
+        BootUiHttpProbe probe = probe();
+
+        Response unknown = probe.get(api(contract.relativePath()));
+        assertThat(unknown.status())
+                .as("GET %s status", contract.relativePath())
+                .isEqualTo(200);
+        List<String> failures = new ArrayList<>();
+        assertJsonContract("request journal profile, unknown", contract, unknown.json(), failures);
+        assertThat(unknown.json().path("available").asBoolean(true)).isFalse();
+
+        probe.get(routeProbePath());
+        String requestId = null;
+        for (int attempt = 0; attempt < 20 && requestId == null; attempt++) {
+            for (JsonNode entry : probe.get(api("/activity?source=journal&type=REQUEST&limit=50"))
+                    .json()
+                    .path("entries")) {
+                if (entry.path("path").asText("").contains("conformance-route-probe")) {
+                    requestId = entry.path("id").asText();
+                    break;
+                }
+            }
+            if (requestId == null) {
+                Thread.sleep(100);
+            }
+        }
+        assertThat(requestId)
+                .as("the journal's feed lists the route probe request")
+                .isNotNull();
+        Response recorded = probe.get(api("/activity/request/" + requestId + "/journal"));
+        assertThat(recorded.status()).isEqualTo(200);
+        assertJsonContract("request journal profile, recorded", contract, recorded.json(), failures);
+        assertThat(failures).as("request journal profile contract").isEmpty();
+        assertThat(recorded.json().path("available").asBoolean(false)).isTrue();
+        assertThat(recorded.json().path("requestId").asText()).isEqualTo(requestId);
+        assertThat(recorded.json().path("route").asText()).isNotBlank();
+    }
+
+    @Test
     void runtimeResourcesReportOneShapeWithABalancedLedger() {
         assumeTrue(isPanelUsableInLiveManifest("activity"), "activity panel is not available in this environment");
         ReadContract contract = BootUiApiContractCatalog.runtimeResources();

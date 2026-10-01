@@ -146,6 +146,29 @@ class SpringRuntimeJournalTest {
                 .isGreaterThan(before);
     }
 
+    @Test
+    void aRequestsJournalProfileShowsItsSqlOnItsTimelineAndTheTablesItNamed() throws Exception {
+        BootUiHttpProbe probe = new BootUiHttpProbe("http://localhost:" + port);
+        assertThat(probe.get("/api/sample/product-search?term=desk").status()).isEqualTo(200);
+        assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
+        String requestId = journal.entries().stream()
+                .filter(entry -> entry.event().payload() instanceof HttpPayload http
+                        && "/api/sample/product-search".equals(http.path()))
+                .map(entry -> entry.event().requestId())
+                .findFirst()
+                .orElseThrow();
+
+        String body = probe.get("/bootui/api/activity/request/" + requestId + "/journal")
+                .body();
+
+        assertThat(body)
+                .contains("\"available\":true")
+                .contains("\"route\":\"GET /api/sample/product-search\"")
+                .contains("\"source\":\"sql\"")
+                .contains("\"source\":\"connection\"")
+                .containsPattern("\"tables\":\\[\"[a-z_.]+\"");
+    }
+
     private RouteStats route(String name) {
         return aggregates.snapshot().routes().stream()
                 .filter(candidate -> candidate.route().equals(name))

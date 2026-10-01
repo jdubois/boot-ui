@@ -21,6 +21,7 @@ import io.github.jdubois.bootui.core.dto.HealthNodeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
+import io.github.jdubois.bootui.core.dto.RequestJournalProfileDto;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
@@ -51,6 +52,7 @@ import io.github.jdubois.bootui.engine.journal.ActivityFeedSource;
 import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalActivityReports;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.RequestJournalProfiles;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalService;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
@@ -333,12 +335,19 @@ public class ReactiveLiveActivityController {
 
     private volatile RuntimeJournalService runtimeJournal = new RuntimeJournalService(null, null);
     private volatile JournalActivityReports journalReports;
+    private volatile RequestJournalProfiles requestJournalProfiles;
 
     /** Installs the runtime journal whose status block and <b>Clear recording</b> this panel serves. */
     @Autowired(required = false)
     public void setRuntimeJournal(RuntimeJournal journal, JournalAggregates aggregates) {
         this.runtimeJournal = new RuntimeJournalService(journal, aggregates);
         this.journalReports = journalReports(journal, aggregates);
+        this.requestJournalProfiles = new RequestJournalProfiles(
+                journal,
+                aggregates,
+                properties.getActivity().getRequestSlowThresholdMs(),
+                properties.getActivity().getNPlusOneThreshold(),
+                properties::isPanelEnabled);
         if (journal != null) {
             // Ticks the stream for every source the journal records, transactions and log events included.
             unsubscribers.add(journal.subscribe(changeStream::signal));
@@ -425,6 +434,24 @@ public class ReactiveLiveActivityController {
      * no request served on the event loop has a stable owning thread to correlate on. Every source is read
      * through the same masked, self-filtered bean its own panel uses, and only when that panel is enabled.
      */
+    /**
+     * One request as the runtime journal recorded it ({@code docs/PLAN-v2.md} §5.3, §5.11): its timeline, GC pauses,
+     * measured resources, route comparison, and touched resources.
+     */
+    @GetMapping("/request/{id}/journal")
+    public RequestJournalProfileDto requestJournal(@PathVariable("id") String id) {
+        RequestJournalProfiles profiles = requestJournalProfiles;
+        return profiles == null
+                ? new RequestJournalProfiles(
+                                null,
+                                null,
+                                properties.getActivity().getRequestSlowThresholdMs(),
+                                properties.getActivity().getNPlusOneThreshold(),
+                                properties::isPanelEnabled)
+                        .profile(id)
+                : profiles.profile(id);
+    }
+
     @GetMapping("/request/{id}")
     public RequestProfileDto request(@PathVariable("id") String id) {
         List<HttpExchangeDto> requests = requestsReport().exchanges();

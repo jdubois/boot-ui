@@ -403,6 +403,24 @@ public final class BootUiApiContractCatalog {
                     "points", JsonType.ARRAY,
                     "totals", JsonType.OBJECT));
 
+    /**
+     * One request as the runtime journal recorded it, a detail read of the {@code activity} panel ({@code docs/PLAN-v2.md}
+     * §5.3, §5.11), kept out of {@link #reads()} like {@link #requestProfile()}. Its nullable objects and numbers are
+     * not listed.
+     */
+    private static final ReadContract REQUEST_JOURNAL_PROFILE = read(
+            "activity",
+            "/activity/request/conformance-unknown-request/journal",
+            fields(
+                    "available", JsonType.BOOLEAN,
+                    "unavailableReason", JsonType.NULLABLE_STRING,
+                    "requestId", JsonType.NULLABLE_STRING,
+                    "route", JsonType.NULLABLE_STRING,
+                    "timeline", JsonType.ARRAY,
+                    "gcPauses", JsonType.ARRAY,
+                    "touched", JsonType.OBJECT,
+                    "notes", JsonType.ARRAY));
+
     private static final List<ActionContract> ACTIONS = buildActions();
 
     private BootUiApiContractCatalog() {}
@@ -425,6 +443,11 @@ public final class BootUiApiContractCatalog {
     /** The runtime journal's status block, a detail read of the {@code activity} panel. */
     public static ReadContract runtimeJournal() {
         return RUNTIME_JOURNAL;
+    }
+
+    /** The journal request profile's read contract ({@code docs/PLAN-v2.md} §5.3, §5.11). */
+    public static ReadContract requestJournalProfile() {
+        return REQUEST_JOURNAL_PROFILE;
     }
 
     /** The resource track's read contract ({@code docs/PLAN-v2.md} §5.11). */
