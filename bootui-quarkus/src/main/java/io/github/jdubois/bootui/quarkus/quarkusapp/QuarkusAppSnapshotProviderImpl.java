@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.BiPredicate;
 import java.util.function.Supplier;
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigValue;
@@ -36,6 +37,7 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
             "QA-CFG-002",
             "QA-CFG-003",
             "QA-CFG-004",
+            "QA-CFG-005",
             "QA-PROD-002",
             "QA-PROD-003",
             "QA-WEB-001",
@@ -43,7 +45,12 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
             "QA-WEB-003",
             "QA-WEB-004");
     private static final Set<String> PRODUCTION_RULES =
-            Set.of("QA-CFG-002", "QA-CFG-003", "QA-PROD-002", "QA-PROD-003");
+            Set.of("QA-CFG-002", "QA-CFG-003", "QA-CFG-005", "QA-PROD-002", "QA-PROD-003");
+    private static final String PRODUCTION_UNOBSERVED =
+            "Only loaded production declarations were inspected; effective production configuration, "
+                    + "external overrides and unloaded profile-aware files are unavailable.";
+    private static final String BIND_PARAMETERS = "quarkus.hibernate-orm.log.bind-parameters";
+    private static final String LEGACY_BIND_PARAMETERS = "quarkus.hibernate-orm.log.bind-param";
     private static final String ACTIVE = "active configuration";
     private static final String DECLARED_PROD = "visible production declaration";
     private static final String ORM = "quarkus.hibernate-orm.";
@@ -76,6 +83,8 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
         private final Set<String> names = new TreeSet<>();
         private final List<ConfigSource> sources = new ArrayList<>();
         private List<String> profiles = List.of();
+        private boolean activeProd;
+        private Config productionDeclarations;
 
         private Collection(Config config, QuarkusAppMetadata metadata) {
             this.config = config;
@@ -85,6 +94,7 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
         private QuarkusAppSnapshot collect() {
             inspect(CONFIG_RULES, () -> {
                 profiles = List.copyOf(config.unwrap(SmallRyeConfig.class).getProfiles());
+                activeProd = profiles.equals(List.of("prod"));
                 int count = 0;
                 for (ConfigSource source : config.getConfigSources()) {
                     if (sources.size() >= MAX_CONFIG_SOURCES) {
@@ -124,20 +134,35 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
         }
 
         private void production() {
-            boolean activeProd = profiles.equals(List.of("prod"));
             Set<String> applicable = productionRules();
             if (!metadata.available()) {
                 unavailable(
-                        Set.of("QA-CFG-002", "QA-PROD-002", "QA-PROD-003"),
+                        Set.of("QA-CFG-002", "QA-CFG-005", "QA-PROD-002", "QA-PROD-003"),
                         "ORM and JDBC capability evidence is unavailable.");
             }
             Config source = activeProd ? config : productionDeclarations();
             String provenance = activeProd ? ACTIVE : DECLARED_PROD;
             if (!activeProd) {
-                unavailable(
-                        applicable,
-                        "Only loaded production declarations were inspected; effective production configuration, "
-                                + "external overrides and unloaded profile-aware files are unavailable.");
+                unavailable(applicable, PRODUCTION_UNOBSERVED);
+            }
+            if (applicable.contains("QA-CFG-005") && !activeProd) {
+                // An active production profile is HIB-CONFIG-018's effective-logger evidence; do not charge it twice.
+                inspect(Set.of("QA-CFG-005"), () -> {
+                    Config build = buildTimeBindDeclarations();
+                    String current = raw(build, BIND_PARAMETERS, true);
+                    String legacy = raw(build, LEGACY_BIND_PARAMETERS, true);
+                    if (current != null || legacy != null) {
+                        // Quarkus ORs both global build-time flags.
+                        boolean enabled = (current != null
+                                        && booleanValue(current).equals("true"))
+                                || (legacy != null && booleanValue(legacy).equals("true"));
+                        add(
+                                "QA-CFG-005",
+                                "Hibernate ORM bind-parameter logging",
+                                enabled ? "true" : "false",
+                                "visible build-time declaration for production");
+                    }
+                });
             }
 
             Set<String> units = new TreeSet<>();
@@ -217,6 +242,7 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
             Set<String> applicable = new HashSet<>(PRODUCTION_RULES);
             if (metadata.available() && !metadata.hibernateOrmSupported()) {
                 applicable.remove("QA-CFG-002");
+                applicable.remove("QA-CFG-005");
                 applicable.remove("QA-PROD-002");
             }
             if (metadata.available() && !metadata.jdbcDatasourceSupported()) {
@@ -230,6 +256,42 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
          * switching on the live config, base/dev-file guessing, or production expression expansion.
          */
         private Config productionDeclarations() {
+            if (productionDeclarations == null) {
+                productionDeclarations = projectProductionDeclarations();
+            }
+            return productionDeclarations;
+        }
+
+        /**
+         * Development mode never drains requests and builds with the development profile, so a visible literal
+         * {@code %prod.} declaration describes the production intent better than the active value.
+         */
+        private String productionIntent(Set<String> rules, String key) {
+            if (activeProd) {
+                return null;
+            }
+            unavailable(rules, PRODUCTION_UNOBSERVED);
+            return raw(productionDeclarations(), key, true);
+        }
+
+        private Config projectProductionDeclarations() {
+            return project((source, name) -> isProductionKey(name) && isProductionSetting(unprofiled(name)));
+        }
+
+        /**
+         * Bind-parameter logging is fixed at build time, so an unqualified declaration in a base application file is
+         * packaged into a production build unless a {@code %prod.} declaration overrides it. Profile-aware files,
+         * system properties and environment variables of this development run are not production evidence.
+         */
+        private Config buildTimeBindDeclarations() {
+            return project((source, name) -> {
+                String bare = unprofiled(name);
+                return (bare.equals(BIND_PARAMETERS) || bare.equals(LEGACY_BIND_PARAMETERS))
+                        && (isProductionKey(name) || (!name.startsWith("%") && isBaseApplicationFile(source)));
+            });
+        }
+
+        private Config project(BiPredicate<ConfigSource, String> include) {
             List<ConfigSource> projectedSources = new ArrayList<>();
             int count = 0;
             int declarationsRead = 0;
@@ -237,7 +299,7 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                 count++;
                 Map<String, String> declarations = new LinkedHashMap<>();
                 for (String name : names) {
-                    if (isProductionKey(name) && isProductionSetting(unprofiled(name))) {
+                    if (include.test(source, name)) {
                         String value = source.getValue(name);
                         if (value != null) {
                             if (++declarationsRead > MAX_PROPERTY_NAMES) {
@@ -260,10 +322,9 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
         }
 
         private void legacyProperties() {
+            Set<String> groups = new TreeSet<>();
             for (String name : names) {
-                String bare = unprofiled(name);
-                String namespace = namespace(bare, "quarkus", "hibernate-orm");
-                if (namespace == null || !bare.equals(namespace + "database.generation")) {
+                if (!isLegacyGeneration(unprofiled(name))) {
                     continue;
                 }
                 inspect(Set.of("QA-CFG-004"), () -> {
@@ -271,13 +332,24 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
                     if (value.getRawValue() != null
                             && !value.getRawValue().isBlank()
                             && value.getSourceOrdinal() > Integer.MIN_VALUE) {
-                        add("QA-CFG-004", name, "legacy", "configured property declaration");
+                        // One migration per persistence unit and profile, however many legacy keys it declares.
+                        groups.add(name.replaceFirst("\\.(create-schemas|halt-on-error)$", ""));
                     }
                 });
             }
+            groups.forEach(group -> add("QA-CFG-004", group, "legacy", "configured property declaration"));
         }
 
         private void compression() {
+            String declared = productionIntent(Set.of("QA-WEB-001"), "quarkus.http.enable-compression");
+            if (declared != null) {
+                add(
+                        "QA-WEB-001",
+                        "application HTTP server",
+                        booleanValue(declared).equals("true") ? "enabled" : "disabled",
+                        DECLARED_PROD);
+                return;
+            }
             ConfigValue value = config.getConfigValue("quarkus.http.enable-compression");
             boolean enabled = config.getOptionalValue("quarkus.http.enable-compression", Boolean.class)
                     .orElse(false);
@@ -290,15 +362,25 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
         }
 
         private void shutdown() {
-            Duration timeout = config.getOptionalValue("quarkus.shutdown.timeout", Duration.class)
-                    .orElse(null);
+            String declared = productionIntent(Set.of("QA-WEB-002", "QA-WEB-004"), "quarkus.shutdown.timeout");
+            Duration timeout;
+            String provenance = ACTIVE;
+            if (declared != null) {
+                timeout = config.getConverter(Duration.class)
+                        .orElseThrow(() -> new IllegalStateException("No duration converter"))
+                        .convert(declared.trim());
+                provenance = DECLARED_PROD;
+            } else {
+                timeout = config.getOptionalValue("quarkus.shutdown.timeout", Duration.class)
+                        .orElse(null);
+            }
             if (timeout != null && timeout.isNegative()) {
                 unavailable(Set.of("QA-WEB-002", "QA-WEB-004"), "The shutdown duration is invalid.");
                 return;
             }
             String value = timeout == null ? "absent" : timeout.isZero() ? "zero" : "positive";
-            add("QA-WEB-002", "HTTP request draining", value, ACTIVE);
-            add("QA-WEB-004", "HTTP request draining", value, ACTIVE);
+            add("QA-WEB-002", "HTTP request draining", value, provenance);
+            add("QA-WEB-004", "HTTP request draining", value, provenance);
         }
 
         private void clientTimeouts() {
@@ -385,6 +467,17 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
         };
     }
 
+    private static boolean isBaseApplicationFile(ConfigSource source) {
+        String name = source.getName();
+        if (name == null) {
+            return false;
+        }
+        String lower = name.toLowerCase(Locale.ROOT);
+        return lower.contains("application.properties")
+                || lower.contains("application.yaml")
+                || lower.contains("application.yml");
+    }
+
     private static boolean isProductionKey(String name) {
         if (!name.startsWith("%")) {
             return false;
@@ -407,7 +500,9 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
     }
 
     private static boolean isProductionSetting(String name) {
-        if (name.equals("quarkus.log.level")) {
+        if (name.equals("quarkus.log.level")
+                || name.equals("quarkus.http.enable-compression")
+                || name.equals("quarkus.shutdown.timeout")) {
             return true;
         }
         String unit = namespace(name, "quarkus", "hibernate-orm");
@@ -418,6 +513,34 @@ public class QuarkusAppSnapshotProviderImpl implements QuarkusAppSnapshotProvide
         }
         String datasource = namespace(name, "quarkus", "datasource");
         return datasource != null && name.equals(datasource + "jdbc.url");
+    }
+
+    /** The deprecated (since 3.22) database.generation group of the default or one named persistence unit. */
+    static boolean isLegacyGeneration(String name) {
+        if (!name.startsWith("quarkus.hibernate-orm.")) {
+            return false;
+        }
+        NameIterator iterator = new NameIterator(name);
+        List<String> segments = new ArrayList<>();
+        while (iterator.hasNext()) {
+            segments.add(iterator.getNextSegment());
+            iterator.next();
+            if (segments.size() > 6) {
+                return false;
+            }
+        }
+        if (segments.size() < 4 || !segments.get(1).equals("hibernate-orm")) {
+            return false;
+        }
+        for (int unit = 0; unit <= 1 && 2 + unit < segments.size(); unit++) {
+            List<String> rest = segments.subList(2 + unit, segments.size());
+            if (rest.equals(List.of("database", "generation"))
+                    || rest.equals(List.of("database", "generation", "create-schemas"))
+                    || rest.equals(List.of("database", "generation", "halt-on-error"))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String namespace(String name, String root, String group) {

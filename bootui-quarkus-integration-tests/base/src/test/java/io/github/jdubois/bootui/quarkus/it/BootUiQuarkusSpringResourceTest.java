@@ -16,8 +16,8 @@ import org.junit.jupiter.api.Test;
 /**
  * Real-boot checks for the Quarkus-native application advisor ({@code SpringResource} over the shared engine
  * {@code QuarkusAppScanner}). The rule logic is unit-tested in {@code QuarkusAppScannerTest}; this pins the
- * end-to-end wiring: a resolved singleton fixture exposes a public field, so {@code POST /scan} must
- * surface QA-CDI-003. Missing production deployment evidence must remain explicitly incomplete.
+ * end-to-end wiring: resolved singleton and application-scoped fixtures expose public fields, so
+ * {@code POST /scan} must surface QA-CDI-003 and the client-proxy rule QA-CDI-004. Missing production deployment evidence must remain explicitly incomplete.
  */
 @QuarkusTest
 class BootUiQuarkusSpringResourceTest {
@@ -48,8 +48,15 @@ class BootUiQuarkusSpringResourceTest {
         assertThat(ruleIds(scanned))
                 .as("any application advisor finding must be a Quarkus QA-* rule, never a Spring one")
                 .allMatch(id -> id.startsWith("QA-"))
-                .contains("QA-CDI-003")
-                .doesNotContain("QA-CFG-001", "QA-RX-001", "QA-SCH-001", "QA-PROD-001", "QA-PROF-001", "QA-DB-001");
+                .contains("QA-CDI-003", "QA-CDI-004")
+                .doesNotContain(
+                        "QA-CDI-001",
+                        "QA-CFG-001",
+                        "QA-RX-001",
+                        "QA-SCH-001",
+                        "QA-PROD-001",
+                        "QA-PROF-001",
+                        "QA-DB-001");
 
         Response cached = probe().get("/bootui/api/spring");
         assertThat(cached.json().path("scan").path("status").asText()).isEqualTo("PARTIAL");

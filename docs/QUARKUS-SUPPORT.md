@@ -215,16 +215,17 @@ Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter add
 | `Traces`                                              | OTLP — a standard; Quarkus/LangChain4j export it                                  |
 | `GitHub`                                              | `HttpClient`                                                                      |
 | `Copilot`, `Claude Code`                              | Read `~/.copilot` / `~/.claude`                                                   |
-| `Pentesting`                                          | Shared 79-check engine (see below)                                                |
+| `Pentesting`                                          | Shared 77-check engine (see below)                                                |
 | `MCP Server`                                          | **Implemented** — full JSON-RPC bridge (see below)                                |
 | `Command Line`                                        | Shared `CliService`; the Quarkus resource only routes                             |
 | `Dev Services`                                        | **Implemented** — Quarkus-native concept (see below)                             |
 
-Pentesting uses the shared 79-check engine and report contract. Its thin Quarkus collector supplies the live port,
-`quarkus.http.root-path`, effective CORS, OIDC auth-server URL, and selected/default/direct main HTTP-listener TLS
-configuration, with TLS property-name discovery bounded at 4096 entries. Unrelated client/management TLS keys do not
-prove main-listener TLS, and local HTTP does not assess proxy-edge HTTPS. Spring endpoint/security metadata is explicitly
-unavailable; A01 is therefore `NOT_APPLICABLE`, while no-finding mixed categories use Quarkus-specific `INFO` wording rather than a false pass. The
+Pentesting uses the shared 77-check engine and report contract. Its thin Quarkus collector supplies only the live port
+and `quarkus.http.root-path`: Quarkus CORS, OIDC, management, and HTTP/TLS configuration is reviewed by the Security
+panel's `QS-*` rules rather than duplicated as `PT-*` findings, while the synthetic preflight still exercises the global
+Vert.x CORS filter. Local HTTP does not assess proxy-edge HTTPS. Spring endpoint/security metadata is explicitly
+unavailable; A01 is therefore `NOT_APPLICABLE`, A07 is a `HANDOFF` to the Security panel, and no-finding mixed categories
+use Quarkus-specific `INFO` wording rather than a false pass. The
 explicit scan sends at most one GET and one OPTIONS request directly to `127.0.0.1`, with no redirect, proxy, or external
 host access. See [PENTEST-CHECKS.md](PENTEST-CHECKS.md) for the exact evidence limits and mappings.
 
@@ -507,7 +508,7 @@ button/confirmation flow, so the panel behaves and looks identical on both adapt
 
 | Spring panel        | Quarkus replacement                                                                                    |
 | ------------------- | ------------------------------------------------------------------------------------------------------ |
-| `Spring` advisor    | **Implemented** — **`Quarkus` advisor**: 13 evidence-based rules over resolved CDI/REST metadata and bounded configuration observations, with explicit incomplete coverage. Retired dependency/absence-only verdicts do not infer blocking, topology or production configuration. Same panel id `spring` + `/bootui/api/spring` + `SpringReport`. See [QUARKUS-ADVISOR-CHECKS.md](QUARKUS-ADVISOR-CHECKS.md) |
+| `Spring` advisor    | **Implemented** — **`Quarkus` advisor**: 14 evidence-based rules over resolved CDI/REST metadata and bounded configuration observations, with explicit incomplete coverage. Retired dependency/absence-only verdicts do not infer blocking, topology or production configuration. Same panel id `spring` + `/bootui/api/spring` + `SpringReport`. See [QUARKUS-ADVISOR-CHECKS.md](QUARKUS-ADVISOR-CHECKS.md) |
 | `Cache`             | **Implemented** — served over `quarkus-cache` (Caffeine) under the shared id `cache`; cache names + Micrometer metrics + clear, with an empty operations list (caching annotations are build-time woven). Tiering is reported (one local Caffeine tier per cache, with the maximum size and expiry configured under `quarkus.cache.caffeine."<name>".*`), but **native hit/miss statistics are honestly unavailable**: the public `io.quarkus.cache.CaffeineCache` interface exposes only `keySet`/`getIfPresent`/`put`/`setExpireAfter*`/`setMaximumSize` and no statistics accessor, and reaching into the internal `CaffeineCacheImpl` would violate R2. The panel states that reason and points at Micrometer cache metrics instead. |
 | `Security` advisor  | **Implemented** — a Quarkus-native ruleset (Elytron/OIDC, `quarkus.http.auth.permission.*`, TLS, CORS, Jakarta security annotations, `@PermissionsAllowed`, and `@AuthorizationPolicy`) under the same panel id `security`, replacing the Spring-Security-coupled checks. See [QUARKUS-CHECKS.md](QUARKUS-CHECKS.md) |
 
@@ -753,7 +754,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | PostgreSQL          | as-is       | Port    | `PostgresInsightService`         | `DataSourceProvider` (reused from the Database advisor); available only when a PostgreSQL datasource is configured (`db-kind=postgresql` or a PostgreSQL JDBC URL) alongside an Agroal datasource |
 | MySQL               | as-is       | Port    | `MySqlInsightService`            | Reused JDBC datasource discovery; MySQL declaration plus JDBC capability, not a reactive client alone. Shared cached report and explicit blocking read. |
 | Vulnerabilities     | as-is       | Port    | OSV scanner + dependency catalog | —                                           |
-| Pentesting          | as-is       | Port    | Pentesting engine                | CORS/OIDC/TLS metadata; Spring endpoint inventory explicitly unavailable |
+| Pentesting          | as-is       | Port    | Pentesting engine                | Synthetic probes only; QS-* owns Quarkus config; Spring inventory unavailable |
 | HTTP Probe          | as-is       | Port    | HTTP probe service               | —                                           |
 | AI Framework        | as-is       | Port    | TelemetryStore (OTLP)            | —                                           |
 | Traces              | as-is       | Port    | OTLP receiver + TelemetryStore   | —                                           |
