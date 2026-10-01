@@ -550,13 +550,10 @@ public class BootUiEngineConfiguration {
         @Lazy
         @ConditionalOnMissingBean
         io.github.jdubois.bootui.engine.hibernate.HibernateAdvisorObservationSource
-                bootUiHibernateAdvisorObservationSource(
-                        ListableBeanFactory beanFactory,
-                        Environment environment,
-                        ApplicationContext applicationContext) {
+                bootUiHibernateAdvisorObservationSource(ListableBeanFactory beanFactory, Environment environment) {
             // Resolving factories and repository metadata remains deferred to an explicit scan.
             return new io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateAdvisorObservationSource(
-                    beanFactory, environment, applicationContext);
+                    beanFactory, environment);
         }
 
         @Bean

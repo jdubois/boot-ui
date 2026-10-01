@@ -39,6 +39,11 @@ public final class HibernateFactorySettingsReader {
                                                 "io.quarkus.hibernate.orm.runtime.customized.QuarkusConnectionProvider")
                                 ? HibernateFactorySettings.ConnectionProvider.MANAGED
                                 : HibernateFactorySettings.ConnectionProvider.OTHER;
+        Object jdbcServices = reader.call(factory, "getJdbcServices");
+        // The statement logger holds the effective show/format/slow-query values, including Hibernate defaults and
+        // the legacy slow-query key, so an absent property reads as its default rather than as unknown.
+        Object statementLogger = reader.call(jdbcServices, "getSqlStatementLogger");
+        Object dialect = reader.call(jdbcServices, "getDialect");
         return new HibernateFactorySettings(
                 reader.integer(options, "getJdbcBatchSize"),
                 reader.integer(options, "getDefaultBatchFetchSize"),
@@ -51,36 +56,53 @@ public final class HibernateFactorySettingsReader {
                 region,
                 connectionProvider,
                 schemaAction(settings),
-                scalarBoolean(settings.get("hibernate.enable_lazy_load_no_trans")),
-                scalarBoolean(settings.get("hibernate.query.in_clause_parameter_padding")),
-                scalarInteger(
-                        settings.containsKey("hibernate.log_slow_query")
-                                ? settings.get("hibernate.log_slow_query")
-                                : settings.get("hibernate.session.events.log.LOG_QUERIES_SLOWER_THAN_MS")),
-                scalarBoolean(settings.get("hibernate.show_sql")),
-                scalarBoolean(settings.get("hibernate.format_sql")),
-                scalarBoolean(settings.get("hibernate.use_sql_comments")),
-                settings.containsKey("hibernate.jdbc.time_zone")
-                        ? nonblank(settings.get("hibernate.jdbc.time_zone"))
-                        : null,
-                scalarInteger(settings.get("hibernate.jdbc.fetch_size")),
-                oracle(reader.call(reader.call(factory, "getJdbcServices"), "getDialect")));
+                reader.bool(options, "isInitializeLazyStateOutsideTransactionsEnabled"),
+                reader.bool(options, "inClauseParameterPaddingEnabled"),
+                statementLogger == null
+                        ? scalarInteger(
+                                settings.containsKey("hibernate.log_slow_query")
+                                        ? settings.get("hibernate.log_slow_query")
+                                        : settings.get("hibernate.session.events.log.LOG_QUERIES_SLOWER_THAN_MS"))
+                        : reader.millis(statementLogger, "getLogSlowQuery"),
+                statementLogger == null
+                        ? scalarBoolean(settings.get("hibernate.show_sql"))
+                        : reader.bool(statementLogger, "isLogToStdout"),
+                statementLogger == null
+                        ? scalarBoolean(settings.get("hibernate.format_sql"))
+                        : reader.bool(statementLogger, "isFormat"),
+                reader.bool(options, "isCommentsEnabled"),
+                reader.present(options, "getJdbcTimeZone"),
+                fetchSize(reader, options),
+                dialectFamily(dialect, "org.hibernate.dialect.OracleDialect"),
+                dialectFamily(dialect, "org.hibernate.dialect.PostgreSQLDialect"));
     }
 
-    private static Boolean oracle(Object observedDialect) {
-        if (observedDialect != null) {
-            for (Class<?> type = observedDialect.getClass(); type != null; type = type.getSuperclass()) {
-                if (type.getName().startsWith("org.hibernate.dialect.Oracle")) return true;
-                if ("org.hibernate.dialect.Dialect".equals(type.getName())) return false;
-            }
-        }
+    /** The configured JDBC fetch size, with 0 standing for an unset size that leaves the driver default in place. */
+    private static Integer fetchSize(Reader reader, Object options) {
+        Object value = reader.result(options, "getJdbcFetchSize");
+        if (value == Reader.FAILED) return null;
+        if (value == null) return 0;
+        if (value instanceof Integer integer) return integer;
+        reader.failed();
         return null;
     }
 
-    private static boolean nonblank(Object value) {
-        return value instanceof java.util.TimeZone
-                || value instanceof java.time.ZoneId
-                || value instanceof String string && !string.isBlank();
+    /**
+     * Whether the observed dialect belongs to a family. Spanner's PostgreSQL-interface dialect is not PostgreSQL, and
+     * Oracle keeps its historical prefix match so versioned Oracle dialect names stay recognized.
+     */
+    private static Boolean dialectFamily(Object observedDialect, String familyRoot) {
+        if (observedDialect != null) {
+            for (Class<?> type = observedDialect.getClass(); type != null; type = type.getSuperclass()) {
+                String name = type.getName();
+                if ("org.hibernate.dialect.SpannerPostgreSQLDialect".equals(name)) return false;
+                if (familyRoot.equals(name)) return true;
+                if (familyRoot.endsWith("OracleDialect") && name.startsWith("org.hibernate.dialect.Oracle"))
+                    return true;
+                if ("org.hibernate.dialect.Dialect".equals(name)) return false;
+            }
+        }
+        return null;
     }
 
     private static HibernateFactorySettings.SchemaAction schemaAction(Map<?, ?> settings) {
@@ -123,6 +145,7 @@ public final class HibernateFactorySettingsReader {
 
     private static Integer scalarInteger(Object value) {
         if (value instanceof Integer integer) return integer;
+        if (value instanceof Long number) return (int) Math.max(Integer.MIN_VALUE, Math.min(Integer.MAX_VALUE, number));
         if (value instanceof String string) {
             try {
                 return Integer.valueOf(string.trim());
@@ -134,7 +157,9 @@ public final class HibernateFactorySettingsReader {
     }
 
     private record Reader(String label, List<HibernateObservationDiagnostic> diagnostics) {
-        private void failed() {
+        static final Object FAILED = new Object();
+
+        void failed() {
             HibernateObservationDiagnostic diagnostic = new HibernateObservationDiagnostic(
                     label, HibernateObservationDiagnostic.Reason.FACTORY_SETTING_UNAVAILABLE);
             if (!diagnostics.contains(diagnostic)) diagnostics.add(diagnostic);
@@ -149,6 +174,35 @@ public final class HibernateFactorySettingsReader {
                 failed();
                 return null;
             }
+        }
+
+        /** Like {@link #call}, but tells a successful {@code null} result apart from a failed or missing read. */
+        Object result(Object target, String name) {
+            if (target == null) {
+                failed();
+                return FAILED;
+            }
+            try {
+                return publicMethod(target.getClass(), name).invoke(target);
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError ex) {
+                failed();
+                return FAILED;
+            }
+        }
+
+        /** Whether a nullable getter returned a value; {@code null} when the read failed. */
+        Boolean present(Object target, String name) {
+            Object value = result(target, name);
+            return value == FAILED ? null : value != null;
+        }
+
+        Integer millis(Object target, String name) {
+            Object value = call(target, name);
+            if (value instanceof Number number) {
+                return (int) Math.max(Integer.MIN_VALUE, Math.min(Integer.MAX_VALUE, number.longValue()));
+            }
+            failed();
+            return null;
         }
 
         Object service(Object registry, String name) {

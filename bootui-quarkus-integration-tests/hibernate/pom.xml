@@ -18,8 +18,7 @@
         the app's mapped @Entity classes are read from the EntityManagerFactory metamodel by the engine
         JpaMetamodelReader (via the capability-gated QuarkusEntityDiscovery), the shared engine HibernateScanner
         runs its curated rule registry on POST /bootui/api/hibernate/scan, and the QuarkusHibernatePropertyLookup
-        maps the engine's config keys onto the quarkus.hibernate-orm.* namespace (proving, in particular, that the
-        Spring-only Open-Session-in-View rule HIB-CONFIG-001 stays inert). Kept separate from
+        maps the engine's config keys onto the quarkus.hibernate-orm.* namespace. Kept separate from
         bootui-quarkus-integration-tests (which deliberately has NO Hibernate ORM) so the ORM-absent
         not-configured path and the ORM-present scan path are each proven in isolation — the same split used for
         the SmallRye-Health and OpenTelemetry present/absent coverage.</description>

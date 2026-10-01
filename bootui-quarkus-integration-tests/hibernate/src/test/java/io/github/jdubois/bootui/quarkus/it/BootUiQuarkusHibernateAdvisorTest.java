@@ -27,8 +27,8 @@ import org.junit.jupiter.api.Test;
  * panel, that {@code POST /scan} reads the application's mapped entities from the {@code EntityManagerFactory}
  * metamodel (via the capability-gated {@code QuarkusHibernateAdvisorObservationSource}) and runs the shared engine rule registry,
  * that a known annotation-driven advisory fires against the deliberately-imperfect {@link org.acme.hibdemo.Product}
- * entity, and — crucially — that the Spring-only Open-Session-in-View rule {@code HIB-CONFIG-001} stays inert,
- * proving OSIV is classified not applicable. Native factory defaults, rather than property aliases,
+ * entity, and that retired identifiers such as the former Spring-only Open-Session-in-View rule
+ * {@code HIB-CONFIG-001} are never reported. Native factory defaults, rather than property aliases,
  * provide batch/cache/statistics evidence; unavailable scalar observations remain incomplete instead
  * of producing false-positive findings.</p>
  */
@@ -107,12 +107,20 @@ class BootUiQuarkusHibernateAdvisorTest {
                 .isGreaterThanOrEqualTo(3);
         assertThat(scanned.path("rulesEvaluated").asInt())
                 .as("the shared curated rule registry must have run")
-                .isEqualTo(71);
+                .isEqualTo(72);
 
         List<String> violationIds = ruleIds(scanned.path("results"));
         assertThat(violationIds)
                 .doesNotHaveDuplicates()
-                .doesNotContain("HIB-FETCH-004", "HIB-MAP-012", "HIB-ENTITY-003", "HIB-ENTITY-004", "HIB-MAP-019");
+                .doesNotContain(
+                        "HIB-FETCH-004",
+                        "HIB-MAP-012",
+                        "HIB-MAP-017",
+                        "HIB-MAP-019",
+                        "HIB-MAP-021",
+                        "HIB-ENTITY-003",
+                        "HIB-ENTITY-004",
+                        "HIB-CONFIG-001");
         for (JsonNode result : scanned.path("results")) {
             assertThat(result.path("status").asText()).isEqualTo("VIOLATION");
             for (JsonNode sample : result.path("sampleViolations"))
@@ -137,10 +145,6 @@ class BootUiQuarkusHibernateAdvisorTest {
                 .as("the entity's source path resolves during the explicit scan on Quarkus")
                 .isRegularFile()
                 .endsWith(java.nio.file.Path.of("src", "main", "java", "org", "acme", "hibdemo", "Product.java"));
-        assertThat(violationIds)
-                .as("Open-Session-in-View (HIB-CONFIG-001) must stay inert on Quarkus — there is no OSIV, so the"
-                        + " observation reports it not applicable")
-                .doesNotContain("HIB-CONFIG-001");
         assertThat(violationIds)
                 .as("the effective factory fetch batch size is 16, so the Product.tags lazy @ManyToMany collection is"
                         + " covered and HIB-FETCH-002 does not false-positive")
