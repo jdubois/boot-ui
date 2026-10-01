@@ -24,7 +24,7 @@ final class HibernateMissingForeignKeyConstraintRule extends AbstractHibernateCr
                 "Review the association's effective physical mapping and intended database constraint before "
                         + "changing migrations. JPA foreign-key annotations describe schema generation; JPA cascade "
                         + "does not imply ON DELETE CASCADE, and an association alone does not require database cascades.",
-                "https://vladmihalcea.com/database-table-relationships/"));
+                "https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2.html"));
     }
 
     @Override

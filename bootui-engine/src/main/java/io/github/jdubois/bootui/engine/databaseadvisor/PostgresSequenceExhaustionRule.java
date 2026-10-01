@@ -72,7 +72,7 @@ final class PostgresSequenceExhaustionRule extends AbstractDatabaseAdvisorRule {
             return;
         }
         int percentUsed = sequence.percentUsed();
-        if (percentUsed < WARNING_PERCENT_USED) {
+        if (percentUsed < WARNING_PERCENT_USED || sequence.neverUsed()) {
             return;
         }
         String limitedBy = sequence.limitedByColumn() ? " (limited by its owning column type)" : "";
