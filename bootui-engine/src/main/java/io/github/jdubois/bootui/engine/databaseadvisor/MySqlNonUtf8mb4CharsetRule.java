@@ -36,7 +36,7 @@ final class MySqlNonUtf8mb4CharsetRule extends AbstractDatabaseAdvisorRule {
                         + "server-supported collation preserving required comparison and uniqueness semantics. "
                         + "Changing only the table default does not convert existing columns. Review key lengths, "
                         + "foreign-key compatibility, possible duplicate comparisons, rewrite cost and locks.",
-                "https://dev.mysql.com/doc/refman/8.0/en/charset-unicode-utf8mb4.html"));
+                "https://dev.mysql.com/doc/refman/8.4/en/charset-unicode-utf8mb4.html"));
     }
 
     @Override
