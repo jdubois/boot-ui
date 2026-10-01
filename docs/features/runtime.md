@@ -170,12 +170,13 @@ If startup data is still unavailable, the panel shows an empty state rather than
 
 The GraalVM panel surveys the application for
 [native-image](https://www.graalvm.org/latest/reference-manual/native-image/) readiness. On demand it imports the
-application's own classes, bounded to the detected base packages, and runs 27 curated checks: 22 GraalVM checks and 5
+application's own classes, bounded to the detected base packages, and runs 30 curated checks: 22 GraalVM checks and 8
 Spring AOT checks. After a scan you can filter the concerns by severity, category, or free text without rerunning it.
 
-The checks look for reflection, dynamic class loading, deep reflection, dynamic proxies, runtime resource loading,
-resource bundles, serialization, native access, runtime class generation, classpath scanning, `MethodHandles`, security
-providers, JMX, FFM, and Spring AOT boundaries. They are heuristic review aids that complement the GraalVM tracing
+The checks look for reflection (including Spring's reflection helpers), programmatic data binding, dynamic class
+loading, dynamic proxies, runtime resource loading, resource bundles, serialization, native access, runtime class
+generation, finalizers, classpath scanning, `MethodHandles`, security providers, JMX, FFM, and Spring AOT boundaries
+such as frozen conditions, explicit-argument bean creation, replayed registry post-processors, and refresh scope. They are heuristic review aids that complement the GraalVM tracing
 agent and an actual native build rather than replacing them. See
 [GraalVM readiness checks](../GRAALVM-READINESS-CHECKS.md) for the full catalogue.
 

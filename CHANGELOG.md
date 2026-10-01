@@ -49,6 +49,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **GraalVM advisor: October 2026 audit (30 checks).** The native-image readiness advisor was re-audited against the
+  GraalVM for JDK 25 feature releases (through 25.4), Spring Framework 7.0.9, Spring Boot 4.1.1, and Spring Cloud
+  Commons, with every new or removed rule critiqued by three reviewer models. `GRAAL-REFLECT-003` (deep reflection) and
+  `GRAAL-REFLECT-004` (member annotation access) are retired because neither needs metadata of its own. Five checks are
+  added: `GRAAL-REFLECT-006` (application types bound with Jackson or Spring's HTTP clients in a method body),
+  `GRAAL-JDK-003` (`finalize()` cleanup that never runs natively), `SPRING-AOT-006` (explicit-argument `getBean`),
+  `SPRING-AOT-007` (registry post-processors replayed at run time), and `SPRING-AOT-008` (`@RefreshScope`).
+  `GRAAL-REFLECT-001` now covers Spring's `ReflectionUtils`, `ClassUtils`, and `BeanUtils` facades, `GRAAL-RES-001`
+  covers `ClassPathResource` and resource pattern lookups, `SPRING-AOT-003` covers `@ConditionalOnCloudPlatform` and
+  `@ConditionalOnThreading`, and `GRAAL-JMX-001` no longer flags `ManagementFactory.getPlatformMBeanServer()` but
+  reports MBean registration, JMX proxies, and remote connectors instead
+  ([GraalVM readiness checks](docs/GRAALVM-READINESS-CHECKS.md#october-2026-audit)).
 - **One request slow threshold on every stack.** `bootui.activity.request-slow-threshold-ms` (default 1,000 ms) is now
   honored by Spring WebFlux and Quarkus as well as Spring MVC. It sets the `SLOW` severity of Live Activity `REQUEST`
   and `SCHEDULED` entries and decides which exchanges are kept longer. Spring WebFlux and Quarkus previously used a
