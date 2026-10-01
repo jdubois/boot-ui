@@ -478,6 +478,28 @@ class QuarkusSecuritySnapshotProviderImplTest {
     }
 
     @Test
+    void soleUniversalRegexIsTheWildcardOriginAndDefaultsCredentialsToFalse() {
+        var sole = snapshot(Map.of("quarkus.http.cors.enabled", "true", "quarkus.http.cors.origins", "/.*/"));
+        assertThat(sole.corsCredentials()).isFalse();
+        var results = QuarkusSecurityScanner.usingSnapshot(() -> sole, Clock.systemUTC())
+                .scan()
+                .results();
+        assertThat(results).noneMatch(result -> result.id().equals("QS-CORS-002"));
+        assertThat(results).anyMatch(result -> result.id().equals("QS-CORS-001"));
+
+        var anchored = snapshot(Map.of("quarkus.http.cors.enabled", "true", "quarkus.http.cors.origins", "/^.*$/"));
+        assertThat(anchored.corsCredentials()).isTrue();
+        var explicit = snapshot(Map.of(
+                "quarkus.http.cors.enabled",
+                "true",
+                "quarkus.http.cors.origins",
+                "/.*/",
+                "quarkus.http.cors.access-control-allow-credentials",
+                "true"));
+        assertThat(explicit.corsCredentials()).isTrue();
+    }
+
+    @Test
     void regexOriginsDefaultToCredentialsAndExplicitFalseWins() {
         var regex = snapshot(
                 Map.of("quarkus.http.cors.enabled", "true", "quarkus.http.cors.origins", "/.*/,https://app.example"));

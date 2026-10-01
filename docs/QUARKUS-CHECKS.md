@@ -338,7 +338,9 @@ Dismissed rules remove all of their findings from the score.
 - **Severity**: HIGH
 - **Detects**: A supported universal origin configuration allows credentials. Explicit
   `quarkus.http.cors.access-control-allow-credentials` wins; otherwise both exact and regex origin matches default
-  credentials to `true`. A sole literal `*` defaults credentials to `false`, unlike a matching universal regex.
+  credentials to `true`. A sole `*` **or sole `/.*/`** is Quarkus's wildcard origin
+  (`CORSFilter.isOriginConfiguredWithWildcard`), which defaults credentials to `false` and is reviewed by QS-CORS-001
+  instead. A universal regex inside a list, or a sole `/^.*$/`, is matched as a regex and defaults credentials to `true`.
   Quarkus reflects the request Origin, so this is not the browser-rejected literal `Access-Control-Allow-Origin: *`
   plus credentials combination. QS-CORS-001 is not also emitted for the same credentialed policy.
 - **Recommendation**: Pin explicit origins; never combine wildcard with credentials.

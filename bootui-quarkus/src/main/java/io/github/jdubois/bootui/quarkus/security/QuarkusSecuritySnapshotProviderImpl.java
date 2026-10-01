@@ -513,14 +513,19 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
     /**
      * Mirrors Quarkus's real {@code CORSFilter} default: {@code accessControlAllowCredentials().orElse(originMatches)}.
      * If the property is explicitly set, that value wins; otherwise credentials are implicitly allowed whenever
-     * the request Origin matches a configured literal or regex. A sole literal wildcard differs: it does not
-     * establish {@code originMatches}, so credentials then default false.
+     * the request Origin matches a configured literal or regex. A sole {@code *} or {@code /.*}{@code /} differs:
+     * {@code isOriginConfiguredWithWildcard} treats it as the wildcard origin, which does not establish
+     * {@code originMatches}, so credentials then default false.
      */
     private boolean corsCredentials(String corsOrigins) {
         if (has("quarkus.http.cors.access-control-allow-credentials")) {
             return bool("quarkus.http.cors.access-control-allow-credentials", false);
         }
-        if (corsOrigins == null || corsOrigins.isBlank() || "*".equals(corsOrigins.trim())) {
+        if (corsOrigins == null || corsOrigins.isBlank()) {
+            return false;
+        }
+        List<String> origins = splitList(corsOrigins);
+        if (origins.size() == 1 && Set.of("*", "/.*/").contains(origins.get(0))) {
             return false;
         }
         // Regex origin matches, like exact matches, default credentials to true. The response reflects Origin.
