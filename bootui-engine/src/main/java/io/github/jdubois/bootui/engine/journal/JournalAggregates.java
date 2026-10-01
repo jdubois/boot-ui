@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.journal;
 
+import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.engine.sqltrace.SqlStatementNormalizer;
@@ -59,6 +60,8 @@ public final class JournalAggregates implements JournalListener {
     private long failedRequests;
     private long unattributedRequests;
     private volatile Supplier<RouteTemplateResolver> declaredRoutes = RouteTemplateResolver::empty;
+    private volatile RunHistory history;
+    private volatile RunIdentity run;
 
     /**
      * Installs the application's declared routes, which name a request's route when the framework recorded no
@@ -66,6 +69,24 @@ public final class JournalAggregates implements JournalListener {
      */
     public void setDeclaredRoutes(Supplier<RouteTemplateResolver> declaredRoutes) {
         this.declaredRoutes = declaredRoutes == null ? RouteTemplateResolver::empty : declaredRoutes;
+    }
+
+    /**
+     * Keeps the summary of {@code run} in {@code history} when the journal closes at the end of the run, so a later
+     * run can be compared with it ({@code docs/PLAN-v2.md} §5.2, §5.8).
+     */
+    public void recordRunIn(RunHistory history, RunIdentity run) {
+        this.history = history;
+        this.run = run;
+    }
+
+    @Override
+    public void onClose() {
+        RunHistory target = history;
+        RunIdentity ended = run;
+        if (target != null && ended != null) {
+            target.record(RunSummary.of(ended, snapshot(), System.currentTimeMillis()));
+        }
     }
 
     @Override

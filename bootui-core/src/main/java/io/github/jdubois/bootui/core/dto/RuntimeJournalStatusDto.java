@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.core.dto;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -21,6 +22,8 @@ import java.util.Map;
  * @param recorded events recorded since the run started, per source, such as {@code sql} or {@code rest-client}
  * @param dropped events dropped because the queue was full, per source
  * @param droppedEvents events dropped from every source
+ * @param previousRuns the previous runs whose summaries are kept, newest first
+ * @param previousRunsUnavailable why previous runs cannot be kept, or {@code null} when they can
  */
 public record RuntimeJournalStatusDto(
         boolean enabled,
@@ -38,10 +41,13 @@ public record RuntimeJournalStatusDto(
         int queueCapacity,
         Map<String, Long> recorded,
         Map<String, Long> dropped,
-        long droppedEvents) {
+        long droppedEvents,
+        List<RuntimeRunSummaryDto> previousRuns,
+        String previousRunsUnavailable) {
 
     public RuntimeJournalStatusDto {
         recorded = DtoCollections.immutableCopy(recorded);
         dropped = DtoCollections.immutableCopy(dropped);
+        previousRuns = DtoCollections.immutableCopy(previousRuns);
     }
 }

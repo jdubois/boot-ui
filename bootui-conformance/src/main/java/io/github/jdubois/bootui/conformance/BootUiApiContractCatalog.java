@@ -385,7 +385,9 @@ public final class BootUiApiContractCatalog {
                     "queueCapacity", JsonType.INTEGER,
                     "recorded", JsonType.OBJECT,
                     "dropped", JsonType.OBJECT,
-                    "droppedEvents", JsonType.INTEGER));
+                    "droppedEvents", JsonType.INTEGER,
+                    "previousRuns", JsonType.ARRAY,
+                    "previousRunsUnavailable", JsonType.NULLABLE_STRING));
 
     private static final List<ActionContract> ACTIONS = buildActions();
 

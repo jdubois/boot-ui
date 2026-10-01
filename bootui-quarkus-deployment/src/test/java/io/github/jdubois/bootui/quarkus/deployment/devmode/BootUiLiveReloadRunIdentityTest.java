@@ -20,7 +20,7 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 /**
  * A Quarkus live reload starts a new application run, so {@code /overview} reports a new {@code run} with a new id and
  * the next ordinal, while the BootUI instance, whose jars survive the reload, keeps its id ({@code docs/PLAN-v2.md}
- * §5.1).
+ * §5.1). The run that ended keeps its summary, which the runtime journal's status lists as a previous run (§5.2).
  */
 class BootUiLiveReloadRunIdentityTest {
 
@@ -52,6 +52,14 @@ class BootUiLiveReloadRunIdentityTest {
         assertThat(Integer.parseInt(after.group(3)))
                 .as("the run ordinal advances")
                 .isGreaterThan(Integer.parseInt(before.group(3)));
+
+        String journal = get("/bootui/api/activity/journal");
+        assertThat(journal).contains("\"previousRunsUnavailable\":null");
+        String previousRuns = journal.substring(journal.indexOf("\"previousRuns\""));
+        assertThat(previousRuns)
+                .as("the reloaded run's summary was kept: " + journal)
+                .contains("\"runId\":\"" + before.group(2) + "\"")
+                .doesNotContain("\"runId\":\"" + after.group(2) + "\"");
     }
 
     private Matcher run() throws Exception {

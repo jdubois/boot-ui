@@ -31,11 +31,15 @@ import io.github.jdubois.bootui.autoconfigure.web.*;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
+import io.github.jdubois.bootui.core.dto.RuntimeJournalStatusDto;
+import io.github.jdubois.bootui.core.dto.RuntimeRunSummaryDto;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RunHistory;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournalService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.BootUiSpanExporter;
@@ -148,6 +152,31 @@ class BootUiAutoConfigurationTests {
             assertThat(second.ordinal()).isGreaterThan(first.get().ordinal());
             assertThat(second.toDto().instanceId())
                     .isEqualTo(first.get().toDto().instanceId());
+        });
+    }
+
+    @Test
+    void closingTheContextKeepsItsRunSummaryForTheNextRun() {
+        AtomicReference<RunIdentity> first = new AtomicReference<>();
+        runner.withPropertyValues("bootui.enabled=ON").run(context -> first.set(context.getBean(RunIdentity.class)));
+
+        assertThat(RunHistory.shared().headers())
+                .as("the context's close recorded its run")
+                .anySatisfy(header -> {
+                    assertThat(header.runId()).isEqualTo(first.get().id());
+                    assertThat(header.ordinal()).isEqualTo(first.get().ordinal());
+                    assertThat(header.endedAtEpochMillis())
+                            .isGreaterThanOrEqualTo(first.get().startedAtEpochMillis());
+                });
+        runner.withPropertyValues("bootui.enabled=ON").run(context -> {
+            RuntimeJournalStatusDto status = new RuntimeJournalService(
+                            context.getBean(RuntimeJournal.class), context.getBean(JournalAggregates.class))
+                    .status();
+            assertThat(status.previousRunsUnavailable()).isNull();
+            assertThat(status.previousRuns())
+                    .extracting(RuntimeRunSummaryDto::runId)
+                    .contains(first.get().id())
+                    .doesNotContain(context.getBean(RunIdentity.class).id());
         });
     }
 

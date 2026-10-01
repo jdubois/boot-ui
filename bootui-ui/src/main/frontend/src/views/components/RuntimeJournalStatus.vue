@@ -22,6 +22,7 @@ const error = ref('')
 
 const recorded = computed(() => Object.entries(status.value?.recorded ?? {}))
 const dropped = computed(() => Object.entries(status.value?.dropped ?? {}))
+const previousRuns = computed(() => status.value?.previousRuns ?? [])
 const boundLabel = computed(() => {
   if (status.value?.bindingBound === 'COUNT') return 'the event-count bound is reached'
   if (status.value?.bindingBound === 'BYTES') return 'the memory bound is reached'
@@ -77,6 +78,10 @@ async function clearRecording() {
   } finally {
     clearing.value = false
   }
+}
+
+function counted(count, noun, plural = `${noun}s`) {
+  return `${formatNumber(count)} ${count === 1 ? noun : plural}`
 }
 
 onMounted(load)
@@ -156,6 +161,30 @@ onMounted(load)
               </li>
             </ul>
           </template>
+        </dd>
+        <dt class="col-sm-3">Previous runs</dt>
+        <dd class="col-sm-9">
+          <span v-if="status.previousRunsUnavailable" class="text-muted">{{ status.previousRunsUnavailable }}</span>
+          <span v-else-if="previousRuns.length === 0" class="text-muted">
+            None kept yet. When the application restarts in this JVM, as after a DevTools restart or a Quarkus live
+            reload, the summary of this run is kept here, for up to 5 runs.
+          </span>
+          <ul v-else class="list-unstyled mb-0 runtime-journal-runs">
+            <li v-for="run in previousRuns" :key="run.runId">
+              Run {{ run.ordinal }} <code>{{ run.runId }}</code
+              >, {{ formatClockTime(run.startedAt) }} to {{ formatClockTime(run.endedAt) }}:
+              {{ counted(run.requests, 'request')
+              }}<span v-if="run.failedRequests > 0" class="text-warning-emphasis"
+                >, {{ formatNumber(run.failedRequests) }} failed</span
+              >, {{ counted(run.events, 'event') }}
+              <span class="text-muted"
+                >({{ formatBytes(run.summaryBytes)
+                }}<template v-if="run.omittedEntries > 0"
+                  >, {{ counted(run.omittedEntries, 'least-used entry', 'least-used entries') }} left out</template
+                >)</span
+              >
+            </li>
+          </ul>
         </dd>
       </dl>
     </div>

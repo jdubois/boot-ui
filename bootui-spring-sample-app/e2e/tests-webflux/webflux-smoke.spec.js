@@ -199,6 +199,7 @@ test.describe('BootUI on Spring WebFlux', () => {
     await expect(page.getByRole('heading', {name: 'Runtime journal'})).toHaveCount(1)
     await expect(journal.locator('code', {hasText: /^http$/})).toBeVisible()
     await expect(journal.locator('code', {hasText: /^sql$/})).toBeVisible()
+    await expect(journal).toContainText('Previous runs')
   })
 
   test("profiles a request's SQL exactly by its BootUI request id", async ({request, baseURL}) => {

@@ -44,7 +44,8 @@ class WebFluxRuntimeJournalTest {
 
         assertThat(probe.get("/api/greetings/bootui").status()).isEqualTo(200);
         assertThat(probe.get("/api/sample/boom").status()).isEqualTo(500);
-        assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
+        awaitRequests("GET /api/greetings/{name}", 1);
+        awaitRequests("GET /api/sample/boom", 1);
 
         assertThat(aggregates.snapshot().routes())
                 .anySatisfy(route -> {
@@ -66,7 +67,7 @@ class WebFluxRuntimeJournalTest {
             assertThat(probe.get("/api/notes").status()).isEqualTo(200);
         }
         assertThat(probe.get("/bootui/api/overview").status()).isEqualTo(200);
-        assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
+        awaitRequests("GET /api/notes", 3);
 
         RouteStats route = aggregates.snapshot().routes().stream()
                 .filter(candidate -> candidate.route().equals("GET /api/notes"))
@@ -85,5 +86,22 @@ class WebFluxRuntimeJournalTest {
         assertThat(aggregates.snapshot().routes())
                 .extracting(RouteStats::route)
                 .noneMatch(name -> name.contains("/bootui"));
+    }
+
+    /**
+     * Waits until {@code route} has recorded {@code requests}. A WebFlux request publishes its event when its filter
+     * chain completes, which can be after the client has read the response, so draining the journal is not enough.
+     */
+    private void awaitRequests(String route, long requests) throws InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (System.nanoTime() < deadline) {
+            assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
+            boolean recorded = aggregates.snapshot().routes().stream()
+                    .anyMatch(candidate -> candidate.route().equals(route) && candidate.requests() >= requests);
+            if (recorded) {
+                return;
+            }
+            Thread.sleep(20);
+        }
     }
 }

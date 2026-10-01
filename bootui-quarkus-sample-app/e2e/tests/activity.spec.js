@@ -63,6 +63,7 @@ test.describe('Live Activity view (Quarkus)', () => {
     await expect(journal).toContainText('Recorded this run')
     await expect(journal.locator('code', {hasText: /^http$/})).toBeVisible()
     await expect(journal).toContainText('None: every event was recorded.')
+    await expect(journal).toContainText('Previous runs')
 
     await journal.getByRole('button', {name: 'Clear recording'}).click()
     await acceptConfirm(page)

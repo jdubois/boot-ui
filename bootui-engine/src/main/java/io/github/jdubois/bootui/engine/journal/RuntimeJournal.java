@@ -17,6 +17,7 @@ import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 
@@ -72,6 +73,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
     private final CorrelationSource correlation = new CorrelationSource();
     private final ThreadKinds threadKinds = new ThreadKinds();
     private final Thread dispatcher;
+    private final AtomicBoolean closed = new AtomicBoolean();
     private volatile boolean running;
 
     /** A journal whose dispatcher starts now, when {@code settings} enable it. */
@@ -315,9 +317,15 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
                 listenerFailures.sum());
     }
 
-    /** Stops the dispatcher. Events still queued are not processed. */
+    /**
+     * Ends the run: stops the dispatcher, processes the events still queued on the calling thread, and tells every
+     * listener the run ended, so the run summary counts the run's last events. Only the first call does anything.
+     */
     @Override
     public void close() {
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
         running = false;
         if (dispatcher != null) {
             dispatcher.interrupt();
@@ -325,6 +333,18 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
                 dispatcher.join(TimeUnit.SECONDS.toMillis(2));
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
+            }
+        }
+        if (!settings.enabled() || (dispatcher != null && dispatcher.isAlive())) {
+            return;
+        }
+        dispatchPending();
+        for (JournalListener listener : listeners) {
+            try {
+                listener.onClose();
+            } catch (Throwable ex) {
+                listenerFailures.increment();
+                log.log(Level.WARNING, "A listener of BootUI's runtime journal failed when the run ended", ex);
             }
         }
     }

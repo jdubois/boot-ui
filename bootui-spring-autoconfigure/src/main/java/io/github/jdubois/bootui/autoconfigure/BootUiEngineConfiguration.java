@@ -76,6 +76,7 @@ import io.github.jdubois.bootui.engine.hibernate.HibernateStatisticsService;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RunHistory;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
@@ -212,12 +213,17 @@ public class BootUiEngineConfiguration {
         return new RuntimeEventPublisherInstaller(journal);
     }
 
-    /** The incremental aggregates of the runtime journal ({@code docs/PLAN-v2.md} §5.2), fed by its dispatcher. */
+    /**
+     * The incremental aggregates of the runtime journal ({@code docs/PLAN-v2.md} §5.2), fed by its dispatcher. When the
+     * context closes, as before a DevTools restart, they keep the run's summary in the JVM's run history.
+     */
     @Bean
     @ConditionalOnMissingBean
-    JournalAggregates bootUiJournalAggregates(RuntimeJournal journal, ObjectProvider<MappingProvider> mappingProvider) {
+    JournalAggregates bootUiJournalAggregates(
+            RuntimeJournal journal, RunIdentity run, ObjectProvider<MappingProvider> mappingProvider) {
         JournalAggregates aggregates = new JournalAggregates();
         aggregates.setDeclaredRoutes(DeclaredRouteTemplates.caching(mappingProvider));
+        aggregates.recordRunIn(RunHistory.shared(), run);
         journal.addListener(aggregates);
         return aggregates;
     }

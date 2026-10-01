@@ -524,7 +524,7 @@ track. Each slice is one pull request to `v2` with its own tests and documentati
 | M2-4a | Transactions and log events. A transaction publishes its method, whether it rolled back, its duration, and the request or execution it began in; Quarkus records no transactions, as §5.1 states. Application `WARN` and `ERROR` log events publish their logger, level, unformatted template, and the class of the exception they logged, never the formatted message or its arguments. On Spring, a Logback appender is installed with the context and removed when it closes. On Quarkus, the existing startup log handler publishes. Exception occurrences already publish one event each (M2-3b) | M2-3c | ✅ Delivered |
 | M2-4b | Connections and thread kinds. The JDBC proxy follows each logical connection from `getConnection` to `close`: how long the application waited for it, which data source lent it (its bean name on Spring, the default datasource on Quarkus), the statements that ran on it, and the request or execution that checked it out. It publishes one `CONNECTION` event when the connection is released, whose duration is how long it was held, and the aggregates add each route's connection wait. The new `connection` source joins `bootui.runtime-journal.sources`. The journal fills in the thread kind of every event offered on the thread it ran on, from each stack's classifier, so HTTP, log, cache, and exception events carry it too | M2-4a | ✅ Delivered |
 | M2-4c | Application frames and trace links. SQL, REST client, and cache events carry up to four application frames, innermost first, from one bounded stack walk that also yields the call site. It skips the JDK, frameworks, BootUI, and generated proxies such as Spring's CGLIB and Quarkus's ArC subclasses, and runs for cache accesses only when the journal records them. The dispatcher interns each frame in the run's dictionary, so a repeated frame is stored once. A consumed Kafka, RabbitMQ, or JMS message whose `traceparent` names a trace opens its execution with that trace as `CorrelationContext.linkedTraceId`, on Spring and on Quarkus, and its journal event carries the link. Frame method types are left to M3, which decides how observations name a frame's role | M2-4b | ✅ Delivered |
-| M2-5 | Run summaries: the holder of the 5 most recent runs, ≤ 256 KB each, across application-context restarts | M2-2 | 📋 Planned |
+| M2-5 | Run summaries. When the journal closes at the end of a run, it processes the events still queued and its aggregates record the run's summary in the engine's static `RunHistory`, which keeps the 5 most recent runs. Each summary is a byte array of at most 256 KB: the run's header, a table of its distinct strings, and its aggregates, with variable-length numbers and only the non-empty histogram buckets. A summary beyond the bound keeps the most-used entries of each aggregate and counts the ones it left out. The history detects when BootUI is loaded by Spring DevTools' restart class loader or Quarkus's reloadable class loader and says previous runs are unavailable. The journal status lists the previous runs, shown under **Recording** as **Previous runs**, with a contract field. A Spring context restart and a `QuarkusDevModeTest` live reload each list the run that ended (D26) | M2-2 | ✅ Delivered |
 | M2-6 | §5.11's scope readings (`SegmentMeter`) and GC by id (the `gc` source), with the per-request CPU time, allocated bytes, and GC pauses | M2-3a | 📋 Planned |
 | M2-7 | §5.11's CPU ledger and resource track | M2-6 | 📋 Planned |
 | M2-8 | §5.3: Live Activity's feed, Live Flow, and SSE stream served from the journal, persistence fed by a journal subscriber, parity tests against the poller, and the route, run, request id, and **No request** filters | M2-4c | 📋 Planned |
@@ -799,11 +799,11 @@ Scope:
   live-reload total only.
 - Latency comes last and is labelled noisy: the warm p50 only, with ≥ 10 warm samples on each side, reported when it
   moved by ≥ 50 % and ≥ 20 ms. A p95 appears only with ≥ 60 warm samples on each side, as sparse tail evidence.
-- Keep run summaries across DevTools restarts and Quarkus live reloads in a tiny `bootui-run-holder` artifact whose
-  static holder keeps only bounded JDK-typed data: strings, numbers, arrays, and JDK collections, never application,
-  framework, or BootUI classes, which would pin the previous class loader. The M0-4 spike showed that a dependency jar
-  stays in DevTools' base class loader and in Quarkus's Base Runtime ClassLoader, so its state survives the next
-  application-context start by default.
+- Keep run summaries across DevTools restarts and Quarkus live reloads in the engine's static run history (D26),
+  which keeps each summary as an encoded byte array, a JDK type, never an application, framework, or BootUI object
+  that would pin the previous class loader. The M0-4 spike showed that a dependency jar stays in DevTools' base class
+  loader and in Quarkus's Base Runtime ClassLoader, so its state survives the next application-context start by
+  default. M2-5 delivers this history.
 - When DevTools `restart.include`, IDE or reactor output directories, or Quarkus
   `quarkus.class-loading.reloadable-artifacts` make the holder reloadable, the holder detects that its own class
   loader is the reloadable one, and comparison reports that previous runs are unavailable, with the reason and the
@@ -1032,7 +1032,7 @@ Scope:
 - A tiny `bootui-agent-bridge` module of JDK-typed classes only, the contract between the agent and the engine. The
   agent appends it to the bootstrap class loader search, so JDK classes, library classes, and application classes all
   see one copy. The engine depends on it too: without the agent, it loads from the classpath and reports "not attached".
-  Like §5.8's `bootui-run-holder`, it holds only strings, numbers, arrays, JDK collections, and JDK functional
+  Like §5.8's run history, it holds only strings, numbers, arrays, JDK collections, and JDK functional
   interfaces, never an application, framework, or engine class that would pin a discarded class loader.
 - **Dormant until claimed.** `premain` stores the `Instrumentation` instance and installs nothing. Only when BootUI
   activates under its existing rules (Spring activation, Quarkus dev and test launch modes) does the engine **claim**
@@ -1192,7 +1192,7 @@ Scope:
   hashes each method's instructions (excluding line numbers and other debug attributes) and each class's method set.
   After a DevTools restart or a Quarkus live reload, comparing those hashes with the previous run's gives the exact set
   of **changed, added, and removed methods**, even for changes an IDE compiled without a commit. The previous run's
-  hashes are kept as a `long[]` of `(method key, code hash)` pairs in the `bootui-run-holder` (§5.8), about 16 bytes per
+  hashes are kept as a `long[]` of `(method key, code hash)` pairs in the run history (§5.8), about 16 bytes per
   method and at most 1 MB, outside the 256 KB run summary.
 - For each changed or added method: executed in this run or not, requests and routes that executed it (through §5.14's
   route trees when the method is a component boundary), and its callers. Removed methods are a count.
@@ -1505,7 +1505,7 @@ Every v2 item follows PLAN.md §4, "Every item", and the Runtime Insights panel 
 | Scope creep toward APM | all | Medium | Development-only, no production mode, no hosted service, and no query language |
 | The agent breaks application startup or class verification | §5.13 | High | Shape-preserving advice only, suppressed advice exceptions, skipped and counted failing classes, `bootui.agent.enabled=false` and a `sensors` allowlist, and a startup matrix on Java 17, 21, and the newest JDK |
 | The agent conflicts with another agent (OpenTelemetry, JaCoCo, IntelliJ's debugger agent, Mockito's inline mock maker) | §5.13 | Medium | The M5-0 coexistence spike, then those agents in the sample apps' CI matrix |
-| The agent's bridge pins a discarded class loader across restarts | §5.13 | Medium | JDK types only in the bridge, as in `bootui-run-holder`, proven by a heap-walk test over ten reloads |
+| The agent's bridge pins a discarded class loader across restarts | §5.13 | Medium | JDK types only in the bridge, as in the run history (§5.8), proven by a heap-walk test over ten reloads |
 | A future JDK refuses dynamic attach (JEP 451) | §5.13 | Low | `-javaagent` is the documented path; self-attach is opt-in and reports its restriction |
 | Byte Buddy lags a new class-file version | §5.13 | Medium | Unsupported class versions are skipped and reported; track the JDK's Class-File API (JEP 484) once the Java baseline allows it |
 | Agent overhead distorts the timings it explains | §5.14 | Medium | Component boundaries only, adaptive exclusion, the overhead budget in §8, and the agent's own cost shown in the Java Agent panel |
@@ -1557,6 +1557,7 @@ lands on `v2` and before 2.0.0:
 | D23 | How is the agent jar obtained? | Open. Recommendation: published to Maven Central as `bootui-agent`, fetched into `target/` or `build/` by a documented `maven-dependency-plugin` or Gradle snippet, which the Java Agent panel prints with the resolved path. Never a transitive dependency |
 | D24 | May AI agents start method probes? | Open. Recommendation: yes, through `start_method_probe`, blocked by read-only policy, with metadata only in every exposure mode |
 | D25 | Should Quarkus apply the same instrumentation at build time instead of through the agent? | Open. Recommendation: not in M5. Quarkus's bytecode transformer build items could instrument application and dependency classes without an agent, but not JDK classes, so the agent stays the one mechanism; revisit after M5-4 |
+| D26 | Does the run history need its own `bootui-run-holder` artifact? | No. The engine jar already stays in the class loader that survives restarts, which `RunIdentity`'s ordinal relies on and the M1-6g live-reload test proves, so a separate artifact would keep nothing more and add a published module. `RunHistory` keeps encoded byte arrays, so it pins no class loader, and reports when BootUI itself is reloadable (M2-5) |
 
 ## Appendix A. Review log
 

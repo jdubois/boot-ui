@@ -22,6 +22,8 @@ function status(overrides = {}) {
     recorded: {http: 300, sql: 900},
     dropped: {},
     droppedEvents: 0,
+    previousRuns: [],
+    previousRunsUnavailable: null,
     ...overrides
   }
 }
@@ -56,6 +58,64 @@ describe('RuntimeJournalStatus', () => {
     expect(text).toContain('sql 900')
     expect(text).toContain('None: every event was recorded.')
     expect(wrapper.find('i.bi-journal-text').attributes('aria-hidden')).toBe('true')
+  })
+
+  it('lists the previous runs it keeps, newest first, or says why none are kept', async () => {
+    const run = (runId, ordinal, overrides = {}) => ({
+      runId,
+      ordinal,
+      startedAt: Date.UTC(2026, 9, 1, 9, 0, 0),
+      endedAt: Date.UTC(2026, 9, 1, 9, 20, 0),
+      requests: 12,
+      failedRequests: 0,
+      events: 80,
+      summaryBytes: 2048,
+      omittedEntries: 0,
+      ...overrides
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        respond(
+          status({
+            previousRuns: [
+              run('aaaa1111', 3, {failedRequests: 2, omittedEntries: 40}),
+              run('bbbb2222', 2, {requests: 1, events: 1})
+            ]
+          })
+        )
+      )
+    )
+    const wrapper = mount(RuntimeJournalStatus)
+    await flushPromises()
+
+    const items = wrapper.findAll('.runtime-journal-runs li').map((item) => item.text())
+    expect(items).toHaveLength(2)
+    expect(items[0]).toContain('Run 3 aaaa1111')
+    expect(items[0]).toContain('12 requests, 2 failed, 80 events')
+    expect(items[0]).toContain('40 least-used entries left out')
+    expect(items[1]).toContain('Run 2 bbbb2222')
+    expect(items[1]).toContain('1 request, 1 event')
+    expect(items[1]).not.toContain('failed')
+  })
+
+  it('says why previous runs cannot be kept, or that none are kept yet', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => respond(status({previousRunsUnavailable: 'BootUI reloads with the application.'})))
+    )
+    let wrapper = mount(RuntimeJournalStatus)
+    await flushPromises()
+    expect(wrapper.text()).toContain('BootUI reloads with the application.')
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => respond(status()))
+    )
+    wrapper = mount(RuntimeJournalStatus)
+    await flushPromises()
+    expect(wrapper.text()).toContain('None kept yet.')
+    expect(wrapper.find('.runtime-journal-runs').exists()).toBe(false)
   })
 
   it('names the drops per source and the bound that evicts', async () => {

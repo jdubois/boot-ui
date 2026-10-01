@@ -94,6 +94,19 @@ public final class LatencyHistogram {
         return maxMicros;
     }
 
+    /** The values recorded in {@code bucket}; for run summaries, which keep only non-empty buckets. */
+    long bucketCount(int bucket) {
+        return counts[bucket];
+    }
+
+    /** A histogram rebuilt from a run summary's buckets and totals. */
+    static LatencyHistogram restore(long[] counts, long count, long totalMicros, long maxMicros) {
+        if (counts.length != BUCKETS) {
+            throw new IllegalArgumentException("A latency histogram has " + BUCKETS + " buckets");
+        }
+        return new LatencyHistogram(Arrays.copyOf(counts, BUCKETS), count, totalMicros, maxMicros);
+    }
+
     /** A copy readers can use while the dispatcher keeps recording. */
     public LatencyHistogram copy() {
         return new LatencyHistogram(Arrays.copyOf(counts, BUCKETS), count, totalMicros, maxMicros);

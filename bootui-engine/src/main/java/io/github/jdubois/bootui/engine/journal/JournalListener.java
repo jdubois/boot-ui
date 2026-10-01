@@ -13,4 +13,10 @@ public interface JournalListener {
 
     /** Called with the accepted events of one batch, in sequence order. */
     void onEntries(List<JournalEntry> entries);
+
+    /**
+     * Called once when the journal closes at the end of its run, after its last batch, on the closing thread. The run
+     * summary is recorded here ({@code docs/PLAN-v2.md} §5.2).
+     */
+    default void onClose() {}
 }
