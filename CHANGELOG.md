@@ -250,6 +250,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **DB-HIB-007 no longer reports "enforcement is unknown" for ordinary PostgreSQL foreign keys.** Enforcement was
+  only recorded for `NOT VALID` constraints, so every validated foreign key matching a `@ManyToOne` produced a
+  diagnostic and left the Database advisor scan `PARTIAL`. A foreign key absent from a complete, untruncated
+  `NOT VALID` catalog read is now known to be validated and enforced; a failed or truncated read still leaves it
+  unknown ([#1174](https://github.com/jdubois/boot-ui/issues/1174)).
 - **The REST API advisor reads Quarkus REST `@ResponseStatus` and `@ResponseHeader`.** A `@POST @ResponseStatus(201)`
   creation method is no longer reported as using the default status, and a declared `Location` or `Retry-After`
   header satisfies `RAPI-RESP-008` and `RAPI-ERR-007`. Versioned `/v3/...` API handlers are no longer mistaken for
