@@ -75,6 +75,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reports credential-named JPA entity columns, `CRAC-POOL-002` covers Kafka, Lettuce, Jedis, and Netty event-loop
   clients, and `CRAC-CACHE-001` explains expiry across restore precisely
   ([CRaC readiness checks](docs/CRAC-READINESS-CHECKS.md), [#1170](https://github.com/jdubois/boot-ui/pull/1170)).
+- **Hibernate advisor audit against Hibernate ORM 7.** Effective factory settings are now read from the factory's own
+  options and SQL statement logger, so settings the application never configured no longer leave `HIB-CONFIG-003`,
+  `-006`, `-009`, `-013`, `-017`, `-019`, and `-020` without evidence and the scan `PARTIAL`. Three rules are added:
+  `HIB-MAP-023` (MEDIUM) for `Set` element collections of embeddables without `equals`/`hashCode`, which Hibernate
+  rewrites on every flush; `HIB-MAP-024` (LOW) for `@Lob` on PostgreSQL, which stores `oid` large objects; and
+  `HIB-ENTITY-010` (INFO) for timestamp `@Version` attributes. `HIB-CONFIG-001` is retired in favour of the Spring
+  advisor's `SPRING-JPA-001`, `HIB-MAP-021` is retired because ORM 7 removed `@Where`, and the earlier removal of
+  `HIB-MAP-017` is now documented. `HIB-CONFIG-016` reports the disabled pagination guard once at INFO instead of
+  repeating `HIB-FETCH-003`'s queries at HIGH, `HIB-FETCH-005` drops to LOW and skips JDBC locators, `HIB-MAP-014`
+  drops to LOW, `HIB-CONFIG-013` only applies to types bound through the JVM time zone, and stale learn-more links now
+  point at the current guides. The catalog has 72 active rules ([Hibernate checks](docs/HIBERNATE-CHECKS.md),
+  [#1172](https://github.com/jdubois/boot-ui/pull/1172)).
 - **Architecture advisor catalog audit.** Three rules are retired and their IDs reserved: `ARCH-CODE-005`
   (`printStackTrace` into an explicit writer, mostly the legitimate `StringWriter` idiom), `ARCH-CODE-011` (the
   `Interface` name suffix), and `ARCH-SPRING-005` (default-package stereotypes, which a scan can never import).

@@ -2066,7 +2066,7 @@ const hibernate = {
     "These checks are review prompts, not verdicts, and should be validated against the application's data access patterns.",
   entityPackages: ['io.github.jdubois.bootui.sample'],
   entitiesAnalyzed: 6,
-  rulesEvaluated: 71,
+  rulesEvaluated: 72,
   violationsFound: 4,
   severityCounts: [
     {severity: 'HIGH', count: 1},
@@ -2078,11 +2078,11 @@ const hibernate = {
     analyzer: 'BootUI Hibernate Advisor',
     status: 'PARTIAL',
     message:
-      'Hibernate Advisor inspected 6 entity mappings across 1 persistence units. Attempted 71 distinct rules ' +
-      '(71 unit/application evaluations); failed 0, required evidence unavailable 3, otherwise skipped 9. ' +
+      'Hibernate Advisor inspected 6 entity mappings across 1 persistence units. Attempted 72 distinct rules ' +
+      '(72 unit/application evaluations); failed 0, required evidence unavailable 3, otherwise skipped 9. ' +
       'See diagnostics for 3 entries naming each affected rule and unit.',
     scannedAt: nowMillis - 28_000,
-    rulesEvaluated: 71,
+    rulesEvaluated: 72,
     entitiesAnalyzed: 6,
     violationsFound: 4
   },
@@ -2112,14 +2112,16 @@ const hibernate = {
       "Prefer SEQUENCE with allocationSize and Hibernate's pooled optimizer when the database supports sequences."
     ),
     hibernateResult(
-      'HIB-CONFIG-001',
-      'Open Session in View should be disabled',
-      'Configuration',
+      'HIB-MAP-023',
+      'Set element collections of embeddables need equals and hashCode',
+      'Mapping',
       'MEDIUM',
-      "Detects spring.jpa.open-in-view=true, including Spring Boot's default when the property is not set.",
+      'Detects @ElementCollection Set attributes whose @Embeddable element class does not override both equals and hashCode.',
       1,
-      ['spring.jpa.open-in-view=true is enabled.'],
-      'Set spring.jpa.open-in-view=false and fetch data inside transactional service boundaries.'
+      [
+        'io.github.jdubois.bootui.sample.Product#dimensions is a Set of @Embeddable Dimension, which does not override equals and hashCode; Hibernate rewrites the whole collection table when the owner is flushed.'
+      ],
+      "Implement equals and hashCode over the embeddable's value state, or use a record."
     ),
     hibernateResult(
       'HIB-FETCH-002',

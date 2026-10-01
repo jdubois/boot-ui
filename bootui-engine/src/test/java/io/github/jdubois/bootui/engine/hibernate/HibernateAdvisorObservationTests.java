@@ -29,8 +29,18 @@ import org.springframework.data.domain.Persistable;
 
 class HibernateAdvisorObservationTests {
     private static final Clock CLOCK = Clock.systemUTC();
-    private static final HibernateApplicationFacts APP = new HibernateApplicationFacts(
-            List.of("prod"), HibernateApplicationFacts.OpenInView.NOT_APPLICABLE, false, false, false, false);
+    private static final String[] RETIRED_IDS = {
+        "HIB-FETCH-004",
+        "HIB-MAP-012",
+        "HIB-MAP-017",
+        "HIB-MAP-019",
+        "HIB-MAP-021",
+        "HIB-ENTITY-003",
+        "HIB-ENTITY-004",
+        "HIB-CONFIG-001"
+    };
+    private static final HibernateApplicationFacts APP =
+            new HibernateApplicationFacts(List.of("prod"), false, false, false, false);
 
     @Test
     void selectedCatalogTitlesAndSeveritiesStayScoped() {
@@ -41,7 +51,10 @@ class HibernateAdvisorObservationTests {
                 "HIB-QUERY-002", List.of("Review streaming query resource lifetime", "INFO"),
                 "HIB-ENTITY-006", List.of("Review primitive-version newness semantics", "INFO"),
                 "HIB-MAP-018", List.of("Review lazy inverse @OneToOne without enhancement", "MEDIUM"),
-                "HIB-CONFIG-001", List.of("Open Session in View should be disabled", "MEDIUM"));
+                "HIB-FETCH-005", List.of("Enhanced @Lob attributes should be loaded lazily", "LOW"),
+                "HIB-ENTITY-010", List.of("Prefer a numeric @Version over a timestamp", "INFO"),
+                "HIB-MAP-023", List.of("Set element collections of embeddables need equals and hashCode", "MEDIUM"),
+                "HIB-MAP-024", List.of("@Lob on PostgreSQL stores values as large objects", "LOW"));
         expected.forEach((id, values) -> {
             HibernateRuleDefinition definition = HibernateRuleRegistry.activeRules().stream()
                     .map(HibernateRule::definition)
@@ -148,7 +161,7 @@ class HibernateAdvisorObservationTests {
     void missingUpdateOrderingDoesNotDiscardKnownInsertOrderingViolation() {
         HibernateFactorySettings settings = new HibernateFactorySettings(
                 25, null, false, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-                null, null, null);
+                null, null, null, null);
         HibernateReport report = scanner(
                         List.of(unit("orders", settings, List.of())), List.of(), List.of(new OrderedBatchingRule()))
                 .scan();
@@ -242,12 +255,11 @@ class HibernateAdvisorObservationTests {
                         List.of(
                                 new EagerToOneFetchJoinRule(),
                                 new CollectionJoinFetchPageableRule(),
-                                new InClausePaddingRule(),
-                                new OpenInViewRule()))
+                                new InClausePaddingRule()))
                 .scan();
         assertThat(panache.scan().status()).isEqualTo("SCANNED");
         assertThat(panache.scan().message())
-                .contains("skipped 4", "required evidence unavailable 0")
+                .contains("skipped 3", "required evidence unavailable 0")
                 .doesNotContain("diagnostics");
         assertThat(panache.diagnostics()).isEmpty();
         assertThat(panache.evidence().usable()).isFalse();
@@ -649,19 +661,17 @@ class HibernateAdvisorObservationTests {
     }
 
     @Test
-    void fiveRetiredIdsAreNotRegisteredOrReported() {
-        assertThat(HibernateRuleRegistry.activeRules()).hasSize(71);
+    void retiredIdsAreNotRegisteredOrReported() {
+        assertThat(HibernateRuleRegistry.activeRules()).hasSize(72);
         assertThat(HibernateRuleRegistry.activeRules())
                 .extracting(rule -> rule.definition().id())
-                .doesNotContain("HIB-FETCH-004", "HIB-MAP-012", "HIB-ENTITY-003", "HIB-ENTITY-004", "HIB-MAP-019");
+                .doesNotContain(RETIRED_IDS);
         HibernateReport report = HibernateScanner.observing(
                         () -> new HibernateAdvisorObservation(
                                 List.of(unit("orders", settings(0), List.of())), APP, List.of()),
                         CLOCK)
                 .scan();
-        assertThat(report.results())
-                .extracting(HibernateRuleResultDto::id)
-                .doesNotContain("HIB-FETCH-004", "HIB-MAP-012", "HIB-ENTITY-003", "HIB-ENTITY-004", "HIB-MAP-019");
+        assertThat(report.results()).extracting(HibernateRuleResultDto::id).doesNotContain(RETIRED_IDS);
     }
 
     @Test
@@ -701,15 +711,17 @@ class HibernateAdvisorObservationTests {
                     method("select o from Order o join fetch o.items", hint, Order.class, false);
             HibernateContext context = context("7.4.5.Final", List.of(method));
             HibernateRuleResultDto fetch = new CollectionJoinFetchPageableRule().evaluate(context);
-            HibernateRuleResultDto guard = new FailOnPaginationOverCollectionFetchRule().evaluate(context);
             if (Boolean.TRUE.equals(hint)) {
                 assertThat(fetch.violationCount()).isEqualTo(1);
-                assertThat(guard.violationCount()).isEqualTo(1);
             } else {
                 assertThat(fetch.violationCount()).isZero();
-                assertThat(guard.violationCount()).isZero();
                 assertThat(context.evidence().requiredUnknown()).isTrue();
             }
+            // The disabled guard is one INFO configuration prompt whatever the query hints are.
+            HibernateRuleResultDto guard = new FailOnPaginationOverCollectionFetchRule().evaluate(context);
+            assertThat(guard.violationCount()).isEqualTo(1);
+            assertThat(guard.severity()).isEqualTo(HibernateRuleSupport.INFO);
+            assertThat(context.evidence().requiredUnknown()).isFalse();
         }
         HibernateContext legacy = context(
                 "7.2.19.Final", List.of(method("select o from Order o join fetch o.items", null, Order.class, false)));
