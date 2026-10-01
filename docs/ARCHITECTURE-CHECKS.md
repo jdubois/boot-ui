@@ -68,7 +68,12 @@ degrade to a no-op pass rather than a false positive.
 
 A handful of rules are dual-framework by design, because they also key on the shared `jakarta.*` annotations that both
 Spring and CDI containers recognize, such as `jakarta.transaction.Transactional` and
-`jakarta.annotation.PostConstruct`. Each rule entry below says which case it falls into.
+`jakarta.annotation.PostConstruct`, or on legacy `javax.*` annotations that neither container reads. Each rule entry
+below says which case it falls into.
+
+Two coding-practice rules adapt to Quarkus: ARCH-CODE-003 is not evaluated there, because `java.util.logging` is a
+built-in Quarkus logging API, and ARCH-CODE-016 reports standard-annotation field injection at LOW rather than MEDIUM,
+because `@Inject` field injection is the idiom of the Quarkus guides.
 `ArchitectureCdiNeutralityTests` pins this property across every `SPRING_STEREOTYPES` rule against a pure-CDI fixture
 set.
 
@@ -265,7 +270,9 @@ Dismissing a rule removes all of its instances from the score.
 - **Inspects**: direct dependencies from application classes to packages under a literal `internal` segment within the
   detected application base packages.
 - **Fires when**: a class outside the owning module prefix accesses a type in another module's `internal` package (for
-  example, `base.order` accessing `base.inventory.internal`).
+  example, `base.order` accessing `base.inventory.internal`). Each dependency is reported once with ArchUnit's own
+  description, so a call or constructor invocation points at its source line; a field or signature type points at the
+  class.
 - **Why it matters**: `internal` marks an encapsulation boundary; crossing it couples modules to each other's
   implementation details.
 - **Recommendation**: depend only on a module's public API (the packages outside its `internal` subpackage), or move the
@@ -277,7 +284,9 @@ Dismissing a rule removes all of its instances from the score.
 
 - **Severity**: LOW
 - **Inspects**: direct use of `System.out` or `System.err` (via ArchUnit's `GeneralCodingRules`).
-- **Fires when**: any class writes to a standard stream instead of using a logging framework.
+- **Fires when**: any class reads `System.out` or `System.err`, including `e.printStackTrace(System.err)`, or calls the
+  no-arg `Throwable.printStackTrace()`, instead of using a logging framework. Capturing a stack trace through an
+  explicit writer, such as `e.printStackTrace(new PrintWriter(stringWriter))`, is not reported.
 - **Recommendation**: replace `System.out` / `System.err` calls with a logger (e.g. SLF4J) so output is structured and
   configurable.
 
@@ -293,8 +302,14 @@ Dismissing a rule removes all of its instances from the score.
 ### ARCH-CODE-003 - Classes should not use java.util.logging
 
 - **Severity**: LOW
-- **Inspects**: direct use of `java.util.logging`.
-- **Fires when**: a class references `java.util.logging` instead of the project logging facade.
+- **Inspects**: assignments to fields of a `java.util.logging` type (via ArchUnit's `GeneralCodingRules`), typically a
+  `java.util.logging.Logger` field.
+- **Fires when**: application code stores a `java.util.logging` logger or handler in a field instead of using the
+  project logging facade. Tuning a JUL-based library's logger without storing it, such as
+  `Logger.getLogger("org.example").setLevel(Level.WARNING)`, is not reported.
+- **Quarkus**: not evaluated (`SKIPPED`). Quarkus lists `java.util.logging` as a
+  [built-in logging API](https://quarkus.io/guides/logging) backed by JBoss LogManager, and its `@LoggingFilter`
+  extension point implements `java.util.logging.Filter`.
 - **Recommendation**: use the project logging facade (SLF4J over Logback by default in Spring Boot) for consistent
   logging.
 
@@ -304,17 +319,6 @@ Dismissing a rule removes all of its instances from the score.
 - **Inspects**: use of the legacy Joda-Time library.
 - **Fires when**: a class references Joda-Time types instead of `java.time`.
 - **Recommendation**: migrate Joda-Time usage to the standard `java.time` API.
-
-### ARCH-CODE-005 - Classes should not call Throwable.printStackTrace(PrintStream/PrintWriter)
-
-- **Severity**: LOW
-- **Inspects**: calls to the `Throwable.printStackTrace(PrintStream)` or `printStackTrace(PrintWriter)` overloads.
-- **Fires when**: a class calls one of the arg-taking `printStackTrace` overloads instead of logging the exception. The
-  no-arg `printStackTrace()` overload is deliberately **not** matched here: it is already covered by ARCH-CODE-001
-  (ArchUnit's built-in standard-streams check matches the no-arg overload directly), so this rule only reports the
-  overloads ARCH-CODE-001 does not, instead of double-reporting the same no-arg call site under two rule IDs.
-- **Recommendation**: log the exception through the project logging facade (e.g. SLF4J) so the stack trace is structured
-  and configurable.
 
 ### ARCH-CODE-006 - Classes should not forcibly terminate the JVM
 
@@ -334,11 +338,16 @@ Dismissing a rule removes all of its instances from the score.
 
 ### ARCH-CODE-007 - Classes should not access JDK-internal APIs
 
-- **Severity**: LOW
+- **Severity**: MEDIUM
 - **Inspects**: dependencies on unsupported JDK-internal packages such as `sun..`, `jdk.internal..`, or
   `com.sun..internal..` subtrees.
 - **Fires when**: a class depends on a non-public JDK-internal type.
-- **Recommendation**: depend only on public, supported APIs so the code stays portable across JDK versions.
+- **Why it matters**: since [JEP 403](https://openjdk.org/jeps/403) (JDK 17), most internals are strongly
+  encapsulated and need `--add-exports` or `--add-opens`, so a JDK upgrade can break the application. Critical internal
+  APIs such as `sun.misc.Unsafe` stay accessible, but its memory-access methods are deprecated for removal
+  ([JEP 471](https://openjdk.org/jeps/471)) and warn at run time since JDK 24 ([JEP 498](https://openjdk.org/jeps/498)).
+- **Recommendation**: depend only on public, supported APIs so the code stays portable across JDK versions, for example
+  `VarHandle` or the Foreign Function & Memory API instead of `sun.misc.Unsafe` memory access.
 
 ### ARCH-CODE-008 - Classes should not use legacy date and time classes
 
@@ -378,24 +387,17 @@ Dismissing a rule removes all of its instances from the score.
 
 ### ARCH-CODE-010 - Exceptions should be named ending with Exception
 
-- **Severity**: LOW
+- **Severity**: INFO (a naming convention with no runtime effect)
 - **Inspects**: classes that extend `Exception` or `RuntimeException`.
 - **Fires when**: an exception type's simple class name does not end with `Exception`, and no enclosing class does
   either.
 - **Recommendation**: rename exception classes to end with `Exception` so their purpose is immediately clear, or nest
-  them inside the exception type they specialise.
+  them inside the exception type they specialise. See
+  [Creating Exception Classes](https://docs.oracle.com/javase/tutorial/essential/exceptions/creating.html).
 - **Kotlin note**: the variants of a `sealed class` hierarchy are nested inside their parent so the compiler can close
   the hierarchy, which leaves them with names like `ClaimException.AlreadyAssigned`. Those are exempt: the enclosing
   name already says what the type is at every call site, and adding the suffix would only make it stutter. The same
   applies to a nested Java exception hierarchy.
-
-### ARCH-CODE-011 - Interfaces should not have names ending with 'Interface'
-
-- **Severity**: LOW
-- **Inspects**: Java interfaces.
-- **Fires when**: an interface simple name ends with `Interface`.
-- **Recommendation**: name interfaces after the role or behaviour they expose instead of appending an `Interface`
-  suffix.
 
 ### ARCH-CODE-012 - Loggers should be private final or container-managed
 
@@ -433,7 +435,10 @@ Dismissing a rule removes all of its instances from the score.
 - **Severity**: MEDIUM
 - **Inspects**: dependencies on common test-only APIs such as JUnit, Mockito, AssertJ, Hamcrest, Spring Test, Spring Boot
   Test, Testcontainers, Quarkus's `@QuarkusTest` (`io.quarkus.test..`), or RestAssured (`io.restassured..`).
-- **Fires when**: an application class references a test framework type.
+- **Fires when**: an application class references a test framework type. Classes whose class file sits in a local test
+  output directory (`target/test-classes`, `build/classes/java/test`, or `build/classes/kotlin/test`) are not judged:
+  they are on the classpath when the application runs from its tests, as with `spring-boot:test-run` or Gradle's
+  `bootTestRun`, and may use test APIs by definition. Classes from archives and other layouts stay judged.
 - **Why it matters**: production code that depends on test frameworks is usually an accidental source-set leak and can
   pull unnecessary or unavailable test libraries into runtime code.
 - **Recommendation**: move assertions, fixtures, containers, and test helpers to test sources; keep production classes
@@ -454,7 +459,10 @@ Dismissing a rule removes all of its instances from the score.
 
 - **Severity**: LOW
 - **Inspects**: classes that expose only static members (at least one static method, no instance methods, and no instance
-  fields), excluding interfaces, enums, records, abstract classes, and Spring stereotypes.
+  fields), excluding interfaces, enums, records, abstract classes, and container-managed classes: Spring stereotypes,
+  including composed ones such as `@AutoConfiguration` and `@SpringBootConfiguration`, CDI bean-defining annotations,
+  JAX-RS resources, and classes declaring `@Bean` or CDI `@Produces` methods. The container instantiates those, and a
+  full `@Configuration` class must stay subclassable.
 - **Fires when**: such a utility class is not `final`, or it can be instantiated through a non-private constructor.
 - **Recommendation**: make utility classes `final` and give them a single private constructor so they cannot be
   instantiated or subclassed.
@@ -464,10 +472,15 @@ Dismissing a rule removes all of its instances from the score.
 
 ### ARCH-CODE-016 - Classes should not use standard-annotation field injection
 
-- **Severity**: MEDIUM
+- **Severity**: MEDIUM on Spring, LOW on Quarkus
 - **Inspects**: `jakarta.inject.Inject`, `javax.inject.Inject`, `jakarta.annotation.Resource`,
-  `javax.annotation.Resource`, or `com.google.inject.Inject` annotations on fields — the standard JSR-330 / Jakarta /
-  Guice injection annotations a CDI container such as Quarkus' Arc (or plain Guice) uses.
+  `javax.annotation.Resource`, or `com.google.inject.Inject` annotations on non-static fields — the standard JSR-330 /
+  Jakarta / Guice injection annotations a CDI container such as Quarkus' Arc (or plain Guice) uses. A static
+  `jakarta.inject.Inject` field is reported by ARCH-SPRING-023, and a legacy `javax` annotation on a Spring or CDI bean,
+  which the container ignores altogether, by ARCH-SPRING-024, so one field is never reported under two IDs.
+- **Why the severity differs**: on Spring, `@Inject` field injection is the same pattern as `@Autowired` field injection,
+  which the Spring team advises against. On Quarkus, `@Inject` field injection is the idiom of the official guides, which
+  only advise against `private` injected fields, so it is a testability preference rather than a defect.
 - **Fires when**: a dependency is injected directly into a field via one of these standard annotations instead of
   through a constructor.
 - **Why it matters**: field injection hides required dependencies, prevents `final` fields, and makes classes harder to
@@ -530,7 +543,8 @@ Dismissing a rule removes all of its instances from the score.
 ### ARCH-SPRING-001 - Classes should not use field injection
 
 - **Severity**: MEDIUM
-- **Inspects**: `@Autowired` or `@Value` (Spring's own field-injection annotations) on fields.
+- **Inspects**: `@Autowired` or `@Value` (Spring's own field-injection annotations) on non-static fields. Static fields
+  are never injected and are reported by ARCH-SPRING-023 instead.
 - **Fires when**: a dependency is injected directly into a field instead of through a constructor.
 - **Why it matters**: field injection hides required dependencies, prevents `final` fields, and makes classes harder to
   instantiate in tests.
@@ -542,11 +556,16 @@ Dismissing a rule removes all of its instances from the score.
 
 ### ARCH-SPRING-002 - Controllers should not depend on repositories
 
-- **Severity**: MEDIUM
-- **Inspects**: `@Controller` / `@RestController` classes that depend directly on `@Repository` beans.
+- **Severity**: LOW
+- **Inspects**: `@Controller` / `@RestController` classes that depend directly on `@Repository` beans. Spring Data
+  repository interfaces without an explicit `@Repository` annotation are not recognized.
 - **Fires when**: a controller references a repository, bypassing a service layer.
-- **Recommendation**: introduce a service layer between controllers and repositories to keep web and persistence
-  concerns separated.
+- **Why LOW**: this is a layering convention, not a defect. Simple CRUD and vertical-slice designs, including Spring's own
+  [PetClinic](https://github.com/spring-projects/spring-petclinic), call repositories from controllers. The inverted
+  directions (ARCH-SPRING-003, ARCH-SPRING-006, ARCH-SPRING-007) stay MEDIUM.
+- **Recommendation**: when business rules, transactions, or reuse across entry points are involved, introduce a service
+  layer between controllers and repositories. For thin CRUD endpoints, dismiss the rule if direct repository access is
+  the intended design.
 
 ### ARCH-SPRING-003 - Repositories should not depend on controllers
 
@@ -577,11 +596,18 @@ Dismissing a rule removes all of its instances from the score.
 
 - **Severity**: HIGH
 - **Inspects**: direct self-invocation (`this.method()`) of methods proxied through `@Transactional` (Spring's own or the
-  portable `jakarta.transaction.Transactional`), `@Async`, or any Spring cache operation (`@Cacheable`, `@CachePut`,
-  `@CacheEvict`, or `@Caching`) on the method, or `@Async` / a cache operation on the declaring class.
+  portable `jakarta.transaction.Transactional`), `@Async`, any Spring cache operation (`@Cacheable`, `@CachePut`,
+  `@CacheEvict`, or `@Caching`), Spring Framework 7's `@Retryable` or `@ConcurrencyLimit`, Spring Retry's `@Retryable`,
+  or method security (`@PreAuthorize`, `@PostAuthorize`, `@PreFilter`, `@PostFilter`, `@Secured`, or
+  `jakarta.annotation.security.RolesAllowed`) on the method, or `@Async` / a cache operation on the declaring class.
 - **Fires when**: a bean calls one of its own proxied methods directly, bypassing the Spring proxy.
-- **Why it matters**: the transaction, async execution, or caching behaviour is silently lost because the call never
-  passes through the proxy — a real correctness bug, not just a style issue.
+- **Why it matters**: the transaction, async execution, caching, retry, concurrency limit, or authorization check is
+  silently lost because the call never passes through the proxy — a real correctness bug, and for method security an
+  authorization bypass. Whether method security is enabled at all is the Security advisor's SEC-METHOD-001.
+- **Class-level declarations**: class-level `@Transactional`, `@Retryable`, `@ConcurrencyLimit`, and method security are
+  not treated as making every self-call a finding: the calling method already runs inside the same transaction, retry,
+  permit, or authorization decision, and routing a nested call through the proxy could even deadlock a
+  `@ConcurrencyLimit(1)`.
 - **Recommendation**: refactor so the call goes through the Spring proxy: move the proxied method to a separate bean, or,
   only if necessary, inject a `@Lazy` self-reference and call through it.
 - **Kotlin note**: Kotlin behaves identically — marking a function `open` does not make a `this`-call go through the
@@ -597,15 +623,6 @@ Dismissing a rule removes all of its instances from the score.
   standard proxy-based Spring AOP, so reporting the Spring limitation there would be a false positive. See the
   [Quarkus CDI reference](https://quarkus.io/version/3.33/guides/cdi-reference#intercepted-self-invocation).
 
-### ARCH-SPRING-005 - Spring stereotypes should not reside in the default package
-
-- **Severity**: MEDIUM
-- **Inspects**: `@Component` / `@Service` / `@Repository` / `@Controller` / `@Configuration` classes in the default
-  (unnamed) package.
-- **Fires when**: a stereotype-annotated class has no package declaration.
-- **Recommendation**: move Spring stereotype beans into a named package so component scanning and proxying work as
-  expected.
-
 ### ARCH-SPRING-008 - Services and repositories should not depend on web request types
 
 - **Severity**: MEDIUM
@@ -614,7 +631,8 @@ Dismissing a rule removes all of its instances from the score.
   server exchange/session types (`ServerWebExchange`, `WebSession`, and their families), and low-level reactive HTTP
   server types.
 - **Fires when**: business or persistence code accepts, stores, or otherwise references servlet or reactive web
-  infrastructure.
+  infrastructure. Exception types in those packages, such as `org.springframework.web.server.ResponseStatusException`,
+  are not request state and are not reported.
 - **Why it matters**: service and repository code should be transport-agnostic so it can be reused from HTTP
   controllers, CLI runners, scheduled jobs, tests, and message consumers.
 - **Recommendation**: extract request data in the controller and pass plain application values into services and
@@ -647,16 +665,19 @@ Dismissing a rule removes all of its instances from the score.
 
 - **Severity**: MEDIUM
 - **Inspects**: methods annotated with `@Transactional` (Spring's own or the portable
-  `jakarta.transaction.Transactional`), `@Async`, or a Spring cache operation (`@Cacheable`, `@CachePut`, `@CacheEvict`,
-  or `@Caching`).
+  `jakarta.transaction.Transactional`), `@Async`, a Spring cache operation (`@Cacheable`, `@CachePut`, `@CacheEvict`,
+  or `@Caching`), `@Retryable`, `@ConcurrencyLimit`, or a method security annotation.
 - **Fires on Spring when**: a proxy-driven annotation is applied to a private, static, or final method. Spring Framework
   6+ supports protected and package-private transactional and cache methods on class-based proxies, which Spring Boot
   uses by default. Applications that explicitly select interface-based JDK proxies should keep annotated methods public.
-- **Fires on Quarkus when**: `jakarta.transaction.Transactional` is applied to a private method. Arc supports intercepted
+- **Fires on Quarkus when**: `jakarta.transaction.Transactional` or `jakarta.annotation.security.RolesAllowed` is
+  applied to a private method. Arc supports intercepted
   static methods and transforms final intercepted methods by default, so applying Spring's modifier bar would create
   false positives.
 - **Why it matters**: an annotation on a method the active runtime cannot intercept silently loses its transaction,
   asynchronous, or caching behavior.
+- **Why MEDIUM rather than HIGH**: a `final` implementation method is still intercepted when the application selects
+  interface-based JDK proxies, so the modifier alone does not prove the loss.
 - **Recommendation**: for portable Spring proxy behavior, use a public, non-static, non-final method. On Quarkus, avoid
   private interceptor-bound methods.
 - **Kotlin note**: classes and members are final by default — mark them `open`, or apply the `kotlin-spring` compiler
@@ -664,13 +685,17 @@ Dismissing a rule removes all of its instances from the score.
 
 ### ARCH-SPRING-011 - Async methods should return void or Future
 
-- **Severity**: MEDIUM
-- **Inspects**: methods annotated with `@Async`, and methods declared on `@Async` classes.
-- **Fires when**: an async method returns a value type that is neither `void` nor assignable to
+- **Severity**: HIGH
+- **Inspects**: methods annotated with `@Async`, and methods declared on `@Async` classes, that a class-based proxy can
+  intercept. Private, static, and final methods never reach the interceptor; ARCH-SPRING-010 reports their ignored
+  annotation instead.
+- **Fires when**: an async method returns a value type that is neither `void`, `kotlin.Unit`, nor assignable to
   `java.util.concurrent.Future`, or a Kotlin suspending function is annotated with `@Async`.
-- **Why it matters**: Spring supports async methods with `void` return values or `Future`/`CompletableFuture` handles;
-  other return values do not provide the caller a valid asynchronous result. Spring's async interceptor does not support
-  suspending functions at all, so the annotation is silently ineffective there.
+- **Why it matters**: Spring Framework 7's
+  [`AsyncExecutionAspectSupport.doSubmit`](https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-aop/src/main/java/org/springframework/aop/interceptor/AsyncExecutionAspectSupport.java)
+  accepts only `Future` variants, `void`, and `kotlin.Unit`, and throws `IllegalArgumentException` ("Invalid return type
+  for async method") on every proxied call of anything else. A suspending function's raw return type is `Object`, so it
+  fails the same way.
 - **Recommendation**: use `void` for fire-and-forget async work, or return `Future` / `CompletableFuture` when callers
   need a result.
 - **Kotlin note**: launch the work in a coroutine (for example `withContext(Dispatchers.IO)`) rather than annotating a
@@ -729,16 +754,6 @@ Dismissing a rule removes all of its instances from the score.
 - **Recommendation**: bind configuration through a record or a constructor with `final` fields so configuration state is
   immutable.
 
-> **Removed: ARCH-SPRING-016** ("Layered architecture dependencies should flow from web to service to repository"). This
-> holistic rule used ArchUnit's `layeredArchitecture()` over the same three stereotype layers (web/service/persistence)
-> that ARCH-SPRING-002 (controllers → repositories), ARCH-SPRING-003 (repositories → controllers), ARCH-SPRING-006
-> (services → controllers), and ARCH-SPRING-007 (repositories → services) already check individually. Its violation set
-> was verified to be the exact union of what those four pairwise rules already catch, so every real violation was being
-> reported **twice** — once under its specific pairwise rule ID, once under ARCH-SPRING-016 — inflating the panel's
-> violation and severity counts. The rule was removed and the four granular pairwise rules were kept, since they give
-> clearer, more specific per-pair messages (e.g. "Controller X depends on Repository Y" is more actionable than a
-> generic layer-violation message).
-
 ### ARCH-SPRING-017 - Lite-mode @Bean methods should not call sibling @Bean methods
 
 - **Severity**: HIGH
@@ -756,8 +771,8 @@ Dismissing a rule removes all of its instances from the score.
 
 - **Severity**: HIGH
 - **Inspects**: `@PostConstruct` or `@PreDestroy` methods that are also annotated with `@Transactional` (Spring's own or
-  the portable `jakarta.transaction.Transactional`), `@Async`, or a Spring cache operation (`@Cacheable`, `@CachePut`,
-  `@CacheEvict`, or `@Caching`).
+  the portable `jakarta.transaction.Transactional`), `@Async`, a Spring cache operation (`@Cacheable`, `@CachePut`,
+  `@CacheEvict`, or `@Caching`), `@Retryable`, `@ConcurrencyLimit`, or a method security annotation.
 - **Fires when**: a lifecycle callback is annotated with a proxy-driven annotation.
 - **Why it matters**: Spring invokes lifecycle callbacks before the bean is wrapped in its proxy, and after it is unwrapped
   at destruction, so the proxy behaviour never applies.
@@ -823,6 +838,76 @@ Dismissing a rule removes all of its instances from the score.
   [`AnnotationTransactionAttributeSource`](https://github.com/spring-projects/spring-framework/blob/v7.0.8/spring-tx/src/main/java/org/springframework/transaction/annotation/AnnotationTransactionAttributeSource.java)
   registers parsers for Spring's own annotation and `jakarta.transaction.Transactional`, not the old
   `javax.transaction.Transactional`. On BootUI's Spring Boot 4 baseline, the legacy annotation therefore does not create
-  the intended transaction boundary.
+  the intended transaction boundary. Quarkus 3 is Jakarta-only as well, so the finding applies on both stacks.
 - **Recommendation**: replace it with Spring's `org.springframework.transaction.annotation.Transactional` or
   `jakarta.transaction.Transactional`, and replace the legacy Java EE API dependency with its Jakarta equivalent.
+
+### ARCH-SPRING-023 - Injection annotations on static members are ignored
+
+- **Severity**: HIGH
+- **Inspects**: static fields and static methods annotated with `@Autowired` or `@Value` on any class, or with
+  `jakarta.inject.Inject` on a recognized Spring or CDI bean.
+- **Fires when**: an injection annotation sits on a static member.
+- **Why it matters**: Spring Framework 7's
+  [`AutowiredAnnotationBeanPostProcessor`](https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-beans/src/main/java/org/springframework/beans/factory/annotation/AutowiredAnnotationBeanPostProcessor.java)
+  logs "Autowired annotation is not supported on static fields" at INFO and skips the member, and Quarkus Arc
+  [warns and ignores](https://github.com/quarkusio/quarkus/blob/3.33.3.1/independent-projects/arc/processor/src/main/java/io/quarkus/arc/processor/Injection.java)
+  a static `@Inject` field or initializer. The container never populates the member, so it keeps its previous value,
+  usually `null`.
+- **Not reported**: `@Resource` on a static member, which Spring rejects at startup; a static `jakarta.inject.Inject`
+  outside a recognized bean, which Guice may inject on request; and the supported workaround of a non-static setter
+  that assigns a static field. These fields are not also reported as field injection by ARCH-SPRING-001 or
+  ARCH-CODE-016.
+- **Recommendation**: inject into an instance field, or preferably a constructor parameter. If a static holder is truly
+  required, assign it from a non-static setter or `@PostConstruct` method of a managed bean.
+
+### ARCH-SPRING-024 - Legacy javax injection and lifecycle annotations should be migrated
+
+- **Severity**: HIGH
+- **Inspects**: `javax.annotation.PostConstruct` and `javax.annotation.PreDestroy` on any class, and
+  `javax.inject.Inject` or `javax.annotation.Resource` on fields, methods, and constructors of recognized Spring or CDI
+  beans: Spring stereotypes (including composed ones), types returned by `@Bean` or CDI `@Produces` methods, CDI scope
+  or stereotype annotations, and JAX-RS resources and providers.
+- **Fires when**: a member carries one of these legacy annotations without its Jakarta counterpart.
+- **Why it matters**: Spring Framework 7 registers only `jakarta.annotation.PostConstruct`, `PreDestroy`, and
+  `Resource` in
+  [`CommonAnnotationBeanPostProcessor`](https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-context/src/main/java/org/springframework/context/annotation/CommonAnnotationBeanPostProcessor.java),
+  and only `jakarta.inject.Inject` beside `@Autowired` and `@Value`. Quarkus 3's Arc is Jakarta-only as well. The
+  callback silently never runs and the injection point is never populated.
+- **Not reported**: a member that also carries the Jakarta annotation; a class's only constructor, which both
+  containers inject without any annotation; and `javax.inject.Inject` or `javax.annotation.Resource` on classes that
+  are not recognized beans, where Guice or Dagger may legitimately own the wiring and ARCH-CODE-016 keeps reporting
+  field injection. Kept separate from ARCH-SPRING-022 so that rule's meaning and existing dismissals stay unchanged.
+- **Recommendation**: switch the imports to `jakarta.annotation.*` and `jakarta.inject.*`, and depend on the Jakarta APIs
+  (`jakarta.annotation-api`, `jakarta.inject-api`). If Dagger or Guice deliberately owns a bean's `javax.inject`
+  wiring, dismiss the finding.
+
+## Retired rule IDs
+
+These IDs stay reserved and are never reused, so an existing dismissal can never silently hide a different check.
+`ArchitectureRuleRegistryTests` fails if a retired ID is registered again.
+
+| ID | Previous subject | Reason for retirement |
+| --- | --- | --- |
+| ARCH-CODE-005 | `Throwable.printStackTrace(PrintStream/PrintWriter)` | `printStackTrace(System.err)` already reads `System.err`, which ARCH-CODE-001 reports. The remaining matches were mostly the legitimate `StringWriter` capture idiom or a stream the author chose deliberately. |
+| ARCH-CODE-011 | Interfaces named with an `Interface` suffix | A naming opinion with no authoritative source and false positives on domain nouns such as `UserInterface` or `NetworkInterface`. |
+| ARCH-SPRING-005 | Spring stereotypes in the default package | Unreachable: imports are bounded to named base packages, a blank base package fails the Spring scan, and Quarkus discovery drops the default package. The live Spring advisor's SPRING-WIRING-008 inspects registered beans instead. |
+| ARCH-SPRING-016 | Layered web → service → repository dependencies | Its violations were exactly the union of ARCH-SPRING-002, ARCH-SPRING-003, ARCH-SPRING-006, and ARCH-SPRING-007, so every finding was reported twice. |
+
+## Audit sources
+
+The 2026 catalog audit verified rule behavior against these primary sources:
+
+- Spring Framework 7.0.9 source:
+  [`AsyncExecutionAspectSupport`](https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-aop/src/main/java/org/springframework/aop/interceptor/AsyncExecutionAspectSupport.java),
+  [`AutowiredAnnotationBeanPostProcessor`](https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-beans/src/main/java/org/springframework/beans/factory/annotation/AutowiredAnnotationBeanPostProcessor.java),
+  [`CommonAnnotationBeanPostProcessor`](https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-context/src/main/java/org/springframework/context/annotation/CommonAnnotationBeanPostProcessor.java),
+  the [resilience annotations](https://github.com/spring-projects/spring-framework/tree/v7.0.9/spring-context/src/main/java/org/springframework/resilience/annotation),
+  and the [declarative transaction documentation](https://github.com/spring-projects/spring-framework/blob/v7.0.9/framework-docs/modules/ROOT/pages/data-access/transaction/declarative/annotations.adoc).
+- Quarkus 3.33: the [logging guide](https://github.com/quarkusio/quarkus/blob/3.33.3.3/docs/src/main/asciidoc/logging.adoc),
+  the [CDI reference](https://github.com/quarkusio/quarkus/blob/3.33.3.3/docs/src/main/asciidoc/cdi-reference.adoc), and
+  Arc's [`Injection`](https://github.com/quarkusio/quarkus/blob/3.33.3.1/independent-projects/arc/processor/src/main/java/io/quarkus/arc/processor/Injection.java).
+- ArchUnit 1.5.0
+  [`GeneralCodingRules`](https://github.com/TNG/ArchUnit/blob/v1.5.0/archunit/src/main/java/com/tngtech/archunit/library/GeneralCodingRules.java).
+- OpenJDK [JEP 403](https://openjdk.org/jeps/403), [JEP 471](https://openjdk.org/jeps/471), and
+  [JEP 498](https://openjdk.org/jeps/498).
