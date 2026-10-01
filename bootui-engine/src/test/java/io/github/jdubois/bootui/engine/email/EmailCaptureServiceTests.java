@@ -6,7 +6,13 @@ import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.EmailMessageDto;
 import io.github.jdubois.bootui.core.dto.EmailsReport;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.MailPayload;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -114,6 +120,26 @@ class EmailCaptureServiceTests {
 
         assertThat(revealing.isMaskContentEnabled()).isFalse();
         assertThat(masking.isMaskContentEnabled()).isTrue();
+    }
+
+    @Test
+    void publishesOnlyTheEmailsMetadataToTheRuntimeJournal() {
+        List<RuntimeEvent> published = new ArrayList<>();
+        EmailCaptureService service =
+                new EmailCaptureService(new EmailStore(10), exposure(ValueExposure.FULL), true, false);
+        service.setRuntimeEventSink(published::add);
+
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.forRequest("r1"))) {
+            service.capture(email());
+        }
+
+        assertThat(published).singleElement().satisfies(event -> {
+            assertThat(event.source()).isEqualTo(JournalSource.MAIL);
+            assertThat(event.requestId()).isEqualTo("r1");
+            assertThat(event.failedOrSlow()).as("dev-trap intercepted it").isTrue();
+            assertThat(event.payload()).isEqualTo(new MailPayload(1, 1, false));
+            assertThat(event.payload().toString()).doesNotContain("Welcome", "example.com");
+        });
     }
 
     private static CapturedEmail email() {

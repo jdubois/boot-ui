@@ -4,6 +4,12 @@ import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.EmailMessageDto;
 import io.github.jdubois.bootui.core.dto.EmailsReport;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.MailPayload;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
@@ -28,7 +34,9 @@ import java.util.List;
  * enabled) is applied at <em>read</em> time (not at capture time), so a live change takes effect on the
  * next request without needing to re-capture anything.</p>
  */
-public final class EmailCaptureService {
+public final class EmailCaptureService implements RuntimeEventPublisher {
+
+    private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
 
     private final EmailStore store;
     private final ExposurePolicy exposurePolicy;
@@ -80,8 +88,41 @@ public final class EmailCaptureService {
      */
     public boolean capture(CapturedEmail email) {
         boolean sent = !devTrapEnabled;
-        store.capture(email, sent);
+        CorrelationContext context = store.currentCorrelation();
+        EmailStore.Entry entry = store.capture(email, sent);
+        publish(email, entry, context);
         return sent;
+    }
+
+    /**
+     * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives each captured email's metadata:
+     * never its sender, recipients, subject, or body.
+     */
+    @Override
+    public void setRuntimeEventSink(RuntimeEventSink journal) {
+        this.journal = journal == null ? RuntimeEventSink.NONE : journal;
+    }
+
+    private void publish(CapturedEmail email, EmailStore.Entry entry, CorrelationContext context) {
+        try {
+            journal.offer(new RuntimeEvent(
+                    JournalSource.MAIL,
+                    entry.timestamp(),
+                    -1,
+                    entry.requestId(),
+                    context.executionId(),
+                    entry.traceId(),
+                    null,
+                    entry.thread(),
+                    null,
+                    !entry.sent(),
+                    new MailPayload(
+                            email.to().size() + email.cc().size() + email.bcc().size(),
+                            email.attachments().size(),
+                            entry.sent())));
+        } catch (RuntimeException ex) {
+            // Publishing never disturbs the application's mail.
+        }
     }
 
     /** Lists all captured messages, newest-first, revealed or masked per {@link #isMaskContentEnabled()}. */

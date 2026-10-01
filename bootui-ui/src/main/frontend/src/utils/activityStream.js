@@ -145,6 +145,9 @@ export function bucketEntries(entries, bucketCount = 24) {
  * @param {object} entry a merged activity entry
  * @returns {{path: string, query?: object, label: string}|null}
  */
+// A runtime journal event id: the run id, then the event's sequence in that run.
+const JOURNAL_EVENT_ID = /^[0-9a-f]{8}-\d+$/
+
 export function deepLink(entry) {
   if (!entry) return null
   switch (entry.type) {
@@ -167,6 +170,8 @@ export function deepLink(entry) {
     case 'CACHE':
       return {path: '/cache', label: 'Open in Cache'}
     case 'MAIL':
+      // A row from the runtime journal carries no Email panel id, so it opens the panel itself.
+      if (JOURNAL_EVENT_ID.test(entry.id || '')) return {path: '/email', label: 'Open in Email'}
       return entry.id ? {path: '/email', query: {id: entry.id}, label: 'Open in Email'} : null
     case 'FAULT_TOLERANCE': {
       const needle = faultToleranceNeedle(entry.summary)

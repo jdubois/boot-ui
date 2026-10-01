@@ -191,6 +191,13 @@ describe('deepLink', () => {
     })
   })
 
+  it('links a mail row from the runtime journal to the Email panel without a message id', () => {
+    expect(deepLink({type: 'MAIL', id: 'a1b2c3d4-7', summary: 'Email to 2 recipients'})).toEqual({
+      path: '/email',
+      label: 'Open in Email'
+    })
+  })
+
   it('links transaction and log rows from the runtime journal to their panels', () => {
     expect(deepLink({type: 'TRANSACTION', summary: 'OrderService.pay'})).toEqual({
       path: '/transactions',

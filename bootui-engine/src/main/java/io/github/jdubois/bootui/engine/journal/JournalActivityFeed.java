@@ -51,6 +51,8 @@ public final class JournalActivityFeed {
     public static final String TYPE_MESSAGING = "MESSAGING";
     public static final String TYPE_TRANSACTION = "TRANSACTION";
     public static final String TYPE_LOG = "LOG";
+    public static final String TYPE_MAIL = "MAIL";
+    public static final String TYPE_FAULT_TOLERANCE = "FAULT_TOLERANCE";
 
     static final String SEVERITY_OK = "OK";
     static final String SEVERITY_SLOW = "SLOW";
@@ -422,6 +424,67 @@ public final class JournalActivityFeed {
                     transaction.rolledBack() ? SEVERITY_WARN : SEVERITY_OK,
                     transaction.method() == null ? "Transaction" : transaction.method(),
                     transaction.rolledBack() ? "rolled back" : "committed",
+                    durationMs,
+                    null,
+                    null,
+                    null,
+                    false,
+                    parentId,
+                    false);
+        }
+        if (payload instanceof MailPayload mail) {
+            // The journal keeps no subject or address (§8), so the row names what it can count.
+            String summary = "Email to " + mail.recipients() + (mail.recipients() == 1 ? " recipient" : " recipients");
+            String detail = mail.attachments() == 0
+                    ? null
+                    : mail.attachments() + (mail.attachments() == 1 ? " attachment" : " attachments");
+            if (!mail.sent()) {
+                detail = (detail == null ? "" : detail + " · ") + "dev-trap: not sent";
+            }
+            return entry(
+                    id,
+                    TYPE_MAIL,
+                    event,
+                    mail.sent() ? SEVERITY_OK : SEVERITY_WARN,
+                    summary,
+                    detail,
+                    null,
+                    null,
+                    null,
+                    null,
+                    false,
+                    parentId,
+                    false);
+        }
+        if (payload instanceof FaultTolerancePayload ft) {
+            StringBuilder summary = new StringBuilder(ft.outcome() == null ? "EVENT" : ft.outcome())
+                    .append(' ')
+                    .append(ft.policy());
+            if (ft.policyType() != null && !ft.policyType().isBlank()) {
+                summary.append(" (")
+                        .append(ft.policyType().toLowerCase(Locale.ROOT).replace('_', ' '))
+                        .append(')');
+            }
+            List<String> details = new ArrayList<>();
+            if (ft.target() != null && !ft.target().isBlank()) {
+                details.add(ft.target());
+            }
+            if (ft.attempt() != null) {
+                details.add("attempt " + ft.attempt());
+            }
+            if (ft.state() != null && !ft.state().isBlank()) {
+                details.add("state " + ft.state());
+            }
+            if (ft.failureCategory() != null && !ft.failureCategory().isBlank()) {
+                details.add(ft.failureCategory());
+            }
+            return entry(
+                    id,
+                    TYPE_FAULT_TOLERANCE,
+                    event,
+                    ft.failure() ? SEVERITY_ERROR : ft.protective() ? SEVERITY_WARN : SEVERITY_OK,
+                    summary.toString(),
+                    details.isEmpty() ? null : String.join(" · ", details),
                     durationMs,
                     null,
                     null,

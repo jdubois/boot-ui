@@ -27,10 +27,10 @@ public record GcPayload(
     @Override
     public RuntimeEventPayload interned(JournalDictionary dictionary) {
         return new GcPayload(
-                dictionary.canonical(collector),
+                dictionary.shared(collector),
                 gcId,
-                dictionary.canonical(action),
-                dictionary.canonical(cause),
+                dictionary.shared(action),
+                dictionary.shared(cause),
                 pause,
                 heapBeforeBytes,
                 heapAfterBytes);

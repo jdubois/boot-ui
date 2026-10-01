@@ -58,6 +58,12 @@ public final class JournalDictionary {
         return code == NOT_INTERNED ? null : strings.get(code);
     }
 
+    /** The run's shared copy of {@code value}, or {@code value} itself once the dictionary is full. */
+    public String shared(String value) {
+        String canonical = canonical(value);
+        return canonical == null ? value : canonical;
+    }
+
     /** The string {@code code} names, or {@code null} for {@link #NOT_INTERNED} or an unknown code. */
     public synchronized String lookup(int code) {
         return code < 0 || code >= strings.size() ? null : strings.get(code);

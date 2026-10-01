@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.email;
 
 import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.util.ArrayDeque;
@@ -94,6 +95,11 @@ public final class EmailStore {
      * @param sent whether it was (or, for a batch, will be) handed to the real mail transport
      * @return the stored entry, including its assigned id
      */
+    /** The correlation of the calling thread's work, as the next capture records it. */
+    public CorrelationContext currentCorrelation() {
+        return correlation.current();
+    }
+
     public Entry capture(CapturedEmail email, boolean sent) {
         Entry entry = new Entry(
                 "email-" + sequence.incrementAndGet(),

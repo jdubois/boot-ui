@@ -551,7 +551,7 @@ drawer additionally lists the flagged group's call site(s) whenever `bootui.sql-
 | `bootui.activity.request-slow-threshold-ms`   | `1000`  | Duration in milliseconds at or above which a request is slow, on every stack: it sets the `SLOW` severity of `REQUEST` and `SCHEDULED` entries and decides which HTTP exchanges are kept in the reserved share, and so which requests Live Activity durable persistence remembers as reserved. Set to `0` to disable slow classification. |
 | `bootui.activity.n-plus-one-threshold`        | `5`     | Number of identical correlated `SELECT` statements above which a request is flagged with a potential N+1 pattern, both as a list-level badge and in its profile drawer. |
 | `bootui.activity.max-scheduled-task-runs`     | `200`   | Maximum number of captured `@Scheduled` method executions retained for `SCHEDULED` stream entries. Shared by both adapters: Spring feeds it from Micrometer's `ScheduledTaskObservationContext`, Quarkus from the CDI `SuccessfulExecution`/`FailedExecution` events (see [Live Activity](features/overview.md#the-ten-signals)). |
-| `bootui.activity.feed-source`                 | `buffers` | Where the stream comes from, on every stack: `buffers` merges each panel's own buffer as in 1.x; `journal` renders the runtime journal's retained events, so its history reaches as far back as the journal retains and every child nests under its request or execution by id ([PLAN-v2.md](PLAN-v2.md) §5.3). A request may override it with `?source=`. Rows from the journal carry no exception or log messages, principals, or email subjects, show each exception occurrence rather than one row per group, add `TRANSACTION` and `LOG` rows, and do not yet include emails or fault-tolerance events. With durable persistence on, `journal` also writes the history from the journal as it records each batch, instead of polling the merged feed, so a burst is kept as completely as the journal records it. An unknown value fails startup. |
+| `bootui.activity.feed-source`                 | `buffers` | Where the stream comes from, on every stack: `buffers` merges each panel's own buffer as in 1.x; `journal` renders the runtime journal's retained events, so its history reaches as far back as the journal retains and every child nests under its request or execution by id ([PLAN-v2.md](PLAN-v2.md) §5.3). A request may override it with `?source=`. Rows from the journal carry no exception or log messages, principals, or email subjects, show each exception occurrence rather than one row per group, add `TRANSACTION` and `LOG` rows, and show an email by its recipient and attachment counts, without its subject or addresses. With durable persistence on, `journal` also writes the history from the journal as it records each batch, instead of polling the merged feed, so a burst is kept as completely as the journal records it. An unknown value fails startup. |
 
 #### Live Activity Kafka capture
 
@@ -640,8 +640,9 @@ aggregates per route, statement, exception group, transactional method, and thre
 ([PLAN-v2.md](PLAN-v2.md) §5.2). Recording never blocks a request: events wait in a bounded queue for one BootUI
 daemon thread, and an event the queue cannot take is dropped and counted. HTTP requests, SQL statements, exception
 occurrences, security events, REST client calls, cache accesses, messages, scheduled runs, transactions (Spring),
-logical database connections (how long each was waited for and held), application `WARN` and `ERROR` log events, and
-garbage collections (`gc`) are recorded. The `resources` source measures each request's CPU time, allocated bytes, and
+logical database connections (how long each was waited for and held), application `WARN` and `ERROR` log events,
+outgoing emails (their recipient and attachment counts only), fault-tolerance outcomes, and garbage collections (`gc`)
+are recorded. The `resources` source measures each request's CPU time, allocated bytes, and
 the collections that completed while it ran, summed over every thread its work ran on ([PLAN-v2.md](PLAN-v2.md)
 §5.11). The JVM does not measure virtual threads, so a request served on one reports its CPU time and allocated bytes
 as unavailable or partial, never as zero. Payloads hold no bind values, keys, message bodies, exception or log messages, or principals: a log event keeps its unformatted
@@ -653,7 +654,7 @@ template only. Nothing is written to disk. The same keys and defaults apply on S
 | `bootui.runtime-journal.max-events`    | `50000`                                  | Maximum number of events retained as evidence. A tenth of it is kept for failed and slow events. The aggregates count every event, retained or not. |
 | `bootui.runtime-journal.max-bytes`     | The smaller of 32 MB and 5 % of the heap | Maximum memory the retained events may use, estimated per event, such as `16MB`. Whichever bound is reached first evicts the oldest routine events. |
 | `bootui.runtime-journal.queue-capacity` | `10000`                                 | Maximum number of events waiting to be recorded. The last 10 % admits only failed or slow events, so a burst drops routine events first. |
-| `bootui.runtime-journal.sources`       | Every source                             | Comma-separated sources to record: `http`, `sql`, `transaction`, `connection`, `exception`, `security`, `rest-client`, `cache`, `messaging`, `scheduled`, `log`, `gc`, and `resources`. An unknown name fails startup. |
+| `bootui.runtime-journal.sources`       | Every source                             | Comma-separated sources to record: `http`, `sql`, `transaction`, `connection`, `exception`, `security`, `rest-client`, `cache`, `messaging`, `scheduled`, `log`, `mail`, `fault-tolerance`, `gc`, and `resources`. An unknown name fails startup. |
 
 ### Resource correlation
 

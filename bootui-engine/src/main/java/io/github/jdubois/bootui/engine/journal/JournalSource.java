@@ -25,6 +25,8 @@ public enum JournalSource {
     MESSAGING("messaging"),
     SCHEDULED("scheduled"),
     LOG("log"),
+    MAIL("mail"),
+    FAULT_TOLERANCE("fault-tolerance"),
     GC("gc"),
     RESOURCES("resources");
 

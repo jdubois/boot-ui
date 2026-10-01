@@ -2,6 +2,12 @@ package io.github.jdubois.bootui.engine.faulttolerance;
 
 import io.github.jdubois.bootui.core.dto.FaultToleranceEventDto;
 import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
+import io.github.jdubois.bootui.engine.journal.FaultTolerancePayload;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.util.ArrayDeque;
@@ -28,7 +34,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>Capture is fail-open: {@link #record} swallows its own failures so a protected call is never
  * disrupted by BootUI, and it becomes an immediate no-op when capture is disabled.</p>
  */
-public final class FaultToleranceEventRecorder {
+public final class FaultToleranceEventRecorder implements RuntimeEventPublisher {
+
+    private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
 
     /** Hard cap on any captured free-text metadata value. */
     static final int MAX_METADATA_LENGTH = 200;
@@ -98,6 +106,15 @@ public final class FaultToleranceEventRecorder {
     public FaultToleranceEventRecorder(boolean enabled, int maxEntries) {
         this.enabled = enabled;
         this.maxEntries = Math.min(MAX_BUFFER_SIZE, Math.max(1, maxEntries));
+    }
+
+    /**
+     * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives each captured outcome, without the
+     * failure's message.
+     */
+    @Override
+    public void setRuntimeEventSink(RuntimeEventSink journal) {
+        this.journal = journal == null ? RuntimeEventSink.NONE : journal;
     }
 
     public boolean isEnabled() {
@@ -177,6 +194,7 @@ public final class FaultToleranceEventRecorder {
             if (isBlank(policyName) || isBlank(outcome)) {
                 return;
             }
+            CorrelationContext context = correlation.current();
             CapturedEvent event = new CapturedEvent(
                     sequence.incrementAndGet(),
                     System.currentTimeMillis(),
@@ -190,7 +208,7 @@ public final class FaultToleranceEventRecorder {
                     truncate(failureCategory),
                     truncate(state),
                     currentTraceId(),
-                    correlation.requestId());
+                    context.requestId());
             synchronized (lock) {
                 buffer.addLast(event);
                 if (buffer.size() > maxEntries) {
@@ -198,6 +216,27 @@ public final class FaultToleranceEventRecorder {
                 }
             }
             totalCaptured.incrementAndGet();
+            journal.offer(new RuntimeEvent(
+                    JournalSource.FAULT_TOLERANCE,
+                    event.timestamp(),
+                    event.durationMillis() == null ? -1 : event.durationMillis() * 1_000_000,
+                    event.requestId(),
+                    context.executionId(),
+                    event.traceId(),
+                    context.spanId(),
+                    Thread.currentThread().getName(),
+                    null,
+                    FaultToleranceVocabulary.isFailureOutcome(event.outcome()),
+                    new FaultTolerancePayload(
+                            event.policyName(),
+                            event.policyType(),
+                            event.target(),
+                            event.outcome(),
+                            event.attempt(),
+                            event.state(),
+                            event.failureCategory(),
+                            FaultToleranceVocabulary.isFailureOutcome(event.outcome()),
+                            FaultToleranceVocabulary.isProtectiveOutcome(event.outcome()))));
             notifyListeners();
         } catch (RuntimeException ignored) {
             // Capture is strictly pass-through: a BootUI failure must never break a protected call.

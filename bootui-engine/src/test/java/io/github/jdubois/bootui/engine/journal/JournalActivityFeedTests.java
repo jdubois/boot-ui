@@ -169,6 +169,45 @@ class JournalActivityFeedTests {
     }
 
     @Test
+    void emailsAndFaultToleranceOutcomesAreRowsCarryingOnlyMetadata() {
+        add(event("r1", null, JournalSource.MAIL, -1, null, new MailPayload(2, 0, false)), 1_000);
+        add(
+                event(
+                        "r1",
+                        null,
+                        JournalSource.FAULT_TOLERANCE,
+                        40_000_000,
+                        null,
+                        new FaultTolerancePayload(
+                                "payments",
+                                "CIRCUIT_BREAKER",
+                                "Gateway#pay",
+                                "STATE_TRANSITION",
+                                null,
+                                "OPEN",
+                                null,
+                                false,
+                                true)),
+                1_001);
+        add(http("r1", "POST", "/api/pay", "/api/pay", 503, 50), 1_002);
+
+        List<ActivityEntryDto> rendered =
+                feed.render(entries, EVENT_ID, "run", Filter.NONE, 0).entries();
+
+        ActivityEntryDto mail = only(rendered, "MAIL");
+        assertThat(mail.summary()).isEqualTo("Email to 2 recipients");
+        assertThat(mail.detail()).isEqualTo("dev-trap: not sent");
+        assertThat(mail.severity()).isEqualTo("WARN");
+        assertThat(mail.parentId()).isEqualTo("r1");
+        ActivityEntryDto ft = only(rendered, "FAULT_TOLERANCE");
+        assertThat(ft.summary()).isEqualTo("STATE_TRANSITION payments (circuit breaker)");
+        assertThat(ft.detail()).isEqualTo("Gateway#pay · state OPEN");
+        assertThat(ft.severity()).isEqualTo("WARN");
+        assertThat(ft.durationMs()).isEqualTo(40);
+        assertThat(ft.parentId()).isEqualTo("r1");
+    }
+
+    @Test
     void aRequestRepeatingOneSelectAtTheThresholdIsFlaggedAsAnNPlusOne() {
         for (int i = 0; i < 3; i++) {
             add(sql("r1", "select * from lines   where order_id = ?", 1, "t", false), 1_000 + i);

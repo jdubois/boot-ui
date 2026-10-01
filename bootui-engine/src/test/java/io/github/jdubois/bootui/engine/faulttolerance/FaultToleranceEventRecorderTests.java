@@ -3,7 +3,13 @@ package io.github.jdubois.bootui.engine.faulttolerance;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.FaultToleranceEventDto;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder.CapturedEvent;
+import io.github.jdubois.bootui.engine.journal.FaultTolerancePayload;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
@@ -20,6 +26,29 @@ class FaultToleranceEventRecorderTests {
         List<CapturedEvent> events = recorder.recent();
         assertThat(events).extracting(CapturedEvent::policyName).containsExactly("second", "first");
         assertThat(recorder.totalCaptured()).isEqualTo(2);
+    }
+
+    @Test
+    void publishesEachOutcomeToTheRuntimeJournalWithItsRequest() {
+        FaultToleranceEventRecorder recorder = new FaultToleranceEventRecorder(true, 10);
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(published::add);
+
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.forRequest("r1"))) {
+            recorder.record(
+                    "payments", "RETRY", "resilience4j", "Gateway#pay", "RETRY_EXHAUSTED", 3, 40L, "IOException");
+        }
+
+        assertThat(published).singleElement().satisfies(event -> {
+            assertThat(event.source()).isEqualTo(JournalSource.FAULT_TOLERANCE);
+            assertThat(event.requestId()).isEqualTo("r1");
+            assertThat(event.durationNanos()).isEqualTo(40_000_000L);
+            FaultTolerancePayload payload = (FaultTolerancePayload) event.payload();
+            assertThat(payload.policy()).isEqualTo("payments");
+            assertThat(payload.outcome()).isEqualTo("RETRY_EXHAUSTED");
+            assertThat(payload.attempt()).isEqualTo(3);
+            assertThat(payload.failureCategory()).isEqualTo("IOException");
+        });
     }
 
     @Test
