@@ -29,9 +29,10 @@ scripts:
   # Rebuilds the core/autoconfigure/ui/starter modules first (into the
   # per-worktree .m2/) so the app always reflects local changes, then launches
   # on $COPILOT_PORT -- a free port unique to this session -- so concurrent
-  # sessions never collide on the HTTP port. Requires Docker (Spring Boot
-  # auto-starts the Postgres/Redis/Ollama Compose services). On startup it logs
-  # "BootUI is available at http://localhost:<port>/bootui", which is auto-opened.
+  # sessions never collide on the HTTP port. Uses the Docker-free "dev" profile
+  # (H2, in-memory cache, no Compose services), so Docker is not required. On
+  # startup it logs "BootUI is available at http://localhost:<port>/bootui",
+  # which is auto-opened.
   #
   # Runs online (no -o) so it is self-healing: if the "Setup" script has not yet
   # finished populating the per-worktree .m2/ (e.g. launched during or before
