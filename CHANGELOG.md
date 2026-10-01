@@ -9,6 +9,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Four Database advisor checks (24 → 28).** DB-SCHEMA-010 (LOW) reports MySQL invisible, MariaDB ignored and
+  Oracle invisible indexes that every write still maintains; DB-PG-005 (LOW) reports `UNLOGGED` tables and leaf
+  partitions; DB-HIB-009 (MEDIUM) reports an explicitly named `@Id` declaring `GenerationType.IDENTITY` whose
+  PostgreSQL, MySQL or MariaDB column reports no auto-increment, identity, default or generated value; and DB-HIB-010
+  (MEDIUM) reports a positive `@Column(precision, scale)` wider than the bounded physical `DECIMAL`/`NUMERIC` column,
+  which rounds or rejects values. Each was accepted by at least two of three independent model reviews
+  ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md), [#1169](https://github.com/jdubois/boot-ui/pull/1169)).
 - **Failure-preserving retention for HTTP Exchanges, SQL Trace, and REST Client.** Each BootUI-owned capture buffer
   now reserves a share of its existing capacity, 25% by default, for the most recent failed and slow records: `5xx`
   and slow exchanges, failed and slow statements, and failed, `4xx`/`5xx`, and slow calls. Routine records are evicted
@@ -49,6 +56,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Memory advisor audit: fewer, more reliable findings.** The advisor now evaluates 32 rules. Five noisy rules are
+  retired and their IDs are never reused: `MEM-HEAP-007` (committed heap above usage, which flagged normal GC headroom
+  and every equal `-Xms`/`-Xmx`), `MEM-FOOTPRINT-004` (host swap, not attributable to the JVM), `MEM-POOL-006` (JIT
+  tier flags such as IntelliJ's `-XX:TieredStopAtLevel=1`), `MEM-THREAD-003` (peak versus current threads), and
+  `MEM-CONTENT-004` (arrays at half the heap, the normal shape of a Java heap). `MEM-HEAP-004` now reports the classic
+  `-Xmx32g`, which already disables compressed oops, using the live `MaxHeapSize`, `ObjectAlignmentInBytes`, and
+  `UseCompressedOops` options. `MEM-GC-006` no longer reports a ZGC or Shenandoah concurrent cycle as a long GC event.
+  `MEM-POOL-002` evaluates the whole code cache and the combined compiled-method segments instead of one segment that
+  HotSpot can fall back from. `MEM-FOOTPRINT-002` thread-stack reservations drop to LOW, and `MEM-POOL-003` rises to
+  MEDIUM when `-XX:+DisableExplicitGC` disables the `System.gc()` that java.nio needs to reclaim direct buffers. GC
+  filler objects (JDK 19+) are excluded from the class histogram. New INFO rule `MEM-GC-008` notes non-generational
+  ZGC on JDK 21-23, where generational ZGC is available
+  ([Memory checks](docs/MEMORY-CHECKS.md#complete-rule-audit-and-current-behavior),
+  [#1162](https://github.com/jdubois/boot-ui/pull/1162)).
 - **Quarkus Security advisor audit (45 rules).** Three new rules: `QS-TLS-006` flags legacy TLS protocol versions in
   HTTP SSL or TLS registry lists, `QS-OIDC-005` flags OIDC web-app tenants that disable session token encryption, and
   `QS-PROXY-001` flags forwarded headers trusted from any address. `QS-AUTH-007` and `QS-AUTH-013` now review
@@ -89,9 +110,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Trace attributes requests to their declared route instead of a masked path when the application has a root path.
 - **Quarkus 3.33.3.3.** The Quarkus extension, integration tests, and sample app move to Quarkus 3.33.3.3, the
   newest micro release of the 3.33 LTS stream.
+- **Dependencies and build tooling updated**, including Vue 3.5.43 in the bundled console, the Quarkus LangChain4j BOM
+  1.13.3 in the Quarkus sample app, GraalVM Native Build Tools 1.1.14, Vitest 5.0.1, jsdom 30.1.1, Prettier 3.9.8, and
+  the patched `undici` 7.30.0 and `brace-expansion` transitive dependencies.
 
 ### Fixed
 
+- **Database advisor false positives and hidden findings.** DB-SCHEMA-001 no longer reports the one-row identifier
+  tables Hibernate (`<entity>_seq` with a single `next_val` column, the MySQL default for `GenerationType.AUTO`) and
+  Spring Batch (`BATCH_*_SEQ`) generate without a primary key. DB-SCHEMA-002 no longer lets an unrelated GIN, partial
+  or generic-JDBC index on the same table turn every foreign key into an unknown result. DB-PG-002 treats a sequence
+  that was never read, on a role allowed to read it, as unused rather than unknown, so a fresh development database no
+  longer scans `PARTIAL`. Learn-more links now point to MySQL 8.4, the PostgreSQL primary/foreign-key docs and the
+  Jakarta Persistence 3.2 specification instead of blog posts and Wikipedia
+  ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md), [#1169](https://github.com/jdubois/boot-ui/pull/1169)).
 - **Live Activity durable persistence stores a failed or slow entry once, including a slow `4xx` request.**
   Persistence remembers the entries it stored in a bounded window. An entry that newer entries pushed out of Spring
   MVC's capped stream and that came back later, for example once `bootui.free-on-idle` released captured SQL, could be
@@ -129,7 +161,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   outbound call. Because the Spring MVC, Spring WebFlux, and Quarkus sample apps live under it, their call sites were
   always empty, including in statement rankings, N+1 groups, and Live Activity. Only BootUI's own module packages are
   now skipped, and a test fails if a new BootUI package is added without being classified.
-
 - **Live Activity durable persistence works on MySQL and Oracle.** On MySQL, every read used the SQL-standard
   `OFFSET … FETCH FIRST` row limit, which MySQL rejects, so the Live Activity panel and `GET /bootui/api/activity`
   failed once persistence was on, while rows kept piling up unread. On Oracle, the table could never be created,
@@ -139,7 +170,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   database that rejects the query is reported as a failed switch instead of breaking the panel. This applies to
   Spring MVC, Spring WebFlux, and Quarkus
   ([#1142](https://github.com/jdubois/boot-ui/issues/1142)).
-
 - **Spring MVC Log Tail streams no longer throw on a worker thread when a client disconnects or the application
   stops.** When the servlet container had already failed the async request, the stream worker still tried to
   complete the `SseEmitter`. Tomcat rejected that with an uncaught `IllegalStateException`, and the session could

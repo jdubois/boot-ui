@@ -61,6 +61,73 @@ class VendorCatalogReaderTests {
     }
 
     @Test
+    void postgresUnloggedTablesAreReadFromOrdinaryRelationsOnly() throws Exception {
+        List<String> queries = new ArrayList<>();
+        VendorFindings findings = postgres(
+                18,
+                queries,
+                sql -> sql.contains("relpersistence")
+                        ? List.of(
+                                Map.of("schema_name", "public", "table_name", "cache", "is_partition", false),
+                                Map.of("schema_name", "public", "table_name", "events_2026", "is_partition", true))
+                        : List.of());
+        String unlogged = queries.stream()
+                .filter(sql -> sql.contains("relpersistence"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(unlogged)
+                .contains("c.relkind = 'r'", "c.relpersistence = 'u'", "c.relispartition", "deptype = 'e'", "limit ?")
+                .doesNotContain("'p'");
+        assertThat(findings.findings(VendorFindingKinds.POSTGRES_UNLOGGED_TABLES))
+                .containsExactly(
+                        new PostgresUnloggedTable("public", "cache", false),
+                        new PostgresUnloggedTable("public", "events_2026", true));
+        queries.clear();
+        postgres(9, queries, sql -> List.of());
+        assertThat(queries)
+                .filteredOn(sql -> sql.contains("relpersistence"))
+                .singleElement()
+                .satisfies(sql -> assertThat(sql).doesNotContain("relispartition"));
+    }
+
+    @Test
+    void postgresDistinguishesANeverReadSequenceFromAHiddenCounter() throws Exception {
+        List<String> queries = new ArrayList<>();
+        VendorFindings findings = postgres(
+                18,
+                queries,
+                sql -> sql.contains("from pg_sequences")
+                        ? List.of(Map.of(
+                                "schema_name",
+                                "public",
+                                "sequence_name",
+                                "fresh",
+                                "min_value",
+                                BigDecimal.ONE,
+                                "max_value",
+                                BigDecimal.valueOf(1000),
+                                "start_value",
+                                BigDecimal.ONE,
+                                "increment_by",
+                                1L,
+                                "never_used",
+                                true))
+                        : List.of());
+        assertThat(queries.stream()
+                        .filter(sql -> sql.contains("from pg_sequences"))
+                        .findFirst()
+                        .orElseThrow())
+                .contains("has_sequence_privilege(seq.oid, 'SELECT, USAGE')", "pg_is_in_recovery()");
+        assertThat(findings.findings(VendorFindingKinds.POSTGRES_SEQUENCES))
+                .singleElement()
+                .satisfies(sequence -> {
+                    assertThat(sequence.lastValue()).isNull();
+                    assertThat(sequence.neverUsed()).isTrue();
+                    assertThat(sequence.percentUsed()).isZero();
+                });
+    }
+
+    @Test
     void postgresRetainsHiddenCounterAndReadsDefinitionBounds() throws Exception {
         List<String> queries = new ArrayList<>();
         VendorFindings findings = postgres(

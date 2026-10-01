@@ -134,6 +134,7 @@ class DatabaseAdvisorScannerTests {
                         VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS, List.of(), false))
                 .add(VendorAugmentation.available(
                         VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES, List.of(), false))
+                .add(VendorAugmentation.available(VendorFindingKinds.POSTGRES_UNLOGGED_TABLES, List.of(), false))
                 .build();
         var postgres = DatabaseAdvisorFixtures.schema("primary", Dialect.POSTGRESQL, List.of(), findings);
         try (var introspector = mockStatic(SchemaIntrospector.class)) {
@@ -516,7 +517,7 @@ class DatabaseAdvisorScannerTests {
     @Test
     void retiredIdsAreNotRegisteredOrReusedAndOldDismissalsAreHarmless() {
         Set<String> retired = Set.of("DB-SCHEMA-008", "DB-SCHEMA-009", "DB-HIB-001", "DB-HIB-008");
-        assertThat(DatabaseAdvisorRuleRegistry.activeRules()).hasSize(24);
+        assertThat(DatabaseAdvisorRuleRegistry.activeRules()).hasSize(28);
         assertThat(DatabaseAdvisorRuleRegistry.activeRules())
                 .noneMatch(rule -> retired.contains(rule.definition().id()));
         DatabaseAdvisorScanner scanner = scannerFor(List.of(new NamedDataSource("primary", dataSource)));

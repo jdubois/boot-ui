@@ -569,9 +569,10 @@ record MemoryContext(
      * memory, thread, or heap-content snapshots: JVM uptime, cumulative GC time/count, the pending
      * finalization backlog, the parsed {@code -Xms}/{@code -Xss} sizes used by the native-memory
      * and GC-overhead rules, OS-level metrics (available processors, physical memory, swap space,
-     * and the UseCompressedOops VM option), and the single most recently completed GC event's
-     * duration/collector (used by MEM-GC-006) collected once per scan for GC and footprint
-     * heuristics.
+     * and the UseCompressedOops VM option), the single most recently completed GC event's
+     * duration/collector (used by MEM-GC-006), and the live HotSpot {@code MaxHeapSize},
+     * {@code ObjectAlignmentInBytes} and {@code ZGenerational} options (-1/{@code null} when the
+     * option is not readable) collected once per scan for GC and footprint heuristics.
      */
     record RuntimeData(
             long uptimeMillis,
@@ -587,14 +588,57 @@ record MemoryContext(
             long totalPhysicalMemoryBytes,
             long lastGcDurationMillis,
             String lastGcCollectorName,
-            long freePhysicalMemoryBytes) {
+            long freePhysicalMemoryBytes,
+            long maxHeapSizeOptionBytes,
+            long objectAlignmentBytes,
+            Boolean zGenerational) {
 
         static final long DEFAULT_THREAD_STACK_BYTES = 1024L * 1024;
 
         /**
+         * Backward-compatible constructor for callers that predate the live HotSpot {@code MaxHeapSize},
+         * {@code ObjectAlignmentInBytes} and {@code ZGenerational} readings (MEM-HEAP-004, MEM-GC-008);
+         * they default to unavailable.
+         */
+        RuntimeData(
+                long uptimeMillis,
+                long gcCollectionTimeMillis,
+                long gcCollectionCount,
+                int objectPendingFinalizationCount,
+                long initialHeapBytes,
+                long threadStackBytes,
+                int availableProcessors,
+                long freeSwapSpaceBytes,
+                long totalSwapSpaceBytes,
+                Boolean useCompressedOops,
+                long totalPhysicalMemoryBytes,
+                long lastGcDurationMillis,
+                String lastGcCollectorName,
+                long freePhysicalMemoryBytes) {
+            this(
+                    uptimeMillis,
+                    gcCollectionTimeMillis,
+                    gcCollectionCount,
+                    objectPendingFinalizationCount,
+                    initialHeapBytes,
+                    threadStackBytes,
+                    availableProcessors,
+                    freeSwapSpaceBytes,
+                    totalSwapSpaceBytes,
+                    useCompressedOops,
+                    totalPhysicalMemoryBytes,
+                    lastGcDurationMillis,
+                    lastGcCollectorName,
+                    freePhysicalMemoryBytes,
+                    -1,
+                    -1,
+                    null);
+        }
+
+        /**
          * Backward-compatible constructor for callers that predate the total-physical-memory
          * reading (MEM-GC-004's server-class-machine ergonomics skip), the latest-GC-event reading
-         * (MEM-GC-006), and free physical memory (MEM-FOOTPRINT-004). They default to unavailable so
+         * (MEM-GC-006), and free physical memory. They default to unavailable so
          * existing behavior is preserved when these newer fields are not supplied.
          */
         RuntimeData(
