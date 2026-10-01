@@ -299,6 +299,10 @@ final class MemoryCollector {
         long freePhysicalMemory = readOsBeanLong("FreePhysicalMemorySize");
         long totalPhysicalMemory = readOsBeanLong("TotalPhysicalMemorySize");
         Boolean useCompressedOops = readVmOptionBoolean("UseCompressedOops");
+        long maxHeapSizeOption = readVmOptionLong("MaxHeapSize");
+        long objectAlignment = readVmOptionLong("ObjectAlignmentInBytes");
+        // Readable only on JDK 21-23; absent before JDK 21 and obsolete (unreadable) from JDK 24.
+        Boolean zGenerational = readVmOptionBoolean("ZGenerational");
 
         return new RuntimeData(
                 gc.uptimeMillis(),
@@ -314,7 +318,10 @@ final class MemoryCollector {
                 totalPhysicalMemory,
                 latestGcEvent.durationMillis(),
                 latestGcEvent.collectorName(),
-                freePhysicalMemory);
+                freePhysicalMemory,
+                maxHeapSizeOption,
+                objectAlignment,
+                zGenerational);
     }
 
     /**
@@ -366,8 +373,14 @@ final class MemoryCollector {
         }
     }
 
+    /**
+     * Selects the latest completed event by {@code GcInfo.endTime}. Concurrent-cycle beans (ZGC and
+     * Shenandoah "Cycles", legacy ConcurrentMarkSweep) are excluded: their duration is a whole
+     * concurrent cycle that overlaps application execution, not a collection pause.
+     */
     static LastGcEvent latestGcEvent(List<LastGcEventCandidate> candidates) {
         return candidates.stream()
+                .filter(candidate -> !isConcurrentCycleBean(candidate.collectorName()))
                 .max(Comparator.comparingLong(LastGcEventCandidate::endTimeMillis))
                 .map(candidate -> new LastGcEvent(
                         candidate.id(),
@@ -377,7 +390,7 @@ final class MemoryCollector {
                 .orElseGet(LastGcEvent::unavailable);
     }
 
-    private static List<HeapClassHistogramEntryDto> parseHistogram(String raw) {
+    static List<HeapClassHistogramEntryDto> parseHistogram(String raw) {
         List<HeapClassHistogramEntryDto> entries = new ArrayList<>();
         for (String line : raw.split("\\R")) {
             Matcher matcher = HISTOGRAM_ROW.matcher(line);
@@ -386,7 +399,11 @@ final class MemoryCollector {
             }
             long instances = Long.parseLong(matcher.group(1));
             long bytes = Long.parseLong(matcher.group(2));
-            entries.add(new HeapClassHistogramEntryDto(0, normalizeClassName(matcher.group(3)), instances, bytes));
+            String className = normalizeClassName(matcher.group(3));
+            if (isGcFillerClass(className)) {
+                continue;
+            }
+            entries.add(new HeapClassHistogramEntryDto(0, className, instances, bytes));
         }
         entries.sort(Comparator.comparingLong(HeapClassHistogramEntryDto::bytes).reversed());
         List<HeapClassHistogramEntryDto> ranked = new ArrayList<>(entries.size());
@@ -395,6 +412,24 @@ final class MemoryCollector {
             ranked.add(new HeapClassHistogramEntryDto(rank++, entry.className(), entry.instances(), entry.bytes()));
         }
         return ranked;
+    }
+
+    /**
+     * HotSpot (JDK 19+) fills dead heap space with synthetic filler objects that a live histogram
+     * still reports. They are not application data: {@code jdk.internal.vm.FillerObject}, and the
+     * filler array named {@code Ljava/internal/vm/FillerArray;} (JDK 19),
+     * {@code Ljdk/internal/vm/FillerArray;} (JDK 20-22) or {@code [Ljdk/internal/vm/FillerElement;}
+     * (JDK 23+, normalized to {@code jdk.internal.vm.FillerElement[]}).
+     */
+    static boolean isGcFillerClass(String className) {
+        if (className == null) {
+            return false;
+        }
+        String name = className.replace('/', '.');
+        return name.equals("jdk.internal.vm.FillerObject")
+                || name.equals("jdk.internal.vm.FillerElement[]")
+                || name.equals("Ljdk.internal.vm.FillerArray;")
+                || name.equals("Ljava.internal.vm.FillerArray;");
     }
 
     /** Keeps only the largest classes for display while totals are computed over every row. */
@@ -577,6 +612,19 @@ final class MemoryCollector {
     private static Boolean readVmOptionBoolean(String optionName) {
         String value = readVmOption(optionName);
         return value != null ? Boolean.parseBoolean(value) : null;
+    }
+
+    private static long readVmOptionLong(String optionName) {
+        String value = readVmOption(optionName);
+        if (value == null) {
+            return -1;
+        }
+        try {
+            long parsed = Long.parseLong(value.trim());
+            return parsed > 0 ? parsed : -1;
+        } catch (NumberFormatException ex) {
+            return -1;
+        }
     }
 
     /** Reads a numeric attribute from the platform OperatingSystem MXBean; returns -1 on failure. */

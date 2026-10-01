@@ -15,8 +15,9 @@ import java.util.Set;
  * {@code @JoinColumn}/{@code @JoinColumns} sets, the declared {@code @Column} name, and — as tri-state values
  * — the declared nullability and length. An entity relying on the default naming strategy is deliberately
  * reported without a table name. Default-valued {@code length}/{@code nullable} members are unknown: reflection
- * cannot distinguish omitted defaults from explicitly written defaults. Only positive nondefault length and
- * {@code nullable=false} are declaration evidence.</p>
+ * cannot distinguish omitted defaults from explicitly written defaults. Only positive nondefault length,
+ * {@code nullable=false}, and a positive precision (with the scale Hibernate applies alongside it) are
+ * declaration evidence.</p>
  *
  * <p>Attributes whose persisted shape is decided by a converter, an {@code @Enumerated} mapping or an
  * {@code @Lob} are flagged, so the type/length rules can skip exactly the cases where the Java type says
@@ -240,6 +241,8 @@ public final class HibernateSchemaBridge {
         }
         Boolean nullable = Boolean.FALSE.equals(attribute.annotationBooleanValue(column, "nullable")) ? false : null;
         Integer declaredLength = declaredLength(attribute, column);
+        Integer declaredPrecision = declaredPrecision(attribute, column);
+        Integer declaredScale = declaredPrecision == null ? null : attribute.annotationIntValue(column, "scale");
         boolean ambiguousType = attribute.hasConvertAnnotation()
                 || attribute.annotations().stream().anyMatch(HibernateSchemaBridge::changesColumnRepresentation)
                 || hasClassConversion(entityType)
@@ -256,7 +259,10 @@ public final class HibernateSchemaBridge {
                 attribute.isLob(),
                 ambiguousType,
                 attribute.hasId(),
-                blankToNull(tableName)));
+                blankToNull(tableName),
+                declaredPrecision,
+                declaredScale,
+                identityGenerated(attribute)));
         if (Boolean.TRUE.equals(attribute.annotationBooleanValue(column, "unique"))) {
             uniqueConstraints.add(new MappedUniqueConstraintFacts(
                     attribute.description(), List.of(columnName), blankToNull(tableName)));
@@ -295,6 +301,21 @@ public final class HibernateSchemaBridge {
             return null;
         }
         return length;
+    }
+
+    /**
+     * A positive {@code @Column(precision)}; Hibernate then applies the annotation's {@code scale} as written,
+     * including its default zero, so the pair is declaration evidence only when the precision is positive.
+     */
+    private static Integer declaredPrecision(HibernateAttributeModel attribute, Annotation column) {
+        Integer precision = attribute.annotationIntValue(column, "precision");
+        return precision == null || precision <= 0 ? null : precision;
+    }
+
+    /** An {@code @Id} with an explicit {@code @GeneratedValue(strategy = IDENTITY)}; AUTO is provider-selected. */
+    private static boolean identityGenerated(HibernateAttributeModel attribute) {
+        Annotation generatedValue = attribute.hasId() ? attribute.generatedValueAnnotation() : null;
+        return generatedValue != null && "IDENTITY".equals(attribute.annotationValueName(generatedValue, "strategy"));
     }
 
     private static void addForeignKey(
@@ -856,6 +877,11 @@ public final class HibernateSchemaBridge {
      * @param identifier whether the attribute is the entity's {@code @Id}
      * @param tableName the explicit {@code @Column(table=...)} secondary-table name, or {@code null} for the
      *     entity's primary table
+     * @param declaredPrecision a positive {@code @Column(precision=...)}, or {@code null} when not declared
+     * @param declaredScale the {@code @Column(scale=...)} Hibernate applies with that precision (including its
+     *     default zero), or {@code null} when no positive precision was declared
+     * @param identityGenerated whether this {@code @Id} explicitly declares
+     *     {@code @GeneratedValue(strategy = GenerationType.IDENTITY)}
      */
     public record MappedColumnFacts(
             String attributeDescription,
@@ -866,7 +892,36 @@ public final class HibernateSchemaBridge {
             boolean lob,
             boolean ambiguousType,
             boolean identifier,
-            String tableName) {
+            String tableName,
+            Integer declaredPrecision,
+            Integer declaredScale,
+            boolean identityGenerated) {
+
+        /** Constructor for callers with no numeric precision/scale information. */
+        public MappedColumnFacts(
+                String attributeDescription,
+                String columnName,
+                Boolean nullable,
+                String javaTypeSimpleName,
+                Integer declaredLength,
+                boolean lob,
+                boolean ambiguousType,
+                boolean identifier,
+                String tableName) {
+            this(
+                    attributeDescription,
+                    columnName,
+                    nullable,
+                    javaTypeSimpleName,
+                    declaredLength,
+                    lob,
+                    ambiguousType,
+                    identifier,
+                    tableName,
+                    null,
+                    null,
+                    false);
+        }
 
         /** Convenience constructor for callers with no length/LOB/converter/table information. */
         public MappedColumnFacts(

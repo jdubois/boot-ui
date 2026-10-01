@@ -9,6 +9,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Four Database advisor checks (24 → 28).** DB-SCHEMA-010 (LOW) reports MySQL invisible, MariaDB ignored and
+  Oracle invisible indexes that every write still maintains; DB-PG-005 (LOW) reports `UNLOGGED` tables and leaf
+  partitions; DB-HIB-009 (MEDIUM) reports an explicitly named `@Id` declaring `GenerationType.IDENTITY` whose
+  PostgreSQL, MySQL or MariaDB column reports no auto-increment, identity, default or generated value; and DB-HIB-010
+  (MEDIUM) reports a positive `@Column(precision, scale)` wider than the bounded physical `DECIMAL`/`NUMERIC` column,
+  which rounds or rejects values. Each was accepted by at least two of three independent model reviews
+  ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md), [#1169](https://github.com/jdubois/boot-ui/pull/1169)).
 - **Failure-preserving retention for HTTP Exchanges, SQL Trace, and REST Client.** Each BootUI-owned capture buffer
   now reserves a share of its existing capacity, 25% by default, for the most recent failed and slow records: `5xx`
   and slow exchanges, failed and slow statements, and failed, `4xx`/`5xx`, and slow calls. Routine records are evicted
@@ -49,6 +56,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Memory advisor audit: fewer, more reliable findings.** The advisor now evaluates 32 rules. Five noisy rules are
+  retired and their IDs are never reused: `MEM-HEAP-007` (committed heap above usage, which flagged normal GC headroom
+  and every equal `-Xms`/`-Xmx`), `MEM-FOOTPRINT-004` (host swap, not attributable to the JVM), `MEM-POOL-006` (JIT
+  tier flags such as IntelliJ's `-XX:TieredStopAtLevel=1`), `MEM-THREAD-003` (peak versus current threads), and
+  `MEM-CONTENT-004` (arrays at half the heap, the normal shape of a Java heap). `MEM-HEAP-004` now reports the classic
+  `-Xmx32g`, which already disables compressed oops, using the live `MaxHeapSize`, `ObjectAlignmentInBytes`, and
+  `UseCompressedOops` options. `MEM-GC-006` no longer reports a ZGC or Shenandoah concurrent cycle as a long GC event.
+  `MEM-POOL-002` evaluates the whole code cache and the combined compiled-method segments instead of one segment that
+  HotSpot can fall back from. `MEM-FOOTPRINT-002` thread-stack reservations drop to LOW, and `MEM-POOL-003` rises to
+  MEDIUM when `-XX:+DisableExplicitGC` disables the `System.gc()` that java.nio needs to reclaim direct buffers. GC
+  filler objects (JDK 19+) are excluded from the class histogram. New INFO rule `MEM-GC-008` notes non-generational
+  ZGC on JDK 21-23, where generational ZGC is available
+  ([Memory checks](docs/MEMORY-CHECKS.md#complete-rule-audit-and-current-behavior),
+  [#1162](https://github.com/jdubois/boot-ui/pull/1162)).
 - **One request slow threshold on every stack.** `bootui.activity.request-slow-threshold-ms` (default 1,000 ms) is now
   honored by Spring WebFlux and Quarkus as well as Spring MVC. It sets the `SLOW` severity of Live Activity `REQUEST`
   and `SCHEDULED` entries and decides which exchanges are kept longer. Spring WebFlux and Quarkus previously used a
@@ -88,6 +109,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Database advisor false positives and hidden findings.** DB-SCHEMA-001 no longer reports the one-row identifier
+  tables Hibernate (`<entity>_seq` with a single `next_val` column, the MySQL default for `GenerationType.AUTO`) and
+  Spring Batch (`BATCH_*_SEQ`) generate without a primary key. DB-SCHEMA-002 no longer lets an unrelated GIN, partial
+  or generic-JDBC index on the same table turn every foreign key into an unknown result. DB-PG-002 treats a sequence
+  that was never read, on a role allowed to read it, as unused rather than unknown, so a fresh development database no
+  longer scans `PARTIAL`. Learn-more links now point to MySQL 8.4, the PostgreSQL primary/foreign-key docs and the
+  Jakarta Persistence 3.2 specification instead of blog posts and Wikipedia
+  ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md), [#1169](https://github.com/jdubois/boot-ui/pull/1169)).
 - **Live Activity durable persistence stores a failed or slow entry once, including a slow `4xx` request.**
   Persistence remembers the entries it stored in a bounded window. An entry that newer entries pushed out of Spring
   MVC's capped stream and that came back later, for example once `bootui.free-on-idle` released captured SQL, could be
