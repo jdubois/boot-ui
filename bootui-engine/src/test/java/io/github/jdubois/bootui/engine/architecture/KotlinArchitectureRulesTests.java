@@ -140,6 +140,17 @@ class KotlinArchitectureRulesTests {
     }
 
     @Test
+    void selfCallsThatOnlyJoinTheCallersTransactionAreNotReported() {
+        ArchitectureRuleResultDto result = evaluate(new NoSelfInvocationOfProxiedMethodsRule());
+
+        // #1176: overloads, a $default-bridged readOnly callee, a MANDATORY caller, and a private helper of
+        // class-level transactional functions all join the transaction their caller already runs in.
+        assertThat(result.sampleViolations())
+                .noneMatch(violation -> violation.contains("KotlinSubscriptionService"))
+                .noneMatch(violation -> violation.contains("KotlinUsernameService"));
+    }
+
+    @Test
     void selfInvocationFromInsideALambdaIsStillReported() {
         ArchitectureRuleResultDto result = evaluate(new NoSelfInvocationOfProxiedMethodsRule());
 

@@ -250,6 +250,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`ARCH-SPRING-004` no longer reports a self-call that only joins the caller's transaction.** A method that already
+  runs in a transaction, declared on the method or the class, can call a `@Transactional` method of the same bean
+  whose `REQUIRED`, `SUPPORTS` or `MANDATORY` propagation would only join that transaction. That call is no longer
+  reported at HIGH. A private helper counts as transactional when every caller in its class is. The call stays
+  reported when the caller may run without a transaction, the callee starts or suspends a transaction, the transaction
+  manager, rollback rules, isolation or timeout differ, the callee also carries another proxy annotation, or the call
+  is written inside a lambda or a `try` block ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-004---beans-should-not-self-invoke-their-own-proxied-methods),
+  [#1176](https://github.com/jdubois/boot-ui/issues/1176)).
 - **The REST API advisor reads Quarkus REST `@ResponseStatus` and `@ResponseHeader`.** A `@POST @ResponseStatus(201)`
   creation method is no longer reported as using the default status, and a declared `Location` or `Retry-After`
   header satisfies `RAPI-RESP-008` and `RAPI-ERR-007`. Versioned `/v3/...` API handlers are no longer mistaken for

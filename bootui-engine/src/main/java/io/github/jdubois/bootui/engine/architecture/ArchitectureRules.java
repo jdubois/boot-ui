@@ -915,7 +915,9 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
                 "HIGH",
                 "Detects direct self-invocation of methods that are proxied through @Transactional, @Async, or"
                         + " @Cacheable (declared on the method, or @Async/@Cacheable declared on the class), which"
-                        + " bypasses the Spring proxy and silently disables the behaviour.",
+                        + " bypasses the Spring proxy and silently disables the behaviour. A call from a method that"
+                        + " already runs in a transaction to a @Transactional method that would only join it is not"
+                        + " reported.",
                 "Refactor so the call goes through the Spring proxy: move the proxied method to a separate bean, or,"
                         + " only if necessary, inject a @Lazy self-reference and call through it. Kotlin behaves"
                         + " identically here: marking the function open does not make a this-call go through the proxy.",
@@ -956,6 +958,10 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
      * argument, Kotlin compiles it into a call to the {@code $default} bridge, which carries none of the
      * annotations; following that hop is what keeps a real self-invocation reported instead of silently
      * disappearing as soon as a proxied function gains a default parameter value.
+     *
+     * <p>A call that only <strong>joins</strong> the caller's transaction loses nothing: a transactional origin
+     * calling a target whose sole proxy behaviour is a {@code REQUIRED}, {@code SUPPORTS} or {@code MANDATORY}
+     * transaction with the same manager, rollback rules, isolation and timeout. See {@link TransactionJoin}.
      */
     private static boolean bypassesProxy(ArchitectureContext context, JavaMethodCall call) {
         if (context.platform() != ArchitecturePlatform.SPRING
@@ -977,8 +983,11 @@ final class NoSelfInvocationOfProxiedMethodsRule extends AbstractArchitectureRul
             }
         }
         CanBeAnnotated proxied = resolved.isPresent() ? resolved.get() : target;
-        return SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(proxied)
-                || SpringStereotypes.CLASS_LEVEL_PROXY_ANNOTATED.test(call.getTargetOwner());
+        if (!SpringStereotypes.PROXIED_METHOD_ANNOTATED.test(proxied)
+                && !SpringStereotypes.CLASS_LEVEL_PROXY_ANNOTATED.test(call.getTargetOwner())) {
+            return false;
+        }
+        return resolved.isEmpty() || !TransactionJoin.joinsCallerTransaction(call, resolved.get());
     }
 
     /**
