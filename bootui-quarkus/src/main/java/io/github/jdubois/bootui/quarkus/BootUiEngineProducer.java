@@ -275,6 +275,7 @@ public class BootUiEngineProducer {
                         .orElse(null));
         RuntimeJournal journal = new RuntimeJournal(settings, application.run());
         journal.setCorrelationContextProvider(QuarkusRequestCorrelation::current);
+        journal.setThreadKindClassifier(new QuarkusThreadKinds());
         journal.addListener(aggregates);
         return journal;
     }

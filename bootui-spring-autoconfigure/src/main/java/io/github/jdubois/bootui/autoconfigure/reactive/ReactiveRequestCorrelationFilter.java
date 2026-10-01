@@ -116,7 +116,6 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
         }
         long startNanos = System.nanoTime();
         long start = System.currentTimeMillis();
-        String thread = Thread.currentThread().getName();
         AtomicReference<Throwable> failure = new AtomicReference<>();
         return chain.doOnError(failure::set).doFinally(signal -> {
             try {
@@ -138,7 +137,9 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
                         null,
                         correlation.traceId(),
                         null,
-                        thread,
+                        // The thread the request completed on, whose kind the journal records: a reactive request
+                        // has no single serving thread.
+                        Thread.currentThread().getName(),
                         null,
                         RequestSlowThreshold.isFailedOrSlow(status, durationNanos / 1_000_000, requestSlowThresholdMs),
                         new HttpPayload(

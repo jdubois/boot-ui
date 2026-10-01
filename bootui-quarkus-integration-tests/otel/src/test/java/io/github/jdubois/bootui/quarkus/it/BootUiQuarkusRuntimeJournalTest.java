@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.spi.ThreadKind;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
@@ -56,6 +57,9 @@ class BootUiQuarkusRuntimeJournalTest {
         assertThat(sqlChildrenOf(route) - before)
                 .as("SQL folded into the route")
                 .isGreaterThanOrEqualTo(3);
+        assertThat(route.childCounts().get(JournalSource.CONNECTION))
+                .as("each request's logical connections, published when released")
+                .isGreaterThanOrEqualTo(3);
         assertThat(aggregates.snapshot().routes())
                 .extracting(RouteStats::route)
                 .noneMatch(name -> name.contains("/bootui"));
@@ -70,8 +74,10 @@ class BootUiQuarkusRuntimeJournalTest {
                         && entry.event().thread() != null
                         && entry.event().thread().startsWith("executor-thread"))
                 .isNotEmpty()
-                .allSatisfy(
-                        entry -> assertThat(requestIds).contains(entry.event().requestId()));
+                .allSatisfy(entry -> {
+                    assertThat(requestIds).contains(entry.event().requestId());
+                    assertThat(entry.event().threadKind()).isEqualTo(ThreadKind.WORKER);
+                });
     }
 
     @Test

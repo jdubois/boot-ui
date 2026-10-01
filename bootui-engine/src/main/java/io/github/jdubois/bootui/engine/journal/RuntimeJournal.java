@@ -2,8 +2,10 @@ package io.github.jdubois.bootui.engine.journal;
 
 import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.correlation.ThreadKinds;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
+import io.github.jdubois.bootui.spi.ThreadKindClassifier;
 import java.lang.System.Logger.Level;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -68,6 +70,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
     private final AtomicLong lastSequence = new AtomicLong();
     private final LongAdder listenerFailures = new LongAdder();
     private final CorrelationSource correlation = new CorrelationSource();
+    private final ThreadKinds threadKinds = new ThreadKinds();
     private final Thread dispatcher;
     private volatile boolean running;
 
@@ -105,6 +108,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
         }
         int source = event.source().ordinal();
         try {
+            event = withThreadKind(event);
             if ((event.failedOrSlow() || queue.size() < routineQueueLimit) && queue.offer(event)) {
                 accepted[source].increment();
                 acceptedTotal.increment();
@@ -124,6 +128,25 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
     private boolean isBootUiWork() {
         return Thread.currentThread().getName().startsWith(BOOTUI_THREAD_PREFIX)
                 || correlation.current().bootUi();
+    }
+
+    /**
+     * Fills in the thread kind of an event offered on the thread it ran on, so every event knows whether it ran on a
+     * pooled worker, a virtual thread, or an event loop ({@code docs/PLAN-v2.md} §5.1). An event offered elsewhere, such
+     * as a message acknowledged on the broker client's I/O thread, keeps the kind its recorder gave it, if any.
+     */
+    private RuntimeEvent withThreadKind(RuntimeEvent event) {
+        if (event.threadKind() != null || event.thread() == null) {
+            return event;
+        }
+        return event.thread().equals(Thread.currentThread().getName())
+                ? event.withThreadKind(threadKinds.current())
+                : event;
+    }
+
+    /** Installs this stack's classifier of the thread an event is offered on; {@code null} restores the default. */
+    public void setThreadKindClassifier(ThreadKindClassifier classifier) {
+        threadKinds.set(classifier);
     }
 
     /**

@@ -110,7 +110,8 @@ public class BootUiSqlTraceProducer {
         AgroalDataSource real = defaultPool.orElseThrow();
         if (recorder.isEnabled()) {
             recorder.registerDataSource(DataSourceUtil.DEFAULT_DATASOURCE_NAME);
-            return SqlTracingProxies.wrap(real, recorder, AgroalDataSource.class);
+            return SqlTracingProxies.wrapNamed(
+                    real, recorder, DataSourceUtil.DEFAULT_DATASOURCE_NAME, AgroalDataSource.class);
         }
         return real;
     }

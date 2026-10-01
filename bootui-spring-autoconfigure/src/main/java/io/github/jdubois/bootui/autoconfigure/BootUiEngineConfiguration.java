@@ -195,8 +195,12 @@ public class BootUiEngineConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    RuntimeJournal bootUiRuntimeJournal(BootUiProperties properties, RunIdentity run) {
-        return new RuntimeJournal(properties.getRuntimeJournal().toSettings(), run);
+    RuntimeJournal bootUiRuntimeJournal(
+            BootUiProperties properties, RunIdentity run, ObjectProvider<ThreadKindClassifier> threadKinds) {
+        RuntimeJournal journal =
+                new RuntimeJournal(properties.getRuntimeJournal().toSettings(), run);
+        journal.setThreadKindClassifier(threadKinds.getIfUnique());
+        return journal;
     }
 
     /**

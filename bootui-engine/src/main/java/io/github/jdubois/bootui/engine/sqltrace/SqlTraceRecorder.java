@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.correlation.ThreadKinds;
+import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
@@ -35,6 +36,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
@@ -549,6 +551,57 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
         totalCaptured.incrementAndGet();
         notifyListeners();
         enrichActiveSpan(entry.traceId());
+    }
+
+    /**
+     * Starts following a logical connection the application has just obtained ({@code docs/PLAN-v2.md} §5.2), or
+     * returns {@code null} when nothing is recorded now, so the proxy keeps no state for it.
+     *
+     * @param dataSource the data source's name, or {@code null}
+     * @param waitNanos how long obtaining the connection took
+     */
+    public ConnectionCheckout checkoutConnection(String dataSource, long waitNanos) {
+        if (!enabled || idleSuspended || !recording.get() || BootUiJdbcCaptureGuard.isSuppressed()) {
+            return null;
+        }
+        return new ConnectionCheckout(
+                dataSource,
+                System.currentTimeMillis(),
+                System.nanoTime(),
+                Math.max(0, waitNanos),
+                correlation.current(),
+                Thread.currentThread().getName(),
+                threadKinds.current(),
+                new AtomicInteger(),
+                new AtomicBoolean());
+    }
+
+    /**
+     * Publishes a logical connection to the journal when the application releases it, with how long it waited for it
+     * and held it, and the statements that ran on it. A connection held for at least the slow-query threshold is kept
+     * with failed and slow events. A second release of the same connection is ignored.
+     */
+    public void releaseConnection(ConnectionCheckout checkout) {
+        if (checkout == null || !checkout.release()) {
+            return;
+        }
+        long heldNanos = Math.max(0, System.nanoTime() - checkout.obtainedNanos());
+        CorrelationContext context = checkout.context();
+        journal.offer(new RuntimeEvent(
+                JournalSource.CONNECTION,
+                checkout.epochMillis(),
+                heldNanos,
+                context.requestId(),
+                context.executionId(),
+                context.traceId(),
+                context.spanId(),
+                checkout.thread(),
+                checkout.threadKind(),
+                isSlow(heldNanos / 1_000),
+                new ConnectionPayload(
+                        checkout.dataSource(),
+                        checkout.waitNanos(),
+                        checkout.statements().get())));
     }
 
     /**

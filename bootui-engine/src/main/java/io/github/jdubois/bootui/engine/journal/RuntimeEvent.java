@@ -77,6 +77,22 @@ public record RuntimeEvent(
                 payload);
     }
 
+    /** This event with {@code kind} as the kind of its thread. */
+    public RuntimeEvent withThreadKind(ThreadKind kind) {
+        return new RuntimeEvent(
+                source,
+                epochMillis,
+                durationNanos,
+                requestId,
+                executionId,
+                traceId,
+                spanId,
+                thread,
+                kind,
+                failedOrSlow,
+                payload);
+    }
+
     /**
      * How the event knows the work it belongs to: {@link CorrelationTier#REQUEST_ID} when it carries a request or
      * execution id, {@link CorrelationTier#TRACE_ID} when it carries only a trace id, and {@code null} otherwise.

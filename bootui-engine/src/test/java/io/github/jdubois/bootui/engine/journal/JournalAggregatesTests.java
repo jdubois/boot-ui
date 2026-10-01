@@ -27,6 +27,7 @@ class JournalAggregatesTests {
         publish(event("r1", JournalSource.REST_CLIENT, 4_000_000, null));
         publish(event(
                 "r1", JournalSource.EXCEPTION, -1, new ExceptionPayload("g1", "java.lang.IllegalStateException")));
+        publish(event("r1", JournalSource.CONNECTION, 9_000_000, new ConnectionPayload("orders", 2_000_000, 3)));
         publish(http("r1", "/api/orders/{id}", 500, 20_000_000));
 
         AggregatesSnapshot snapshot = aggregates.snapshot();
@@ -42,7 +43,9 @@ class JournalAggregatesTests {
                 .containsEntry(JournalSource.EXCEPTION, 1L);
         assertThat(route.childNanos())
                 .containsEntry(JournalSource.SQL, 6_000_000L)
-                .containsEntry(JournalSource.REST_CLIENT, 4_000_000L);
+                .containsEntry(JournalSource.REST_CLIENT, 4_000_000L)
+                .containsEntry(JournalSource.CONNECTION, 9_000_000L);
+        assertThat(route.connectionWaitNanos()).isEqualTo(2_000_000L);
         assertThat(route.statements())
                 .containsEntry("select * from orders where id = ?", 2L)
                 .containsEntry("select * from lines where order_id = ?", 1L);

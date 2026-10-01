@@ -75,6 +75,13 @@ class WebFluxRuntimeJournalTest {
         assertThat(route.requests()).isEqualTo(3);
         assertThat(route.statusClasses().get(1)).isEqualTo(3);
         assertThat(route.childCounts().get(JournalSource.SQL)).isGreaterThanOrEqualTo(3);
+        assertThat(route.childCounts().get(JournalSource.CONNECTION))
+                .as("each request's logical connections, published when released")
+                .isGreaterThanOrEqualTo(3);
+        assertThat(journal.entries())
+                .filteredOn(entry -> entry.event().source() == JournalSource.HTTP)
+                .isNotEmpty()
+                .allSatisfy(entry -> assertThat(entry.event().threadKind()).isNotNull());
         assertThat(aggregates.snapshot().routes())
                 .extracting(RouteStats::route)
                 .noneMatch(name -> name.contains("/bootui"));

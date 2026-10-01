@@ -106,12 +106,22 @@ public final class SqlTracingProxies {
      * target so connection-pool discovery and metrics still reach the real pool.
      */
     public static DataSource wrap(DataSource dataSource, SqlTraceRecorder recorder, Class<?>... interfaces) {
+        return wrapNamed(dataSource, recorder, null, interfaces);
+    }
+
+    /**
+     * Wraps a data source under its name, such as its bean name, which the connections it lends report to the runtime
+     * journal ({@code docs/PLAN-v2.md} §5.2).
+     */
+    public static DataSource wrapNamed(
+            DataSource dataSource, SqlTraceRecorder recorder, String name, Class<?>... interfaces) {
         if (dataSource instanceof SqlTracedDataSource) {
             return dataSource;
         }
         DataSource target = unwrapForeignTracedProxy(dataSource);
+        Class<?>[] advertised = interfaces.length == 0 ? DATA_SOURCE_INTERFACES : interfaces;
         return (DataSource) Proxy.newProxyInstance(
-                dataSourceProxyClassLoader(target), interfaces, new DataSourceHandler(target, recorder));
+                dataSourceProxyClassLoader(target), advertised, new DataSourceHandler(target, recorder, name));
     }
 
     /**
@@ -210,8 +220,11 @@ public final class SqlTracingProxies {
     /** Wraps {@code getConnection} results; delegates everything else (including {@code unwrap}). */
     private static final class DataSourceHandler extends DelegatingHandler {
 
-        DataSourceHandler(Object target, SqlTraceRecorder recorder) {
+        private final String name;
+
+        DataSourceHandler(Object target, SqlTraceRecorder recorder, String name) {
             super(target, recorder);
+            this.name = name;
         }
 
         @Override
@@ -226,30 +239,35 @@ public final class SqlTracingProxies {
                     && !(target instanceof AutoCloseable)) {
                 return null;
             }
+            long start = System.nanoTime();
             Object result = invokeTarget(method, args);
             if ("getConnection".equals(method.getName()) && result instanceof Connection connection) {
-                return wrapConnection(connection, recorder);
+                return wrapConnection(
+                        connection, recorder, recorder.checkoutConnection(name, System.nanoTime() - start));
             }
             return result;
         }
     }
 
-    private static Connection wrapConnection(Connection connection, SqlTraceRecorder recorder) {
+    private static Connection wrapConnection(
+            Connection connection, SqlTraceRecorder recorder, ConnectionCheckout checkout) {
         String connectionId = "conn-" + CONNECTION_IDS.incrementAndGet();
         return (Connection) Proxy.newProxyInstance(
                 classLoader(connection),
                 CONNECTION_INTERFACES,
-                new ConnectionHandler(connection, recorder, connectionId));
+                new ConnectionHandler(connection, recorder, connectionId, checkout));
     }
 
     /** Wraps the statements a connection creates, remembering prepared/callable SQL. */
     private static final class ConnectionHandler extends DelegatingHandler {
 
         private final String connectionId;
+        private final ConnectionCheckout checkout;
 
-        ConnectionHandler(Object target, SqlTraceRecorder recorder, String connectionId) {
+        ConnectionHandler(Object target, SqlTraceRecorder recorder, String connectionId, ConnectionCheckout checkout) {
             super(target, recorder);
             this.connectionId = connectionId;
+            this.checkout = checkout;
         }
 
         @Override
@@ -257,8 +275,15 @@ public final class SqlTracingProxies {
             if (isObjectMethod(method)) {
                 return handleObjectMethod(proxy, method, args);
             }
-            Object result = invokeTarget(method, args);
             String name = method.getName();
+            if ("close".equals(name) && method.getParameterCount() == 0) {
+                try {
+                    return invokeTarget(method, args);
+                } finally {
+                    recorder.releaseConnection(checkout);
+                }
+            }
+            Object result = invokeTarget(method, args);
             if (result instanceof Statement statement) {
                 String sql = (args != null && args.length > 0 && args[0] instanceof String s) ? s : null;
                 StatementType type =
@@ -267,7 +292,7 @@ public final class SqlTracingProxies {
                             case "prepareCall" -> StatementType.CALLABLE;
                             default -> StatementType.STATEMENT;
                         };
-                return wrapStatement(statement, recorder, connectionId, type, sql);
+                return wrapStatement(statement, recorder, connectionId, checkout, type, sql);
             }
             return result;
         }
@@ -277,6 +302,7 @@ public final class SqlTracingProxies {
             Statement statement,
             SqlTraceRecorder recorder,
             String connectionId,
+            ConnectionCheckout checkout,
             StatementType type,
             String preparedSql) {
         Class<?>[] interfaces =
@@ -288,13 +314,14 @@ public final class SqlTracingProxies {
         return (Statement) Proxy.newProxyInstance(
                 classLoader(statement),
                 interfaces,
-                new StatementHandler(statement, recorder, connectionId, type, preparedSql));
+                new StatementHandler(statement, recorder, connectionId, checkout, type, preparedSql));
     }
 
     /** Times {@code execute*}/{@code executeBatch}, captures bound parameters, and records the outcome. */
     private static final class StatementHandler extends DelegatingHandler {
 
         private final String connectionId;
+        private final ConnectionCheckout checkout;
         private final StatementType statementType;
         private final String preparedSql;
 
@@ -307,10 +334,12 @@ public final class SqlTracingProxies {
                 Object target,
                 SqlTraceRecorder recorder,
                 String connectionId,
+                ConnectionCheckout checkout,
                 StatementType statementType,
                 String preparedSql) {
             super(target, recorder);
             this.connectionId = connectionId;
+            this.checkout = checkout;
             this.statementType = statementType;
             this.preparedSql = preparedSql;
         }
@@ -400,6 +429,9 @@ public final class SqlTracingProxies {
                 error = ex.getMessage();
                 throw ex;
             } finally {
+                if (checkout != null) {
+                    checkout.statementExecuted();
+                }
                 recorder.record(
                         statementType,
                         category,
@@ -431,6 +463,9 @@ public final class SqlTracingProxies {
                 error = ex.getMessage();
                 throw ex;
             } finally {
+                if (checkout != null) {
+                    checkout.statementExecuted();
+                }
                 recorder.record(
                         statementType,
                         category,

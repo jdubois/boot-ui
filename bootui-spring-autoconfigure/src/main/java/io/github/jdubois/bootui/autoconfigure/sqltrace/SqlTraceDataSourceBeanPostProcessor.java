@@ -85,7 +85,7 @@ public final class SqlTraceDataSourceBeanPostProcessor implements BeanPostProces
             return bean;
         }
         try {
-            DataSource traced = trace(dataSource, recorder);
+            DataSource traced = trace(dataSource, beanName, recorder);
             recorder.registerDataSource(beanName);
             return traced;
         } catch (Throwable ex) {
@@ -111,7 +111,7 @@ public final class SqlTraceDataSourceBeanPostProcessor implements BeanPostProces
             return;
         }
         try {
-            if (DelegatingDataSources.replaceTarget(wrapper, trace(target, recorder))) {
+            if (DelegatingDataSources.replaceTarget(wrapper, trace(target, beanName, recorder))) {
                 recorder.registerDataSource(beanName);
             }
         } catch (Throwable ex) {
@@ -125,12 +125,13 @@ public final class SqlTraceDataSourceBeanPostProcessor implements BeanPostProces
         }
     }
 
-    private static DataSource trace(DataSource dataSource, SqlTraceRecorder recorder) {
+    /** Wraps {@code dataSource} under its bean name, which its connections report to the runtime journal. */
+    private static DataSource trace(DataSource dataSource, String beanName, SqlTraceRecorder recorder) {
         Class<?>[] vendorInterfaces = vendorInterfaces(dataSource.getClass());
         return vendorInterfaces.length == 0
-                ? SqlTracingProxies.wrap(dataSource, recorder)
-                : SqlTracingProxies.wrap(
-                        dataSource, recorder, SqlTracingProxies.dataSourceInterfaces(vendorInterfaces));
+                ? SqlTracingProxies.wrapNamed(dataSource, recorder, beanName)
+                : SqlTracingProxies.wrapNamed(
+                        dataSource, recorder, beanName, SqlTracingProxies.dataSourceInterfaces(vendorInterfaces));
     }
 
     /**

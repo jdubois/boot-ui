@@ -2618,7 +2618,7 @@ public class BootUiProperties {
         private int queueCapacity = RuntimeJournalSettings.DEFAULT_QUEUE_CAPACITY;
 
         /**
-         * Sources to record: {@code http}, {@code sql}, {@code transaction}, {@code exception}, {@code security},
+         * Sources to record: {@code http}, {@code sql}, {@code transaction}, {@code connection}, {@code exception}, {@code security},
          * {@code rest-client}, {@code cache}, {@code messaging}, {@code scheduled}, {@code log}, {@code gc}, and
          * {@code resources}. Unset means every source; an unknown name fails startup.
          */

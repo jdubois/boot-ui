@@ -17,6 +17,7 @@ public enum JournalSource {
     HTTP("http"),
     SQL("sql"),
     TRANSACTION("transaction"),
+    CONNECTION("connection"),
     EXCEPTION("exception"),
     SECURITY("security"),
     REST_CLIENT("rest-client"),

@@ -639,7 +639,8 @@ aggregates per route, statement, exception group, transactional method, and thre
 ([PLAN-v2.md](PLAN-v2.md) §5.2). Recording never blocks a request: events wait in a bounded queue for one BootUI
 daemon thread, and an event the queue cannot take is dropped and counted. HTTP requests, SQL statements, exception
 occurrences, security events, REST client calls, cache accesses, messages, scheduled runs, transactions (Spring),
-and application `WARN` and `ERROR` log events are recorded today; the `gc` and `resources` sources follow. Payloads hold
+logical database connections (how long each was waited for and held), and application `WARN` and `ERROR` log events
+are recorded today; the `gc` and `resources` sources follow. Payloads hold
 no bind values, keys, message bodies, exception or log messages, or principals: a log event keeps its unformatted
 template only. Nothing is written to disk. The same keys and defaults apply on Spring and Quarkus.
 
@@ -649,7 +650,7 @@ template only. Nothing is written to disk. The same keys and defaults apply on S
 | `bootui.runtime-journal.max-events`    | `50000`                                  | Maximum number of events retained as evidence. A tenth of it is kept for failed and slow events. The aggregates count every event, retained or not. |
 | `bootui.runtime-journal.max-bytes`     | The smaller of 32 MB and 5 % of the heap | Maximum memory the retained events may use, estimated per event, such as `16MB`. Whichever bound is reached first evicts the oldest routine events. |
 | `bootui.runtime-journal.queue-capacity` | `10000`                                 | Maximum number of events waiting to be recorded. The last 10 % admits only failed or slow events, so a burst drops routine events first. |
-| `bootui.runtime-journal.sources`       | Every source                             | Comma-separated sources to record: `http`, `sql`, `transaction`, `exception`, `security`, `rest-client`, `cache`, `messaging`, `scheduled`, `log`, `gc`, and `resources`. An unknown name fails startup. |
+| `bootui.runtime-journal.sources`       | Every source                             | Comma-separated sources to record: `http`, `sql`, `transaction`, `connection`, `exception`, `security`, `rest-client`, `cache`, `messaging`, `scheduled`, `log`, `gc`, and `resources`. An unknown name fails startup. |
 
 ### Traces
 

@@ -115,6 +115,8 @@ public final class JournalAggregates implements JournalListener {
             }
         } else if (payload instanceof TransactionPayload transaction) {
             transactionalMethods.get(transaction.method()).add(event, transaction);
+        } else if (payload instanceof ConnectionPayload connection && children != null) {
+            children.connectionWaitNanos += connection.waitNanos();
         }
     }
 
@@ -211,6 +213,7 @@ public final class JournalAggregates implements JournalListener {
         private final long[] nanos = new long[SOURCES];
         private final Map<String, Long> statements = new LinkedHashMap<>();
         private final Set<String> exceptionGroups = new LinkedHashSet<>();
+        private long connectionWaitNanos;
 
         void add(RuntimeEvent event) {
             counts[event.source().ordinal()]++;
@@ -238,6 +241,7 @@ public final class JournalAggregates implements JournalListener {
         private final long[] childCounts = new long[SOURCES];
         private final long[] childNanos = new long[SOURCES];
         private final CappedMap<long[]> statements = new CappedMap<>(MAX_FINGERPRINTS_PER_ROUTE, () -> new long[1]);
+        private long connectionWaitNanos;
 
         void add(RuntimeEvent event, int status) {
             latency.recordNanos(event.durationNanos());
@@ -251,6 +255,7 @@ public final class JournalAggregates implements JournalListener {
                 childCounts[i] += children.counts[i];
                 childNanos[i] += children.nanos[i];
             }
+            connectionWaitNanos += children.connectionWaitNanos;
             children.statements.forEach((fingerprint, count) -> statements.get(fingerprint)[0] += count);
             for (String groupId : children.exceptionGroups) {
                 aggregates.exceptionGroups.get(groupId).routes.get(label)[0]++;
@@ -267,7 +272,8 @@ public final class JournalAggregates implements JournalListener {
                     latency.copy(),
                     bySource(childCounts),
                     bySource(childNanos),
-                    Collections.unmodifiableMap(statementCounts));
+                    Collections.unmodifiableMap(statementCounts),
+                    connectionWaitNanos);
         }
     }
 
@@ -369,7 +375,8 @@ public final class JournalAggregates implements JournalListener {
 
     /**
      * One route, keyed as {@code METHOD route}: its requests, status classes ({@code 1xx} to {@code 5xx}), latency, the count and time of its
-     * requests' children per source, and how many statements each fingerprint ran in it.
+     * requests' children per source, how many statements each fingerprint ran in it, and how long its requests waited
+     * to obtain database connections. The time of its {@code CONNECTION} children is how long they held them.
      */
     public record RouteStats(
             String route,
@@ -378,7 +385,8 @@ public final class JournalAggregates implements JournalListener {
             LatencyHistogram latency,
             Map<JournalSource, Long> childCounts,
             Map<JournalSource, Long> childNanos,
-            Map<String, Long> statements) {}
+            Map<String, Long> statements,
+            long connectionWaitNanos) {}
 
     /** One literal-free statement fingerprint: its executions, failures, latency, and executions per call site. */
     public record StatementStats(

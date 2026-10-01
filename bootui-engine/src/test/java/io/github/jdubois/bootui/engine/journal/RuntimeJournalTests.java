@@ -126,6 +126,24 @@ class RuntimeJournalTests {
     }
 
     @Test
+    void anEventOfferedOnItsOwnThreadGetsThatThreadsKindAndOthersKeepTheirs() {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        journal.setThreadKindClassifier(() -> ThreadKind.EVENT_LOOP);
+        String here = Thread.currentThread().getName();
+
+        journal.offer(new RuntimeEvent(JournalSource.LOG, 1, -1, null, null, null, null, here, null, false, null));
+        journal.offer(new RuntimeEvent(JournalSource.LOG, 2, -1, null, null, null, null, "other", null, false, null));
+        journal.offer(new RuntimeEvent(
+                JournalSource.LOG, 3, -1, null, null, null, null, here, ThreadKind.WORKER, false, null));
+        journal.offer(new RuntimeEvent(JournalSource.LOG, 4, -1, null, null, null, null, null, null, false, null));
+        journal.dispatchPending();
+
+        assertThat(journal.entries())
+                .extracting(entry -> entry.event().threadKind())
+                .containsExactly(null, ThreadKind.WORKER, null, ThreadKind.EVENT_LOOP);
+    }
+
+    @Test
     void theQueuesReservedTailAdmitsOnlyFailedOrSlowEvents() {
         RuntimeJournal journal = journal(settings(100, 1_000_000, 10, 20, JournalSource.all()), false);
 
