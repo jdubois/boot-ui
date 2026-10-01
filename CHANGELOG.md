@@ -79,6 +79,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   longer reports identical Spring mappings, which Spring rejects at startup and so only appear for inactive profile
   alternatives, while still reporting partial overlaps that fail at request time. Rule names now match the catalogue
   and learn-more links point at specific sources. The catalogue has 60 rule IDs, 53 of which can emit ([#1168](https://github.com/jdubois/boot-ui/pull/1168)).
+- **Spring Security advisor audited against Spring Security 7.1.1.** Spring Security 7's passkey (`webAuthn()`),
+  one-time-token and SAML 2.0 login filters are now recognized framework filters and browser-login credentials on
+  Spring MVC, so those chains are assessed by the CSRF, framing, CSP and session checks instead of being left
+  incomplete; WebFlux one-time-token login is recognized the same way. `SEC-SESSION-001` now reports session-backed
+  passkey login, whose 7.1 configurer applies no session-authentication strategy (no session-id or CSRF-token rotation
+  at login), with its own message and an `ObjectPostProcessor` remediation. New HIGH, production-only rules flag plain
+  HTTP opaque-token introspection on Spring MVC (`SEC-OAUTH-005`, parity with `SEC-RXF-OAUTH2-004`) and plain HTTP
+  OAuth2 client provider authorization, token, JWK-set and user-info endpoints on both stacks (`SEC-OAUTH-006`,
+  `SEC-RXF-OAUTH2-005`; the WebFlux catalogue now has 26 rules). `SEC-CORS-003` and `SEC-OAUTH-001`, which could only
+  pass or skip, are retired. `SEC-SESSION-004` now reviews explicit `SameSite=None` instead of skipping every unset
+  value; `SEC-SESSION-002` no longer flags production apps with direct TLS; `SEC-OAUTH-004` is production-only like its
+  reactive twin; `SEC-HEAD-002` drops from HIGH to MEDIUM and `SEC-HEAD-007` rises from LOW to MEDIUM to match WebFlux;
+  the WebFlux framing and CSP reviews (`SEC-RXF-HEAD-002`, `SEC-RXF-HEAD-004`) no longer flag bearer-only API
+  chains; and `SEC-CONFIG-005` ignores the `spring.web.error.include-*=always` development defaults DevTools adds, so
+  it no longer reports three MEDIUM findings on every DevTools run while an application value is still reported ([Security checks](docs/SECURITY-CHECKS.md), [#1173](https://github.com/jdubois/boot-ui/pull/1173)).
 - **Hibernate advisor audit against Hibernate ORM 7.** Effective factory settings are now read from the factory's own
   options and SQL statement logger, so settings the application never configured no longer leave `HIB-CONFIG-003`,
   `-006`, `-009`, `-013`, `-017`, `-019`, and `-020` without evidence and the scan `PARTIAL`. Three rules are added:

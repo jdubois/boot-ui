@@ -465,7 +465,7 @@ Platform-aware fidelity notes:
 
 ### 6.6 Security advisor (`security`) — live on WebFlux
 
-The advisor uses a dedicated 25-rule reactive catalogue (`SEC-RXF-*`) over a neutral observation model collected from
+The advisor uses a dedicated 26-rule reactive catalogue (`SEC-RXF-*`) over a neutral observation model collected from
 the application's `SecurityWebFilterChain` configuration. It stays distinct from the raw `spring-security` panel: the
 raw panel explains the configured chains and mappings, while the advisor turns the observed posture into bounded,
 deterministic findings across authorization, CSRF, CORS, headers, Actuator exposure, OAuth2/JWT, configuration, and
@@ -504,6 +504,10 @@ The cross-stack accuracy audit then retired duplicate missing-authorization rule
 added the INFO structural chain-ordering check `SEC-RXF-AUTHZ-004`, leaving 25 active rules. It also separates
 Basic/browser credentials from header-only bearer APIs, OAuth client grants from login, and effective Actuator
 access from inclusion settings. Unknown observations remain incomplete rather than becoming missing-control findings.
+
+The Spring Security 7.1 audit then added `SEC-RXF-OAUTH2-005` (plain-HTTP OAuth2 client provider endpoints), bringing the
+catalogue to 26 rules. It also recognizes one-time-token login as interactive browser login and limits the framing and
+CSP reviews to chains with an observed browser login, so bearer-only API chains no longer receive a CSP finding.
 
 :::
 

@@ -742,7 +742,7 @@ security verdict. See
 
 ### Spring WebFlux
 
-On Spring Boot WebFlux it evaluates a dedicated 25-rule `SEC-RXF-*` catalogue over a framework-neutral observation of the
+On Spring Boot WebFlux it evaluates a dedicated 26-rule `SEC-RXF-*` catalogue over a framework-neutral observation of the
 application's `SecurityWebFilterChain` beans, reactive CORS/OAuth2 beans, and security-relevant configuration. The Spring
 adapter owns collection and excludes BootUI's own permit-all chain; the shared engine owns deterministic rule evaluation
 and never receives Spring types or secret values.
