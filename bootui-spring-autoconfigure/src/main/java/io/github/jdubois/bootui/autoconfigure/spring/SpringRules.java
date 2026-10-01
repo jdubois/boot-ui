@@ -262,9 +262,9 @@ final class RestTemplateInUseRule extends AbstractSpringRule {
                 "Review RestTemplate migration",
                 SpringCategory.BEAN_WIRING,
                 "LOW",
-                "A RestTemplate bean is declared, not necessarily used. Framework 7 deprecates RestTemplate in favor of RestClient.",
+                "A RestTemplate bean is declared, not necessarily used. RestTemplate is in maintenance mode: Framework 7.0 does not deprecate it, but 7.1 deprecates it for removal in 8.0 in favor of RestClient.",
                 "When migrating active call sites, inject Boot's RestClient.Builder to retain shared customizations. Keep dependency-required RestTemplate usage deliberate.",
-                "io/rest-client.html");
+                "https://docs.spring.io/spring-framework/reference/integration/rest-clients.html#migrating-to-restclient");
     }
 
     @Override
@@ -325,31 +325,49 @@ final class MutableSingletonFieldRule extends AbstractSpringRule {
     }
 }
 
-final class LazyInitializationDisabledRule extends AbstractSpringRule {
-    LazyInitializationDisabledRule() {
+final class Jackson2AutoConfigurationActiveRule extends AbstractSpringRule {
+    Jackson2AutoConfigurationActiveRule() {
         super(
-                "CONFIG-001",
-                "Consider lazy initialization for large contexts",
+                "CONFIG-007",
+                "Review the deprecated Jackson 2 auto-configuration",
                 SpringCategory.CONFIGURATION,
-                "INFO",
-                "More than 300 definitions is a noise-filtering heuristic, not a measured startup threshold. Definition metadata does not prove every bean was eagerly instantiated.",
-                "If startup time matters, measure before evaluating lazy initialization. Preserve fail-fast behavior where needed; consider first-use latency and heap sizing.",
-                "features/spring-application.html");
+                "LOW",
+                "Boot's spring-boot-jackson2 auto-configuration is registered. Boot 4.0 ships it only as a migration stop-gap, deprecated for removal in Boot 4.3. This identifies the active module, not which mapper serializes HTTP payloads; the check matches the 4.1 class name.",
+                "Identify what pulls spring-boot-jackson2 (dependency tree), then migrate its spring.jackson2.* settings and Jackson2ObjectMapperBuilderCustomizer beans to the Jackson 3 equivalents (spring.jackson.*, JsonMapperBuilderCustomizer) with payload compatibility tests.",
+                "features/json.html#features.json.jackson2");
     }
 
     @Override
     SpringRuleResultDto evaluateRule(SpringContext c) {
-        c.applies(c.beanDefinitionCount() > 0);
-        if (c.bind("spring.main.lazy-initialization", Boolean.class) != null || c.beanDefinitionCount() <= 300)
-            return pass();
-        Integer lazy = c.observations().get(LAZY_DEFINITIONS, Integer.class);
-        return lazy == null
-                ? unknown(c)
-                : c.beanDefinitionCount() - lazy <= 300
-                        ? pass()
-                        : violation(
-                                c,
-                                "More than 300 bean definitions are not marked lazy; this does not prove eager instantiation. If startup time matters, measure before evaluating lazy initialization.");
+        Boolean active = c.observations().get(JACKSON2_AUTOCONFIGURATION, Boolean.class);
+        if (!c.applies(active != null)) return unknown(c);
+        return active
+                ? violation(
+                        c,
+                        "Boot's deprecated Jackson 2 auto-configuration (spring-boot-jackson2, removal planned for Boot 4.3) is registered; plan the Jackson 3 migration.")
+                : pass();
+    }
+}
+
+final class PropertiesMigratorPresentRule extends AbstractSpringRule {
+    PropertiesMigratorPresentRule() {
+        super(
+                "CONFIG-008",
+                "Remove the properties migrator after migrating",
+                SpringCategory.CONFIGURATION,
+                "INFO",
+                "spring-boot-properties-migrator is on the classpath. It is a temporary upgrade aid that reports legacy keys at startup and can temporarily remap renamed ones. An ongoing migration is expected; this does not establish which keys are currently translated.",
+                "Fix the keys the migrator reports at startup (and SPRING-CONFIG-003 findings), then remove the dependency and verify configuration-dependent behavior after a restart.",
+                "https://docs.spring.io/spring-boot/upgrading.html#upgrading.to-feature");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        return c.observed(c.observations().yes(PROPERTIES_MIGRATOR))
+                ? violation(
+                        c,
+                        "spring-boot-properties-migrator is on the classpath; legacy keys may currently depend on its temporary remapping. Remove it once migration is complete.")
+                : pass();
     }
 }
 
@@ -659,6 +677,36 @@ final class UnboundedAsyncQueueRule extends AbstractSpringRule {
     }
 }
 
+final class VirtualThreadsBeforeJep491Rule extends AbstractSpringRule {
+    VirtualThreadsBeforeJep491Rule() {
+        super(
+                "PERF-007",
+                "Review virtual threads on a JDK before 24",
+                SpringCategory.PERFORMANCE,
+                "INFO",
+                "Virtual threads are enabled for applicable MVC or Boot task execution on JDK 21-23. Before JEP 491 (JDK 24), blocking inside synchronized pins the carrier thread and the scheduler does not compensate, so heavy pinned blocking can starve carriers. This is a runtime-version review prompt, not observed pinning.",
+                "Prefer JDK 24 or later (25 is LTS) for virtual threads. Otherwise load-test with JFR jdk.VirtualThreadPinned events and review libraries that block inside synchronized; absent events under light load do not prove safety.",
+                "https://openjdk.org/jeps/491");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (!c.virtualThreadsSupported()) return skipped("Virtual threads require Java 21+.");
+        if (!c.dispatcherServletPresent() && !c.bootApplicationTaskExecutorPresent())
+            return skipped("No applicable MVC or Boot task-execution evidence; reactive HTTP alone is inapplicable.");
+        c.applies(true);
+        if (!c.isVirtualThreadsEnabled()) return pass();
+        Integer version = c.observations().get(JAVA_FEATURE_VERSION, Integer.class);
+        if (version == null) return unknown(c, "The running Java feature version was not observed.");
+        return version < 24
+                ? violation(
+                        c,
+                        "Virtual threads are enabled on JDK " + version
+                                + ", before JEP 491 removed synchronized pinning; review pinned blocking under load.")
+                : pass();
+    }
+}
+
 final class InMemoryCacheManagerRule extends AbstractSpringRule {
     InMemoryCacheManagerRule() {
         super(
@@ -787,8 +835,8 @@ final class ErrorDetailsExposedRule extends AbstractSpringRule {
                 "Review configured fallback error details",
                 SpringCategory.WEB,
                 "MEDIUM",
-                "Boot fallback error configuration permits exception details. Custom handling can differ; DevTools defaults may be deliberate. on-param is caller-controlled, not confidentiality protection.",
-                "Use never/false where details must remain private. Review custom handling and development defaults separately; do not use on-param as access control.",
+                "Application-configured Boot fallback error settings permit exception details. Custom handling can differ. DevTools' development-only defaults are not the application's configuration and are ignored. on-param is caller-controlled, not confidentiality protection.",
+                "Use never/false where details must remain private. Review custom handling separately; do not use on-param as access control.",
                 "web/servlet.html");
     }
 
@@ -796,17 +844,17 @@ final class ErrorDetailsExposedRule extends AbstractSpringRule {
     SpringRuleResultDto evaluateRule(SpringContext c) {
         if (!c.applies(c.observations().yes(BOOT_ERROR_HANDLING))) return webLink(c, unknown(c));
         List<String> details = new ArrayList<>();
-        if (c.isPropertyTrue("spring.web.error.include-exception"))
+        if (Boolean.TRUE.equals(c.hostBind("spring.web.error.include-exception", Boolean.class)))
             details.add("Boot fallback error configuration includes exception types; custom responses may differ.");
         for (String key : List.of("include-stacktrace", "include-message", "include-binding-errors")) {
-            String value = c.firstProperty("spring.web.error." + key);
-            if (value == null) continue;
-            String normalized = value.toLowerCase(java.util.Locale.ROOT);
-            if (!Set.of("never", "always", "on-param").contains(normalized)) throw new IllegalArgumentException();
+            String value = c.firstHostProperty("spring.web.error." + key);
+            if (value == null || value.isEmpty()) continue;
+            // Boot's lenient enum binding ignores case and separators (on-param, ON_PARAM, onparam).
+            String normalized = value.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]", "");
+            if (!Set.of("never", "always", "onparam").contains(normalized)) throw new IllegalArgumentException();
             if (!normalized.equals("never"))
-                details.add(
-                        "spring.web.error." + key
-                                + " allows fallback error details; on-param is not an access-control boundary. DevTools defaults may be deliberate.");
+                details.add("spring.web.error." + key
+                        + " allows fallback error details; on-param is not an access-control boundary.");
         }
         return webLink(c, violation(c, details));
     }
@@ -882,6 +930,39 @@ final class RedundantTomcatThreadsRule extends AbstractSpringRule {
                         c,
                         "A Boot-managed Tomcat virtual executor is observed alongside an explicit thread cap; review the cap's applicability.")
                 : unknown(c);
+    }
+}
+
+final class UnlimitedMultipartRequestRule extends AbstractSpringRule {
+    UnlimitedMultipartRequestRule() {
+        super(
+                "WEB-008",
+                "Review an unlimited multipart request size",
+                SpringCategory.WEB,
+                "LOW",
+                "The multipart configuration on Boot's DispatcherServlet registration has no total request-size limit (negative max-request-size). Boot defaults to 10MB, so this requires explicit configuration. Parts above the in-memory threshold are written to disk; proxy and container limits are not observed, and Tomcat's form-post limit does not bound file parts. A finite total limit with an unlimited per-file size is still bounded and passes.",
+                "Configure a workload-appropriate spring.servlet.multipart.max-request-size (and max-file-size), and enforce request-body limits at the edge too. No universal size is prescribed.",
+                "https://docs.spring.io/spring-boot/how-to/spring-mvc.html#howto.spring-mvc.multipart-file-uploads");
+    }
+
+    @Override
+    SpringRuleResultDto evaluateRule(SpringContext c) {
+        if (c.reactive()) return skipped("Servlet multipart configuration does not apply to WebFlux.");
+        if (c.observations().yes(MULTIPART_DISABLED)) {
+            c.applies(true);
+            return pass();
+        }
+        Long request = c.observations().get(MULTIPART_MAX_REQUEST_SIZE, Long.class);
+        if (!c.applies(request != null))
+            return unknown(
+                    c, "Boot's DispatcherServlet registration or its multipart configuration could not be observed.");
+        if (request >= 0) return pass();
+        Long file = c.observations().get(MULTIPART_MAX_FILE_SIZE, Long.class);
+        return violation(
+                c,
+                "Multipart requests have no total size limit"
+                        + (file != null && file < 0 ? " and no per-file limit" : "")
+                        + "; uploads are bounded only by unobserved proxy/container limits and disk space.");
     }
 }
 
@@ -1048,9 +1129,8 @@ final class ActuatorShowValuesAlwaysRule extends AbstractSpringRule {
             String key = "management.endpoint." + id + (id.equals("health") ? ".show-details" : ".show-values");
             String value = c.firstHostProperty(key);
             if (value == null) continue;
-            String normalized = value.toLowerCase(java.util.Locale.ROOT).replace('_', '-');
-            if (!Set.of("never", "always", "when-authorized").contains(normalized))
-                throw new IllegalArgumentException();
+            String normalized = value.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]", "");
+            if (!Set.of("never", "always", "whenauthorized").contains(normalized)) throw new IllegalArgumentException();
             if (normalized.equals("always") && ActuatorExposure.isReadable(c, id))
                 details.add(key + "=always permits " + (id.equals("health") ? "probe details" : "configuration values")
                         + " for callers allowed to access this endpoint.");

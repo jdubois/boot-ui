@@ -228,7 +228,8 @@ assets still target a JVM process and Spring's checkpoint lifecycle; they do not
 [^spring-advisor-reactive]: The Spring advisor uses the running MVC/WebFlux context and bounded non-eager bean
     metadata. HTTP-client advice distinguishes Boot-managed defaults from unknown per-client settings, and
     optimization opportunities are qualified to the observed stack. Reactive JDBC co-presence and explicitly
-    unlimited Boot codec aggregation are WebFlux-only checks; unavailable required evidence is reported as
+    unlimited Boot codec aggregation are WebFlux-only checks; servlet OSIV and multipart-size checks are MVC-only;
+    unavailable required evidence is reported as
     unevaluated. See `docs/SPRING-CHECKS.md` for active and retired rules.
 
 ### 6.2 Adapted with a small new binding (3 panels)

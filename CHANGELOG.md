@@ -79,6 +79,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   longer reports identical Spring mappings, which Spring rejects at startup and so only appear for inactive profile
   alternatives, while still reporting partial overlaps that fail at request time. Rule names now match the catalogue
   and learn-more links point at specific sources. The catalogue has 60 rule IDs, 53 of which can emit ([#1168](https://github.com/jdubois/boot-ui/pull/1168)).
+- **Spring advisor audit against Spring Boot 4.1.1 and Spring Framework 7.0.9.** Four rules are added:
+  SPRING-CONFIG-007 (LOW) flags Boot's deprecated `spring-boot-jackson2` auto-configuration, scheduled for removal in
+  Boot 4.3; SPRING-CONFIG-008 (INFO) reminds you to remove `spring-boot-properties-migrator` once migration is done;
+  SPRING-PERF-007 (INFO) reviews virtual threads on JDK 21–23, before JEP 491 removed `synchronized` pinning; and
+  SPRING-WEB-008 (LOW) flags an unlimited servlet multipart request size read from Boot's `DispatcherServlet`
+  registration. SPRING-CONFIG-001 (lazy initialization for large contexts) is retired because nearly every real
+  application exceeded its threshold and Boot advises against enabling lazy initialization by default; its ID stays
+  reserved. SPRING-CONFIG-003 now also reports the remaining verified Boot 4.0/4.1 removals, including OTLP
+  logging/tracing, OpenTelemetry, Brave, Zipkin and Wavefront keys, RabbitMQ `retry.max-attempts`, Kafka
+  `backoff.random`, `spring.jackson.parser`/`generator`, and template-engine `*.enabled` switches. SPRING-WIRING-007
+  no longer claims Framework 7.0 deprecates `RestTemplate` (the deprecation lands in 7.1). The advisor now ships 41
+  rules ([Spring checks](docs/SPRING-CHECKS.md), [#1164](https://github.com/jdubois/boot-ui/pull/1164)).
 - **CRaC readiness advisor audit.** Two checks are added: `CRAC-POOL-005` reports refresh-time database access
   (Flyway, Liquibase, Boot schema initializers, `spring.sql.init.mode=always`, or Hibernate boot metadata access and
   schema management) next to a non-in-memory Hikari pool, which leaves connections open at a
@@ -229,6 +241,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   creation method is no longer reported as using the default status, and a declared `Location` or `Retry-After`
   header satisfies `RAPI-RESP-008` and `RAPI-ERR-007`. Versioned `/v3/...` API handlers are no longer mistaken for
   springdoc's `/v3/api-docs` and excluded from the versioning rules ([#1168](https://github.com/jdubois/boot-ui/pull/1168)).
+- **The Spring advisor no longer penalizes DevTools' development defaults or valid enum spellings.** While a DevTools
+  restart is active, DevTools sets `spring.web.error.include-message`, `include-binding-errors` and
+  `include-stacktrace` to `always`, which made SPRING-WEB-004 report three MEDIUM findings on every IDE run. Those
+  defaults are now ignored like BootUI's own Actuator defaults; values the application configures are still reported.
+  SPRING-WEB-004 and SPRING-MGMT-003 also accept every spelling Boot's lenient enum binding accepts, such as
+  `ON_PARAM` or `whenauthorized`, instead of reporting an analysis error
+  ([#1164](https://github.com/jdubois/boot-ui/pull/1164)).
 - **Fewer Architecture advisor false positives.** `ARCH-CODE-013` ignores classes compiled into `target/test-classes`
   or `build/classes/*/test`, which are on the classpath under `spring-boot:test-run` or `bootTestRun`.
   `ARCH-SPRING-008` no longer reports services throwing `ResponseStatusException` or other web exception types.
@@ -245,6 +264,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   longer scans `PARTIAL`. Learn-more links now point to MySQL 8.4, the PostgreSQL primary/foreign-key docs and the
   Jakarta Persistence 3.2 specification instead of blog posts and Wikipedia
   ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md), [#1169](https://github.com/jdubois/boot-ui/pull/1169)).
+
 - **Live Activity durable persistence stores a failed or slow entry once, including a slow `4xx` request.**
   Persistence remembers the entries it stored in a bounded window. An entry that newer entries pushed out of Spring
   MVC's capped stream and that came back later, for example once `bootui.free-on-idle` released captured SQL, could be
