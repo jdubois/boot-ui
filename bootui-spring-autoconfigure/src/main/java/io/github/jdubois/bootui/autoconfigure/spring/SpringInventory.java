@@ -57,6 +57,11 @@ final class SpringInventory {
     private static final String SCHEDULED_PROCESSOR =
             "org.springframework.scheduling.config.internalScheduledAnnotationProcessor";
     private static final String BOOT_ASYNC = "applicationTaskExecutorAsyncConfigurer";
+    static final String JACKSON2_AUTOCONFIGURATION_CLASS =
+            "org.springframework.boot.jackson2.autoconfigure.Jackson2AutoConfiguration";
+    static final String PROPERTIES_MIGRATOR_LISTENER =
+            "org.springframework.boot.context.properties.migrator.PropertiesMigrationListener";
+    private static final String DISPATCHER_REGISTRATION = "dispatcherServletRegistration";
     private static final Set<String> INJECTED = Set.of(
             "org.springframework.beans.factory.annotation.Autowired",
             "org.springframework.beans.factory.annotation.Value",
@@ -71,7 +76,6 @@ final class SpringInventory {
             BeanRef ref,
             boolean application,
             boolean singleton,
-            boolean lazy,
             String factory,
             String method,
             boolean configurationProperties) {}
@@ -143,7 +147,6 @@ final class SpringInventory {
                         ref,
                         definition != null && definition.getRole() == BeanDefinition.ROLE_APPLICATION,
                         definition != null && definition.isSingleton(),
-                        definition != null && definition.isLazyInit(),
                         owner,
                         definition == null ? null : definition.getFactoryMethodName(),
                         bound));
@@ -173,9 +176,8 @@ final class SpringInventory {
         observeEndpoints();
         observeData();
         observeOsiv(reactive);
-        if (complete)
-            facts.put(
-                    LAZY_DEFINITIONS, (int) entries.stream().filter(Entry::lazy).count());
+        observeMigrationModules();
+        observeMultipart(reactive);
         return SpringContext.builder(environment)
                 .virtualThreadsSupported(Runtime.version().feature() >= 21)
                 .beanDefinitionCount(factory.getBeanDefinitionCount())
@@ -726,6 +728,50 @@ final class SpringInventory {
             }
             if (virtual) facts.put(TOMCAT_VIRTUAL_EXECUTOR, true);
         } catch (ReflectiveOperationException | RuntimeException ex) {
+            partial();
+        }
+    }
+
+    /**
+     * Deprecated Boot modules are identified from definition names and classpath presence only: an imported
+     * auto-configuration is registered under its fully qualified class name, and the properties migrator registers
+     * itself through {@code spring.factories}. Neither class is initialized.
+     */
+    private void observeMigrationModules() {
+        facts.put(JAVA_FEATURE_VERSION, Runtime.version().feature());
+        facts.put(PROPERTIES_MIGRATOR, present(PROPERTIES_MIGRATOR_LISTENER) != null);
+        if (factory.containsBeanDefinition(JACKSON2_AUTOCONFIGURATION_CLASS))
+            facts.put(JACKSON2_AUTOCONFIGURATION, true);
+        else if (complete) facts.put(JACKSON2_AUTOCONFIGURATION, false);
+    }
+
+    /**
+     * Reads the multipart limits Boot's own DispatcherServlet registration carries. The registration is created when
+     * the server starts; a missing, lazy or custom registration leaves the limits unknown.
+     */
+    private void observeMultipart(boolean reactive) {
+        if (reactive) return;
+        Entry entry = entry(DISPATCHER_REGISTRATION);
+        Object registration = entry == null ? null : factory.getSingleton(entry.name());
+        if (!isBoot(entry, "org.springframework.boot.webmvc.autoconfigure.")
+                || !exact(
+                        registration,
+                        "org.springframework.boot.webmvc.autoconfigure.DispatcherServletRegistrationBean")) return;
+        try {
+            Object config =
+                    registration.getClass().getMethod("getMultipartConfig").invoke(registration);
+            if (config == null) {
+                facts.put(MULTIPART_DISABLED, true);
+                return;
+            }
+            if (!exact(config, "jakarta.servlet.MultipartConfigElement")) return;
+            facts.put(
+                    MULTIPART_MAX_REQUEST_SIZE,
+                    config.getClass().getMethod("getMaxRequestSize").invoke(config));
+            facts.put(
+                    MULTIPART_MAX_FILE_SIZE,
+                    config.getClass().getMethod("getMaxFileSize").invoke(config));
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ex) {
             partial();
         }
     }

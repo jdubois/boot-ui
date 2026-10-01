@@ -64,7 +64,7 @@ class SpringScanWiringTest {
                 .isTrue();
 
         var report = controller.scan();
-        assertThat(report.rulesEvaluated()).isEqualTo(38);
+        assertThat(report.rulesEvaluated()).isEqualTo(41);
         assertThat(report.evidence().coverageComplete()).isTrue();
         assertThat(report.evidence().limitations()).isEmpty();
         assertThat(report.analysisErrors()).isEmpty();

@@ -177,8 +177,8 @@ record SpringContext(
     }
 
     /**
-     * Like {@link #firstProperty}, but ignores the actuator defaults BootUI contributes itself, so a rule
-     * reports only what the host application configured.
+     * Like {@link #firstProperty}, but ignores the actuator defaults BootUI contributes itself and DevTools'
+     * development property defaults, so a rule reports only what the host application configured.
      */
     String firstHostProperty(String... keys) {
         for (String key : keys) {
@@ -186,6 +186,10 @@ record SpringContext(
             if (value != null) return value.trim();
         }
         return null;
+    }
+
+    <T> T hostBind(String key, Class<T> type) {
+        return SpringProperties.bind(environment, true, key, Bindable.of(type));
     }
 
     <T> T bind(String key, Class<T> type) {
