@@ -46,28 +46,39 @@ class SpringRulesTests {
     static final List<BeanRef> TWO = List.of(new BeanRef("first", false), new BeanRef("second", false));
 
     @Test
-    void registryPinsAllThirtyEightRulesAndOnlyFourRetirements() {
+    void registryPinsAllFortyOneRulesAndOnlyFiveRetirements() {
         var ids = SpringRuleRegistry.activeRules().stream()
                 .map(rule -> rule.definition().id())
                 .toList();
         assertThat(ids)
-                .hasSize(38)
+                .hasSize(41)
                 .doesNotHaveDuplicates()
-                .contains("SPRING-REACTIVE-003")
-                .doesNotContain("SPRING-PROFILE-001", "SPRING-PERF-004", "SPRING-WEB-006", "SPRING-REACTIVE-002");
+                .contains(
+                        "SPRING-REACTIVE-003",
+                        "SPRING-CONFIG-007",
+                        "SPRING-CONFIG-008",
+                        "SPRING-PERF-007",
+                        "SPRING-WEB-008")
+                .doesNotContain(
+                        "SPRING-PROFILE-001",
+                        "SPRING-PERF-004",
+                        "SPRING-WEB-006",
+                        "SPRING-REACTIVE-002",
+                        "SPRING-CONFIG-001");
         assertThat(SpringRuleRegistry.activeRules().stream()
                         .filter(r -> Set.of(
                                         "SPRING-WIRING-003",
                                         "SPRING-WIRING-004",
                                         "SPRING-WIRING-005",
                                         "SPRING-WIRING-006",
-                                        "SPRING-CONFIG-001",
                                         "SPRING-CONFIG-006",
+                                        "SPRING-CONFIG-008",
                                         "SPRING-PROFILE-002",
                                         "SPRING-PROFILE-003",
                                         "SPRING-PERF-001",
                                         "SPRING-PERF-002",
                                         "SPRING-PERF-005",
+                                        "SPRING-PERF-007",
                                         "SPRING-CACHE-001",
                                         "SPRING-WEB-001",
                                         "SPRING-WEB-003",
@@ -167,34 +178,111 @@ class SpringRulesTests {
     }
 
     @Test
-    void lazyOpportunityUsesDefinitionMetadataAndSuppressesExplicitChoices() {
-        var rule = new LazyInitializationDisabledRule();
-        assertThat(rule.evaluate(context(new MockEnvironment(), Map.of(LAZY_DEFINITIONS, 0))
-                                .beanDefinitionCount(301)
-                                .build())
+    void deprecatedJackson2AutoConfigurationIsLowAndUnknownWithoutCompleteInventory() {
+        var rule = new Jackson2AutoConfigurationActiveRule();
+        assertThat(rule.definition().severity()).isEqualTo("LOW");
+        assertThat(rule.definition().description()).contains("4.3", "not which mapper");
+        var active = evaluate(rule, new MockEnvironment(), Map.of(JACKSON2_AUTOCONFIGURATION, true));
+        assertThat(active.status()).isEqualTo("VIOLATION");
+        assertThat(active.violationCount()).isEqualTo(1);
+        assertThat(evaluate(rule, new MockEnvironment(), Map.of(JACKSON2_AUTOCONFIGURATION, false))
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(evaluate(rule, new MockEnvironment(), Map.of()).status()).isEqualTo("SKIPPED");
+    }
+
+    @Test
+    void propertiesMigratorIsAnInformationalMigrationReminder() {
+        var rule = new PropertiesMigratorPresentRule();
+        assertThat(rule.definition().severity()).isEqualTo("INFO");
+        assertThat(evaluate(rule, new MockEnvironment(), Map.of(PROPERTIES_MIGRATOR, true))
                         .status())
                 .isEqualTo("VIOLATION");
-        assertThat(rule.evaluate(context(new MockEnvironment(), Map.of(LAZY_DEFINITIONS, 0))
-                                .beanDefinitionCount(300)
-                                .build())
+        assertThat(evaluate(rule, new MockEnvironment(), Map.of(PROPERTIES_MIGRATOR, false))
                         .status())
                 .isEqualTo("PASS");
-        assertThat(rule.evaluate(context(new MockEnvironment(), Map.of(LAZY_DEFINITIONS, 1))
-                                .beanDefinitionCount(301)
-                                .build())
-                        .status())
-                .isEqualTo("PASS");
-        assertThat(rule.evaluate(SpringContext.builder(new MockEnvironment())
-                                .beanDefinitionCount(301)
-                                .build())
-                        .status())
-                .isEqualTo("SKIPPED");
-        for (String value : List.of("true", "false"))
-            assertThat(rule.evaluate(context(env("spring.main.lazy-initialization", value), Map.of(LAZY_DEFINITIONS, 0))
-                                    .beanDefinitionCount(301)
+        assertThat(evaluate(rule, new MockEnvironment(), Map.of()).status()).isEqualTo("PASS");
+    }
+
+    @Test
+    void virtualThreadsBeforeJep491NeedExplicitEnablementApplicableExecutionAndAnOldJdk() {
+        var rule = new VirtualThreadsBeforeJep491Rule();
+        assertThat(rule.definition().severity()).isEqualTo("INFO");
+        MockEnvironment enabled = env("spring.threads.virtual.enabled", "true");
+        for (int version : List.of(21, 23))
+            assertThat(rule.evaluate(context(enabled, Map.of(JAVA_FEATURE_VERSION, version))
+                                    .virtualThreadsSupported(true)
+                                    .dispatcherServletPresent(true)
+                                    .build())
+                            .status())
+                    .as("JDK " + version)
+                    .isEqualTo("VIOLATION");
+        for (int version : List.of(24, 25))
+            assertThat(rule.evaluate(context(enabled, Map.of(JAVA_FEATURE_VERSION, version))
+                                    .virtualThreadsSupported(true)
+                                    .bootApplicationTaskExecutorPresent(true)
                                     .build())
                             .status())
                     .isEqualTo("PASS");
+        assertThat(rule.evaluate(context(
+                                        env("spring.threads.virtual.enabled", "false"),
+                                        Map.of(JAVA_FEATURE_VERSION, 21))
+                                .virtualThreadsSupported(true)
+                                .dispatcherServletPresent(true)
+                                .build())
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(rule.evaluate(context(enabled, Map.of(JAVA_FEATURE_VERSION, 21))
+                                .virtualThreadsSupported(true)
+                                .reactive(true)
+                                .build())
+                        .status())
+                .as("reactive HTTP alone is not routed to Boot's virtual threads")
+                .isEqualTo("SKIPPED");
+        assertThat(rule.evaluate(context(enabled, Map.of(JAVA_FEATURE_VERSION, 17))
+                                .dispatcherServletPresent(true)
+                                .build())
+                        .status())
+                .isEqualTo("SKIPPED");
+        assertThat(rule.evaluate(context(enabled, Map.of())
+                                .virtualThreadsSupported(true)
+                                .dispatcherServletPresent(true)
+                                .build())
+                        .status())
+                .isEqualTo("SKIPPED");
+    }
+
+    @Test
+    void unlimitedMultipartRequiresAnUnboundedTotalRequestSizeOnServletApplications() {
+        var rule = new UnlimitedMultipartRequestRule();
+        assertThat(rule.definition().severity()).isEqualTo("LOW");
+        var both = evaluate(
+                rule, new MockEnvironment(), Map.of(MULTIPART_MAX_REQUEST_SIZE, -1L, MULTIPART_MAX_FILE_SIZE, -1L));
+        assertThat(both.status()).isEqualTo("VIOLATION");
+        assertThat(both.violationCount()).isEqualTo(1);
+        assertThat(both.sampleViolations().get(0)).contains("no per-file limit");
+        assertThat(evaluate(
+                                rule,
+                                new MockEnvironment(),
+                                Map.of(MULTIPART_MAX_REQUEST_SIZE, -1L, MULTIPART_MAX_FILE_SIZE, 1_048_576L))
+                        .status())
+                .isEqualTo("VIOLATION");
+        assertThat(evaluate(
+                                rule,
+                                new MockEnvironment(),
+                                Map.of(MULTIPART_MAX_REQUEST_SIZE, 10_485_760L, MULTIPART_MAX_FILE_SIZE, -1L))
+                        .status())
+                .as("a finite total request size still bounds every file")
+                .isEqualTo("PASS");
+        assertThat(evaluate(rule, new MockEnvironment(), Map.of(MULTIPART_DISABLED, true))
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(evaluate(rule, new MockEnvironment(), Map.of()).status()).isEqualTo("SKIPPED");
+        assertThat(rule.evaluate(context(new MockEnvironment(), Map.of(MULTIPART_MAX_REQUEST_SIZE, -1L))
+                                .reactive(true)
+                                .build())
+                        .status())
+                .isEqualTo("SKIPPED");
     }
 
     @Test
@@ -212,13 +300,29 @@ class SpringRulesTests {
                 "spring.data.mongodb.gridfs.database",
                 "spring.data.mongodb.auto-index-creation",
                 "spring.data.mongodb.field-naming-strategy",
-                "spring.data.mongodb.representation.big-decimal"))
+                "spring.data.mongodb.representation.big-decimal",
+                "management.otlp.metrics.export.url",
+                "management.opentelemetry.tracing.export.otlp.endpoint",
+                "management.tracing.export.enabled",
+                "spring.rabbitmq.listener.simple.retry.max-retries",
+                "spring.kafka.retry.topic.backoff.jitter",
+                "spring.jackson.json.read.allow-java-comments",
+                "spring.thymeleaf.cache",
+                "spring.data.redis.lettuce.cluster.refresh.period"))
             assertThat(evaluate(legacy, env(key, "true"), Map.of()).status())
                     .as(key)
                     .isEqualTo("PASS");
         assertThat(evaluate(legacy, env("spring.data.mongodb.additional-hosts[0]", "secret-host"), Map.of())
                         .status())
                 .isEqualTo("VIOLATION");
+        for (String child : List.of(
+                "management.wavefront.api-token",
+                "spring.jackson.parser.allow-comments",
+                "management.otlp.tracing.headers.authorization")) {
+            var result = evaluate(legacy, env(child, "secret-value"), Map.of());
+            assertThat(result.status()).as(child).isEqualTo("VIOLATION");
+            assertThat(result.toString()).doesNotContain("secret-value");
+        }
         MockEnvironment relaxed = new MockEnvironment();
         relaxed.getPropertySources()
                 .addFirst(new SystemEnvironmentPropertySource(
@@ -526,10 +630,20 @@ class SpringRulesTests {
     void errorDetailsUseBoot4NamespaceAndOnParamIsNotConfidentiality() {
         var rule = new ErrorDetailsExposedRule();
         for (String key : List.of("include-stacktrace", "include-message", "include-binding-errors"))
-            for (String value : List.of("always", "on-param"))
+            for (String value : List.of("always", "on-param", "ON_PARAM", "onparam", "Always"))
                 assertThat(evaluate(rule, env("spring.web.error." + key, value), Map.of(BOOT_ERROR_HANDLING, true))
                                 .status())
+                        .as(key + "=" + value)
                         .isEqualTo("VIOLATION");
+        assertThat(evaluate(rule, env("spring.web.error.include-message", "NEVER"), Map.of(BOOT_ERROR_HANDLING, true))
+                        .status())
+                .isEqualTo("PASS");
+        assertThat(evaluate(
+                                rule,
+                                env("spring.web.error.include-message", "sometimes"),
+                                Map.of(BOOT_ERROR_HANDLING, true))
+                        .status())
+                .isEqualTo("ERROR");
         assertThat(evaluate(rule, env("spring.web.error.include-exception", "true"), Map.of(BOOT_ERROR_HANDLING, true))
                         .status())
                 .isEqualTo("VIOLATION");
@@ -540,6 +654,37 @@ class SpringRulesTests {
                         .status())
                 .isEqualTo("SKIPPED");
         assertThat(rule.definition().recommendation()).contains("never/false").contains("do not use on-param");
+    }
+
+    @Test
+    void errorDetailsIgnoreDevToolsDevelopmentDefaultsButNotApplicationConfiguration() {
+        var rule = new ErrorDetailsExposedRule();
+        MockEnvironment devtools = new MockEnvironment();
+        devtools.getPropertySources()
+                .addLast(new MapPropertySource(
+                        "devtools",
+                        Map.of(
+                                "spring.web.error.include-binding-errors", "always",
+                                "spring.web.error.include-message", "always",
+                                "spring.web.error.include-stacktrace", "always")));
+        ConfigurationPropertySources.attach(devtools);
+        assertThat(evaluate(rule, devtools, Map.of(BOOT_ERROR_HANDLING, true)).status())
+                .isEqualTo("PASS");
+        devtools.setProperty("spring.web.error.include-stacktrace", "on-param");
+        var result = evaluate(rule, devtools, Map.of(BOOT_ERROR_HANDLING, true));
+        assertThat(result.status()).isEqualTo("VIOLATION");
+        assertThat(result.violationCount()).isEqualTo(1);
+        MockEnvironment appNamedDevtools = new MockEnvironment();
+        java.util.Properties properties = new java.util.Properties();
+        properties.setProperty("spring.web.error.include-stacktrace", "always");
+        appNamedDevtools
+                .getPropertySources()
+                .addFirst(new org.springframework.core.env.PropertiesPropertySource("devtools", properties));
+        ConfigurationPropertySources.attach(appNamedDevtools);
+        assertThat(evaluate(rule, appNamedDevtools, Map.of(BOOT_ERROR_HANDLING, true))
+                        .status())
+                .as("only DevTools' own map source is ignored")
+                .isEqualTo("VIOLATION");
     }
 
     @Test
@@ -748,6 +893,11 @@ class SpringRulesTests {
                         "systemEnvironment", Map.of("MANAGEMENT_ENDPOINT_HEALTH_SHOWDETAILS", "always")));
         ConfigurationPropertySources.attach(host);
         assertThat(evaluate(show, host, ENDPOINT_EVIDENCE).status()).isEqualTo("VIOLATION");
+        for (String spelling : List.of("WHEN_AUTHORIZED", "when-authorized", "whenauthorized"))
+            assertThat(evaluate(show, env("management.endpoint.health.show-details", spelling), ENDPOINT_EVIDENCE)
+                            .status())
+                    .as(spelling)
+                    .isEqualTo("PASS");
         assertThat(evaluate(
                                 new SensitiveActuatorEndpointsExposedRule(),
                                 env("management.endpoints.web.exposure.include[0]", "env"),

@@ -224,6 +224,74 @@ class SpringBootProvenanceTests {
     }
 
     @Test
+    void multipartLimitsAreReadFromBootsDispatcherServletRegistration() {
+        var multipart = mvc.withConfiguration(
+                AutoConfigurations.of(org.springframework.boot.servlet.autoconfigure.MultipartAutoConfiguration.class));
+        multipart.run(context -> {
+            assertThat(context).hasNotFailed();
+            var snapshot = SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+            assertThat(snapshot.observations().get(MULTIPART_MAX_REQUEST_SIZE, Long.class))
+                    .isEqualTo(10L * 1024 * 1024);
+            assertThat(new UnlimitedMultipartRequestRule().evaluate(snapshot).status())
+                    .isEqualTo("PASS");
+        });
+        multipart
+                .withPropertyValues(
+                        "spring.servlet.multipart.max-request-size=-1", "spring.servlet.multipart.max-file-size=-1")
+                .run(context -> {
+                    var result = new UnlimitedMultipartRequestRule()
+                            .evaluate(SpringInventory.discover(
+                                    context.getBeanFactory(), context.getEnvironment(), false));
+                    assertThat(result.status()).isEqualTo("VIOLATION");
+                    assertThat(result.violationCount()).isEqualTo(1);
+                });
+        multipart
+                .withPropertyValues("spring.servlet.multipart.max-file-size=-1")
+                .run(context -> assertThat(new UnlimitedMultipartRequestRule()
+                                .evaluate(SpringInventory.discover(
+                                        context.getBeanFactory(), context.getEnvironment(), false))
+                                .status())
+                        .isEqualTo("PASS"));
+        multipart.withPropertyValues("spring.servlet.multipart.enabled=false").run(context -> {
+            var snapshot = SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+            assertThat(snapshot.observations().yes(MULTIPART_DISABLED)).isTrue();
+            assertThat(new UnlimitedMultipartRequestRule().evaluate(snapshot).status())
+                    .isEqualTo("PASS");
+        });
+        new WebApplicationContextRunner()
+                .run(context -> assertThat(new UnlimitedMultipartRequestRule()
+                                .evaluate(SpringInventory.discover(
+                                        context.getBeanFactory(), context.getEnvironment(), false))
+                                .status())
+                        .as("no Boot DispatcherServlet registration is unknown, not a pass")
+                        .isEqualTo("SKIPPED"));
+    }
+
+    @Test
+    void migrationModulesAreObservedWithoutInitializingThem() {
+        new ApplicationContextRunner().run(context -> {
+            var snapshot = SpringInventory.discover(context.getBeanFactory(), context.getEnvironment(), false);
+            assertThat(snapshot.observations().get(JACKSON2_AUTOCONFIGURATION, Boolean.class))
+                    .isFalse();
+            assertThat(snapshot.observations().get(PROPERTIES_MIGRATOR, Boolean.class))
+                    .isFalse();
+            assertThat(snapshot.observations().get(JAVA_FEATURE_VERSION, Integer.class))
+                    .isEqualTo(Runtime.version().feature());
+            assertThat(new Jackson2AutoConfigurationActiveRule()
+                            .evaluate(snapshot)
+                            .status())
+                    .isEqualTo("PASS");
+        });
+        new ApplicationContextRunner()
+                .withBean(SpringInventory.JACKSON2_AUTOCONFIGURATION_CLASS, Object.class, Object::new)
+                .run(context -> assertThat(new Jackson2AutoConfigurationActiveRule()
+                                .evaluate(SpringInventory.discover(
+                                        context.getBeanFactory(), context.getEnvironment(), false))
+                                .status())
+                        .isEqualTo("VIOLATION"));
+    }
+
+    @Test
     void customServerConfigurationDoesNotInventDisabledRuntime() {
         AtomicInteger customizations = new AtomicInteger();
         mvc.withBean(
@@ -345,7 +413,7 @@ class SpringBootProvenanceTests {
                                     context.getBeanFactory(), context.getEnvironment(), false, Clock.systemUTC())
                             .scan();
                     assertThat(report.scan().status()).isEqualTo("SCANNED");
-                    assertThat(report.rulesEvaluated()).isEqualTo(38);
+                    assertThat(report.rulesEvaluated()).isEqualTo(41);
                 });
     }
 

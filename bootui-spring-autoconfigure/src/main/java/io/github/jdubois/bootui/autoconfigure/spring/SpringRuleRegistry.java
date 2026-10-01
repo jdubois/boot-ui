@@ -20,12 +20,13 @@ final class SpringRuleRegistry {
             new DefaultPackageComponentsRule(),
             new MutableSingletonFieldRule(),
             // Configuration
-            new LazyInitializationDisabledRule(),
             new DebugOrTraceLoggingRule(),
             new RemovedOrRenamedPropertyRule(),
             new MissingApplicationNameRule(),
             new ConfigOnNotFoundIgnoreRule(),
             new Jackson2DefaultsCompatibilityRule(),
+            new Jackson2AutoConfigurationActiveRule(),
+            new PropertiesMigratorPresentRule(),
             // Profiles and environment
             new DevToolsOnClasspathRule(),
             new ProfileValidationDisabledRule(),
@@ -35,6 +36,7 @@ final class SpringRuleRegistry {
             new AsyncWithoutCustomExecutorRule(),
             new SchedulerPoolTooSmallRule(),
             new UnboundedAsyncQueueRule(),
+            new VirtualThreadsBeforeJep491Rule(),
             new InMemoryCacheManagerRule(),
             // Web and HTTP
             new ResponseCompressionDisabledRule(),
@@ -43,6 +45,7 @@ final class SpringRuleRegistry {
             new ErrorDetailsExposedRule(),
             new HttpClientTimeoutsUnsetRule(),
             new RedundantTomcatThreadsRule(),
+            new UnlimitedMultipartRequestRule(),
             // Data and persistence
             new OpenSessionInViewEnabledRule(),
             new InMemoryDatasourceInProductionRule(),
