@@ -49,6 +49,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Memory advisor audit: fewer, more reliable findings.** The advisor now evaluates 32 rules. Five noisy rules are
+  retired and their IDs are never reused: `MEM-HEAP-007` (committed heap above usage, which flagged normal GC headroom
+  and every equal `-Xms`/`-Xmx`), `MEM-FOOTPRINT-004` (host swap, not attributable to the JVM), `MEM-POOL-006` (JIT
+  tier flags such as IntelliJ's `-XX:TieredStopAtLevel=1`), `MEM-THREAD-003` (peak versus current threads), and
+  `MEM-CONTENT-004` (arrays at half the heap, the normal shape of a Java heap). `MEM-HEAP-004` now reports the classic
+  `-Xmx32g`, which already disables compressed oops, using the live `MaxHeapSize`, `ObjectAlignmentInBytes`, and
+  `UseCompressedOops` options. `MEM-GC-006` no longer reports a ZGC or Shenandoah concurrent cycle as a long GC event.
+  `MEM-POOL-002` evaluates the whole code cache and the combined compiled-method segments instead of one segment that
+  HotSpot can fall back from. `MEM-FOOTPRINT-002` thread-stack reservations drop to LOW, and `MEM-POOL-003` rises to
+  MEDIUM when `-XX:+DisableExplicitGC` disables the `System.gc()` that java.nio needs to reclaim direct buffers. GC
+  filler objects (JDK 19+) are excluded from the class histogram. New INFO rule `MEM-GC-008` notes non-generational
+  ZGC on JDK 21-23, where generational ZGC is available
+  ([Memory checks](docs/MEMORY-CHECKS.md#complete-rule-audit-and-current-behavior),
+  [#1162](https://github.com/jdubois/boot-ui/pull/1162)).
 - **GraalVM advisor: October 2026 audit (30 checks).** The native-image readiness advisor was re-audited against the
   GraalVM for JDK 25 feature releases (through 25.4), Spring Framework 7.0.9, Spring Boot 4.1.1, and Spring Cloud
   Commons, with every new or removed rule critiqued by three reviewer models. `GRAAL-REFLECT-003` (deep reflection) and
@@ -60,7 +74,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   covers `ClassPathResource` and resource pattern lookups, `SPRING-AOT-003` covers `@ConditionalOnCloudPlatform` and
   `@ConditionalOnThreading`, and `GRAAL-JMX-001` no longer flags `ManagementFactory.getPlatformMBeanServer()` but
   reports MBean registration, JMX proxies, and remote connectors instead
-  ([GraalVM readiness checks](docs/GRAALVM-READINESS-CHECKS.md#october-2026-audit)).
+  ([GraalVM readiness checks](docs/GRAALVM-READINESS-CHECKS.md#october-2026-audit),
+  [#1171](https://github.com/jdubois/boot-ui/pull/1171)).
 - **One request slow threshold on every stack.** `bootui.activity.request-slow-threshold-ms` (default 1,000 ms) is now
   honored by Spring WebFlux and Quarkus as well as Spring MVC. It sets the `SLOW` severity of Live Activity `REQUEST`
   and `SCHEDULED` entries and decides which exchanges are kept longer. Spring WebFlux and Quarkus previously used a
