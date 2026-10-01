@@ -54,9 +54,9 @@ final class QuarkusAppMetadataCollector {
     private static final DotName SCHEDULED = DotName.createSimple("io.quarkus.scheduler.Scheduled");
     private static final DotName SCHEDULES = DotName.createSimple("io.quarkus.scheduler.Scheduled$Schedules");
     private static final List<String> ALL_RULES =
-            List.of("QA-CDI-001", "QA-CDI-002", "QA-CDI-003", "QA-PERF-002", "QA-WEB-003");
+            List.of("QA-CDI-002", "QA-CDI-003", "QA-CDI-004", "QA-PERF-002", "QA-WEB-003");
 
-    private static final Set<String> SAFE_FINAL_TYPES = Set.of(
+    private static final Set<String> IMMUTABLE_VALUE_TYPES = Set.of(
             "java.lang.String",
             "java.lang.Boolean",
             "java.lang.Byte",
@@ -82,7 +82,9 @@ final class QuarkusAppMetadataCollector {
             "java.time.ZoneOffset",
             "java.time.Year",
             "java.time.YearMonth",
-            "java.time.MonthDay",
+            "java.time.MonthDay");
+
+    private static final Set<String> THREAD_SAFE_TYPES = Set.of(
             "java.util.concurrent.atomic.AtomicBoolean",
             "java.util.concurrent.atomic.AtomicInteger",
             "java.util.concurrent.atomic.AtomicLong",
@@ -158,13 +160,14 @@ final class QuarkusAppMetadataCollector {
             for (Map.Entry<String, BeanInfo> entry : beans.entrySet()) {
                 BeanInfo bean = entry.getValue();
                 DotName scope = bean.getScope().getDotName();
-                if (!scope.equals(APPLICATION) && !scope.equals(SINGLETON)) {
+                boolean normal = bean.getScope().isNormal();
+                if (!normal && !scope.equals(SINGLETON)) {
                     continue;
                 }
-                String resolvedScope = scope.equals(APPLICATION) ? "APPLICATION" : "SINGLETON";
-                String rule = resources.contains(entry.getKey())
-                        ? "QA-CDI-002"
-                        : scope.equals(APPLICATION) ? "QA-CDI-001" : "QA-CDI-003";
+                String resolvedScope = scope.equals(APPLICATION) ? "APPLICATION" : normal ? "NORMAL" : "SINGLETON";
+                String rule = normal
+                        ? "QA-CDI-004"
+                        : resources.contains(entry.getKey()) ? "QA-CDI-002" : "QA-CDI-003";
                 try {
                     Set<FieldKey> injected = new HashSet<>();
                     for (InjectionPointInfo point : bean.getAllInjectionPoints()) {
@@ -414,7 +417,7 @@ final class QuarkusAppMetadataCollector {
                     .sorted(Comparator.comparing(FieldInfo::name))
                     .toList()) {
                 budget.take();
-                if (isPublicState(field, injectedFields, resource)) {
+                if (isPublicState(field, injectedFields, resource, !scope.equals("SINGLETON"))) {
                     if (beanName.length() > QuarkusAppMetadataStore.MAX_STRING_BYTES
                             || field.name().length() > QuarkusAppMetadataStore.MAX_STRING_BYTES) {
                         throw new LimitReached();
@@ -434,7 +437,12 @@ final class QuarkusAppMetadataCollector {
         }
     }
 
-    static boolean isPublicState(FieldInfo field, Set<FieldKey> injectedFields, boolean resource) {
+    /**
+     * A normal-scoped bean is reached through ArC's shared client proxy, a subclass instance with its own copy of every
+     * field, so a thread-safe holder there is a second, diverging object. Final primitives and immutable values remain
+     * excluded to limit noise, although constructor-assigned values can still differ on the proxy.
+     */
+    static boolean isPublicState(FieldInfo field, Set<FieldKey> injectedFields, boolean resource, boolean proxied) {
         if (!Modifier.isPublic(field.flags())
                 || Modifier.isStatic(field.flags())
                 || injectedFields.contains(fieldId(field))) {
@@ -445,9 +453,11 @@ final class QuarkusAppMetadataCollector {
                         .anyMatch(annotation -> field.hasAnnotation(DotName.createSimple(annotation)))) {
             return false;
         }
-        return !Modifier.isFinal(field.flags())
-                || (field.type().kind() != Type.Kind.PRIMITIVE
-                        && !SAFE_FINAL_TYPES.contains(field.type().name().toString()));
+        if (!Modifier.isFinal(field.flags()) || field.type().kind() == Type.Kind.PRIMITIVE) {
+            return !Modifier.isFinal(field.flags());
+        }
+        String type = field.type().name().toString();
+        return !IMMUTABLE_VALUE_TYPES.contains(type) && (proxied || !THREAD_SAFE_TYPES.contains(type));
     }
 
     private static void declarations(List<ClassInfo> classes, State state) {

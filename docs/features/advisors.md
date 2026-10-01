@@ -455,8 +455,10 @@ On the Quarkus adapter the framework-application advisor above is relabelled **Q
 ruleset in place of the Spring rules. It takes the same explicit, read-only approach against the running application and
 its MicroProfile `Config`, but the rules target Quarkus idioms:
 
-- Resolved CDI/Arc scopes and publicly exposed state on shared beans and REST resources.
-- Production configuration evidence, including schema actions, SQL logging and explicit in-memory storage.
+- Resolved CDI/Arc scopes: public fields on normal-scoped beans, which client proxies do not delegate, and publicly
+  exposed state on singleton beans and REST resources.
+- Production configuration evidence, including schema actions, SQL and bind-parameter logging, and explicit in-memory
+  storage.
 - Effective managed REST-client timers, HTTP compression and request-draining configuration.
 - Conditional synchronized virtual-thread pinning on the running JDK 21-23.
 

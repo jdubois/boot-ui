@@ -138,6 +138,41 @@ class QuarkusAppSnapshotProviderImplTest {
     }
 
     @Test
+    void deprecatedGenerationSubPropertiesAlsoTriggerMigrationAdvice() {
+        QuarkusAppSnapshot snapshot = snapshot(
+                "dev",
+                Map.of(
+                        "quarkus.hibernate-orm.database.generation", "update",
+                        "quarkus.hibernate-orm.database.generation.create-schemas", "true",
+                        "%prod.quarkus.hibernate-orm.\"orders\".database.generation.halt-on-error", "true",
+                        "quarkus.hibernate-orm.schema-management.create-schemas", "true",
+                        "quarkus.hibernate-orm.database.default-schema", "app"));
+        assertThat(snapshot.settings())
+                .filteredOn(setting -> setting.ruleId().equals("QA-CFG-004"))
+                .extracting(QuarkusAppSnapshot.Setting::target)
+                .containsExactly(
+                        "%prod.quarkus.hibernate-orm.\"orders\".database.generation",
+                        "quarkus.hibernate-orm.database.generation");
+    }
+
+    @Test
+    void legacyGenerationRecognizesOnlyTheDeprecatedGroup() {
+        assertThat(QuarkusAppSnapshotProviderImpl.isLegacyGeneration("quarkus.hibernate-orm.database.generation"))
+                .isTrue();
+        assertThat(QuarkusAppSnapshotProviderImpl.isLegacyGeneration(
+                        "quarkus.hibernate-orm.\"a.b\".database.generation.create-schemas"))
+                .isTrue();
+        assertThat(QuarkusAppSnapshotProviderImpl.isLegacyGeneration(
+                        "quarkus.hibernate-orm.database.generation.other"))
+                .isFalse();
+        assertThat(QuarkusAppSnapshotProviderImpl.isLegacyGeneration(
+                        "quarkus.hibernate-orm.scripts.generation.create-target"))
+                .isFalse();
+        assertThat(QuarkusAppSnapshotProviderImpl.isLegacyGeneration("vendor.hibernate-orm.database.generation"))
+                .isFalse();
+    }
+
+    @Test
     void unrelatedAndAbsentLegacyPropertiesDoNotTriggerMigrationAdvice() {
         QuarkusAppSnapshot snapshot = snapshot(
                 "prod",
@@ -194,6 +229,131 @@ class QuarkusAppSnapshotProviderImplTest {
                 .containsExactly("disabled");
         assertThat(values(snapshot("prod", Map.of("quarkus.http.enable-compression", "true")), "QA-WEB-001"))
                 .containsExactly("enabled");
+    }
+
+    @Test
+    void productionBindParameterLoggingOrsBothGlobalFlagsIntoOneObservation() {
+        QuarkusAppSnapshot snapshot = snapshot(
+                "dev",
+                Map.of(
+                        "%prod.quarkus.hibernate-orm.log.bind-param", "true",
+                        "%prod.quarkus.hibernate-orm.log.bind-parameters", "false"));
+        assertThat(values(snapshot, "QA-CFG-005")).containsExactly("true");
+        assertThat(snapshot.evaluatedConfigurationRules()).doesNotContain("QA-CFG-005");
+        assertThat(snapshot.problems()).anyMatch(p -> p.ruleId().equals("QA-CFG-005"));
+        assertThat(values(
+                        snapshot("dev", Map.of("%prod.quarkus.hibernate-orm.log.bind-parameters", "off")),
+                        "QA-CFG-005"))
+                .containsExactly("false");
+    }
+
+    @Test
+    void bindParameterLoggingIgnoresDevelopmentPerUnitAndActiveProductionEvidence() {
+        QuarkusAppSnapshot development = snapshot(
+                "dev",
+                Map.of(
+                        "quarkus.hibernate-orm.log.bind-parameters", "true",
+                        "%dev.quarkus.hibernate-orm.log.bind-param", "true",
+                        "%prod.quarkus.hibernate-orm.\"orders\".log.bind-parameters", "true"));
+        assertThat(values(development, "QA-CFG-005")).isEmpty();
+
+        QuarkusAppSnapshot activeProduction =
+                snapshot("prod", Map.of("quarkus.hibernate-orm.log.bind-parameters", "true"));
+        assertThat(values(activeProduction, "QA-CFG-005")).isEmpty();
+        assertThat(activeProduction.evaluatedConfigurationRules()).contains("QA-CFG-005");
+    }
+
+    @Test
+    void unqualifiedBaseFileBindParameterLoggingIsPackagedUnlessProductionOverridesIt() {
+        ConfigSource base = new PropertiesConfigSource(
+                Map.of("quarkus.hibernate-orm.log.bind-parameters", "true"),
+                "PropertiesConfigSource[source=file:/app/target/classes/application.properties]",
+                250);
+        assertThat(values(collect(builder("dev").withSources(base).build(), EMPTY), "QA-CFG-005"))
+                .containsExactly("true");
+
+        ConfigSource overridden = new PropertiesConfigSource(
+                Map.of(
+                        "quarkus.hibernate-orm.log.bind-parameters", "true",
+                        "%prod.quarkus.hibernate-orm.log.bind-parameters", "false"),
+                "PropertiesConfigSource[source=file:/app/target/classes/application.properties]",
+                250);
+        assertThat(values(collect(builder("dev").withSources(overridden).build(), EMPTY), "QA-CFG-005"))
+                .containsExactly("false");
+
+        ConfigSource profileFile = new PropertiesConfigSource(
+                Map.of("quarkus.hibernate-orm.log.bind-parameters", "true"),
+                "PropertiesConfigSource[source=file:/app/target/classes/application-dev.properties]",
+                255);
+        assertThat(values(collect(builder("dev").withSources(profileFile).build(), EMPTY), "QA-CFG-005"))
+                .isEmpty();
+    }
+
+    @Test
+    void absentOrmCapabilityMakesBindParameterLoggingInapplicable() {
+        QuarkusAppMetadata withoutOrm = new QuarkusAppMetadata(
+                true, 0, 0, 0, 0, 0, false, true, false, List.of(), List.of(), List.of(), List.of());
+        QuarkusAppSnapshot snapshot = collect(
+                builder("dev")
+                        .withSources(new PropertiesConfigSource(
+                                Map.of("%prod.quarkus.hibernate-orm.log.bind-parameters", "true"), "test", 1000))
+                        .build(),
+                withoutOrm);
+        assertThat(values(snapshot, "QA-CFG-005")).isEmpty();
+        assertThat(snapshot.evaluatedConfigurationRules()).contains("QA-CFG-005");
+    }
+
+    @Test
+    void developmentScanMarksProductionFacingWebRulesIncompleteButKeepsTheirObservations() {
+        QuarkusAppSnapshot snapshot = snapshot("dev", Map.of());
+        assertThat(values(snapshot, "QA-WEB-001")).containsExactly("default-disabled");
+        assertThat(values(snapshot, "QA-WEB-004")).containsExactly("absent");
+        assertThat(snapshot.evaluatedConfigurationRules()).doesNotContain("QA-WEB-001", "QA-WEB-002", "QA-WEB-004");
+        assertThat(snapshot("prod", Map.of()).evaluatedConfigurationRules())
+                .contains("QA-WEB-001", "QA-WEB-002", "QA-WEB-004");
+    }
+
+    @Test
+    void visibleProductionCompressionDeclarationWinsInDevelopment() {
+        QuarkusAppSnapshot enabled =
+                snapshot("dev", Map.of("%prod.quarkus.http.enable-compression", "true"));
+        assertThat(values(enabled, "QA-WEB-001")).containsExactly("enabled");
+        assertThat(enabled.settings())
+                .filteredOn(setting -> setting.ruleId().equals("QA-WEB-001"))
+                .extracting(QuarkusAppSnapshot.Setting::provenance)
+                .containsExactly("visible production declaration");
+        assertThat(values(snapshot("dev", Map.of("%prod.quarkus.http.enable-compression", "false")), "QA-WEB-001"))
+                .containsExactly("disabled");
+        assertThat(values(snapshot("dev", Map.of()), "QA-WEB-001")).containsExactly("default-disabled");
+    }
+
+    @Test
+    void visibleProductionShutdownDeclarationWinsInDevelopment() {
+        QuarkusAppSnapshot declared = snapshot("dev", Map.of("%prod.quarkus.shutdown.timeout", "30s"));
+        assertThat(values(declared, "QA-WEB-004")).containsExactly("positive");
+        assertThat(declared.settings())
+                .filteredOn(setting -> setting.ruleId().equals("QA-WEB-004"))
+                .extracting(QuarkusAppSnapshot.Setting::provenance)
+                .containsExactly("visible production declaration");
+        assertThat(values(
+                        snapshot(
+                                "dev",
+                                Map.of(
+                                        "quarkus.shutdown.timeout", "10s",
+                                        "%prod.quarkus.shutdown.timeout", "0")),
+                        "QA-WEB-002"))
+                .containsExactly("zero");
+        assertThat(values(snapshot("dev", Map.of("quarkus.shutdown.timeout", "10s")), "QA-WEB-004"))
+                .containsExactly("positive");
+        assertThat(values(snapshot("dev", Map.of()), "QA-WEB-004")).containsExactly("absent");
+    }
+
+    @Test
+    void unresolvableProductionShutdownDeclarationIsAnErrorNotAbsence() {
+        QuarkusAppSnapshot snapshot =
+                snapshot("dev", Map.of("%prod.quarkus.shutdown.timeout", "${drain.timeout}", "drain.timeout", "5s"));
+        assertThat(values(snapshot, "QA-WEB-004")).isEmpty();
+        assertThat(snapshot.evaluatedConfigurationRules()).doesNotContain("QA-WEB-002", "QA-WEB-004");
     }
 
     @Test

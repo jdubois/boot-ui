@@ -23,6 +23,7 @@ class QuarkusAppMetadataStoreTest {
         QuarkusAppMetadata first = metadata(
                 List.of(
                         new SharedField("sample.Z", "state", "SINGLETON", true),
+                        new SharedField("sample.R", "state", "NORMAL", true),
                         new SharedField("sample.A", "state", "APPLICATION", false)),
                 List.of("sample.Z#call()", "sample.A#call()"),
                 List.of(new RestClient("sample.Z", "z"), new RestClient("sample.A", "a")),
@@ -145,7 +146,7 @@ class QuarkusAppMetadataStoreTest {
         assertThat(result.available()).isTrue();
         assertThat(result.problems())
                 .extracting(QuarkusAppEvidenceProblem::ruleId)
-                .containsExactly("QA-CDI-001", "QA-CDI-002", "QA-CDI-003", "QA-PERF-002", "QA-WEB-003");
+                .containsExactly("QA-CDI-002", "QA-CDI-003", "QA-CDI-004", "QA-PERF-002", "QA-WEB-003");
         assertThat(result.problems()).allMatch(problem -> problem.message().equals(QuarkusAppMetadataStore.INCOMPLETE));
     }
 
@@ -183,7 +184,7 @@ class QuarkusAppMetadataStoreTest {
         assertThat(result.sharedFields()).isNotEmpty().hasSizeLessThan(fields.size());
         assertThat(result.problems())
                 .extracting(QuarkusAppEvidenceProblem::ruleId)
-                .containsExactly("QA-CDI-001");
+                .containsExactly("QA-CDI-004");
         assertThat(bytes)
                 .isEqualTo(QuarkusAppMetadataStore.encode(metadata(reversed(fields), List.of(), List.of(), List.of())));
     }
