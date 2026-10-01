@@ -173,6 +173,37 @@ class SpringReactiveSecurityObservationCollectorTests {
     }
 
     @Test
+    void plainHttpOAuth2ClientProviderEndpointsAreCollectedByNameOnly() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("spring.security.oauth2.client.registration.corp.client-id", "app")
+                .withProperty("spring.security.oauth2.client.provider.corp.token-uri", "http://idp.example.com/token")
+                .withProperty("spring.security.oauth2.client.provider.corp.issuer-uri", "http://idp.example.com");
+        environment.setActiveProfiles("prod");
+        ReactiveSecurityObservation observation = collect(environment, http().build());
+        assertThat(observation.environment().oauth2ClientPlainHttpEndpoints())
+                .containsExactly("spring.security.oauth2.client.provider.corp.token-uri");
+        assertThat(scan(observation).results())
+                .filteredOn(result -> result.id().equals("SEC-RXF-OAUTH2-005"))
+                .singleElement()
+                .satisfies(result ->
+                        assertThat(String.join(" ", result.sampleViolations())).doesNotContain("idp.example.com"));
+    }
+
+    @Test
+    void nativeOneTimeTokenConverterIsInteractiveBrowserLogin() {
+        AuthenticationWebFilter oneTimeToken = new AuthenticationWebFilter(NO_AUTH);
+        oneTimeToken.setServerAuthenticationConverter(
+                new org.springframework.security.web.server.authentication.ott
+                        .ServerOneTimeTokenAuthenticationConverter());
+        ReactiveSecurityObservation observation = collect(new MockEnvironment(), chain(oneTimeToken));
+        assertThat(observation.chains().get(0).formLoginAuthentication()).isTrue();
+        assertThat(observation.chains().get(0).authenticationObserved()).isTrue();
+        assertThat(scan(observation).results())
+                .extracting(SecurityRuleResultDto::id)
+                .contains("SEC-RXF-CSRF-001");
+    }
+
+    @Test
     void nativeBearerConverterIsRecognizedWithoutDecoding() {
         AuthenticationWebFilter bearer = new AuthenticationWebFilter(NO_AUTH);
         bearer.setServerAuthenticationConverter(new org.springframework.security.oauth2.server.resource.web.server

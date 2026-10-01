@@ -445,7 +445,8 @@ final class SecurityScanner {
         AuthorizationManager<HttpServletRequest> authorizationManager = authorizationManager(filters);
         List<AuthorizationMapping> mappings = authorizationMappings(authorizationManager);
         Boolean permitsAllAnonymous = blanketGrant(mappings);
-        Boolean sessionFixationDisabled = detectSessionFixationDisabled(filters);
+        SessionFixationFacts sessionFixation = detectSessionFixation(filters);
+        Boolean sessionFixationDisabled = sessionFixation.disabled();
         HeaderWriterInfo headerWriters = detectHeaderWriters(filters);
         Boolean authorizationRuleShadowed = detectAuthorizationRuleShadowed(authorizationManager);
         Integer rememberMeKeyLength = detectRememberMeKeyLength(filters);
@@ -474,7 +475,8 @@ final class SecurityScanner {
                         mappings,
                         bearerSavesSession(filters),
                         unconditionalHttpsRedirect(filters),
-                        csrfMetadataKnown(filters)));
+                        csrfMetadataKnown(filters),
+                        sessionFixation.passkeyDefault()));
     }
 
     private static String matcherDescription(SecurityFilterChain chain) {
@@ -593,8 +595,7 @@ final class SecurityScanner {
      */
     private static Boolean detectStatelessSecurityContext(List<Filter> filters) {
         for (Filter filter : filters) {
-            if (List.of("UsernamePasswordAuthenticationFilter", "OAuth2LoginAuthenticationFilter")
-                    .contains(frameworkTypeName(filter))) {
+            if (FilterChainModel.INTERACTIVE_LOGIN_FILTERS.contains(frameworkTypeName(filter))) {
                 Object repository = readField(filter, "securityContextRepository");
                 return repository instanceof SecurityContextRepository typed ? statelessVerdict(typed, 0) : null;
             }
@@ -656,21 +657,40 @@ final class SecurityScanner {
         return anyDelegate && !anyUnknown ? Boolean.TRUE : null;
     }
 
-    private static Boolean detectSessionFixationDisabled(List<Filter> filters) {
+    /**
+     * Whether recognized login filters or session management skip session-fixation protection.
+     * {@code passkeyDefault} marks the Spring Security 7.1 {@code webAuthn()} default: its configurer
+     * does not apply the shared session-authentication strategy, so a session-backed passkey login keeps
+     * {@code NullAuthenticatedSessionStrategy} without any application opt-out.
+     */
+    record SessionFixationFacts(Boolean disabled, boolean passkeyDefault) {}
+
+    private static SessionFixationFacts detectSessionFixation(List<Filter> filters) {
         boolean protectionObserved = false;
         boolean unknown = false;
+        Boolean disabled = null;
+        boolean passkeyDefault = false;
         for (Filter filter : filters) {
             String name = frameworkTypeName(filter);
-            if (!List.of(
-                            "SessionManagementFilter",
-                            "UsernamePasswordAuthenticationFilter",
-                            "OAuth2LoginAuthenticationFilter")
-                    .contains(name)) {
+            boolean sessionManagement = "SessionManagementFilter".equals(name);
+            if (!sessionManagement && !FilterChainModel.INTERACTIVE_LOGIN_FILTERS.contains(name)) {
                 continue;
             }
-            Object strategy = readField(
-                    filter,
-                    "SessionManagementFilter".equals(name) ? "sessionAuthenticationStrategy" : "sessionStrategy");
+            if ("WebAuthnAuthenticationFilter".equals(name)) {
+                Boolean stateless =
+                        readField(filter, "securityContextRepository") instanceof SecurityContextRepository repository
+                                ? statelessVerdict(repository, 0)
+                                : null;
+                if (Boolean.TRUE.equals(stateless)) {
+                    continue; // No HTTP-session login to fix.
+                }
+                if (stateless == null) {
+                    unknown = true;
+                    continue;
+                }
+            }
+            Object strategy =
+                    readField(filter, sessionManagement ? "sessionAuthenticationStrategy" : "sessionStrategy");
             if (strategy == null) {
                 unknown = true;
                 continue;
@@ -691,11 +711,16 @@ final class SecurityScanner {
                 continue;
             }
             if (hasNullStrategy) {
-                return true;
+                disabled = Boolean.TRUE;
+                passkeyDefault |= "WebAuthnAuthenticationFilter".equals(name);
+                continue;
             }
             unknown = true;
         }
-        return protectionObserved && !unknown ? false : null;
+        if (disabled != null) {
+            return new SessionFixationFacts(disabled, passkeyDefault);
+        }
+        return new SessionFixationFacts(protectionObserved && !unknown ? Boolean.FALSE : null, false);
     }
 
     private static void collectStrategyNames(Object strategy, List<String> names, int depth) {

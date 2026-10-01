@@ -219,7 +219,9 @@ final class SecurityEnvironmentSnapshot extends StandardEnvironment {
                 ? new OriginTrackedMapPropertySource(name, values)
                 : systemEnvironment
                         ? new SystemEnvironmentPropertySource(name, values)
-                        : new MapPropertySource(name, values);
+                        : isNativeDevToolsDefaults(source)
+                                ? new DevToolsDefaults(name, values)
+                                : new MapPropertySource(name, values);
         getPropertySources().addLast(copied);
     }
 
@@ -352,6 +354,29 @@ final class SecurityEnvironmentSnapshot extends StandardEnvironment {
             return field.trySetAccessible() ? field.get(target) : null;
         } catch (ReflectiveOperationException | RuntimeException ex) {
             return null;
+        }
+    }
+
+    /**
+     * Whether {@code source} holds DevTools' development-only defaults rather than application configuration.
+     * DevTools appends exactly one plain {@code MapPropertySource} named {@code devtools}; a captured snapshot keeps
+     * that provenance with a marker because every copied map otherwise becomes a plain {@code MapPropertySource}.
+     */
+    static boolean isDevToolsDefaults(Environment environment, PropertySource<?> source) {
+        return environment instanceof SecurityEnvironmentSnapshot
+                ? source instanceof DevToolsDefaults
+                : isNativeDevToolsDefaults(source);
+    }
+
+    private static boolean isNativeDevToolsDefaults(PropertySource<?> source) {
+        return source.getClass() == MapPropertySource.class && DEVTOOLS_DEFAULTS.equals(source.getName());
+    }
+
+    private static final String DEVTOOLS_DEFAULTS = "devtools";
+
+    private static final class DevToolsDefaults extends MapPropertySource {
+        private DevToolsDefaults(String name, Map<String, Object> values) {
+            super(name, values);
         }
     }
 
