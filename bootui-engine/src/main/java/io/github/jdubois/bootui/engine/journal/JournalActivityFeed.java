@@ -92,7 +92,22 @@ public final class JournalActivityFeed {
             String runId,
             Filter filter,
             int limit) {
+        return render(entries, eventId, runId, filter, limit, JournalRowDetails.NONE);
+    }
+
+    /**
+     * Renders as {@link #render(List, Function, String, Filter, int)} does, completing each row with the masked detail
+     * {@code details} still holds (D27), for the live feed only.
+     */
+    public Feed render(
+            List<JournalEntry> entries,
+            Function<JournalEntry, String> eventId,
+            String runId,
+            Filter filter,
+            int limit,
+            JournalRowDetails details) {
         RouteTemplateResolver routes = resolver();
+        JournalRowDetails rowDetails = details == null ? JournalRowDetails.NONE : details;
         Map<String, JournalEntry> requests = new HashMap<>();
         Map<String, String> executions = new HashMap<>();
         Map<String, Map<String, Integer>> selectsByRequest = new HashMap<>();
@@ -114,7 +129,7 @@ public final class JournalActivityFeed {
         for (JournalEntry entry : entries) {
             ActivityEntryDto rendered = render(entry, eventId, requests, executions, selectsByRequest, routes, false);
             if (rendered != null) {
-                rows.add(new Row(entry, rendered));
+                rows.add(new Row(entry, rowDetails.apply(rendered, entry.event())));
             }
         }
         rows.sort(Comparator.comparingLong((Row row) -> row.entry().timestamp())
@@ -330,6 +345,10 @@ public final class JournalActivityFeed {
                     false);
         }
         if (payload instanceof ExceptionPayload exception) {
+            // As 1.x does, an exception names the request it was raised in.
+            JournalEntry owner = event.requestId() == null ? null : requests.get(event.requestId());
+            HttpPayload ownerHttp =
+                    owner == null ? null : (HttpPayload) owner.event().payload();
             return entry(
                     id,
                     TYPE_EXCEPTION,
@@ -338,8 +357,8 @@ public final class JournalActivityFeed {
                     exception.exceptionClass() == null ? "Exception" : exception.exceptionClass(),
                     null,
                     null,
-                    null,
-                    null,
+                    ownerHttp == null ? null : ownerHttp.method(),
+                    ownerHttp == null ? null : ownerHttp.path(),
                     null,
                     false,
                     parentId,

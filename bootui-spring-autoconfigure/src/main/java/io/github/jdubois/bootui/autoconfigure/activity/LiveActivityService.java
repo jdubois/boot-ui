@@ -31,6 +31,7 @@ import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceActivityEntr
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
 import io.github.jdubois.bootui.engine.jms.JmsActivityEntries;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
+import io.github.jdubois.bootui.engine.journal.JournalRowDetails;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityEntries;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
@@ -315,6 +316,23 @@ public class LiveActivityService {
         ActivityKpiDto kpis = computeKpis(requests, sql, exceptionsReport, cache, scheduledRuns, rest);
         boolean available = !sources.isEmpty();
         return new LiveActivityReport(available, visible, typeCounts, kpis, sources, warnings);
+    }
+
+    /**
+     * The masked detail the panel buffers still hold for the feed rendered from the runtime journal
+     * ({@code docs/PLAN-v2.md} §5.3, D27): principals, exception messages, and email subjects.
+     */
+    JournalRowDetails journalRowDetails() {
+        List<String> ignored = new ArrayList<>();
+        HttpExchangesReport requests = loadRequests(ignored, new ArrayList<>());
+        ExceptionsReport exceptionsReport = loadExceptions(ignored);
+        EmailsReport emails = loadEmail(ignored);
+        SecurityLogsReport security = loadSecurity(ignored);
+        return JournalRowDetails.of(
+                requests == null ? null : requests.exchanges(),
+                exceptionsReport == null ? null : exceptionsReport.groups(),
+                emails == null ? null : emails.messages(),
+                security == null ? null : security.events());
     }
 
     private HttpExchangesReport loadRequests(List<String> sources, List<String> warnings) {

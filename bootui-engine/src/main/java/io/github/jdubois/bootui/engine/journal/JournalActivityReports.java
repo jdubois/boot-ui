@@ -61,6 +61,15 @@ public final class JournalActivityReports {
      * @param healthStatus the application's health status, or {@code null}
      */
     public LiveActivityReport report(Filter filter, int limit, String healthStatus) {
+        return report(filter, limit, healthStatus, JournalRowDetails.NONE);
+    }
+
+    /**
+     * The feed and KPIs, each row completed with the masked detail {@code details} still holds (D27).
+     *
+     * @param details the panels' detail, or {@code null} for metadata only
+     */
+    public LiveActivityReport report(Filter filter, int limit, String healthStatus, JournalRowDetails details) {
         if (journal == null || !journal.settings().enabled()) {
             return new LiveActivityReport(
                     false, List.of(), Map.of(), feed.kpis(List.of(), healthStatus), List.of(), List.of(DISABLED));
@@ -72,7 +81,7 @@ public final class JournalActivityReports {
             }
         }
         int cap = limit <= 0 ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
-        Feed rendered = feed.render(visible, journal::eventId, journal.run().id(), filter, cap);
+        Feed rendered = feed.render(visible, journal::eventId, journal.run().id(), filter, cap, details);
         return new LiveActivityReport(
                 true,
                 rendered.entries(),
@@ -81,6 +90,15 @@ public final class JournalActivityReports {
                 List.of(SOURCE),
                 List.of());
     }
+
+    /** Whether the journal records, so the feed can come from it; otherwise the panel buffers serve it. */
+    public boolean recording() {
+        return journal != null && journal.settings().enabled();
+    }
+
+    /** The warning a buffer-served report carries when the journal was asked for but does not record. */
+    public static final String JOURNAL_UNAVAILABLE = "The runtime journal does not record"
+            + " (bootui.runtime-journal.enabled=false), so this feed comes from the panel buffers.";
 
     /** Whether any journal-only filter is set, which a buffer-served report cannot honor. */
     public static boolean hasJournalOnlyFilter(Filter filter) {

@@ -244,7 +244,7 @@ class LiveActivityControllerTests {
                 store,
                 settings,
                 empty(DataSource.class),
-                new BootUiProperties());
+                buffersFeed());
 
         Thread captureThread = awaitThreadNamed("bootui-activity-capture");
         assertThat(captureThread)
@@ -320,7 +320,7 @@ class LiveActivityControllerTests {
                 defaultActivityStore(),
                 disabledSettings(),
                 provider(dataSource),
-                new BootUiProperties());
+                buffersFeed());
         try {
             ResponseEntity<ActivitySwitchResult> response =
                     controller.useExistingDatasource(new ActivitySwitchRequest(true));
@@ -812,5 +812,12 @@ class LiveActivityControllerTests {
         ObjectProvider<T> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(value);
         return provider;
+    }
+
+    /** Properties whose Live Activity feed and persistence come from the panel buffers, which these tests drive. */
+    private static BootUiProperties buffersFeed() {
+        BootUiProperties properties = new BootUiProperties();
+        properties.getActivity().setFeedSource("buffers");
+        return properties;
     }
 }

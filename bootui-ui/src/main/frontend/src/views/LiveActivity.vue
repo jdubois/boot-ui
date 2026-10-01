@@ -79,12 +79,19 @@ const severityFilter = ref('')
 const textFilter = ref('')
 const errorsOnly = ref(false)
 // Where the feed comes from: '' leaves it to bootui.activity.feed-source, 'journal' asks for the feed rendered from the
-// runtime journal, which alone can filter by route, request id, and work outside any request (docs/PLAN-v2.md §5.3).
+// runtime journal, which alone can filter by route, request id, and work outside any request, and 'buffers' asks for
+// 1.x's feed merged from the panel buffers (docs/PLAN-v2.md §5.3).
 const feedSource = ref('')
 const routeFilter = ref('')
 const requestIdFilter = ref('')
 const noRequestOnly = ref(false)
-const fromJournal = computed(() => feedSource.value === 'journal')
+const JOURNAL_SOURCE_LABEL = 'Runtime journal'
+// The journal serves the feed when asked for, or by default when the server's last report came from it.
+const fromJournal = computed(
+  () =>
+    feedSource.value === 'journal' ||
+    (feedSource.value === '' && (report.value?.sources ?? []).includes(JOURNAL_SOURCE_LABEL))
+)
 
 // "Use a database" disclosure: reveals setup documentation (and, when a DataSource is already
 // configured, the "Use the existing datasource" switch action) next to the title. Collapsed by
@@ -145,8 +152,8 @@ function activityUrl(extra = {}) {
     })
     for (const [key, value] of Object.entries(filterParams)) params.set(key, value)
   }
+  if (feedSource.value) params.set('source', feedSource.value)
   if (fromJournal.value) {
-    params.set('source', 'journal')
     if (routeFilter.value.trim()) params.set('route', routeFilter.value.trim())
     if (requestIdFilter.value.trim()) params.set('requestId', requestIdFilter.value.trim())
     if (noRequestOnly.value) params.set('noRequest', 'true')
@@ -699,7 +706,7 @@ function restoreFilters() {
   if (saved.severity === '' || SEVERITIES.includes(saved.severity)) severityFilter.value = saved.severity
   if (typeof saved.text === 'string') textFilter.value = saved.text
   if (typeof saved.errorsOnly === 'boolean') errorsOnly.value = saved.errorsOnly
-  if (saved.source === '' || saved.source === 'journal') feedSource.value = saved.source
+  if (['', 'journal', 'buffers'].includes(saved.source)) feedSource.value = saved.source
 }
 
 function persistFilters() {
@@ -1112,6 +1119,7 @@ function toggleFlow() {
             <select id="activity-feed-source" v-model="feedSource" class="form-select form-select-sm">
               <option value="">Default</option>
               <option value="journal">Runtime journal</option>
+              <option value="buffers">Panel buffers</option>
             </select>
           </div>
           <template v-if="fromJournal">

@@ -2770,7 +2770,7 @@ public class BootUiProperties {
          * {@code journal}, rendering the runtime journal's retained events with every child nested by request or
          * execution id. A request may override it with {@code ?source=}.
          */
-        private String feedSource = "buffers";
+        private String feedSource = "journal";
 
         public String getFeedSource() {
             return feedSource;

@@ -450,8 +450,9 @@ public abstract class AbstractCorrelationCoverageTest {
      * Reads the feed until it holds every scenario request. Reads are few and spaced out, because on some stacks
      * BootUI's own API calls still occupy HTTP exchange slots.
      */
+    /** Reads the feed merged from the panel buffers, the 1.x feed the journal's feed is compared with. */
     private FeedRead readFeed(long windowStart, int expectedRequests) throws InterruptedException {
-        return readFeed(windowStart, expectedRequests, "");
+        return readFeed(windowStart, expectedRequests, "&source=buffers");
     }
 
     private FeedRead readFeed(long windowStart, int expectedRequests, String query) throws InterruptedException {

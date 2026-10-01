@@ -101,7 +101,7 @@ class ReactiveLiveActivityControllerTests {
                 store,
                 settings,
                 empty(DataSource.class),
-                new BootUiProperties());
+                buffersFeed());
 
         Thread captureThread = awaitThreadNamed("bootui-activity-capture");
         assertThat(captureThread)
@@ -247,7 +247,7 @@ class ReactiveLiveActivityControllerTests {
                 defaultActivityStore(),
                 disabledSettings(),
                 provider(dataSource),
-                new BootUiProperties());
+                buffersFeed());
         try {
             ResponseEntity<ActivitySwitchResult> response =
                     controller.useExistingDatasource(new ActivitySwitchRequest(true));
@@ -1398,5 +1398,12 @@ class ReactiveLiveActivityControllerTests {
         KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 1, 16);
         recorder.recordProduce("orders", 0, key, 0L, true, null);
         return recorder.recent().get(0).key();
+    }
+
+    /** Properties whose Live Activity feed and persistence come from the panel buffers, which these tests drive. */
+    private static BootUiProperties buffersFeed() {
+        BootUiProperties properties = new BootUiProperties();
+        properties.getActivity().setFeedSource("buffers");
+        return properties;
     }
 }

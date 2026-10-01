@@ -54,6 +54,7 @@ import io.github.jdubois.bootui.engine.journal.JournalActivityCapture;
 import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalActivityReports;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.JournalRowDetails;
 import io.github.jdubois.bootui.engine.journal.RequestJournalProfiles;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalService;
@@ -435,19 +436,23 @@ public class ReactiveLiveActivityController implements InitializingBean {
         } catch (IllegalArgumentException ex) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
         }
-        if (resolved == ActivityFeedSource.JOURNAL) {
-            JournalActivityReports reports = journalReports;
-            if (reports == null) {
-                reports = journalReports(null, null);
-            }
-            return reports.report(filter, limit, currentHealthStatus());
+        JournalActivityReports reports = journalReports;
+        // With the journal disabled or absent, the panel buffers serve the feed rather than leaving it empty.
+        if (resolved == ActivityFeedSource.JOURNAL && reports != null && reports.recording()) {
+            return reports.report(filter, limit, currentHealthStatus(), journalRowDetails());
         }
         LiveActivityReport live = mergedReport(limit);
-        if (!JournalActivityReports.hasJournalOnlyFilter(filter)) {
+        boolean journalAsked = resolved == ActivityFeedSource.JOURNAL && source != null && !source.isBlank();
+        if (!journalAsked && !JournalActivityReports.hasJournalOnlyFilter(filter)) {
             return live;
         }
         List<String> warnings = new ArrayList<>(live.warnings());
-        warnings.add(JournalActivityReports.JOURNAL_FILTERS_IGNORED);
+        if (journalAsked) {
+            warnings.add(JournalActivityReports.JOURNAL_UNAVAILABLE);
+        }
+        if (JournalActivityReports.hasJournalOnlyFilter(filter)) {
+            warnings.add(JournalActivityReports.JOURNAL_FILTERS_IGNORED);
+        }
         return new LiveActivityReport(
                 live.available(), live.entries(), live.typeCounts(), live.kpis(), live.sources(), warnings);
     }
@@ -665,6 +670,20 @@ public class ReactiveLiveActivityController implements InitializingBean {
             return HttpExchangesReport.unavailable("HTTP exchange repository not available");
         }
         return controller.exchanges(null, null, null, null, null);
+    }
+
+    /**
+     * The masked detail the panel buffers still hold for the feed rendered from the runtime journal
+     * ({@code docs/PLAN-v2.md} §5.3, D27): principals, exception messages, and email subjects.
+     */
+    private JournalRowDetails journalRowDetails() {
+        HttpExchangesReport requests = requestsReport();
+        EmailsReport emails = emailReport();
+        return JournalRowDetails.of(
+                requests == null ? null : requests.exchanges(),
+                exceptionGroups(),
+                emails == null || !emails.available() ? null : emails.messages(),
+                securityEvents(properties.isPanelEnabled(BootUiPanels.SECURITY_LOGS)));
     }
 
     private EmailsReport emailReport() {

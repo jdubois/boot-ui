@@ -421,16 +421,24 @@ public class LiveActivityController implements InitializingBean {
         } catch (IllegalArgumentException ex) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
         }
-        if (resolved == ActivityFeedSource.JOURNAL) {
+        // With the journal disabled, the panel buffers serve the feed rather than leaving it empty.
+        if (resolved == ActivityFeedSource.JOURNAL && journalReports.recording()) {
             int max = properties.getActivity().getMaxEntries();
-            return journalReports.report(filter, limit <= 0 ? max : limit, service.currentHealthStatus());
+            return journalReports.report(
+                    filter, limit <= 0 ? max : limit, service.currentHealthStatus(), service.journalRowDetails());
         }
         LiveActivityReport live = service.report(filter.type(), filter.severity(), filter.since(), limit);
-        if (!JournalActivityReports.hasJournalOnlyFilter(filter)) {
+        boolean journalAsked = resolved == ActivityFeedSource.JOURNAL && source != null && !source.isBlank();
+        if (!journalAsked && !JournalActivityReports.hasJournalOnlyFilter(filter)) {
             return live;
         }
         List<String> warnings = new ArrayList<>(live.warnings());
-        warnings.add(JournalActivityReports.JOURNAL_FILTERS_IGNORED);
+        if (journalAsked) {
+            warnings.add(JournalActivityReports.JOURNAL_UNAVAILABLE);
+        }
+        if (JournalActivityReports.hasJournalOnlyFilter(filter)) {
+            warnings.add(JournalActivityReports.JOURNAL_FILTERS_IGNORED);
+        }
         return new LiveActivityReport(
                 live.available(), live.entries(), live.typeCounts(), live.kpis(), live.sources(), warnings);
     }

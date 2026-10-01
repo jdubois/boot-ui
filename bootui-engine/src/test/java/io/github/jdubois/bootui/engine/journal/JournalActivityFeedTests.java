@@ -1,14 +1,19 @@
 package io.github.jdubois.bootui.engine.journal;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import io.github.jdubois.bootui.core.dto.ActivityKpiDto;
+import io.github.jdubois.bootui.core.dto.EmailMessageDto;
+import io.github.jdubois.bootui.core.dto.ExceptionGroupDto;
+import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.MappingDto;
 import io.github.jdubois.bootui.engine.journal.JournalActivityFeed.Feed;
 import io.github.jdubois.bootui.engine.journal.JournalActivityFeed.Filter;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -60,6 +65,8 @@ class JournalActivityFeedTests {
         assertThat(byType.get("CACHE").severity()).isEqualTo("WARN");
         assertThat(byType.get("SECURITY").severity()).isEqualTo("WARN");
         assertThat(byType.get("EXCEPTION").summary()).isEqualTo("java.lang.IllegalState");
+        assertThat(byType.get("EXCEPTION").method()).isEqualTo("GET");
+        assertThat(byType.get("EXCEPTION").path()).isEqualTo("/api/orders/42");
         assertThat(rendered.entries())
                 .filteredOn(entry -> entry.summary().equals("select 1"))
                 .singleElement()
@@ -205,6 +212,109 @@ class JournalActivityFeedTests {
         assertThat(ft.severity()).isEqualTo("WARN");
         assertThat(ft.durationMs()).isEqualTo(40);
         assertThat(ft.parentId()).isEqualTo("r1");
+    }
+
+    @Test
+    void liveRowsAreCompletedWithTheMaskedDetailTheBuffersStillHoldJoinedByIdentity() {
+        add(
+                event(
+                        "r1",
+                        null,
+                        JournalSource.EXCEPTION,
+                        -1,
+                        null,
+                        new ExceptionPayload("g1", "java.lang.IllegalStateException")),
+                1_000);
+        add(event("r1", null, JournalSource.MAIL, -1, null, new MailPayload(1, 0, true)), 1_001);
+        add(
+                event(
+                        "r1",
+                        null,
+                        JournalSource.EXCEPTION,
+                        -1,
+                        null,
+                        new ExceptionPayload("evicted", "java.io.IOException")),
+                1_002);
+        add(http("r1", "GET", "/api/secure", "/api/secure", 500, 5), 1_003);
+        JournalRowDetails details = JournalRowDetails.of(
+                List.of(new HttpExchangeDto(
+                        "x1",
+                        Instant.EPOCH,
+                        "GET",
+                        "/api/secure",
+                        null,
+                        null,
+                        500,
+                        null,
+                        5L,
+                        null,
+                        null,
+                        "admin",
+                        null,
+                        null,
+                        List.of(),
+                        List.of(),
+                        null,
+                        null,
+                        "r1")),
+                List.of(new ExceptionGroupDto(
+                        "g1",
+                        "java.lang.IllegalStateException",
+                        "boom ****",
+                        2,
+                        0,
+                        0,
+                        "OrderService.java:42",
+                        true,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        0,
+                        null,
+                        "r1",
+                        null)),
+                List.of(new EmailMessageDto(
+                        "email-7",
+                        1_001,
+                        "noreply@example.com",
+                        List.of("a@example.com"),
+                        List.of(),
+                        List.of(),
+                        "Welcome",
+                        null,
+                        null,
+                        List.of(),
+                        true,
+                        null,
+                        null,
+                        "r1")));
+
+        List<ActivityEntryDto> rendered =
+                feed.render(entries, EVENT_ID, "run", Filter.NONE, 0, details).entries();
+        List<ActivityEntryDto> plain =
+                feed.render(entries, EVENT_ID, "run", Filter.NONE, 0).entries();
+
+        assertThat(only(rendered, "REQUEST").securedPrincipal()).isEqualTo("admin");
+        assertThat(rendered)
+                .filteredOn(entry -> entry.type().equals("EXCEPTION"))
+                .extracting(ActivityEntryDto::summary, ActivityEntryDto::detail)
+                .containsExactlyInAnyOrder(
+                        tuple("java.lang.IllegalStateException: boom ****", "OrderService.java:42"),
+                        tuple("java.io.IOException", null));
+        ActivityEntryDto mail = only(rendered, "MAIL");
+        assertThat(mail.id())
+                .as("the Email panel's id, so the row opens that message")
+                .isEqualTo("email-7");
+        assertThat(mail.summary()).isEqualTo("Welcome");
+        assertThat(mail.detail()).isEqualTo("to a@example.com");
+        assertThat(only(plain, "MAIL").summary())
+                .as("without details, metadata only")
+                .isEqualTo("Email to 1 recipient");
+        assertThat(only(plain, "REQUEST").securedPrincipal()).isNull();
     }
 
     @Test

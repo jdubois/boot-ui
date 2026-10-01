@@ -250,6 +250,22 @@ describe('LiveActivity', () => {
     }
   })
 
+  it('offers the journal filters when the default feed comes from the runtime journal', async () => {
+    safeLocalStorage.removeItem('bootui.activity.filters')
+    vi.stubGlobal('fetch', stubFetch(activityReport({sources: ['Runtime journal']}), requestProfile()))
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    expect(wrapper.find('#activity-route-filter').exists()).toBe(true)
+    expect(
+      wrapper
+        .get('#activity-feed-source')
+        .findAll('option')
+        .map((option) => option.text())
+    ).toEqual(['Default', 'Runtime journal', 'Panel buffers'])
+  })
+
   it('opens the resource track only on demand', async () => {
     const fetchMock = stubFetch(activityReport(), requestProfile())
     vi.stubGlobal('fetch', fetchMock)

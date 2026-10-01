@@ -4,8 +4,8 @@ import java.util.Locale;
 
 /**
  * Where Live Activity's feed comes from ({@code docs/PLAN-v2.md} §5.3): {@code bootui.activity.feed-source}, which a
- * request may override with {@code ?source=}. The panel buffers stay the default until the journal's feed reaches
- * parity on every stack.
+ * request may override with {@code ?source=}. The journal is the default since its feed reached parity on every stack;
+ * {@code buffers} keeps 1.x's feed until 2.0.0 removes it.
  */
 public enum ActivityFeedSource {
     /** 1.x: the feed merged from each panel's own buffer. */
@@ -14,7 +14,7 @@ public enum ActivityFeedSource {
     JOURNAL;
 
     /** The default source. */
-    public static final ActivityFeedSource DEFAULT = BUFFERS;
+    public static final ActivityFeedSource DEFAULT = JOURNAL;
 
     /**
      * Parses {@code buffers} or {@code journal}, ignoring case.

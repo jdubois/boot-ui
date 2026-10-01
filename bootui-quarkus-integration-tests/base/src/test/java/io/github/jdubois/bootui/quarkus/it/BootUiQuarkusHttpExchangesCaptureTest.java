@@ -70,7 +70,9 @@ class BootUiQuarkusHttpExchangesCaptureTest {
         BootUiHttpProbe probe = probe();
         probe.get("/api/hello");
 
-        Response response = probe.get("/bootui/api/activity");
+        // The feed merged from the panel buffers, whose own sources and warnings this pins; the default feed comes
+        // from the runtime journal (docs/PLAN-v2.md §5.3).
+        Response response = probe.get("/bootui/api/activity?source=buffers");
         assertThat(response.status()).as("activity status").isEqualTo(200);
         JsonNode report = response.json();
         assertThat(report.path("available").asBoolean()).isTrue();
