@@ -321,7 +321,7 @@ application's own compiled classes at runtime. It detects the base package from 
 configuration, imports the classes from that package, and evaluates a fixed set of universally-sensible hygiene rules:
 package cycles between slices, general coding practices (banned APIs, unsafe patterns, naming and immutability
 conventions), and Spring stereotype/proxy heuristics (no field injection, correct layering, no self-invocation,
-proxyable annotations). See [ARCHITECTURE-CHECKS.md](../ARCHITECTURE-CHECKS.md) for the full catalogue and what each rule
+proxyable annotations, no injection or lifecycle annotations the container silently ignores). See [ARCHITECTURE-CHECKS.md](../ARCHITECTURE-CHECKS.md) for the full catalogue and what each rule
 inspects.
 
 Coding-practice checks (`ARCH-CODE-*`) exclude classes positively identified as generated, such as OpenAPI Generator's
@@ -345,8 +345,9 @@ a project-specific ArchUnit suite rather than replacing it.
 ::: details On Quarkus
 
 The panel runs the same shared ArchUnit ruleset and on-demand scan over the same report contract. Generic hygiene rules
-apply unchanged; Spring-only annotation rules find no matching classes, while Jakarta-based and proxy rules evaluate with
-Quarkus-specific semantics.
+apply unchanged, except that the `java.util.logging` check is skipped (JUL is a built-in Quarkus logging API) and
+standard-annotation field injection is reported at LOW, since it is the Quarkus idiom. Spring-only annotation rules find
+no matching classes, while Jakarta-based and proxy rules evaluate with Quarkus-specific semantics.
 
 **Quarkus proxy semantics and base-package discovery**
 
