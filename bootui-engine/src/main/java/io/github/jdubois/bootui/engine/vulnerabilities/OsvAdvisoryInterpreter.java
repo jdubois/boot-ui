@@ -14,10 +14,18 @@ import java.util.Set;
  *
  * <p>Adapters preserve malformed evidence as null list elements (or an {@code Event(null, null)}).
  * Missing lists are empty; a supplied but malformed severity must not become an absent severity.
+ *
+ * <p>Severity selection prefers a valid {@code CVSS_V4} assessment over {@code CVSS_V3}: the two scales are
+ * not comparable, so a v3 score is used only when no v4 assessment at the selected level is valid, and the
+ * maximum is taken within one CVSS version only. An OpenSSF Malicious Packages advisory ({@code MAL-} ID) is
+ * always CRITICAL: it reports malware published under the coordinate, not a scored weakness.
  */
 public final class OsvAdvisoryInterpreter {
 
     private static final Set<String> EVENT_TYPES = Set.of("introduced", "fixed", "last_affected", "limit");
+
+    /** The OSV ID prefix registered to the OpenSSF Malicious Packages database. */
+    private static final String MALICIOUS_PACKAGE_PREFIX = "MAL-";
 
     private OsvAdvisoryInterpreter() {}
 
@@ -44,15 +52,46 @@ public final class OsvAdvisoryInterpreter {
     /**
      * Selected evidence, never an unaffected verdict. {@code unresolved} signals missing, contradictory,
      * malformed, or unsupported package/version interpretation. Fixed versions are newer reported
-     * candidates verified against the supplied matching evidence, not guaranteed upgrades.
+     * candidates verified against the supplied matching evidence, not guaranteed upgrades. {@code malicious}
+     * marks a known malicious-package advisory, which removing the package, not upgrading it, remediates.
      */
-    public record Result(String severity, Double cvssScore, List<String> fixedVersions, boolean unresolved) {
+    public record Result(
+            String severity, Double cvssScore, List<String> fixedVersions, boolean unresolved, boolean malicious) {
         public Result {
             fixedVersions = List.copyOf(fixedVersions);
         }
     }
 
+    /** Whether {@code advisoryId} is an OpenSSF Malicious Packages advisory, by its own OSV ID only. */
+    public static boolean maliciousPackage(String advisoryId) {
+        return advisoryId != null && advisoryId.startsWith(MALICIOUS_PACKAGE_PREFIX);
+    }
+
+    /**
+     * The advisory details a finding presents: a malicious-package advisory leads with its remediation, since
+     * its empty fix list must not read as "wait for an upgrade".
+     */
+    public static String details(Result result, String advisoryDetails) {
+        if (result == null || !result.malicious()) {
+            return advisoryDetails;
+        }
+        String guidance = "Known malicious package: remove this dependency rather than upgrading it, and treat any"
+                + " machine that installed or ran it, and the credentials available there, as compromised.";
+        return advisoryDetails == null ? guidance : guidance + "\n\n" + advisoryDetails;
+    }
+
+    /** Interprets an advisory whose ID is unknown; it can never be recognized as a malicious package. */
     public static Result interpret(
+            String packageName,
+            String installedVersion,
+            List<Affected> affected,
+            List<Severity> severity,
+            String databaseSeverity) {
+        return interpret(null, packageName, installedVersion, affected, severity, databaseSeverity);
+    }
+
+    public static Result interpret(
+            String advisoryId,
             String packageName,
             String installedVersion,
             List<Affected> affected,
@@ -73,7 +112,7 @@ public final class OsvAdvisoryInterpreter {
         boolean applicable = false;
         boolean unresolved = unknownIdentity;
         boolean packageSeveritySupplied = false;
-        Double score = null;
+        List<Severity> applicableSeverity = new ArrayList<>();
         List<String> candidates = new ArrayList<>();
         for (Entry entry : matching) {
             Evaluation evaluation = entry.evaluate(installedVersion);
@@ -81,7 +120,7 @@ public final class OsvAdvisoryInterpreter {
             if (evaluation.applicability() == Applicability.MATCHED) {
                 applicable = true;
                 packageSeveritySupplied |= !entry.affected.severity().isEmpty();
-                score = maximum(score, highestScore(entry.affected.severity()));
+                applicableSeverity.addAll(entry.affected.severity());
                 for (Timeline timeline : entry.timelines) {
                     String candidate = timeline.closingFix(installedVersion);
                     if (candidate != null) {
@@ -91,9 +130,8 @@ public final class OsvAdvisoryInterpreter {
             }
         }
         unresolved |= !applicable;
-        if (!packageSeveritySupplied) {
-            score = highestScore(snapshot(severity));
-        }
+        // The v4-over-v3 preference applies across the union of applicable package entries, never per entry.
+        Double score = selectScore(packageSeveritySupplied ? applicableSeverity : snapshot(severity));
 
         List<String> verified = new ArrayList<>();
         for (String candidate : candidates) {
@@ -112,13 +150,19 @@ public final class OsvAdvisoryInterpreter {
                 verified.add(candidate);
             }
         }
+        List<String> fixedVersions = DependencyReports.orderFixedVersions(verified, 10);
+        if (maliciousPackage(advisoryId)) {
+            // A synthesized CRITICAL must not sit beside a contradictory computed score.
+            return new Result("CRITICAL", null, fixedVersions, unresolved, true);
+        }
         return new Result(
                 score == null
                         ? DependencyReports.normalizeSeverity(databaseSeverity)
                         : DependencyReports.normalizeSeverity(score),
                 score,
-                DependencyReports.orderFixedVersions(verified, 10),
-                unresolved);
+                fixedVersions,
+                unresolved,
+                false);
     }
 
     private enum Applicability {
@@ -260,14 +304,22 @@ public final class OsvAdvisoryInterpreter {
         return "introduced".equals(event.type()) && "0".equals(event.version());
     }
 
-    private static Double highestScore(List<Severity> severity) {
-        Double score = null;
+    /** The highest valid CVSS v4 score, else the highest valid CVSS v3 score, else {@code null}. */
+    private static Double selectScore(List<Severity> severity) {
+        Double v4 = null;
+        Double v3 = null;
         for (Severity assessment : severity) {
-            if (assessment != null) {
-                score = maximum(score, DependencyReports.parseScore(assessment.type(), assessment.score()));
+            if (assessment == null) {
+                continue;
+            }
+            Double score = DependencyReports.parseScore(assessment.type(), assessment.score());
+            if ("CVSS_V4".equals(assessment.type())) {
+                v4 = maximum(v4, score);
+            } else {
+                v3 = maximum(v3, score);
             }
         }
-        return score;
+        return v4 != null ? v4 : v3;
     }
 
     private static Double maximum(Double left, Double right) {

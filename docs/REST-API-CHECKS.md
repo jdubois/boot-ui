@@ -4,10 +4,12 @@ The REST API panel runs a fixed, zero-config ruleset against the host applicatio
 Spring MVC and Spring WebFlux controllers, or JAX-RS/Quarkus REST resource methods. It reports declaration conflicts
 and conditional design-review prompts, not a verdict on the application's runtime HTTP behavior.
 
-There are **56 stable rule definitions across 8 categories, with 52 potentially emitting rules**. Four definitions
-(`RAPI-MAP-008`, `RAPI-NAME-004`, `RAPI-ERR-011`, and `RAPI-DOC-003`) retain their IDs but always return `SKIPPED`.
-Their original evidence cannot establish the alleged defect. Their IDs are not reused, so saved dismissals keep
-their identity. The [complete audit disposition ledger](#complete-audit-disposition-ledger) records all 56 decisions.
+There are **60 stable rule definitions across 8 categories, with 53 potentially emitting rules**. Seven definitions
+(`RAPI-MAP-008`, `RAPI-NAME-004`, `RAPI-ERR-011`, `RAPI-DOC-003`, `RAPI-VALID-005`, `RAPI-DTO-004`, and
+`RAPI-ERR-002`) retain their IDs but always return `SKIPPED`: their evidence cannot establish an HTTP contract defect.
+Retired IDs are never reused, so saved dismissals keep their identity. The
+[complete audit disposition ledger](#complete-audit-disposition-ledger) records the original 56 decisions, and the
+[contract-defect audit](#contract-defect-audit-2026) records the later removals, fixes, and four additions.
 
 ::: tip Reading more than the preview
 The ten-entry `sampleViolations` preview does not cap `violationCount`. **View violations** and
@@ -56,6 +58,10 @@ the Spring starter supplies ArchUnit transitively.
   Direct Spring `HttpHeaders` is headers-only; `HttpEntity<HttpHeaders>` and `ResponseEntity<HttpHeaders>` instead
   declare a serializable payload.
   Raw JAX-RS `Response` has an unknown body, not an inferred error DTO.
+- **Declared statuses and headers are read on both stacks.** Spring `@ResponseStatus` (method, else class) and Quarkus
+  REST's `@ResponseStatus(int)` are normalized to the same status names, and Quarkus REST's repeatable
+  `@ResponseHeader` names are recorded ([Quarkus REST response properties][quarkus-status]). Like Quarkus itself, both Quarkus annotations are ignored on methods that return
+  `Response` or `RestResponse`. An explicit Quarkus status overrides the JAX-RS `void` → 204 default.
 - **Imperative response arguments make the final response unknown.** Servlet `ServletResponse`, `OutputStream`,
   `Writer`, and reactive `ServerHttpResponse`/`ServerWebExchange` signatures can write responses directly. A `void`
   return does not prove an empty wire response. The scanner does not inspect builder chains, filters, advice, or
@@ -110,7 +116,7 @@ element's [violation location](features/advisors.md#violation-locations), record
 bounded model was built from: the method with its first recorded line, or the controller class. It works the same for
 Spring MVC, Spring WebFlux, JAX-RS, and Kotlin controllers. Findings that name several handlers (RAPI-MAP-002 duplicate
 routes, RAPI-ERR-010 conflicting error-body categories) and application-wide findings (versioning, pagination
-vocabulary, missing error handling) carry no location. The source path is resolved during the explicit scan through
+vocabulary, missing error handling) carry no location. A RAPI-VER-007 finding caused by a class-level `consumes` carries the controller's location. The source path is resolved during the explicit scan through
 the Architecture advisor's [module and source-set lookup](ARCHITECTURE-CHECKS.md#violation-locations); finding text,
 counts, and status never depend on it.
 
@@ -135,8 +141,8 @@ confidence: a mutation-like method name is weaker evidence than a conflicting re
 
 | Scope | HIGH | MEDIUM | LOW | INFO | Total |
 | --- | --- | --- | --- | --- | --- |
-| Stable definitions, including retired emissions | 7 | 6 | 20 | 23 | 56 |
-| Potentially emitting rules | 6 | 6 | 18 | 22 | 52 |
+| Stable definitions, including retired emissions | 8 | 8 | 20 | 24 | 60 |
+| Potentially emitting rules | 7 | 8 | 17 | 21 | 53 |
 
 The documentation checks are gated by the optional OpenAPI integration: Swagger/springdoc annotation availability on
 Spring or MicroProfile OpenAPI on Quarkus. Both annotation families are recognized without making either dependency
@@ -163,8 +169,16 @@ scope remains unscored. Coverage gaps remain in scan notes; the penalty formula 
 - **Detects**: Exact duplicate observable dispatch conditions, including path, HTTP method, media types, and applicable
   Spring params/headers/version conditions. Meaningful slash differences are preserved. JAX-RS query/header bindings
   do not disambiguate routes; incomplete subresource paths are not compared as complete routes.
+- **Spring scope**: Spring MVC and WebFlux reject *identical* mappings at startup ("Ambiguous mapping"), so a running
+  application can only contain them when one controller is inactive, such as a profile- or condition-specific
+  alternative; those pairs are not reported. Mappings that differ but share one path alternative or HTTP method (for
+  example `{"/a", "/b"}` and `{"/a", "/c"}`, or `GET,POST /x` and `GET /x`) register successfully and then fail each
+  matching request with "Ambiguous handler methods" (500); those are reported. Quarkus REST rejects JAX-RS duplicates at
+  startup by default (`quarkus.rest.fail-on-duplicate=true`), so a JAX-RS finding means that check is disabled or one
+  resource is a build-time alternative.
 - **Recommendation**: Give each exact dispatch combination one handler. This is not a complete overlap or ambiguity detector.
-- **Learn more**: [Spring mapping conditions][spring-mapping]; [Jakarta REST matching][jaxrs-matching].
+- **Learn more**: [Spring mapping conditions][spring-mapping]; [Spring handler registration][spring-handler-mapping];
+  [Jakarta REST matching][jaxrs-matching]; [Quarkus duplicate-endpoint check][quarkus-duplicates].
 
 ### RAPI-MAP-003 - Review mutation-like names on GET handlers
 
@@ -330,12 +344,14 @@ scope remains unscored. Coverage gaps remain in scan notes; the penalty formula 
 
 ### RAPI-RESP-006 - 204 declarations must not promise content
 
-- **Severity**: HIGH
+- **Severity**: MEDIUM (was HIGH)
 - **Detects**: A declared 204 with a content-capable return, where neither a dynamic status envelope nor an
   imperative response path makes the conclusion unknown. Plain `HttpEntity<T>` does not override annotation status;
   supported no-body wrappers and headers-only results are not content-capable.
 - **Recommendation**: Align the declared return with 204's no-content requirement, or choose a content-bearing
   status. The finding concerns contradictory declarations, not proof of transmitted forbidden bytes or a non-null result.
+  Tomcat and Reactor Netty drop content on 204, so clients never see the serialized body; the cost is lost intent,
+  wasted serialization, and a generated schema that is never sent, which is why the severity is MEDIUM.
 - **Learn more**: [RFC 9110 §15.3.5][http-no-content].
 
 ### RAPI-RESP-007 - Review method-level status and response-envelope overlap
@@ -364,6 +380,35 @@ scope remains unscored. Coverage gaps remain in scan notes; the penalty formula 
 - **Recommendation**: Avoid unnecessary body construction when metadata alone suffices, or let the framework derive
   HEAD from GET. Framework suppression means the signature does not prove content is sent on the wire.
 - **Learn more**: [RFC 9110 HEAD][http-head]; [Spring HEAD suppression][spring-head].
+
+### RAPI-RESP-010 - Do not set @ResponseStatus reason on body-returning REST handlers
+
+- **Severity**: MEDIUM
+- **Detects**: A Spring MVC REST handler or body-rendering `@ExceptionHandler` with a content-capable return whose
+  effective `@ResponseStatus` (method-level, else class-level) sets a non-blank `reason`. Spring MVC then calls
+  `HttpServletResponse.sendError(status, reason)` and returns before return-value handling: the returned body, even a
+  `ResponseEntity` or `ProblemDetail`, is discarded and the container or Boot error response is written instead.
+  Exception classes annotated with `@ResponseStatus(reason = ...)` are a separate, supported pattern and are not in scope.
+- **Not evaluated**: Spring WebFlux applies the status, ignores the reason, and still writes the body, so the rule is
+  `SKIPPED` there. When the adapter cannot tell the active request stack, the rule is `SKIPPED` as missing evidence.
+  JAX-RS has no equivalent attribute. On Spring MVC, a handler reported here is not reported again by RAPI-RESP-007.
+- **Recommendation**: Remove the `reason`; return a `ResponseEntity`, or a `ProblemDetail` whose `detail` carries the
+  message. Spring's own documentation calls `reason` unsuitable for REST APIs.
+- **Learn more**: [Spring `ResponseStatus`][spring-status]; [MVC reason handling][spring-reason];
+  [WebFlux status handling][spring-reactive-status].
+
+### RAPI-RESP-011 - Map an empty Optional read to an explicit status
+
+- **Severity**: LOW
+- **Detects**: A Spring GET handler whose body is `java.util.Optional<T>`, directly or inside a supported single-value
+  async wrapper such as `CompletableFuture<Optional<T>>`. An `Optional` inside `ResponseEntity` is the application's own
+  status decision and is excluded, as are handlers that write the response imperatively.
+- **Why**: Spring has no return-value handling that turns an empty `Optional` into 404: on MVC and WebFlux the client
+  receives 200 with an empty or JSON `null` body. Returning a repository `findById(...)` result directly is the usual
+  cause. An API can intentionally answer 200 with `null`, so this is LOW rather than a defect claim.
+- **Recommendation**: Return `ResponseEntity.of(optional)` or throw a not-found error so absence maps to 404, or
+  document the 200-with-null contract. JAX-RS is not evaluated.
+- **Learn more**: [Spring `ResponseEntity`][spring-response-entity].
 
 ## Input validation & binding
 
@@ -407,13 +452,26 @@ scope remains unscored. Coverage gaps remain in scan notes; the penalty formula 
 
 ### RAPI-VALID-005 - Consider retry deduplication for creation-like POSTs
 
-- **Severity**: INFO
-- **Detects**: A creation-like POST name without a visible Idempotency-Key header binding, using Spring or JAX-RS
-  header annotations.
-- **Recommendation**: Review retry behavior where duplicate creation matters. Natural keys, filters, gateways, or
-  application logic may already deduplicate; absence of an argument does not prove unsafe retries. The
-  Idempotency-Key proposal is draft/convention guidance, not an HTTP requirement.
+- **Severity**: INFO (retained metadata)
+- **Disposition**: Always `SKIPPED`; emissions retired. A creation-like method name without an `Idempotency-Key`
+  binding cannot establish unsafe retries: filters, gateways, natural keys, and application logic deduplicate where the
+  scanner cannot see. The finding fired on almost every creation endpoint, so it was noise rather than a review aid.
+- **Recommendation**: Review retry deduplication in the API design where duplicate creation matters. The dismissal ID
+  remains unchanged.
 - **Learn more**: [Idempotency-Key draft history][idempotency-draft].
+
+### RAPI-VALID-006 - Bind at most one @RequestBody per handler
+
+- **Severity**: HIGH
+- **Detects**: A Spring handler with two or more `@RequestBody` parameters. The request body is one stream: on Spring
+  MVC the second binding finds it already consumed and every request fails with 400 "Required request body is
+  missing" (or the second parameter receives `null` when optional). WebFlux request bodies can be consumed only once.
+  Handlers whose only consumes media type is `application/x-www-form-urlencoded` are excluded, because Spring MVC
+  rebuilds form bodies from the parsed request parameters.
+- **Not evaluated**: JAX-RS allows one entity parameter, and Quarkus REST rejects several at deployment.
+- **Recommendation**: Bind one request DTO that composes the parts, for example a record holding both objects, or use
+  `@RequestPart` for multipart requests.
+- **Learn more**: [Spring `@RequestBody`][spring-requestbody].
 
 ## DTO & payload contracts
 
@@ -436,10 +494,11 @@ scope remains unscored. Coverage gaps remain in scan notes; the penalty formula 
 
 ### RAPI-DTO-004 - Consider immutable response DTOs
 
-- **Severity**: INFO
-- **Detects**: A known response DTO exposes public setters.
-- **Recommendation**: Consider Java records or immutable DTOs, including Kotlin read-only properties. No observed
-  setter is not proof of complete immutability; the model does not inspect every mutation path.
+- **Severity**: INFO (retained metadata)
+- **Disposition**: Always `SKIPPED`; emissions retired. Public setters on a response type do not change the serialized
+  HTTP contract; DTO mutability is general code style, which belongs to code-hygiene review such as the Architecture
+  advisor rather than to REST API design.
+- **Recommendation**: Choose records or mutable DTOs by code convention. The dismissal ID remains unchanged.
 - **Learn more**: [Java record classes][java-record].
 
 ### RAPI-DTO-005 - Consider java.time in response DTOs
@@ -493,7 +552,9 @@ scope remains unscored. Coverage gaps remain in scan notes; the penalty formula 
 - **Recommendation**: Choose a versioning policy if the API needs one. The Spring integration also considers supported
   versioning configuration for the **actual active MVC or WebFlux application context**; inactive-stack properties,
   arbitrary `use.*` keys, and configuration presence alone are not proof of a working resolver. JAX-RS bindings
-  are version hints, not dispatch constraints.
+  are version hints, not dispatch constraints. Operational, authentication, and generated-documentation endpoints
+  (`/actuator`, `/login`, any `api-docs` or `swagger-ui` segment, and similar) are excluded; a leading `/v3` is an ordinary
+  version segment, not documentation.
 - **Learn more**: [Boot MVC version properties][boot-mvc]; [Boot WebFlux version properties][boot-webflux].
 
 Boot 4.1.1 declares separate `spring.mvc.apiversion` and `spring.webflux.apiversion` namespaces. The integration selects
@@ -506,10 +567,13 @@ bounded versioning hints, not a runtime request proving that version selection w
 
 ### RAPI-VER-002 - Consider explicit consumes declarations
 
-- **Severity**: LOW
+- **Severity**: INFO (was LOW)
 - **Detects**: A POST/PUT/PATCH request-entity declaration without an explicit consumes constraint.
-- **Recommendation**: Declare supported formats when useful to the contract. Absence of consumes does not make every
-  media type readable: Spring converters/readers and JAX-RS providers still constrain decoding.
+- **Recommendation**: Declare supported formats on the body-accepting method when useful to the contract. Absence of
+  consumes does not make every media type readable: Spring converters/readers and JAX-RS providers still constrain
+  decoding, while an explicit consumes narrows and documents acceptance. On Spring, do not hoist consumes to the class
+  level: GET/HEAD/DELETE handlers would then reject requests without `Content-Type` (RAPI-VER-007). It is INFO because
+  the declaration is optional explicitness, and the previous LOW weighting penalized almost every POST.
 - **Learn more**: [Spring media mapping][spring-mapping]; [Jakarta REST media declarations][jaxrs-media].
 
 ### RAPI-VER-003 - Review wildcard media ranges
@@ -548,6 +612,25 @@ bounded versioning hints, not a runtime request proving that version selection w
   transport strategy from its configured resolver. Binding hints do not prove runtime version selection.
 - **Learn more**: [Spring API versioning][spring-versioning].
 
+### RAPI-VER-007 - Bodyless handlers must not require a Content-Type
+
+- **Severity**: HIGH
+- **Detects**: A Spring handler mapped to GET, HEAD, or DELETE that binds no request body (no `@RequestBody`,
+  `HttpEntity`, `RequestEntity`, `InputStream`, `Reader`, or `@RequestPart` parameter) but whose effective consumes
+  condition (method-level, which replaces class-level) has no expression matching `application/octet-stream`.
+  Spring's `ConsumesRequestCondition` waives its check for requests without a body only when a
+  `@RequestBody(required = false)` parameter says so; otherwise a missing `Content-Type` is matched as
+  `application/octet-stream`, and ordinary GET requests receive 415 on both Spring MVC and WebFlux. The usual cause is a
+  class-level `@RequestMapping(consumes = ...)` meant for the write methods; that case is reported once per controller,
+  listing the affected handlers.
+- **Not reported**: `*/*`, `application/*`, `application/octet-stream`, or negated expressions that admit it;
+  unresolved `${...}` expressions; and content-type dispatch, where another handler for the same path and method has a
+  different (or no) consumes condition and therefore serves requests without `Content-Type`.
+- **Not evaluated**: JAX-RS selects resource methods with a different algorithm.
+- **Recommendation**: Declare consumes on the methods that read a body (POST/PUT/PATCH) instead of at class level, or
+  remove it from GET/HEAD/DELETE handlers.
+- **Learn more**: [Spring consumable media types][spring-consumes]; [MVC consumes matching][spring-consumes-condition].
+
 ## Error handling & documentation
 
 ### RAPI-ERR-001 - Review application-wide exception handling declarations
@@ -567,10 +650,11 @@ bounded versioning hints, not a runtime request proving that version selection w
 
 ### RAPI-ERR-002 - Prefer informative throws declarations
 
-- **Severity**: LOW
-- **Detects**: A handler declares `throws Exception` or `Throwable`.
-- **Recommendation**: Prefer specific declared failures when useful to callers and maintainers. This is not an HTTP
-  violation; absence of a throws clause, especially in Kotlin, is not proof that no failures occur.
+- **Severity**: LOW (retained metadata)
+- **Disposition**: Always `SKIPPED`; emissions retired. A Java `throws` clause influences neither Spring nor Jakarta
+  REST exception resolution nor the HTTP error contract, so `throws Exception` is general Java style rather than an API
+  finding. The declared exception types are still modeled for RAPI-ERR-009.
+- **Recommendation**: Map failures through exception handlers or mappers. The dismissal ID remains unchanged.
 - **Learn more**: [Java throws clauses][java-throws].
 
 ### RAPI-ERR-003 - Consider Spring ProblemDetail convenience types
@@ -772,6 +856,34 @@ adoption are not HTTP mandates.
 | RAPI-DOC-002 | Recognize tag forms; INFO retained | [OpenAPI operation][openapi-operation], [MicroProfile processing][mp-processing]. Repeatable tags/operation lists count; automatic grouping may exist. |
 | RAPI-DOC-003 | Retire; INFO metadata retained | [SmallRye 4.2.4 deprecation][smallrye-deprecation], [RFC 9745][http-deprecation]. Java/Kotlin annotations or external documents can provide deprecation; header absence unobserved. |
 
+## Contract-defect audit (2026)
+
+A second audit re-read every rule against Spring Framework 7.0.9 and Quarkus REST 3.33 sources, pinned the disputed
+framework behavior with MockMvc and WebTestClient tests in `RestApiContractSemanticsTests`, and put every addition,
+removal, and severity change through three independent reviews. It shifted the catalogue from style prompts toward
+declarations that break requests deterministically. No ID was reused or repurposed.
+
+| ID | Change | Rationale and evidence |
+| --- | --- | --- |
+| RAPI-VALID-006 | **Added**, HIGH | Several `@RequestBody` parameters read one stream; MVC fails every request with 400 ([`@RequestBody`][spring-requestbody]). |
+| RAPI-VER-007 | **Added**, HIGH | Consumes on a bodyless GET/HEAD/DELETE rejects requests without `Content-Type` with 415 on MVC and WebFlux ([consumes matching][spring-consumes-condition]). |
+| RAPI-RESP-010 | **Added**, MEDIUM | A `@ResponseStatus` reason discards the returned body on Spring MVC; WebFlux is skipped ([MVC reason handling][spring-reason]). |
+| RAPI-RESP-011 | **Added**, LOW | An empty `Optional` read answers 200 with an empty body, not 404 ([`ResponseEntity.of`][spring-response-entity]). |
+| RAPI-MAP-002 | Narrowed; HIGH retained | Identical Spring mappings fail startup, so they only appear for inactive alternatives and are no longer reported; partial overlaps fail at request time and still are ([handler registration][spring-handler-mapping]). |
+| RAPI-RESP-006 | HIGH → MEDIUM | Servers drop 204 content, so clients see a consistent 204; the defect is a contradictory declaration ([RFC 9110 §15.3.5][http-no-content]). |
+| RAPI-VER-002 | LOW → INFO; method-level advice | Missing consumes is optional explicitness; class-level consumes would trigger RAPI-VER-007. |
+| RAPI-VALID-005 | Retired | Name heuristic; deduplication outside handler signatures is invisible ([draft history][idempotency-draft]). |
+| RAPI-DTO-004 | Retired | Response DTO setters do not affect the HTTP contract; code style. |
+| RAPI-ERR-002 | Retired | `throws` clauses do not affect exception resolution or the HTTP contract; Java style. |
+| RAPI-RESP-001, RAPI-RESP-008, RAPI-ERR-007 | Fixed (Quarkus) | Quarkus REST `@ResponseStatus(int)` and `@ResponseHeader` are now read, removing a false RAPI-RESP-001 finding on `@ResponseStatus(201)` ([Quarkus REST][quarkus-status]). |
+| RAPI-VER-001, RAPI-VER-006 | Fixed | A leading `/v3` segment no longer marks an API handler as documentation; only `api-docs`/`swagger-ui` paths do. |
+| All emitting rules | Metadata | Rule names now match these headings, and learn-more links point at the specific primary source instead of a generic page. |
+
+Considered and not added: server-side `@HttpExchange` controller mappings (Spring 6.1+) are usually declared on
+interfaces and need inherited-mapping resolution the bounded model lacks; an `Optional` rule for JAX-RS awaits verified
+Quarkus REST semantics; and counting `HttpEntity` parameters toward RAPI-VALID-006 was left out to keep that rule's
+evidence to explicit `@RequestBody` declarations.
+
 ## Deliberately deferred checks
 
 - Full native route enumeration, dynamic locator traversal, arbitrary generic substitution, and complete Spring
@@ -818,6 +930,15 @@ adoption are not HTTP mandates.
 [spring-pathvar]: https://docs.spring.io/spring-framework/docs/7.0.0/javadoc-api/org/springframework/web/bind/annotation/PathVariable.html
 [spring-response]: https://github.com/spring-projects/spring-framework/blob/v7.0.9/framework-docs/modules/ROOT/pages/web/webflux/controller/ann-methods/responseentity.adoc#L36-L48
 [spring-entity-processor]: https://github.com/spring-projects/spring-framework/blob/v7.0.0/spring-webmvc/src/main/java/org/springframework/web/servlet/mvc/method/annotation/HttpEntityMethodProcessor.java
+[spring-reason]: https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-webmvc/src/main/java/org/springframework/web/servlet/mvc/method/annotation/ServletInvocableHandlerMethod.java#L114-L167
+[spring-reactive-status]: https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-webflux/src/main/java/org/springframework/web/reactive/result/method/InvocableHandlerMethod.java#L221-L240
+[spring-response-entity]: https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-methods/responseentity.html
+[spring-requestbody]: https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-methods/requestbody.html
+[spring-consumes]: https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-requestmapping.html#mvc-ann-requestmapping-consumes
+[spring-consumes-condition]: https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-webmvc/src/main/java/org/springframework/web/servlet/mvc/condition/ConsumesRequestCondition.java#L155-L223
+[spring-handler-mapping]: https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-webmvc/src/main/java/org/springframework/web/servlet/handler/AbstractHandlerMethodMapping.java
+[quarkus-duplicates]: https://github.com/quarkusio/quarkus/blob/3.33.0/extensions/resteasy-reactive/rest-common/runtime/src/main/java/io/quarkus/resteasy/reactive/common/runtime/ResteasyReactiveConfig.java#L73-L77
+[quarkus-status]: https://quarkus.io/guides/rest#setting-other-response-properties
 [spring-status]: https://github.com/spring-projects/spring-framework/blob/v7.0.0/spring-web/src/main/java/org/springframework/web/bind/annotation/ResponseStatus.java#L28-L50
 [spring-returns]: https://github.com/spring-projects/spring-framework/blob/v7.0.0/framework-docs/modules/ROOT/pages/web/webmvc/mvc-controller/ann-methods/return-types.adoc#L59-L66
 [spring-head]: https://github.com/spring-projects/spring-framework/blob/v7.0.9/spring-web/src/main/java/org/springframework/http/server/reactive/HttpHeadResponseDecorator.java#L41-L60

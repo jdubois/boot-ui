@@ -354,6 +354,17 @@ class RestApiRuleAccuracyTests {
     }
 
     @Test
+    void duplicateRoutesReportOnlySpringMappingsThatRegisterAndFailAtRequestTime() {
+        violations(
+                new NoDuplicateRouteMappingsRule(),
+                context(RestApiRuleAccuracyFixtures.StartupRejectedDuplicate.class));
+        var overlap = new NoDuplicateRouteMappingsRule()
+                .evaluate(context(RestApiRuleAccuracyFixtures.OverlappingMethodSets.class));
+        assertThat(overlap.status()).isEqualTo("VIOLATION");
+        assertThat(overlap.sampleViolations()).singleElement().asString().contains("GET /overlap", "#any", "#read");
+    }
+
+    @Test
     void duplicateRouteSamplesDoNotExposeDispatchConditionValues() {
         var result = new NoDuplicateRouteMappingsRule()
                 .evaluate(context(RestApiRuleAccuracyFixtures.SensitiveDispatchConditions.class));

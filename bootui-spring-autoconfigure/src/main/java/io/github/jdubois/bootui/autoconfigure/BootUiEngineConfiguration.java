@@ -143,6 +143,7 @@ import org.springframework.scheduling.config.ScheduledTaskHolder;
 import org.springframework.util.ClassUtils;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfoHandlerMapping;
 
@@ -443,6 +444,7 @@ public class BootUiEngineConfiguration {
                 () -> isSpringApiVersioningConfigured(environment, applicationContext),
                 Clock.systemUTC());
         scanner.setViolationRetentionLimit(() -> properties.getAdvisors().getMaxRetainedViolations());
+        scanner.setSpringWebStack(() -> springWebStack(applicationContext));
         return scanner;
     }
 
@@ -1483,6 +1485,17 @@ public class BootUiEngineConfiguration {
         } catch (NoUniqueBeanDefinitionException ex) {
             return dataSourceProvider.orderedStream().findFirst().orElse(null);
         }
+    }
+
+    /** The request stack actually serving this context, not merely the web classes present on the classpath. */
+    static RestApiScanner.SpringWebStack springWebStack(ApplicationContext applicationContext) {
+        if (applicationContext instanceof ReactiveWebApplicationContext) {
+            return RestApiScanner.SpringWebStack.REACTIVE;
+        }
+        if (applicationContext instanceof WebApplicationContext) {
+            return RestApiScanner.SpringWebStack.SERVLET;
+        }
+        return RestApiScanner.SpringWebStack.UNKNOWN;
     }
 
     private static boolean isSpringApiVersioningConfigured(

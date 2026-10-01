@@ -138,9 +138,6 @@ final class RestApiHandlerModelBuilder {
     private static final Set<String> OFFSET_LIMIT_PARAM_NAMES = Set.of("offset", "limit");
     private static final Set<String> CURSOR_PARAM_NAMES = Set.of("cursor", "after", "before");
 
-    /** Header name (case-insensitive) recognised by the expired IETF HTTPAPI Idempotency-Key draft. */
-    private static final String IDEMPOTENCY_KEY_HEADER_NAME = "idempotency-key";
-
     /** Parameter annotations that bind a non-body source; any param carrying one is not the request entity. */
     private static final Set<String> JAXRS_BOUND_PARAM_ANNOTATIONS = Set.of(
             Types.JAXRS_PATH_PARAM,
@@ -165,6 +162,10 @@ final class RestApiHandlerModelBuilder {
             "java.io.Writer",
             Types.REACTIVE_SERVER_HTTP_RESPONSE,
             Types.SERVER_WEB_EXCHANGE);
+
+    /** Spring handler parameters that read the request body without {@code @RequestBody} (RAPI-VER-007). */
+    private static final Set<String> BODY_ACCESS_PARAMETER_TYPES =
+            Set.of(Types.HTTP_ENTITY, Types.REQUEST_ENTITY, "java.io.InputStream", "java.io.Reader");
 
     private final List<ControllerModel> controllers = new ArrayList<>();
     private final List<HandlerMethodModel> handlers = new ArrayList<>();
@@ -418,6 +419,10 @@ final class RestApiHandlerModelBuilder {
         // known response status keeps RAPI-RESP-002/RAPI-RESP-005 from flagging a JAX-RS void handler
         // for a "silently defaults to 200 OK" footgun that cannot actually happen on this framework.
         boolean hasImplicitNoContentStatus = returnsVoid && !returnsResponseEntity;
+        // Quarkus REST's @ResponseStatus applies only when the method does not return Response/RestResponse.
+        String declaredStatus = returnsResponseEntity ? "" : quarkusResponseStatus(method);
+        String jaxRsStatusValue =
+                !declaredStatus.isEmpty() ? declaredStatus : hasImplicitNoContentStatus ? "NO_CONTENT" : "";
 
         JavaType bodyType = unwrapWrappers(returnType);
         JavaClass bodyErasure = bodyType.toErasure();
@@ -435,7 +440,6 @@ final class RestApiHandlerModelBuilder {
         boolean bodyIsUntyped = UNTYPED_TYPES.contains(bodyTypeName);
         boolean bodyIsScalar = SCALAR_TYPES.contains(bodyTypeName) || isPrimitive(bodyErasure);
         boolean bodyIsRecord = safeIsRecord(bodyErasure);
-        boolean bodyExposesSetters = exposesPublicSetters(bodyErasure, bodyIsRecord, bodyIsEntity);
         boolean bodyHasLegacyDateField = hasLegacyDateField(bodyErasure);
 
         boolean hasRequestBody = false;
@@ -444,7 +448,6 @@ final class RestApiHandlerModelBuilder {
         boolean requestBodyIsSimple = false;
         boolean hasConstrainedSimpleParam = false;
         boolean hasExplicitPageParam = false;
-        boolean hasIdempotencyKeyHeader = false;
         List<String> pathVariableNames = new ArrayList<>();
         List<String> pageQueryParamNames = new ArrayList<>();
         List<String> versionBindings = new ArrayList<>();
@@ -485,9 +488,6 @@ final class RestApiHandlerModelBuilder {
                 header = explicitBindingName(parameter, Types.REST_HEADER);
             }
             if (header != null) {
-                if (IDEMPOTENCY_KEY_HEADER_NAME.equalsIgnoreCase(header)) {
-                    hasIdempotencyKeyHeader = true;
-                }
                 if (RestApiRuleHelp.VERSION_PARAM_NAMES.contains(header.toLowerCase(Locale.ROOT))) {
                     versionBindings.add("header:" + header);
                 }
@@ -503,9 +503,6 @@ final class RestApiHandlerModelBuilder {
                 || lowerName.startsWith("fetchall")
                 || lowerName.startsWith("readall");
         boolean hidden = classHidden || hasHiddenAnnotation(method) || operationHidden(method);
-        // A broad "throws Exception/Throwable" is a plain JVM method-signature fact, not a Spring-specific
-        // one, so it applies to JAX-RS resource methods exactly the same way (RAPI-ERR-002).
-        boolean declaresBroadThrows = declaresBroadThrows(method);
         collectThrownExceptions(type, method);
         boolean isDeprecated = type.isAnnotatedWith(Types.DEPRECATED) || method.isAnnotatedWith(Types.DEPRECATED);
         boolean operationMarkedDeprecated = operationMarkedDeprecated(method);
@@ -533,7 +530,6 @@ final class RestApiHandlerModelBuilder {
                 bodyIsEntity,
                 bodyIsUntyped,
                 bodyIsScalar,
-                bodyExposesSetters,
                 bodyIsRecord,
                 bodyHasLegacyDateField,
                 hasRequestBody,
@@ -544,10 +540,9 @@ final class RestApiHandlerModelBuilder {
                 false,
                 false,
                 hasExplicitPageParam,
-                hasImplicitNoContentStatus,
-                false,
-                hasImplicitNoContentStatus ? "NO_CONTENT" : "",
-                declaresBroadThrows,
+                !jaxRsStatusValue.isEmpty(),
+                !declaredStatus.isEmpty(),
+                jaxRsStatusValue,
                 hasOperationAnnotation(method),
                 stateChanging,
                 findAll,
@@ -563,13 +558,18 @@ final class RestApiHandlerModelBuilder {
                 hidden,
                 false,
                 paginationParamFamily,
-                hasIdempotencyKeyHeader,
                 isDeprecated,
                 operationMarkedDeprecated,
                 RestApiModel.Framework.JAX_RS,
                 versionBindings,
                 hasBodyEnvelope(returnType),
-                returnsStream);
+                returnsStream,
+                returnsResponseEntity ? List.of() : quarkusResponseHeaders(method),
+                hasRequestBody ? 1 : 0,
+                false,
+                "",
+                false,
+                consumes.isEmpty() && !typeLevelConsumes.isEmpty());
     }
 
     /** A JAX-RS body parameter is one with neither a binding annotation nor {@code @Context}. */
@@ -708,7 +708,8 @@ final class RestApiHandlerModelBuilder {
                         true,
                         exceptionTypes,
                         declaredProduces(type, methodOpt),
-                        RestApiModel.Framework.JAX_RS),
+                        RestApiModel.Framework.JAX_RS,
+                        ""),
                 methodOpt.isPresent() ? methodOpt.get() : type));
     }
 
@@ -757,7 +758,8 @@ final class RestApiHandlerModelBuilder {
                                 methodRendersBody,
                                 springHandledExceptionTypes(method),
                                 springDeclaredProduces(method, type),
-                                RestApiModel.Framework.SPRING),
+                                RestApiModel.Framework.SPRING,
+                                responseStatusReason(method, type)),
                         method));
                 if (isAdvice) {
                     foundAdviceHandler = true;
@@ -855,7 +857,6 @@ final class RestApiHandlerModelBuilder {
         boolean bodyIsUntyped = UNTYPED_TYPES.contains(bodyTypeName);
         boolean bodyIsScalar = SCALAR_TYPES.contains(bodyTypeName) || isPrimitive(bodyErasure);
         boolean bodyIsRecord = safeIsRecord(bodyErasure);
-        boolean bodyExposesSetters = exposesPublicSetters(bodyErasure, bodyIsRecord, bodyIsEntity);
         boolean bodyHasLegacyDateField = hasLegacyDateField(bodyErasure);
 
         boolean hasRequestBody = false;
@@ -867,13 +868,18 @@ final class RestApiHandlerModelBuilder {
         boolean hasUnboundedPrimitiveRequestParam = false;
         boolean hasUnboundedMapRequestParam = false;
         boolean hasExplicitPageParam = false;
-        boolean hasIdempotencyKeyHeader = false;
         List<String> pathVariableNames = new ArrayList<>();
         List<String> pageQueryParamNames = new ArrayList<>();
 
+        int requestBodyCount = 0;
+        boolean hasBodyAccessParam = false;
         for (JavaParameter parameter : KotlinBytecode.declaredParameters(method)) {
             String paramTypeName = parameter.getRawType().getName();
+            if (BODY_ACCESS_PARAMETER_TYPES.contains(paramTypeName) || parameter.isAnnotatedWith(Types.REQUEST_PART)) {
+                hasBodyAccessParam = true;
+            }
             if (parameter.isAnnotatedWith(Types.REQUEST_BODY)) {
+                requestBodyCount++;
                 hasRequestBody = true;
                 // Field constraints on the DTO only cascade with @Valid/@Validated; a bare
                 // constraint annotation (e.g. @NotNull) on the parameter validates only the
@@ -914,12 +920,6 @@ final class RestApiHandlerModelBuilder {
                     pathVariableNames.add(explicitName);
                 }
             }
-            if (parameter.isAnnotatedWith(Types.REQUEST_HEADER)) {
-                String headerName = explicitBindingName(parameter, Types.REQUEST_HEADER);
-                if (headerName != null && IDEMPOTENCY_KEY_HEADER_NAME.equalsIgnoreCase(headerName)) {
-                    hasIdempotencyKeyHeader = true;
-                }
-            }
             if (Types.PAGEABLE.equals(paramTypeName)) {
                 hasPageable = true;
             }
@@ -929,7 +929,6 @@ final class RestApiHandlerModelBuilder {
                 method.isAnnotatedWith(Types.RESPONSE_STATUS) || type.isAnnotatedWith(Types.RESPONSE_STATUS);
         boolean methodHasResponseStatus = method.isAnnotatedWith(Types.RESPONSE_STATUS);
         String responseStatusValue = responseStatusValue(method, type);
-        boolean declaresBroadThrows = declaresBroadThrows(method);
         collectThrownExceptions(type, method);
         boolean hasOperation = hasOperationAnnotation(method);
         boolean stateChanging = nameLooksStateChanging(method.getName());
@@ -993,7 +992,6 @@ final class RestApiHandlerModelBuilder {
                 bodyIsEntity,
                 bodyIsUntyped,
                 bodyIsScalar,
-                bodyExposesSetters,
                 bodyIsRecord,
                 bodyHasLegacyDateField,
                 hasRequestBody,
@@ -1007,7 +1005,6 @@ final class RestApiHandlerModelBuilder {
                 hasResponseStatus,
                 methodHasResponseStatus,
                 responseStatusValue,
-                declaresBroadThrows,
                 hasOperation,
                 stateChanging,
                 findAll,
@@ -1023,13 +1020,18 @@ final class RestApiHandlerModelBuilder {
                 hidden,
                 handlerHasResponseParam,
                 paginationParamFamily,
-                hasIdempotencyKeyHeader,
                 isDeprecated,
                 operationMarkedDeprecated,
                 RestApiModel.Framework.SPRING,
                 versionBindings,
                 hasBodyEnvelope(returnType),
-                returnsStream);
+                returnsStream,
+                List.of(),
+                requestBodyCount,
+                hasBodyAccessParam,
+                responseStatusReason(method, type),
+                returnsOptional(returnType),
+                consumes.isEmpty() && !typeLevelConsumes.isEmpty());
     }
 
     private static boolean readSpecificMapping(
@@ -1573,32 +1575,87 @@ final class RestApiHandlerModelBuilder {
         throw new IllegalStateException("REST superclass hierarchy exceeds analysis bound");
     }
 
-    private static boolean exposesPublicSetters(JavaClass type, boolean isRecord, boolean isEntity) {
-        if (isRecord || isEntity) {
-            return false;
+    /**
+     * The {@code reason} of the effective Spring {@code @ResponseStatus}: a method-level annotation replaces the
+     * class-level one entirely, as in Spring's own {@code HandlerMethod} resolution. Empty when none is set.
+     */
+    private static String responseStatusReason(JavaMethod method, JavaClass type) {
+        Optional<? extends JavaAnnotation<?>> annotation = method.tryGetAnnotationOfType(Types.RESPONSE_STATUS);
+        if (annotation.isEmpty()) {
+            annotation = type.tryGetAnnotationOfType(Types.RESPONSE_STATUS);
         }
-        String name = type.getName();
-        if (UNTYPED_TYPES.contains(name)
-                || SCALAR_TYPES.contains(name)
-                || isPrimitive(type)
-                || name.startsWith("java.")) {
-            return false;
-        }
-        Set<JavaMethod> methods = type.getMethods();
-        if (methods.isEmpty()) {
-            return false;
-        }
-        for (JavaMethod method : methods) {
-            String methodName = method.getName();
-            if (methodName.length() > 3
-                    && methodName.startsWith("set")
-                    && Character.isUpperCase(methodName.charAt(3))
-                    && method.getRawParameterTypes().size() == 1
-                    && method.getModifiers().contains(com.tngtech.archunit.core.domain.JavaModifier.PUBLIC)) {
+        return annotation
+                .flatMap(ann -> ann.get("reason"))
+                .filter(String.class::isInstance)
+                .map(reason -> ((String) reason).trim())
+                .orElse("");
+    }
+
+    /**
+     * Whether the handler hands Spring a {@code java.util.Optional} as the body, directly or inside a supported
+     * single-value async wrapper. An Optional inside {@code ResponseEntity}/{@code HttpEntity} is the application's
+     * own status decision and does not count.
+     */
+    private static boolean returnsOptional(JavaType type) {
+        JavaType current = type;
+        for (int depth = 0; depth < 10; depth++) {
+            String name = current.toErasure().getName();
+            if (Types.OPTIONAL.equals(name)) {
                 return true;
             }
+            if (!WRAPPER_TYPES.contains(name)
+                    || Types.RESPONSE_ENTITY.equals(name)
+                    || Types.HTTP_ENTITY.equals(name)
+                    || Types.QUARKUS_REST_RESPONSE.equals(name)) {
+                return false;
+            }
+            JavaType argument = firstTypeArgument(current);
+            if (argument == null) {
+                return false;
+            }
+            current = argument;
         }
-        return false;
+        throw new IllegalStateException("REST response wrapper depth exceeds analysis bound");
+    }
+
+    /**
+     * The status a Quarkus REST {@code @ResponseStatus(int)} declares, as the Spring {@code HttpStatus} constant
+     * name the rules compare against (for example {@code 201} becomes {@code CREATED}); empty when absent.
+     */
+    private static String quarkusResponseStatus(JavaMethod method) {
+        Optional<JavaAnnotation<JavaMethod>> annotation = method.tryGetAnnotationOfType(Types.QUARKUS_RESPONSE_STATUS);
+        if (annotation.isEmpty()) {
+            return "";
+        }
+        Object value = annotation.get().get("value").orElse(null);
+        return value instanceof Integer code ? HttpStatusNames.name(code) : "";
+    }
+
+    /** Lower-cased header names declared through Quarkus REST {@code @ResponseHeader} (repeatable). */
+    private static List<String> quarkusResponseHeaders(JavaMethod method) {
+        List<String> names = new ArrayList<>();
+        method.tryGetAnnotationOfType(Types.QUARKUS_RESPONSE_HEADER)
+                .ifPresent(annotation -> addHeaderName(names, annotation));
+        method.tryGetAnnotationOfType(Types.QUARKUS_RESPONSE_HEADERS)
+                .flatMap(container -> container.get("value"))
+                .filter(Object[].class::isInstance)
+                .ifPresent(values -> {
+                    for (Object value : (Object[]) values) {
+                        if (value instanceof JavaAnnotation<?> annotation) {
+                            addHeaderName(names, annotation);
+                        }
+                    }
+                });
+        return dedupe(names);
+    }
+
+    private static void addHeaderName(List<String> names, JavaAnnotation<?> annotation) {
+        annotation
+                .get("name")
+                .filter(String.class::isInstance)
+                .map(name -> ((String) name).trim().toLowerCase(Locale.ROOT))
+                .filter(name -> !name.isEmpty())
+                .ifPresent(names::add);
     }
 
     private static String responseStatusValue(JavaMethod method, JavaClass type) {
@@ -1713,16 +1770,6 @@ final class RestApiHandlerModelBuilder {
         } catch (RuntimeException | LinkageError ex) {
             incomplete = true;
         }
-    }
-
-    private static boolean declaresBroadThrows(JavaMethod method) {
-        for (JavaClass exceptionType : method.getExceptionTypes()) {
-            String name = exceptionType.getName();
-            if ("java.lang.Exception".equals(name) || "java.lang.Throwable".equals(name)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static boolean startsWithWord(String name, Set<String> prefixes) {

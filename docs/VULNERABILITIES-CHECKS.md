@@ -12,6 +12,10 @@ This catalogue records the evidence rules and complete audit disposition for
 inventory repairs or a new scanner. That research submitted no dependency inventory and ran no external scan.
 [#989](https://github.com/jdubois/boot-ui/issues/989) added evidence-based panel and Overview scoring, retaining the
 cached GET-only dismissal refresh.
+
+The 2026 advisor audit ([§ 2026 advisor audit](#_2026-advisor-audit)) added CVSS v4.0 scoring with a v4-over-v3
+preference, `CRITICAL` malicious-package (`MAL-`) advisories, and honest Quarkus inventory coverage. It was grounded in
+live OSV.dev Maven records and FIRST's reference calculator, and each change was reviewed by three independent models.
 :::
 
 ## Reading the result
@@ -76,30 +80,56 @@ These are supported-domain interpretation rules, not a replacement OSV matching 
 queries and potentially fuzzy version matching. Provider-specific platform, reachability, and repository metadata are
 not independently evaluated. See [OSV schema](#sources-and-version-caveats) and the Maven ordering references below.
 
-## Severity: applicable assessments, strict CVSS v3 Base only
+## Severity: applicable assessments, CVSS v4 preferred over v3
 
 Selection is a disclosed BootUI policy, not an OSV requirement to choose the maximum:
 
-1. Collect valid supported CVSS v3 assessments from **all applicable matching affected entries** and select the highest
-   Base score. An unrelated branch must not raise the installed version's severity.
-2. When no applicable package severity is supplied, select the highest valid top-level v3 assessment.
+1. Collect supported CVSS assessments from **all applicable matching affected entries**. If any is a valid v4
+   assessment, select the highest v4 score; otherwise select the highest valid v3 Base score. The preference spans the
+   whole applicable set, so one entry's v3 number never competes with another entry's v4 number. An unrelated branch
+   must not raise the installed version's severity.
+2. When no applicable package severity is supplied, apply the same v4-then-v3 selection to the top-level assessments.
 3. When applicable package severity is supplied but invalid or unsupported, do not borrow a conflicting top-level
    score from a dual-level record: OSV prohibits package-level and top-level severity coexisting. Retain the recognized
    top-level `database_specific.severity` label fallback, otherwise `UNKNOWN`.
 
-Only `CVSS_V3` vectors with a `CVSS:3.0` or `CVSS:3.1` prefix are scored. Require all eight Base metrics, valid
-metric/value pairs, and no duplicates, empty/trailing segments, unknown metrics, or malformed segments. Accept valid
-metric orderings and optional Temporal/Environmental metrics, **validate those optional values**, but compute only
-the Base score. Scope-dependent equations and FIRST's one-decimal Roundup remain unchanged.
+v3 and v4 scores are never compared on one scale. Preferring the newer v4 assessment matches the source database: in a
+live OSV.dev sample of 217 GitHub Advisory Database (GHSA)
+records for common Maven packages, all 21 records carrying both vectors took their GitHub severity label from the v4
+vector, whereas the v3 band disagreed (always higher) for 6 of them, for example GHSA-fpj8-gq4v-p354, CVSS v3 9.1
+CRITICAL against GitHub's MODERATE (v4 6.3). The 16 v4-only records, an increasingly common shape for new advisories,
+now carry a numeric score instead of only the label.
 
-A valid zero is `NONE`, not unknown. Positive Base scores use FIRST's LOW/MEDIUM/HIGH/CRITICAL bands. Recognized
-database-specific labels remain compatibility behavior for existing providers, not a universal OSV severity scale;
-`MODERATE` maps to `MEDIUM`. Bare numeric strings and CVSS v2/v4 are not v3 vectors. Unsupported assessments retain
-the finding with a recognized database label or `UNKNOWN`.
+`CVSS_V3` vectors need a `CVSS:3.0` or `CVSS:3.1` prefix and all eight Base metrics. Accept valid metric orderings and
+optional Temporal/Environmental metrics, **validate those optional values**, but compute only the Base score.
+Scope-dependent equations and FIRST's one-decimal Roundup remain unchanged.
 
-CVSS v4 has a public FIRST reference calculator, but requires its own MacroVector lookup/interpolation and validation;
-implementing it is deferred, not blocked by unavailable reference data. Full assessment vector/source provenance is
-also not exposed by the stable DTO.
+`CVSS_V4` vectors need a `CVSS:4.0` prefix and all eleven Base metrics (`AV AC AT PR UI VC VI VA SC SI SA`). Every
+segment is validated like v3: no duplicates, empty/trailing segments, unknown metrics, malformed segments, or invalid
+values, including the optional Threat, Environmental, and Supplemental metrics. The score is FIRST's MacroVector lookup
+and interpolation, ported from FIRST's BSD-2-Clause reference calculator and verified against it for all 104,976 Base
+metric combinations and 60,000 sampled Threat/Environmental vectors. The vector is scored **as published**: GitHub
+often supplies the Threat metric `E:U`, and its label reflects that CVSS-BT score (GHSA-5j33-cvvr-w245 is HIGH 7.2, not
+the 9.2 Base-only CRITICAL). Supplemental metrics never change a score.
+
+A valid zero is `NONE`, not unknown. Positive scores use FIRST's LOW/MEDIUM/HIGH/CRITICAL bands, which are identical
+for v3 and v4. Recognized database-specific labels remain compatibility behavior for existing providers, not a
+universal OSV severity scale; `MODERATE` maps to `MEDIUM`. Bare numeric strings and CVSS v2 are not scored.
+Unsupported assessments retain the finding with a recognized database label or `UNKNOWN`. The stable DTO does not say
+which CVSS version produced `score`; full assessment vector/source provenance stays deferred.
+
+## Malicious-package advisories
+
+The OSV ID prefix `MAL-` belongs to the [OpenSSF Malicious Packages](https://github.com/ossf/malicious-packages)
+database, which OSV.dev serves for Maven, for example MAL-2025-191470 for `org.mvnpm:posthog-node` 4.18.1 (an npm worm
+republished through mvnpm). These records carry no severity and no `database_specific.severity`, so they previously read
+as `UNKNOWN` with no score penalty.
+
+An advisory whose **own** ID starts with `MAL-` is reported as `CRITICAL` with a null score, never a synthesized 10.0,
+and its details lead with BootUI's removal guidance: remove the dependency rather than upgrading it, and treat any
+machine that installed or ran it, and its credentials, as compromised. An alias naming a `MAL-` ID does not trigger this.
+Package/version interpretation, unresolved evidence, `PARTIAL` status, and withdrawal exclusion are unchanged, so a
+withdrawn false-positive report is still excluded. The override is a BootUI priority policy, not a CVSS assessment.
 
 ## Fix candidates: relevant interval and evidence-backed target
 
@@ -229,9 +259,12 @@ need separate fixes. SBOM traversal caps **resolved distinct coordinates**, not 
 JSON first; it is not a whole-document traversal/memory bound. Components are not rigorously filtered to live runtime
 scope, and conflicting versions can remain.
 
-Quarkus can currently report `COMPLETE` even when its model key is missing/blank or malformed entries were skipped.
-Unreadable container/repackaged archives and missing census information also require more precise diagnostics.
-These coverage overclaims are **not repaired by #978**; consumers must not equate a reported `COMPLETE` with
+Quarkus reports `COMPLETE` only for a wholly decoded build-time model. A missing or blank model key (the build step never
+ran; a real Quarkus application always has runtime JARs), a malformed entry, or a runtime JAR coordinate the build step
+could not encode (counted in `bootui.internal.dependencies-skipped`) reports `UNAVAILABLE` coverage and keeps every
+readable dependency. `UNAVAILABLE` is used rather than `INCOMPLETE` because the panel's unidentified-JAR copy and SBOM
+advice describe classpath archives, not model entries. Unreadable container/repackaged archives and missing Spring
+census information still require more precise diagnostics; consumers must not equate a reported `COMPLETE` with
 independently verified inventory completeness.
 
 Coverage still transports exact reported counts and at most 200 unidentified names with truncation information.
@@ -263,7 +296,7 @@ Mixed dispositions intentionally preserve an existing behavior while acknowledgi
 | INV-11 | KEEP / DEFER | Preserve unavailable census and unreadable names; repackaged/container/outer-filename fallback precision deferred. |
 | INV-12 | KEEP | Exact reported coverage counts, at most 200 unidentified names, explicit truncation. |
 | INV-13 | KEEP | Quarkus non-production build-time model emits de-duplicated JAR coordinates and excludes malformed entries. |
-| INV-14 | DEFER | Missing/blank or partially decoded Quarkus model can still report default COMPLETE. |
+| INV-14 | UPDATE | A missing/blank Quarkus model, a malformed entry, or a build-time-skipped coordinate reports UNAVAILABLE, never COMPLETE (2026 audit). |
 | INV-15 | KEEP | Explicit non-capabilities: dependency paths, reachability, shaded-content discovery, and hash lookup. |
 | INV-16 | KEEP | Archives whose every class lives in the application's (multi-segment) base packages are first-party, counted and named (at most 200) separately, and never a coverage gap; one foreign class, a `META-INF/maven/` descriptor, a bundled archive, or placement outside (or an unreadable) `layers.idx` `application` layer keeps an archive unidentified. |
 | INV-17 | KEEP | `spring-boot-jarmode-tools` is the only archive identified from its manifest, and only when file name, title, and version agree and it carries the jarmode tools classes. |
@@ -304,12 +337,14 @@ Mixed dispositions intentionally preserve an existing behavior while acknowledgi
 | FIX-03 | UPDATE | Filter applicable/newer targets before de-duplication/order/ten-candidate truncation. |
 | FIX-04 | KEEP | Existing Maven comparator and test-only ComparableVersion oracle; no production Maven dependency. |
 | FIX-05 | UPDATE | Inconclusive comparison no longer establishes fixAvailable; false is not an unaffected verdict. |
-| SEV-01 | KEEP | Typed CVSS_V3 with v3.0/v3.1 prefix only; no bare score inference. |
+| SEV-01 | UPDATE | Typed CVSS_V3 (v3.0/v3.1 prefix) and CVSS_V4 (v4.0 prefix) only; no bare score inference (2026 audit). |
 | SEV-02 | KEEP | Base equations, scope-dependent PR, zero impact, integer-based Roundup. |
 | SEV-03 | UPDATE | Validate full vector, including optional metrics; reject empty/unknown/duplicate/invalid segments; Base-only scoring. |
-| SEV-04 | UPDATE | Maximum applicable package assessment; genuinely global fallback only; reject conflicting dual-level score borrowing. |
+| SEV-04 | UPDATE | Maximum applicable package assessment, v4 before v3 across the whole applicable set; genuinely global fallback only; reject conflicting dual-level score borrowing. |
 | SEV-05 | KEEP | Zero NONE, positive standard bands, MODERATE to MEDIUM, invalid labels UNKNOWN. |
-| SEV-06 | KEEP / DEFER | Keep unsupported v2/v4 findings with label/UNKNOWN; validated additional calculators deferred. |
+| SEV-06 | KEEP / DEFER | Keep unsupported v2 findings with label/UNKNOWN; a v2 calculator stays deferred. |
+| SEV-07 | UPDATE | CVSS v4.0 scored as published with FIRST's reference algorithm, full validation, Supplemental metrics ignored (2026 audit). |
+| SEV-08 | UPDATE | Own-ID `MAL-` advisories are CRITICAL with a null score and removal guidance; aliases never trigger it (2026 audit). |
 
 ### EPSS
 
@@ -329,7 +364,7 @@ Mixed dispositions intentionally preserve an existing behavior while acknowledgi
 | ID | Disposition | Behavior and boundary |
 | --- | --- | --- |
 | RPT-01 | KEEP | Immutable DTOs; active findings determine counts; fixed severity ordering. |
-| RPT-02 | KEEP / DEFER | Count distinct advisory IDs per dependency; alias-cluster merging deferred to preserve identities. |
+| RPT-02 | KEEP / DEFER | Count distinct advisory IDs per dependency; alias-cluster merging deferred to preserve identities. The 2026 sample observed no GHSA/CVE duplicate pairs for Maven queries. |
 | RPT-03 | KEEP | Version-independent advisoryId::packageName dismissals; active counts/order; raw cached report unchanged. |
 | RPT-04 | KEEP | Restoring final dismissal returns original cached flags/counts. |
 | RPT-05 | KEEP | ERROR may replace cache; DISABLED and busy conflict do not; EPSS failure must not lose OSV report. |
@@ -365,10 +400,17 @@ These are acceptance cases for the implementation, **not a claim that validation
 - Equivalent neutral results through Jackson 3 and Jackson 2, unchanged cached/dismiss/restore identities and policy,
   no GET-triggered external calls, and retained partial browser rows with accurate local EPSS wording.
 
+- CVSS v4 scores equal to FIRST's calculator for every reachable MacroVector and sampled Threat/Environmental vectors,
+  real GHSA vectors including `E:U`, zero impact, metric order, Supplemental metrics, and malformed vectors; v4 preferred
+  over a higher v3 at the top level and across mixed applicable package entries, an invalid v4 falling back to v3, and
+  an unrelated branch's v4 never displacing the applicable v3 assessment.
+- `MAL-` advisories CRITICAL with a null score, removal guidance, retained unresolved flags, and no alias or
+  case-variant trigger, through both adapters.
+- Quarkus wholly decoded, missing, blank, malformed, and build-time-skipped models.
+
 Scoring/Overview regressions cover partial and complete evidence, UNKNOWN-only dismissal, missing details, completed
 no-match dependencies, malformed metadata, exact penalties, qualified aggregates, and GET-only refresh.
-Inventory repair acceptance cases,
-CVSS v4, total scan deadline, date/model provenance, reachability, automated upgrades, and presentation version sorting
+Inventory repair acceptance cases, total scan deadline, date/model provenance, reachability, automated upgrades, and presentation version sorting
 are deferred, not silently included in this evidence-interpreter change.
 
 ## Sources and version caveats
@@ -387,11 +429,35 @@ assumed present in every advisory. API pagination thresholds and upstream model 
 | [OSV OpenAPI](https://osv.dev/docs/osv_service_v1.swagger.json) | Service response contract and 1,000-query batch bound; errors are not empty success. |
 | [Maven version order](https://maven.apache.org/pom.html#Version_Order_Specification) and [ComparableVersion 3.9.11 Javadoc](https://maven.apache.org/ref/3.9.11/maven-artifact/apidocs/org/apache/maven/artifact/versioning/ComparableVersion.html) | Qualifier aliases, numeric transitions, separator nesting and release normalization, not SemVer 2.0. The repository's test-only **3.9.16** oracle remains the executable compatibility target, distinct from this versioned Javadoc. |
 | [FIRST CVSS 3.0](https://www.first.org/cvss/v3.0/specification-document), [3.1](https://www.first.org/cvss/v3.1/specification-document), and [3.1 user guide](https://www.first.org/cvss/v3.1/user-guide) | Full vector validation, Base metrics/equations, scope, optional metrics, Roundup, qualitative zero. |
-| [FIRST CVSS 4.0](https://www.first.org/cvss/v4.0/specification-document) and [reference calculator](https://github.com/FIRSTdotorg/cvss-v4-calculator) | Separate MacroVector calculation and public reference implementation; not covered by v3 equations. |
+| [FIRST CVSS 4.0](https://www.first.org/cvss/v4.0/specification-document) and [reference calculator](https://github.com/FIRSTdotorg/cvss-v4-calculator) | MacroVector calculation, metric values, CVSS-B/BT/BE/BTE nomenclature, and the BSD-2-Clause reference implementation BootUI ports and tests against. |
+| [OpenSSF Malicious Packages](https://github.com/ossf/malicious-packages) and [OSV ID prefixes](https://ossf.github.io/osv-schema/#id-modified-fields) | `MAL-` records and their Maven entries; a malicious package is removed, not upgraded. |
+| [GitHub Advisory Database CVSS](https://docs.github.com/en/code-security/security-advisories/working-with-global-security-advisories-from-the-github-advisory-database/about-the-github-advisory-database#cvss-levels) | GitHub's severity levels from CVSS v4 or v3; observed live in OSV.dev GHSA records to follow the v4 vector when both exist. |
 | [FIRST EPSS endpoint](https://api.first.org/epss/), [global API contract](https://api.first.org/), and [FAQ](https://www.first.org/epss/faq.html) | CVE parameter bounds, row identity, total/offset/limit, probability versus percentile, and no-data semantics. |
 | [FIRST EPSS data/model history](https://www.first.org/epss/data) | Daily updates; research recorded model **v5 starting 2026-06-15**. This is a dated upstream fact, not an API/DTO guarantee; API `/v1` is not the model version. |
 | [Google SRE overload guidance](https://sre.google/sre-book/handling-overload/) and [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html) | Concurrency, request deadlines, retries, and overall budgets are separate resilience decisions. No retries or total-scan timeout are introduced here. |
 | [PURL parsing](https://github.com/package-url/purl-spec/blob/main/docs/specification/how-to-parse.md) and [Maven type](https://github.com/package-url/purl-spec/blob/main/types/maven-definition.json) | Coordinate/percent-decoding context for deferred inventory defects. These main-branch links are mutable; no external coordinate resolver is added. |
+
+## 2026 advisor audit
+
+The audit re-read every interpretation rule against the sources above and live OSV.dev data (15 common Maven packages
+at old versions, 217 GHSA records, plus the Maven entries of OpenSSF Malicious Packages). Every existing row above was
+kept or updated as marked. Three changes were made, each first reviewed by three independent models
+(GPT-6.1 Sol, Claude Opus 5, Grok 4.7), all three supporting each change with amendments that were applied:
+
+| Change | Kind | Reviewer amendments applied |
+| --- | --- | --- |
+| CVSS v4.0 scoring, v4 preferred over v3 (SEV-01, SEV-04, SEV-07) | Fix | Preference spans the whole applicable set; never compare v3 with v4; score vectors as published after the reviewers questioned Base-only scoring, which GitHub's `E:U` labels disproved; verify against FIRST for every MacroVector. |
+| `MAL-` advisories are CRITICAL (SEV-08) | Added signal | Pass the ID to the shared interpreter; own ID only; null score, never a synthesized one; removal guidance in details; unresolved evidence kept independent. |
+| Quarkus coverage honesty (INV-14) | Fix | Count build-time skipped coordinates; ignore blank tokens; use UNAVAILABLE instead of INCOMPLETE, whose copy describes JAR files and SBOMs. |
+
+Considered and deliberately not added:
+
+| Candidate | Reason |
+| --- | --- |
+| CISA KEV flag | A second external source with a feed larger than the 1 MiB body bound, a DTO field, configuration, and UI on every stack. KEV (observed exploitation) is not equivalent to EPSS (predicted exploitation), but the cost outweighs the gain for now. |
+| Alias/duplicate collapsing | No GHSA/CVE duplicate pairs observed for Maven queries; merging would change `advisoryId::packageName` dismissal identities (RPT-02). |
+| CycloneDX `scope: excluded` filtering | `cyclonedx-maven-plugin` emits `excluded` only with the non-default `detectUnusedForOptionalScope`; SBOM scope attribution stays deferred as INV-05. |
+| Version provenance for `score` | Needs a DTO change; the catalog documents that `score` is the selected CVSS version's score instead. |
 
 See the [feature guide](features/advisors.md#vulnerabilities) for the user workflow and
 [specification §5.11](SPECIFICATION.md#_5-11-vulnerabilities-panel) for the stable panel contract.

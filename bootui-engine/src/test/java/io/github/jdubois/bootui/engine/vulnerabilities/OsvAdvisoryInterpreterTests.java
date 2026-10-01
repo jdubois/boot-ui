@@ -18,6 +18,9 @@ class OsvAdvisoryInterpreterTests {
     private static final Severity LOW = new Severity("CVSS_V3", "CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:L/A:N");
     private static final Severity CRITICAL = new Severity("CVSS_V3", "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H");
     private static final Severity ZERO = new Severity("CVSS_V3", "CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:N");
+    /** GHSA-fpj8-gq4v-p354's CVSS v4 vector, scored 6.3 (MEDIUM). */
+    private static final Severity V4_MEDIUM =
+            new Severity("CVSS_V4", "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N");
 
     @Test
     void selectsOnlyTheInstalledBranchNotTheFirstOrMostSeverePackageEntry() {
@@ -400,6 +403,100 @@ class OsvAdvisoryInterpreterTests {
         assertThat(interpret("1.5", affected).fixedVersions()).containsExactly("2");
     }
 
+    @Test
+    void prefersAValidCvssV4AssessmentOverAHigherCvssV3OneAtTheTopLevel() {
+        Result result = OsvAdvisoryInterpreter.interpret(
+                PACKAGE, "1.5", List.of(entry("1", "2", null)), List.of(CRITICAL, V4_MEDIUM), "MODERATE");
+
+        assertThat(result.severity()).isEqualTo("MEDIUM");
+        assertThat(result.cvssScore()).isEqualTo(6.3d);
+    }
+
+    @Test
+    void scoresCvssV4OnlyAdvisoriesInsteadOfFallingBackToTheDatabaseLabel() {
+        Result result = OsvAdvisoryInterpreter.interpret(
+                PACKAGE, "1.5", List.of(entry("1", "2", null)), List.of(V4_MEDIUM), "CRITICAL");
+
+        assertThat(result.severity()).isEqualTo("MEDIUM");
+        assertThat(result.cvssScore()).isEqualTo(6.3d);
+    }
+
+    @Test
+    void anInvalidCvssV4AssessmentFallsBackToTheValidCvssV3One() {
+        Result result = OsvAdvisoryInterpreter.interpret(
+                PACKAGE,
+                "1.5",
+                List.of(entry("1", "2", null)),
+                List.of(new Severity("CVSS_V4", "CVSS:4.0/AV:N"), LOW),
+                null);
+
+        assertThat(result.severity()).isEqualTo("LOW");
+        assertThat(result.cvssScore()).isEqualTo(3.8d);
+    }
+
+    @Test
+    void theCvssV4PreferenceSpansEveryApplicablePackageEntryNotEachEntry() {
+        // One applicable entry carries only a higher v3 score, another only a v4 score: the union prefers v4
+        // instead of comparing 9.8 (v3) with 6.3 (v4) on one numeric scale.
+        Affected v3Only = new Affected("Maven", PACKAGE, List.of("1.5"), List.of(), List.of(CRITICAL));
+        Affected v4Only = new Affected("Maven", PACKAGE, List.of("1.5"), List.of(), List.of(V4_MEDIUM));
+
+        Result result = interpret("1.5", v3Only, v4Only);
+
+        assertThat(result.severity()).isEqualTo("MEDIUM");
+        assertThat(result.cvssScore()).isEqualTo(6.3d);
+        assertThat(interpret("1.5", v3Only, entry("2", "3", V4_MEDIUM)).cvssScore())
+                .as("an unrelated branch's v4 assessment does not displace the applicable v3 one")
+                .isEqualTo(9.8d);
+    }
+
+    @Test
+    void malwareAdvisoriesAreCriticalWithoutASynthesizedScoreAndKeepTheirEvidenceFlags() {
+        Affected allVersions =
+                new Affected("Maven", PACKAGE, List.of(), List.of(range(event("introduced", "0"))), List.of(LOW));
+
+        Result result = OsvAdvisoryInterpreter.interpret(
+                "MAL-2025-191470", PACKAGE, "1.5", List.of(allVersions), List.of(), null);
+
+        assertThat(result.malicious()).isTrue();
+        assertThat(result.severity()).isEqualTo("CRITICAL");
+        assertThat(result.cvssScore()).isNull();
+        assertThat(result.fixedVersions()).isEmpty();
+        assertThat(result.unresolved()).isFalse();
+
+        Result unresolved = OsvAdvisoryInterpreter.interpret("MAL-2025-1", PACKAGE, "1.5", List.of(), List.of(), null);
+        assertThat(unresolved.severity()).isEqualTo("CRITICAL");
+        assertThat(unresolved.unresolved()).isTrue();
+    }
+
+    @Test
+    void onlyTheAdvisorysOwnMalIdMarksMalware() {
+        assertThat(OsvAdvisoryInterpreter.maliciousPackage("MAL-2025-2552")).isTrue();
+        assertThat(OsvAdvisoryInterpreter.maliciousPackage("GHSA-xxxx-yyyy-zzzz"))
+                .isFalse();
+        assertThat(OsvAdvisoryInterpreter.maliciousPackage("mal-2025-1")).isFalse();
+        assertThat(OsvAdvisoryInterpreter.maliciousPackage("XMAL-2025-1")).isFalse();
+        assertThat(OsvAdvisoryInterpreter.maliciousPackage(null)).isFalse();
+
+        Result advisory = OsvAdvisoryInterpreter.interpret(
+                "GHSA-xxxx-yyyy-zzzz", PACKAGE, "1.5", List.of(entry("1", "2", LOW)), List.of(), null);
+        assertThat(advisory.malicious()).isFalse();
+        assertThat(advisory.severity()).isEqualTo("LOW");
+    }
+
+    @Test
+    void malwareDetailsLeadWithRemovalGuidanceAndOtherDetailsAreUnchanged() {
+        Result malware = OsvAdvisoryInterpreter.interpret("MAL-2025-1", PACKAGE, "1.5", List.of(), List.of(), null);
+        Result advisory = interpret("1.5", entry("1", "2", LOW));
+
+        assertThat(OsvAdvisoryInterpreter.details(malware, "Upstream text."))
+                .startsWith("Known malicious package: remove this dependency rather than upgrading it")
+                .endsWith("\n\nUpstream text.");
+        assertThat(OsvAdvisoryInterpreter.details(malware, null)).startsWith("Known malicious package");
+        assertThat(OsvAdvisoryInterpreter.details(advisory, "Upstream text.")).isEqualTo("Upstream text.");
+        assertThat(OsvAdvisoryInterpreter.details(advisory, null)).isNull();
+    }
+
     private static Result interpret(String version, Affected... affected) {
         return OsvAdvisoryInterpreter.interpret(PACKAGE, version, Arrays.asList(affected), List.of(), null);
     }
@@ -414,7 +511,7 @@ class OsvAdvisoryInterpreterTests {
                 PACKAGE,
                 List.of(),
                 List.of(range(event("introduced", introduced), event("fixed", fixed))),
-                List.of(severity));
+                severity == null ? List.of() : List.of(severity));
     }
 
     private static Affected ranges(Range... ranges) {

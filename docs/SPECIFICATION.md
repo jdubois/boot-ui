@@ -750,8 +750,8 @@ Data sources:
   files Spring Boot's `/actuator/sbom` serves), whose `purl` values carry the `groupId`.
 - Maven metadata (`META-INF/maven/*/*/pom.properties`) discovered from the running application's classpath.
 - The `java.class.path` entries, read through the Maven repository directory layout or an adjacent `.pom`.
-- Quarkus instead reads coordinates captured from its build-time resolved application model, subject to the missing
-  and malformed model coverage limitation below.
+- Quarkus instead reads coordinates captured from its build-time resolved application model. A missing/blank model, a
+  malformed entry, or a coordinate the build step could not encode reports `UNAVAILABLE` coverage, never `COMPLETE`.
 - OSV.dev Maven vulnerability data for explicit on-demand scans.
 
 Features:
@@ -824,15 +824,20 @@ Features:
   exclusive, last_affected inclusive, limit exclusive (wildcard unbounded); limits are scope bounds, not fixes, and
   multiple limits expand scope. Require one supported event type per event, an introduction per range, and no
   coexistence of fixed and last_affected in an event array.
-- Derive severity only from typed `CVSS_V3` vectors with valid v3.0/v3.1 syntax. Validate the full vector, including
-  optional Temporal/Environmental metrics, rejecting empty/trailing segments, unknown metrics, duplicates, malformed
-  segments, and invalid values. Accept valid metric orders, require all eight Base metrics, and calculate **Base only**
-  with FIRST's scope equations and Roundup. Select the highest valid v3 assessment across applicable matching package
-  entries. If none supplies package severity, use the highest valid global assessment. Invalid/unsupported applicable
+- Derive severity only from typed `CVSS_V4` vectors with valid v4.0 syntax and typed `CVSS_V3` vectors with valid
+  v3.0/v3.1 syntax. Validate the full vector, including optional metrics, rejecting empty/trailing segments, unknown
+  metrics, duplicates, malformed segments, and invalid values. Accept valid metric orders. For v3, require all eight
+  Base metrics and calculate **Base only** with FIRST's scope equations and Roundup. For v4, require all eleven Base
+  metrics and score the vector as published with FIRST's reference MacroVector algorithm, so a supplied Threat or
+  Environmental metric applies and Supplemental metrics never do. Within the selected level, prefer the highest valid
+  v4 assessment across all applicable matching package entries and use the highest valid v3 assessment only when no
+  v4 assessment is valid; never compare v3 and v4 scores. If none supplies package severity, apply the same
+  preference to the global assessments. Invalid/unsupported applicable
   package severity must not borrow a conflicting top-level score from a schema-invalid dual-level record. Retain the
   recognized top-level `database_specific.severity` label fallback, otherwise `UNKNOWN`; this is provider compatibility,
   not a universal OSV scale. Normalize MODERATE to MEDIUM and valid zero to NONE. Never reinterpret bare numbers or
-  CVSS v2/v4 as v3, and never drop unsupported findings.
+  CVSS v2 as v3/v4, and never drop unsupported findings. An advisory whose own OSV ID carries the OpenSSF Malicious
+  Packages `MAL-` prefix is `CRITICAL` with no score, and its details lead with removal guidance.
 - Exclude advisories marked `withdrawn` by OSV from results and counts.
 - Follow OSV `/v1/querybatch` pagination (`next_page_token`) until every query is exhausted or a bounded page-count
   safety limit of 20 page rounds per chunk is hit, and partition the outgoing package list into batches of at most
@@ -880,8 +885,8 @@ Features:
   (`archivesFirstParty`, at most 200 `firstPartyArchives` plus truncation), not as a gap; `spring-boot-jarmode-tools`
   is identified from a matching manifest title and version. `archivesFound` always equals identified plus
   unidentified plus first-party. `COMPLETE` describes
-  the provider's reported identification, not independently verified runtime completeness: filename attribution and
-  Quarkus missing/malformed model overclaims remain deferred below.
+  the provider's reported identification, not independently verified runtime completeness: filename attribution
+  overclaims remain deferred below.
 - Report packages dropped by the `bootui.vulnerabilities.max-packages` bound as `scan.packagesSkipped` rather than
   letting `packagesScanned` present a truncated scan as a complete one.
 - Support disabling OSV scans with `bootui.vulnerabilities.osv-enabled=false`.
@@ -914,8 +919,8 @@ Known limitations: inventory-discovery repairs are explicitly deferred. Spring f
 case-insensitive attribution without group identity can overstate coverage for same-basename archives or ambiguous
 classifiers. PURL literal-plus decoding/namespace rewriting, SBOM runtime scope, and unreadable container/archive
 diagnostics need separate fixes. The SBOM traversal limit counts resolved distinct coordinates, not inspected nodes,
-and the whole JSON is parsed first. Quarkus missing/blank model keys and skipped malformed entries can still report
-`COMPLETE`. Neither this change nor a consumer trusting that flag independently verifies a complete runtime inventory.
+and the whole JSON is parsed first. Quarkus `COMPLETE` reflects its wholly decoded build-time model. Neither a provider
+nor a consumer trusting that flag independently verifies a complete runtime inventory.
 
 The dependency inventory is coordinate-based (one resolved JAR = one artifact coordinate), and no JAR
 manifest header carries a `groupId` (the curated `spring-boot-jarmode-tools` exception above relies on its fixed, known
@@ -934,9 +939,8 @@ Beans). Direct-vs-transitive dependency provenance
 dependency graph, but Spring's classpath-based inventory has no equivalent graph today, so this is deferred rather than
 shipped asymmetrically.
 
-CVSS v2/v4 calculation, full assessment/vector provenance, selected EPSS CVE/date/model fields, cross-request date
-pinning, and a total scan deadline remain deferred. FIRST's public CVSS v4 reference calculator exists but cannot be
-replaced by v3 equations. Enrichment uses the own CVE ID and at most 20 retained aliases, not every upstream alias.
+CVSS v2 calculation, full assessment/vector provenance (including which CVSS version produced `score`), selected EPSS
+CVE/date/model fields, cross-request date pinning, and a total scan deadline remain deferred. Enrichment uses the own CVE ID and at most 20 retained aliases, not every upstream alias.
 The browser's same-package lexical version sorting remains a separate presentation limitation. Completed OSV queries
 do not prove exploitability, reachability, absence of unknown advisories, or application safety.
 

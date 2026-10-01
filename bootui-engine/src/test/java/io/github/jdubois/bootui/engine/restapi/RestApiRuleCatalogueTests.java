@@ -25,7 +25,10 @@ class RestApiRuleCatalogueTests {
     private static final Set<String> APPLICATION_WIDE = Set.of(
             "MutatingItemMethodsTargetResourceRule",
             "FormatSuffixInPathRule",
-            "ExceptionHandlersDoNotExposeStackTracesRule");
+            "ExceptionHandlersDoNotExposeStackTracesRule",
+            "DtosAreImmutableRule",
+            "NoBroadThrowsOnHandlersRule",
+            "IdempotencyKeyOnCreationEndpointsRule");
 
     @Test
     void everyRegisteredRuleMarksTheEvidenceItReliesOn() {

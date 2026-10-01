@@ -4,9 +4,8 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 
 /**
- * A JAX-RS resource declaring a broad {@code throws Exception} on a handler method (RAPI-ERR-002,
- * LOW). Declaring a broad throws clause is a plain JVM method-signature fact, not a Spring-only
- * one, so this must be flagged on JAX-RS resources exactly as it is on Spring controllers.
+ * A JAX-RS resource declaring a broad {@code throws Exception} on a handler method. The throws clause
+ * does not influence exception mapping, so the retired RAPI-ERR-002 no longer reports it.
  */
 @Path("/faulty")
 public class BadThrowsResource {

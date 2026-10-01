@@ -121,20 +121,6 @@ class JaxRsRestApiModelTests {
     }
 
     @Test
-    void broadThrowsRuleFiresOnJaxRs() {
-        // A "throws Exception/Throwable" is a plain JVM method-signature fact, not a Spring-only one,
-        // so RAPI-ERR-002 must fire on a JAX-RS resource method exactly as it does on Spring.
-        HandlerMethodModel read = build(BAD).handlers().stream()
-                .filter(h -> h.methodName().equals("read"))
-                .findFirst()
-                .orElseThrow();
-        assertThat(read.declaresBroadThrows()).isTrue();
-
-        String status = new NoBroadThrowsOnHandlersRule().evaluate(context(BAD)).status();
-        assertThat(status).isEqualTo(RestApiRuleSupport.VIOLATION);
-    }
-
-    @Test
     void unwrapsMutinyUniAndRestResponseToTheRealBodyType() {
         // Fix #1: Uni<T>/RestResponse<T> must unwrap to T, exactly like Spring WebFlux's Mono<T> already
         // does — otherwise bodyTypeName resolves to the wrapper class itself, silently blinding the
