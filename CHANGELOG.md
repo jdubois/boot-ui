@@ -9,6 +9,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Four Database advisor checks (24 → 28).** DB-SCHEMA-010 (LOW) reports MySQL invisible, MariaDB ignored and
+  Oracle invisible indexes that every write still maintains; DB-PG-005 (LOW) reports `UNLOGGED` tables and leaf
+  partitions; DB-HIB-009 (MEDIUM) reports an explicitly named `@Id` declaring `GenerationType.IDENTITY` whose
+  PostgreSQL, MySQL or MariaDB column reports no auto-increment, identity, default or generated value; and DB-HIB-010
+  (MEDIUM) reports a positive `@Column(precision, scale)` wider than the bounded physical `DECIMAL`/`NUMERIC` column,
+  which rounds or rejects values. Each was accepted by at least two of three independent model reviews
+  ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md), [#1169](https://github.com/jdubois/boot-ui/pull/1169)).
 - **Failure-preserving retention for HTTP Exchanges, SQL Trace, and REST Client.** Each BootUI-owned capture buffer
   now reserves a share of its existing capacity, 25% by default, for the most recent failed and slow records: `5xx`
   and slow exchanges, failed and slow statements, and failed, `4xx`/`5xx`, and slow calls. Routine records are evicted
@@ -102,6 +109,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Database advisor false positives and hidden findings.** DB-SCHEMA-001 no longer reports the one-row identifier
+  tables Hibernate (`<entity>_seq` with a single `next_val` column, the MySQL default for `GenerationType.AUTO`) and
+  Spring Batch (`BATCH_*_SEQ`) generate without a primary key. DB-SCHEMA-002 no longer lets an unrelated GIN, partial
+  or generic-JDBC index on the same table turn every foreign key into an unknown result. DB-PG-002 treats a sequence
+  that was never read, on a role allowed to read it, as unused rather than unknown, so a fresh development database no
+  longer scans `PARTIAL`. Learn-more links now point to MySQL 8.4, the PostgreSQL primary/foreign-key docs and the
+  Jakarta Persistence 3.2 specification instead of blog posts and Wikipedia
+  ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md), [#1169](https://github.com/jdubois/boot-ui/pull/1169)).
 - **Live Activity durable persistence stores a failed or slow entry once, including a slow `4xx` request.**
   Persistence remembers the entries it stored in a bounded window. An entry that newer entries pushed out of Spring
   MVC's capped stream and that came back later, for example once `bootui.free-on-idle` released captured SQL, could be

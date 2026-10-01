@@ -19,19 +19,18 @@ import java.util.List;
 final class ForeignKeyTypeMismatchRule extends AbstractDatabaseAdvisorRule {
 
     ForeignKeyTypeMismatchRule() {
-        super(
-                new DatabaseAdvisorRuleDefinition(
-                        "DB-SCHEMA-004",
-                        "Foreign key column type mismatch with the referenced column",
-                        DatabaseAdvisorCategory.SCHEMA,
-                        DatabaseAdvisorRuleSupport.MEDIUM,
-                        "Compares each foreign key column against the column it actually references "
-                                + "(getImportedKeys().PKCOLUMN_NAME, which may be an alternate unique key), including type "
-                                + "family, integer width and signedness, numeric precision/scale, and declared length.",
-                        "Review whether the narrower child domain is intentional. It cannot represent every value "
-                                + "the referenced declaration permits, but this does not prove invalid existing rows, "
-                                + "a broken foreign key, or incompatible vendor coercions.",
-                        "https://vladmihalcea.com/how-to-fix-wrong-column-type-encountered-schema-validation-errors-with-jpa-and-hibernate/"));
+        super(new DatabaseAdvisorRuleDefinition(
+                "DB-SCHEMA-004",
+                "Foreign key column type mismatch with the referenced column",
+                DatabaseAdvisorCategory.SCHEMA,
+                DatabaseAdvisorRuleSupport.MEDIUM,
+                "Compares each foreign key column against the column it actually references "
+                        + "(getImportedKeys().PKCOLUMN_NAME, which may be an alternate unique key), including type "
+                        + "family, integer width and signedness, numeric precision/scale, and declared length.",
+                "Review whether the narrower child domain is intentional. It cannot represent every value "
+                        + "the referenced declaration permits, but this does not prove invalid existing rows, "
+                        + "a broken foreign key, or incompatible vendor coercions.",
+                "https://dev.mysql.com/doc/refman/8.4/en/create-table-foreign-keys.html"));
     }
 
     @Override

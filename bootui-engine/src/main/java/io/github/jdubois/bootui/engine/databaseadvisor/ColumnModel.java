@@ -18,6 +18,11 @@ import java.util.Locale;
  * @param size the column size/precision, or {@code null} when the driver reported none
  * @param decimalDigits the numeric scale, or {@code null} when the driver reported none
  * @param autoIncrement whether {@code IS_AUTOINCREMENT} reported {@code YES}
+ * @param autoIncrementReported {@code IS_AUTOINCREMENT} as reported: {@code TRUE} for {@code YES}, {@code FALSE}
+ *     only for an explicit {@code NO}, {@code null} when the driver reported nothing or the column was not read
+ * @param defaultValue {@code COLUMN_DEF}; meaningful only when {@code autoIncrementReported} is non-null, because
+ *     both come from the same {@code getColumns} row
+ * @param generatedColumn {@code IS_GENERATEDCOLUMN} as reported, or {@code null} when unknown
  */
 record ColumnModel(
         String name,
@@ -26,7 +31,42 @@ record ColumnModel(
         Nullability nullability,
         Integer size,
         Integer decimalDigits,
-        boolean autoIncrement) {
+        boolean autoIncrement,
+        Boolean autoIncrementReported,
+        String defaultValue,
+        Boolean generatedColumn) {
+
+    /** A column whose generation metadata ({@code IS_AUTOINCREMENT}/{@code COLUMN_DEF}) is unknown beyond {@code YES}. */
+    ColumnModel(
+            String name,
+            String typeName,
+            int jdbcType,
+            Nullability nullability,
+            Integer size,
+            Integer decimalDigits,
+            boolean autoIncrement) {
+        this(
+                name,
+                typeName,
+                jdbcType,
+                nullability,
+                size,
+                decimalDigits,
+                autoIncrement,
+                autoIncrement ? Boolean.TRUE : null,
+                null,
+                null);
+    }
+
+    /**
+     * True only when the driver explicitly reported that the database neither auto-increments this column, nor
+     * gives it a default, nor computes it as a generated column.
+     */
+    boolean knownWithoutDatabaseGeneration() {
+        return Boolean.FALSE.equals(autoIncrementReported)
+                && (defaultValue == null || defaultValue.isBlank() || "NULL".equalsIgnoreCase(defaultValue.trim()))
+                && !Boolean.TRUE.equals(generatedColumn);
+    }
 
     enum Nullability {
         NOT_NULL,

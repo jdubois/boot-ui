@@ -122,11 +122,32 @@ final class PostgresCatalogReader {
             limit ?
             """;
 
+    /**
+     * Unlogged ordinary tables and leaf partitions; partitioned parents are excluded because PostgreSQL 13-18
+     * rejects unlogged partitioned tables, so their {@code relpersistence} carries no storage meaning.
+     */
+    private static final String UNLOGGED_TABLES_SQL = """
+            select n.nspname as schema_name, c.relname as table_name, %s as is_partition
+            from pg_class c
+            join pg_namespace n on n.oid = c.relnamespace
+            where c.relkind = 'r'
+              and c.relpersistence = 'u'
+            """ + SYSTEM_SCHEMA_FILTER + """
+              and not exists (
+                    select 1 from pg_depend d
+                    where d.classid = 'pg_class'::regclass and d.objid = c.oid
+                      and d.refclassid = 'pg_extension'::regclass and d.deptype = 'e')
+            order by n.nspname, c.relname
+            limit ?
+            """;
+
     private static final String SEQUENCES_SQL = """
             select s.schemaname as schema_name, s.sequencename as sequence_name,
                    s.last_value as last_value, s.max_value as max_value, s.cycle as is_cycle,
                    s.increment_by as increment_by,
                    s.min_value as min_value, s.start_value as start_value, s.cache_size as cache_size,
+                   (s.last_value is null and has_sequence_privilege(seq.oid, 'SELECT, USAGE')
+                       and not (pg_is_in_recovery() and seq.relpersistence = 'u')) as never_used,
                    owner_ns.nspname as owner_schema, owner_table.relname as owner_table,
                    owner_column.attname as owner_column, owner_type.typname as owner_type
             from pg_sequences s
@@ -198,6 +219,13 @@ final class PostgresCatalogReader {
                 budget,
                 limits,
                 PostgresCatalogReader::readUnvalidatedConstraint));
+        findings.add(CatalogQuery.read(
+                connection,
+                VendorFindingKinds.POSTGRES_UNLOGGED_TABLES,
+                unloggedTablesSql(capabilities),
+                budget,
+                limits,
+                PostgresCatalogReader::readUnloggedTable));
         if (capabilities.declarativePartitioning()) {
             findings.add(CatalogQuery.read(
                     connection,
@@ -239,6 +267,10 @@ final class PostgresCatalogReader {
                     VendorFindingKinds.POSTGRES_REPLICA_IDENTITY_CANDIDATES,
                     "Publication catalogs require PostgreSQL 10 or later; server version must be known."));
         }
+    }
+
+    static String unloggedTablesSql(DialectCapabilities capabilities) {
+        return UNLOGGED_TABLES_SQL.replace("%s", capabilities.declarativePartitioning() ? "c.relispartition" : "false");
     }
 
     static String unvalidatedConstraintsSql(DatabaseVersion version) {
@@ -426,6 +458,11 @@ final class PostgresCatalogReader {
                 rs.getBoolean("is_partition_child"));
     }
 
+    private static PostgresUnloggedTable readUnloggedTable(ResultSet rs) throws SQLException {
+        return new PostgresUnloggedTable(
+                rs.getString("schema_name"), rs.getString("table_name"), rs.getBoolean("is_partition"));
+    }
+
     private static PostgresExtensionTable readExtensionTable(ResultSet rs) throws SQLException {
         return new PostgresExtensionTable(
                 rs.getString("schema_name"), rs.getString("table_name"), rs.getString("extension_name"));
@@ -471,7 +508,8 @@ final class PostgresCatalogReader {
                 capacityOf(ownerType) == null
                         ? null
                         : capacityOf(ownerType).negate().subtract(BigInteger.ONE),
-                bigInteger(rs, "cache_size"));
+                bigInteger(rs, "cache_size"),
+                lastValue == null && rs.getBoolean("never_used"));
     }
 
     private static Boolean nullableBoolean(ResultSet rs, String column) throws SQLException {

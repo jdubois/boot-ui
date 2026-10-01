@@ -62,6 +62,11 @@ class MariaDbDatabaseAdvisorLiveTests {
             statement.execute("create table orders (id bigint not null primary key, "
                     + "customer_ref varchar(64) not null, index ix_customer_ref (customer_ref(10))) "
                     + "engine = InnoDB default charset = utf8mb4");
+            // MariaDB 10.6+ ignored index (DB-SCHEMA-010) and Hibernate's MySQL-family sequence-emulation table,
+            // a framework-generated one-row table with no primary key that DB-SCHEMA-001 must not report.
+            statement.execute("create index ix_tickets_label on tickets (label)");
+            statement.execute("alter table tickets alter index ix_tickets_label ignored");
+            statement.execute("create table customer_seq (next_val bigint) engine = InnoDB");
         }
     }
 
@@ -128,5 +133,21 @@ class MariaDbDatabaseAdvisorLiveTests {
         assertThat(report.results()).noneMatch(result -> result.id().startsWith("DB-PG"));
         assertThat(report.diagnostics())
                 .anySatisfy(diagnostic -> assertThat(diagnostic.source()).isEqualTo("DB-PG-001"));
+    }
+
+    @Test
+    void reportsIgnoredIndexesFromTheLiveCatalog() {
+        assertThat(finding(scan(), "DB-SCHEMA-010")).hasValueSatisfying(result -> {
+            assertThat(result.status()).isEqualTo("VIOLATION");
+            assertThat(result.sampleViolations()).singleElement().asString().contains("ix_tickets_label", "is IGNORED");
+        });
+    }
+
+    @Test
+    void hibernateSequenceEmulationTablesAreNotPrimaryKeyFindings() {
+        assertThat(finding(scan(), "DB-SCHEMA-001")
+                        .map(DatabaseAdvisorRuleResultDto::sampleViolations)
+                        .orElse(List.of()))
+                .noneMatch(detail -> detail.contains("customer_seq"));
     }
 }
