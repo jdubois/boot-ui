@@ -112,7 +112,17 @@ class HibernateSchemaBridgeTests {
 
         assertThat(facts.columns())
                 .extracting(MappedColumnFacts::columnName)
-                .containsExactlyInAnyOrder("id", "email", "short_code", "default_length", "payload", "status", "money");
+                .containsExactlyInAnyOrder(
+                        "id",
+                        "email",
+                        "short_code",
+                        "default_length",
+                        "amount",
+                        "whole",
+                        "unsized",
+                        "payload",
+                        "status",
+                        "money");
     }
 
     @Test
@@ -136,6 +146,19 @@ class HibernateSchemaBridgeTests {
         assertThat(column(facts, "short_code").declaredLength()).isEqualTo(32);
         assertThat(column(facts, "default_length").declaredLength()).isNull();
         assertThat(column(facts, "email").declaredLength()).isNull();
+    }
+
+    @Test
+    void aPositivePrecisionCarriesTheScaleHibernateAppliesWithIt() {
+        MappedEntityFacts facts = factsFor(Columns.class);
+
+        assertThat(column(facts, "amount").declaredPrecision()).isEqualTo(19);
+        assertThat(column(facts, "amount").declaredScale()).isEqualTo(4);
+        assertThat(column(facts, "whole").declaredPrecision()).isEqualTo(12);
+        assertThat(column(facts, "whole").declaredScale()).isZero();
+        assertThat(column(facts, "unsized").declaredPrecision()).isNull();
+        assertThat(column(facts, "unsized").declaredScale()).isNull();
+        assertThat(column(facts, "short_code").declaredPrecision()).isNull();
     }
 
     @Test
@@ -422,6 +445,16 @@ class HibernateSchemaBridgeTests {
                 .orElseThrow(() -> new AssertionError("no mapped foreign key for " + attributeSuffix + " in " + facts));
     }
 
+    @Test
+    void onlyAnExplicitIdentityStrategyOnTheIdentifierIsReported() {
+        assertThat(column(factsFor(NamedIdentityIdentifier.class), "order_id").identityGenerated())
+                .isTrue();
+        MappedEntityFacts auto = factsFor(NamedAutoIdentifier.class);
+        assertThat(column(auto, "order_id").identityGenerated()).isFalse();
+        assertThat(column(auto, "not_an_id").identityGenerated()).isFalse();
+        assertThat(column(factsFor(Columns.class), "id").identityGenerated()).isFalse();
+    }
+
     // --- sequence generators --------------------------------------------------------------------------
 
     @Test
@@ -589,6 +622,15 @@ class HibernateSchemaBridgeTests {
         @Column(name = "default_length", length = 255)
         String defaultLength;
 
+        @Column(name = "amount", precision = 19, scale = 4)
+        java.math.BigDecimal amount;
+
+        @Column(name = "whole", precision = 12)
+        java.math.BigDecimal whole;
+
+        @Column(name = "unsized")
+        java.math.BigDecimal unsized;
+
         @Lob
         @Column(name = "payload")
         String payload;
@@ -689,6 +731,26 @@ class HibernateSchemaBridgeTests {
         @GeneratedValue(strategy = GenerationType.IDENTITY, generator = "order_seq_gen")
         @SequenceGenerator(name = "order_seq_gen", sequenceName = "order_seq", allocationSize = 50)
         Long id;
+    }
+
+    @Entity
+    static class NamedIdentityIdentifier {
+        @Id
+        @GeneratedValue(strategy = GenerationType.IDENTITY)
+        @Column(name = "order_id")
+        Long id;
+    }
+
+    @Entity
+    static class NamedAutoIdentifier {
+        @Id
+        @GeneratedValue
+        @Column(name = "order_id")
+        Long id;
+
+        @GeneratedValue(strategy = GenerationType.IDENTITY)
+        @Column(name = "not_an_id")
+        Long notAnId;
     }
 
     @Entity

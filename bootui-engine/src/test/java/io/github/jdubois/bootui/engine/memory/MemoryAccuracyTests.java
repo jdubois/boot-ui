@@ -34,7 +34,7 @@ class MemoryAccuracyTests {
     private static final long GB = 1024L * 1024 * 1024;
 
     @Test
-    void stableRuleIdsRemainExactlyTheSame() {
+    void activeRuleIdsMatchTheCatalogAndNeverReuseRetiredIds() {
         assertThat(MemoryRuleRegistry.activeRules().stream()
                         .map(rule -> rule.definition().id()))
                 .containsExactlyInAnyOrder(
@@ -44,18 +44,15 @@ class MemoryAccuracyTests {
                         "MEM-HEAP-004",
                         "MEM-HEAP-005",
                         "MEM-HEAP-006",
-                        "MEM-HEAP-007",
                         "MEM-HEAP-008",
                         "MEM-FOOTPRINT-001",
                         "MEM-FOOTPRINT-002",
                         "MEM-FOOTPRINT-003",
-                        "MEM-FOOTPRINT-004",
                         "MEM-POOL-001",
                         "MEM-POOL-002",
                         "MEM-POOL-003",
                         "MEM-POOL-004",
                         "MEM-POOL-005",
-                        "MEM-POOL-006",
                         "MEM-POOL-007",
                         "MEM-GC-001",
                         "MEM-GC-002",
@@ -64,16 +61,17 @@ class MemoryAccuracyTests {
                         "MEM-GC-005",
                         "MEM-GC-006",
                         "MEM-GC-007",
+                        "MEM-GC-008",
                         "MEM-THREAD-001",
                         "MEM-THREAD-002",
-                        "MEM-THREAD-003",
                         "MEM-THREAD-004",
                         "MEM-CONTENT-001",
                         "MEM-CONTENT-002",
                         "MEM-CONTENT-003",
-                        "MEM-CONTENT-004",
                         "MEM-CLASS-001",
-                        "MEM-CLASS-002");
+                        "MEM-CLASS-002")
+                .doesNotContain(
+                        "MEM-HEAP-007", "MEM-FOOTPRINT-004", "MEM-POOL-006", "MEM-THREAD-003", "MEM-CONTENT-004");
     }
 
     @Test
@@ -365,35 +363,13 @@ class MemoryAccuracyTests {
     }
 
     @Test
-    void committedSlackNeverMixesSnapshotsOrClaimsSafeDownsizing() {
-        MemoryData before = memory(7 * GB, 8 * GB, 10 * GB, List.of(), List.of(), null);
-        MemoryContext afterShrink = context(before, new PostGcHeapData(true, GB, false, -1, GB));
-        assertThat(new OverProvisionedHeapRule().evaluate(afterShrink).status()).isEqualTo("PASS");
-        MemoryContext unavailablePostCommitted = context(before, new PostGcHeapData(true, GB, false, -1));
-        assertThat(new OverProvisionedHeapRule()
-                        .evaluate(unavailablePostCommitted)
-                        .status())
-                .isEqualTo("PASS");
-        MemoryContext slack = context(before, new PostGcHeapData(true, GB, false, -1, 4 * GB));
-        assertThat(new OverProvisionedHeapRule().evaluate(slack).severity()).isEqualTo("INFO");
-        assertThat(new OverProvisionedHeapRule()
-                        .evaluate(slack)
-                        .sampleViolations()
-                        .get(0))
-                .contains("one snapshot");
-    }
-
-    @Test
-    void zeroUsageAndIncoherentSwapAreNotInventedPressure() {
+    void zeroUsageIsNotInventedPressure() {
         MemoryContext zero = context(memory(0, 0, 100, List.of(), List.of(), 100L), null);
         assertThat(new ContainerMemoryPressureRule().evaluate(zero).status()).isEqualTo("PASS");
-        RuntimeData invalid = new RuntimeData(700_000, 0, 0, 0, -1, 1024, 4, 200, 100, null);
-        MemoryContext context = new MemoryContext(null, null, null, null, invalid);
-        assertThat(new HighSwapUtilizationRule().evaluate(context).status()).isEqualTo("SKIPPED");
     }
 
     @Test
-    void deliberateCompilerAndContainerReenablingDoNotUseEarlierFlags() {
+    void containerReenablingDoesNotUseEarlierFlags() {
         MemoryData memory = memory(10, 100, 100, List.of(), List.of(), 200L);
         MemoryData flags = new MemoryData(
                 10,
@@ -419,8 +395,6 @@ class MemoryAccuracyTests {
                 memory.gcCollectorNames(),
                 200L,
                 0L);
-        assertThat(new InterpretedJitModeRule().evaluate(context(flags, null)).status())
-                .isEqualTo("PASS");
         assertThat(new ContainerSupportDisabledRule()
                         .evaluate(context(flags, null))
                         .status())

@@ -35,9 +35,10 @@ public final class QuarkusAppMetadataStore {
     public static final String INVALID_RESOURCE = "Application declaration resource is invalid or unreadable.";
 
     private static final int MAGIC = 0x42554150;
-    private static final int VERSION = 1;
+    private static final int VERSION = 2;
     private static final List<String> RULES =
-            List.of("QA-CDI-001", "QA-CDI-002", "QA-CDI-003", "QA-PERF-002", "QA-WEB-003");
+            List.of("QA-CDI-002", "QA-CDI-003", "QA-CDI-004", "QA-PERF-002", "QA-WEB-003");
+    private static final Set<String> SCOPES = Set.of("APPLICATION", "NORMAL", "SINGLETON");
     private static final Set<String> MESSAGES = Set.of(INCOMPLETE, UNRESOLVED, INVALID_RESOURCE);
     private static final Comparator<SharedField> FIELD_ORDER = Comparator.comparing(SharedField::className)
             .thenComparing(SharedField::fieldName)
@@ -100,7 +101,7 @@ public final class QuarkusAppMetadataStore {
                 String className = string(input);
                 String fieldName = string(input);
                 String scope = string(input);
-                if (!scope.equals("APPLICATION") && !scope.equals("SINGLETON")) {
+                if (!SCOPES.contains(scope)) {
                     return invalid();
                 }
                 fields.add(new SharedField(className, fieldName, scope, input.readBoolean()));
@@ -230,11 +231,15 @@ public final class QuarkusAppMetadataStore {
     private static boolean validField(SharedField field) {
         return size(field.className()) >= 0
                 && size(field.fieldName()) >= 0
-                && (field.scope().equals("APPLICATION") || field.scope().equals("SINGLETON"));
+                && field.scope() != null
+                && SCOPES.contains(field.scope());
     }
 
     private static String fieldRule(SharedField field) {
-        return field.resource() ? "QA-CDI-002" : field.scope().equals("SINGLETON") ? "QA-CDI-003" : "QA-CDI-001";
+        if (!"SINGLETON".equals(field.scope())) {
+            return "QA-CDI-004";
+        }
+        return field.resource() ? "QA-CDI-002" : "QA-CDI-003";
     }
 
     private static void addProblems(Set<QuarkusAppEvidenceProblem> problems, List<String> rules) {

@@ -18,7 +18,7 @@ final class MissingForeignKeyIndexRule extends AbstractDatabaseAdvisorRule {
                         + "Equality lookups permit any leading order when the access method supports it.",
                 "Review parent-key updates/deletes and representative query plans before adding an index. "
                         + "Partial, prefix and special indexes need individual assessment; no table scan is proven.",
-                "https://www.postgresql.org/docs/current/ddl-constraints.html"));
+                "https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK"));
     }
 
     @Override
@@ -48,6 +48,7 @@ final class MissingForeignKeyIndexRule extends AbstractDatabaseAdvisorRule {
                         continue;
                     }
                     boolean uncertain = table.indexes().stream()
+                            .filter(index -> couldCover(index, fk.columns()))
                             .anyMatch(index -> !ordinaryMethod(index.method())
                                     || index.partial()
                                     || index.hasExpressionKeyPart()
@@ -75,6 +76,18 @@ final class MissingForeignKeyIndexRule extends AbstractDatabaseAdvisorRule {
             }
         }
         return assessed(context, eligible, details);
+    }
+
+    /**
+     * Whether an index whose semantics are not fully established could still be the foreign key's access path:
+     * it keys at least one foreign-key column, an expression, or nothing known. An index over unrelated plain
+     * columns cannot serve an equality lookup on the foreign key under any access method, so it must not hide
+     * an otherwise established finding.
+     */
+    private static boolean couldCover(IndexModel index, List<String> foreignKeyColumns) {
+        return index.keyParts().isEmpty()
+                || index.keyParts().stream()
+                        .anyMatch(part -> part.isExpression() || foreignKeyColumns.contains(part.columnName()));
     }
 
     private static boolean ordinaryMethod(String method) {
