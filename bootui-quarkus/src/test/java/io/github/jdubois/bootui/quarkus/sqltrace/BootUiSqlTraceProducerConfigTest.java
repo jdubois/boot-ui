@@ -35,7 +35,7 @@ class BootUiSqlTraceProducerConfigTest {
         Instance<TraceIdProvider> traceIdProvider = unresolvable();
         Instance<SpanEnricher> spanEnricher = unresolvable();
         return new BootUiSqlTraceProducer()
-                .sqlTraceRecorder(config(properties), traceIdProvider, spanEnricher, new RequestPhases(), null);
+                .sqlTraceRecorder(config(properties), traceIdProvider, spanEnricher, new RequestPhases());
     }
 
     @Test

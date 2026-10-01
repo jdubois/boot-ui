@@ -1,6 +1,11 @@
 package io.github.jdubois.bootui.engine.exceptions;
 
 import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
+import io.github.jdubois.bootui.engine.journal.ExceptionPayload;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
 import io.github.jdubois.bootui.spi.CorrelationContext;
@@ -54,7 +59,7 @@ import java.util.function.Predicate;
  * a lifetime counter: manual {@link #setStatus} calls never change it, so it keeps answering "has this
  * exact failure signature come back before?" across any number of later manual resolves.</p>
  */
-public final class ExceptionStore {
+public final class ExceptionStore implements RuntimeEventPublisher {
 
     /** Number of leading frames that contribute to a group's fingerprint. */
     private static final int FINGERPRINT_FRAMES = 5;
@@ -78,6 +83,7 @@ public final class ExceptionStore {
     private volatile List<String> applicationPackages = List.of();
     private volatile SpanEnricher spanEnricher = SpanEnricher.NO_OP;
     private final CorrelationSource correlation = new CorrelationSource();
+    private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
 
     public ExceptionStore(int maxGroups, int maxOccurrencesPerGroup, int maxStackFrames) {
         this(maxGroups, maxOccurrencesPerGroup, maxStackFrames, throwable -> false);
@@ -114,6 +120,15 @@ public final class ExceptionStore {
      * including a log appender; the Quarkus adapter installs one that reads the request's Vert.x context. Passing
      * {@code null} restores the default.
      */
+    /**
+     * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives each recorded exception occurrence right after this
+     * recorder retains it. {@code null} restores the default, which publishes nothing.
+     */
+    @Override
+    public void setRuntimeEventSink(RuntimeEventSink journal) {
+        this.journal = journal == null ? RuntimeEventSink.NONE : journal;
+    }
+
     public void setCorrelationContextProvider(CorrelationContextProvider correlationProvider) {
         correlation.set(correlationProvider);
     }
@@ -228,6 +243,18 @@ public final class ExceptionStore {
             group.count++;
             group.addOccurrence(occurrence, maxOccurrencesPerGroup);
         }
+        journal.offer(new RuntimeEvent(
+                JournalSource.EXCEPTION,
+                now,
+                -1,
+                context.requestId(),
+                context.executionId(),
+                traceId,
+                context.spanId(),
+                thread,
+                null,
+                true,
+                new ExceptionPayload(fingerprint, className)));
         notifyListeners();
         spanEnricher.onException(className);
     }

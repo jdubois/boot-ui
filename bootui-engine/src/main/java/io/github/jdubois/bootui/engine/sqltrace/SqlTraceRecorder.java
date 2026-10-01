@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.correlation.ThreadKinds;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
@@ -54,7 +55,7 @@ import java.util.stream.Stream;
  * beans were actually wrapped, so the panel can distinguish "no data source"
  * from "tracing disabled".</p>
  */
-public final class SqlTraceRecorder implements IdleReclaimable {
+public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPublisher {
 
     static final int TOP_STATEMENTS_LIMIT = 20;
 
@@ -402,6 +403,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
      * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives each recorded statement right after
      * the buffer does. {@code null} restores the default, which publishes nothing.
      */
+    @Override
     public void setRuntimeEventSink(RuntimeEventSink journal) {
         this.journal = journal == null ? RuntimeEventSink.NONE : journal;
     }

@@ -1,6 +1,11 @@
 package io.github.jdubois.bootui.engine.jms;
 
 import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.MessagingPayload;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import java.nio.charset.StandardCharsets;
@@ -24,7 +29,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p><strong>Only metadata is captured, never the message body or arbitrary properties.</strong>
  * Provider-assigned message IDs are retained only as truncated SHA-256 hashes when enabled.
  */
-public final class JmsActivityRecorder {
+public final class JmsActivityRecorder implements RuntimeEventPublisher {
 
     private static final int MAX_METADATA_LENGTH = 200;
 
@@ -114,6 +119,7 @@ public final class JmsActivityRecorder {
     private final Deque<CapturedMessage> buffer = new ArrayDeque<>();
     private final Object lock = new Object();
     private final CorrelationSource correlation = new CorrelationSource();
+    private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
     private final AtomicLong sequence = new AtomicLong();
     private final AtomicLong totalCaptured = new AtomicLong();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
@@ -146,6 +152,15 @@ public final class JmsActivityRecorder {
      * request or execution for an outgoing message, and the listener's own execution for a consumed one. Defaults to
      * the thread's correlation scope; passing {@code null} restores it.
      */
+    /**
+     * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives each recorded message right after this
+     * recorder retains it. {@code null} restores the default, which publishes nothing.
+     */
+    @Override
+    public void setRuntimeEventSink(RuntimeEventSink journal) {
+        this.journal = journal == null ? RuntimeEventSink.NONE : journal;
+    }
+
     public void setCorrelationContextProvider(CorrelationContextProvider correlationProvider) {
         correlation.set(correlationProvider);
     }
@@ -216,6 +231,19 @@ public final class JmsActivityRecorder {
                 buffer.removeFirst();
             }
         }
+        boolean sent = direction == Direction.PRODUCE;
+        journal.offer(new RuntimeEvent(
+                JournalSource.MESSAGING,
+                entry.timestamp(),
+                entry.durationMillis() == null ? -1 : entry.durationMillis() * 1_000_000,
+                context.requestId(),
+                context.executionId(),
+                context.traceId(),
+                context.spanId(),
+                sent ? null : Thread.currentThread().getName(),
+                null,
+                !success,
+                new MessagingPayload("jms", sent, entry.destination(), !success)));
         totalCaptured.incrementAndGet();
         notifyListeners();
     }

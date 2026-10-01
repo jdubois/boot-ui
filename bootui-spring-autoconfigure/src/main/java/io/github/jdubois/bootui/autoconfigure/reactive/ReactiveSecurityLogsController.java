@@ -3,10 +3,17 @@ package io.github.jdubois.bootui.autoconfigure.reactive;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIdStamps;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.engine.journal.SecurityPayload;
 import io.github.jdubois.bootui.engine.security.CapturedSecurityEvent;
 import io.github.jdubois.bootui.engine.security.SecurityLogsService;
 import io.github.jdubois.bootui.engine.support.BlankStrings;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.time.format.DateTimeParseException;
 import java.util.List;
@@ -45,13 +52,16 @@ import reactor.core.publisher.Flux;
 @RestController
 @ConditionalOnClass(AuditEventRepository.class)
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/security-logs")
-public class ReactiveSecurityLogsController implements ApplicationListener<AuditApplicationEvent> {
+public class ReactiveSecurityLogsController
+        implements ApplicationListener<AuditApplicationEvent>, RuntimeEventPublisher {
 
     /**
      * The BootUI request id current when each audit event was published ({@code docs/PLAN-v2.md} §5.1). Actuator's
      * {@code AuditEvent} has no field for it and uses identity equality, so the stamp is kept beside it.
      */
     private final RequestIdStamps<AuditEvent> requestIds = new RequestIdStamps<>();
+
+    private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
 
     private final ObjectProvider<AuditEventRepository> auditEventRepositoryProvider;
 
@@ -169,7 +179,35 @@ public class ReactiveSecurityLogsController implements ApplicationListener<Audit
     public void onApplicationEvent(AuditApplicationEvent event) {
         requestIds.stamp(event.getAuditEvent());
         recordTraceId(event.getAuditEvent());
+        publish(event.getAuditEvent());
         changeStream.signal();
+    }
+
+    /** Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives each security event. */
+    @Override
+    public void setRuntimeEventSink(RuntimeEventSink journal) {
+        this.journal = journal == null ? RuntimeEventSink.NONE : journal;
+    }
+
+    private void publish(AuditEvent event) {
+        if (event == null) {
+            return;
+        }
+        CorrelationContext context = BootUiCorrelation.current();
+        journal.offer(new RuntimeEvent(
+                JournalSource.SECURITY,
+                event.getTimestamp() == null
+                        ? System.currentTimeMillis()
+                        : event.getTimestamp().toEpochMilli(),
+                -1,
+                context.requestId(),
+                context.executionId(),
+                context.traceId(),
+                context.spanId(),
+                Thread.currentThread().getName(),
+                null,
+                SecurityPayload.isFailure(event.getType()),
+                new SecurityPayload(event.getType())));
     }
 
     /**

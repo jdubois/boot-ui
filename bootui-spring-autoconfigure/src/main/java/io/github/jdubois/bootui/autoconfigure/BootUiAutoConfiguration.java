@@ -760,10 +760,7 @@ public class BootUiAutoConfiguration {
 
     @Bean
     public SqlTraceRecorder bootUiSqlTraceRecorder(
-            BootUiProperties properties,
-            ThreadKindClassifier threadKinds,
-            RequestPhases phases,
-            RuntimeJournal journal) {
+            BootUiProperties properties, ThreadKindClassifier threadKinds, RequestPhases phases) {
         BootUiProperties.SqlTrace sqlTrace = properties.getSqlTrace();
         boolean enabled = sqlTrace.isEnabled() && properties.isPanelEnabled(BootUiPanels.SQL_TRACE);
         SqlTraceRecorder recorder = new SqlTraceRecorder(
@@ -779,7 +776,6 @@ public class BootUiAutoConfiguration {
                 sqlTrace.getReservedSharePercent());
         recorder.setThreadKindClassifier(threadKinds);
         recorder.setRequestPhases(phases);
-        recorder.setRuntimeEventSink(journal);
         return recorder;
     }
 

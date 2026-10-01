@@ -39,6 +39,26 @@ class WebFluxRuntimeJournalTest {
     JournalAggregates aggregates;
 
     @Test
+    void cacheAndExceptionEventsFoldIntoTheRouteThatProducedThem() throws Exception {
+        BootUiHttpProbe probe = new BootUiHttpProbe("http://localhost:" + port);
+
+        assertThat(probe.get("/api/greetings/bootui").status()).isEqualTo(200);
+        assertThat(probe.get("/api/sample/boom").status()).isEqualTo(500);
+        assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
+
+        assertThat(aggregates.snapshot().routes())
+                .anySatisfy(route -> {
+                    assertThat(route.route()).startsWith("GET /api/greetings/");
+                    assertThat(route.childCounts()).containsKey(JournalSource.CACHE);
+                })
+                .anySatisfy(route -> {
+                    assertThat(route.route()).isEqualTo("GET /api/sample/boom");
+                    assertThat(route.childCounts()).containsKey(JournalSource.EXCEPTION);
+                    assertThat(route.statusClasses().get(4)).isPositive();
+                });
+    }
+
+    @Test
     void requestsAndTheirSqlReachTheJournalAndFoldIntoTheMatchedRoute() throws Exception {
         BootUiHttpProbe probe = new BootUiHttpProbe("http://localhost:" + port);
 

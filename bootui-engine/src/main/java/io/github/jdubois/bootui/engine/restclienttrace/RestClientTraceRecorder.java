@@ -9,6 +9,11 @@ import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
 import io.github.jdubois.bootui.core.dto.RestClientTraceStatsDto;
 import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
 import io.github.jdubois.bootui.engine.correlation.ThreadKinds;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RestClientPayload;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
 import io.github.jdubois.bootui.engine.support.CredentialRedaction;
 import io.github.jdubois.bootui.engine.support.DetailText;
@@ -57,7 +62,7 @@ import java.util.stream.Stream;
  * reveals them: URI authority user-info credentials, and the client {@code errorMessage}, which is flattened,
  * credential-redacted, and length-bounded since a transport exception can quote a whole request URL.</p>
  */
-public final class RestClientTraceRecorder implements IdleReclaimable {
+public final class RestClientTraceRecorder implements IdleReclaimable, RuntimeEventPublisher {
 
     static final int TOP_CALLS_LIMIT = 20;
 
@@ -224,6 +229,7 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
     private volatile TraceIdProvider traceIdProvider = RestClientTraceRecorder::mdcTraceId;
     private final CorrelationSource correlation = new CorrelationSource();
+    private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
     private final ThreadKinds threadKinds = new ThreadKinds();
 
     /** A recorder reserving the default share of its buffer for failed, error-response, and slow calls. */
@@ -315,6 +321,15 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
      * thread's correlation scope; the Quarkus adapter installs one that reads the request's Vert.x context. Passing
      * {@code null} restores the default.
      */
+    /**
+     * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives each recorded call right after this
+     * recorder retains it. {@code null} restores the default, which publishes nothing.
+     */
+    @Override
+    public void setRuntimeEventSink(RuntimeEventSink journal) {
+        this.journal = journal == null ? RuntimeEventSink.NONE : journal;
+    }
+
     public void setCorrelationContextProvider(CorrelationContextProvider correlationProvider) {
         correlation.set(correlationProvider);
     }
@@ -594,8 +609,27 @@ public final class RestClientTraceRecorder implements IdleReclaimable {
                 captureCallSite ? currentCallSite() : null,
                 caller.requestId(),
                 caller.executionId(),
-                threadKind == null ? threadKinds.current().name() : threadKind.name());
-        buffer.add(entry, isFailedOrSlow(entry.success(), entry.status(), isSlow(entry.durationMillis())));
+                (threadKind == null ? threadKinds.current() : threadKind).name());
+        boolean failedOrSlow = isFailedOrSlow(entry.success(), entry.status(), isSlow(entry.durationMillis()));
+        buffer.add(entry, failedOrSlow);
+        journal.offer(new RuntimeEvent(
+                JournalSource.REST_CLIENT,
+                entry.timestamp(),
+                entry.durationMillis() * 1_000_000,
+                caller.requestId(),
+                caller.executionId(),
+                traceId,
+                caller.spanId(),
+                thread,
+                ThreadKind.valueOf(entry.threadKind()),
+                failedOrSlow,
+                new RestClientPayload(
+                        method,
+                        RestClientAuthority.of(host, entry.uri()),
+                        entry.path(),
+                        status,
+                        clientType,
+                        !success)));
         totalCaptured.incrementAndGet();
         notifyListeners();
     }

@@ -36,6 +36,7 @@ import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.hibernate.HibernateStatisticsService;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
@@ -105,8 +106,10 @@ import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.github.jdubois.bootui.spi.WebSocketSessionProvider;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.quarkus.runtime.LaunchMode;
+import io.quarkus.runtime.StartupEvent;
 import io.smallrye.config.SmallRyeConfig;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.AmbiguousResolutionException;
 import jakarta.enterprise.inject.Any;
 import jakarta.enterprise.inject.Disposes;
@@ -273,6 +276,18 @@ public class BootUiEngineProducer {
         RuntimeJournal journal = new RuntimeJournal(settings, application.run());
         journal.addListener(aggregates);
         return journal;
+    }
+
+    /**
+     * Installs the runtime journal on every recorder when the application starts ({@code docs/PLAN-v2.md} §5.2):
+     * each recorder's producer declares it as a {@link RuntimeEventPublisher}, so CDI lists them all here, and they
+     * publish from the first request.
+     */
+    void installRuntimeJournal(
+            @Observes StartupEvent event, RuntimeJournal journal, @Any Instance<RuntimeEventPublisher> publishers) {
+        for (RuntimeEventPublisher publisher : publishers) {
+            publisher.setRuntimeEventSink(journal);
+        }
     }
 
     /** Stops the journal's dispatcher when the application stops, including before a live reload. */

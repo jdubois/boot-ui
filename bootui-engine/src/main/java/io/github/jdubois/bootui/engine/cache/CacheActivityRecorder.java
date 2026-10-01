@@ -1,6 +1,12 @@
 package io.github.jdubois.bootui.engine.cache;
 
 import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
+import io.github.jdubois.bootui.engine.journal.CachePayload;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.nio.charset.StandardCharsets;
@@ -28,7 +34,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * restart or via {@link #clear()}. Thread-safe: {@link #record} may be called concurrently from many
  * application threads while {@link #recentEvents()} is read from an HTTP request thread.</p>
  */
-public final class CacheActivityRecorder {
+public final class CacheActivityRecorder implements RuntimeEventPublisher {
 
     private final boolean enabled;
     private final int maxEntries;
@@ -39,6 +45,7 @@ public final class CacheActivityRecorder {
 
     private volatile TraceIdProvider traceIdProvider = CacheActivityRecorder::mdcTraceId;
     private final CorrelationSource correlation = new CorrelationSource();
+    private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
     private volatile boolean instrumentedManager;
 
     public CacheActivityRecorder(boolean enabled, int maxEntries) {
@@ -75,6 +82,15 @@ public final class CacheActivityRecorder {
      * thread's correlation scope; the Quarkus adapter installs one that reads the request's Vert.x context. Passing
      * {@code null} restores the default.
      */
+    /**
+     * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives each recorded access right after this
+     * recorder retains it. {@code null} restores the default, which publishes nothing.
+     */
+    @Override
+    public void setRuntimeEventSink(RuntimeEventSink journal) {
+        this.journal = journal == null ? RuntimeEventSink.NONE : journal;
+    }
+
     public void setCorrelationContextProvider(CorrelationContextProvider correlationProvider) {
         correlation.set(correlationProvider);
     }
@@ -109,6 +125,7 @@ public final class CacheActivityRecorder {
             return;
         }
         try {
+            CorrelationContext context = correlation.current();
             CacheActivityEvent event = new CacheActivityEvent(
                     sequence.incrementAndGet(),
                     System.currentTimeMillis(),
@@ -118,13 +135,25 @@ public final class CacheActivityRecorder {
                     key == null ? null : hashKey(key),
                     resolveTraceId(),
                     Thread.currentThread().getName(),
-                    correlation.requestId());
+                    context.requestId());
             synchronized (lock) {
                 events.addLast(event);
                 while (events.size() > maxEntries) {
                     events.removeFirst();
                 }
             }
+            journal.offer(new RuntimeEvent(
+                    JournalSource.CACHE,
+                    event.timestampMillis(),
+                    -1,
+                    context.requestId(),
+                    context.executionId(),
+                    event.traceId(),
+                    context.spanId(),
+                    event.thread(),
+                    null,
+                    false,
+                    new CachePayload(cacheName, operation.name())));
             notifyListeners();
         } catch (RuntimeException ex) {
             // Recording must never disrupt the cache access it observes.

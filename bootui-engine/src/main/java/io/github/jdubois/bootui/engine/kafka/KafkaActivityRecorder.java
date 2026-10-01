@@ -1,6 +1,11 @@
 package io.github.jdubois.bootui.engine.kafka;
 
 import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.MessagingPayload;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import java.nio.charset.StandardCharsets;
@@ -34,7 +39,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>Thread-safe, capped at {@code maxEntries}, and evicts the oldest message once full so it never
  * grows unbounded.</p>
  */
-public final class KafkaActivityRecorder {
+public final class KafkaActivityRecorder implements RuntimeEventPublisher {
 
     private static final int MAX_HASH_LENGTH = 64;
     private static final String FAILURE_MESSAGE = "Message processing failed";
@@ -132,6 +137,7 @@ public final class KafkaActivityRecorder {
     private final Deque<CapturedMessage> buffer = new ArrayDeque<>();
     private final Object lock = new Object();
     private final CorrelationSource correlation = new CorrelationSource();
+    private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
     private final AtomicLong sequence = new AtomicLong();
     private final AtomicLong totalCaptured = new AtomicLong();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
@@ -160,6 +166,15 @@ public final class KafkaActivityRecorder {
      * request or execution for an outgoing message, and the listener's own execution for a consumed one. Defaults to
      * the thread's correlation scope; passing {@code null} restores it.
      */
+    /**
+     * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives each recorded message right after this
+     * recorder retains it. {@code null} restores the default, which publishes nothing.
+     */
+    @Override
+    public void setRuntimeEventSink(RuntimeEventSink journal) {
+        this.journal = journal == null ? RuntimeEventSink.NONE : journal;
+    }
+
     public void setCorrelationContextProvider(CorrelationContextProvider correlationProvider) {
         correlation.set(correlationProvider);
     }
@@ -306,6 +321,19 @@ public final class KafkaActivityRecorder {
                 buffer.removeFirst();
             }
         }
+        boolean sent = direction == Direction.PRODUCE;
+        journal.offer(new RuntimeEvent(
+                JournalSource.MESSAGING,
+                entry.timestamp(),
+                entry.durationMillis() == null ? -1 : entry.durationMillis() * 1_000_000,
+                context.requestId(),
+                context.executionId(),
+                context.traceId(),
+                context.spanId(),
+                sent ? null : Thread.currentThread().getName(),
+                null,
+                !success,
+                new MessagingPayload("kafka", sent, topic, !success)));
         totalCaptured.incrementAndGet();
         notifyListeners();
     }

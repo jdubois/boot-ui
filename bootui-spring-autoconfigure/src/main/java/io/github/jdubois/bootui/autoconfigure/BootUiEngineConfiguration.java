@@ -24,6 +24,7 @@ import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateStatistic
 import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsListenerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsProducerCaptureBeanPostProcessor;
+import io.github.jdubois.bootui.autoconfigure.journal.RuntimeEventPublisherInstaller;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaConsumerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaProducerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.liquibase.SpringLiquibaseProvider;
@@ -194,6 +195,15 @@ public class BootUiEngineConfiguration {
     @ConditionalOnMissingBean
     RuntimeJournal bootUiRuntimeJournal(BootUiProperties properties, RunIdentity run) {
         return new RuntimeJournal(properties.getRuntimeJournal().toSettings(), run);
+    }
+
+    /**
+     * Installs the runtime journal on every recorder as it is created ({@code docs/PLAN-v2.md} §5.2). Static, as a
+     * {@code BeanPostProcessor} must be, and it resolves the journal only when a recorder appears.
+     */
+    @Bean
+    static RuntimeEventPublisherInstaller bootUiRuntimeEventPublisherInstaller(ObjectProvider<RuntimeJournal> journal) {
+        return new RuntimeEventPublisherInstaller(journal);
     }
 
     /** The incremental aggregates of the runtime journal ({@code docs/PLAN-v2.md} §5.2), fed by its dispatcher. */

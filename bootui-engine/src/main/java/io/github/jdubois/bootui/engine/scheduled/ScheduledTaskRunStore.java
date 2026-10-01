@@ -1,5 +1,10 @@
 package io.github.jdubois.bootui.engine.scheduled;
 
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.engine.journal.ScheduledPayload;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -23,10 +28,11 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>All retained data lives only in memory, is bounded to {@code maxEntries} (oldest evicted first),
  * and is reset on application restart or via {@link #clear()}.
  */
-public final class ScheduledTaskRunStore {
+public final class ScheduledTaskRunStore implements RuntimeEventPublisher {
 
     private final int maxEntries;
     private final Object lock = new Object();
+    private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
     private final Deque<Run> runs = new ArrayDeque<>();
     private final AtomicLong sequence = new AtomicLong();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
@@ -47,6 +53,15 @@ public final class ScheduledTaskRunStore {
      * @param message the thrown exception's message, or {@code null} on success or when absent
      * @param thread the thread the task executed on, or {@code null} when unknown
      */
+    /**
+     * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives each recorded run right after this
+     * recorder retains it. {@code null} restores the default, which publishes nothing.
+     */
+    @Override
+    public void setRuntimeEventSink(RuntimeEventSink journal) {
+        this.journal = journal == null ? RuntimeEventSink.NONE : journal;
+    }
+
     public void record(
             String runnable,
             long startTimestamp,
@@ -88,6 +103,18 @@ public final class ScheduledTaskRunStore {
                     runs.removeLast();
                 }
             }
+            journal.offer(new RuntimeEvent(
+                    JournalSource.SCHEDULED,
+                    startTimestamp,
+                    Math.max(0L, durationMs) * 1_000_000,
+                    null,
+                    executionId,
+                    null,
+                    null,
+                    thread,
+                    null,
+                    !success,
+                    new ScheduledPayload(runnable, exceptionClassName)));
             notifyListeners();
         } catch (RuntimeException ex) {
             // Recording must never disrupt the scheduled task execution it observes.

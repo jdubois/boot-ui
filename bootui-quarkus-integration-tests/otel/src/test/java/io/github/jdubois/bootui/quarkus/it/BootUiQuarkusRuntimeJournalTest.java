@@ -74,6 +74,20 @@ class BootUiQuarkusRuntimeJournalTest {
                         entry -> assertThat(requestIds).contains(entry.event().requestId()));
     }
 
+    @Test
+    void anExceptionFoldsIntoTheRouteThatThrewIt() throws Exception {
+        assertThat(status("/it/boom")).isEqualTo(500);
+        assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
+
+        assertThat(aggregates.snapshot().routes())
+                .filteredOn(route -> route.route().equals("GET /it/boom"))
+                .singleElement()
+                .satisfies(route -> {
+                    assertThat(route.childCounts()).containsKey(JournalSource.EXCEPTION);
+                    assertThat(route.statusClasses().get(4)).isPositive();
+                });
+    }
+
     private int status(String path) throws Exception {
         URI uri = baseUrl.toURI().resolve(path);
         return HttpClient.newHttpClient()

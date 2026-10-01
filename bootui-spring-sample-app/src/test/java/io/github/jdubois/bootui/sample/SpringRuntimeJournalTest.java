@@ -7,7 +7,10 @@ import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Base64;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -38,6 +41,35 @@ class SpringRuntimeJournalTest {
 
     @Autowired
     JournalAggregates aggregates;
+
+    @Test
+    void securityCacheAndExceptionEventsFoldIntoTheRouteThatProducedThem() throws Exception {
+        BootUiHttpProbe probe = new BootUiHttpProbe("http://localhost:" + port);
+        String basic = "Basic " + Base64.getEncoder().encodeToString("admin:admin".getBytes(StandardCharsets.UTF_8));
+
+        assertThat(probe.get("/api/secure/products", Map.of("Authorization", basic))
+                        .status())
+                .isEqualTo(200);
+        assertThat(probe.get("/api/sample/products").status()).isEqualTo(200);
+        assertThat(probe.get("/api/sample/boom").status()).isEqualTo(500);
+        assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
+
+        assertThat(route("GET /api/secure/products").childCounts()).containsKey(JournalSource.SECURITY);
+        assertThat(route("GET /api/sample/products").childCounts()).containsKey(JournalSource.CACHE);
+        RouteStats boom = route("GET /api/sample/boom");
+        assertThat(boom.childCounts()).containsKey(JournalSource.EXCEPTION);
+        assertThat(boom.statusClasses().get(4)).isPositive();
+        assertThat(aggregates.snapshot().exceptionGroups())
+                .anySatisfy(group -> assertThat(group.routes()).containsKey("GET /api/sample/boom"));
+    }
+
+    private RouteStats route(String name) {
+        return aggregates.snapshot().routes().stream()
+                .filter(candidate -> candidate.route().equals(name))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(
+                        "no route " + name + " in " + aggregates.snapshot().routes()));
+    }
 
     @Test
     void requestsAndTheirSqlReachTheJournalAndFoldIntoTheMatchedRoute() throws Exception {

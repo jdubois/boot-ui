@@ -1,5 +1,10 @@
 package io.github.jdubois.bootui.engine.security;
 
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.engine.journal.SecurityPayload;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -17,16 +22,26 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * an adapter idle tracker can {@link #suspendForIdle()} to drop retained data and stop recording while
  * the console is unused, then {@link #resumeFromIdle()} to refill from live events.
  */
-public final class SecurityEventBuffer implements IdleReclaimable {
+public final class SecurityEventBuffer implements IdleReclaimable, RuntimeEventPublisher {
 
     private final int capacity;
     private final ArrayDeque<CapturedSecurityEvent> entries;
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
     private volatile boolean recording = true;
+    private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
 
     public SecurityEventBuffer(int capacity) {
         this.capacity = Math.max(1, capacity);
         this.entries = new ArrayDeque<>(this.capacity);
+    }
+
+    /**
+     * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives each recorded security event right after this
+     * recorder retains it. {@code null} restores the default, which publishes nothing.
+     */
+    @Override
+    public void setRuntimeEventSink(RuntimeEventSink journal) {
+        this.journal = journal == null ? RuntimeEventSink.NONE : journal;
     }
 
     /** Records a captured event, evicting the oldest when at capacity. No-op while suspended. */
@@ -40,6 +55,20 @@ public final class SecurityEventBuffer implements IdleReclaimable {
             }
             entries.addLast(event);
         }
+        journal.offer(new RuntimeEvent(
+                JournalSource.SECURITY,
+                event.timestamp() == null
+                        ? System.currentTimeMillis()
+                        : event.timestamp().toEpochMilli(),
+                -1,
+                event.requestId(),
+                null,
+                event.traceId(),
+                null,
+                Thread.currentThread().getName(),
+                null,
+                SecurityPayload.isFailure(event.type()),
+                new SecurityPayload(event.type())));
         notifyListeners();
     }
 
