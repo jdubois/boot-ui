@@ -230,7 +230,7 @@ Three design points shape how v2 reuses v1 foundations:
 | **M0 Readiness** | CI on `v2`, the correlation and overhead scenarios as baselines, and the propagation and restart spikes (§5.1, §5.8) | — | 5–8 | ✅ Delivered |
 | **M1 Exact correlation** (§5.1) | One correlation context on every event, with or without tracing, on all three stacks, and the request phase markers | M0; v1 wave 1 (§3.20a ✅, §3.24a ✅) | 45–56 | ✅ Delivered |
 | **M2 Journal and Live Activity** (§5.2, §5.3, §5.11) | The in-memory journal, incremental aggregates, run summaries, resource correlation (scope readings, GC by id, CPU ledger, resource track), and Live Activity served from the journal with its unified timeline | M1; §3.22, §3.27 | 44–56 | ✅ Delivered, except §5.11's opt-in JFR attribution, which D17 places |
-| **M3 Runtime Insights** (§5.4–§5.6) | Projections, the runtime model, the panel, Live Activity entry points, twelve observations, agent tools, and the demo | M2; §3.25 | 52–65 | 📋 Planned |
+| **M3 Runtime Insights** (§5.4–§5.6) | Projections, the runtime model, the panel, Live Activity entry points, twelve observations, agent tools, and the demo | M2; §3.25 | 52–65 | 🚧 In progress |
 | **M4 Change loop and 2.0 readiness** (§5.7–§5.9, §5.12) | Change impact, run comparison and behavior diff, anonymous access, proxy bypass, external validation, and the release path | M3; §3.18 | 33–45 | 📋 Planned |
 | **M5 BootUI Java agent** (§5.13–§5.17) | The optional agent, executor propagation, Code Paths, Code Inventory, Side Effects, and agent evidence in observations, comparison, and tools | M3 for observations; M4 for the change-loop upgrades | 90–116 | 📋 Planned |
 
@@ -254,10 +254,10 @@ they come last and everything before them proceeds without it:
 
 | Item | Delivers | Depends on | Status |
 | --- | --- | --- | --- |
-| M3-1 | §5.4's request projection over the retained events (each request with its children, phases, and resources) and §5.5's observation framework in the engine: the `Observation` contract, statuses, minimum tiers, coverage per source, stable ids, exemplars, and bounded evidence. `GET /runtime-insights` and `GET /runtime-insights/insights/{id}` on all three stacks, with contracts and conformance. First observations, read from journal facts alone: `repeated-selects`, `safe-method-dml`, and `connections-per-request` | M2 | 🚧 In progress |
+| M3-1 | §5.4's request projection and §5.5's observation framework, in the engine's new `insights` package. `InsightsSnapshot` groups the journal's retained events into completed requests with their children, by route, with each source's coverage (linked by request id, by execution id, or not at all). An `Observation` is a pure function of the snapshot returning findings; `RuntimeInsightsService` evaluates every observation and caches the result until the journal records more. Each check reports whether it ran (`EVALUATED`, `PARTIAL` when a source it reads dropped events, or `NOT_APPLICABLE` with the source or disabled panel it lacks), so an empty list never reads as healthy. Each finding has a stable id (`kind:route:hash`) that survives refreshes and restarts, a sentence naming what was counted, eligible and affected counts, the `REQUEST_ID` tier, conditional checks, at most three exemplar request ids, and at most 20 evidence rows. First observations: `repeated-selects` (a SELECT fingerprint run 5 or more times after another statement, reported once 3 requests show it, insufficient below), `safe-method-dml`, and `connections-per-request`, which orders connections by a new monotonic `checkoutNanos` on `ConnectionPayload`, so back-to-back connections never count as held together. Additive core DTOs. Projecting and evaluating 50,000 retained events stays far inside the 250 ms read budget. The endpoints ship with the panel's registration in M3-4, so no API path exists without its panel's access policy | M2 | ✅ Delivered |
 | M3-2 | The other observations that journal facts answer directly: `exception-hotspots`, `errors-behind-2xx`, `split-transaction-writes`, `framework-warnings-by-route`, `event-loop-blocking`, and `lazy-sql-after-handler` | M3-1 | 📋 Planned |
 | M3-3 | `route-time-breakdown` with cold requests apart, `transaction-across-remote-call`, and `ai-usage-by-route`; the request drawer's **why this route is slow** | M3-1 | 📋 Planned |
-| M3-4 | The **Runtime Insights** panel: registration on every stack, the master-detail UI, coverage strip, empty states, Live Activity entry points, command-palette keywords, docs, and browser tests | M3-1 | 📋 Planned |
+| M3-4 | The **Runtime Insights** panel: registration on every stack with `GET /runtime-insights` and `GET /runtime-insights/insights/{id}`, their contracts and conformance, the master-detail UI, coverage strip, empty states, Live Activity entry points, command-palette keywords, docs, and browser tests | M3-1 | 📋 Planned |
 | M3-5 | §5.4's runtime model: per-run structure snapshots, typed nodes and edges with provenance, the three algorithms with property-based tests, and the 250 ms read budget | M3-1 | 📋 Planned |
 | M3-6 | Sample-app seeds and counterexamples for every observation, and the scripted demo on each stack | M3-2, M3-3, M3-4 | 📋 Planned |
 | M3-7 | §5.6's agent tools, CLI commands, prompts, and Quarkus Dev MCP registration, and the panel's **Copy for AI** | M3-4, v1 §3.25 | 📋 Planned. Needs v1 §3.25 on `main` |
@@ -593,7 +593,7 @@ Acceptance criteria:
   sources, against the 1.x feed.
 - Existing Live Activity API consumers keep working: DTO changes are additive.
 
-### 5.4 Runtime projections and runtime model — Engine 📋 Planned
+### 5.4 Runtime projections and runtime model — Engine 🚧 In progress
 
 Observations need joins across sources. With exact keys, those joins are lookups in the journal's aggregates and small
 indexes, so this item replaces the draft's general graph engine with bounded projections and one small typed graph.
@@ -635,7 +635,7 @@ Acceptance criteria:
 - The PoC evidence, converted into a Java fixture builder, reproduces the PoC's findings that 2.0 keeps.
 - A fixture where two routes share only a table never reports a path between their executions.
 
-### 5.5 Runtime Insights panel — Overview 📋 Planned
+### 5.5 Runtime Insights panel — Overview 🚧 In progress
 
 A new panel, `runtime-insights`, titled **Runtime Insights**, in the Overview group directly after Live Activity. It
 lists the current observations and is reachable from where developers already are.

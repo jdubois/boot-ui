@@ -602,7 +602,8 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                 new ConnectionPayload(
                         checkout.dataSource(),
                         checkout.waitNanos(),
-                        checkout.statements().get())));
+                        checkout.statements().get(),
+                        checkout.obtainedNanos())));
     }
 
     /**

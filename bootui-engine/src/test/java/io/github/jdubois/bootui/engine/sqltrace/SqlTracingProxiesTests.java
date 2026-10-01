@@ -86,6 +86,7 @@ class SqlTracingProxiesTests {
         DataSource traced = SqlTracingProxies.wrapNamed(ds, recorder, "ordersDataSource");
 
         Connection connection;
+        long before = System.nanoTime();
         try (BootUiCorrelation.Scope ignored =
                 BootUiCorrelation.open(CorrelationContext.forRequest("0123456789abcdef"))) {
             connection = traced.getConnection();
@@ -106,6 +107,9 @@ class SqlTracingProxiesTests {
             assertThat(payload.dataSource()).isEqualTo("ordersDataSource");
             assertThat(payload.statements()).isEqualTo(2);
             assertThat(payload.waitNanos()).isGreaterThanOrEqualTo(4_000_000L);
+            assertThat(payload.checkoutNanos())
+                    .as("the monotonic time it was obtained, after the wait")
+                    .isGreaterThanOrEqualTo(before + payload.waitNanos());
         });
         verify(conn, times(2)).close();
     }
