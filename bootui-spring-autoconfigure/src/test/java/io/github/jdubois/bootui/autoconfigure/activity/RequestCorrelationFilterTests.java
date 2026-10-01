@@ -6,9 +6,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationRegistry.RequestCorrelation;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RequestTiming;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import jakarta.servlet.DispatcherType;
@@ -66,8 +68,11 @@ class RequestCorrelationFilterTests {
             String requestId = BootUiCorrelation.current().requestId();
             requestIds.add(requestId);
             phases.setOperation(requestId, "query ProductList");
+            phases.mark(requestId, RequestPhase.HANDLER);
+            phases.mark(requestId, RequestPhase.RESPONSE);
             ((MockHttpServletResponse) res).setStatus(201);
         };
+        long before = System.nanoTime();
 
         filter.doFilter(request, new MockHttpServletResponse(), chain);
         assertThatThrownBy(() -> filter.doFilter(
@@ -90,6 +95,14 @@ class RequestCorrelationFilterTests {
         assertThat(published.get(1).failedOrSlow()).isTrue();
         assertThat(withoutResources(published.get(1).payload()))
                 .isEqualTo(new HttpPayload("GET", "/api/boom", null, null, 500));
+        RequestTiming timing = ((HttpPayload) graphql.payload()).timing();
+        assertThat(timing.startNanos()).isGreaterThanOrEqualTo(before);
+        assertThat(timing.phased()).isTrue();
+        assertThat(timing.responseOffsetNanos()).isGreaterThanOrEqualTo(timing.handlerOffsetNanos());
+        assertThat(timing.authenticationNanos()).isZero();
+        assertThat(((HttpPayload) published.get(1).payload()).timing().phased())
+                .as("a request whose handler never ran has no phases")
+                .isFalse();
     }
 
     /** The payload without its measured resources, which every published request carries (docs/PLAN-v2.md §5.11). */

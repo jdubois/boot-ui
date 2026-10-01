@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.engine.correlation.RequestIds;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RequestTiming;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
@@ -158,7 +159,9 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
                                 ReactiveHttpExchangeTraceFilter.routeTemplate(exchange),
                                 requestPhases == null ? null : requestPhases.operationOf(requestId),
                                 status,
-                                resources)));
+                                resources,
+                                // WebFlux marks no phases, so its handler and response write are not told apart.
+                                RequestTiming.startedAt(startNanos))));
             } catch (RuntimeException ex) {
                 // Publishing never disturbs the response.
             }

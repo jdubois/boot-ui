@@ -1,5 +1,10 @@
 package io.github.jdubois.bootui.engine.telemetry;
 
+import io.github.jdubois.bootui.engine.journal.AiPayload;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -19,7 +24,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * {@link #resumeFromIdle()} as plain methods so an adapter can bridge them to
  * its own idle-reclaim mechanism without coupling the engine to it.</p>
  */
-public class TelemetryStore {
+public class TelemetryStore implements RuntimeEventPublisher {
 
     static final int HARD_MAX_TRACES = 10_000;
 
@@ -48,6 +53,7 @@ public class TelemetryStore {
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     private volatile boolean idleSuspended = false;
+    private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
 
     public TelemetryStore(TelemetrySettings settings) {
         this.settings = settings;
@@ -96,6 +102,58 @@ public class TelemetryStore {
         if (idleSuspended) {
             return false;
         }
+        boolean stored = store(span, selfSpan);
+        if (stored) {
+            publish(span);
+        }
+        return stored;
+    }
+
+    /**
+     * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.5), which receives each stored AI span's metadata, linked
+     * to its request by trace id. {@code null} restores the default, which publishes nothing.
+     */
+    @Override
+    public void setRuntimeEventSink(RuntimeEventSink journal) {
+        this.journal = journal == null ? RuntimeEventSink.NONE : journal;
+    }
+
+    private void publish(NormalizedSpan span) {
+        RuntimeEventSink sink = journal;
+        if (!sink.records(JournalSource.AI)) {
+            return;
+        }
+        try {
+            String operation = AiSpanRecognizer.operation(span);
+            if (operation == null) {
+                return;
+            }
+            String model = AiSpanRecognizer.responseModel(span);
+            sink.offer(new RuntimeEvent(
+                    JournalSource.AI,
+                    span.startEpochNanos() / 1_000_000,
+                    span.durationNanos(),
+                    null,
+                    null,
+                    span.traceId(),
+                    span.spanId(),
+                    null,
+                    null,
+                    span.isError(),
+                    new AiPayload(
+                            operation,
+                            AiSpanRecognizer.provider(span),
+                            model == null || model.isBlank() ? AiSpanRecognizer.requestModel(span) : model,
+                            AiSpanRecognizer.inputTokens(span),
+                            AiSpanRecognizer.outputTokens(span),
+                            AiSpanRecognizer.finishReason(span),
+                            span.isError())));
+        } catch (RuntimeException ex) {
+            // Publishing never disturbs the telemetry store.
+        }
+    }
+
+    private boolean store(NormalizedSpan span, boolean selfSpan) {
         lock.writeLock().lock();
         try {
             if (idleSuspended) {

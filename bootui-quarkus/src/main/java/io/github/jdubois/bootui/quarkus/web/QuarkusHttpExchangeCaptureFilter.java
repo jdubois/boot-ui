@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.engine.correlation.RequestIds;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RequestTiming;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
@@ -155,7 +156,14 @@ public class QuarkusHttpExchangeCaptureFilter {
                     null,
                     RequestSlowThreshold.isFailedOrSlow(
                             response.getStatusCode(), durationMs, buffer.slowThresholdMillis()),
-                    new HttpPayload(request.method().name(), path, null, null, response.getStatusCode(), resources)));
+                    new HttpPayload(
+                            request.method().name(),
+                            path,
+                            null,
+                            null,
+                            response.getStatusCode(),
+                            resources,
+                            RequestTiming.of(startNanos, phases == null ? null : phases.markers(requestId)))));
             buffer.record(new CapturedHttpExchange(
                     started,
                     request.method().name(),

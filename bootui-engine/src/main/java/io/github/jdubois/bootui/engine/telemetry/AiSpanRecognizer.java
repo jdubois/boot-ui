@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.engine.telemetry;
 
+import io.github.jdubois.bootui.engine.journal.AiPayload;
+
 /**
  * Heuristics for recognizing AI spans inside the BootUI telemetry store.
  * Centralized so the Traces and AI controllers stay in sync.
@@ -24,6 +26,23 @@ public final class AiSpanRecognizer {
 
     public static boolean isAi(NormalizedSpan span) {
         return isChat(span) || isEmbedding(span) || isToolCall(span) || isVectorOperation(span);
+    }
+
+    /**
+     * The journal's name for a recognized AI span's operation, {@code chat}, {@code embeddings}, {@code tool}, or
+     * {@code retrieval}, or {@code null} when it is not one.
+     */
+    public static String operation(NormalizedSpan span) {
+        if (isChat(span)) {
+            return AiPayload.CHAT;
+        }
+        if (isEmbedding(span)) {
+            return AiPayload.EMBEDDINGS;
+        }
+        if (isToolCall(span)) {
+            return AiPayload.TOOL;
+        }
+        return isVectorOperation(span) ? AiPayload.RETRIEVAL : null;
     }
 
     public static boolean isChat(NormalizedSpan span) {

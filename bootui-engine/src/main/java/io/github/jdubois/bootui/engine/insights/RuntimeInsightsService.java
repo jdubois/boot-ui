@@ -19,6 +19,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
@@ -47,6 +48,7 @@ public final class RuntimeInsightsService {
     private final InsightsStack stack;
     private final Supplier<List<RunSummary>> runs;
     private Cached cached;
+    private volatile Function<String, Integer> poolSizes;
     private String previousRunOf;
     private RunSummary previousRun;
 
@@ -82,17 +84,29 @@ public final class RuntimeInsightsService {
         this.observations = List.copyOf(observations);
     }
 
+    /**
+     * Installs the maximum size of each connection pool, by the data source name its connections carry, which
+     * {@code transaction-across-remote-call} uses for its labelled estimate.
+     */
+    public synchronized void setPoolSizes(Function<String, Integer> poolSizes) {
+        this.poolSizes = poolSizes;
+        this.cached = null;
+    }
+
     /** The observations of 2.0, in report order. */
     public static List<Observation> defaultObservations() {
         return List.of(
+                new RouteTimeBreakdown(),
                 new ExceptionHotspots(),
                 new ErrorsBehind2xx(),
                 new RepeatedSelects(),
                 new ConnectionsPerRequest(),
                 new SafeMethodDml(),
                 new SplitTransactionWrites(),
+                new TransactionAcrossRemoteCall(),
                 new LazySqlAfterHandler(),
                 new EventLoopBlocking(),
+                new AiUsageByRoute(),
                 new FrameworkWarningsByRoute());
     }
 
@@ -162,7 +176,8 @@ public final class RuntimeInsightsService {
                 journal::records,
                 this::panelVisible,
                 stack,
-                previousRun(status.runId()));
+                previousRun(status.runId()),
+                poolSizes);
         List<RuntimeInsightCheckDto> checks = new ArrayList<>();
         List<RuntimeObservationDto> rows = new ArrayList<>();
         Map<String, Detail> details = new LinkedHashMap<>();
@@ -224,9 +239,10 @@ public final class RuntimeInsightsService {
         snapshot.coverage()
                 .forEach((source, counts) -> coverage.add(new RuntimeInsightCoverageDto(
                         source.propertyName(),
-                        counts[0] + counts[1] + counts[2],
+                        counts[0] + counts[1] + counts[2] + counts[3],
                         counts[0],
                         counts[1],
+                        counts[3],
                         counts[2],
                         snapshot.dropped(source))));
         List<String> limitations = new ArrayList<>();
@@ -341,6 +357,9 @@ public final class RuntimeInsightsService {
             case EXCEPTION -> BootUiPanels.EXCEPTIONS;
             case TRANSACTION -> BootUiPanels.TRANSACTIONS;
             case LOG -> BootUiPanels.LOG_TAIL;
+            case REST_CLIENT -> BootUiPanels.REST_CLIENT_TRACE;
+            case FAULT_TOLERANCE -> BootUiPanels.FAULT_TOLERANCE;
+            case AI -> BootUiPanels.AI;
             default -> null;
         };
     }

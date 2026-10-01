@@ -53,7 +53,10 @@ class RecorderPublishingTests {
         assertThat(event.durationNanos()).isEqualTo(12_000_000L);
         assertThat(event.failedOrSlow()).isTrue();
         assertThat(event.payload())
+                .usingRecursiveComparison()
+                .ignoringFields("completedNanos")
                 .isEqualTo(new RestClientPayload("GET", "localhost:8082", "/api/stock", 503, "RestClient", true));
+        assertThat(((RestClientPayload) event.payload()).completedNanos()).isPositive();
     }
 
     @Test

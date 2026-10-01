@@ -10,19 +10,32 @@ import io.github.jdubois.bootui.engine.resources.ResourceUsage;
  *
  * @param resources the request's measured resources ({@code docs/PLAN-v2.md} §5.11), or {@code null} when the
  *     {@code resources} source is off
+ * @param timing its monotonic start and phases ({@code docs/PLAN-v2.md} §5.5), or {@code null} when unknown
  */
 public record HttpPayload(
-        String method, String path, String routeTemplate, String operation, int status, ResourceUsage resources)
+        String method,
+        String path,
+        String routeTemplate,
+        String operation,
+        int status,
+        ResourceUsage resources,
+        RequestTiming timing)
         implements RuntimeEventPayload {
 
-    /** An exchange without measured resources. */
+    /** An exchange without its timing. */
+    public HttpPayload(
+            String method, String path, String routeTemplate, String operation, int status, ResourceUsage resources) {
+        this(method, path, routeTemplate, operation, status, resources, null);
+    }
+
+    /** An exchange without measured resources or timing. */
     public HttpPayload(String method, String path, String routeTemplate, String operation, int status) {
         this(method, path, routeTemplate, operation, status, null);
     }
 
     @Override
     public int estimatedBytes() {
-        return 16
+        return (timing == null ? 16 : 64)
                 + RuntimeEvent.stringBytes(method)
                 + RuntimeEvent.stringBytes(path)
                 + RuntimeEvent.stringBytes(routeTemplate)

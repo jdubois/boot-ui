@@ -1,7 +1,9 @@
 package io.github.jdubois.bootui.engine.insights;
 
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RequestTiming;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -18,6 +20,9 @@ import java.util.List;
  * @param startMillis when it started, in epoch milliseconds
  * @param durationNanos how long it took
  * @param children its child events, in sequence order
+ * @param timing its monotonic start and phases, or {@code null} when unknown
+ * @param resources its measured CPU time and allocation, or {@code null} when not measured
+ * @param traceId its distributed-trace id, or {@code null} without tracing
  */
 public record ProjectedRequest(
         String requestId,
@@ -27,7 +32,10 @@ public record ProjectedRequest(
         int status,
         long startMillis,
         long durationNanos,
-        List<RuntimeEvent> children) {
+        List<RuntimeEvent> children,
+        RequestTiming timing,
+        ResourceUsage resources,
+        String traceId) {
 
     public ProjectedRequest {
         children = List.copyOf(children);

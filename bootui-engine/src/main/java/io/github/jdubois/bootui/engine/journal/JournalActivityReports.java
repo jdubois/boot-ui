@@ -131,6 +131,7 @@ public final class JournalActivityReports {
             case LOG -> BootUiPanels.LOG_TAIL;
             case MAIL -> BootUiPanels.EMAIL;
             case FAULT_TOLERANCE -> BootUiPanels.FAULT_TOLERANCE;
+            case AI -> BootUiPanels.AI;
             case MESSAGING ->
                 event.payload() instanceof MessagingPayload message
                         ? switch (String.valueOf(message.broker())) {

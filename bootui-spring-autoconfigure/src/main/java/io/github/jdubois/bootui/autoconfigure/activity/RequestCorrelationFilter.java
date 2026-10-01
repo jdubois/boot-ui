@@ -9,6 +9,7 @@ import io.github.jdubois.bootui.engine.correlation.RequestIds;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RequestTiming;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
@@ -191,7 +192,8 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
                             routeTemplate,
                             phases == null ? null : phases.operationOf(requestId),
                             status,
-                            resources)));
+                            resources,
+                            RequestTiming.of(startNanos, phases == null ? null : phases.markers(requestId)))));
         }
     }
 

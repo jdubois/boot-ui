@@ -7,7 +7,9 @@ import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RequestTiming;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.resources.ResourceTrack;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.spi.ThreadKind;
@@ -103,6 +105,21 @@ class BootUiQuarkusRuntimeJournalTest {
                 .allSatisfy(entry -> {
                     assertThat(requestIds).contains(entry.event().requestId());
                     assertThat(entry.event().threadKind()).isEqualTo(ThreadKind.WORKER);
+                    assertThat(((SqlPayload) entry.event().payload()).completedNanos())
+                            .as("each statement's monotonic completion, which places it in its request")
+                            .isPositive();
+                });
+        assertThat(entries)
+                .filteredOn(
+                        entry -> entry.event().payload() instanceof HttpPayload http && "/it/sql".equals(http.path()))
+                .isNotEmpty()
+                .allSatisfy(entry -> {
+                    RequestTiming timing = ((HttpPayload) entry.event().payload()).timing();
+                    assertThat(timing.startNanos()).isPositive();
+                    assertThat(timing.phased())
+                            .as("the resource filter marks the handler")
+                            .isTrue();
+                    assertThat(timing.responseOffsetNanos()).isGreaterThanOrEqualTo(timing.handlerOffsetNanos());
                 });
     }
 

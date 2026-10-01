@@ -631,7 +631,8 @@ public final class RestClientTraceRecorder implements IdleReclaimable, RuntimeEv
                         status,
                         clientType,
                         !success,
-                        frames)));
+                        frames,
+                        System.nanoTime())));
         totalCaptured.incrementAndGet();
         notifyListeners();
     }

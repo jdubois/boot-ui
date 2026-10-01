@@ -162,6 +162,12 @@ class ReactiveRequestCorrelationFilterTests {
         assertThat(withoutResources(published.get(1).payload()))
                 .isEqualTo(new HttpPayload("GET", "/api/missing", null, null, 404));
         assertThat(published.get(1).failedOrSlow()).isFalse();
+        assertThat(((HttpPayload) published.get(0).payload()).timing())
+                .as("WebFlux marks no phases, so only the monotonic start is known")
+                .satisfies(timing -> {
+                    assertThat(timing.startNanos()).isPositive();
+                    assertThat(timing.phased()).isFalse();
+                });
     }
 
     /** The payload without its measured resources, which every published request carries (docs/PLAN-v2.md §5.11). */

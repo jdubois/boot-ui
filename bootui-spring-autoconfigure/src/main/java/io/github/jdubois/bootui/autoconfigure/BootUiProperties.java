@@ -2634,7 +2634,7 @@ public class BootUiProperties {
         /**
          * Sources to record: {@code http}, {@code sql}, {@code transaction}, {@code connection}, {@code exception}, {@code security},
          * {@code rest-client}, {@code cache}, {@code messaging}, {@code scheduled}, {@code log}, {@code mail},
-         * {@code fault-tolerance}, {@code gc}, and
+         * {@code fault-tolerance}, {@code ai}, {@code gc}, and
          * {@code resources}. Unset means every source; an unknown name fails startup.
          */
         private List<String> sources;

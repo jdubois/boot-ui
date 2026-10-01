@@ -183,7 +183,15 @@ class RuntimeInsightsServiceTests {
                     assertThat(coverage.byRequestId()).isEqualTo(1);
                     assertThat(coverage.unlinked()).isEqualTo(1);
                 });
-        assertThat(report.checks()).extracting(RuntimeInsightCheckDto::status).containsOnly("EVALUATED");
+        assertThat(report.checks())
+                .filteredOn(check -> !check.kind().equals(AiUsageByRoute.KIND))
+                .extracting(RuntimeInsightCheckDto::status)
+                .containsOnly("EVALUATED");
+        assertThat(report.checks())
+                .filteredOn(check -> check.kind().equals(AiUsageByRoute.KIND))
+                .extracting(RuntimeInsightCheckDto::status)
+                .as("without tracing, AI usage is unknown rather than none")
+                .containsExactly("NOT_APPLICABLE");
         assertThat(new RuntimeInsightsService(null, null, null, null, null)
                         .report()
                         .unavailableReason())

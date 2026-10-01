@@ -17,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
@@ -34,6 +35,7 @@ public final class InsightsSnapshot {
     private final Predicate<JournalSource> visible;
     private final InsightsStack stack;
     private final RunSummary previousRun;
+    private final Function<String, Integer> poolSizes;
 
     private InsightsSnapshot(
             List<ProjectedRequest> requests,
@@ -42,7 +44,8 @@ public final class InsightsSnapshot {
             Predicate<JournalSource> recorded,
             Predicate<JournalSource> visible,
             InsightsStack stack,
-            RunSummary previousRun) {
+            RunSummary previousRun,
+            Function<String, Integer> poolSizes) {
         this.requests = Collections.unmodifiableList(requests);
         Map<String, List<ProjectedRequest>> routes = new LinkedHashMap<>();
         for (ProjectedRequest request : requests) {
@@ -55,6 +58,7 @@ public final class InsightsSnapshot {
         this.visible = visible;
         this.stack = stack;
         this.previousRun = previousRun;
+        this.poolSizes = poolSizes;
     }
 
     /**
@@ -86,18 +90,40 @@ public final class InsightsSnapshot {
             Predicate<JournalSource> visible,
             InsightsStack stack,
             RunSummary previousRun) {
+        return of(entries, status, routes, recorded, visible, stack, previousRun, null);
+    }
+
+    /**
+     * Projects {@code entries} for {@code stack}, with the previous run's summary and the size of each connection pool.
+     *
+     * @param poolSizes the maximum size of a data source's connection pool, by the data source name its connections
+     *     carry, or {@code null} when unknown
+     */
+    public static InsightsSnapshot of(
+            List<JournalEntry> entries,
+            JournalStatus status,
+            RouteTemplateResolver routes,
+            Predicate<JournalSource> recorded,
+            Predicate<JournalSource> visible,
+            InsightsStack stack,
+            RunSummary previousRun,
+            Function<String, Integer> poolSizes) {
         List<JournalEntry> ordered = new ArrayList<>(entries);
         ordered.sort(Comparator.comparingLong(JournalEntry::sequence));
         Map<String, RuntimeEvent> http = new HashMap<>();
         Map<String, List<RuntimeEvent>> children = new HashMap<>();
         Map<JournalSource, long[]> coverage = new EnumMap<>(JournalSource.class);
+        List<RuntimeEvent> traced = new ArrayList<>();
         for (JournalEntry entry : ordered) {
             RuntimeEvent event = entry.event();
-            long[] counts = coverage.computeIfAbsent(event.source(), source -> new long[3]);
+            long[] counts = coverage.computeIfAbsent(event.source(), source -> new long[4]);
             if (event.requestId() != null) {
                 counts[0]++;
             } else if (event.executionId() != null) {
                 counts[1]++;
+            } else if (event.source() == JournalSource.AI && event.traceId() != null) {
+                // An AI span is exported after its request, so it is linked by its trace id below.
+                traced.add(event);
             } else {
                 counts[2]++;
             }
@@ -109,6 +135,23 @@ public final class InsightsSnapshot {
             } else {
                 children.computeIfAbsent(event.requestId(), id -> new ArrayList<>())
                         .add(event);
+            }
+        }
+        Map<String, String> requestOfTrace = new HashMap<>();
+        http.forEach((requestId, event) -> {
+            if (event.traceId() != null) {
+                requestOfTrace.put(event.traceId(), requestId);
+            }
+        });
+        traced.sort(Comparator.comparingLong(RuntimeEvent::epochMillis));
+        for (RuntimeEvent event : traced) {
+            String requestId = requestOfTrace.get(event.traceId());
+            long[] counts = coverage.get(event.source());
+            if (requestId == null) {
+                counts[2]++;
+            } else {
+                counts[3]++;
+                children.computeIfAbsent(requestId, id -> new ArrayList<>()).add(event);
             }
         }
         List<ProjectedRequest> requests = new ArrayList<>(http.size());
@@ -127,11 +170,14 @@ public final class InsightsSnapshot {
                     payload.status(),
                     event.epochMillis(),
                     Math.max(0, event.durationNanos()),
-                    children.getOrDefault(request.getKey(), List.of())));
+                    children.getOrDefault(request.getKey(), List.of()),
+                    payload.timing(),
+                    payload.resources(),
+                    event.traceId()));
         }
         requests.sort(
                 Comparator.comparingLong(ProjectedRequest::startMillis).thenComparing(ProjectedRequest::requestId));
-        return new InsightsSnapshot(requests, coverage, status, recorded, visible, stack, previousRun);
+        return new InsightsSnapshot(requests, coverage, status, recorded, visible, stack, previousRun, poolSizes);
     }
 
     /** Every completed request retained, oldest first. */
@@ -147,6 +193,19 @@ public final class InsightsSnapshot {
     /** The stack serving the application, or {@code null} when unknown. */
     public InsightsStack stack() {
         return stack;
+    }
+
+    /** The maximum size of {@code dataSource}'s connection pool, when known. */
+    public Optional<Integer> poolSize(String dataSource) {
+        if (poolSizes == null) {
+            return Optional.empty();
+        }
+        try {
+            Integer size = poolSizes.apply(dataSource);
+            return size == null || size <= 0 ? Optional.empty() : Optional.of(size);
+        } catch (RuntimeException ex) {
+            return Optional.empty();
+        }
     }
 
     /** The summary of the run before this one in the same JVM, when one is kept. */
@@ -174,7 +233,10 @@ public final class InsightsSnapshot {
         return status.dropped().getOrDefault(source, 0L);
     }
 
-    /** The retained events of each source: linked to a request, to an execution only, and to neither. */
+    /**
+     * The retained events of each source: linked to a request by its id, to an execution only, to neither, and to a
+     * request by its trace id.
+     */
     public Map<JournalSource, long[]> coverage() {
         return Collections.unmodifiableMap(coverage);
     }

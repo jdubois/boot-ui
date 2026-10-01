@@ -3,6 +3,9 @@ package io.github.jdubois.bootui.engine.telemetry;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.jdubois.bootui.engine.journal.AiPayload;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -34,6 +37,49 @@ class TelemetryStoreTests {
                 null,
                 Map.of(),
                 List.of());
+    }
+
+    @Test
+    void storedAiSpansArePublishedToTheJournalAsMetadataLinkedByTraceId() {
+        TelemetryStore store = new TelemetryStore(TelemetrySettings.of(true, true, 500, 500, 4096));
+        List<RuntimeEvent> published = new ArrayList<>();
+        store.setRuntimeEventSink(published::add);
+        NormalizedSpan chat = new NormalizedSpan(
+                "trace-1",
+                "span-1",
+                null,
+                "chat gpt-4o",
+                "CLIENT",
+                "sample",
+                "spring-ai",
+                5_000_000L,
+                45_000_000L,
+                "OK",
+                null,
+                Map.of(
+                        "gen_ai.operation.name", AttributeValue.ofString("chat"),
+                        "gen_ai.system", AttributeValue.ofString("openai"),
+                        "gen_ai.request.model", AttributeValue.ofString("gpt-4o"),
+                        "gen_ai.usage.input_tokens", AttributeValue.ofNumber(1200),
+                        "gen_ai.usage.output_tokens", AttributeValue.ofNumber(300),
+                        "gen_ai.response.finish_reasons", AttributeValue.ofList(List.of("length")),
+                        "gen_ai.prompt", AttributeValue.ofString("never published")),
+                List.of());
+
+        store.add(chat);
+        store.add(span("trace-2", "span-2"));
+        store.add(span("trace-3", "span-3"), true);
+
+        assertThat(published).singleElement().satisfies(event -> {
+            assertThat(event.source()).isEqualTo(JournalSource.AI);
+            assertThat(event.requestId()).isNull();
+            assertThat(event.traceId()).isEqualTo("trace-1");
+            assertThat(event.epochMillis()).isEqualTo(5);
+            assertThat(event.durationNanos()).isEqualTo(40_000_000L);
+            AiPayload ai = (AiPayload) event.payload();
+            assertThat(ai).isEqualTo(new AiPayload("chat", "openai", "gpt-4o", 1200L, 300L, "length", false));
+            assertThat(ai.lengthLimited()).isTrue();
+        });
     }
 
     @Test
