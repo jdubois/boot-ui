@@ -250,6 +250,24 @@ describe('LiveActivity', () => {
     }
   })
 
+  it('opens the resource track only on demand', async () => {
+    const fetchMock = stubFetch(activityReport(), requestProfile())
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    expect(fetchMock.mock.calls.some(([url]) => url === 'api/activity/resources')).toBe(false)
+    const toggle = wrapper.findAll('button').find((button) => button.text() === 'Resources')
+    expect(toggle.attributes('aria-controls')).toBe('activity-runtime-resources')
+    await toggle.trigger('click')
+    await flushPromises()
+
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(fetchMock.mock.calls.some(([url]) => url === 'api/activity/resources')).toBe(true)
+    expect(wrapper.find('#activity-runtime-resources').exists()).toBe(true)
+  })
+
   it('keeps filters usable when browser storage reads and writes are denied', async () => {
     vi.stubGlobal('localStorage', {
       getItem() {

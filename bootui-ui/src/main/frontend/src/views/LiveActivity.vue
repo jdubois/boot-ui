@@ -9,6 +9,7 @@ import FlashBanner from './components/FlashBanner.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 import RequestJournalProfile from './components/RequestJournalProfile.vue'
 import RuntimeJournalStatus from './components/RuntimeJournalStatus.vue'
+import RuntimeResources from './components/RuntimeResources.vue'
 import {formatBytes, formatClockTime, formatMillis, formatNumber} from '../utils/format.js'
 import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
@@ -91,6 +92,8 @@ const fromJournal = computed(() => feedSource.value === 'journal')
 const showDatabaseInfo = ref(false)
 // The runtime journal's status block, opened on demand so the panel makes no extra request on render.
 const showJournal = ref(false)
+// The CPU ledger and resource track, opened on demand like the journal status (docs/PLAN-v2.md §5.11).
+const showResources = ref(false)
 const switchingToDatabase = ref(false)
 
 const profile = ref(null)
@@ -806,6 +809,16 @@ function toggleFlow() {
         >
           <i class="bi bi-journal-text me-1" aria-hidden="true"></i>Recording
         </button>
+        <button
+          v-if="report"
+          type="button"
+          class="btn btn-outline-secondary btn-sm"
+          aria-controls="activity-runtime-resources"
+          :aria-expanded="showResources"
+          @click="showResources = !showResources"
+        >
+          <i class="bi bi-cpu me-1" aria-hidden="true"></i>Resources
+        </button>
       </template>
     </PanelHeader>
 
@@ -818,6 +831,8 @@ function toggleFlow() {
       :read-only-reason="readOnlyReason"
       @flash="flash"
     />
+
+    <RuntimeResources v-if="showResources" id="activity-runtime-resources" />
 
     <div
       v-if="showDatabaseInfo && report && !persistent"

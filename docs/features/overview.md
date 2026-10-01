@@ -375,6 +375,12 @@ transactions, cache accesses, messages, log events, and REST client calls, each 
 the collections that completed while it ran; and what it touched: the tables its statements name, data sources,
 transactions, caches, destinations, hosts, and log templates.
 
+**Resources** in the panel header opens **Work outside requests**: where this run's CPU time went, as the share
+credited to requests, each thread family's work outside them, BootUI's own threads, and the JVM's own work (GC, JIT,
+and VM threads), which together are the process's CPU time. A resource lane below shows heap used and process CPU over
+the last 15 minutes. It is read only when you open it, and sized by the `bootui.resources.*`
+[properties](../PROPERTIES.md#resource-correlation).
+
 ### Safety and limits
 
 The panel inherits BootUI's full safety model — loopback filter, Host allow-list, cross-site write defenses, value

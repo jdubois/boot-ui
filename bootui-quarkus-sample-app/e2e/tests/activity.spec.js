@@ -357,4 +357,21 @@ test.describe('Live Activity view (Quarkus)', () => {
     const textual = map.locator('ul[aria-label="Service map relationships as text"]')
     await expect(textual).toHaveCount(1)
   })
+
+  test('opens the CPU ledger of work outside requests on demand', async ({openView, page}) => {
+    await openView('activity', 'Live Activity')
+    const toggle = page.getByRole('button', {name: 'Resources', exact: true})
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+    const resources = page.locator('#activity-runtime-resources')
+    await expect(page.getByRole('heading', {name: 'Work outside requests'})).toHaveCount(1)
+    // The sampler needs two sweeps before it has an interval to split, so refresh until it does.
+    await expect(async () => {
+      await resources.getByRole('button', {name: 'Refresh'}).click()
+      await expect(resources.getByRole('rowheader', {name: 'JVM internals (GC, JIT, VM)'})).toBeVisible({timeout: 1000})
+    }).toPass({timeout: 15_000})
+    await expect(resources).toContainText('of CPU time went to work outside requests')
+  })
 })
