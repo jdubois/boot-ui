@@ -4,9 +4,11 @@ import io.github.jdubois.bootui.autoconfigure.web.HikariDataSourceDiscovery;
 import io.github.jdubois.bootui.engine.crac.CracRuntimeInventory;
 import java.lang.management.ManagementFactory;
 import java.lang.management.RuntimeMXBean;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.ListableBeanFactory;
@@ -15,7 +17,9 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.Lifecycle;
 import org.springframework.core.SpringProperties;
+import org.springframework.core.env.Environment;
 import org.springframework.util.ClassUtils;
+import org.springframework.util.ReflectionUtils;
 
 /**
  * Collects bounded, read-only Spring runtime evidence for CRaC readiness checks.
@@ -60,6 +64,23 @@ public final class CracRuntimeInventoryCollector {
     private static final String HIKARI_LIFECYCLE_TYPE_NAME =
             "org.springframework.boot.jdbc.HikariCheckpointRestoreLifecycle";
     private static final String CRAC_CORE_TYPE_NAME = "org.crac.Core";
+
+    private static final String FLYWAY_INITIALIZER_TYPE_NAME =
+            "org.springframework.boot.flyway.autoconfigure.FlywayMigrationInitializer";
+    private static final String LIQUIBASE_TYPE_NAME = "liquibase.integration.spring.SpringLiquibase";
+    private static final String SCRIPT_INITIALIZER_TYPE_NAME =
+            "org.springframework.boot.jdbc.init.DataSourceScriptDatabaseInitializer";
+    private static final String APPLICATION_SCRIPT_INITIALIZER_TYPE_NAME =
+            "org.springframework.boot.jdbc.autoconfigure.ApplicationDataSourceScriptDatabaseInitializer";
+    private static final String ENTITY_MANAGER_FACTORY_TYPE_NAME = "jakarta.persistence.EntityManagerFactory";
+    private static final String HIBERNATE_TYPE_NAME = "org.hibernate.SessionFactory";
+    private static final String HIBERNATE_METADATA_ON_BOOT = "hibernate.boot.allow_jdbc_metadata_access";
+    private static final List<String> HIBERNATE_SCHEMA_ACTIONS =
+            List.of("hibernate.hbm2ddl.auto", "jakarta.persistence.schema-generation.database.action");
+    // Prefixes are matched case-insensitively and the URL itself is never retained or displayed:
+    // a JDBC URL may embed credentials.
+    private static final List<String> IN_MEMORY_JDBC_URL_PREFIXES =
+            List.of("jdbc:h2:mem:", "jdbc:hsqldb:mem:", "jdbc:derby:memory:");
     private static final String RESTORE_FROM_PREFIX = "-XX:CRaCRestoreFrom=";
 
     private CracRuntimeInventoryCollector() {}
@@ -127,6 +148,8 @@ public final class CracRuntimeInventoryCollector {
                         .map(BeanObservation::display)
                         .toList();
 
+        List<String> startupDatabaseAccess = inspectStartupDatabaseAccess(applicationContext, hikariPools, classLoader);
+
         boolean cracApiPresent = isPresent(CRAC_CORE_TYPE_NAME, classLoader);
         boolean checkpointOnRefresh = "onRefresh".equals(SpringProperties.getProperty("spring.context.checkpoint"));
         List<String> warnings = new ArrayList<>();
@@ -162,7 +185,104 @@ public final class CracRuntimeInventoryCollector {
                 applicationRunning,
                 managedPools,
                 true,
-                warnings);
+                warnings,
+                startupDatabaseAccess);
+    }
+
+    /**
+     * Reports refresh-time database access that an automatic {@code onRefresh} checkpoint would capture with
+     * open pooled connections. Only existing singletons and bean metadata are read; no connection is opened.
+     */
+    private static List<String> inspectStartupDatabaseAccess(
+            ApplicationContext applicationContext, List<BeanObservation> hikariPools, ClassLoader classLoader) {
+        List<String> pooled = new ArrayList<>();
+        for (BeanObservation pool : hikariPools) {
+            Object singleton = existingSingleton(applicationContext, pool.name());
+            Boolean inMemory = singleton == null ? null : HikariSupport.inMemoryUrl(singleton);
+            if (!Boolean.TRUE.equals(inMemory)) {
+                pooled.add(pool.name() + (inMemory == null ? " (JDBC URL unknown)" : ""));
+            }
+        }
+        if (pooled.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> sources = new ArrayList<>();
+        for (BeanObservation flyway :
+                detectBeans(applicationContext, List.of(FLYWAY_INITIALIZER_TYPE_NAME), classLoader)) {
+            sources.add("Flyway migration initializer " + flyway.display());
+        }
+        for (BeanObservation liquibase : detectBeans(applicationContext, List.of(LIQUIBASE_TYPE_NAME), classLoader)) {
+            sources.add("Liquibase " + liquibase.display());
+        }
+        String sqlInitMode = applicationContext.getEnvironment().getProperty("spring.sql.init.mode");
+        for (BeanObservation initializer :
+                detectBeans(applicationContext, List.of(SCRIPT_INITIALIZER_TYPE_NAME), classLoader)) {
+            if (!APPLICATION_SCRIPT_INITIALIZER_TYPE_NAME.equals(
+                    initializer.type().getName())) {
+                sources.add("schema initializer with bundled scripts " + initializer.display());
+            } else if ("always".equalsIgnoreCase(sqlInitMode != null ? sqlInitMode.trim() : null)) {
+                sources.add("SQL initialization with spring.sql.init.mode=always " + initializer.display()
+                        + " (connects when schema or data scripts exist)");
+            }
+        }
+        if (isPresent(HIBERNATE_TYPE_NAME, classLoader)) {
+            for (BeanObservation factory :
+                    detectBeans(applicationContext, List.of(ENTITY_MANAGER_FACTORY_TYPE_NAME), classLoader)) {
+                sources.addAll(hibernateBootAccess(applicationContext, factory));
+            }
+        }
+
+        String pools = "; Hikari pool(s) without an in-memory JDBC URL: " + String.join(", ", pooled);
+        return sources.stream().map(source -> source + pools).toList();
+    }
+
+    private static List<String> hibernateBootAccess(ApplicationContext applicationContext, BeanObservation factory) {
+        Map<?, ?> properties = jpaProperties(existingSingleton(applicationContext, factory.name()));
+        String origin = "";
+        java.util.function.Function<String, Object> setting;
+        if (properties != null) {
+            setting = properties::get;
+        } else {
+            Environment environment = applicationContext.getEnvironment();
+            origin = " (settings read from spring.jpa properties; customizers and hibernate.properties unobserved)";
+            setting = key -> HIBERNATE_METADATA_ON_BOOT.equals(key)
+                    ? environment.getProperty("spring.jpa.properties." + key)
+                    : "hibernate.hbm2ddl.auto".equals(key)
+                            ? environment.getProperty(
+                                    "spring.jpa.properties." + key,
+                                    environment.getProperty("spring.jpa.hibernate.ddl-auto"))
+                            : environment.getProperty("spring.jpa.properties." + key);
+        }
+        List<String> access = new ArrayList<>();
+        Object metadata = setting.apply(HIBERNATE_METADATA_ON_BOOT);
+        String metadataValue = metadata == null ? "" : metadata.toString().trim();
+        if (!"false".equalsIgnoreCase(metadataValue) && !"disallow".equalsIgnoreCase(metadataValue)) {
+            access.add("Hibernate boot JDBC metadata access " + factory.display() + origin);
+        }
+        for (String key : HIBERNATE_SCHEMA_ACTIONS) {
+            Object action = setting.apply(key);
+            String value = action == null ? "" : action.toString().trim();
+            if (!value.isEmpty() && !"none".equalsIgnoreCase(value)) {
+                access.add("Hibernate schema management " + key + "=" + value + " " + factory.display() + origin);
+                break;
+            }
+        }
+        return access;
+    }
+
+    private static Map<?, ?> jpaProperties(Object singleton) {
+        if (singleton == null) {
+            return null;
+        }
+        // Spring's entity manager FactoryBean exposes the supplied JPA properties without touching the
+        // product; spring-orm is optional, so it is reached by name rather than linked.
+        Method propertyMap = ReflectionUtils.findMethod(singleton.getClass(), "getJpaPropertyMap");
+        if (propertyMap != null && Map.class.isAssignableFrom(propertyMap.getReturnType())) {
+            Object map = ReflectionUtils.invokeMethod(propertyMap, singleton);
+            return map instanceof Map<?, ?> values ? values : null;
+        }
+        return JpaSupport.properties(singleton);
     }
 
     private static List<String> inspectHikariPools(
@@ -266,6 +386,26 @@ public final class CracRuntimeInventoryCollector {
     private record ExistingHikariPool(String display, boolean allowsSuspension) {}
 
     /**
+     * Linked only after an {@code EntityManagerFactory} bean type was resolved, so applications without the
+     * optional JPA API never load it.
+     */
+    private static final class JpaSupport {
+
+        private JpaSupport() {}
+
+        static Map<?, ?> properties(Object singleton) {
+            return singleton instanceof jakarta.persistence.EntityManagerFactory factory && factory.isOpen()
+                    ? factory.getProperties()
+                    : null;
+        }
+    }
+
+    static boolean isInMemoryJdbcUrl(String url) {
+        String normalized = url.toLowerCase(java.util.Locale.ROOT);
+        return IN_MEMORY_JDBC_URL_PREFIXES.stream().anyMatch(normalized::startsWith);
+    }
+
+    /**
      * Kept behind a class-name presence gate so applications without optional HikariCP never link it.
      */
     private static final class HikariSupport {
@@ -274,6 +414,15 @@ public final class CracRuntimeInventoryCollector {
 
         static boolean isHikariType(Class<?> type) {
             return com.zaxxer.hikari.HikariDataSource.class.isAssignableFrom(type);
+        }
+
+        static Boolean inMemoryUrl(Object bean) {
+            if (!(bean instanceof javax.sql.DataSource candidate)) {
+                return null;
+            }
+            com.zaxxer.hikari.HikariDataSource dataSource = HikariDataSourceDiscovery.existingHikariTarget(candidate);
+            String url = dataSource == null ? null : dataSource.getJdbcUrl();
+            return url == null ? null : isInMemoryJdbcUrl(url);
         }
 
         static ExistingHikariPool inspect(String beanName, Object bean) {

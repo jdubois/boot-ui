@@ -239,7 +239,7 @@ generates its own reachability metadata during build-time augmentation.
 The CRaC panel reviews the application's
 [Coordinated Restore at Checkpoint](https://docs.spring.io/spring-framework/reference/integration/checkpoint-restore.html)
 readiness, combining live runtime status with a heuristic advisor. On demand the advisor imports the application's own
-classes, bounded to the detected base packages, and runs 17 curated `CRaC-*` checks, which you can then filter in place
+classes, bounded to the detected base packages, and runs 19 curated `CRaC-*` checks, which you can then filter in place
 by severity, category, or free text. They complement an actual checkpoint and restore run on a CRaC-enabled JDK rather
 than replacing it. See [CRaC readiness checks](../CRAC-READINESS-CHECKS.md) for the catalogue.
 
