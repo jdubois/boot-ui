@@ -58,6 +58,58 @@ public record RuntimeJournalSettings(
                 JournalSource.all());
     }
 
+    /**
+     * The settings the {@code bootui.runtime-journal.*} properties describe.
+     *
+     * @param maxBytes the byte bound, or {@code null} or a non-positive value for {@link #defaultMaxBytes}
+     * @param sources a comma-separated list of {@link JournalSource} names, or {@code null} for every source
+     * @throws IllegalArgumentException naming an unknown source
+     */
+    public static RuntimeJournalSettings of(
+            boolean enabled, int maxEvents, Long maxBytes, int queueCapacity, String sources) {
+        return new RuntimeJournalSettings(
+                enabled,
+                maxEvents,
+                maxBytes == null || maxBytes <= 0
+                        ? defaultMaxBytes(Runtime.getRuntime().maxMemory())
+                        : maxBytes,
+                queueCapacity,
+                DEFAULT_RESERVED_SHARE_PERCENT,
+                DEFAULT_RESERVED_SHARE_PERCENT,
+                sources == null ? JournalSource.all() : JournalSource.parse(sources));
+    }
+
+    /**
+     * Parses a byte size written as Spring's {@code DataSize} or Quarkus's {@code MemorySize} writes it: a number of
+     * bytes, optionally followed by {@code B}, {@code K} or {@code KB}, {@code M} or {@code MB}, or {@code G} or
+     * {@code GB}, in powers of 1,024 and ignoring case, so {@code 32MB} and {@code 32M} mean the same on every stack.
+     *
+     * @return the bytes, or {@code null} for a {@code null} or blank value
+     * @throws IllegalArgumentException for anything else
+     */
+    public static Long parseBytes(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(?i)\\s*(\\d+)\\s*(B|K|KB|M|MB|G|GB)?\\s*")
+                .matcher(value);
+        if (!matcher.matches()) {
+            throw new IllegalArgumentException(
+                    "Invalid byte size '" + value
+                            + "' for bootui.runtime-journal.max-bytes: use a number of bytes, optionally followed by KB, MB, or GB.");
+        }
+        long amount = Long.parseLong(matcher.group(1));
+        String unit = matcher.group(2) == null ? "B" : matcher.group(2).toUpperCase(java.util.Locale.ROOT);
+        int shift =
+                switch (unit.charAt(0)) {
+                    case 'K' -> 10;
+                    case 'M' -> 20;
+                    case 'G' -> 30;
+                    default -> 0;
+                };
+        return Math.multiplyExact(amount, 1L << shift);
+    }
+
     /** A disabled journal, which records nothing. */
     public static RuntimeJournalSettings disabled() {
         return new RuntimeJournalSettings(

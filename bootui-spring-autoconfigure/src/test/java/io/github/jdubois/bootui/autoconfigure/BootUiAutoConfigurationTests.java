@@ -33,6 +33,9 @@ import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.BootUiSpanExporter;
@@ -146,6 +149,41 @@ class BootUiAutoConfigurationTests {
             assertThat(second.toDto().instanceId())
                     .isEqualTo(first.get().toDto().instanceId());
         });
+    }
+
+    @Test
+    void theRuntimeJournalRecordsTheRunFromTheStartWithItsAggregatesAndBoundProperties() {
+        runner.withPropertyValues(
+                        "bootui.enabled=ON",
+                        "bootui.runtime-journal.max-events=1000",
+                        "bootui.runtime-journal.max-bytes=2MB",
+                        "bootui.runtime-journal.sources=http,sql")
+                .run(context -> {
+                    assertThat(context.getBeanFactory()
+                                    .getBeanDefinition("bootUiRuntimeJournal")
+                                    .isLazyInit())
+                            .isFalse();
+                    RuntimeJournal journal = context.getBean(RuntimeJournal.class);
+                    assertThat(journal.run()).isSameAs(context.getBean(RunIdentity.class));
+                    assertThat(journal.settings().maxEvents()).isEqualTo(1000);
+                    assertThat(journal.settings().maxBytes()).isEqualTo(2L * 1024 * 1024);
+                    assertThat(journal.settings().sources())
+                            .containsExactlyInAnyOrder(JournalSource.HTTP, JournalSource.SQL);
+                    assertThat(context).hasSingleBean(JournalAggregates.class);
+                });
+    }
+
+    @Test
+    void anUnknownRuntimeJournalSourceFailsStartupAndTheJournalCanBeDisabled() {
+        runner.withPropertyValues("bootui.enabled=ON", "bootui.runtime-journal.sources=sql,jdbc")
+                .run(context -> assertThat(context)
+                        .getFailure()
+                        .rootCause()
+                        .hasMessageContaining("Unknown runtime journal source 'jdbc'"));
+        runner.withPropertyValues("bootui.enabled=ON", "bootui.runtime-journal.enabled=false")
+                .run(context -> assertThat(
+                                context.getBean(RuntimeJournal.class).status().enabled())
+                        .isFalse());
     }
 
     @Test

@@ -3,8 +3,14 @@ package io.github.jdubois.bootui.quarkus.web;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
+import io.github.jdubois.bootui.engine.journal.HttpPayload;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
+import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import io.github.jdubois.bootui.quarkus.QuarkusBootUiPaths;
 import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
 import io.github.jdubois.bootui.spi.CorrelationContext;
@@ -73,20 +79,30 @@ public class QuarkusHttpExchangeCaptureFilter {
     private final TraceIdProvider traceIdProvider;
     private final Config config;
     private final RequestPhases phases;
+    private final RuntimeEventSink journal;
 
     public QuarkusHttpExchangeCaptureFilter(
             HttpExchangeBuffer buffer, Instance<TraceIdProvider> traceIdProvider, Config config) {
-        this(buffer, traceIdProvider, config, null);
+        this(buffer, traceIdProvider, config, null, null);
     }
 
-    /** @param phases the phase markers of recent requests, begun here for each request; {@code null} tracks none */
+    /**
+     * @param phases the phase markers of recent requests, begun here for each request; {@code null} tracks none
+     * @param journal the runtime journal, which receives one {@code HTTP} event per request ({@code docs/PLAN-v2.md}
+     *     §5.2); {@code null} publishes nothing
+     */
     @Inject
     public QuarkusHttpExchangeCaptureFilter(
-            HttpExchangeBuffer buffer, Instance<TraceIdProvider> traceIdProvider, Config config, RequestPhases phases) {
+            HttpExchangeBuffer buffer,
+            Instance<TraceIdProvider> traceIdProvider,
+            Config config,
+            RequestPhases phases,
+            RuntimeJournal journal) {
         this.buffer = buffer;
         this.traceIdProvider = traceIdProvider.isResolvable() ? traceIdProvider.get() : null;
         this.config = config;
         this.phases = phases;
+        this.journal = journal == null ? RuntimeEventSink.NONE : journal;
     }
 
     public void register(@Observes Filters filters) {
@@ -110,9 +126,24 @@ public class QuarkusHttpExchangeCaptureFilter {
         HttpServerRequest request = rc.request();
         Map<String, List<String>> requestHeaders = headers(request.headers());
         String traceId = currentTraceId();
+        String thread = Thread.currentThread().getName();
         rc.addBodyEndHandler(v -> {
-            long durationMs = (System.nanoTime() - startNanos) / 1_000_000L;
+            long durationNanos = System.nanoTime() - startNanos;
+            long durationMs = durationNanos / 1_000_000L;
             HttpServerResponse response = rc.response();
+            journal.offer(new RuntimeEvent(
+                    JournalSource.HTTP,
+                    started.toEpochMilli(),
+                    durationNanos,
+                    requestId,
+                    null,
+                    traceId,
+                    null,
+                    thread,
+                    null,
+                    RequestSlowThreshold.isFailedOrSlow(
+                            response.getStatusCode(), durationMs, buffer.slowThresholdMillis()),
+                    new HttpPayload(request.method().name(), path, null, null, response.getStatusCode())));
             buffer.record(new CapturedHttpExchange(
                     started,
                     request.method().name(),

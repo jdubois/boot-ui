@@ -40,6 +40,7 @@ import io.github.jdubois.bootui.autoconfigure.scheduled.ScheduledTaskRunObservat
 import io.github.jdubois.bootui.autoconfigure.scheduled.SpringScheduledTaskProvider;
 import io.github.jdubois.bootui.autoconfigure.web.ActuatorMappingsController;
 import io.github.jdubois.bootui.autoconfigure.web.ConfigMetadataCatalog;
+import io.github.jdubois.bootui.autoconfigure.web.DeclaredRouteTemplates;
 import io.github.jdubois.bootui.engine.activity.ActivityInstanceIds;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityStoreFactory;
@@ -71,6 +72,8 @@ import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.hibernate.HibernateStatisticsService;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
+import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
@@ -180,6 +183,27 @@ public class BootUiEngineConfiguration {
     @ConditionalOnMissingBean
     RunIdentity bootUiRunIdentity() {
         return RunIdentity.start();
+    }
+
+    /**
+     * The runtime journal of this run ({@code docs/PLAN-v2.md} §5.2), which every recorder publishes to. Eager, like
+     * the run it records: events are recorded from the start, not from when BootUI is first opened. Spring closes it,
+     * stopping its dispatcher, when the context closes.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    RuntimeJournal bootUiRuntimeJournal(BootUiProperties properties, RunIdentity run) {
+        return new RuntimeJournal(properties.getRuntimeJournal().toSettings(), run);
+    }
+
+    /** The incremental aggregates of the runtime journal ({@code docs/PLAN-v2.md} §5.2), fed by its dispatcher. */
+    @Bean
+    @ConditionalOnMissingBean
+    JournalAggregates bootUiJournalAggregates(RuntimeJournal journal, ObjectProvider<MappingProvider> mappingProvider) {
+        JournalAggregates aggregates = new JournalAggregates();
+        aggregates.setDeclaredRoutes(DeclaredRouteTemplates.caching(mappingProvider));
+        journal.addListener(aggregates);
+        return aggregates;
     }
 
     /** The phase markers of recent requests ({@code docs/PLAN-v2.md} §5.1), shared by both web stacks. */

@@ -5,6 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.journal.HttpPayload;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.micrometer.context.ContextRegistry;
 import java.time.Duration;
@@ -15,9 +18,11 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.server.reactive.HttpHandler;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -128,6 +133,34 @@ class ReactiveRequestCorrelationFilterTests {
         } finally {
             single.dispose();
         }
+    }
+
+    @Test
+    void publishesOneHttpEventPerRequestWithItsMatchedRouteAndRenderedStatus() {
+        List<RuntimeEvent> published = new ArrayList<>();
+        filter.setRuntimeEventSink(published::add, 1_000, null);
+        MockServerWebExchange ok = exchange("/api/orders/42");
+        WebFilterChain matches = exchange -> {
+            exchange.getAttributes()
+                    .put(
+                            org.springframework.web.reactive.HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE,
+                            "/api/orders/{id}");
+            return Mono.empty();
+        };
+        WebFilterChain fails = exchange -> Mono.error(new ResponseStatusException(HttpStatus.NOT_FOUND));
+
+        filter.filter(ok, matches).block(Duration.ofSeconds(5));
+        assertThatThrownBy(() -> filter.filter(exchange("/api/missing"), fails).block(Duration.ofSeconds(5)))
+                .isInstanceOf(ResponseStatusException.class);
+
+        assertThat(published).hasSize(2);
+        assertThat(published.get(0).source()).isEqualTo(JournalSource.HTTP);
+        assertThat(published.get(0).requestId())
+                .isEqualTo(ReactiveRequestCorrelationFilter.correlation(ok).requestId());
+        assertThat(published.get(0).payload())
+                .isEqualTo(new HttpPayload("GET", "/api/orders/42", "/api/orders/{id}", null, 200));
+        assertThat(published.get(1).payload()).isEqualTo(new HttpPayload("GET", "/api/missing", null, null, 404));
+        assertThat(published.get(1).failedOrSlow()).isFalse();
     }
 
     @Test

@@ -1,5 +1,8 @@
 package io.github.jdubois.bootui.engine.journal;
 
+import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
+import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
+import io.github.jdubois.bootui.engine.sqltrace.SqlStatementNormalizer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -10,6 +13,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * The incremental aggregates observations read ({@code docs/PLAN-v2.md} §5.2), maintained by the journal's dispatcher
@@ -54,6 +58,15 @@ public final class JournalAggregates implements JournalListener {
     private long lastEpochMillis = Long.MIN_VALUE;
     private long failedRequests;
     private long unattributedRequests;
+    private volatile Supplier<RouteTemplateResolver> declaredRoutes = RouteTemplateResolver::empty;
+
+    /**
+     * Installs the application's declared routes, which name a request's route when the framework recorded no
+     * template, as on Quarkus.
+     */
+    public void setDeclaredRoutes(Supplier<RouteTemplateResolver> declaredRoutes) {
+        this.declaredRoutes = declaredRoutes == null ? RouteTemplateResolver::empty : declaredRoutes;
+    }
 
     @Override
     public synchronized void onEntries(List<JournalEntry> entries) {
@@ -76,7 +89,7 @@ public final class JournalAggregates implements JournalListener {
             if (http.status() >= 500) {
                 failedRequests++;
             }
-            String label = http.route() == null ? http.method() + " (unknown route)" : http.route();
+            String label = routeOf(http);
             Route route = routes.get(label);
             route.add(event, http.status());
             PendingRequest children = event.requestId() == null ? null : pending.remove(event.requestId());
@@ -90,9 +103,10 @@ public final class JournalAggregates implements JournalListener {
             children.add(event);
         }
         if (payload instanceof SqlPayload sql) {
-            statements.get(sql.fingerprint()).add(event, sql);
+            String fingerprint = SqlStatementNormalizer.fingerprintOf(sql.sql());
+            statements.get(fingerprint).add(event, sql);
             if (children != null) {
-                children.statement(sql.fingerprint());
+                children.statement(fingerprint);
             }
         } else if (payload instanceof ExceptionPayload exception) {
             exceptionGroups.get(exception.groupId()).add(exception);
@@ -102,6 +116,18 @@ public final class JournalAggregates implements JournalListener {
         } else if (payload instanceof TransactionPayload transaction) {
             transactionalMethods.get(transaction.method()).add(event, transaction);
         }
+    }
+
+    /** The route label of a request, such as {@code GET /api/orders/{id}}, as HTTP route rankings name it. */
+    private String routeOf(HttpPayload http) {
+        RouteTemplateResolver declared;
+        try {
+            declared = declaredRoutes.get();
+        } catch (RuntimeException ex) {
+            declared = RouteTemplateResolver.empty();
+        }
+        return RouteLabel.of(http.method(), http.path(), http.routeTemplate(), http.operation(), declared)
+                .id();
     }
 
     private PendingRequest pendingFor(String requestId) {
@@ -342,7 +368,7 @@ public final class JournalAggregates implements JournalListener {
     }
 
     /**
-     * One route: its requests, status classes ({@code 1xx} to {@code 5xx}), latency, the count and time of its
+     * One route, keyed as {@code METHOD route}: its requests, status classes ({@code 1xx} to {@code 5xx}), latency, the count and time of its
      * requests' children per source, and how many statements each fingerprint ran in it.
      */
     public record RouteStats(
@@ -354,7 +380,7 @@ public final class JournalAggregates implements JournalListener {
             Map<JournalSource, Long> childNanos,
             Map<String, Long> statements) {}
 
-    /** One statement fingerprint: its executions, failures, latency, and executions per call site. */
+    /** One literal-free statement fingerprint: its executions, failures, latency, and executions per call site. */
     public record StatementStats(
             String fingerprint,
             long executions,

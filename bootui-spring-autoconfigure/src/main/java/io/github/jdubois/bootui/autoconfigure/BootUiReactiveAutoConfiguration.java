@@ -70,7 +70,9 @@ import io.github.jdubois.bootui.autoconfigure.web.*;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.cli.CliService;
+import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.reactivesecurity.ReactiveSecurityAdvisorService;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
@@ -626,8 +628,11 @@ public class BootUiReactiveAutoConfiguration {
     }
 
     @Bean
-    public ReactiveRequestCorrelationFilter bootUiReactiveRequestCorrelationFilter(BootUiProperties properties) {
-        return new ReactiveRequestCorrelationFilter(properties);
+    public ReactiveRequestCorrelationFilter bootUiReactiveRequestCorrelationFilter(
+            BootUiProperties properties, Environment environment, RuntimeJournal journal, RequestPhases phases) {
+        ReactiveRequestCorrelationFilter filter = new ReactiveRequestCorrelationFilter(properties);
+        filter.setRuntimeEventSink(journal, ExchangeSlowThreshold.resolve(properties, environment), phases);
+        return filter;
     }
 
     /**
@@ -751,7 +756,8 @@ public class BootUiReactiveAutoConfiguration {
     }
 
     @Bean
-    public SqlTraceRecorder bootUiSqlTraceRecorder(BootUiProperties properties, ThreadKindClassifier threadKinds) {
+    public SqlTraceRecorder bootUiSqlTraceRecorder(
+            BootUiProperties properties, ThreadKindClassifier threadKinds, RuntimeJournal journal) {
         BootUiProperties.SqlTrace sqlTrace = properties.getSqlTrace();
         boolean enabled = sqlTrace.isEnabled() && properties.isPanelEnabled(BootUiPanels.SQL_TRACE);
         SqlTraceRecorder recorder = new SqlTraceRecorder(
@@ -766,6 +772,7 @@ public class BootUiReactiveAutoConfiguration {
                 sqlTrace.getNPlusOneThreshold(),
                 sqlTrace.getReservedSharePercent());
         recorder.setThreadKindClassifier(threadKinds);
+        recorder.setRuntimeEventSink(journal);
         return recorder;
     }
 

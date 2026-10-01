@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure;
 
 import io.github.jdubois.bootui.core.BootUiPathNormalizer;
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mysql.MySqlRowLimits;
 import io.github.jdubois.bootui.engine.postgres.PostgresRowLimits;
@@ -9,8 +10,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.util.unit.DataSize;
 
 /**
  * Configuration properties bound under the {@code bootui.*} prefix.
@@ -211,6 +214,10 @@ public class BootUiProperties {
      * Live Activity panel settings (merged activity stream and per-request profiler).
      */
     private Activity activity = new Activity();
+    /**
+     * Runtime journal settings: the bounded in-memory record of every runtime event.
+     */
+    private RuntimeJournal runtimeJournal = new RuntimeJournal();
     /**
      * Email Viewer panel settings (captured outgoing mail).
      */
@@ -607,6 +614,14 @@ public class BootUiProperties {
 
     public Activity getActivity() {
         return activity;
+    }
+
+    public RuntimeJournal getRuntimeJournal() {
+        return runtimeJournal;
+    }
+
+    public void setRuntimeJournal(RuntimeJournal runtimeJournal) {
+        this.runtimeJournal = runtimeJournal == null ? new RuntimeJournal() : runtimeJournal;
     }
 
     public void setActivity(Activity activity) {
@@ -2575,6 +2590,88 @@ public class BootUiProperties {
             this.executionTimeout = executionTimeout == null
                     ? Duration.ofMillis(McpProtocol.DEFAULT_EXECUTION_TIMEOUT_MILLIS)
                     : executionTimeout;
+        }
+    }
+
+    /**
+     * Settings for the runtime journal ({@code docs/PLAN-v2.md} §5.2), which records every runtime event once, in a
+     * bounded in-memory structure, and keeps the aggregates observations read.
+     */
+    public static class RuntimeJournal {
+
+        /** Whether the journal records runtime events. */
+        private boolean enabled = true;
+
+        /** Maximum number of events retained as evidence. Aggregates count every event, retained or not. */
+        private int maxEvents = RuntimeJournalSettings.DEFAULT_MAX_EVENTS;
+
+        /**
+         * Maximum memory the retained events may use, estimated per event. Unset means the smaller of 32 MB and 5 %
+         * of the maximum heap.
+         */
+        private DataSize maxBytes;
+
+        /**
+         * Maximum number of events waiting to be recorded. The last 10 % admits only failed or slow events; beyond
+         * it, events are dropped and counted, and the application thread never waits.
+         */
+        private int queueCapacity = RuntimeJournalSettings.DEFAULT_QUEUE_CAPACITY;
+
+        /**
+         * Sources to record: {@code http}, {@code sql}, {@code transaction}, {@code exception}, {@code security},
+         * {@code rest-client}, {@code cache}, {@code messaging}, {@code scheduled}, {@code log}, {@code gc}, and
+         * {@code resources}. Unset means every source; an unknown name fails startup.
+         */
+        private List<String> sources;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getMaxEvents() {
+            return maxEvents;
+        }
+
+        public void setMaxEvents(int maxEvents) {
+            this.maxEvents = maxEvents;
+        }
+
+        public DataSize getMaxBytes() {
+            return maxBytes;
+        }
+
+        public void setMaxBytes(DataSize maxBytes) {
+            this.maxBytes = maxBytes;
+        }
+
+        public int getQueueCapacity() {
+            return queueCapacity;
+        }
+
+        public void setQueueCapacity(int queueCapacity) {
+            this.queueCapacity = queueCapacity;
+        }
+
+        public List<String> getSources() {
+            return sources;
+        }
+
+        public void setSources(List<String> sources) {
+            this.sources = sources;
+        }
+
+        /** The engine settings these properties describe. */
+        public RuntimeJournalSettings toSettings() {
+            return RuntimeJournalSettings.of(
+                    enabled,
+                    maxEvents,
+                    maxBytes == null ? null : maxBytes.toBytes(),
+                    queueCapacity,
+                    sources == null ? null : String.join(",", sources));
         }
     }
 

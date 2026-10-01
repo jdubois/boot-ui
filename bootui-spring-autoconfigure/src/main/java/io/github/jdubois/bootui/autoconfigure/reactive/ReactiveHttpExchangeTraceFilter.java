@@ -110,7 +110,7 @@ public final class ReactiveHttpExchangeTraceFilter extends AbstractReactiveBootU
      * that rendered response commits, so the status comes from the error itself: the status an {@link ErrorResponse}
      * such as {@code ResponseStatusException} declares, otherwise {@code 500}. Fully guarded.
      */
-    private static int status(ServerWebExchange exchange, SignalType signal, Throwable failure) {
+    static int status(ServerWebExchange exchange, SignalType signal, Throwable failure) {
         if (signal == SignalType.ON_ERROR) {
             return failure instanceof ErrorResponse errorResponse
                     ? errorResponse.getStatusCode().value()
@@ -131,7 +131,7 @@ public final class ReactiveHttpExchangeTraceFilter extends AbstractReactiveBootU
      * {@code null} when nothing matched, so SQL Trace reports the route as unknown rather than inferring
      * one from a path that may embed identifiers. Fully guarded, like the trace-id read beside it.
      */
-    private String routeTemplate(ServerWebExchange exchange) {
+    static String routeTemplate(ServerWebExchange exchange) {
         try {
             Object pattern = exchange.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
             if (pattern == null) {

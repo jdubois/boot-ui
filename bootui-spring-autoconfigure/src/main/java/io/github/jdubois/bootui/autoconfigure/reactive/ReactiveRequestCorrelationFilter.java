@@ -4,7 +4,14 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.web.BootUiMounts;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
+import io.github.jdubois.bootui.engine.correlation.RequestPhases;
+import io.github.jdubois.bootui.engine.journal.HttpPayload;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.springframework.core.Ordered;
 import org.springframework.http.server.reactive.HttpHandler;
@@ -13,6 +20,7 @@ import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilterChain;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.SignalType;
 
 /**
  * Reactive sibling of {@code RequestCorrelationFilter} ({@code docs/PLAN-v2.md} §5.1): gives each application request
@@ -40,8 +48,25 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
     public static final String CORRELATION_ATTRIBUTE =
             ReactiveRequestCorrelationFilter.class.getName() + ".correlation";
 
+    private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
+    private volatile long requestSlowThresholdMs = RequestSlowThreshold.DEFAULT_MILLIS;
+    private volatile RequestPhases phases;
+
     public ReactiveRequestCorrelationFilter(BootUiProperties properties) {
         super(properties);
+    }
+
+    /**
+     * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives one {@code HTTP} event per request
+     * when its filter chain completes, with the matched route and the status WebFlux will render.
+     *
+     * @param requestSlowThresholdMs {@code bootui.activity.request-slow-threshold-ms}, which marks a request slow
+     * @param phases the phase markers of recent requests, which name a request's operation; {@code null} names none
+     */
+    public void setRuntimeEventSink(RuntimeEventSink journal, long requestSlowThresholdMs, RequestPhases phases) {
+        this.journal = journal == null ? RuntimeEventSink.NONE : journal;
+        this.requestSlowThresholdMs = requestSlowThresholdMs;
+        this.phases = phases;
     }
 
     @Override
@@ -72,12 +97,61 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
             if (existing instanceof CorrelationContext correlation) {
                 exchange.getAttributes().put(CORRELATION_ATTRIBUTE, correlation);
                 try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(correlation)) {
-                    return chain.filter(exchange);
+                    return published(exchange, correlation, chain.filter(exchange));
                 }
             }
             CorrelationContext correlation = CorrelationContext.forRequest(RequestIds.next());
             exchange.getAttributes().put(CORRELATION_ATTRIBUTE, correlation);
-            return correlated(correlation, () -> chain.filter(exchange));
+            return correlated(correlation, () -> published(exchange, correlation, chain.filter(exchange)));
+        });
+    }
+
+    /** {@code chain} that publishes the request's {@code HTTP} event to the journal when it completes. */
+    private Mono<Void> published(ServerWebExchange exchange, CorrelationContext correlation, Mono<Void> chain) {
+        RuntimeEventSink sink = journal;
+        if (sink == RuntimeEventSink.NONE) {
+            return chain;
+        }
+        long startNanos = System.nanoTime();
+        long start = System.currentTimeMillis();
+        String thread = Thread.currentThread().getName();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        return chain.doOnError(failure::set).doFinally(signal -> {
+            try {
+                long durationNanos = System.nanoTime() - startNanos;
+                int status = ReactiveHttpExchangeTraceFilter.status(exchange, signal, failure.get());
+                if (status == 0 && signal == SignalType.ON_COMPLETE) {
+                    // A handler that completes without setting a status renders 200 when the response commits; a
+                    // cancelled request keeps 0, as it has no status.
+                    status = 200;
+                }
+                ServerHttpRequest request = exchange.getRequest();
+                String requestId = correlation.requestId();
+                RequestPhases requestPhases = phases;
+                sink.offer(new RuntimeEvent(
+                        JournalSource.HTTP,
+                        start,
+                        durationNanos,
+                        requestId,
+                        null,
+                        correlation.traceId(),
+                        null,
+                        thread,
+                        null,
+                        RequestSlowThreshold.isFailedOrSlow(status, durationNanos / 1_000_000, requestSlowThresholdMs),
+                        new HttpPayload(
+                                request.getMethod() == null
+                                        ? null
+                                        : request.getMethod().name(),
+                                request.getURI() == null
+                                        ? null
+                                        : request.getURI().getPath(),
+                                ReactiveHttpExchangeTraceFilter.routeTemplate(exchange),
+                                requestPhases == null ? null : requestPhases.operationOf(requestId),
+                                status)));
+            } catch (RuntimeException ex) {
+                // Publishing never disturbs the response.
+            }
         });
     }
 

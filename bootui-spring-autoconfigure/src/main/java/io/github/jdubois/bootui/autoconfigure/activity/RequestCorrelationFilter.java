@@ -7,6 +7,10 @@ import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry.Http
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
+import io.github.jdubois.bootui.engine.journal.HttpPayload;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import jakarta.servlet.DispatcherType;
@@ -90,6 +94,16 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
         this.requestSlowThresholdMs = requestSlowThresholdMs;
     }
 
+    private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
+
+    /**
+     * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives one {@code HTTP} event per request
+     * when the request completes. {@code null} restores the default, which publishes nothing.
+     */
+    public void setRuntimeEventSink(RuntimeEventSink journal) {
+        this.journal = journal == null ? RuntimeEventSink.NONE : journal;
+    }
+
     /** The request attribute holding the request's {@link CorrelationContext}, for its async redispatches. */
     public static final String CORRELATION_ATTRIBUTE = RequestCorrelationFilter.class.getName() + ".correlation";
 
@@ -108,7 +122,7 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
             phases.begin(correlation.requestId());
         }
         try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(correlation)) {
-            recordAround(request, response, chain, correlation.requestId());
+            recordAround(request, response, chain, correlation);
         }
     }
 
@@ -118,8 +132,10 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
     }
 
     private void recordAround(
-            HttpServletRequest request, HttpServletResponse response, FilterChain chain, String requestId)
+            HttpServletRequest request, HttpServletResponse response, FilterChain chain, CorrelationContext correlation)
             throws ServletException, IOException {
+        String requestId = correlation.requestId();
+        long startNanos = System.nanoTime();
         long start = System.currentTimeMillis();
         String thread = Thread.currentThread().getName();
         String method = request.getMethod();
@@ -136,9 +152,28 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
             // Classified exactly as Actuator's servlet HttpExchangesFilter records the exchange: 500 whenever the
             // chain throws, so the trace record and the exchange agree on whether it is reserved.
             int status = threw ? 500 : response.getStatus();
+            boolean failedOrSlow = RequestSlowThreshold.isFailedOrSlow(status, end - start, requestSlowThresholdMs);
+            String decodedPath = decodedPath(path);
             traceRegistry.record(
-                    new HttpExchangeTrace(start, end, method, decodedPath(path), traceId, routeTemplate, requestId),
-                    RequestSlowThreshold.isFailedOrSlow(status, end - start, requestSlowThresholdMs));
+                    new HttpExchangeTrace(start, end, method, decodedPath, traceId, routeTemplate, requestId),
+                    failedOrSlow);
+            journal.offer(new RuntimeEvent(
+                    JournalSource.HTTP,
+                    start,
+                    System.nanoTime() - startNanos,
+                    requestId,
+                    null,
+                    traceId,
+                    null,
+                    thread,
+                    null,
+                    failedOrSlow,
+                    new HttpPayload(
+                            method,
+                            decodedPath,
+                            routeTemplate,
+                            phases == null ? null : phases.operationOf(requestId),
+                            status)));
         }
     }
 

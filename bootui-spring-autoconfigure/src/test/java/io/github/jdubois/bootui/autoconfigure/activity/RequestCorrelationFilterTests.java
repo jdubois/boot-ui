@@ -6,6 +6,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.github.jdubois.bootui.autoconfigure.activity.RequestCorrelationRegistry.RequestCorrelation;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.correlation.RequestPhases;
+import io.github.jdubois.bootui.engine.journal.HttpPayload;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.FilterChain;
@@ -46,6 +50,45 @@ class RequestCorrelationFilterTests {
         assertThat(record.endMillis()).isGreaterThanOrEqualTo(record.startMillis());
         assertThat(traceRegistry.match(record.method(), record.path(), record.startMillis(), record.endMillis()))
                 .isEqualTo("server-created-trace");
+    }
+
+    @Test
+    void publishesOneHttpEventPerRequestWithItsRouteOperationStatusAndRequestId() throws Exception {
+        RequestPhases phases = new RequestPhases();
+        RequestCorrelationFilter filter = new RequestCorrelationFilter(
+                new RequestCorrelationRegistry(10), new HttpExchangeTraceRegistry(10), "/bootui", null, 1_000, phases);
+        List<RuntimeEvent> published = new ArrayList<>();
+        filter.setRuntimeEventSink(published::add);
+        List<String> requestIds = new ArrayList<>();
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/graphql");
+        request.setAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, "/graphql");
+        FilterChain chain = (req, res) -> {
+            String requestId = BootUiCorrelation.current().requestId();
+            requestIds.add(requestId);
+            phases.setOperation(requestId, "query ProductList");
+            ((MockHttpServletResponse) res).setStatus(201);
+        };
+
+        filter.doFilter(request, new MockHttpServletResponse(), chain);
+        assertThatThrownBy(() -> filter.doFilter(
+                        new MockHttpServletRequest("GET", "/api/boom"), new MockHttpServletResponse(), (req, res) -> {
+                            throw new ServletException("boom");
+                        }))
+                .isInstanceOf(ServletException.class);
+        filter.doFilter(
+                new MockHttpServletRequest("GET", "/bootui/api/overview"), new MockHttpServletResponse(), chain);
+
+        assertThat(published).hasSize(2);
+        RuntimeEvent graphql = published.get(0);
+        assertThat(graphql.source()).isEqualTo(JournalSource.HTTP);
+        assertThat(graphql.requestId()).isEqualTo(requestIds.get(0));
+        assertThat(graphql.thread()).isEqualTo(Thread.currentThread().getName());
+        assertThat(graphql.durationNanos()).isNotNegative();
+        assertThat(graphql.failedOrSlow()).isFalse();
+        assertThat(graphql.payload())
+                .isEqualTo(new HttpPayload("POST", "/graphql", "/graphql", "query ProductList", 201));
+        assertThat(published.get(1).failedOrSlow()).isTrue();
+        assertThat(published.get(1).payload()).isEqualTo(new HttpPayload("GET", "/api/boom", null, null, 500));
     }
 
     @Test

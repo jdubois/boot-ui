@@ -11,6 +11,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -84,6 +85,24 @@ class RuntimeJournalTests {
         }
         assertThat(disabled.status().enabled()).isFalse();
         assertThat(disabled.status().queueCapacity()).isZero();
+    }
+
+    @Test
+    void workOnBootUisOwnThreadsIsNeverRecorded() throws Exception {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        CompletableFuture<Boolean> fromBootUi = new CompletableFuture<>();
+        Thread bootUiThread =
+                new Thread(() -> fromBootUi.complete(journal.offer(sql(1, false))), "bootui-activity-flush");
+        bootUiThread.start();
+
+        assertThat(fromBootUi.get(5, TimeUnit.SECONDS)).isFalse();
+        assertThat(journal.offer(sql(2, false))).isTrue();
+        journal.dispatchPending();
+        assertThat(journal.entries())
+                .singleElement()
+                .extracting(entry -> entry.event().epochMillis())
+                .isEqualTo(1_002L);
+        assertThat(journal.status().dropped()).isEmpty();
     }
 
     @Test

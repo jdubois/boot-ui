@@ -64,6 +64,37 @@ class JournalBuildingBlocksTests {
     }
 
     @Test
+    void propertiesMapToSettingsWithTheDefaultsWhereUnset() {
+        RuntimeJournalSettings unset = RuntimeJournalSettings.of(true, 50_000, null, 10_000, null);
+        RuntimeJournalSettings explicit = RuntimeJournalSettings.of(false, 10, 1_024L, 20, "sql,http");
+
+        assertThat(unset.maxBytes())
+                .isEqualTo(RuntimeJournalSettings.defaultMaxBytes(
+                        Runtime.getRuntime().maxMemory()));
+        assertThat(unset.sources()).isEqualTo(JournalSource.all());
+        assertThat(explicit.enabled()).isFalse();
+        assertThat(explicit.maxBytes()).isEqualTo(1_024);
+        assertThat(explicit.sources()).containsExactlyInAnyOrder(JournalSource.SQL, JournalSource.HTTP);
+        assertThatThrownBy(() -> RuntimeJournalSettings.of(true, 10, null, 10, "sql,jdbc"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void byteSizesParseAsSpringAndQuarkusWriteThem() {
+        assertThat(RuntimeJournalSettings.parseBytes("1024")).isEqualTo(1024);
+        assertThat(RuntimeJournalSettings.parseBytes("512B")).isEqualTo(512);
+        assertThat(RuntimeJournalSettings.parseBytes("64kb")).isEqualTo(64L * 1024);
+        assertThat(RuntimeJournalSettings.parseBytes("32MB")).isEqualTo(32L * 1024 * 1024);
+        assertThat(RuntimeJournalSettings.parseBytes(" 32M ")).isEqualTo(32L * 1024 * 1024);
+        assertThat(RuntimeJournalSettings.parseBytes("1G")).isEqualTo(1024L * 1024 * 1024);
+        assertThat(RuntimeJournalSettings.parseBytes(null)).isNull();
+        assertThat(RuntimeJournalSettings.parseBytes(" ")).isNull();
+        assertThatThrownBy(() -> RuntimeJournalSettings.parseBytes("32 megabytes"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("bootui.runtime-journal.max-bytes");
+    }
+
+    @Test
     void anEventKnowsHowItIsCorrelatedAndWhatItRetains() {
         RuntimeEvent byRequest = RuntimeEvent.of(
                 JournalSource.SQL, 1, 1, CorrelationContext.forRequest("r1"), "worker", null, false, () -> 100);

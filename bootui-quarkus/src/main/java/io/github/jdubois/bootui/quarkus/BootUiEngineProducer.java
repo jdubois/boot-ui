@@ -35,6 +35,9 @@ import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.hibernate.HibernateStatisticsService;
+import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
@@ -85,6 +88,7 @@ import io.github.jdubois.bootui.quarkus.pentesting.QuarkusPentestingObservationC
 import io.github.jdubois.bootui.quarkus.quarkusapp.QuarkusAppSnapshotProviderImpl;
 import io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskProvider;
 import io.github.jdubois.bootui.quarkus.security.QuarkusSecuritySnapshotProviderImpl;
+import io.github.jdubois.bootui.quarkus.web.DeclaredRouteTemplates;
 import io.github.jdubois.bootui.quarkus.web.GitHubApiClient;
 import io.github.jdubois.bootui.quarkus.web.QuarkusGitHubSettings;
 import io.github.jdubois.bootui.quarkus.websocket.QuarkusWebSocketMetadataProvider;
@@ -96,6 +100,7 @@ import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.HibernateStatisticsProvider;
 import io.github.jdubois.bootui.spi.LiquibaseProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
+import io.github.jdubois.bootui.spi.MappingProvider;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.github.jdubois.bootui.spi.WebSocketSessionProvider;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -104,6 +109,7 @@ import io.smallrye.config.SmallRyeConfig;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.AmbiguousResolutionException;
 import jakarta.enterprise.inject.Any;
+import jakarta.enterprise.inject.Disposes;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Produces;
 import jakarta.enterprise.inject.spi.BeanManager;
@@ -231,6 +237,49 @@ public class BootUiEngineProducer {
      * also carries that threshold to the Live Activity assembler, so both agree on which requests are slow. The
      * buffer caps and orders, the engine service masks. A singleton so writes and reads share one bounded buffer.
      */
+    /**
+     * The incremental aggregates of the runtime journal ({@code docs/PLAN-v2.md} §5.2), which name a request's route
+     * from the declared JAX-RS mappings, since Quarkus records no route template.
+     */
+    @Produces
+    @Singleton
+    public JournalAggregates journalAggregates(Instance<MappingProvider> mappings) {
+        JournalAggregates aggregates = new JournalAggregates();
+        aggregates.setDeclaredRoutes(DeclaredRouteTemplates.caching(mappings));
+        return aggregates;
+    }
+
+    /**
+     * The runtime journal of this application start ({@code docs/PLAN-v2.md} §5.2), from the same
+     * {@code bootui.runtime-journal.*} keys and defaults as the Spring adapter. The SQL recorder and the HTTP capture
+     * filter publish to it, so it exists from the first request. Its aggregates listen from its creation.
+     */
+    @Produces
+    @Singleton
+    public RuntimeJournal runtimeJournal(
+            Config config, QuarkusApplicationInfo application, JournalAggregates aggregates) {
+        RuntimeJournalSettings settings = RuntimeJournalSettings.of(
+                config.getOptionalValue("bootui.runtime-journal.enabled", Boolean.class)
+                        .orElse(true),
+                config.getOptionalValue("bootui.runtime-journal.max-events", Integer.class)
+                        .orElse(RuntimeJournalSettings.DEFAULT_MAX_EVENTS),
+                RuntimeJournalSettings.parseBytes(
+                        config.getOptionalValue("bootui.runtime-journal.max-bytes", String.class)
+                                .orElse(null)),
+                config.getOptionalValue("bootui.runtime-journal.queue-capacity", Integer.class)
+                        .orElse(RuntimeJournalSettings.DEFAULT_QUEUE_CAPACITY),
+                config.getOptionalValue("bootui.runtime-journal.sources", String.class)
+                        .orElse(null));
+        RuntimeJournal journal = new RuntimeJournal(settings, application.run());
+        journal.addListener(aggregates);
+        return journal;
+    }
+
+    /** Stops the journal's dispatcher when the application stops, including before a live reload. */
+    void closeRuntimeJournal(@Disposes RuntimeJournal journal) {
+        journal.close();
+    }
+
     @Produces
     @Singleton
     public HttpExchangeBuffer httpExchangeBuffer(Config config) {

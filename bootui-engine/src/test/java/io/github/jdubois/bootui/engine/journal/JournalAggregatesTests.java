@@ -2,9 +2,11 @@ package io.github.jdubois.bootui.engine.journal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.core.dto.MappingDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.AggregatesSnapshot;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
+import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,7 +32,7 @@ class JournalAggregatesTests {
         AggregatesSnapshot snapshot = aggregates.snapshot();
 
         RouteStats route = snapshot.routes().get(0);
-        assertThat(route.route()).isEqualTo("/api/orders/{id}");
+        assertThat(route.route()).isEqualTo("GET /api/orders/{id}");
         assertThat(route.requests()).isEqualTo(1);
         assertThat(route.statusClasses()).containsExactly(0L, 0L, 0L, 0L, 1L);
         assertThat(route.latency().percentileMicros(50)).isBetween(18_750L, 21_250L);
@@ -54,11 +56,40 @@ class JournalAggregatesTests {
                 });
         assertThat(snapshot.exceptionGroups()).singleElement().satisfies(group -> {
             assertThat(group.exceptionClass()).isEqualTo("java.lang.IllegalStateException");
-            assertThat(group.routes()).containsEntry("/api/orders/{id}", 1L);
+            assertThat(group.routes()).containsEntry("GET /api/orders/{id}", 1L);
         });
         assertThat(snapshot.run().requests()).isEqualTo(1);
         assertThat(snapshot.run().failedRequests()).isEqualTo(1);
         assertThat(snapshot.run().openRequests()).isZero();
+    }
+
+    @Test
+    void aRouteIsNamedByItsTemplateThenTheDeclaredRoutesThenItsMaskedPath() {
+        aggregates.setDeclaredRoutes(() -> RouteTemplateResolver.of(
+                List.of(new MappingDto("GET", "/api/customers/{customerId}", "h", null, null))));
+        publish(httpEvent("r1", new HttpPayload("GET", "/api/orders/42", "/api/orders/{id}", null, 200)));
+        publish(httpEvent("r2", new HttpPayload("GET", "/api/customers/7", null, null, 200)));
+        publish(httpEvent("r3", new HttpPayload("GET", "/api/files/123456", null, null, 200)));
+        publish(httpEvent("r4", new HttpPayload("POST", "/graphql", "/graphql", "query ProductList", 200)));
+
+        assertThat(aggregates.snapshot().routes())
+                .extracting(RouteStats::route)
+                .containsExactly(
+                        "GET /api/orders/{id}",
+                        "GET /api/customers/{customerId}",
+                        "GET /api/files/{value}",
+                        "POST /graphql (query ProductList)");
+    }
+
+    @Test
+    void statementsAggregateByTheirLiteralFreeFingerprint() {
+        publish(sql("r1", "SELECT * FROM orders WHERE id = 41", 1_000, null, false));
+        publish(sql("r1", "select * from orders where id = 42", 1_000, null, false));
+
+        assertThat(aggregates.snapshot().statements()).singleElement().satisfies(statement -> {
+            assertThat(statement.fingerprint()).isEqualTo("select * from orders where id = ?");
+            assertThat(statement.executions()).isEqualTo(2);
+        });
     }
 
     @Test
@@ -109,11 +140,11 @@ class JournalAggregatesTests {
 
         assertThat(snapshot.run().unattributedRequests()).isEqualTo(1);
         assertThat(snapshot.routes())
-                .filteredOn(route -> route.route().equals("/api/first"))
+                .filteredOn(route -> route.route().equals("GET /api/first"))
                 .singleElement()
                 .satisfies(route -> assertThat(route.childCounts()).isEmpty());
         assertThat(snapshot.routes())
-                .filteredOn(route -> route.route().equals("/api/second"))
+                .filteredOn(route -> route.route().equals("GET /api/second"))
                 .singleElement()
                 .satisfies(route -> assertThat(route.childCounts()).containsEntry(JournalSource.SQL, 1L));
     }
@@ -200,7 +231,12 @@ class JournalAggregatesTests {
                 "http-nio-8080-exec-1",
                 null,
                 status >= 500,
-                new HttpPayload("GET", route, status));
+                new HttpPayload("GET", route, route, null, status));
+    }
+
+    private static RuntimeEvent httpEvent(String requestId, HttpPayload payload) {
+        return RuntimeEvent.of(
+                JournalSource.HTTP, 1_000, 1_000, CorrelationContext.forRequest(requestId), "t", null, false, payload);
     }
 
     private static RuntimeEvent sql(String requestId, String fingerprint, long nanos, String callSite, boolean failed) {

@@ -26,6 +26,8 @@ import java.util.concurrent.atomic.LongAdder;
  * gives each event its sequence number, retains it in the {@link EvidenceRing}, and hands the batch to the listeners,
  * such as the incremental aggregates, which therefore see every accepted event, including those later evicted.</p>
  *
+ * <p>Work on BootUI's own threads, named {@value #BOOTUI_THREAD_PREFIX}…, is never recorded.</p>
+ *
  * <p>Sequence numbers are unique within the run, and each event's id joins the run id and its sequence, so a restart
  * never collides with an earlier run.</p>
  */
@@ -33,6 +35,9 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
 
     /** The dispatcher thread's name. */
     public static final String DISPATCHER_THREAD = "bootui-journal-dispatch";
+
+    /** The name prefix of BootUI's own threads, whose work is never recorded. */
+    public static final String BOOTUI_THREAD_PREFIX = "bootui-";
 
     /** The most events the dispatcher processes at once. */
     public static final int BATCH_SIZE = 512;
@@ -90,7 +95,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
      */
     @Override
     public boolean offer(RuntimeEvent event) {
-        if (event == null || !settings.records(event.source())) {
+        if (event == null || !settings.records(event.source()) || isBootUiThread()) {
             return false;
         }
         int source = event.source().ordinal();
@@ -105,6 +110,11 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
         }
         dropped[source].increment();
         return false;
+    }
+
+    /** BootUI's own threads, such as its pollers and flushers, never enter the journal. */
+    private static boolean isBootUiThread() {
+        return Thread.currentThread().getName().startsWith(BOOTUI_THREAD_PREFIX);
     }
 
     private void dispatchLoop() {

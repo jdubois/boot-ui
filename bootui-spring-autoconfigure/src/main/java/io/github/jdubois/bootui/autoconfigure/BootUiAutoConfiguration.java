@@ -67,6 +67,7 @@ import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.cli.CliService;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.safety.ApiTokenAuthenticator;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
@@ -759,7 +760,10 @@ public class BootUiAutoConfiguration {
 
     @Bean
     public SqlTraceRecorder bootUiSqlTraceRecorder(
-            BootUiProperties properties, ThreadKindClassifier threadKinds, RequestPhases phases) {
+            BootUiProperties properties,
+            ThreadKindClassifier threadKinds,
+            RequestPhases phases,
+            RuntimeJournal journal) {
         BootUiProperties.SqlTrace sqlTrace = properties.getSqlTrace();
         boolean enabled = sqlTrace.isEnabled() && properties.isPanelEnabled(BootUiPanels.SQL_TRACE);
         SqlTraceRecorder recorder = new SqlTraceRecorder(
@@ -775,6 +779,7 @@ public class BootUiAutoConfiguration {
                 sqlTrace.getReservedSharePercent());
         recorder.setThreadKindClassifier(threadKinds);
         recorder.setRequestPhases(phases);
+        recorder.setRuntimeEventSink(journal);
         return recorder;
     }
 
@@ -1001,15 +1006,17 @@ public class BootUiAutoConfiguration {
             HttpExchangeTraceRegistry traceRegistry,
             BootUiProperties properties,
             Environment environment,
-            RequestPhases phases) {
-        FilterRegistrationBean<RequestCorrelationFilter> registration =
-                new FilterRegistrationBean<>(new RequestCorrelationFilter(
-                        registry,
-                        traceRegistry,
-                        properties.getPath(),
-                        properties.getApiPath(),
-                        ExchangeSlowThreshold.resolve(properties, environment),
-                        phases));
+            RequestPhases phases,
+            RuntimeJournal journal) {
+        RequestCorrelationFilter filter = new RequestCorrelationFilter(
+                registry,
+                traceRegistry,
+                properties.getPath(),
+                properties.getApiPath(),
+                ExchangeSlowThreshold.resolve(properties, environment),
+                phases);
+        filter.setRuntimeEventSink(journal);
+        FilterRegistrationBean<RequestCorrelationFilter> registration = new FilterRegistrationBean<>(filter);
         registration.addUrlPatterns("/*");
         registration.setOrder(org.springframework.core.Ordered.HIGHEST_PRECEDENCE + 100);
         registration.setName("bootUiRequestCorrelationFilter");

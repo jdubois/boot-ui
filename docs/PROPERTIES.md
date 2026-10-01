@@ -73,7 +73,7 @@ default — on both adapters. This includes the safety keys (`bootui.allow-non-l
 `1000`),
 `bootui.log-tail.max-bytes` (default `0`, meaning unbounded), and the `bootui.github.*`,
 `bootui.vulnerabilities.*` (including `osv-base-uri`, default `https://api.osv.dev`),
-`bootui.sql-trace.*`, `bootui.postgresql.*`, `bootui.transactions.*`, `bootui.telemetry.*` (except `max-request-bytes`), `bootui.heap-dump.*`,
+`bootui.sql-trace.*`, `bootui.runtime-journal.*`, `bootui.postgresql.*`, `bootui.transactions.*`, `bootui.telemetry.*` (except `max-request-bytes`), `bootui.heap-dump.*`,
 `bootui.exceptions.*`, `bootui.security-logs.*`, `bootui.cache.*` (except `.activity-capture-enabled` and
 `.activity-max-events`, Spring only — see above), `bootui.mcp.*`, `bootui.cli.*`, `bootui.ai.*`,
 `bootui.copilot.*`, and `bootui.claude-code.*` families. It also includes the per-panel access keys —
@@ -631,6 +631,22 @@ buffering/flush, merge-for-reads, re-queue-on-failure, the flush guard, and mult
 | `bootui.activity.persistence.retention`                 | `7d`                | How long persisted rows are kept before this instance prunes its own rows older than this on a periodic pass.                     |
 | `bootui.activity.persistence.instance-id`               | _(auto)_            | Multi-tenant partition key this instance writes/reads its rows under. Defaults to the `HOSTNAME` environment variable, or else a generated `<app-name>-<random>` id. |
 | `bootui.activity.persistence.capture-interval`          | `2s`                | How often the capture coordinator polls the merged Live Activity feed for new entries to buffer.                                  |
+
+### Runtime journal
+
+BootUI 2.0's runtime journal records every runtime event once, in a bounded in-memory structure, and keeps running
+aggregates per route, statement, exception group, transactional method, and thread family
+([PLAN-v2.md](PLAN-v2.md) §5.2). Recording never blocks a request: events wait in a bounded queue for one BootUI
+daemon thread, and an event the queue cannot take is dropped and counted. HTTP requests and SQL statements are recorded
+today; the other sources follow. Nothing is written to disk. The same keys and defaults apply on Spring and Quarkus.
+
+| Property                               | Default                                  | Description |
+| -------------------------------------- | ---------------------------------------- | ----------- |
+| `bootui.runtime-journal.enabled`       | `true`                                   | Record runtime events in the journal. |
+| `bootui.runtime-journal.max-events`    | `50000`                                  | Maximum number of events retained as evidence. A tenth of it is kept for failed and slow events. The aggregates count every event, retained or not. |
+| `bootui.runtime-journal.max-bytes`     | The smaller of 32 MB and 5 % of the heap | Maximum memory the retained events may use, estimated per event, such as `16MB`. Whichever bound is reached first evicts the oldest routine events. |
+| `bootui.runtime-journal.queue-capacity` | `10000`                                 | Maximum number of events waiting to be recorded. The last 10 % admits only failed or slow events, so a burst drops routine events first. |
+| `bootui.runtime-journal.sources`       | Every source                             | Comma-separated sources to record: `http`, `sql`, `transaction`, `exception`, `security`, `rest-client`, `cache`, `messaging`, `scheduled`, `log`, `gc`, and `resources`. An unknown name fails startup. |
 
 ### Traces
 

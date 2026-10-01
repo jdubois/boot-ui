@@ -9,8 +9,14 @@ import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.Category;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.StatementType;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
@@ -30,6 +36,54 @@ class SqlTraceRecorderTests {
     private void record(SqlTraceRecorder recorder, Category category, String sql, int batchSize) {
         recorder.record(
                 StatementType.STATEMENT, category, sql, List.of(), 1, true, null, null, batchSize, "c1", "main");
+    }
+
+    @Test
+    void publishesEachRecordedStatementToTheJournalWithItsCorrelationButNoBindValues() {
+        SqlTraceRecorder recorder = new SqlTraceRecorder(true, true, true, false, 8, 100, 2000, 200, 5, 50);
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(published::add);
+        CorrelationContext request =
+                CorrelationContext.forRequest("0123456789abcdef").withDataSource("orders");
+
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(request)) {
+            recorder.record(
+                    StatementType.PREPARED,
+                    Category.SELECT,
+                    "select * from orders where id = ?",
+                    List.of("42"),
+                    150_000,
+                    false,
+                    "boom",
+                    null,
+                    0,
+                    "c1",
+                    "http-nio-8080-exec-1");
+        }
+        BootUiCorrelation.replace(CorrelationContext.NONE);
+        record(recorder, Category.SELECT, "select 1", 0);
+
+        assertThat(published).hasSize(2);
+        RuntimeEvent event = published.get(0);
+        assertThat(event.source()).isEqualTo(JournalSource.SQL);
+        assertThat(event.requestId()).isEqualTo("0123456789abcdef");
+        assertThat(event.durationNanos()).isEqualTo(150_000_000L);
+        assertThat(event.failedOrSlow()).isTrue();
+        assertThat(event.thread()).isEqualTo("http-nio-8080-exec-1");
+        assertThat(event.payload())
+                .isEqualTo(new SqlPayload("select * from orders where id = ?", null, "orders", true));
+        assertThat(published.get(1).requestId()).isNull();
+    }
+
+    @Test
+    void publishesNothingWhatTheBufferDoesNotRecord() {
+        SqlTraceRecorder recorder = recorder(false, false, 10, 100);
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(published::add);
+
+        record(recorder, Category.SELECT, "select 1", 0);
+
+        assertThat(published).isEmpty();
     }
 
     @Test

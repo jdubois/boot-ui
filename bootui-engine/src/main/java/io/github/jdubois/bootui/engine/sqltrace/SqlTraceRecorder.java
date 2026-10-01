@@ -11,12 +11,17 @@ import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.correlation.ThreadKinds;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
 import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
+import io.github.jdubois.bootui.spi.ThreadKind;
 import io.github.jdubois.bootui.spi.ThreadKindClassifier;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.util.ArrayList;
@@ -287,6 +292,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
     private final ThreadKinds threadKinds = new ThreadKinds();
     private volatile RequestPhases requestPhases;
     private volatile SpanEnricher spanEnricher = SpanEnricher.NO_OP;
+    private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
 
     /** A recorder reserving the default share of its buffer for failed and slow executions. */
     public SqlTraceRecorder(
@@ -392,6 +398,14 @@ public final class SqlTraceRecorder implements IdleReclaimable {
      * Replaces the classifier of the thread kind stamped on each capture ({@code docs/PLAN-v2.md} §5.1): each adapter
      * installs one that knows its own threads. Defaults to classifying virtual threads only; {@code null} restores it.
      */
+    /**
+     * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives each recorded statement right after
+     * the buffer does. {@code null} restores the default, which publishes nothing.
+     */
+    public void setRuntimeEventSink(RuntimeEventSink journal) {
+        this.journal = journal == null ? RuntimeEventSink.NONE : journal;
+    }
+
     public void setThreadKindClassifier(ThreadKindClassifier classifier) {
         threadKinds.set(classifier);
     }
@@ -495,6 +509,7 @@ public final class SqlTraceRecorder implements IdleReclaimable {
             return;
         }
         CorrelationContext context = correlation.current();
+        ThreadKind threadKind = threadKinds.current();
         CapturedStatement entry = new CapturedStatement(
                 sequence.incrementAndGet(),
                 System.currentTimeMillis(),
@@ -513,9 +528,22 @@ public final class SqlTraceRecorder implements IdleReclaimable {
                 captureCallSite ? currentCallSite() : null,
                 context.requestId(),
                 context.executionId(),
-                threadKinds.current().name(),
+                threadKind.name(),
                 requestPhase(context.requestId()));
-        buffer.add(entry, isFailedOrSlow(entry.success(), isSlow(entry.durationMicros())));
+        boolean failedOrSlow = isFailedOrSlow(entry.success(), isSlow(entry.durationMicros()));
+        buffer.add(entry, failedOrSlow);
+        journal.offer(new RuntimeEvent(
+                JournalSource.SQL,
+                entry.timestamp(),
+                entry.durationMicros() * 1_000,
+                entry.requestId(),
+                entry.executionId(),
+                entry.traceId(),
+                context.spanId(),
+                entry.thread(),
+                threadKind,
+                failedOrSlow,
+                new SqlPayload(entry.sql(), entry.callSite(), context.dataSource(), !entry.success())));
         totalCaptured.incrementAndGet();
         notifyListeners();
         enrichActiveSpan(entry.traceId());
