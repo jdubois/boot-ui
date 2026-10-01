@@ -97,6 +97,11 @@ import java.util.List;
  * @param quarkusAuthorizationAnnotationCount number of {@code @PermissionsAllowed}/{@code @AuthorizationPolicy}
  *     sites in application classes
  * @param defaultRolesAllowed whether a default role requirement protects otherwise-unannotated JAX-RS endpoints
+ * @param legacyTlsProtocols value-free labels of HTTP SSL or TLS registry declarations enabling TLSv1, TLSv1.1, or SSLv3
+ * @param oidcTokenEncryptionDisabled whether an active web-app/hybrid OIDC tenant disables Quarkus-managed session
+ *     token encryption
+ * @param forwardedHeadersTrustAnyProxy whether supported production declarations process forwarded headers without
+ *     restricting the trusted proxy addresses
  * @param evidence internal completeness and direct endpoint declarations, not part of the public report DTO
  */
 public record QuarkusSecuritySnapshot(
@@ -168,6 +173,9 @@ public record QuarkusSecuritySnapshot(
         boolean nonApplicationRootPathMerged,
         int quarkusAuthorizationAnnotationCount,
         boolean defaultRolesAllowed,
+        List<String> legacyTlsProtocols,
+        boolean oidcTokenEncryptionDisabled,
+        boolean forwardedHeadersTrustAnyProxy,
         QuarkusSecurityEvidence evidence) {
 
     public QuarkusSecuritySnapshot {
@@ -181,6 +189,7 @@ public record QuarkusSecuritySnapshot(
                 insecureMessagingChannels == null ? List.of() : List.copyOf(insecureMessagingChannels);
         tlsHostnameVerificationDisabled =
                 tlsHostnameVerificationDisabled == null ? List.of() : List.copyOf(tlsHostnameVerificationDisabled);
+        legacyTlsProtocols = legacyTlsProtocols == null ? List.of() : List.copyOf(legacyTlsProtocols);
     }
 
     public QuarkusSecuritySnapshot(
@@ -321,6 +330,9 @@ public record QuarkusSecuritySnapshot(
                 nonApplicationRootPathMerged,
                 quarkusAuthorizationAnnotationCount,
                 defaultRolesAllowed,
+                List.of(),
+                false,
+                false,
                 QuarkusSecurityEvidence.LEGACY);
     }
 

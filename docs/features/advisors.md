@@ -755,7 +755,7 @@ and never receives Spring types or secret values.
 
 On Quarkus it runs a Quarkus-native ruleset instead, reading the application's HTTP permission policies, MicroProfile
 `Config`, and authorization-annotated endpoints: Elytron/OIDC authentication, `quarkus.http.auth.permission.*`
-authorization, TLS and transport policy, CORS (including the wildcard-origin-with-credentials trap), security response
+authorization, TLS and transport policy, forwarded-header proxy trust, CORS (including the wildcard-origin-with-credentials trap), security response
 headers, and Jakarta/Quarkus annotations including `@RolesAllowed`, `@PermissionsAllowed`, and `@AuthorizationPolicy`. It
 surfaces the same severity-ranked prompts, so the shared UI only relabels the metrics ("Permission policies" in place of
 "Filter chains"). See [QUARKUS-CHECKS.md](../QUARKUS-CHECKS.md) for the full Quarkus catalogue and remediation links.

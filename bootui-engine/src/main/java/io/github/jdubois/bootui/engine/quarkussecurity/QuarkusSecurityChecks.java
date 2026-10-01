@@ -24,8 +24,8 @@ import java.util.regex.Pattern;
 final class QuarkusSecurityChecks {
 
     private static final String VIOLATION = "VIOLATION";
-    private static final int RULE_COUNT = 42;
-    private static final String GUIDE = "https://quarkus.io/guides/security-overview";
+    private static final int RULE_COUNT = 45;
+    private static final String GUIDES = "https://quarkus.io/version/3.33/guides/";
     private static final Pattern MAX_AGE = Pattern.compile("max-age\\s*=\\s*(\\d+|\"\\d+\")");
     private static final long HSTS_MIN_MAX_AGE = 31536000L;
 
@@ -170,13 +170,13 @@ final class QuarkusSecurityChecks {
         if (observations.check("QS-AUTH-007", s.embeddedUsersEnabled())) {
             v.add(rule(
                     "QS-AUTH-007",
-                    "Embedded identity store enabled in the current runtime",
+                    "Embedded identity store enabled for production",
                     "Authentication",
                     "MEDIUM",
-                    "The embedded identity store is enabled in the observed runtime. This does not establish"
-                            + " that a production profile or the distinct file identity store uses these users.",
+                    "Supported local prod declarations enable the embedded identity store; %dev/%test-only"
+                            + " declarations do not. This reviews configuration, not a running production deployment.",
                     1,
-                    List.of("quarkus.security.users.embedded.enabled=true"),
+                    List.of("quarkus.security.users.embedded.enabled=true (prod or base declaration)"),
                     "Use quarkus-elytron-security-jdbc/oidc for real deployments; keep embedded users to %dev/%test."));
         }
         if (observations.check("QS-AUTH-013", s.embeddedUsersEnabled()) && s.embeddedUsersPlainText()) {
@@ -185,11 +185,11 @@ final class QuarkusSecurityChecks {
                     "Embedded users stored with plain-text passwords",
                     "Authentication",
                     "HIGH",
-                    "The embedded identity store explicitly accepts plain-text passwords. Quarkus defaults this"
-                            + " setting to false and otherwise expects digest hashes derived from the username,"
-                            + " realm, and password.",
+                    "Supported local prod declarations make the embedded identity store accept plain-text"
+                            + " passwords. Quarkus defaults this setting to false and otherwise expects digest hashes"
+                            + " derived from the username, realm, and password.",
                     1,
-                    List.of("quarkus.security.users.embedded.plain-text=true"),
+                    List.of("quarkus.security.users.embedded.plain-text=true (prod or base declaration)"),
                     "Use an identity provider or a supported adaptive password-hashing store for production;"
                             + " the embedded store's legacy digest default is not modern password-storage advice."));
         }
@@ -356,6 +356,34 @@ final class QuarkusSecurityChecks {
                             s.tlsHostnameVerificationDisabled().size(),
                             s.tlsHostnameVerificationDisabled(),
                             "Enable hostname verification for each applicable consumer; registry defaults depend on the consumer."));
+        }
+        if (observations.check("QS-TLS-006", !s.legacyTlsProtocols().isEmpty())) {
+            v.add(rule(
+                    "QS-TLS-006",
+                    "Legacy TLS protocol versions configured",
+                    "Transport",
+                    "LOW",
+                    "An HTTP SSL or TLS registry declaration enables TLSv1, TLSv1.1, or SSLv3, which RFC 8996"
+                            + " deprecates. The JDK disables them by default, and the scan does not establish that a"
+                            + " listener or client negotiates them.",
+                    s.legacyTlsProtocols().size(),
+                    s.legacyTlsProtocols(),
+                    "Remove TLSv1/TLSv1.1/SSLv3; keep the TLSv1.3,TLSv1.2 HTTP default or the TLSv1.3 registry"
+                            + " default, and isolate a legacy peer in a dedicated named TLS configuration."));
+        }
+        if (observations.check("QS-PROXY-001", s.forwardedHeadersTrustAnyProxy())) {
+            v.add(rule(
+                    "QS-PROXY-001",
+                    "Forwarded headers trusted from any address",
+                    "Proxy",
+                    "LOW",
+                    "Supported prod declarations process Forwarded/X-Forwarded-* headers without restricting"
+                            + " quarkus.http.proxy.trusted-proxies, so any peer that reaches the listener can spoof the"
+                            + " client address and scheme. Network isolation and proxy header stripping are not observed.",
+                    1,
+                    List.of("quarkus.http.proxy.proxy-address-forwarding=true without trusted-proxies"),
+                    "Set quarkus.http.proxy.trusted-proxies to the proxy addresses or CIDR ranges, and make the proxy"
+                            + " strip client-supplied forwarded headers."));
         }
         boolean explicitWildcardCors = s.corsEnabled() && isExplicitWildcardOrigin(s.corsOrigins());
         observations.check("QS-CORS-001", s.corsEnabled());
@@ -573,6 +601,20 @@ final class QuarkusSecurityChecks {
                             + ", no client secret, pkce-required=false"),
                     "Set quarkus.oidc.authentication.pkce-required=true for public clients."));
         }
+        if (observations.check("QS-OIDC-005", s.oidcConfigured() && oidcWebApp) && s.oidcTokenEncryptionDisabled()) {
+            v.add(rule(
+                    "QS-OIDC-005",
+                    "OIDC session token encryption disabled",
+                    "OIDC",
+                    "MEDIUM",
+                    "An OIDC web-app/hybrid tenant sets token-state-manager.encryption-required=false, so Quarkus"
+                            + " stores the retained ID, access and refresh tokens unencrypted: in the session cookie"
+                            + " by default, or as handed to a custom token state manager. Independent encryption by a"
+                            + " custom manager is not observed.",
+                    1,
+                    List.of("quarkus.oidc.token-state-manager.encryption-required=false"),
+                    "Remove the override so token-state-manager.encryption-required keeps its true default."));
+        }
         if (observations.check("QS-MGMT-001", s.managementEnabled()) && s.managementHostNonLoopback()) {
             v.add(rule(
                     "QS-MGMT-001",
@@ -617,9 +659,9 @@ final class QuarkusSecurityChecks {
                     "QS-SESSION-001",
                     "Form-auth session cookie not HttpOnly",
                     "Session",
-                    "HIGH",
+                    "MEDIUM",
                     "quarkus.http.auth.form.http-only-cookie defaults to false, so the form-auth session cookie"
-                            + " is readable from JavaScript — a single XSS bug is enough to steal the session.",
+                            + " is readable from JavaScript; any XSS flaw can then steal the session.",
                     1,
                     List.of("quarkus.http.auth.form.http-only-cookie=false (the Quarkus default)"),
                     "Set quarkus.http.auth.form.http-only-cookie=true."));
@@ -840,6 +882,46 @@ final class QuarkusSecurityChecks {
                 count,
                 samples.stream().limit(20).toList(),
                 recommendation,
-                GUIDE);
+                learnMore(id));
+    }
+
+    /** Rule-specific sections of the pinned Quarkus 3.33 LTS guides; the security overview is only the fallback. */
+    static String learnMore(String id) {
+        String category = id.substring(0, id.lastIndexOf('-'));
+        String guide =
+                switch (id) {
+                    case "QS-AUTH-002" -> "security-basic-authentication";
+                    case "QS-AUTH-003" -> "security-csrf-prevention";
+                    case "QS-AUTH-004", "QS-AUTH-008", "QS-AUTH-009", "QS-AUTH-014" -> "security-jwt";
+                    case "QS-AUTH-007", "QS-AUTH-013" -> "security-properties#embedded-users";
+                    case "QS-AUTH-010" -> "security-jdbc";
+                    case "QS-AUTH-012" -> "security-authentication-mechanisms#form-auth";
+                    case "QS-TLS-001", "QS-TLS-002" -> "http-reference#ssl";
+                    case "QS-TLS-003", "QS-TLS-005", "QS-DEV-001" ->
+                        "tls-registry-reference#trusting-all-certificates-and-hostname-verification";
+                    case "QS-TLS-004", "QS-OIDC-001", "QS-OIDC-004" ->
+                        "security-oidc-bearer-token-authentication#bearer-token-jwt-claim-verification";
+                    case "QS-TLS-006" -> "tls-registry-reference#tls-protocol-versions";
+                    case "QS-DEV-002" -> "openapi-swaggerui#swagger-ui";
+                    case "QS-DEV-003" -> "smallrye-health#ui";
+                    case "QS-OIDC-002" -> "security-oidc-code-flow-authentication#oidc-cookies";
+                    case "QS-OIDC-003" -> "security-oidc-code-flow-authentication#proof-key-for-code-exchange-pkce";
+                    case "QS-OIDC-005" -> "security-oidc-code-flow-authentication#token-state-manager";
+                    case "QS-CFG-001" -> "credentials-provider";
+                    case "QS-GRPC-001" -> "grpc-service-implementation#reflection-service";
+                    case "QS-GRAPHQL-001" -> "smallrye-graphql";
+                    case "QS-MSG-001" -> "kafka#tls-configuration";
+                    case "QS-PROXY-001" -> "http-reference#reverse-proxy";
+                    default ->
+                        switch (category) {
+                            case "QS-AUTHZ" -> "security-authorize-web-endpoints-reference";
+                            case "QS-CORS" -> "security-cors";
+                            case "QS-HDR" -> "http-reference#additional-http-headers";
+                            case "QS-MGMT" -> "management-interface-reference#configure-the-host-port-and-scheme";
+                            case "QS-SESSION" -> "security-authentication-mechanisms#form-auth";
+                            default -> "security-overview";
+                        };
+                };
+        return GUIDES + guide;
     }
 }

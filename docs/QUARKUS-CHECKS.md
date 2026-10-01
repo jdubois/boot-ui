@@ -1,8 +1,8 @@
 # Quarkus security checks
 
-The Security panel, on Quarkus, runs a fixed, on-demand **42-rule** ruleset against the host application's
+The Security panel, on Quarkus, runs a fixed, on-demand **45-rule** ruleset against the host application's
 **Quarkus security configuration** — not Spring Security. It reads the effective `quarkus.http.*`,
-`quarkus.oidc.*`, `quarkus.smallrye-jwt.*`, `quarkus.tls.*`, `quarkus.management.*`,
+`quarkus.oidc.*`, `quarkus.smallrye-jwt.*`, `quarkus.tls.*`, `quarkus.management.*`, `quarkus.http.proxy.*`,
 `quarkus.security.users.embedded.*`, `quarkus.rest-csrf.*` (the CSRF extension), `quarkus.grpc.server.*`,
 `quarkus.smallrye-graphql.*`, `quarkus-elytron-security-jdbc` principal-query settings, and Kafka/SmallRye
 Reactive Messaging channel security settings, plus build-time counts of the standard authorization
@@ -97,7 +97,7 @@ Dismissed rules remove all of their findings from the score.
   absence conclusion.
 - **Recommendation**: Add an auth mechanism (`quarkus-oidc`, `quarkus-smallrye-jwt`, `quarkus.http.auth.basic`) or
   restrict endpoints with `@RolesAllowed`/`@PermissionsAllowed`/ `quarkus.http.auth.permission.*`.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-overview>
 
 ### QS-AUTH-002 - Basic authentication without TLS
 
@@ -106,7 +106,7 @@ Dismissed rules remove all of their findings from the score.
   Credentials submitted through that listener would lack transport encryption; the scan does not observe submitted
   credentials or external ingress policy.
 - **Recommendation**: Set `insecure-requests=redirect` (or `disabled`) and configure SSL.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-basic-authentication>
 
 ### QS-AUTH-003 - Review form authentication CSRF defenses
 
@@ -117,7 +117,7 @@ Dismissed rules remove all of their findings from the score.
   verification or coverage of every path, method, or media type.
 - **Recommendation**: Verify coverage of state-changing browser requests; use `quarkus-rest-csrf` and embed its token
   in forms where appropriate.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-csrf-prevention>
 
 ### QS-AUTH-004 - JWT verification without an expected issuer
 
@@ -126,7 +126,7 @@ Dismissed rules remove all of their findings from the score.
   absent. Supported sources include the inline MicroProfile key, `mp.jwt.verify.publickey.location`, and the overriding
   `smallrye.jwt.verify.key.location`. Custom verifiers remain unknown; no verifier is executed to establish acceptance.
 - **Recommendation**: Set `mp.jwt.verify.issuer` to the expected token issuer.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-jwt>
 
 > **Retired: QS-AUTH-005.** Proactive authentication controls when credentials are processed, not whether
 > authorization is enforced. The supported deferred mode is not an independent security deficiency.
@@ -138,15 +138,17 @@ Dismissed rules remove all of their findings from the score.
 > the old rule reported a missing explicit preference even though the effective verifier remained pinned.
 > The rule id is retired and will not be reused.
 
-### QS-AUTH-007 - Embedded identity store enabled in the current runtime
+### QS-AUTH-007 - Embedded identity store enabled for production
 
 - **Severity**: MEDIUM
-- **Detects**: The properties identity-store capability is present and the observed runtime enables
-  `quarkus.security.users.embedded.enabled`. The embedded store is distinct from the file store. Its use in the current
-  runtime does not establish that a production deployment enables it.
+- **Detects**: The properties identity-store capability is present and supported local prod declarations enable
+  `quarkus.security.users.embedded.enabled` (`%prod.` first, then the base key). BootUI runs in dev/test, so a
+  `%dev`/`%test`-only declaration — the configuration this rule recommends — is not a finding, while an explicit
+  `%prod=false` overrides base `true`. The embedded store is distinct from the file store. This reviews configuration,
+  not a running production deployment; environment and external sources are not read for this review.
 - **Recommendation**: Review the identity-store choice for each deployment; keep demonstration users local and use an
   appropriate production identity provider or password-hashing store.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-properties#embedded-users>
 
 ### QS-AUTH-008 - JWT verification without audience validation
 
@@ -155,7 +157,7 @@ Dismissed rules remove all of their findings from the score.
   `mp.jwt.verify.audiences` declaration is observed. Scalar and supported indexed lists are recognized. This reviews
   the expected audience configuration rather than executing tokens or inferring custom validation from unrelated beans.
 - **Recommendation**: Set `mp.jwt.verify.audiences` to this service's expected audience(s).
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-jwt>
 
 ### QS-AUTH-009 - Review static JWT trust-anchor rotation
 
@@ -165,7 +167,7 @@ Dismissed rules remove all of their findings from the score.
 - **Why it matters**: Static trust anchors are supported and can rotate out of band. This is an operational reminder,
   not an inherent weakness or a requirement to use remote JWKS.
 - **Recommendation**: Document and test the trust-anchor replacement process.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-jwt>
 
 ### QS-AUTH-010 - JDBC identity store using clear-text password mapper
 
@@ -175,7 +177,7 @@ Dismissed rules remove all of their findings from the score.
   password comparison. Unrelated keys containing `principal-query`, disabled stores, and unsupported named-query
   syntax do not establish this finding.
 - **Recommendation**: Switch to `bcrypt-password-mapper` (or another hashing mapper) and re-hash stored passwords.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-jdbc>
 
 ### QS-AUTH-012 - Form authentication without TLS
 
@@ -184,17 +186,18 @@ Dismissed rules remove all of their findings from the score.
   over plain HTTP, exposing them to passive network observers and active intermediaries. Forwarded-header trust does not
   suppress the finding because it does not prove that a proxy terminates TLS.
 - **Recommendation**: Set `quarkus.http.insecure-requests=redirect` (or `disabled`) and configure TLS.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-authentication-mechanisms#form-auth>
 
 ### QS-AUTH-013 - Embedded users stored with plain-text passwords
 
 - **Severity**: HIGH
-- **Detects**: `quarkus.security.users.embedded.enabled=true` and `quarkus.security.users.embedded.plain-text=true` make
-  the embedded identity store accept literal passwords. Quarkus defaults `plain-text` to `false` and otherwise expects a
-  digest derived from `username:realm:password`.
+- **Detects**: Supported local prod declarations set both `quarkus.security.users.embedded.enabled=true` and
+  `quarkus.security.users.embedded.plain-text=true`, making the embedded identity store accept literal passwords.
+  Quarkus defaults `plain-text` to `false` and otherwise expects a digest derived from `username:realm:password`.
+  Like QS-AUTH-007, `%dev`/`%test`-only demo users are not production evidence.
 - **Recommendation**: Use a production identity provider or a supported adaptive password-hashing store. The embedded
   store's legacy digest default is not a recommendation for modern production password storage.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-properties#embedded-users>
 
 > **Retired: QS-AUTH-011** (JDBC identity store bcrypt work-factor too low) was removed. The rule checked
 > `principal-query.*.bcrypt-password-mapper.work-factor`, a property that does not exist:
@@ -214,7 +217,7 @@ Dismissed rules remove all of their findings from the score.
   `policy=permit` do not count as protection. Unsupported custom/global policies or endpoint metadata remain unknown.
 - **Recommendation**: Add `@RolesAllowed`/`@PermissionsAllowed`/`@Authenticated` or path permissions with
   `policy=authenticated`/roles.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-authorize-web-endpoints-reference>
 
 ### QS-AUTHZ-002 - Permission policy permits all paths
 
@@ -225,7 +228,7 @@ Dismissed rules remove all of their findings from the score.
   authentication is disabled: more-specific mappings, same-path restrictions, shared policies, endpoint annotations,
   and REST defaults can still restrict requests.
 - **Recommendation**: Confirm the public default is intentional; narrow it or select a restrictive policy where needed.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-authorize-web-endpoints-reference>
 
 > **Retired: QS-AUTHZ-003.** An arbitrary annotation ratio is not effective authorization coverage.
 > Path policies, defaults, public declarations and custom policies cannot be reduced to a percentage of annotated
@@ -245,7 +248,7 @@ Dismissed rules remove all of their findings from the score.
   metadata, non-default listener prefixes, and unsupported scopes remain unknown rather than being executed or
   treated as public.
 - **Recommendation**: Set `deny-unannotated-endpoints=true` (or default roles) and mark public endpoints `@PermitAll`.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-authorize-web-endpoints-reference>
 
 ## Transport
 
@@ -257,7 +260,7 @@ Dismissed rules remove all of their findings from the score.
   configuration does not suppress it.
 - **Why it matters**: Acceptable in local dev or behind a TLS-terminating proxy; risky if exposed directly.
 - **Recommendation**: Prefer `redirect` once TLS is available, or document the terminating proxy.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/http-reference#ssl>
 
 ### QS-TLS-002 - No TLS configured for the main HTTP listener
 
@@ -269,7 +272,7 @@ Dismissed rules remove all of their findings from the score.
   Password, alias, ordering, and other option defaults are not certificate material and do not, by themselves, make
   TLS observation incomplete.
 - **Recommendation**: Acceptable behind a verified terminating proxy.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/http-reference#ssl>
 
 ### QS-TLS-003 - TLS certificate validation disabled
 
@@ -278,7 +281,7 @@ Dismissed rules remove all of their findings from the score.
   bucket** (`quarkus.tls.<name>.trust-all`), disabling peer certificate validation wherever that bucket is used and
   creating a transport-validation risk. The scan does not establish whether every named bucket is consumed.
 - **Recommendation**: Remove `trust-all`; import the peer's CA into a trust-store instead.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/tls-registry-reference#trusting-all-certificates-and-hostname-verification>
 
 ### QS-TLS-004 - Identity-provider and JWK endpoints should use HTTPS
 
@@ -288,7 +291,7 @@ Dismissed rules remove all of their findings from the score.
   absent capabilities or disabled tenants does not establish a finding. No discovery, key retrieval, or other network
   request is made, and endpoint values are not retained in report samples.
 - **Recommendation**: Use HTTPS endpoints with certificate validation enabled.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-oidc-bearer-token-authentication#bearer-token-jwt-claim-verification>
 
 ### QS-TLS-005 - TLS hostname verification disabled
 
@@ -299,7 +302,22 @@ Dismissed rules remove all of their findings from the score.
   avoids a duplicate/obsolete finding.
 - **Recommendation**: Enable hostname verification for each applicable consumer. TLS-registry defaults depend on the
   consumer; the presence of a bucket alone does not establish a connection using it.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/tls-registry-reference#trusting-all-certificates-and-hostname-verification>
+
+### QS-TLS-006 - Legacy TLS protocol versions configured
+
+- **Severity**: LOW
+- **Detects**: An effective `quarkus.http.ssl.protocols`, `quarkus.tls.protocols`, or `quarkus.tls.<name>.protocols` list
+  (scalar or indexed) enables `TLSv1`, `TLSv1.1`, or `SSLv3`, compared case-insensitively. `SSLv2Hello` is a
+  ClientHello compatibility format, not a protocol version, and is not flagged. Like Quarkus's `HttpServerOptionsUtils`,
+  the legacy HTTP list is ignored when `quarkus.http.tls-configuration-name` or a default registry key store owns the
+  listener. Report samples are value-free declaration labels; unresolved lists remain incomplete.
+- **Why it matters**: RFC 8996 deprecates TLS 1.0 and 1.1. The JDK disables them by default through
+  `jdk.tls.disabledAlgorithms`, so an explicit opt-in is often inert, and the scan does not establish that a named
+  bucket is consumed or that a listener or client negotiates a legacy version.
+- **Recommendation**: Remove the legacy versions. Quarkus defaults the HTTP list to `TLSv1.3,TLSv1.2` and the TLS
+  registry to `TLSv1.3`; isolate a legacy peer in a dedicated named TLS configuration.
+- **Learn more**: <https://quarkus.io/version/3.33/guides/tls-registry-reference#tls-protocol-versions>
 
 ## CORS
 
@@ -313,18 +331,20 @@ Dismissed rules remove all of their findings from the score.
   Arbitrary regexes are not executed or classified as safe.
 - **Recommendation**: Confirm public response sharing is intentional, or configure trusted origins. CORS is not an
   authentication or authorization boundary.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-cors>
 
 ### QS-CORS-002 - CORS wildcard origin with credentials
 
 - **Severity**: HIGH
 - **Detects**: A supported universal origin configuration allows credentials. Explicit
   `quarkus.http.cors.access-control-allow-credentials` wins; otherwise both exact and regex origin matches default
-  credentials to `true`. A sole literal `*` defaults credentials to `false`, unlike a matching universal regex.
+  credentials to `true`. A sole `*` **or sole `/.*/`** is Quarkus's wildcard origin
+  (`CORSFilter.isOriginConfiguredWithWildcard`), which defaults credentials to `false` and is reviewed by QS-CORS-001
+  instead. A universal regex inside a list, or a sole `/^.*$/`, is matched as a regex and defaults credentials to `true`.
   Quarkus reflects the request Origin, so this is not the browser-rejected literal `Access-Control-Allow-Origin: *`
   plus credentials combination. QS-CORS-001 is not also emitted for the same credentialed policy.
 - **Recommendation**: Pin explicit origins; never combine wildcard with credentials.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-cors>
 
 > **Retired: QS-CORS-003.** Reflecting requested methods/headers for an allowed origin is supported
 > Quarkus/Fetch behavior, not an independent bypass of the origin trust boundary. Least-privilege API design
@@ -355,7 +375,7 @@ Dismissed rules remove all of their findings from the score.
   Multiple or scoped declarations are not combined into an effective delivered policy.
 - **Recommendation**: Review the lifetime and rollout plan. One year is a review baseline, not a protocol minimum.
   `includeSubDomains` is optional and should be enabled only when every subdomain is HTTPS-ready.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/http-reference#additional-http-headers>
 
 ### QS-HDR-002 - Weak Content-Security-Policy
 
@@ -367,7 +387,7 @@ Dismissed rules remove all of their findings from the score.
   Report-only policy does not establish enforcement; enforcing plus report-only is valid. Multiple policies,
   unsupported syntax, unknown custom-writer ordering, and uncertain path/method scope remain incomplete.
 - **Recommendation**: Remove unsafe-inline/unsafe-eval and wildcard sources; use nonces/hashes for scripts.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/http-reference#additional-http-headers>
 
 ### QS-HDR-003 - Missing Strict-Transport-Security header
 
@@ -377,7 +397,7 @@ Dismissed rules remove all of their findings from the score.
   proxies, and uncertain header scope prevent an absence conclusion.
 - **Recommendation**: Add `quarkus.http.header."Strict-Transport-Security".value=max-age=31536000`; add
   `includeSubDomains` only after every subdomain is HTTPS-ready.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/http-reference#additional-http-headers>
 
 ### QS-HDR-004 - Missing Content-Security-Policy header
 
@@ -386,7 +406,7 @@ Dismissed rules remove all of their findings from the score.
   alone is not enforcing, but an additional report-only policy does not invalidate an enforcing one. API-only or
   uncertain document applicability, custom filters, and scoped/multiple header declarations remain incomplete.
 - **Recommendation**: Add a CSP tailored to the app's script/style/asset origins.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/http-reference#additional-http-headers>
 
 ### QS-HDR-005 - Missing clickjacking protection
 
@@ -398,7 +418,7 @@ Dismissed rules remove all of their findings from the score.
   override XFO; unknown CSP composition or writer/path/method scope cannot be assumed safe because XFO exists.
 - **Recommendation**: Use a restrictive enforcing CSP `frame-ancestors`, such as `'none'`. XFO `DENY` is an alternative
   only without an overriding enforcing ancestor directive.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/http-reference#additional-http-headers>
 
 ### QS-HDR-006 - Missing X-Content-Type-Options header
 
@@ -407,7 +427,7 @@ Dismissed rules remove all of their findings from the score.
   recognized value are compared case-insensitively; an arbitrary nonblank value does not count. Scoped headers and
   custom response filters remain unknown, and the scan does not observe proxy-delivered or runtime-written headers.
 - **Recommendation**: Add `quarkus.http.header."X-Content-Type-Options".value=nosniff`.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/http-reference#additional-http-headers>
 
 > **Retired: QS-HDR-007.** Modern browsers default to `strict-origin-when-cross-origin`; the absence of an explicit
 > Referrer-Policy does not establish the full-URL disclosure asserted by the former rule. Applications can still select
@@ -425,7 +445,7 @@ Dismissed rules remove all of their findings from the score.
   deprecated in Quarkus 3.33 in favor of a TLS registry configuration. Only active tenants are considered; a selected
   named TLS configuration overrides the legacy setting.
 - **Recommendation**: Sometimes used against a local dev provider, but must never reach production.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/tls-registry-reference#trusting-all-certificates-and-hostname-verification>
 
 ### QS-DEV-002 - Swagger/GraphQL UI always included
 
@@ -436,7 +456,7 @@ Dismissed rules remove all of their findings from the score.
   anonymous access, or a running production deployment. `quarkus.smallrye-openapi.always-include` does not exist and
   is not evaluated.
 - **Recommendation**: Restrict it to dev, or remove `always-include`.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/openapi-swaggerui#swagger-ui>
 
 ### QS-DEV-003 - SmallRye Health UI always included
 
@@ -446,7 +466,7 @@ Dismissed rules remove all of their findings from the score.
   availability, access policy, and production exposure; none is inferred from inclusion alone.
 - **Recommendation**: Remove the override so the Health UI is only available outside production, or protect it via the
   management interface / a permission policy.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/smallrye-health#ui>
 
 ## OIDC
 
@@ -463,7 +483,7 @@ Dismissed rules remove all of their findings from the score.
 - **Why it matters**: The severity is HIGH for service/M2M flows because RFC 8725 requires each JWT application to
   validate that the token was issued for it.
 - **Recommendation**: Set the tenant's token audience to this resource server's expected audience.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-oidc-bearer-token-authentication#bearer-token-jwt-claim-verification>
 
 ### QS-OIDC-002 - OIDC web-app session cookie not forced secure
 
@@ -473,7 +493,7 @@ Dismissed rules remove all of their findings from the score.
   make HTTP session cookies secure. Disabled or redirected HTTP does not trigger this finding.
 - **Recommendation**: Disable or redirect HTTP and review `quarkus.oidc.authentication.cookie-force-secure`, including
   trusted proxy handling. The scan does not establish external TLS termination.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-oidc-code-flow-authentication#oidc-cookies>
 
 ### QS-OIDC-003 - Public OIDC client without PKCE
 
@@ -484,7 +504,7 @@ Dismissed rules remove all of their findings from the score.
   PKCE by default; an explicit `authentication.pkce-required=false` overrides that default. Dynamic tenants, custom
   providers, unsupported source/profile combinations, and incomplete credential metadata remain unknown.
 - **Recommendation**: Set `quarkus.oidc.authentication.pkce-required=true` for public clients.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-oidc-code-flow-authentication#proof-key-for-code-exchange-pkce>
 
 ### QS-OIDC-004 - OIDC token issuer validation is bypassed
 
@@ -494,7 +514,21 @@ Dismissed rules remove all of their findings from the score.
   supplies `any` unless explicitly overridden. Disabled tenants are excluded, and no token or tenant resolver is invoked.
 - **Recommendation**: Remove `token.issuer=any` and pin the exact trusted issuer; use explicit tenant resolution when
   multiple issuers are intentional.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-oidc-bearer-token-authentication#bearer-token-jwt-claim-verification>
+
+### QS-OIDC-005 - OIDC session token encryption disabled
+
+- **Severity**: MEDIUM
+- **Detects**: An active default or named `web-app`/`hybrid` tenant sets
+  `quarkus.oidc[.<tenant>].token-state-manager.encryption-required=false` (Quarkus default `true`). Service tenants and
+  disabled tenants are excluded; dynamic tenants are not evaluated.
+- **Why it matters**: The default token state manager then stores the retained ID, access, and refresh tokens in the
+  session cookie without encryption. When encryption is required, Quarkus also encrypts tokens before handing them to a
+  custom (database or Redis) token state manager; disabling it hands them over in plain text. Independent encryption by a
+  custom manager is not observed. The cookie stays HttpOnly by default, so this is defense in depth for bearer
+  artifacts, not a replacement for cookie protection.
+- **Recommendation**: Remove the override so `token-state-manager.encryption-required` keeps its `true` default.
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-oidc-code-flow-authentication#token-state-manager>
 
 ## Management
 
@@ -507,7 +541,7 @@ Dismissed rules remove all of their findings from the score.
   not be inferred from a profile name: `RUN` and `NORMAL` can both default to `prod`, while BootUI remains excluded
   from `NORMAL`.
 - **Recommendation**: Bind the host to `127.0.0.1`, or protect the management endpoints.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/management-interface-reference#configure-the-host-port-and-scheme>
 
 > **Retired: QS-MGMT-002.** Sharing an application namespace does not itself create endpoints, remove
 > authorization or prove wider exposure. Paths and protection need endpoint-specific evidence.
@@ -524,34 +558,62 @@ Dismissed rules remove all of their findings from the score.
   a possible deployment configuration, not an observed production listener. It can differ from the runtime state
   reviewed by QS-MGMT-001 and does not establish launch mode, firewall policy, or endpoint authorization.
 - **Recommendation**: Explicitly pin `%prod.quarkus.management.host` to `127.0.0.1`, or to the intended bind address.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/management-interface-reference#configure-the-host-port-and-scheme>
+
+## Proxy
+
+### QS-PROXY-001 - Forwarded headers trusted from any address
+
+- **Severity**: LOW
+- **Detects**: Supported local prod declarations (`%prod.` first, then the base key) enable
+  `quarkus.http.proxy.proxy-address-forwarding` with forwarded-header processing — `allow-forwarded=true`, or
+  `allow-x-forwarded`, which defaults to `!allow-forwarded` exactly as in Quarkus's `ForwardingProxyOptions` — and
+  `quarkus.http.proxy.trusted-proxies` is absent, empty, or contains a universal range (`0.0.0.0/0`, `::/0`). An
+  effective runtime `trusted-proxies` value (for example from the environment) also counts as a restriction. Unresolved
+  declarations remain incomplete.
+- **Why it matters**: Without trusted proxies Quarkus accepts `Forwarded`/`X-Forwarded-*` from every peer, so a client
+  that reaches the listener directly, or through a proxy that does not strip those headers, can spoof the client address
+  and scheme (and the host when `enable-forwarded-host` is set). The Quarkus HTTP reference warns that activating
+  forwarding "leaves the server exposed to several security issues (i.e. information spoofing)". Network isolation
+  and proxy header stripping are not observable, hence LOW.
+- **Recommendation**: Set `quarkus.http.proxy.trusted-proxies` to the proxy addresses or CIDR ranges, and make the proxy
+  strip client-supplied forwarded headers.
+- **Learn more**: <https://quarkus.io/version/3.33/guides/http-reference#reverse-proxy>
 
 ## Config hygiene
 
 ### QS-CFG-001 - Possible secret in configuration
 
 - **Severity**: MEDIUM
-- **Detects**: A config key's terminal segment identifies a password, secret, API key, private key, token, or
-  access/refresh token set to a literal value (not an externalized `${...}` reference). Scans application and `%prod`
+- **Detects**: A config key's terminal segment identifies a password, secret, API key, private key, token,
+  access/refresh token, or symmetric key (`encryption-key`, `signature-key`, `signing-key`, `secretkey`) set to a
+  literal value (not an externalized `${...}` reference). Inline private keys whose terminal segment is the generic
+  `key` are matched by exact name only: `smallrye.jwt.sign.key`, `smallrye.jwt.decrypt.key`, and
+  `quarkus.oidc[.<tenant>].credentials.jwt.key`. Public keys (`mp.jwt.verify.publickey`) and `*.location`/`*-file`
+  references are excluded. Scans application and `%prod`
   configuration, including the `quarkus.*` namespace — e.g. `quarkus.datasource.password`,
-  `quarkus.oidc.credentials.secret`, `quarkus.mail.password` are all in scope, alongside application-owned keys.
+  `quarkus.oidc.credentials.secret`, `quarkus.mail.password` are all in scope, alongside application-owned keys. A
+  committed `quarkus.http.auth.session.encryption-key` (form-auth cookie encryption), `quarkus.rest-csrf.token-signature-key`
+  (CSRF token HMAC) or `smallrye.jwt.verify.secretkey` (HMAC JWT verification) lets anyone with the source forge
+  sessions, CSRF tokens or JWTs.
 - **Scope**: Only recognized local application properties/YAML source provenance is inspected for literal
   credentials. Environment-variable, system-property, config-tree, remote, and custom sources are not enumerated or
   read to infer committed secrets. `${...}` expressions, `%dev`/`%test` values, BootUI internals, and metadata keys such
   as `quarkus.oidc.token.issuer` are excluded. Bounded safe labels enter report samples; values and application exception
   text never do. This is local source hygiene, not proof of credential exposure, current use, or production deployment.
 - **Recommendation**: Move committed literals to a vault/env var.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/credentials-provider>
 
 ## Session
 
 ### QS-SESSION-001 - Form-auth session cookie not HttpOnly
 
-- **Severity**: HIGH
-- **Detects**: `quarkus.http.auth.form.http-only-cookie` defaults to `false` in Quarkus — unlike most frameworks — so
-  the form-auth session cookie is readable from JavaScript; a single XSS bug is enough to steal the session.
+- **Severity**: MEDIUM
+- **Detects**: `quarkus.http.auth.form.http-only-cookie` defaults to `false` in Quarkus 3.33 (`FormAuthConfig`) — unlike
+  most frameworks — so the form-auth session cookie is readable from JavaScript; any XSS flaw can then steal the
+  session. Exploitation needs a separate XSS flaw, so the rule is MEDIUM, matching the Spring `SEC-SESSION-003` control.
 - **Recommendation**: Set `quarkus.http.auth.form.http-only-cookie=true`.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-authentication-mechanisms#form-auth>
 
 ### QS-SESSION-002 - Form-auth session cookie SameSite=None
 
@@ -560,7 +622,7 @@ Dismissed rules remove all of their findings from the score.
   cookie use. This can be an intentional compatibility choice, not an independent proof of missing CSRF defenses.
 - **Recommendation**: Use Secure with SameSite=None and verify independent CSRF defenses. Prefer Strict/Lax when
   compatible with the required browser flows.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-authentication-mechanisms#form-auth>
 
 ### QS-SESSION-003 - Long form-auth idle timeout
 
@@ -569,7 +631,7 @@ Dismissed rules remove all of their findings from the score.
   hours. This is an **idle** timeout, not an absolute session lifespan: active sessions can renew. Eight hours is a
   heuristic review threshold; invalid or unsupported durations never become a passing default.
 - **Recommendation**: Lower the timeout (the Quarkus default is 30 minutes) and pair it with `new-cookie-interval`.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/security-authentication-mechanisms#form-auth>
 
 ## gRPC
 
@@ -582,7 +644,7 @@ Dismissed rules remove all of their findings from the score.
 - **Why it matters**: Reflection makes service/schema metadata discoverable to permitted callers. This is a production
   configuration review, not proof of public access or a running production server.
 - **Recommendation**: Remove the `%prod` override; keep reflection enabled only in `%dev`/`%test`.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/grpc-service-implementation#reflection-service>
 
 ## GraphQL
 
@@ -596,7 +658,7 @@ Dismissed rules remove all of their findings from the score.
 - **Why it matters**: Often intentional for public APIs, but worth a deliberate decision.
 - **Recommendation**: Add `no-introspection` to `quarkus.smallrye-graphql.field-visibility` in `%prod` unless the schema
   is meant to be publicly discoverable.
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/smallrye-graphql>
 
 ## Messaging
 
@@ -614,7 +676,7 @@ Dismissed rules remove all of their findings from the score.
   unencrypted setup. The rule does not claim that every SASL mechanism transmits a raw password.
 - **Recommendation**: Set `security.protocol=SASL_SSL` (or `SSL`) for each affected channel (or globally via
   `kafka.security.protocol`).
-- **Learn more**: <https://quarkus.io/guides/security-overview>
+- **Learn more**: <https://quarkus.io/version/3.33/guides/kafka#tls-configuration>
 
 ## Audit sources and limits
 
@@ -642,6 +704,22 @@ The implementation review is pinned to **3.33.3.1**:
   [OWASP headers](https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html),
   [JWT BCP](https://www.rfc-editor.org/rfc/rfc8725) and
   [OAuth BCP](https://www.rfc-editor.org/rfc/rfc9700) provide the browser/token context.
+
+- [FormAuthConfig](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/vertx-http/runtime/src/main/java/io/quarkus/vertx/http/runtime/FormAuthConfig.java)
+  confirms the `http-only-cookie=false` and `cookie-same-site=strict` defaults;
+  [ProxyConfig](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/vertx-http/runtime/src/main/java/io/quarkus/vertx/http/runtime/ProxyConfig.java)
+  and [ForwardingProxyOptions](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/vertx-http/runtime/src/main/java/io/quarkus/vertx/http/runtime/ForwardingProxyOptions.java)
+  establish that an absent `trusted-proxies` list trusts every peer (3.33 has no `trusted-proxy[n].subject-dn`);
+  [ServerSslConfig](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/vertx-http/runtime/src/main/java/io/quarkus/vertx/http/runtime/ServerSslConfig.java)
+  and [HttpServerOptionsUtils](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/vertx-http/runtime/src/main/java/io/quarkus/vertx/http/runtime/options/HttpServerOptionsUtils.java)
+  define the protocol defaults and registry precedence.
+- Learn-more links point to the version-pinned [Quarkus 3.33 guides](https://quarkus.io/version/3.33/guides/), whose
+  anchors were verified; the unversioned guides already document later releases.
+
+Considered and not added: a SmallRye JWT `smallrye.jwt.verify.relax-key-validation` rule. Its documented default is
+`false`, but SmallRye JWT 4.6.3 (the version Quarkus 3.33 ships) declares `defaultValue = "true"` in
+`JWTAuthContextInfoProvider`, so the relaxation is the library default for every JWT application and is inert unless an
+issuer actually signs with a short RSA key, which configuration cannot observe.
 
 Custom policies, dynamic tenants, credentials providers, external sources and delivered headers are not evaluated
 by executing application code. Unsupported evidence remains incomplete; no active testing or endpoint mutation is

@@ -114,6 +114,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reports MBean registration, JMX proxies, and remote connectors instead
   ([GraalVM readiness checks](docs/GRAALVM-READINESS-CHECKS.md#october-2026-audit),
   [#1171](https://github.com/jdubois/boot-ui/pull/1171)).
+- **Quarkus Security advisor audit (45 rules).** Three new rules: `QS-TLS-006` flags legacy TLS protocol versions in
+  HTTP SSL or TLS registry lists, `QS-OIDC-005` flags OIDC web-app tenants that disable session token encryption, and
+  `QS-PROXY-001` flags forwarded headers trusted from any address. `QS-AUTH-007` and `QS-AUTH-013` now review
+  production declarations, so `%dev`/`%test`-only embedded users are no longer reported. `QS-SESSION-001` is lowered
+  to MEDIUM. `QS-CFG-001` now also catches committed symmetric keys and inline private keys. A sole `/.*/` CORS
+  origin no longer reports `QS-CORS-002`, because Quarkus treats it as the wildcard origin with credentials
+  defaulting to `false`. Every rule links to a rule-specific section of the Quarkus 3.33 guides
+  ([#1161](https://github.com/jdubois/boot-ui/pull/1161), [Quarkus security checks](docs/QUARKUS-CHECKS.md)).
 - **One request slow threshold on every stack.** `bootui.activity.request-slow-threshold-ms` (default 1,000 ms) is now
   honored by Spring WebFlux and Quarkus as well as Spring MVC. It sets the `SLOW` severity of Live Activity `REQUEST`
   and `SCHEDULED` entries and decides which exchanges are kept longer. Spring WebFlux and Quarkus previously used a
