@@ -59,7 +59,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   SecureRandom seeding (`MEDIUM` for generator fields) and covers `SplittableRandom`, `CRAC-SECRET-001` no longer
   reports credential-named JPA entity columns, `CRAC-POOL-002` covers Kafka, Lettuce, Jedis, and Netty event-loop
   clients, and `CRAC-CACHE-001` explains expiry across restore precisely
-  ([CRaC readiness checks](docs/CRAC-READINESS-CHECKS.md)).
+  ([CRaC readiness checks](docs/CRAC-READINESS-CHECKS.md), [#1170](https://github.com/jdubois/boot-ui/pull/1170)).
 - **One request slow threshold on every stack.** `bootui.activity.request-slow-threshold-ms` (default 1,000 ms) is now
   honored by Spring WebFlux and Quarkus as well as Spring MVC. It sets the `SLOW` severity of Live Activity `REQUEST`
   and `SCHEDULED` entries and decides which exchanges are kept longer. Spring WebFlux and Quarkus previously used a
