@@ -242,6 +242,9 @@ class QuarkusSecurityScannerTest {
         boolean nonAppRootPathMerged = false;
         int quarkusAuthorizationAnnotations = 0;
         boolean defaultRolesAllowed = false;
+        List<String> legacyTlsProtocols = List.of();
+        boolean oidcTokenEncryptionDisabled = false;
+        boolean forwardedHeadersTrustAnyProxy = false;
         QuarkusSecurityEvidence evidence = QuarkusSecurityEvidence.LEGACY;
 
         QuarkusSecuritySnapshot build() {
@@ -314,6 +317,9 @@ class QuarkusSecurityScannerTest {
                     nonAppRootPathMerged,
                     quarkusAuthorizationAnnotations,
                     defaultRolesAllowed,
+                    legacyTlsProtocols,
+                    oidcTokenEncryptionDisabled,
+                    forwardedHeadersTrustAnyProxy,
                     evidence);
         }
     }
@@ -1009,7 +1015,7 @@ class QuarkusSecurityScannerTest {
         s.csrf = true; // isolate from QS-AUTH-003
         s.formHttpOnly = false;
         SecurityReport r = scan(s);
-        assertThat(find(r, "QS-SESSION-001").severity()).isEqualTo("HIGH");
+        assertThat(find(r, "QS-SESSION-001").severity()).isEqualTo("MEDIUM");
     }
 
     @Test
@@ -1346,7 +1352,137 @@ class QuarkusSecurityScannerTest {
         s.secured = 0;
         SecurityReport r = scan(s);
         assertThat(r.results()).allSatisfy(x -> assertThat(x.id()).startsWith("QS-"));
-        assertThat(r.scan().rulesEvaluated()).isEqualTo(42);
+        assertThat(r.scan().rulesEvaluated()).isEqualTo(45);
+    }
+
+    @Test
+    void legacyTlsProtocolDeclarationsFlagTls006WithValueFreeLabels() {
+        Snap s = new Snap();
+        s.legacyTlsProtocols = List.of("default TLS registry bucket (TLSv1.1)", "HTTP server SSL declaration (TLSv1)");
+        SecurityRuleResultDto result = find(scan(s), "QS-TLS-006");
+        assertThat(result.severity()).isEqualTo("LOW");
+        assertThat(result.category()).isEqualTo("Transport");
+        assertThat(result.violationCount()).isEqualTo(2);
+        assertThat(result.sampleViolations()).containsExactlyElementsOf(s.legacyTlsProtocols);
+        assertThat(result.learnMoreUrl())
+                .isEqualTo("https://quarkus.io/version/3.33/guides/tls-registry-reference#tls-protocol-versions");
+        assertThat(find(scan(new Snap()), "QS-TLS-006")).isNull();
+    }
+
+    @Test
+    void forwardedHeadersTrustedFromAnyProxyFlagsProxy001() {
+        Snap s = new Snap();
+        s.forwardedHeadersTrustAnyProxy = true;
+        SecurityRuleResultDto result = find(scan(s), "QS-PROXY-001");
+        assertThat(result.severity()).isEqualTo("LOW");
+        assertThat(result.category()).isEqualTo("Proxy");
+        assertThat(result.learnMoreUrl())
+                .isEqualTo("https://quarkus.io/version/3.33/guides/http-reference#reverse-proxy");
+        s.forwardedHeadersTrustAnyProxy = false;
+        s.behindProxy = true;
+        assertThat(find(scan(s), "QS-PROXY-001")).isNull();
+    }
+
+    @Test
+    void disabledOidcTokenEncryptionFlagsOidc005OnlyForWebTenants() {
+        Snap s = new Snap();
+        s.oidc = true;
+        s.oidcAppType = "web-app";
+        s.oidcServiceTokenConsumer = false;
+        s.oidcTokenEncryptionDisabled = true;
+        SecurityRuleResultDto result = find(scan(s), "QS-OIDC-005");
+        assertThat(result.severity()).isEqualTo("MEDIUM");
+        assertThat(result.learnMoreUrl())
+                .isEqualTo(
+                        "https://quarkus.io/version/3.33/guides/security-oidc-code-flow-authentication#token-state-manager");
+
+        s.oidcAppType = "service";
+        s.oidcServiceTokenConsumer = true;
+        assertThat(find(scan(s), "QS-OIDC-005")).isNull();
+
+        s.oidcAppType = "hybrid";
+        assertThat(find(scan(s), "QS-OIDC-005")).isNotNull();
+        s.oidcTokenEncryptionDisabled = false;
+        assertThat(find(scan(s), "QS-OIDC-005")).isNull();
+    }
+
+    @Test
+    void unknownNewRuleEvidenceSuppressesTheFindingAndReportsPartialCoverage() {
+        Snap s = new Snap();
+        s.forwardedHeadersTrustAnyProxy = true;
+        s.legacyTlsProtocols = List.of("named TLS registry declaration (TLSv1)");
+        s.evidence = new QuarkusSecurityEvidence(
+                Set.of("QS-PROXY-001", "QS-TLS-006"),
+                List.of("unresolved production declaration"),
+                List.of(),
+                List.of(),
+                false);
+        SecurityReport r = scan(s);
+        assertThat(find(r, "QS-PROXY-001")).isNull();
+        assertThat(find(r, "QS-TLS-006")).isNull();
+        assertThat(r.scan().status()).isEqualTo("PARTIAL");
+    }
+
+    @Test
+    void everyRuleLinksToARuleSpecificQuarkusGuide() {
+        List<String> ids = List.of(
+                "QS-AUTH-001",
+                "QS-AUTH-002",
+                "QS-AUTH-003",
+                "QS-AUTH-004",
+                "QS-AUTH-007",
+                "QS-AUTH-008",
+                "QS-AUTH-009",
+                "QS-AUTH-010",
+                "QS-AUTH-012",
+                "QS-AUTH-013",
+                "QS-AUTHZ-001",
+                "QS-AUTHZ-002",
+                "QS-AUTHZ-004",
+                "QS-TLS-001",
+                "QS-TLS-002",
+                "QS-TLS-003",
+                "QS-TLS-004",
+                "QS-TLS-005",
+                "QS-TLS-006",
+                "QS-CORS-001",
+                "QS-CORS-002",
+                "QS-HDR-001",
+                "QS-HDR-002",
+                "QS-HDR-003",
+                "QS-HDR-004",
+                "QS-HDR-005",
+                "QS-HDR-006",
+                "QS-DEV-001",
+                "QS-DEV-002",
+                "QS-DEV-003",
+                "QS-OIDC-001",
+                "QS-OIDC-002",
+                "QS-OIDC-003",
+                "QS-OIDC-004",
+                "QS-OIDC-005",
+                "QS-MGMT-001",
+                "QS-MGMT-003",
+                "QS-CFG-001",
+                "QS-SESSION-001",
+                "QS-SESSION-002",
+                "QS-SESSION-003",
+                "QS-GRPC-001",
+                "QS-GRAPHQL-001",
+                "QS-MSG-001",
+                "QS-PROXY-001");
+        assertThat(ids).hasSize(QuarkusSecurityChecks.ruleCount()).doesNotHaveDuplicates();
+        // Verified against the pinned Quarkus 3.33 guides and anchors; only the authentication-absence rule uses the
+        // overview.
+        assertThat(ids)
+                .allSatisfy(id -> assertThat(QuarkusSecurityChecks.learnMore(id))
+                        .startsWith("https://quarkus.io/version/3.33/guides/")
+                        .satisfies(url ->
+                                assertThat(url.endsWith("/security-overview")).isEqualTo(id.equals("QS-AUTH-001"))));
+        assertThat(QuarkusSecurityChecks.learnMore("QS-SESSION-002"))
+                .isEqualTo("https://quarkus.io/version/3.33/guides/security-authentication-mechanisms#form-auth");
+        assertThat(QuarkusSecurityChecks.learnMore("QS-HDR-004"))
+                .isEqualTo("https://quarkus.io/version/3.33/guides/http-reference#additional-http-headers");
     }
 
     @Test

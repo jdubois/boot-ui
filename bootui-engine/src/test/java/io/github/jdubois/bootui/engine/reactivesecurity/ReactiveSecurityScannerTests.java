@@ -388,7 +388,7 @@ class ReactiveSecurityScannerTests {
             WebFilterChainObservation chain = new WebFilterChainObservation(
                     0,
                     "any request",
-                    List.of("HttpHeaderWriterWebFilter"),
+                    List.of("OAuth2LoginAuthenticationWebFilter", "HttpHeaderWriterWebFilter"),
                     true,
                     List.of("XFrameOptionsServerHttpHeadersWriter"),
                     null,
@@ -403,7 +403,7 @@ class ReactiveSecurityScannerTests {
         WebFilterChainObservation reporting = new WebFilterChainObservation(
                 0,
                 "any request",
-                List.of("HttpHeaderWriterWebFilter"),
+                List.of("OAuth2LoginAuthenticationWebFilter", "HttpHeaderWriterWebFilter"),
                 true,
                 List.of("XFrameOptionsServerHttpHeadersWriter"),
                 null,
@@ -416,7 +416,7 @@ class ReactiveSecurityScannerTests {
         WebFilterChainObservation unknown = new WebFilterChainObservation(
                 0,
                 "any request",
-                List.of("HttpHeaderWriterWebFilter"),
+                List.of("OAuth2LoginAuthenticationWebFilter", "HttpHeaderWriterWebFilter"),
                 true,
                 List.of("XFrameOptionsServerHttpHeadersWriter"),
                 null,
@@ -1108,7 +1108,7 @@ class ReactiveSecurityScannerTests {
         WebFilterChainObservation enforcingPolicy = new WebFilterChainObservation(
                 0,
                 "any request",
-                List.of("AuthorizationWebFilter", "HttpHeaderWriterWebFilter"),
+                List.of("AuthorizationWebFilter", "OAuth2LoginAuthenticationWebFilter", "HttpHeaderWriterWebFilter"),
                 Boolean.FALSE,
                 List.of("ContentTypeOptionsServerHttpHeadersWriter"),
                 null,
@@ -1118,7 +1118,7 @@ class ReactiveSecurityScannerTests {
         WebFilterChainObservation reportOnlyPolicy = new WebFilterChainObservation(
                 0,
                 "any request",
-                List.of("AuthorizationWebFilter", "HttpHeaderWriterWebFilter"),
+                List.of("AuthorizationWebFilter", "OAuth2LoginAuthenticationWebFilter", "HttpHeaderWriterWebFilter"),
                 Boolean.FALSE,
                 List.of("ContentTypeOptionsServerHttpHeadersWriter"),
                 null,
@@ -1128,7 +1128,7 @@ class ReactiveSecurityScannerTests {
         WebFilterChainObservation directiveNameOnlyInUrl = new WebFilterChainObservation(
                 0,
                 "any request",
-                List.of("AuthorizationWebFilter", "HttpHeaderWriterWebFilter"),
+                List.of("AuthorizationWebFilter", "OAuth2LoginAuthenticationWebFilter", "HttpHeaderWriterWebFilter"),
                 Boolean.FALSE,
                 List.of("ContentTypeOptionsServerHttpHeadersWriter"),
                 null,
@@ -1138,7 +1138,7 @@ class ReactiveSecurityScannerTests {
         WebFilterChainObservation unrestrictedPolicy = new WebFilterChainObservation(
                 0,
                 "any request",
-                List.of("AuthorizationWebFilter", "HttpHeaderWriterWebFilter"),
+                List.of("AuthorizationWebFilter", "OAuth2LoginAuthenticationWebFilter", "HttpHeaderWriterWebFilter"),
                 Boolean.FALSE,
                 List.of("ContentTypeOptionsServerHttpHeadersWriter"),
                 null,
@@ -1165,7 +1165,7 @@ class ReactiveSecurityScannerTests {
         WebFilterChainObservation chain = new WebFilterChainObservation(
                 0,
                 "any request",
-                List.of("AuthorizationWebFilter", "HttpHeaderWriterWebFilter"),
+                List.of("AuthorizationWebFilter", "OAuth2LoginAuthenticationWebFilter", "HttpHeaderWriterWebFilter"),
                 Boolean.FALSE,
                 List.of("ContentSecurityPolicyServerHttpHeadersWriter"),
                 null,
@@ -1187,7 +1187,7 @@ class ReactiveSecurityScannerTests {
         WebFilterChainObservation reportOnlyChain = new WebFilterChainObservation(
                 0,
                 "any request",
-                List.of("AuthorizationWebFilter", "HttpHeaderWriterWebFilter"),
+                List.of("AuthorizationWebFilter", "OAuth2LoginAuthenticationWebFilter", "HttpHeaderWriterWebFilter"),
                 Boolean.FALSE,
                 List.of("ContentSecurityPolicyServerHttpHeadersWriter"),
                 null,
@@ -1197,7 +1197,7 @@ class ReactiveSecurityScannerTests {
         WebFilterChainObservation enforcingChain = new WebFilterChainObservation(
                 0,
                 "any request",
-                List.of("AuthorizationWebFilter", "HttpHeaderWriterWebFilter"),
+                List.of("AuthorizationWebFilter", "OAuth2LoginAuthenticationWebFilter", "HttpHeaderWriterWebFilter"),
                 Boolean.FALSE,
                 List.of("ContentSecurityPolicyServerHttpHeadersWriter"),
                 null,
@@ -1434,6 +1434,83 @@ class ReactiveSecurityScannerTests {
     }
 
     @Test
+    void plainHttpOAuth2ClientProviderEndpointIsHighOnlyInProduction() {
+        WebFilterChainObservation chain = new WebFilterChainObservation(
+                0, "any request", List.of("AuthorizationWebFilter"), Boolean.FALSE, List.of(), null, null, null, null);
+        String key = "spring.security.oauth2.client.provider.corp.token-uri";
+
+        SecurityReport production = scan(chain, clientEndpoints(List.of("prod"), Set.of(key)));
+        SecurityReport development = scan(chain, clientEndpoints(List.of("dev"), Set.of(key)));
+        SecurityReport secure = scan(chain, clientEndpoints(List.of("prod"), Set.of()));
+
+        assertThat(production.results())
+                .filteredOn(result -> result.id().equals("SEC-RXF-OAUTH2-005"))
+                .singleElement()
+                .satisfies(result -> {
+                    assertThat(result.severity()).isEqualTo("HIGH");
+                    assertThat(result.sampleViolations()).containsExactly(key + " uses plain HTTP.");
+                });
+        assertThat(development.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-RXF-OAUTH2-005");
+        assertThat(secure.results()).extracting(SecurityRuleResultDto::id).doesNotContain("SEC-RXF-OAUTH2-005");
+    }
+
+    @Test
+    void documentHeaderRulesIgnoreBearerOnlyApiChainsButReviewBrowserLoginChains() {
+        WebFilterChainObservation bearerApi = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("AuthenticationWebFilter", "AuthorizationWebFilter", "HttpHeaderWriterWebFilter"),
+                Boolean.FALSE,
+                true,
+                List.of("ContentTypeOptionsServerHttpHeadersWriter"),
+                null,
+                null,
+                null,
+                null,
+                true,
+                false,
+                false,
+                true,
+                null,
+                List.of(),
+                false);
+        WebFilterChainObservation oneTimeTokenLogin = new WebFilterChainObservation(
+                0,
+                "any request",
+                List.of("AuthenticationWebFilter", "AuthorizationWebFilter", "HttpHeaderWriterWebFilter"),
+                Boolean.FALSE,
+                false,
+                List.of("ContentTypeOptionsServerHttpHeadersWriter"),
+                null,
+                null,
+                null,
+                null,
+                true,
+                true,
+                false,
+                true,
+                null,
+                List.of(),
+                false);
+
+        SecurityReport api = scan(bearerApi, List.of(), false);
+        SecurityReport browser = scan(oneTimeTokenLogin, List.of(), false);
+
+        assertThat(api.results())
+                .extracting(SecurityRuleResultDto::id)
+                .doesNotContain("SEC-RXF-HEAD-002", "SEC-RXF-HEAD-004");
+        assertThat(browser.results())
+                .extracting(SecurityRuleResultDto::id)
+                .contains("SEC-RXF-HEAD-002", "SEC-RXF-HEAD-004", "SEC-RXF-CSRF-001");
+    }
+
+    private static ReactiveSecurityEnvironmentSnapshot clientEndpoints(List<String> profiles, Set<String> keys) {
+        return new ReactiveSecurityEnvironmentSnapshot(
+                false, null, null, false, profiles, false, false, false, false, null, Set.of(), false, false, false,
+                false, false, Set.of(), true, Map.of(), Set.of(), true, keys);
+    }
+
+    @Test
     void traceSecurityLoggingTriggersProductionRuleAndRemovedRulesStayAbsent() {
         WebFilterChainObservation chain = new WebFilterChainObservation(
                 0, "any request", List.of("AuthorizationWebFilter"), Boolean.FALSE, List.of(), null, null, null, null);
@@ -1451,7 +1528,7 @@ class ReactiveSecurityScannerTests {
     @Test
     void ruleCountMatchesRegistry() {
         assertThat(ReactiveSecurityRuleRegistry.activeRules()).hasSize(RULE_COUNT);
-        assertThat(RULE_COUNT).isEqualTo(25);
+        assertThat(RULE_COUNT).isEqualTo(26);
     }
 
     @Test
@@ -1467,9 +1544,14 @@ class ReactiveSecurityScannerTests {
                 .map(r -> r.definition().id())
                 .toList();
         assertThat(ids).doesNotHaveDuplicates();
-        assertThat(ids).hasSize(25);
+        assertThat(ids).hasSize(26);
         assertThat(ids)
-                .contains("SEC-RXF-ACT-005", "SEC-RXF-OAUTH2-004", "SEC-RXF-CORS-003", "SEC-RXF-AUTHZ-004")
+                .contains(
+                        "SEC-RXF-ACT-005",
+                        "SEC-RXF-OAUTH2-004",
+                        "SEC-RXF-OAUTH2-005",
+                        "SEC-RXF-CORS-003",
+                        "SEC-RXF-AUTHZ-004")
                 .doesNotContain("SEC-RXF-CONFIG-001", "SEC-RXF-OAUTH2-001", "SEC-RXF-AUTHZ-002", "SEC-RXF-AUTHZ-003");
         List<String> sorted = ids.stream().sorted().toList();
         // Registry order need not be alphabetical, but must be stable/deterministic across calls.

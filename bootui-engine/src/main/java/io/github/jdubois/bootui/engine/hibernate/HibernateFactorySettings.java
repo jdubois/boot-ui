@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.hibernate;
 /**
  * Allowlisted factory defaults, not a configuration dump. Null scalars and UNKNOWN classifications
  * mean unavailable, never a synthesized default. Session/query overrides are outside this observation.
+ * A {@code jdbcFetchSize} of 0 is an observed unset size, which leaves the JDBC driver default in place.
  */
 public record HibernateFactorySettings(
         Integer jdbcBatchSize,
@@ -24,7 +25,8 @@ public record HibernateFactorySettings(
         Boolean sqlComments,
         Boolean jdbcTimeZoneConfigured,
         Integer jdbcFetchSize,
-        Boolean oracle) {
+        Boolean oracle,
+        Boolean postgresql) {
 
     public enum RegionFactory {
         AVAILABLE,
@@ -84,6 +86,7 @@ public record HibernateFactorySettings(
                 RegionFactory.UNKNOWN,
                 ConnectionProvider.UNKNOWN,
                 SchemaAction.UNKNOWN,
+                null,
                 null,
                 null,
                 null,

@@ -92,7 +92,6 @@ class ArchitectureGeneratedCodeRulesTests {
                         public static org.slf4j.Logger logger;
                         public static java.util.logging.Logger jul = java.util.logging.Logger.getLogger("example");
                         public static java.util.Date date;
-                        @jakarta.inject.Inject public static Object injected;
                         public static boolean flag;
                         public static void run() {
                             System.out.println("example");
@@ -110,11 +109,12 @@ class ArchitectureGeneratedCodeRulesTests {
                     }
                     """.formatted(packageName));
             sources.put(
-                    folder + owner + "/BadInterface.java",
-                    "package " + packageName + "; public interface BadInterface {}");
-            sources.put(
                     folder + owner + "/BadFailure.java",
                     "package " + packageName + "; public class BadFailure extends RuntimeException {}");
+            sources.put(
+                    folder + owner + "/FieldInjected.java",
+                    "package " + packageName
+                            + "; public class FieldInjected { @jakarta.inject.Inject Object injected; }");
         }
         sources.put(
                 "target/generated-sources/support/LegacyClock.java",
@@ -135,9 +135,17 @@ class ArchitectureGeneratedCodeRulesTests {
         var rules = ArchitectureRuleRegistry.activeRules().stream()
                 .filter(rule -> rule.definition().category() == ArchitectureCategory.CODING_PRACTICES)
                 .toList();
-        assertThat(rules).hasSize(18);
+        assertThat(rules).hasSize(16);
         for (var platform : ArchitecturePlatform.values()) {
             for (var rule : rules) {
+                if (platform == ArchitecturePlatform.QUARKUS
+                        && rule.definition().id().equals("ARCH-CODE-003")) {
+                    // java.util.logging is a built-in Quarkus logging API, so the check does not run there.
+                    assertThat(rule.evaluate(new ArchitectureContext(classes, List.of("sample"), platform))
+                                    .status())
+                            .isEqualTo("SKIPPED");
+                    continue;
+                }
                 var baseline = rule.evaluate(new ArchitectureContext(handwritten, List.of("sample"), platform));
                 assertThat(baseline.violationCount())
                         .as("%s positive control", rule.definition().id())

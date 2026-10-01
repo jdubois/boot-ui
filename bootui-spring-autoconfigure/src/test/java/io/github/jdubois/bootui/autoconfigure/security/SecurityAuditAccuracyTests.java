@@ -74,16 +74,19 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.access.intercept.RequestMatcherDelegatingAuthorizationManager;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.authentication.ott.OneTimeTokenAuthenticationFilter;
 import org.springframework.security.web.authentication.session.ChangeSessionIdAuthenticationStrategy;
 import org.springframework.security.web.authentication.session.NullAuthenticatedSessionStrategy;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 import org.springframework.security.web.header.HeaderWriterFilter;
 import org.springframework.security.web.header.writers.ContentSecurityPolicyHeaderWriter;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.AnyRequestMatcher;
 import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.security.web.webauthn.authentication.WebAuthnAuthenticationFilter;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -194,11 +197,8 @@ class SecurityAuditAccuracyTests {
         var chain = model(new DefaultSecurityFilterChain(AnyRequestMatcher.INSTANCE, custom));
         assertThat(chain.details().filtersKnown()).isFalse();
         var context = context(chain, new MockEnvironment());
-        for (var rule : List.of(
-                new ResourceServerValidationRule(),
-                new JwtAudienceValidationRule(),
-                new CorsWildcardOriginRule(),
-                new WeakRememberMeKeyRule())) {
+        for (var rule :
+                List.of(new JwtAudienceValidationRule(), new CorsWildcardOriginRule(), new WeakRememberMeKeyRule())) {
             rule.evaluate(context);
         }
         var evidence = context.evidence().evaluation().evidence(List.of());
@@ -759,6 +759,97 @@ class SecurityAuditAccuracyTests {
         assertThat(model(new DefaultSecurityFilterChain(AnyRequestMatcher.INSTANCE, form))
                         .sessionFixationDisabled())
                 .isTrue();
+    }
+
+    @Test
+    void springSecurity7LoginFiltersAreKnownAndPasskeyDefaultIsDistinguished() throws Exception {
+        var passkey = new WebAuthnAuthenticationFilter();
+        FilterChainModel chain = model(new DefaultSecurityFilterChain(AnyRequestMatcher.INSTANCE, passkey));
+        assertThat(chain.details().filtersKnown()).isTrue();
+        assertThat(chain.browserCredentials()).isTrue();
+        assertThat(chain.sessionFixationDisabled()).isTrue();
+        assertThat(chain.details().passkeySessionStrategyMissing()).isTrue();
+
+        passkey.setSecurityContextRepository(new RequestAttributeSecurityContextRepository());
+        chain = model(new DefaultSecurityFilterChain(AnyRequestMatcher.INSTANCE, passkey));
+        assertThat(chain.sessionFixationDisabled()).isNull();
+        assertThat(chain.details().passkeySessionStrategyMissing()).isFalse();
+
+        passkey.setSecurityContextRepository(new HttpSessionSecurityContextRepository());
+        passkey.setSessionAuthenticationStrategy(new ChangeSessionIdAuthenticationStrategy());
+        assertThat(model(new DefaultSecurityFilterChain(AnyRequestMatcher.INSTANCE, passkey))
+                        .sessionFixationDisabled())
+                .isFalse();
+
+        var oneTimeToken = new OneTimeTokenAuthenticationFilter();
+        oneTimeToken.setSessionAuthenticationStrategy(new ChangeSessionIdAuthenticationStrategy());
+        chain = model(new DefaultSecurityFilterChain(AnyRequestMatcher.INSTANCE, oneTimeToken));
+        assertThat(chain.details().filtersKnown()).isTrue();
+        assertThat(chain.browserCredentials()).isTrue();
+        assertThat(chain.sessionFixationDisabled()).isFalse();
+    }
+
+    @Test
+    void webAuthnDslLeavesPasskeyLoginWithoutSessionFixationProtectionUnlessPostProcessed() {
+        new WebApplicationContextRunner()
+                .withUserConfiguration(PasskeyConfiguration.class)
+                .run(application -> {
+                    SecurityReport report = scanExisting((DefaultListableBeanFactory)
+                            application.getSourceApplicationContext().getBeanFactory());
+                    assertThat(report.results())
+                            .filteredOn(result -> result.id().equals("SEC-SESSION-001"))
+                            .singleElement()
+                            .satisfies(result -> assertThat(result.sampleViolations())
+                                    .singleElement()
+                                    .asString()
+                                    .contains("passkey (webAuthn())"));
+                });
+        new WebApplicationContextRunner()
+                .withUserConfiguration(PasskeyConfiguration.class)
+                .withPropertyValues("test.passkey.rotate=true")
+                .run(application -> {
+                    SecurityReport report = scanExisting((DefaultListableBeanFactory)
+                            application.getSourceApplicationContext().getBeanFactory());
+                    assertThat(report.results())
+                            .extracting(SecurityRuleResultDto::id)
+                            .doesNotContain("SEC-SESSION-001");
+                });
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableWebSecurity
+    static class PasskeyConfiguration {
+        @Bean
+        UserDetailsService users() {
+            return new InMemoryUserDetailsManager(User.withUsername("user")
+                    .password("{noop}unused")
+                    .roles("USER")
+                    .build());
+        }
+
+        @Bean
+        SecurityFilterChain passkeyChain(HttpSecurity http, Environment environment) throws Exception {
+            boolean rotate = environment.getProperty("test.passkey.rotate", Boolean.class, false);
+            return http.authorizeHttpRequests(
+                            authorize -> authorize.anyRequest().authenticated())
+                    .formLogin(Customizer.withDefaults())
+                    .webAuthn(webAuthn -> {
+                        webAuthn.rpName("BootUI").rpId("localhost").allowedOrigins("http://localhost:8080");
+                        if (rotate) {
+                            webAuthn.withObjectPostProcessor(
+                                    new org.springframework.security.config.ObjectPostProcessor<
+                                            WebAuthnAuthenticationFilter>() {
+                                        @Override
+                                        public <O extends WebAuthnAuthenticationFilter> O postProcess(O filter) {
+                                            filter.setSessionAuthenticationStrategy(
+                                                    new ChangeSessionIdAuthenticationStrategy());
+                                            return filter;
+                                        }
+                                    });
+                        }
+                    })
+                    .build();
+        }
     }
 
     @Test
