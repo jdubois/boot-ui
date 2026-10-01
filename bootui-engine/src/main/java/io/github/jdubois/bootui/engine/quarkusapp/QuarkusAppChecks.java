@@ -21,30 +21,27 @@ final class QuarkusAppChecks {
 
     private static final String GUIDE = "https://quarkus.io/guides/";
     private static final int MAX_SAMPLES = 20;
-    private static final Set<String> PRODUCTION_RULES =
-            Set.of("QA-CFG-002", "QA-CFG-003", "QA-PROD-002", "QA-PROD-003");
+    private static final Set<String> PRODUCTION_RULES = Set.of(
+            "QA-CFG-002",
+            "QA-CFG-003",
+            "QA-CFG-005",
+            "QA-PROD-002",
+            "QA-PROD-003",
+            "QA-WEB-001",
+            "QA-WEB-002",
+            "QA-WEB-004");
     private static final List<Check> CHECKS = List.of(
             new Check(
-                    "QA-CDI-001",
-                    "Public state on an application-scoped bean",
-                    "CDI",
-                    "LOW",
-                    "Resolved application-scoped beans expose potentially mutable public state. This is a review"
-                            + " prompt, not evidence of concurrent mutation or a data race.",
-                    "Review ownership and access to public state. Encapsulate it or use request scope when appropriate;"
-                            + " a final reference alone does not establish deep immutability.",
-                    "cdi-reference",
-                    Set.of(),
-                    Set.of()),
-            new Check(
                     "QA-CDI-002",
-                    "Public state on a shared REST resource",
+                    "Public state on a singleton REST resource",
                     "CDI",
                     "MEDIUM",
-                    "Application REST resources with a resolved shared scope expose potentially mutable public state."
-                            + " Concurrent access is possible; no race or actual mutation has been established.",
-                    "Review state ownership and concurrent access. Prefer request-local state where appropriate;"
-                            + " interceptor locks do not protect direct public-field access.",
+                    "Application REST resources resolved as singletons, the Quarkus REST default, expose potentially"
+                            + " mutable public state shared by concurrent requests. No race or actual mutation has been"
+                            + " established.",
+                    "Keep request-specific data in method-local variables or parameters, and expose shared state only"
+                            + " as an immutable value or an encapsulated operation. Interceptor locks do not protect"
+                            + " direct public-field access.",
                     "cdi-reference",
                     Set.of(),
                     Set.of()),
@@ -55,9 +52,27 @@ final class QuarkusAppChecks {
                     "LOW",
                     "Resolved singleton beans expose potentially mutable public state. This is a review prompt,"
                             + " not evidence of concurrent mutation or a data race.",
-                    "Review ownership and access to public state. Encapsulate it or use request scope when appropriate;"
-                            + " a final reference alone does not establish deep immutability.",
+                    "Review ownership and access to public state: expose an immutable value or an encapsulated"
+                            + " operation. A final reference alone does not establish deep immutability. Do not move the"
+                            + " field to a normal scope such as request scope; see QA-CDI-004.",
                     "cdi-reference",
+                    Set.of(),
+                    Set.of()),
+            new Check(
+                    "QA-CDI-004",
+                    "Public field on a normal-scoped bean",
+                    "CDI",
+                    "MEDIUM",
+                    "Resolved normal-scoped beans (application, request, session or custom normal scope) declare"
+                            + " non-static public fields. CDI treats this as a definition error that ArC does not enforce."
+                            + " Injected references are one shared client proxy with its own copy of each field, so"
+                            + " direct field access through them does not reach the current contextual instance and,"
+                            + " for request or session scope, can expose writes across requests. Field accesses"
+                            + " have not been observed.",
+                    "Make the field private and access the state through methods of the bean, which the client proxy"
+                            + " delegates to the current contextual instance. Package-private visibility alone still"
+                            + " permits direct proxy-field access from the same package.",
+                    "cdi#client_proxies",
                     Set.of(),
                     Set.of()),
             new Check(
@@ -87,12 +102,30 @@ final class QuarkusAppChecks {
                     "Legacy schema-generation property",
                     "Configuration",
                     "LOW",
-                    "An observed nonblank declaration uses the deprecated Hibernate database.generation property.",
-                    "Migrate to schema-management.strategy and remove the legacy declaration after review;"
-                            + " the explicit legacy property takes precedence on this Quarkus baseline.",
+                    "An observed nonblank declaration uses the deprecated Hibernate database.generation group,"
+                            + " deprecated for removal since Quarkus 3.22. One finding is reported per persistence unit"
+                            + " and profile.",
+                    "Migrate database.generation to schema-management.strategy, database.generation.create-schemas to"
+                            + " schema-management.create-schemas and database.generation.halt-on-error to"
+                            + " schema-management.halt-on-error, then remove the legacy declarations; an explicit legacy"
+                            + " value takes precedence on this Quarkus baseline.",
                     "hibernate-orm",
                     Set.of("legacy"),
                     Set.of("legacy")),
+            new Check(
+                    "QA-CFG-005",
+                    "Bind-parameter logging in observed production configuration",
+                    "Configuration",
+                    "HIGH",
+                    "A visible production declaration enables Hibernate ORM bind-parameter logging, which can write"
+                            + " every bound value, including personal data, credentials or tokens, to the logs. This"
+                            + " build-time setting is fixed when the production application is packaged; it does not"
+                            + " prove that a future build uses this declaration or that log handling exposes it.",
+                    "Remove the production declaration of quarkus.hibernate-orm.log.bind-parameters (and the deprecated"
+                            + " log.bind-param); enable it only temporarily outside production.",
+                    "hibernate-orm#quarkus-hibernate-orm_quarkus-hibernate-orm-log-bind-parameters",
+                    Set.of("true", "false"),
+                    Set.of("true")),
             new Check(
                     "QA-PROD-002",
                     "Automatic schema changes in observed production configuration",
@@ -126,17 +159,19 @@ final class QuarkusAppChecks {
                     "Application-server response compression is disabled. Upstream compression, response media types,"
                             + " and workload have not been inspected.",
                     "Consider enabling application-server compression only if upstream handling and suitable response"
-                            + " media types justify it; avoid unnecessary duplicate compression.",
+                            + " media types justify it; avoid unnecessary duplicate compression. An explicit"
+                            + " quarkus.http.enable-compression=false records that decision and suppresses this prompt.",
                     "http-reference",
                     Set.of("default-disabled", "disabled", "enabled"),
-                    Set.of("default-disabled", "disabled")),
+                    Set.of("default-disabled")),
             new Check(
                     "QA-WEB-002",
                     "HTTP request-draining timeout is zero",
                     "Web",
-                    "MEDIUM",
-                    "The configured zero shutdown timeout disables waiting for in-flight HTTP requests."
-                            + " This is not a statement about completion of every background operation.",
+                    "LOW",
+                    "The configured zero shutdown timeout disables waiting for in-flight HTTP requests; zero does not"
+                            + " mean waiting without limit. This is not a statement about completion of every"
+                            + " background operation.",
                     "Set a positive supported duration, for example quarkus.shutdown.timeout=10s, if HTTP request"
                             + " draining is needed. Removing the override does not enable draining.",
                     "http-reference",
@@ -215,7 +250,7 @@ final class QuarkusAppChecks {
         if (metadata != null) {
             metadata.sharedFields().stream()
                     .filter(QuarkusAppMetadata.SharedField::resource)
-                    .filter(field -> "APPLICATION".equals(field.scope()) || "SINGLETON".equals(field.scope()))
+                    .filter(field -> "SINGLETON".equals(field.scope()))
                     .map(field -> field.className() + "." + field.fieldName())
                     .forEach(resourceFields::add);
         }
@@ -274,16 +309,14 @@ final class QuarkusAppChecks {
                         }
                     } else {
                         for (QuarkusAppMetadata.SharedField field : metadata.sharedFields()) {
-                            if (!"APPLICATION".equals(field.scope()) && !"SINGLETON".equals(field.scope())) {
+                            String fieldRule = fieldRule(field);
+                            if (fieldRule == null) {
                                 fail(failures, check.id(), Reason.UNRESOLVED_DECLARATION);
                                 continue;
                             }
-                            String fieldRule = field.resource()
-                                    ? "QA-CDI-002"
-                                    : "APPLICATION".equals(field.scope()) ? "QA-CDI-001" : "QA-CDI-003";
                             String identity = field.className() + "." + field.fieldName();
                             if (check.id().equals(fieldRule)
-                                    && (field.resource() || !resourceFields.contains(identity))) {
+                                    && (!fieldRule.equals("QA-CDI-003") || !resourceFields.contains(identity))) {
                                 samples.add(identity);
                                 applicableObservation = true;
                             }
@@ -313,6 +346,17 @@ final class QuarkusAppChecks {
             }
         }
         return new Evaluation(List.copyOf(findings), List.copyOf(errors), evaluated, inspected, usable);
+    }
+
+    /** Normal scopes share the client-proxy mechanism; only singleton fields are reached directly. */
+    private static String fieldRule(QuarkusAppMetadata.SharedField field) {
+        if ("APPLICATION".equals(field.scope()) || "NORMAL".equals(field.scope())) {
+            return "QA-CDI-004";
+        }
+        if ("SINGLETON".equals(field.scope())) {
+            return field.resource() ? "QA-CDI-002" : "QA-CDI-003";
+        }
+        return null;
     }
 
     private static void recordProblem(Map<String, Set<Reason>> failures, QuarkusAppEvidenceProblem problem) {
