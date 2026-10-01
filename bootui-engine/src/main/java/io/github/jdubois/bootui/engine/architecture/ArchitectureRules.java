@@ -736,8 +736,15 @@ final class NoDeprecatedApiRule extends AbstractArchitectureRule {
  * rule filed under "Spring stereotypes" fire on ordinary CDI code with no Spring on the classpath at
  * all. {@link FieldsShouldNotUseStandardInjectionAnnotationsRule} covers those standard annotations
  * as a separate, framework-neutral coding-practice rule instead.</p>
+ *
+ * <p>A Kotlin primary-constructor property such as {@code class Foo(@Value("\${x}") private val x: String)} is
+ * constructor injection, but Kotlin also copies the annotation onto the backing field. That copy is recognised by
+ * {@link KotlinBytecode#isConstructorPropertyAnnotation} and not reported.</p>
  */
 final class NoFieldInjectionRule extends AbstractArchitectureRule {
+
+    private static final List<String> SPRING_INJECTION_ANNOTATIONS =
+            List.of(SpringStereotypes.AUTOWIRED, SpringStereotypes.VALUE);
 
     private static final ArchCondition<JavaField> BE_ANNOTATED_WITH_SPRING_INJECTION_ANNOTATION =
             ArchConditions.<JavaField>beAnnotatedWith(SpringStereotypes.AUTOWIRED)
@@ -762,9 +769,26 @@ final class NoFieldInjectionRule extends AbstractArchitectureRule {
         return noFields()
                 .that()
                 .areNotStatic()
+                .and(new DescribedPredicate<JavaField>("are not Kotlin constructor-property backing fields") {
+                    @Override
+                    public boolean test(JavaField field) {
+                        return !isConstructorPropertyBackingField(field);
+                    }
+                })
                 .and(observed(DescribedPredicate.alwaysTrue(), context))
                 .should(BE_ANNOTATED_WITH_SPRING_INJECTION_ANNOTATION)
                 .as("no classes should use Spring field injection");
+    }
+
+    /** Whether every Spring injection annotation on the field is Kotlin's copy of a constructor-property one. */
+    private static boolean isConstructorPropertyBackingField(JavaField field) {
+        boolean copied = false;
+        for (String annotation : SPRING_INJECTION_ANNOTATIONS) {
+            if (!field.isAnnotatedWith(annotation)) continue;
+            if (!KotlinBytecode.isConstructorPropertyAnnotation(field, annotation)) return false;
+            copied = true;
+        }
+        return copied;
     }
 }
 

@@ -258,6 +258,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   manager, rollback rules, isolation or timeout differ, the callee also carries another proxy annotation, or the call
   is written inside a lambda or a `try` block ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-004---beans-should-not-self-invoke-their-own-proxied-methods),
   [#1176](https://github.com/jdubois/boot-ui/issues/1176)).
+- **ARCH-SPRING-001 no longer reports Kotlin constructor injection as field injection.** Kotlin copies an annotation
+  such as `@Value` or `@Autowired` written on a primary-constructor property onto the backing field as well, so
+  `class Foo(@Value("\${key}") private val key: String)` was reported as field injection. A field in a Kotlin class
+  is now skipped when a constructor parameter of the same type carries the identical annotation; `@Autowired lateinit
+  var` and annotated class-body properties are still reported
+  ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-001---classes-should-not-use-field-injection),
+  [#1175](https://github.com/jdubois/boot-ui/issues/1175)).
 - **The REST API advisor reads Quarkus REST `@ResponseStatus` and `@ResponseHeader`.** A `@POST @ResponseStatus(201)`
   creation method is no longer reported as using the default status, and a declared `Location` or `Retry-After`
   header satisfies `RAPI-RESP-008` and `RAPI-ERR-007`. Versioned `/v3/...` API handlers are no longer mistaken for

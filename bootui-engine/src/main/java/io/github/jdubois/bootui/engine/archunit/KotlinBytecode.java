@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.archunit;
 
+import com.tngtech.archunit.core.domain.JavaAnnotation;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaConstructor;
 import com.tngtech.archunit.core.domain.JavaField;
@@ -13,6 +14,8 @@ import com.tngtech.archunit.core.domain.JavaType;
 import com.tngtech.archunit.core.domain.JavaWildcardType;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
@@ -27,7 +30,7 @@ import java.util.regex.Pattern;
  * engine must stay framework- and library-neutral for all three adapters, and a Java-only host
  * application must never pay for Kotlin support.
  *
- * <p>Two concerns are covered:
+ * <p>Three concerns are covered:
  *
  * <ul>
  *   <li><strong>Compiler-generated noise.</strong> The Kotlin compiler emits classes the developer
@@ -41,6 +44,9 @@ import java.util.regex.Pattern;
  *       is {@code kotlin.Unit} for a function that declares no result). Advisors that reason about a
  *       method's parameters or return type therefore have to unwrap it, or they judge every
  *       suspending function against a signature the developer never wrote.</li>
+ *   <li><strong>Copied constructor-property annotations.</strong> An annotation on a primary-constructor
+ *       property can be written to both the constructor parameter and the backing field, so a rule that
+ *       inspects fields must not mistake that copy for a field-level declaration.</li>
  * </ul>
  */
 public final class KotlinBytecode {
@@ -232,6 +238,55 @@ public final class KotlinBytecode {
             }
         }
         return constructors;
+    }
+
+    /**
+     * Whether the field's {@code annotationName} annotation is the Kotlin compiler's copy of an annotation the
+     * developer wrote on a primary-constructor property. With the {@code param-property} default use-site target,
+     * Kotlin applies an unqualified annotation on {@code class Foo(@A private val x: T)} to the constructor
+     * parameter and, when {@code @A} also targets {@code FIELD}, to the backing field as well. The field copy is
+     * then not a separate declaration: it is recognised by a constructor parameter of the same raw type carrying
+     * an identical annotation. Always {@code false} for a class not compiled by Kotlin.
+     */
+    public static boolean isConstructorPropertyAnnotation(JavaField field, String annotationName) {
+        try {
+            if (!isKotlinClass(field.getOwner())) {
+                return false;
+            }
+            Optional<? extends JavaAnnotation<?>> fieldAnnotation = field.tryGetAnnotationOfType(annotationName);
+            if (fieldAnnotation.isEmpty()) {
+                return false;
+            }
+            String fieldType = field.getRawType().getName();
+            for (JavaConstructor constructor : field.getOwner().getConstructors()) {
+                for (JavaParameter parameter : constructor.getParameters()) {
+                    if (parameter.getRawType().getName().equals(fieldType)
+                            && parameter
+                                    .tryGetAnnotationOfType(annotationName)
+                                    .filter(annotation -> sameProperties(annotation, fieldAnnotation.get()))
+                                    .isPresent()) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        } catch (RuntimeException | LinkageError ex) {
+            return false;
+        }
+    }
+
+    private static boolean sameProperties(JavaAnnotation<?> left, JavaAnnotation<?> right) {
+        Map<String, Object> leftProperties = left.getProperties();
+        Map<String, Object> rightProperties = right.getProperties();
+        if (!leftProperties.keySet().equals(rightProperties.keySet())) {
+            return false;
+        }
+        for (Map.Entry<String, Object> entry : leftProperties.entrySet()) {
+            if (!Objects.deepEquals(entry.getValue(), rightProperties.get(entry.getKey()))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** Whether this method is a Kotlin {@code suspend fun}, recognised by its trailing continuation. */
