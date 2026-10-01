@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.cache;
 
 import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
+import io.github.jdubois.bootui.engine.journal.ApplicationFrames;
 import io.github.jdubois.bootui.engine.journal.CachePayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
@@ -142,7 +143,10 @@ public final class CacheActivityRecorder implements RuntimeEventPublisher {
                     events.removeFirst();
                 }
             }
-            journal.offer(new RuntimeEvent(
+            RuntimeEventSink sink = journal;
+            // Walk the stack only when the journal records cache accesses, since the cache panel needs no frames.
+            ApplicationFrames frames = sink.records(JournalSource.CACHE) ? ApplicationFrames.capture() : null;
+            sink.offer(new RuntimeEvent(
                     JournalSource.CACHE,
                     event.timestampMillis(),
                     -1,
@@ -153,7 +157,7 @@ public final class CacheActivityRecorder implements RuntimeEventPublisher {
                     event.thread(),
                     null,
                     false,
-                    new CachePayload(cacheName, operation.name())));
+                    new CachePayload(cacheName, operation.name(), frames)));
             notifyListeners();
         } catch (RuntimeException ex) {
             // Recording must never disrupt the cache access it observes.

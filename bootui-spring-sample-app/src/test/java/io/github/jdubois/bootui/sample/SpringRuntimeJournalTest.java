@@ -3,10 +3,12 @@ package io.github.jdubois.bootui.sample;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
+import io.github.jdubois.bootui.engine.journal.ApplicationFrames;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
@@ -93,6 +95,19 @@ class SpringRuntimeJournalTest {
         assertThat(route.childCounts().get(JournalSource.CONNECTION))
                 .as("each request's logical connections, published when released")
                 .isGreaterThanOrEqualTo(3);
+        assertThat(journal.entries())
+                .filteredOn(entry -> entry.event().source() == JournalSource.SQL
+                        && entry.event().requestId() != null
+                        && entry.event().payload() instanceof SqlPayload sql
+                        && sql.frames() != null)
+                .as("SQL events carry the application frames above them, innermost first")
+                .isNotEmpty()
+                .allSatisfy(entry -> assertThat(
+                                ((SqlPayload) entry.event().payload()).frames().frames())
+                        .hasSizeBetween(2, ApplicationFrames.MAX_FRAMES)
+                        .allSatisfy(frame -> assertThat(frame)
+                                .startsWith("io.github.jdubois.bootui.sample.")
+                                .doesNotContain("$$")));
         assertThat(journal.entries())
                 .filteredOn(entry -> entry.event().source() == JournalSource.HTTP)
                 .isNotEmpty()

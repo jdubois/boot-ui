@@ -243,7 +243,8 @@ public final class JmsActivityRecorder implements RuntimeEventPublisher {
                 sent ? null : Thread.currentThread().getName(),
                 null,
                 !success,
-                new MessagingPayload("jms", sent, entry.destination(), !success)));
+                new MessagingPayload(
+                        "jms", sent, entry.destination(), !success, sent ? null : context.linkedTraceId())));
         totalCaptured.incrementAndGet();
         notifyListeners();
     }

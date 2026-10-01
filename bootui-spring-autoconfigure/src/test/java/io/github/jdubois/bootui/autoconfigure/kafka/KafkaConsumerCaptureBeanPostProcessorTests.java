@@ -7,10 +7,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.journal.MessagingPayload;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.Direction;
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.kafka.clients.consumer.Consumer;
@@ -112,6 +115,36 @@ class KafkaConsumerCaptureBeanPostProcessorTests {
         assertThat(recorder.recent())
                 .extracting(CapturedMessage::executionId)
                 .containsExactlyInAnyOrderElementsOf(seen);
+    }
+
+    @Test
+    void aDeliveryCarryingATraceparentLinksItsExecutionAndItsJournalEventToTheSendersTrace() {
+        KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 16);
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(published::add);
+        KafkaConsumerCaptureBeanPostProcessor postProcessor =
+                new KafkaConsumerCaptureBeanPostProcessor(provider(recorder));
+        ConcurrentKafkaListenerContainerFactory<Object, Object> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        postProcessor.postProcessAfterInitialization(factory, "myListenerFactory");
+        RecordInterceptor<Object, Object> interceptor = currentInterceptor(factory);
+        Consumer<Object, Object> consumer = mock(Consumer.class);
+        ConsumerRecord<Object, Object> record = new ConsumerRecord<>("orders", 0, 1L, "k", "v");
+        record.headers()
+                .add(
+                        "traceparent",
+                        "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01".getBytes(StandardCharsets.UTF_8));
+
+        interceptor.intercept(record, consumer);
+        String linked = BootUiCorrelation.current().linkedTraceId();
+        interceptor.success(record, consumer);
+        interceptor.afterRecord(record, consumer);
+
+        assertThat(linked).isEqualTo("4bf92f3577b34da6a3ce929d0e0e4736");
+        assertThat(published)
+                .singleElement()
+                .satisfies(event -> assertThat(((MessagingPayload) event.payload()).linkedTraceId())
+                        .isEqualTo("4bf92f3577b34da6a3ce929d0e0e4736"));
     }
 
     @Test

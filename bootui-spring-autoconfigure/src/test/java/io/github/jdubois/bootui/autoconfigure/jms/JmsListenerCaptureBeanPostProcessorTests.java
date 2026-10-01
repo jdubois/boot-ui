@@ -9,13 +9,17 @@ import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.autoconfigure.jms.JmsListenerCaptureBeanPostProcessor.CapturingMessageListener;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsListenerCaptureBeanPostProcessor.CapturingSessionAwareMessageListener;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder.Direction;
+import io.github.jdubois.bootui.engine.journal.MessagingPayload;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import jakarta.jms.Connection;
 import jakarta.jms.Message;
 import jakarta.jms.Queue;
 import jakarta.jms.Session;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -58,6 +62,27 @@ class JmsListenerCaptureBeanPostProcessorTests {
     }
 
     // --- CapturingMessageListenerAdapter unit tests ---
+
+    @Test
+    void aMessageCarryingATraceparentPropertyLinksItsExecutionToTheSendersTrace() throws Exception {
+        JmsActivityRecorder recorder = new JmsActivityRecorder(true, true, 10, 50);
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(published::add);
+        Message message = messageWithQueueDestination("orders");
+        when(message.getStringProperty("traceparent"))
+                .thenReturn("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
+        List<String> linked = new ArrayList<>();
+        jakarta.jms.MessageListener delegate =
+                received -> linked.add(BootUiCorrelation.current().linkedTraceId());
+
+        new CapturingMessageListener(delegate, recorder, null, "myFactory").onMessage(message);
+
+        assertThat(linked).containsExactly("4bf92f3577b34da6a3ce929d0e0e4736");
+        assertThat(published)
+                .singleElement()
+                .satisfies(event -> assertThat(((MessagingPayload) event.payload()).linkedTraceId())
+                        .isEqualTo("4bf92f3577b34da6a3ce929d0e0e4736"));
+    }
 
     @Test
     void capturesSuccessfulDeliveryViaMessageListener() throws Exception {

@@ -333,7 +333,7 @@ public final class KafkaActivityRecorder implements RuntimeEventPublisher {
                 sent ? null : Thread.currentThread().getName(),
                 null,
                 !success,
-                new MessagingPayload("kafka", sent, topic, !success)));
+                new MessagingPayload("kafka", sent, topic, !success, sent ? null : context.linkedTraceId())));
         totalCaptured.incrementAndGet();
         notifyListeners();
     }

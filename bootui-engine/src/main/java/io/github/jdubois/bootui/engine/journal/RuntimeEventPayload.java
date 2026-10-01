@@ -11,4 +11,12 @@ public interface RuntimeEventPayload {
      * the journal can keep its byte bound in O(1). Interned strings count once, in the dictionary, not here.
      */
     int estimatedBytes();
+
+    /**
+     * This payload with its repeated strings, such as application frames, replaced by the run's shared copies, called
+     * by the dispatcher before it retains the event. The default shares nothing.
+     */
+    default RuntimeEventPayload interned(JournalDictionary dictionary) {
+        return this;
+    }
 }

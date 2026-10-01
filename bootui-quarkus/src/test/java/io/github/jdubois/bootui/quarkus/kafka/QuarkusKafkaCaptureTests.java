@@ -3,12 +3,16 @@ package io.github.jdubois.bootui.quarkus.kafka;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.journal.MessagingPayload;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.CapturedMessage;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder.Direction;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.smallrye.reactive.messaging.kafka.api.IncomingKafkaRecordMetadata;
 import io.smallrye.reactive.messaging.kafka.api.OutgoingKafkaRecordMetadata;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -174,6 +178,27 @@ class QuarkusKafkaCaptureTests {
                 .singleElement()
                 .extracting(CapturedMessage::executionId)
                 .isEqualTo("00112233aabbccdd");
+    }
+
+    @Test
+    void aDeliveryCarryingATraceparentLinksItsJournalEventToTheSendersTrace() {
+        KafkaActivityRecorder recorder = enabledRecorder();
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(published::add);
+        QuarkusKafkaConsumerCapture capture = new QuarkusKafkaConsumerCapture(recorder);
+        ConsumerRecord<String, String> record = new ConsumerRecord<>("orders", 0, 1L, "k", "payload");
+        record.headers()
+                .add(
+                        "traceparent",
+                        "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01".getBytes(StandardCharsets.UTF_8));
+
+        capture.onMessageAck(capture.afterMessageReceive(
+                Message.of("payload", Metadata.of(new IncomingKafkaRecordMetadata<>(record, "orders-in")))));
+
+        assertThat(published)
+                .singleElement()
+                .satisfies(event -> assertThat(((MessagingPayload) event.payload()).linkedTraceId())
+                        .isEqualTo("4bf92f3577b34da6a3ce929d0e0e4736"));
     }
 
     @Test

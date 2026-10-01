@@ -8,7 +8,17 @@ package io.github.jdubois.bootui.engine.journal;
 public interface RuntimeEventSink {
 
     /** A sink that records nothing, used while the journal is disabled. */
-    RuntimeEventSink NONE = event -> false;
+    RuntimeEventSink NONE = new RuntimeEventSink() {
+        @Override
+        public boolean offer(RuntimeEvent event) {
+            return false;
+        }
+
+        @Override
+        public boolean records(JournalSource source) {
+            return false;
+        }
+    };
 
     /**
      * Offers {@code event} to the journal without blocking.
@@ -17,4 +27,12 @@ public interface RuntimeEventSink {
      *     dropped
      */
     boolean offer(RuntimeEvent event);
+
+    /**
+     * Whether events of {@code source} are recorded, so a recorder can skip work only the journal needs, such as
+     * walking the stack for application frames.
+     */
+    default boolean records(JournalSource source) {
+        return true;
+    }
 }

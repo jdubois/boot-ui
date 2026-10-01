@@ -49,6 +49,15 @@ public final class JournalDictionary {
         return next;
     }
 
+    /**
+     * The dictionary's shared copy of {@code value}, interning it if there is room, or {@code null} when the
+     * dictionary is full.
+     */
+    public synchronized String canonical(String value) {
+        int code = intern(value);
+        return code == NOT_INTERNED ? null : strings.get(code);
+    }
+
     /** The string {@code code} names, or {@code null} for {@link #NOT_INTERNED} or an unknown code. */
     public synchronized String lookup(int code) {
         return code < 0 || code >= strings.size() ? null : strings.get(code);

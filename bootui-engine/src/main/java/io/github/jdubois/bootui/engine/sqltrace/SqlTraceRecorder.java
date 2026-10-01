@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.correlation.ThreadKinds;
+import io.github.jdubois.bootui.engine.journal.ApplicationFrames;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
@@ -18,7 +19,6 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
-import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
@@ -514,6 +514,7 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
         }
         CorrelationContext context = correlation.current();
         ThreadKind threadKind = threadKinds.current();
+        ApplicationFrames frames = captureCallSite ? ApplicationFrames.capture() : null;
         CapturedStatement entry = new CapturedStatement(
                 sequence.incrementAndGet(),
                 System.currentTimeMillis(),
@@ -529,7 +530,7 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                 thread,
                 resolveTraceId(),
                 captureParameters ? List.copyOf(parameters == null ? List.of() : parameters) : List.of(),
-                captureCallSite ? currentCallSite() : null,
+                frames == null ? null : frames.callSite(),
                 context.requestId(),
                 context.executionId(),
                 threadKind.name(),
@@ -547,7 +548,7 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                 entry.thread(),
                 threadKind,
                 failedOrSlow,
-                new SqlPayload(entry.sql(), entry.callSite(), context.dataSource(), !entry.success())));
+                new SqlPayload(entry.sql(), entry.callSite(), context.dataSource(), !entry.success(), frames)));
         totalCaptured.incrementAndGet();
         notifyListeners();
         enrichActiveSpan(entry.traceId());
@@ -907,27 +908,6 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
     /** Bound on how many stack frames are inspected before giving up on finding an application frame. */
     private static final int MAX_CALL_SITE_FRAMES = 128;
 
-    private static final StackWalker STACK_WALKER = StackWalker.getInstance();
-
-    /**
-     * Best-effort location of the first application stack frame above the JDBC call — i.e. the first
-     * frame that isn't the JDK, a JDBC driver/connection pool, Hibernate, or BootUI's own
-     * instrumentation (see {@link StackFramePrefixes}) — formatted the same way as
-     * {@link io.github.jdubois.bootui.engine.exceptions.ExceptionStore}'s exception location:
-     * {@code ClassName.methodName(File.java:42)}. Walks at most {@link #MAX_CALL_SITE_FRAMES} frames of
-     * the current thread's stack, short-circuiting at the first match rather than materializing the
-     * whole stack, since this runs on every captured statement rather than only on exceptions. Fully
-     * guarded so a stack-walking failure can never disrupt SQL execution; returns {@code null} when no
-     * application frame is found within the bound, or on any failure.
-     */
-    private static String currentCallSite() {
-        try {
-            return STACK_WALKER.walk(SqlTraceRecorder::selectCallSite);
-        } catch (RuntimeException ex) {
-            return null;
-        }
-    }
-
     /**
      * Pure frame-selection logic factored out of {@link #currentCallSite()} so it can be unit-tested with
      * a synthetic frame stream, without depending on the ambient call stack of whatever happens to invoke
@@ -935,19 +915,8 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
      * frame belongs to BootUI itself, the JDK, JUnit, or the build tool). Package-private for tests.
      */
     static String selectCallSite(Stream<StackWalker.StackFrame> frames) {
-        return frames.limit(MAX_CALL_SITE_FRAMES)
-                .filter(frame -> !StackFramePrefixes.isFrameworkClass(frame.getClassName()))
-                .findFirst()
-                .map(SqlTraceRecorder::formatFrame)
-                .orElse(null);
-    }
-
-    private static String formatFrame(StackWalker.StackFrame frame) {
-        String file = frame.getFileName();
-        String position = file == null
-                ? "Unknown Source"
-                : (frame.getLineNumber() >= 0 ? file + ":" + frame.getLineNumber() : file);
-        return frame.getClassName() + "." + frame.getMethodName() + "(" + position + ")";
+        ApplicationFrames selected = ApplicationFrames.select(frames);
+        return selected == null ? null : selected.callSite();
     }
 
     private static final class Aggregate {

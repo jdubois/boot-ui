@@ -21,6 +21,8 @@ package io.github.jdubois.bootui.spi;
  * @param handler the handler that serves the request, such as {@code OrderController#get}, once routing has happened
  * @param transactionId BootUI's id of the innermost active transaction
  * @param dataSource the name of the data source of the statement being executed
+ * @param linkedTraceId the trace a consumed message's {@code traceparent} names, linking its execution to the work
+ *     that sent it, or {@code null}
  * @param bootUi whether the work is BootUI's own, such as the SQL a BootUI panel runs while serving its request, which
  *     the runtime journal never records ({@code docs/PLAN-v2.md} §5.2)
  */
@@ -33,18 +35,19 @@ public record CorrelationContext(
         String handler,
         String transactionId,
         String dataSource,
+        String linkedTraceId,
         boolean bootUi) {
 
     /** The context of work that no request or execution owns. */
     public static final CorrelationContext NONE =
-            new CorrelationContext(null, null, null, null, null, null, null, null, false);
+            new CorrelationContext(null, null, null, null, null, null, null, null, null, false);
 
     /**
      * The context of BootUI's own requests: no request id, since BootUI never shows its own traffic, but marked so that
      * the work they do, wherever it runs, stays out of the runtime journal.
      */
     public static final CorrelationContext BOOTUI =
-            new CorrelationContext(null, null, null, null, null, null, null, null, true);
+            new CorrelationContext(null, null, null, null, null, null, null, null, null, true);
 
     /** A context of the application's own work. */
     public CorrelationContext(
@@ -56,7 +59,7 @@ public record CorrelationContext(
             String handler,
             String transactionId,
             String dataSource) {
-        this(requestId, executionId, traceId, spanId, routeTemplate, handler, transactionId, dataSource, false);
+        this(requestId, executionId, traceId, spanId, routeTemplate, handler, transactionId, dataSource, null, false);
     }
 
     /** A context for a new inbound request. */
@@ -79,36 +82,106 @@ public record CorrelationContext(
                 && handler == null
                 && transactionId == null
                 && dataSource == null
+                && linkedTraceId == null
                 && !bootUi;
     }
 
     public CorrelationContext withRequestId(String value) {
         return new CorrelationContext(
-                value, executionId, traceId, spanId, routeTemplate, handler, transactionId, dataSource, bootUi);
+                value,
+                executionId,
+                traceId,
+                spanId,
+                routeTemplate,
+                handler,
+                transactionId,
+                dataSource,
+                linkedTraceId,
+                bootUi);
     }
 
     public CorrelationContext withExecutionId(String value) {
         return new CorrelationContext(
-                requestId, value, traceId, spanId, routeTemplate, handler, transactionId, dataSource, bootUi);
+                requestId,
+                value,
+                traceId,
+                spanId,
+                routeTemplate,
+                handler,
+                transactionId,
+                dataSource,
+                linkedTraceId,
+                bootUi);
     }
 
     public CorrelationContext withTrace(String trace, String span) {
         return new CorrelationContext(
-                requestId, executionId, trace, span, routeTemplate, handler, transactionId, dataSource, bootUi);
+                requestId,
+                executionId,
+                trace,
+                span,
+                routeTemplate,
+                handler,
+                transactionId,
+                dataSource,
+                linkedTraceId,
+                bootUi);
     }
 
     public CorrelationContext withRoute(String template, String handlerName) {
         return new CorrelationContext(
-                requestId, executionId, traceId, spanId, template, handlerName, transactionId, dataSource, bootUi);
+                requestId,
+                executionId,
+                traceId,
+                spanId,
+                template,
+                handlerName,
+                transactionId,
+                dataSource,
+                linkedTraceId,
+                bootUi);
     }
 
     public CorrelationContext withTransactionId(String value) {
         return new CorrelationContext(
-                requestId, executionId, traceId, spanId, routeTemplate, handler, value, dataSource, bootUi);
+                requestId,
+                executionId,
+                traceId,
+                spanId,
+                routeTemplate,
+                handler,
+                value,
+                dataSource,
+                linkedTraceId,
+                bootUi);
+    }
+
+    /** This context linked to the trace a consumed message's {@code traceparent} names. */
+    public CorrelationContext withLinkedTraceId(String value) {
+        return new CorrelationContext(
+                requestId,
+                executionId,
+                traceId,
+                spanId,
+                routeTemplate,
+                handler,
+                transactionId,
+                dataSource,
+                value,
+                bootUi);
     }
 
     public CorrelationContext withDataSource(String value) {
         return new CorrelationContext(
-                requestId, executionId, traceId, spanId, routeTemplate, handler, transactionId, value, bootUi);
+                requestId,
+                executionId,
+                traceId,
+                spanId,
+                routeTemplate,
+                handler,
+                transactionId,
+                value,
+                linkedTraceId,
+                bootUi);
     }
 }

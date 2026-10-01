@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.quarkus.rabbit;
 
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
+import io.github.jdubois.bootui.engine.correlation.TraceParents;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
 import io.github.jdubois.bootui.spi.CorrelationContext;
@@ -132,10 +133,23 @@ public class QuarkusRabbitConsumerCapture implements IncomingInterceptor {
      * metadata for the ack or nack that records the delivery.
      */
     private static CorrelationContext openExecution(Message<?> message) {
-        CorrelationContext execution = CorrelationContext.forExecution(RequestIds.next());
+        CorrelationContext execution =
+                CorrelationContext.forExecution(RequestIds.next()).withLinkedTraceId(linkedTraceId(message));
         message.getMetadata(LocalContextMetadata.class)
                 .ifPresent(local -> QuarkusRequestCorrelation.attach(local.context(), execution));
         return execution;
+    }
+
+    /** The trace the message's {@code traceparent} header names, linking this delivery to its sender. */
+    private static String linkedTraceId(Message<?> message) {
+        try {
+            return message.getMetadata(IncomingRabbitMQMetadata.class)
+                    .map(metadata -> metadata.getHeaders().get(TraceParents.HEADER))
+                    .map(TraceParents::traceIdOf)
+                    .orElse(null);
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 
     record CaptureStart(long nanos, CorrelationContext execution) {}

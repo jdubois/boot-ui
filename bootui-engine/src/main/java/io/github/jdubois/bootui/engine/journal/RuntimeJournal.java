@@ -192,7 +192,8 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
     private void process(List<RuntimeEvent> batch) {
         List<JournalEntry> entries = new ArrayList<>(batch.size());
         try {
-            for (RuntimeEvent event : batch) {
+            for (RuntimeEvent offered : batch) {
+                RuntimeEvent event = interned(offered);
                 long sequence = lastSequence.get() + 1;
                 JournalEntry entry = new JournalEntry(sequence, event, event.estimatedBytes());
                 ring.add(entry);
@@ -213,6 +214,19 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
         }
     }
 
+    private RuntimeEvent interned(RuntimeEvent event) {
+        RuntimeEventPayload payload = event.payload();
+        if (payload == null) {
+            return event;
+        }
+        try {
+            RuntimeEventPayload shared = payload.interned(dictionary);
+            return shared == payload ? event : event.withPayload(shared);
+        } catch (RuntimeException ex) {
+            return event;
+        }
+    }
+
     /**
      * Waits until every event accepted before this call has been processed, or {@code timeout} passes.
      *
@@ -228,6 +242,11 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
             Thread.sleep(2);
         }
         return true;
+    }
+
+    @Override
+    public boolean records(JournalSource source) {
+        return settings.records(source);
     }
 
     /** Registers a listener for every batch accepted from now on. */

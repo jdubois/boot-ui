@@ -311,7 +311,11 @@ public final class RabbitActivityRecorder implements RuntimeEventPublisher {
                 null,
                 !success,
                 new MessagingPayload(
-                        "rabbitmq", sent, sent || entry.queue() == null ? entry.exchange() : entry.queue(), !success)));
+                        "rabbitmq",
+                        sent,
+                        sent || entry.queue() == null ? entry.exchange() : entry.queue(),
+                        !success,
+                        sent ? null : context.linkedTraceId())));
         totalCaptured.incrementAndGet();
         notifyListeners();
     }

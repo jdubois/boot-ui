@@ -111,6 +111,27 @@ class RecorderPublishingTests {
     }
 
     @Test
+    void aConsumedMessageLinksToTheTraceItsExecutionWasOpenedFrom() {
+        KafkaActivityRecorder kafka = new KafkaActivityRecorder(true, true, 10, 16);
+        JmsActivityRecorder jms = new JmsActivityRecorder(true, true, 10, 16);
+        kafka.setRuntimeEventSink(published::add);
+        jms.setRuntimeEventSink(published::add);
+        CorrelationContext execution =
+                CorrelationContext.forExecution("exec-1").withLinkedTraceId("4bf92f3577b34da6a3ce929d0e0e4736");
+
+        kafka.recordConsume("orders", 0, 7L, "k", 3L, true, null, "group", "listener", execution);
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(execution)) {
+            jms.recordConsume("queue.mail", "m1", 2L, true, null, null, "listener");
+            jms.recordProduce("queue.audit", "m2", 1L, true, null);
+        }
+
+        assertThat(published)
+                .extracting(event -> ((MessagingPayload) event.payload()).linkedTraceId())
+                .containsExactly("4bf92f3577b34da6a3ce929d0e0e4736", "4bf92f3577b34da6a3ce929d0e0e4736", null);
+        assertThat(published.get(0).executionId()).isEqualTo("exec-1");
+    }
+
+    @Test
     void scheduledRunsPublishTheirTaskExecutionAndFailure() {
         ScheduledTaskRunStore store = new ScheduledTaskRunStore(10);
         store.setRuntimeEventSink(published::add);

@@ -77,6 +77,22 @@ public record RuntimeEvent(
                 payload);
     }
 
+    /** This event with {@code replacement} as its payload. */
+    public RuntimeEvent withPayload(RuntimeEventPayload replacement) {
+        return new RuntimeEvent(
+                source,
+                epochMillis,
+                durationNanos,
+                requestId,
+                executionId,
+                traceId,
+                spanId,
+                thread,
+                threadKind,
+                failedOrSlow,
+                replacement);
+    }
+
     /** This event with {@code kind} as the kind of its thread. */
     public RuntimeEvent withThreadKind(ThreadKind kind) {
         return new RuntimeEvent(

@@ -2,10 +2,12 @@ package io.github.jdubois.bootui.autoconfigure.kafka;
 
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
+import io.github.jdubois.bootui.engine.correlation.TraceParents;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.common.header.Header;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.BeansException;
@@ -94,7 +96,7 @@ public final class KafkaConsumerCaptureBeanPostProcessor implements BeanPostProc
         public ConsumerRecord<Object, Object> intercept(
                 ConsumerRecord<Object, Object> record, Consumer<Object, Object> consumer) {
             startNanos.set(System.nanoTime());
-            openExecution();
+            openExecution(record);
             ConsumerRecord<Object, Object> intercepted =
                     delegate == null ? record : delegate.intercept(record, consumer);
             if (intercepted == null) {
@@ -165,9 +167,20 @@ public final class KafkaConsumerCaptureBeanPostProcessor implements BeanPostProc
          * the SQL, exceptions, REST client calls, and messages the listener produces nest under it. A scope left open
          * by a delivery whose {@code afterRecord} never came is closed first.
          */
-        private void openExecution() {
+        private void openExecution(ConsumerRecord<Object, Object> record) {
             closeExecution();
-            executionScope.set(BootUiCorrelation.open(CorrelationContext.forExecution(RequestIds.next())));
+            executionScope.set(BootUiCorrelation.open(
+                    CorrelationContext.forExecution(RequestIds.next()).withLinkedTraceId(linkedTraceId(record))));
+        }
+
+        /** The trace the record's {@code traceparent} header names, linking this delivery to its sender. */
+        private static String linkedTraceId(ConsumerRecord<Object, Object> record) {
+            try {
+                Header header = record == null ? null : record.headers().lastHeader(TraceParents.HEADER);
+                return header == null ? null : TraceParents.traceIdOf(header.value());
+            } catch (RuntimeException ex) {
+                return null;
+            }
         }
 
         private void closeExecution() {

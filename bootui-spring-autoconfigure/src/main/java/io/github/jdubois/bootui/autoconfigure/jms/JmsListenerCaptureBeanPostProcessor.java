@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.jms;
 
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
+import io.github.jdubois.bootui.engine.correlation.TraceParents;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import jakarta.jms.JMSException;
@@ -204,8 +205,8 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
         public void onMessage(Message message) {
             long start = System.nanoTime();
             // Each delivery is an execution of its own (docs/PLAN-v2.md §5.1).
-            try (BootUiCorrelation.Scope ignored =
-                    BootUiCorrelation.open(CorrelationContext.forExecution(RequestIds.next()))) {
+            try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(
+                    CorrelationContext.forExecution(RequestIds.next()).withLinkedTraceId(linkedTraceId(message)))) {
                 try {
                     delegate.onMessage(message);
                     safeRecord(message, start, true, null);
@@ -242,8 +243,8 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
         @Override
         public void onMessage(Message message, @Nullable Session session) throws JMSException {
             long start = System.nanoTime();
-            try (BootUiCorrelation.Scope ignored =
-                    BootUiCorrelation.open(CorrelationContext.forExecution(RequestIds.next()))) {
+            try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(
+                    CorrelationContext.forExecution(RequestIds.next()).withLinkedTraceId(linkedTraceId(message)))) {
                 try {
                     delegate.onMessage(message, session);
                     record(recorder, subscriptionName, listenerId, message, start, true, null);
@@ -259,6 +260,15 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
                     throw ex;
                 }
             }
+        }
+    }
+
+    /** The trace the message's {@code traceparent} property names, linking this delivery to its sender. */
+    private static String linkedTraceId(Message message) {
+        try {
+            return message == null ? null : TraceParents.traceIdOf(message.getStringProperty(TraceParents.HEADER));
+        } catch (JMSException | RuntimeException ex) {
+            return null;
         }
     }
 

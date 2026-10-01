@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.rabbit;
 
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
+import io.github.jdubois.bootui.engine.correlation.TraceParents;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.util.ArrayList;
@@ -103,8 +104,8 @@ public final class RabbitConsumerCaptureBeanPostProcessor implements BeanPostPro
             List<Message> messages = extractMessages(invocation);
             // Each delivery, or batch, is an execution of its own (docs/PLAN-v2.md §5.1): the listener's SQL,
             // exceptions, and REST client calls, and its outcome records, carry its execution id.
-            try (BootUiCorrelation.Scope ignored =
-                    BootUiCorrelation.open(CorrelationContext.forExecution(RequestIds.next()))) {
+            try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(
+                    CorrelationContext.forExecution(RequestIds.next()).withLinkedTraceId(linkedTraceId(messages)))) {
                 try {
                     Object result = invocation.proceed();
                     recordOutcomes(messages, startNanos, true, null);
@@ -113,6 +114,21 @@ public final class RabbitConsumerCaptureBeanPostProcessor implements BeanPostPro
                     recordOutcomes(messages, startNanos, false, ex.getMessage());
                     throw ex;
                 }
+            }
+        }
+
+        /**
+         * The trace the first message's {@code traceparent} header names, linking this delivery, or batch, to its
+         * sender.
+         */
+        private static String linkedTraceId(List<Message> messages) {
+            try {
+                return messages.isEmpty()
+                        ? null
+                        : TraceParents.traceIdOf(
+                                (Object) messages.get(0).getMessageProperties().getHeader(TraceParents.HEADER));
+            } catch (RuntimeException ex) {
+                return null;
             }
         }
 

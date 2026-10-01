@@ -345,7 +345,9 @@ With persistence off, none of this costs anything: no extra bean, thread, or con
 BootUI 2.0 also records every runtime event once in a bounded, in-memory runtime journal: requests, SQL statements,
 exceptions, security events, REST client calls, cache accesses, messages, scheduled runs, transactions on Spring, logical
 database connections, and application `WARN` and `ERROR` log events, each with the request or execution it belongs to. A log event keeps its
-unformatted template, never its arguments. It keeps running aggregates per route, statement, exception group, and thread family, which
+unformatted template, never its arguments. SQL statements, REST client calls, and cache accesses keep up to four
+frames of your own code that issued them, skipping framework classes and generated proxies, and a message consumed
+with a `traceparent` header keeps the trace that sent it. It keeps running aggregates per route, statement, exception group, and thread family, which
 count every event even after the journal evicts it. Recording never slows a request: when the journal cannot keep up,
 it drops events, counts them per source, and drops routine events before failed or slow ones. BootUI's own requests,
 and the SQL its panels run while serving them, are never recorded.
