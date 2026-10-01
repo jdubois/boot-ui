@@ -197,7 +197,7 @@ profile; default H2/Docker-free coverage remains independent.
 The Docker-required selector is `BootUiQuarkusMySqlLiveTest`, isolated under `src/mysql-live/java`.
 See [MySQL](features/database.md#mysql) for partial evidence, permissions, and execution bounds.
 
-### 5.1 Ported as-is — framework-agnostic or same library (22)
+### 5.1 Ported as-is — framework-agnostic or same library (23)
 
 Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter adds at most a trivial supplier.
 
@@ -213,6 +213,7 @@ Logic lives entirely in `bootui-core` + `bootui-engine`; the Quarkus adapter add
 | `HTTP Probe`                                          | Local HTTP probing                                                                |
 | `AI Framework`                                        | —                                                                                 |
 | `Traces`                                              | OTLP — a standard; Quarkus/LangChain4j export it                                  |
+| `Runtime Insights`                                    | The shared `RuntimeInsightsService` over the runtime journal; available while the journal is enabled. Quarkus records no transactions, so `split-transaction-writes` and `transaction-across-remote-call` report themselves not applicable, and lazy loads after the handler surface as `LazyInitializationException` in `exception-hotspots` |
 | `GitHub`                                              | `HttpClient`                                                                      |
 | `Copilot`, `Claude Code`                              | Read `~/.copilot` / `~/.claude`                                                   |
 | `Pentesting`                                          | Shared 77-check engine (see below)                                                |
@@ -542,10 +543,10 @@ No equivalent, low value, or superseded by Quarkus's own tooling:
 - `JMS` uses Spring JMS (`JmsTemplate` and `@JmsListener`) today. Quarkus users can use the implemented Kafka and RabbitMQ
   panels while a Quarkus-native JMS capture layer remains unimplemented.
 
-**Result:** 50 of the 60 panels ship on Quarkus: 27 are statically available and 23 are capability/detector-gated. The
+**Result:** 51 of the 61 panels ship on Quarkus: 27 are statically available and 24 are capability/detector-gated. The
 remaining 10 panels do not ship: 9 are intentionally not applicable (GraalVM, CRaC, Conditions, Startup Timeline, HTTP
 Sessions, Spring Data, Spring Security, Spring DevTools, Transactions), and 1 (`JMS`) is not yet available. By portability
-strategy, the 50 supported entries comprise 22 ported as-is, 12 source-swapped, 13 capture-rebuilt, and 3 replaced with a
+strategy, the 51 supported entries comprise 23 ported as-is, 12 source-swapped, 13 capture-rebuilt, and 3 replaced with a
 Quarkus-native panel. The Overview dashboard panel is available (its scoring dashboard renders client-side from the
 advisor endpoints, and the shell-chrome `GET /bootui/api/overview` endpoint is served on both adapters).
 
@@ -758,6 +759,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | HTTP Probe          | as-is       | Port    | HTTP probe service               | —                                           |
 | AI Framework        | as-is       | Port    | TelemetryStore (OTLP)            | —                                           |
 | Traces              | as-is       | Port    | OTLP receiver + TelemetryStore   | —                                           |
+| Runtime Insights    | as-is       | Port    | `RuntimeInsightsService`         | Same journal projection; available while `bootui.runtime-journal.enabled`; transaction observations not applicable |
 | GitHub              | as-is       | Port    | GitHub `HttpClient` service      | —                                           |
 | Copilot             | as-is       | Port    | CLI log reader                   | —                                           |
 | Claude Code         | as-is       | Port    | CLI log reader                   | —                                           |

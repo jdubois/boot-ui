@@ -161,6 +161,7 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | --------------- | ------------------------- | --------------------------- | ------------------------------------------------- | ----------------------------------------- |
 | Overview        | Overview                  | `overview`                  | `bootui.panels.overview.enabled`                  | Not applicable; view-only.                |
 | Overview        | Live Activity             | `activity`                  | `bootui.panels.activity.enabled`                  | `bootui.panels.activity.read-only`         |
+| Overview        | Runtime Insights          | `runtime-insights`          | `bootui.panels.runtime-insights.enabled`          | Not applicable; view-only.                |
 | Overview        | GitHub                    | `github`                    | `bootui.panels.github.enabled`                    | `bootui.panels.github.read-only`          |
 | Advisors        | Architecture              | `architecture`              | `bootui.panels.architecture.enabled`              | `bootui.panels.architecture.read-only`    |
 | Advisors        | REST API                  | `rest-api`                  | `bootui.panels.rest-api.enabled`                  | `bootui.panels.rest-api.read-only`        |
@@ -657,6 +658,7 @@ template only. Nothing is written to disk. The same keys and defaults apply on S
 | `bootui.runtime-journal.max-bytes`     | The smaller of 32 MB and 5 % of the heap | Maximum memory the retained events may use, estimated per event, such as `16MB`. Whichever bound is reached first evicts the oldest routine events. |
 | `bootui.runtime-journal.queue-capacity` | `10000`                                 | Maximum number of events waiting to be recorded. The last 10 % admits only failed or slow events, so a burst drops routine events first. |
 | `bootui.runtime-journal.sources`       | Every source                             | Comma-separated sources to record: `http`, `sql`, `transaction`, `connection`, `exception`, `security`, `rest-client`, `cache`, `messaging`, `scheduled`, `log`, `mail`, `fault-tolerance`, `ai`, `gc`, and `resources`. An unknown name fails startup. |
+| `bootui.runtime-insights.ai-token-threshold` | `8000`                                | Tokens of one model call above which Runtime Insights' AI usage by route reports the route from that call alone, rather than from three AI operations. Must be positive. |
 
 ### Resource correlation
 

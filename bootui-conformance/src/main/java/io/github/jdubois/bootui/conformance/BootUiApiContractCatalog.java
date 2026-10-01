@@ -302,6 +302,17 @@ public final class BootUiApiContractCatalog {
                             "warnings", JsonType.ARRAY,
                             "pageInfo", JsonType.NULLABLE_OBJECT,
                             "persistenceOption", JsonType.NULLABLE_OBJECT)),
+            read(
+                    "runtime-insights",
+                    "/runtime-insights",
+                    fields(
+                            "available", JsonType.BOOLEAN,
+                            "unavailableReason", JsonType.NULLABLE_STRING,
+                            "window", JsonType.NULLABLE_OBJECT,
+                            "coverage", JsonType.ARRAY,
+                            "checks", JsonType.ARRAY,
+                            "observations", JsonType.ARRAY,
+                            "limitations", JsonType.ARRAY)),
             capabilityList("email", "/email", "messages", "total", fields("devTrapEnabled", JsonType.BOOLEAN)),
             capture("kafka", "/kafka", "messages"),
             capture("rabbitmq", "/rabbitmq", "messages"),
@@ -404,6 +415,21 @@ public final class BootUiApiContractCatalog {
                     "totals", JsonType.OBJECT));
 
     /**
+     * One Runtime Insights observation with its evidence, a detail read of the {@code runtime-insights} panel
+     * ({@code docs/PLAN-v2.md} §5.5), kept out of {@link #reads()}. An unknown id answers the same shape, unavailable.
+     */
+    private static final ReadContract RUNTIME_INSIGHT = read(
+            "runtime-insights",
+            "/runtime-insights/insights/conformance-unknown:0000000000",
+            fields(
+                    "available", JsonType.BOOLEAN,
+                    "unavailableReason", JsonType.NULLABLE_STRING,
+                    "observation", JsonType.NULLABLE_OBJECT,
+                    "columns", JsonType.ARRAY,
+                    "rows", JsonType.ARRAY,
+                    "truncated", JsonType.INTEGER));
+
+    /**
      * One request as the runtime journal recorded it, a detail read of the {@code activity} panel ({@code docs/PLAN-v2.md}
      * §5.3, §5.11), kept out of {@link #reads()} like {@link #requestProfile()}. Its nullable objects and numbers are
      * not listed.
@@ -453,6 +479,11 @@ public final class BootUiApiContractCatalog {
     /** The resource track's read contract ({@code docs/PLAN-v2.md} §5.11). */
     public static ReadContract runtimeResources() {
         return RUNTIME_RESOURCES;
+    }
+
+    /** One Runtime Insights observation's evidence, a detail read of its panel ({@code docs/PLAN-v2.md} §5.5). */
+    public static ReadContract runtimeInsight() {
+        return RUNTIME_INSIGHT;
     }
 
     public static List<ActionContract> actions() {

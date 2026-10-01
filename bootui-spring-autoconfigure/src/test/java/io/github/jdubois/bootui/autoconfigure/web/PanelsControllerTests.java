@@ -12,6 +12,7 @@ import com.zaxxer.hikari.HikariDataSource;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.PanelDto;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
+import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import java.util.List;
@@ -458,6 +459,24 @@ class PanelsControllerTests {
         @Override
         public <T> T unwrap(Class<T> iface) {
             return iface.cast(delegate);
+        }
+    }
+
+    @Test
+    void panelsMarksRuntimeInsightsUnavailableWhenTheRuntimeJournalIsDisabled() throws Exception {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.refresh();
+            BootUiProperties properties = new BootUiProperties();
+            properties.getRuntimeJournal().setEnabled(false);
+            MockMvc mvc = standaloneSetup(new PanelsController(context, context.getEnvironment(), properties))
+                    .build();
+
+            mvc.perform(get("/bootui/api/panels"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath(panelPath(BootUiPanels.RUNTIME_INSIGHTS) + ".available")
+                            .value(false))
+                    .andExpect(jsonPath(panelPath(BootUiPanels.RUNTIME_INSIGHTS) + ".unavailableReason")
+                            .value(RuntimeInsightsService.DISABLED));
         }
     }
 

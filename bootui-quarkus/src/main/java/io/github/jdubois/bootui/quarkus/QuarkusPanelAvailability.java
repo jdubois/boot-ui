@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.core.dto.PanelDto;
 import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.agent.AgentSessionStore;
 import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
+import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
 import io.github.jdubois.bootui.engine.mysql.MySqlDataSourceDetection;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.postgres.PostgresDataSourceDetection;
@@ -447,6 +448,7 @@ public class QuarkusPanelAvailability {
             Map.entry(BootUiPanels.KAFKA, KAFKA_ABSENT),
             Map.entry(BootUiPanels.RABBITMQ, RABBIT_ABSENT),
             Map.entry(BootUiPanels.WEBSOCKETS, WEBSOCKETS_ABSENT),
+            Map.entry(BootUiPanels.RUNTIME_INSIGHTS, RuntimeInsightsService.DISABLED),
             Map.entry(BootUiPanels.REST_CLIENT_TRACE, REST_CLIENT_TRACE_ABSENT),
             Map.entry(BootUiPanels.SQL_TRACE, SQL_TRACE_ABSENT),
             Map.entry(BootUiPanels.POSTGRESQL, POSTGRESQL_ABSENT),
@@ -594,6 +596,10 @@ public class QuarkusPanelAvailability {
                 Map.entry(BootUiPanels.KAFKA, kafkaPresent),
                 Map.entry(BootUiPanels.RABBITMQ, rabbitPresent),
                 Map.entry(BootUiPanels.WEBSOCKETS, webSocketsPresent),
+                Map.entry(
+                        BootUiPanels.RUNTIME_INSIGHTS,
+                        config.getOptionalValue("bootui.runtime-journal.enabled", Boolean.class)
+                                .orElse(true)),
                 Map.entry(BootUiPanels.REST_CLIENT_TRACE, restClientTracePresent),
                 Map.entry(BootUiPanels.SECURITY_LOGS, securityLogsAvailable),
                 Map.entry(BootUiPanels.SQL_TRACE, connectionPoolsPresent),

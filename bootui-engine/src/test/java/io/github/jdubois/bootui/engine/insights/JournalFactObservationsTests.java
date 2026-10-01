@@ -144,13 +144,15 @@ class JournalFactObservationsTests {
         Map<String, RuntimeObservationDto> found = byKind(service(null, null).report(), ErrorsBehind2xx.KIND).stream()
                 .collect(Collectors.toMap(RuntimeObservationDto::id, Function.identity()));
 
-        RuntimeObservationDto unrecovered = found.get(ErrorsBehind2xx.KIND + ":" + ORDERS + ":unrecovered");
+        RuntimeObservationDto unrecovered =
+                found.get(RuntimeInsightsService.idOf(ErrorsBehind2xx.KIND, ORDERS + ":unrecovered"));
         assertThat(unrecovered.sentence())
                 .isEqualTo("`" + ORDERS + "` answered 2xx in 2 of 4 successful requests whose request 1 rolled back"
                         + " its transaction, 1 recorded an exception, 1 received a 5xx or failed downstream call.");
         assertThat(unrecovered.exemplarRequestIds()).containsExactly("r1", "r5");
         assertThat(unrecovered.whatToCheck()).hasSize(2);
-        RuntimeObservationDto recovered = found.get(ErrorsBehind2xx.KIND + ":" + ORDERS + ":recovered");
+        RuntimeObservationDto recovered =
+                found.get(RuntimeInsightsService.idOf(ErrorsBehind2xx.KIND, ORDERS + ":recovered"));
         assertThat(recovered.affected()).isEqualTo(1);
         assertThat(recovered.sentence()).endsWith("1 wrote an ERROR log, and a retry or fallback recovered.");
         assertThat(found).hasSize(2);

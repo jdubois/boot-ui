@@ -38,8 +38,9 @@ public final class RuntimeInsightsService {
     /** The exemplar request ids an observation names at most. */
     public static final int MAX_EXEMPLARS = 3;
 
-    static final String DISABLED = "Runtime Insights reads the runtime journal, which is disabled"
-            + " (bootui.runtime-journal.enabled=false).";
+    /** Why Runtime Insights is unavailable without the journal, naming the property to set. */
+    public static final String DISABLED = "Runtime Insights reads the runtime journal, which is disabled:"
+            + " set bootui.runtime-journal.enabled=true.";
 
     private final RuntimeJournal journal;
     private final Supplier<RouteTemplateResolver> routes;
@@ -66,7 +67,21 @@ public final class RuntimeInsightsService {
             Predicate<String> panelEnabled,
             InsightsStack stack,
             Supplier<List<RunSummary>> runs) {
-        this(journal, routes, panelEnabled, stack, runs, defaultObservations());
+        this(journal, routes, panelEnabled, stack, runs, AiUsageByRoute.DEFAULT_TOKEN_THRESHOLD);
+    }
+
+    /**
+     * @param aiTokenThreshold the tokens of one model call above which {@code ai-usage-by-route} reports its route
+     *     from that call alone
+     */
+    public RuntimeInsightsService(
+            RuntimeJournal journal,
+            Supplier<RouteTemplateResolver> routes,
+            Predicate<String> panelEnabled,
+            InsightsStack stack,
+            Supplier<List<RunSummary>> runs,
+            long aiTokenThreshold) {
+        this(journal, routes, panelEnabled, stack, runs, defaultObservations(aiTokenThreshold));
     }
 
     RuntimeInsightsService(
@@ -93,8 +108,21 @@ public final class RuntimeInsightsService {
         this.cached = null;
     }
 
+    /**
+     * The stable id of a finding: its kind and a hash of its key, such as {@code repeated-selects:3fa9c0e1b2}, the same
+     * across refreshes and restarts, and safe in a URL path whatever its route holds.
+     */
+    public static String idOf(String kind, String key) {
+        return kind + ":" + InsightText.stableHash(key);
+    }
+
     /** The observations of 2.0, in report order. */
     public static List<Observation> defaultObservations() {
+        return defaultObservations(AiUsageByRoute.DEFAULT_TOKEN_THRESHOLD);
+    }
+
+    /** The observations of 2.0, in report order, with {@code ai-usage-by-route}'s token threshold. */
+    public static List<Observation> defaultObservations(long aiTokenThreshold) {
         return List.of(
                 new RouteTimeBreakdown(),
                 new ExceptionHotspots(),
@@ -106,7 +134,7 @@ public final class RuntimeInsightsService {
                 new TransactionAcrossRemoteCall(),
                 new LazySqlAfterHandler(),
                 new EventLoopBlocking(),
-                new AiUsageByRoute(),
+                new AiUsageByRoute(aiTokenThreshold),
                 new FrameworkWarningsByRoute());
     }
 
@@ -149,20 +177,37 @@ public final class RuntimeInsightsService {
             return new Cached(
                     -1,
                     -1,
+                    0,
                     new RuntimeInsightsReportDto(false, DISABLED, null, List.of(), List.of(), List.of(), List.of()),
                     Map.of());
         }
         JournalStatus status = journal.status();
         long watermark = status.lastSequence();
         long evicted = status.evictedByCount() + status.evictedByBytes();
-        if (cached != null && cached.watermark() == watermark && cached.evicted() == evicted) {
+        // A panel disabled or re-enabled since the last read changes what may be shown, so it invalidates the cache.
+        long visibility = visibility();
+        if (cached != null
+                && cached.watermark() == watermark
+                && cached.evicted() == evicted
+                && cached.visibility() == visibility) {
             return cached;
         }
-        cached = project(status, journal.entries(), watermark, evicted);
+        cached = project(status, journal.entries(), watermark, evicted, visibility);
         return cached;
     }
 
-    private Cached project(JournalStatus status, List<JournalEntry> entries, long watermark, long evicted) {
+    private long visibility() {
+        long mask = 0;
+        for (JournalSource source : JournalSource.values()) {
+            if (panelVisible(source)) {
+                mask |= 1L << source.ordinal();
+            }
+        }
+        return mask;
+    }
+
+    private Cached project(
+            JournalStatus status, List<JournalEntry> entries, long watermark, long evicted, long visibility) {
         RouteTemplateResolver resolver;
         try {
             resolver = routes.get();
@@ -210,7 +255,7 @@ public final class RuntimeInsightsService {
                     limitations.add(partial);
                 }
                 RuntimeObservationDto row = new RuntimeObservationDto(
-                        observation.kind() + ":" + finding.key(),
+                        idOf(observation.kind(), finding.key()),
                         observation.kind(),
                         finding.subject(),
                         findingStatus,
@@ -265,7 +310,7 @@ public final class RuntimeInsightsService {
                 checks,
                 rows,
                 limitations);
-        return new Cached(watermark, evicted, report, details);
+        return new Cached(watermark, evicted, visibility, report, details);
     }
 
     private static Long newest(List<JournalEntry> entries) {
@@ -366,5 +411,10 @@ public final class RuntimeInsightsService {
 
     private record Detail(RuntimeObservationDto observation, Finding finding) {}
 
-    private record Cached(long watermark, long evicted, RuntimeInsightsReportDto report, Map<String, Detail> details) {}
+    private record Cached(
+            long watermark,
+            long evicted,
+            long visibility,
+            RuntimeInsightsReportDto report,
+            Map<String, Detail> details) {}
 }

@@ -19,7 +19,7 @@ and opening it shows a banner with the specific reason. The same information is 
 scripts read it too.
 
 The PostgreSQL and MySQL panels behave differently, because they are vendor-specific. Without that vendor's JDBC driver
-on the runtime classpath they do not appear at all, so a manifest can legitimately carry 58 panels rather than the 60
+on the runtime classpath they do not appear at all, so a manifest can legitimately carry 59 panels rather than the 61
 in the catalog.
 
 That is always current for your app and your dependencies. Prefer it over any list in the documentation.

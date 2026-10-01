@@ -1588,6 +1588,69 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void runtimeInsightsProjectTheJournalIntoObservationsWithStableIdsAndEvidence() throws InterruptedException {
+        assumeTrue(
+                isPanelUsableInLiveManifest("runtime-insights"),
+                "runtime-insights panel is not available in this environment");
+        ReadContract detailContract = BootUiApiContractCatalog.runtimeInsight();
+        BootUiHttpProbe probe = probe();
+        List<String> failures = new ArrayList<>();
+
+        Response unknown = probe.get(api(detailContract.relativePath()));
+        assertThat(unknown.status())
+                .as("GET %s status", detailContract.relativePath())
+                .isEqualTo(200);
+        assertJsonContract("runtime insight, unknown", detailContract, unknown.json(), failures);
+        assertThat(unknown.json().path("available").asBoolean(true)).isFalse();
+
+        for (int i = 0; i < 7; i++) {
+            probe.get(routeProbePath());
+        }
+        JsonNode breakdown = null;
+        for (int attempt = 0; attempt < 30 && breakdown == null; attempt++) {
+            JsonNode report = probe.get(api("/runtime-insights")).json();
+            for (JsonNode observation : report.path("observations")) {
+                // The probe's route is labelled by its template where a stack resolves one, so any observed
+                // breakdown will do: the probe guarantees at least one route has five warm requests.
+                if ("route-time-breakdown".equals(observation.path("kind").asText())
+                        && "OBSERVED".equals(observation.path("status").asText())) {
+                    breakdown = observation;
+                }
+            }
+            if (breakdown == null) {
+                Thread.sleep(100);
+            }
+        }
+        assertThat(breakdown)
+                .as("a route with five warm requests shows where its time went")
+                .isNotNull();
+        String id = breakdown.path("id").asText();
+        assertThat(id).matches("route-time-breakdown:[0-9a-f]{10}");
+        assertThat(breakdown.path("minimumTier").asText()).isEqualTo("REQUEST_ID");
+        assertThat(breakdown.path("sentence").asText()).contains("warm median");
+
+        Response detail = probe.get(api("/runtime-insights/insights/" + id));
+        assertThat(detail.status()).isEqualTo(200);
+        assertJsonContract("runtime insight, observed", detailContract, detail.json(), failures);
+        assertThat(failures).as("runtime insight contract").isEmpty();
+        assertThat(detail.json().path("available").asBoolean(false)).isTrue();
+        assertThat(detail.json().path("observation").path("id").asText()).isEqualTo(id);
+        assertThat(detail.json().path("columns").size()).isPositive();
+        assertThat(detail.json().path("rows").size()).isPositive();
+
+        JsonNode report = probe.get(api("/runtime-insights")).json();
+        assertThat(report.path("checks").size())
+                .as("every observation reports whether it ran")
+                .isEqualTo(12);
+        boolean httpCovered = false;
+        for (JsonNode coverage : report.path("coverage")) {
+            httpCovered |= "http".equals(coverage.path("source").asText())
+                    && coverage.path("byRequestId").asLong() > 0;
+        }
+        assertThat(httpCovered).as("HTTP events are linked by request id").isTrue();
+    }
+
+    @Test
     void runtimeResourcesReportOneShapeWithABalancedLedger() {
         assumeTrue(isPanelUsableInLiveManifest("activity"), "activity panel is not available in this environment");
         ReadContract contract = BootUiApiContractCatalog.runtimeResources();

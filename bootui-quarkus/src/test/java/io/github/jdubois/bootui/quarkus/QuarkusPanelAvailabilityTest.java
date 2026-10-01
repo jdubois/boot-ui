@@ -169,6 +169,17 @@ class QuarkusPanelAvailabilityTest {
     }
 
     @Test
+    void runtimeInsightsFollowsTheRuntimeJournal() {
+        assertThat(manifestById().get(BootUiPanels.RUNTIME_INSIGHTS).available())
+                .isTrue();
+
+        PanelDto disabled = manifestById(new StubConfig(Map.of("bootui.runtime-journal.enabled", "false")))
+                .get(BootUiPanels.RUNTIME_INSIGHTS);
+        assertThat(disabled.available()).isFalse();
+        assertThat(disabled.unavailableReason()).contains("bootui.runtime-journal.enabled=true");
+    }
+
+    @Test
     void restClientPanelAvailabilityTracksTheOptionalCapability() {
         PanelDto absent = manifestById().get(BootUiPanels.REST_CLIENT_TRACE);
         assertThat(absent.available()).isFalse();

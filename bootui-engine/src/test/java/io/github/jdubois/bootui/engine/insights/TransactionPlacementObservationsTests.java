@@ -78,7 +78,7 @@ class TransactionPlacementObservationsTests {
             assertThat(observation.exemplarRequestIds()).containsExactly("r1", "r2");
         });
         assertThat(service(InsightsStack.SPRING_MVC)
-                        .insight(SplitTransactionWrites.KIND + ":POST /api/orders")
+                        .insight(RuntimeInsightsService.idOf(SplitTransactionWrites.KIND, "POST /api/orders"))
                         .rows()
                         .get(1)
                         .cells()

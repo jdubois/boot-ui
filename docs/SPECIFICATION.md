@@ -1494,6 +1494,23 @@ Acceptance criteria:
   scheduling or replaying its evidence after resume.
 - Spring MVC, Spring WebFlux, and Quarkus serve the same shape, verified by the shared conformance suite.
 
+### 5.14.2.2 Runtime Insights Panel
+
+Runtime Insights (`runtime-insights`, Overview group, after Live Activity) projects the runtime journal's retained events
+into observations on read ([PLAN-v2.md](PLAN-v2.md) §5.4, §5.5). It is read-only and has no action: there is no
+analyze button, busy state, or read-only toggle. Opening it starts no capture, scan, database read, or network call.
+
+- `GET /bootui/api/runtime-insights` returns the window, per-source correlation coverage, every check with its status
+  (`EVALUATED`, `PARTIAL`, or `NOT_APPLICABLE` with its reason), the observations, and limitations. The projection is
+  cached until the journal records more or a panel's enablement changes.
+- `GET /bootui/api/runtime-insights/insights/{id}` returns one observation's evidence: at most 20 rows and the count left
+  out. Ids are `kind:hash`, stable across refreshes and restarts.
+- Each observation carries a status (`OBSERVED`, `INSUFFICIENT`, or `PARTIAL`), one sentence naming what was counted,
+  the eligible and affected request counts, the correlation tier it relies on, one to three conditional checks, up to
+  three exemplar request ids, and limitations. No severity, score, or Overview contribution.
+- Available on every stack while `bootui.runtime-journal.enabled` is true, and unavailable otherwise with that property
+  named. Stack-specific gaps are reported per observation, never by hiding it.
+
 ### 5.14.3 Traces Panel
 
 Purpose: show distributed-trace waterfalls captured locally, so a request that fans out across cooperating local
@@ -2716,6 +2733,8 @@ Initial endpoints:
 | `/bootui/api/activity/journal`               | GET    | The runtime journal's status: retained events and bytes against their bounds, events recorded and dropped per source, and the previous runs whose summaries are kept |
 | `/bootui/api/activity/journal/clear`         | POST   | **Clear recording**: drop the run's recorded events and aggregates (confirmation-gated, blocked by read-only policy) |
 | `/bootui/api/activity/resources`             | GET    | The run's resource track and CPU ledger: one point per sweep (process CPU split into requests, thread families, and the JVM's own work; heap; allocation; threads) and the run's totals, or why the sampler does not run |
+| `/bootui/api/runtime-insights`               | GET    | Runtime Insights: the journal's retained events projected into observations, with the window, per-source correlation coverage, each check's status, and limitations |
+| `/bootui/api/runtime-insights/insights/{id}` | GET    | One observation by its stable id, with up to 20 evidence rows and how many were left out; an unknown id answers unavailable |
 | `/bootui/api/email`                          | GET    | Captured outgoing email summaries and content-policy status                             |
 | `/bootui/api/kafka`                          | GET    | Bounded Kafka producer and consumer activity                                            |
 | `/bootui/api/rabbitmq`                       | GET    | Bounded RabbitMQ publisher and consumer activity                                        |
@@ -3046,6 +3065,7 @@ Top-level navigation:
 - Overview:
   - Overview.
   - Live Activity.
+  - Runtime Insights.
   - GitHub.
 - Advisors:
   - Architecture.

@@ -1,0 +1,148 @@
+// Runtime Insights (docs/PLAN-v2.md §5.5): pure helpers the panel uses to group, filter, and summarize the report the
+// engine projects from the runtime journal. They never fetch anything.
+
+/** The theme chips, in display order, and the observation kinds each one gathers. */
+export const THEMES = [
+  {id: 'time', label: 'Time', kinds: ['route-time-breakdown', 'event-loop-blocking']},
+  {
+    id: 'queries',
+    label: 'Queries',
+    kinds: ['repeated-selects', 'safe-method-dml', 'lazy-sql-after-handler']
+  },
+  {id: 'errors', label: 'Errors', kinds: ['exception-hotspots', 'errors-behind-2xx']},
+  {
+    id: 'transactions',
+    label: 'Transactions',
+    kinds: ['connections-per-request', 'split-transaction-writes', 'transaction-across-remote-call']
+  },
+  {id: 'framework', label: 'Framework', kinds: ['framework-warnings-by-route']},
+  {id: 'ai', label: 'AI', kinds: ['ai-usage-by-route']}
+]
+
+const STATUS_ORDER = {OBSERVED: 0, PARTIAL: 1, INSUFFICIENT: 2}
+
+/** The theme an observation kind belongs to, or null. */
+export function themeOf(kind) {
+  return THEMES.find((theme) => theme.kinds.includes(kind))?.id ?? null
+}
+
+/** The themes the report's checks cover, so a chip never filters to nothing by construction. */
+export function availableThemes(report) {
+  const kinds = new Set((report?.checks ?? []).map((check) => check.kind))
+  return THEMES.filter((theme) => theme.kinds.some((kind) => kinds.has(kind)))
+}
+
+/**
+ * The observations matching the search text and theme, grouped by check in the report's check order. The search
+ * matches the route or subject, the sentence, and the evidence a sentence names, such as a table or a logger.
+ */
+export function groupObservations(report, {query = '', theme = ''} = {}) {
+  const needle = query.trim().toLowerCase()
+  const titles = new Map((report?.checks ?? []).map((check) => [check.kind, check.title]))
+  const groups = new Map()
+  for (const check of report?.checks ?? []) {
+    groups.set(check.kind, {kind: check.kind, title: check.title, observations: []})
+  }
+  for (const observation of report?.observations ?? []) {
+    if (theme && themeOf(observation.kind) !== theme) continue
+    if (needle && !`${observation.subject} ${observation.sentence}`.toLowerCase().includes(needle)) continue
+    if (!groups.has(observation.kind)) {
+      groups.set(observation.kind, {
+        kind: observation.kind,
+        title: titles.get(observation.kind) ?? observation.kind,
+        observations: []
+      })
+    }
+    groups.get(observation.kind).observations.push(observation)
+  }
+  return [...groups.values()]
+    .filter((group) => group.observations.length > 0)
+    .map((group) => ({
+      ...group,
+      observations: [...group.observations].sort(
+        (a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) || b.affected - a.affected
+      )
+    }))
+}
+
+// Garbage collections belong to the JVM, never to one request: a request's pauses are joined to it by collection id.
+const RUN_LEVEL_SOURCES = new Set(['gc'])
+
+/**
+ * How the retained events are linked to their request, summed over every request-level source: by request id, by trace
+ * id, by a scheduled run or consumed message, and outside any request, such as startup work. Shares are whole percents
+ * of the total.
+ */
+export function coverageSummary(report) {
+  const totals = {byRequestId: 0, byTraceId: 0, byExecutionId: 0, unlinked: 0}
+  for (const source of coverageSources(report)) {
+    totals.byRequestId += source.byRequestId ?? 0
+    totals.byTraceId += source.byTraceId ?? 0
+    totals.byExecutionId += source.byExecutionId ?? 0
+    totals.unlinked += source.unlinked ?? 0
+  }
+  const events = totals.byRequestId + totals.byTraceId + totals.byExecutionId + totals.unlinked
+  const share = (count) => (events === 0 ? 0 : Math.round((count * 100) / events))
+  return {
+    events,
+    segments: [
+      {id: 'request', label: 'request id', count: totals.byRequestId, share: share(totals.byRequestId)},
+      {id: 'trace', label: 'trace id', count: totals.byTraceId, share: share(totals.byTraceId)},
+      {
+        id: 'execution',
+        label: 'scheduled run or message',
+        count: totals.byExecutionId,
+        share: share(totals.byExecutionId)
+      },
+      {id: 'none', label: 'outside any request', count: totals.unlinked, share: share(totals.unlinked)}
+    ]
+  }
+}
+
+/** The coverage of each request-level source, most events first. */
+export function coverageSources(report) {
+  return (report?.coverage ?? [])
+    .filter((source) => !RUN_LEVEL_SOURCES.has(source.source))
+    .sort((a, b) => b.events - a.events || a.source.localeCompare(b.source))
+}
+
+/**
+ * Splits engine text into plain and code parts: the engine marks routes, statements, and classes with backticks, which
+ * the panel renders as code rather than showing the marks.
+ */
+export function textParts(text) {
+  return String(text ?? '')
+    .split('`')
+    .map((value, index) => ({value, code: index % 2 === 1}))
+    .filter((part) => part.value !== '')
+}
+
+const MACHINE_COLUMNS = new Set([
+  'Request',
+  'Call site',
+  'Statement',
+  'Thread',
+  'Logger',
+  'Exception group',
+  'Call',
+  'Models'
+])
+
+/** Whether an evidence column holds machine output, shown in monospace. */
+export function isMachineColumn(column) {
+  return MACHINE_COLUMNS.has(column)
+}
+
+/** The checks that did not fully run, which an empty or short list must never hide. */
+export function checksWithReasons(report) {
+  return (report?.checks ?? []).filter((check) => check.status !== 'EVALUATED' || check.reason)
+}
+
+/** The state the panel shows before any observation. */
+export function emptyState(report) {
+  if (!report) return null
+  if (!report.available) return 'disabled'
+  if ((report.window?.requests ?? 0) === 0) return 'no-requests'
+  if ((report.observations ?? []).length === 0) return 'nothing-observed'
+  return null
+}

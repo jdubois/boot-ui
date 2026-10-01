@@ -71,7 +71,7 @@ class RuntimeInsightsServiceTests {
                 .contains("3 of 4 requests, up to 6 times in one.");
         assertThat(orders.minimumTier()).isEqualTo("REQUEST_ID");
         assertThat(orders.exemplarRequestIds()).hasSize(3);
-        assertThat(orders.id()).startsWith("repeated-selects:GET /api/orders/{id}:");
+        assertThat(orders.id()).matches("repeated-selects:[0-9a-f]{10}");
         assertThat(byRoute.get("GET /api/customers/{id}").status()).isEqualTo("INSUFFICIENT");
         assertThat(byRoute.get("GET /api/customers/{id}").sentence()).contains("1 of 3 requests needed");
         assertThat(report.observations().get(0).status())
@@ -98,7 +98,7 @@ class RuntimeInsightsServiceTests {
                 .id();
         RuntimeObservationDetailDto detail = service.insight(id);
 
-        assertThat(again).isEqualTo(id);
+        assertThat(again).isEqualTo(id).matches("repeated-selects:[0-9a-f]{10}");
         assertThat(detail.available()).isTrue();
         assertThat(detail.columns()).containsExactly("Request", "Executions", "Time (ms)", "Call site");
         assertThat(detail.rows())

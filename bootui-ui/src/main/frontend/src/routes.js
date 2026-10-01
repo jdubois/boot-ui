@@ -53,6 +53,7 @@ const Copilot = () => import('./views/Copilot.vue')
 const McpServer = () => import('./views/McpServer.vue')
 const Cli = () => import('./views/Cli.vue')
 const LiveActivity = () => import('./views/LiveActivity.vue')
+const RuntimeInsights = () => import('./views/RuntimeInsights.vue')
 const Email = () => import('./views/Email.vue')
 const Kafka = () => import('./views/Kafka.vue')
 const RabbitMQ = () => import('./views/RabbitMQ.vue')
@@ -96,6 +97,29 @@ export const routes = [
       title: 'Live Activity',
       shortcut: 'la',
       keywords: ['realtime', 'live', 'stream', 'feed', 'events', 'recent']
+    }
+  },
+  {
+    path: '/runtime-insights',
+    name: 'runtime-insights',
+    component: RuntimeInsights,
+    meta: {
+      group: groups.overview,
+      icon: 'bi-lightbulb',
+      title: 'Runtime Insights',
+      shortcut: 'ri',
+      keywords: [
+        'insights',
+        'why slow',
+        'slow',
+        'new exceptions',
+        'blocking',
+        'tokens',
+        'open session',
+        'connections',
+        'n+1',
+        'observations'
+      ]
     }
   },
   {

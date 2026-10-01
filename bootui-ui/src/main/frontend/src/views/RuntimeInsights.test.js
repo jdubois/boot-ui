@@ -1,0 +1,161 @@
+import {flushPromises, mount} from '@vue/test-utils'
+import {afterEach, describe, expect, it, vi} from 'vitest'
+
+import RuntimeInsights from './RuntimeInsights.vue'
+
+const report = {
+  available: true,
+  unavailableReason: null,
+  window: {
+    runId: 'run-1',
+    firstEventAt: 1_700_000_000_000,
+    lastEventAt: 1_700_000_060_000,
+    retainedEvents: 120,
+    requests: 9,
+    evictedEvents: 0,
+    droppedEvents: 0
+  },
+  coverage: [{source: 'http', events: 9, byRequestId: 9, byExecutionId: 0, byTraceId: 0, unlinked: 0, dropped: 0}],
+  checks: [
+    {
+      kind: 'repeated-selects',
+      title: 'Repeated SELECTs',
+      status: 'EVALUATED',
+      eligibleRequests: 9,
+      findings: 1,
+      reason: null
+    },
+    {
+      kind: 'event-loop-blocking',
+      title: 'Blocking on event loops',
+      status: 'NOT_APPLICABLE',
+      eligibleRequests: 0,
+      findings: 0,
+      reason: 'Spring MVC serves requests on worker threads, not on event loops.'
+    }
+  ],
+  observations: [
+    {
+      id: 'repeated-selects:0123456789',
+      kind: 'repeated-selects',
+      subject: 'GET /api/owners/{id}',
+      status: 'OBSERVED',
+      sentence: '`GET /api/owners/{id}` repeated `select * from pets where owner_id = ?` in 3 of 9 requests.',
+      eligible: 9,
+      affected: 3,
+      minimumTier: 'REQUEST_ID',
+      whatToCheck: ['Fetch the pets with their owner in one query.'],
+      exemplarRequestIds: ['r-1', 'r-2'],
+      evidenceRows: 1,
+      limitations: ['Counts statements the journal retained.']
+    }
+  ],
+  limitations: []
+}
+
+const detail = {
+  available: true,
+  unavailableReason: null,
+  observation: report.observations[0],
+  columns: ['Request', 'Executions'],
+  rows: [{cells: ['r-1', '6']}],
+  truncated: 4
+}
+
+function jsonResponse(body) {
+  return {ok: true, status: 200, json: () => Promise.resolve(body)}
+}
+
+function mountPanel(props = {}) {
+  return mount(RuntimeInsights, {props, global: {stubs: {'router-link': {template: '<a><slot /></a>'}}}})
+}
+
+describe('Runtime Insights panel', () => {
+  let wrapper
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = null
+    vi.unstubAllGlobals()
+  })
+
+  it('does not call the API when the manifest reports the panel unavailable', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPanel({
+      panel: {id: 'runtime-insights', enabled: true, available: false, unavailableReason: 'journal disabled'}
+    })
+    await flushPromises()
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('journal disabled')
+  })
+
+  it('shows the window, the coverage, the selected observation with its evidence, and checks that did not run', async () => {
+    const fetchMock = vi.fn((url) =>
+      Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : report))
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPanel()
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('9 requests')
+    expect(text).toContain('request id 100 %')
+    expect(wrapper.find('.insight-item.active').text()).toContain('GET /api/owners/{id}')
+    expect(wrapper.find('#insight-sentence').text()).toContain('repeated')
+    expect(wrapper.find('#insight-sentence').text()).not.toContain('`')
+    expect(wrapper.find('#insight-sentence code').text()).toBe('GET /api/owners/{id}')
+    expect(text).toContain('Fetch the pets with their owner in one query.')
+    expect(wrapper.find('.insight-evidence').text()).toContain('Executions')
+    expect(text).toContain('4 more rows not shown.')
+    expect(wrapper.find('.insight-unrun').text()).toContain('Spring MVC serves requests on worker threads')
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain(
+      'api/runtime-insights/insights/repeated-selects%3A0123456789'
+    )
+  })
+
+  it('says why nothing is listed rather than reading as healthy', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({...report, observations: []})))
+    wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Nothing to report across 9 requests.')
+    expect(wrapper.text()).toContain('1 of 2 checks ran and found nothing')
+  })
+
+  it('states a disabled journal and an empty run', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({...report, available: false, unavailableReason: 'set bootui.runtime-journal.enabled=true'})
+        )
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+    expect(wrapper.text()).toContain('set bootui.runtime-journal.enabled=true')
+    wrapper.unmount()
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse({...report, window: {...report.window, requests: 0}, observations: []}))
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+    expect(wrapper.text()).toContain('No requests recorded in this run yet.')
+  })
+
+  it('filters observations by search', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : report)))
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.find('.insight-search').setValue('no-such-route')
+    expect(wrapper.text()).toContain('No observation matches this search.')
+  })
+})

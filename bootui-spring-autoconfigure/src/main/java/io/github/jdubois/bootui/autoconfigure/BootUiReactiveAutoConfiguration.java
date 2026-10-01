@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.autoconfigure.exceptions.BootUiExceptionLogAppen
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateStatisticsController;
+import io.github.jdubois.bootui.autoconfigure.insights.RuntimeInsightsController;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsController;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaController;
 import io.github.jdubois.bootui.autoconfigure.mail.BootUiMailSenderBeanPostProcessor;
@@ -289,6 +290,7 @@ import tools.jackson.databind.ObjectMapper;
     ReactiveSecurityLogsController.class,
     ReactiveLiveActivityController.class,
     LiveServiceMapController.class,
+    RuntimeInsightsController.class,
     EmailController.class,
     KafkaController.class,
     RabbitController.class,
@@ -357,6 +359,7 @@ public class BootUiReactiveAutoConfiguration {
             ReactiveSecurityLogsController.class.getName(),
             ReactiveLiveActivityController.class.getName(),
             LiveServiceMapController.class.getName(),
+            RuntimeInsightsController.class.getName(),
             ReactiveBootUiMcpController.class.getName(),
             ReactiveBootUiMcpServerController.class.getName(),
             EmailController.class.getName(),

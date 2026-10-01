@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure;
 
 import io.github.jdubois.bootui.core.BootUiPathNormalizer;
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.engine.insights.AiUsageByRoute;
 import io.github.jdubois.bootui.engine.journal.ActivityFeedSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
@@ -220,6 +221,10 @@ public class BootUiProperties {
      * Runtime journal settings: the bounded in-memory record of every runtime event.
      */
     private RuntimeJournal runtimeJournal = new RuntimeJournal();
+    /**
+     * Runtime Insights settings: the observations projected from the runtime journal.
+     */
+    private RuntimeInsights runtimeInsights = new RuntimeInsights();
     /**
      * Resource correlation settings: the CPU ledger and resource track.
      */
@@ -628,6 +633,14 @@ public class BootUiProperties {
 
     public void setRuntimeJournal(RuntimeJournal runtimeJournal) {
         this.runtimeJournal = runtimeJournal == null ? new RuntimeJournal() : runtimeJournal;
+    }
+
+    public RuntimeInsights getRuntimeInsights() {
+        return runtimeInsights;
+    }
+
+    public void setRuntimeInsights(RuntimeInsights runtimeInsights) {
+        this.runtimeInsights = runtimeInsights == null ? new RuntimeInsights() : runtimeInsights;
     }
 
     public Resources getResources() {
@@ -2611,6 +2624,27 @@ public class BootUiProperties {
      * Settings for the runtime journal ({@code docs/PLAN-v2.md} §5.2), which records every runtime event once, in a
      * bounded in-memory structure, and keeps the aggregates observations read.
      */
+    /** Runtime Insights ({@code docs/PLAN-v2.md} §5.5), which reads the runtime journal. */
+    public static class RuntimeInsights {
+
+        /**
+         * Tokens of one model call above which AI usage by route reports the route from that call alone, rather than
+         * from three operations.
+         */
+        private long aiTokenThreshold = AiUsageByRoute.DEFAULT_TOKEN_THRESHOLD;
+
+        public long getAiTokenThreshold() {
+            return aiTokenThreshold;
+        }
+
+        public void setAiTokenThreshold(long aiTokenThreshold) {
+            if (aiTokenThreshold < 1) {
+                throw new IllegalArgumentException("bootui.runtime-insights.ai-token-threshold must be positive.");
+            }
+            this.aiTokenThreshold = aiTokenThreshold;
+        }
+    }
+
     public static class RuntimeJournal {
 
         /** Whether the journal records runtime events. */

@@ -259,6 +259,7 @@ describe('routes', () => {
     expect(namedRoutes.map((route) => route.meta.title)).toEqual([
       'Overview',
       'Live Activity',
+      'Runtime Insights',
       'GitHub',
       'Architecture',
       'REST API',
@@ -485,6 +486,7 @@ describe('routes', () => {
 
   it('uses navigation group keys understood by the app shell', () => {
     expect(namedRoutes.map((route) => route.meta.group)).toEqual([
+      groups.overview,
       groups.overview,
       groups.overview,
       groups.overview,

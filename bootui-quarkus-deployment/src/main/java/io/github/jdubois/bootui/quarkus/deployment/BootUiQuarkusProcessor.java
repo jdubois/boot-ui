@@ -63,6 +63,7 @@ import io.github.jdubois.bootui.quarkus.web.McpBridgeResource;
 import io.github.jdubois.bootui.quarkus.web.McpServerResource;
 import io.github.jdubois.bootui.quarkus.web.QuarkusExceptionCaptureFilter;
 import io.github.jdubois.bootui.quarkus.web.QuarkusHttpExchangeCaptureFilter;
+import io.github.jdubois.bootui.quarkus.web.RuntimeInsightsResource;
 import io.github.jdubois.bootui.quarkus.web.SecurityLogsResource;
 import io.github.jdubois.bootui.quarkus.web.SqlTraceResource;
 import io.github.jdubois.bootui.quarkus.web.TransactionsResource;
@@ -387,6 +388,7 @@ class BootUiQuarkusProcessor {
                         HttpExchangesResource.class,
                         LiveActivityResource.class,
                         LiveServiceMapResource.class,
+                        RuntimeInsightsResource.class,
                         QuarkusActivityCapture.class,
                         SecurityLogsResource.class,
                         SqlTraceResource.class,

@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.core.dto.PanelsReport;
 import io.github.jdubois.bootui.engine.agent.AgentSessionStore;
 import io.github.jdubois.bootui.engine.github.GitHubRepositoryDetector;
 import io.github.jdubois.bootui.engine.heapdump.HeapDumpService;
+import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
 import io.github.jdubois.bootui.engine.mysql.MySqlDataSourceDetection;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels.Panel;
@@ -117,6 +118,8 @@ public class PanelsController {
                     BootUiPanels.ACTIVITY,
                     BootUiPanels.CLI,
                     BootUiPanels.DATABASE_ADVISOR -> available();
+            case BootUiPanels.RUNTIME_INSIGHTS ->
+                availability(properties.getRuntimeJournal().isEnabled(), RuntimeInsightsService.DISABLED);
             case BootUiPanels.MCP_SERVER -> availability(mcpServerAvailable(), mcpServerUnavailableReason());
             case BootUiPanels.JVM_TUNING ->
                 availability(

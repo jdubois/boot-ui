@@ -16,7 +16,7 @@ status where they don't.
 
 ## 2. Current status
 
-The WebFlux adapter serves the large majority of the panel surface — the same 60-panel manifest the servlet adapter
+The WebFlux adapter serves the large majority of the panel surface — the same 61-panel manifest the servlet adapter
 reports, minus the one panel (**HTTP Sessions**, §6.7) that stays unavailable for stack reasons. Every available
 action-capable panel behaves identically to the servlet adapter, behind the same shared `LocalhostGuard` write floor.
 
@@ -154,7 +154,7 @@ WebFlux blocking-execution policy, and requests rejected by the preceding safety
 | `Not yet ported` | Deliberately deferred, no reactive implementation wired yet                      |
 | `Not applicable` | No faithful reactive analog exists for this panel's concept                      |
 
-### 6.1 Ported as-is (44 panels)
+### 6.1 Ported as-is (45 panels)
 
 Bulk-imported from the servlet adapter's `@RestController`s with no code changes at all — confirming these controllers
 were already framework-neutral in practice, not just in the engine underneath them.
@@ -165,7 +165,11 @@ were already framework-neutral in practice, not just in the engine underneath th
 | Database, Hibernate, Hibernate Statistics, PostgreSQL, MySQL, Flyway, Liquibase, Database Connection Pools, Cache, Dev Services |
 | Vulnerabilities, Scheduled Tasks, Fault Tolerance, HTTP Probe, Pentesting, Heap Dump, Architecture, REST API advisor |
 | Profile Diff, Spring advisor[^spring-advisor-reactive], Live Memory, JVM Tuning, Metrics, Spring DevTools, Traces, AI Framework |
-| GraalVM, CRaC, Threads, Memory, Email, Kafka, RabbitMQ, JMS |
+| GraalVM, CRaC, Threads, Memory, Email, Kafka, RabbitMQ, JMS, Runtime Insights[^runtime-insights-reactive] |
+
+[^runtime-insights-reactive]: The shared `RuntimeInsightsController` reads the same runtime journal. WebFlux marks no
+    request phases, so `route-time-breakdown` reports the time around a request's calls as unattributed, and
+    `lazy-sql-after-handler` is not applicable; only blocking transactions are placed.
 
 These controllers keep their synchronous servlet-facing signatures. On WebFlux, the centralized
 `ReactiveBootUiHandlerAdapter` dispatches their argument resolution and handler invocation on bounded-elastic threads,

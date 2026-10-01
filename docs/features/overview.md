@@ -529,6 +529,44 @@ what changed and its duration. Evidence from a disabled or unavailable source pa
 Developers who want a denser event-first view can minimize the map; that preference is remembered in the browser while
 the feed stays visible underneath. The viewport adapts to the graph's content, up to a bounded scrolling height.
 
+## Runtime Insights
+
+**Runtime Insights** answers what this run did that no single panel shows. It reads the
+[runtime journal](#runtime-journal) and projects its retained events into observations: each one names what was counted
+on a route, never a cause, a severity, or a score. Opening the panel starts no capture, scan, database read, or network
+call; it only re-reads what the journal already recorded, and caches the result until the journal records more.
+
+Twelve observations run over every completed request:
+
+| Observation | What it counts |
+| --- | --- |
+| `route-time-breakdown` | Where a route's warm requests spend their time: authentication, other filters, connection wait, SQL, REST client calls, other handler work, and the response write. Overlapping calls count once, and each route's first request is reported apart as cold |
+| `exception-hotspots` | Exception groups per route, by a signature that survives line shifts, marked when the previous run served the route without them |
+| `errors-behind-2xx` | 2xx responses whose own request rolled back its transaction, recorded an exception, wrote an `ERROR` log, or received a downstream 5xx; requests a retry or fallback recovered are listed apart |
+| `repeated-selects` | The same SELECT run five or more times in a request after another statement, from three requests |
+| `connections-per-request` | Requests that held two or more connections of one data source at the same time |
+| `safe-method-dml` | GET or HEAD requests that wrote to the database, worded as a question |
+| `split-transaction-writes` | Requests whose writes committed in two or more independent transactions or autocommit statements |
+| `transaction-across-remote-call` | Transactions still open when a REST client call starts, with the connection they held |
+| `lazy-sql-after-handler` | SQL run while the response was written, outside every transaction (open session in view) |
+| `event-loop-blocking` | JDBC statements started on an event-loop thread |
+| `ai-usage-by-route` | AI operations per route, linked by trace id: model calls per request, tokens, input growth, and length-limited answers |
+| `framework-warnings-by-route` | `WARN` and `ERROR` events from framework loggers, grouped by logger, template, and route |
+
+Every observation reports whether it ran. One whose journal source is not recorded, whose panel is disabled, or which
+does not apply to this stack says so with its reason, so an empty list never reads as healthy. Findings below their
+minimum are shown as **insufficient**, naming what is missing, and a source that dropped events marks its findings
+**partial**. Each finding has a stable id that survives refreshes and restarts, one to three conditional checks, up to
+three exemplar request ids to open in Live Activity, and at most 20 evidence rows.
+
+The header states the window the journal retains, and a coverage strip shows how each source's events are linked to a
+request: by request id, by execution id, by trace id, or not at all. `bootui.runtime-insights.ai-token-threshold` sets
+the tokens of one model call above which AI usage reports its route from that call alone.
+
+The panel is available while the runtime journal is enabled (`bootui.runtime-journal.enabled`), on Spring MVC, Spring
+WebFlux, and Quarkus. Where a stack lacks a fact, the observations that need it say so: WebFlux marks no request phases,
+Quarkus records no transactions, and Spring MVC has no event loop.
+
 ## GitHub
 
 ![BootUI GitHub panel](../images/bootui-github.webp)
