@@ -254,7 +254,7 @@ public final class ExceptionStore implements RuntimeEventPublisher {
                 thread,
                 null,
                 true,
-                new ExceptionPayload(fingerprint, className)));
+                new ExceptionPayload(fingerprint, className, signature(className, safeFrames))));
         notifyListeners();
         spanEnricher.onException(className);
     }
@@ -465,6 +465,20 @@ public final class ExceptionStore implements RuntimeEventPublisher {
                     .append(frame.methodName())
                     .append(':')
                     .append(frame.lineNumber());
+        }
+        return sha256Hex(builder.toString()).substring(0, 16);
+    }
+
+    /**
+     * The occurrence's cross-run signature: like its fingerprint, but without line numbers, so an edit that shifts the
+     * lines of its frames keeps it ({@code docs/PLAN-v2.md} §5.5).
+     */
+    static String signature(String className, List<Frame> frames) {
+        StringBuilder builder = new StringBuilder(className);
+        int count = Math.min(frames.size(), FINGERPRINT_FRAMES);
+        for (int i = 0; i < count; i++) {
+            Frame frame = frames.get(i);
+            builder.append('\n').append(frame.declaringClass()).append('#').append(frame.methodName());
         }
         return sha256Hex(builder.toString()).substring(0, 16);
     }

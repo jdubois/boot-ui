@@ -39,6 +39,15 @@ final class InsightText {
         return String.format(Locale.ROOT, "%016x", hash).substring(0, 10);
     }
 
+    /** A class name without its package, or {@code ?} when unknown. */
+    static String simpleName(String className) {
+        if (className == null || className.isBlank()) {
+            return "?";
+        }
+        int dot = className.lastIndexOf('.');
+        return dot < 0 ? className : className.substring(dot + 1);
+    }
+
     /** Milliseconds from nanoseconds, with one decimal below 10 ms. */
     static String millis(long nanos) {
         double ms = nanos / 1_000_000.0;

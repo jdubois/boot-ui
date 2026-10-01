@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.core.dto.RuntimeObservationRowDto;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalStatus;
+import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
@@ -43,32 +44,56 @@ public final class RuntimeInsightsService {
     private final Supplier<RouteTemplateResolver> routes;
     private final Predicate<String> panelEnabled;
     private final List<Observation> observations;
+    private final InsightsStack stack;
+    private final Supplier<List<RunSummary>> runs;
     private Cached cached;
+    private String previousRunOf;
+    private RunSummary previousRun;
 
     /**
      * @param journal the journal, or {@code null} when the adapter created none
      * @param routes the application's declared routes, or {@code null}
      * @param panelEnabled whether a panel, by its id, is enabled; {@code null} enables every panel
+     * @param stack the stack serving the application, or {@code null} when unknown
+     * @param runs the summaries of the runs kept in this JVM, newest first, such as
+     *     {@code RunHistory.shared()::summaries}, or {@code null}
      */
     public RuntimeInsightsService(
-            RuntimeJournal journal, Supplier<RouteTemplateResolver> routes, Predicate<String> panelEnabled) {
-        this(journal, routes, panelEnabled, defaultObservations());
+            RuntimeJournal journal,
+            Supplier<RouteTemplateResolver> routes,
+            Predicate<String> panelEnabled,
+            InsightsStack stack,
+            Supplier<List<RunSummary>> runs) {
+        this(journal, routes, panelEnabled, stack, runs, defaultObservations());
     }
 
     RuntimeInsightsService(
             RuntimeJournal journal,
             Supplier<RouteTemplateResolver> routes,
             Predicate<String> panelEnabled,
+            InsightsStack stack,
+            Supplier<List<RunSummary>> runs,
             List<Observation> observations) {
         this.journal = journal;
         this.routes = routes == null ? RouteTemplateResolver::empty : routes;
         this.panelEnabled = panelEnabled == null ? panel -> true : panelEnabled;
+        this.stack = stack;
+        this.runs = runs;
         this.observations = List.copyOf(observations);
     }
 
     /** The observations of 2.0, in report order. */
     public static List<Observation> defaultObservations() {
-        return List.of(new RepeatedSelects(), new ConnectionsPerRequest(), new SafeMethodDml());
+        return List.of(
+                new ExceptionHotspots(),
+                new ErrorsBehind2xx(),
+                new RepeatedSelects(),
+                new ConnectionsPerRequest(),
+                new SafeMethodDml(),
+                new SplitTransactionWrites(),
+                new LazySqlAfterHandler(),
+                new EventLoopBlocking(),
+                new FrameworkWarningsByRoute());
     }
 
     /** The current report, projected from the retained events. */
@@ -135,18 +160,24 @@ public final class RuntimeInsightsService {
                 status,
                 resolver == null ? RouteTemplateResolver.empty() : resolver,
                 journal::records,
-                this::panelVisible);
+                this::panelVisible,
+                stack,
+                previousRun(status.runId()));
         List<RuntimeInsightCheckDto> checks = new ArrayList<>();
         List<RuntimeObservationDto> rows = new ArrayList<>();
         Map<String, Detail> details = new LinkedHashMap<>();
         for (Observation observation : observations) {
             String missing = missingSource(observation, snapshot);
+            if (missing == null) {
+                missing = observation.notApplicable(snapshot);
+            }
             if (missing != null) {
                 checks.add(new RuntimeInsightCheckDto(
                         observation.kind(), observation.title(), "NOT_APPLICABLE", 0, 0, missing));
                 continue;
             }
             String partial = partialReason(observation, snapshot);
+            List<String> unseen = unseenSources(observation, snapshot);
             Observation.Evaluation evaluation = observation.evaluate(snapshot);
             checks.add(new RuntimeInsightCheckDto(
                     observation.kind(),
@@ -154,11 +185,12 @@ public final class RuntimeInsightsService {
                     partial == null ? "EVALUATED" : "PARTIAL",
                     evaluation.eligibleRequests(),
                     evaluation.findings().size(),
-                    partial));
+                    partial != null ? partial : unseen.isEmpty() ? null : String.join(" ", unseen)));
             for (Finding finding : evaluation.findings()) {
                 String findingStatus =
                         !finding.sufficient() ? "INSUFFICIENT" : partial == null ? "OBSERVED" : "PARTIAL";
                 List<String> limitations = new ArrayList<>(finding.limitations());
+                limitations.addAll(unseen);
                 if (partial != null) {
                     limitations.add(partial);
                 }
@@ -241,10 +273,51 @@ public final class RuntimeInsightsService {
         return null;
     }
 
+    private List<String> unseenSources(Observation observation, InsightsSnapshot snapshot) {
+        List<String> unseen = new ArrayList<>();
+        for (JournalSource source : observation.optionalReads()) {
+            if (!snapshot.records(source)) {
+                unseen.add("Without the " + source.propertyName() + " source, which the runtime journal does not"
+                        + " record, its evidence is not counted.");
+            } else if (!snapshot.visible(source)) {
+                unseen.add("The " + panelOf(source) + " panel is disabled, so its evidence is not counted.");
+            }
+        }
+        return unseen;
+    }
+
+    private RunSummary previousRun(String runId) {
+        if (runs == null) {
+            return null;
+        }
+        if (runId.equals(previousRunOf) && previousRun != null) {
+            return previousRun;
+        }
+        RunSummary found = null;
+        try {
+            for (RunSummary summary : runs.get()) {
+                if (!summary.header().runId().equals(runId)) {
+                    found = summary;
+                    break;
+                }
+            }
+        } catch (RuntimeException ex) {
+            found = null;
+        }
+        previousRunOf = runId;
+        previousRun = found;
+        return found;
+    }
+
     private static String partialReason(Observation observation, InsightsSnapshot snapshot) {
         long dropped = 0;
         for (JournalSource source : observation.reads()) {
             dropped += snapshot.dropped(source);
+        }
+        for (JournalSource source : observation.optionalReads()) {
+            if (snapshot.records(source)) {
+                dropped += snapshot.dropped(source);
+            }
         }
         dropped += snapshot.dropped(JournalSource.HTTP);
         return dropped == 0

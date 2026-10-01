@@ -145,8 +145,9 @@ class RuntimeInsightsServiceTests {
         journal.close();
         journal = journal(EnumSet.of(JournalSource.HTTP, JournalSource.SQL));
 
-        RuntimeInsightsReportDto report =
-                new RuntimeInsightsService(journal, null, panel -> !panel.equals(BootUiPanels.SQL_TRACE)).report();
+        RuntimeInsightsReportDto report = new RuntimeInsightsService(
+                        journal, null, panel -> !panel.equals(BootUiPanels.SQL_TRACE), null, null)
+                .report();
 
         Map<String, RuntimeInsightCheckDto> checks =
                 report.checks().stream().collect(Collectors.toMap(RuntimeInsightCheckDto::kind, Function.identity()));
@@ -183,12 +184,14 @@ class RuntimeInsightsServiceTests {
                     assertThat(coverage.unlinked()).isEqualTo(1);
                 });
         assertThat(report.checks()).extracting(RuntimeInsightCheckDto::status).containsOnly("EVALUATED");
-        assertThat(new RuntimeInsightsService(null, null, null).report().unavailableReason())
+        assertThat(new RuntimeInsightsService(null, null, null, null, null)
+                        .report()
+                        .unavailableReason())
                 .isEqualTo(RuntimeInsightsService.DISABLED);
     }
 
     private RuntimeInsightsService service() {
-        return new RuntimeInsightsService(journal, null, null);
+        return new RuntimeInsightsService(journal, null, null, null, null);
     }
 
     private static Map<String, RuntimeObservationDto> observations(RuntimeInsightsReportDto report, String kind) {

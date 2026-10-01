@@ -48,7 +48,8 @@ public final class BootUiTransactionExecutionListener implements TransactionExec
                 recorder.completeTransaction(id, Status.UNKNOWN, message(beginFailure));
                 return;
             }
-            long id = recorder.beginTransaction(name, readOnly, currentIsolation(), thread, traceId);
+            long id = recorder.beginTransaction(
+                    name, readOnly, currentIsolation(), thread, traceId, transactionExecution.isNested());
             pending.get().addLast(id);
         } catch (RuntimeException ignored) {
             // A recorder failure must never disrupt the application's real transaction.

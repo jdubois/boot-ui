@@ -30,7 +30,7 @@ class RunSummaryTests {
                         "r1",
                         JournalSource.EXCEPTION,
                         -1,
-                        new ExceptionPayload("g1", "java.lang.IllegalStateException")));
+                        new ExceptionPayload("g1", "java.lang.IllegalStateException", "s1")));
         publish(aggregates, event("r1", JournalSource.CONNECTION, 9_000_000, new ConnectionPayload("db", 2_000, 1)));
         publish(aggregates, http("r1", "/api/orders/{id}", 500, 20_000_000));
         publish(aggregates, http("r2", "/api/orders/{id}", 200, 3_000_000));
@@ -59,6 +59,7 @@ class RunSummaryTests {
         assertThat(copy.run()).isEqualTo(original.run());
         assertThat(copy.overflowed()).isEqualTo(original.overflowed());
         assertThat(copy.exceptionGroups()).isEqualTo(original.exceptionGroups());
+        assertThat(copy.exceptionGroups().get(0).signature()).isEqualTo("s1");
         assertThat(copy.threadFamilies()).isEqualTo(original.threadFamilies());
         RouteStats route = copy.routes().get(0);
         RouteStats originalRoute = original.routes().get(0);

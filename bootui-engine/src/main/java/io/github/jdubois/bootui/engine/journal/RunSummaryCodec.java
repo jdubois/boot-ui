@@ -36,7 +36,7 @@ final class RunSummaryCodec {
 
     private static final int MAGIC = 0x42555253;
 
-    private static final int VERSION = 2;
+    private static final int VERSION = 3;
 
     private RunSummaryCodec() {}
 
@@ -95,8 +95,8 @@ final class RunSummaryCodec {
                         in.number())));
         List<StatementStats> statements = in.list(
                 () -> new StatementStats(in.string(), in.number(), in.number(), in.histogram(), in.stringMap()));
-        List<ExceptionGroupStats> groups =
-                in.list(() -> new ExceptionGroupStats(in.string(), in.string(), in.number(), in.stringMap()));
+        List<ExceptionGroupStats> groups = in.list(
+                () -> new ExceptionGroupStats(in.string(), in.string(), in.string(), in.number(), in.stringMap()));
         List<TransactionalMethodStats> methods =
                 in.list(() -> new TransactionalMethodStats(in.string(), in.number(), in.number(), in.histogram()));
         List<ThreadFamilyStats> families =
@@ -149,6 +149,7 @@ final class RunSummaryCodec {
         for (ExceptionGroupStats group : aggregates.exceptionGroups()) {
             body.string(group.groupId());
             body.string(group.exceptionClass());
+            body.string(group.signature());
             body.number(group.occurrences());
             body.stringMap(group.routes());
         }
@@ -235,7 +236,11 @@ final class RunSummaryCodec {
                 ExceptionGroupStats::occurrences,
                 limit,
                 group -> new ExceptionGroupStats(
-                        group.groupId(), group.exceptionClass(), group.occurrences(), top(group.routes(), limit)));
+                        group.groupId(),
+                        group.exceptionClass(),
+                        group.signature(),
+                        group.occurrences(),
+                        top(group.routes(), limit)));
         List<TransactionalMethodStats> methods = top(
                 aggregates.transactionalMethods(), TransactionalMethodStats::transactions, limit, Function.identity());
         List<ThreadFamilyStats> families = top(

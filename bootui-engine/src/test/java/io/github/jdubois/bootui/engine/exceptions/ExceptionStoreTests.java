@@ -11,6 +11,28 @@ import org.junit.jupiter.api.Test;
 class ExceptionStoreTests {
 
     @Test
+    void theCrossRunSignatureIgnoresLineNumbersButNotMethods() {
+        List<ExceptionStore.Frame> before = List.of(
+                new ExceptionStore.Frame("com.example.OrderService", "place", "OrderService.java", 40, true),
+                new ExceptionStore.Frame("com.example.OrderController", "post", "OrderController.java", 12, true));
+        List<ExceptionStore.Frame> shifted = List.of(
+                new ExceptionStore.Frame("com.example.OrderService", "place", "OrderService.java", 47, true),
+                new ExceptionStore.Frame("com.example.OrderController", "post", "OrderController.java", 15, true));
+        List<ExceptionStore.Frame> otherMethod = List.of(
+                new ExceptionStore.Frame("com.example.OrderService", "cancel", "OrderService.java", 40, true),
+                new ExceptionStore.Frame("com.example.OrderController", "post", "OrderController.java", 12, true));
+
+        String signature = ExceptionStore.signature("java.lang.IllegalStateException", before);
+
+        assertThat(ExceptionStore.signature("java.lang.IllegalStateException", shifted))
+                .isEqualTo(signature);
+        assertThat(ExceptionStore.signature("java.lang.IllegalStateException", otherMethod))
+                .isNotEqualTo(signature);
+        assertThat(ExceptionStore.signature("java.lang.IllegalArgumentException", before))
+                .isNotEqualTo(signature);
+    }
+
+    @Test
     void groupsRepeatedFailuresWithIdenticalStacks() {
         ExceptionStore store = new ExceptionStore(100, 25, 50);
         for (Throwable throwable : sameOrigin(3)) {

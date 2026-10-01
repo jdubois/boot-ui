@@ -423,14 +423,13 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
         this.requestPhases = requestPhases;
     }
 
-    private String requestPhase(String requestId) {
+    private RequestPhase requestPhase(String requestId) {
         RequestPhases phases = requestPhases;
         if (phases == null || requestId == null) {
             return null;
         }
         try {
-            RequestPhase phase = phases.phaseOf(requestId);
-            return phase == null ? null : phase.name();
+            return phases.phaseOf(requestId);
         } catch (RuntimeException ex) {
             return null;
         }
@@ -514,6 +513,8 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
         }
         CorrelationContext context = correlation.current();
         ThreadKind threadKind = threadKinds.current();
+        long completedNanos = System.nanoTime();
+        RequestPhase phase = requestPhase(context.requestId());
         ApplicationFrames frames = captureCallSite ? ApplicationFrames.capture() : null;
         CapturedStatement entry = new CapturedStatement(
                 sequence.incrementAndGet(),
@@ -534,7 +535,7 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                 context.requestId(),
                 context.executionId(),
                 threadKind.name(),
-                requestPhase(context.requestId()));
+                phase == null ? null : phase.name());
         boolean failedOrSlow = isFailedOrSlow(entry.success(), isSlow(entry.durationMicros()));
         buffer.add(entry, failedOrSlow);
         journal.offer(new RuntimeEvent(
@@ -548,7 +549,14 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                 entry.thread(),
                 threadKind,
                 failedOrSlow,
-                new SqlPayload(entry.sql(), entry.callSite(), context.dataSource(), !entry.success(), frames)));
+                new SqlPayload(
+                        entry.sql(),
+                        entry.callSite(),
+                        context.dataSource(),
+                        !entry.success(),
+                        frames,
+                        phase,
+                        completedNanos)));
         totalCaptured.incrementAndGet();
         notifyListeners();
         enrichActiveSpan(entry.traceId());

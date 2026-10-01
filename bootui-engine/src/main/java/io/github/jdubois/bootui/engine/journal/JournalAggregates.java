@@ -447,18 +447,23 @@ public final class JournalAggregates implements JournalListener {
         private final CappedMap<long[]> routes = new CappedMap<>(MAX_ROUTES_PER_EXCEPTION_GROUP, () -> new long[1]);
         private long count;
         private String exceptionClass;
+        private String signature;
 
         void add(ExceptionPayload exception) {
             count++;
             if (exceptionClass == null) {
                 exceptionClass = exception.exceptionClass();
             }
+            if (signature == null) {
+                signature = exception.signature();
+            }
         }
 
         ExceptionGroupStats stats(String groupId) {
             Map<String, Long> byRoute = new LinkedHashMap<>();
             routes.entries().forEach((route, routeCount) -> byRoute.put(route, routeCount[0]));
-            return new ExceptionGroupStats(groupId, exceptionClass, count, Collections.unmodifiableMap(byRoute));
+            return new ExceptionGroupStats(
+                    groupId, exceptionClass, signature, count, Collections.unmodifiableMap(byRoute));
         }
     }
 
@@ -572,9 +577,12 @@ public final class JournalAggregates implements JournalListener {
             LatencyHistogram latency,
             Map<String, Long> callSites) {}
 
-    /** One exception group: its occurrences, its exception class, and its occurrences per route. */
+    /**
+     * One exception group: its exception class, its cross-run signature (or {@code null}), its occurrences, and its
+     * occurrences per route.
+     */
     public record ExceptionGroupStats(
-            String groupId, String exceptionClass, long occurrences, Map<String, Long> routes) {}
+            String groupId, String exceptionClass, String signature, long occurrences, Map<String, Long> routes) {}
 
     /** One transactional method: its transactions, rollbacks, and latency. */
     public record TransactionalMethodStats(

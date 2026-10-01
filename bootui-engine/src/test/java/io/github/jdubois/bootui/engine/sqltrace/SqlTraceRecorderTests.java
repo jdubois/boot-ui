@@ -10,6 +10,8 @@ import io.github.jdubois.bootui.core.dto.SqlTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.correlation.RequestPhase;
+import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
@@ -70,9 +72,39 @@ class SqlTraceRecorderTests {
         assertThat(event.durationNanos()).isEqualTo(150_000_000L);
         assertThat(event.failedOrSlow()).isTrue();
         assertThat(event.thread()).isEqualTo("http-nio-8080-exec-1");
-        assertThat(event.payload())
+        SqlPayload payload = (SqlPayload) event.payload();
+        assertThat(payload)
+                .usingRecursiveComparison()
+                .ignoringFields("completedNanos")
                 .isEqualTo(new SqlPayload("select * from orders where id = ?", null, "orders", true));
+        assertThat(payload.completedNanos()).isPositive();
         assertThat(published.get(1).requestId()).isNull();
+    }
+
+    @Test
+    void publishesTheRequestPhaseAndMonotonicCompletionOfEachStatement() {
+        SqlTraceRecorder recorder = new SqlTraceRecorder(true, true, true, false, 8, 100, 2000, 200, 5, 50);
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(published::add);
+        RequestPhases phases = new RequestPhases();
+        recorder.setRequestPhases(phases);
+        phases.begin("0123456789abcdef");
+        long before = System.nanoTime();
+
+        try (BootUiCorrelation.Scope ignored =
+                BootUiCorrelation.open(CorrelationContext.forRequest("0123456789abcdef"))) {
+            phases.mark("0123456789abcdef", RequestPhase.HANDLER);
+            record(recorder, Category.SELECT, "select * from orders", 0);
+            phases.mark("0123456789abcdef", RequestPhase.RESPONSE);
+            record(recorder, Category.SELECT, "select * from lines", 0);
+        }
+
+        SqlPayload handler = (SqlPayload) published.get(0).payload();
+        SqlPayload response = (SqlPayload) published.get(1).payload();
+        assertThat(handler.phase()).isEqualTo(RequestPhase.HANDLER);
+        assertThat(response.phase()).isEqualTo(RequestPhase.RESPONSE);
+        assertThat(handler.completedNanos()).isGreaterThanOrEqualTo(before);
+        assertThat(response.completedNanos()).isGreaterThanOrEqualTo(handler.completedNanos());
     }
 
     @Test

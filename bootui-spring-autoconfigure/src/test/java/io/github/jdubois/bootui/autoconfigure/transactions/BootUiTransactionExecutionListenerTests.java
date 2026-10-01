@@ -1,12 +1,16 @@
 package io.github.jdubois.bootui.autoconfigure.transactions;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.core.dto.TransactionEntryDto;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.TransactionPayload;
 import io.github.jdubois.bootui.engine.transactions.TransactionRecorder;
 import java.sql.Connection;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -102,6 +106,33 @@ class BootUiTransactionExecutionListenerTests {
                 .findFirst()
                 .orElseThrow();
         assertThat(innerEntry.parentId()).isEqualTo(outerEntry.id());
+    }
+
+    @Test
+    void publishesWhetherANestedBoundaryIsASavepointOrItsOwnPhysicalTransaction() {
+        TransactionRecorder recorder = recorder();
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(published::add);
+        BootUiTransactionExecutionListener listener = new BootUiTransactionExecutionListener(recorder);
+
+        TransactionExecution outer = execution("Outer.method", false);
+        TransactionExecution requiresNew = execution("Audit.log", false);
+        TransactionExecution savepoint = execution("Stock.reserve", false);
+        when(savepoint.isNested()).thenReturn(true);
+        listener.afterBegin(outer, null);
+        listener.afterBegin(requiresNew, null);
+        listener.afterCommit(requiresNew, null);
+        listener.afterBegin(savepoint, null);
+        listener.afterCommit(savepoint, null);
+        listener.afterCommit(outer, null);
+
+        assertThat(published)
+                .extracting(event -> (TransactionPayload) event.payload())
+                .extracting(TransactionPayload::method, TransactionPayload::nested, TransactionPayload::savepoint)
+                .containsExactly(
+                        tuple("Audit.log", true, false),
+                        tuple("Stock.reserve", true, true),
+                        tuple("Outer.method", false, false));
     }
 
     @Test

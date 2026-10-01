@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalStatus;
+import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
@@ -15,6 +16,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Predicate;
 
 /**
@@ -30,13 +32,17 @@ public final class InsightsSnapshot {
     private final JournalStatus status;
     private final Predicate<JournalSource> recorded;
     private final Predicate<JournalSource> visible;
+    private final InsightsStack stack;
+    private final RunSummary previousRun;
 
     private InsightsSnapshot(
             List<ProjectedRequest> requests,
             Map<JournalSource, long[]> coverage,
             JournalStatus status,
             Predicate<JournalSource> recorded,
-            Predicate<JournalSource> visible) {
+            Predicate<JournalSource> visible,
+            InsightsStack stack,
+            RunSummary previousRun) {
         this.requests = Collections.unmodifiableList(requests);
         Map<String, List<ProjectedRequest>> routes = new LinkedHashMap<>();
         for (ProjectedRequest request : requests) {
@@ -47,6 +53,8 @@ public final class InsightsSnapshot {
         this.status = status;
         this.recorded = recorded;
         this.visible = visible;
+        this.stack = stack;
+        this.previousRun = previousRun;
     }
 
     /**
@@ -61,6 +69,23 @@ public final class InsightsSnapshot {
             RouteTemplateResolver routes,
             Predicate<JournalSource> recorded,
             Predicate<JournalSource> visible) {
+        return of(entries, status, routes, recorded, visible, null, null);
+    }
+
+    /**
+     * Projects {@code entries} for {@code stack}, with the summary of the run before this one.
+     *
+     * @param stack the stack serving the application, or {@code null} when unknown
+     * @param previousRun the previous run's summary, or {@code null} when none is kept
+     */
+    public static InsightsSnapshot of(
+            List<JournalEntry> entries,
+            JournalStatus status,
+            RouteTemplateResolver routes,
+            Predicate<JournalSource> recorded,
+            Predicate<JournalSource> visible,
+            InsightsStack stack,
+            RunSummary previousRun) {
         List<JournalEntry> ordered = new ArrayList<>(entries);
         ordered.sort(Comparator.comparingLong(JournalEntry::sequence));
         Map<String, RuntimeEvent> http = new HashMap<>();
@@ -106,7 +131,7 @@ public final class InsightsSnapshot {
         }
         requests.sort(
                 Comparator.comparingLong(ProjectedRequest::startMillis).thenComparing(ProjectedRequest::requestId));
-        return new InsightsSnapshot(requests, coverage, status, recorded, visible);
+        return new InsightsSnapshot(requests, coverage, status, recorded, visible, stack, previousRun);
     }
 
     /** Every completed request retained, oldest first. */
@@ -117,6 +142,16 @@ public final class InsightsSnapshot {
     /** The completed requests per route label, routes in first-seen order. */
     public Map<String, List<ProjectedRequest>> byRoute() {
         return byRoute;
+    }
+
+    /** The stack serving the application, or {@code null} when unknown. */
+    public InsightsStack stack() {
+        return stack;
+    }
+
+    /** The summary of the run before this one in the same JVM, when one is kept. */
+    public Optional<RunSummary> previousRun() {
+        return Optional.ofNullable(previousRun);
     }
 
     /** The journal's status when the snapshot was taken. */

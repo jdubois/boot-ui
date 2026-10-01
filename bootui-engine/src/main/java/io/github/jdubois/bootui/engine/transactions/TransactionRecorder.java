@@ -150,6 +150,16 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
      * disabled, paused, or idle-suspended, so callers never need a null check.
      */
     public long beginTransaction(String methodName, boolean readOnly, String isolation, String thread, String traceId) {
+        return beginTransaction(methodName, readOnly, isolation, thread, traceId, false);
+    }
+
+    /**
+     * Records the start of a transaction boundary, as {@link #beginTransaction(String, boolean, String, String, String)}
+     * does, saying whether it is a savepoint inside the enclosing transaction rather than a physical transaction of its
+     * own ({@code docs/PLAN-v2.md} §5.5).
+     */
+    public long beginTransaction(
+            String methodName, boolean readOnly, String isolation, String thread, String traceId, boolean savepoint) {
         if (!isActive()) {
             return -1;
         }
@@ -167,6 +177,7 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
                 traceId,
                 System.currentTimeMillis(),
                 System.nanoTime(),
+                savepoint,
                 correlation.current());
         active.put(id, transaction);
         stack.addLast(id);
@@ -241,7 +252,12 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
                 transaction.thread(),
                 null,
                 status != Status.COMMITTED || isSlow(duration),
-                new TransactionPayload(transaction.methodName(), status == Status.ROLLED_BACK)));
+                new TransactionPayload(
+                        transaction.methodName(),
+                        status == Status.ROLLED_BACK,
+                        transaction.parentId() != null,
+                        transaction.savepoint(),
+                        transaction.startNanos())));
         notifyListeners();
     }
 
@@ -433,5 +449,6 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
             String traceId,
             long startTimestamp,
             long startNanos,
+            boolean savepoint,
             CorrelationContext context) {}
 }

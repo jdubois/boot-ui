@@ -169,23 +169,40 @@ class RecorderPublishingTests {
     void transactionsPublishTheirMethodRollbackAndTheRequestTheyBeganIn() {
         TransactionRecorder recorder = new TransactionRecorder(true, true, 10, 100, 100, null);
         recorder.setRuntimeEventSink(published::add);
+        long before = System.nanoTime();
 
         inRequest(() -> {
             long committed = recorder.beginTransaction("OrderService.place", false, null, "worker-1", null);
+            long joined = recorder.beginTransaction("StockService.reserve", false, null, "worker-1", null, true);
+            recorder.completeTransaction(joined, TransactionRecorder.Status.COMMITTED, null);
             recorder.completeTransaction(committed, TransactionRecorder.Status.COMMITTED, null);
             long rolledBack = recorder.beginTransaction("OrderService.cancel", false, null, "worker-1", null);
             recorder.completeTransaction(rolledBack, TransactionRecorder.Status.ROLLED_BACK, "boom");
         });
 
-        assertThat(published).hasSize(2).allSatisfy(event -> {
+        assertThat(published).hasSize(3).allSatisfy(event -> {
             assertThat(event.source()).isEqualTo(JournalSource.TRANSACTION);
             assertThat(event.requestId()).isEqualTo(REQUEST.requestId());
             assertThat(event.durationNanos()).isNotNegative();
+            assertThat(((TransactionPayload) event.payload()).startNanos()).isGreaterThanOrEqualTo(before);
         });
-        assertThat(published.get(0).payload()).isEqualTo(new TransactionPayload("OrderService.place", false));
-        assertThat(published.get(0).failedOrSlow()).isFalse();
-        assertThat(published.get(1).payload()).isEqualTo(new TransactionPayload("OrderService.cancel", true));
-        assertThat(published.get(1).failedOrSlow()).isTrue();
+        TransactionPayload joined = (TransactionPayload) published.get(0).payload();
+        assertThat(joined.method()).isEqualTo("StockService.reserve");
+        assertThat(joined.nested()).isTrue();
+        assertThat(joined.savepoint()).isTrue();
+        assertThat(joined.independent()).isFalse();
+        TransactionPayload place = (TransactionPayload) published.get(1).payload();
+        assertThat(place.method()).isEqualTo("OrderService.place");
+        assertThat(place.rolledBack()).isFalse();
+        assertThat(place.nested()).isFalse();
+        assertThat(place.savepoint()).isFalse();
+        assertThat(place.independent()).isTrue();
+        assertThat(place.startNanos()).isLessThan(joined.startNanos());
+        assertThat(published.get(1).failedOrSlow()).isFalse();
+        TransactionPayload cancel = (TransactionPayload) published.get(2).payload();
+        assertThat(cancel.method()).isEqualTo("OrderService.cancel");
+        assertThat(cancel.rolledBack()).isTrue();
+        assertThat(published.get(2).failedOrSlow()).isTrue();
     }
 
     @Test

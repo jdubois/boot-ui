@@ -24,6 +24,21 @@ public interface Observation {
     /** The journal sources it reads; it is not applicable when one is not recorded or its panel is disabled. */
     Set<JournalSource> reads();
 
+    /**
+     * Sources it also reads when the journal records them; without one, it still runs and names what it cannot see.
+     */
+    default Set<JournalSource> optionalReads() {
+        return Set.of();
+    }
+
+    /**
+     * Why it does not apply to this snapshot, such as a stack that has no event loop, or {@code null} when it applies.
+     * Called after its {@linkplain #reads() sources} are known to be recorded and visible.
+     */
+    default String notApplicable(InsightsSnapshot snapshot) {
+        return null;
+    }
+
     /** Projects the snapshot. */
     Evaluation evaluate(InsightsSnapshot snapshot);
 
