@@ -1850,17 +1850,17 @@ const architecture = {
       'Break the dependency cycle by extracting shared types or inverting one of the dependencies so packages form a directed acyclic graph.'
     ),
     architectureResult(
-      'ARCH-CODE-005',
-      'Classes should not call Throwable.printStackTrace()',
+      'ARCH-CODE-001',
+      'Classes should not access standard streams',
       'Coding practices',
       'LOW',
-      'Detects calls to Throwable.printStackTrace(), which write to System.err and bypass structured logging.',
+      'Detects direct use of System.out or System.err instead of a logging framework.',
       'VIOLATION',
       1,
       [
-        'io.github.jdubois.bootui.sample.order.OrderService.process(OrderService.java:58) calls Throwable.printStackTrace()'
+        'Method <io.github.jdubois.bootui.sample.order.OrderService.process()> calls method <java.lang.Throwable.printStackTrace()> in (OrderService.java:58)'
       ],
-      'Log the exception through the project logging facade instead of calling printStackTrace().'
+      'Replace System.out / System.err calls with a logger (e.g. SLF4J) so output is structured and configurable.'
     )
   ]
 }
