@@ -137,6 +137,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fixing a `QA-WEB-004` false positive in development mode; they now report incomplete production coverage there
   like the other production rules. The advisor has 14 rules
   ([Quarkus checks](docs/QUARKUS-ADVISOR-CHECKS.md#second-audit-disposition), [#1167](https://github.com/jdubois/boot-ui/pull/1167)).
+- **Vulnerabilities scores CVSS v4.0 and prefers it over CVSS v3.** Advisories carrying a CVSS v4.0 vector now get a
+  numeric score from a port of FIRST's reference calculator, verified against it for every Base metric combination, and
+  scored as published, so GitHub's frequent `E:U` Threat metric applies. When an advisory carries both versions, the v4
+  score decides the severity, as it does for GitHub's own label: in a live OSV.dev sample, the v3 band overstated
+  GitHub's severity for 6 of 21 dual-vector records. Some findings therefore drop a severity band, and v3 and v4 numbers
+  are never compared. Same behavior on Spring MVC, Spring WebFlux, and Quarkus
+  ([Vulnerabilities checks](docs/VULNERABILITIES-CHECKS.md#severity-applicable-assessments-cvss-v4-preferred-over-v3),
+  [#1163](https://github.com/jdubois/boot-ui/pull/1163)).
+- **Vulnerabilities reports malicious packages as CRITICAL.** An OpenSSF Malicious Packages advisory (`MAL-` ID), which
+  OSV.dev serves for Maven packages, used to read as `UNKNOWN` with no score penalty. It is now `CRITICAL`, without a
+  synthesized CVSS score, and its details lead with removal guidance
+  ([Malicious-package advisories](docs/VULNERABILITIES-CHECKS.md#malicious-package-advisories),
+  [#1163](https://github.com/jdubois/boot-ui/pull/1163)).
 - **Memory advisor audit: fewer, more reliable findings.** The advisor now evaluates 32 rules. Five noisy rules are
   retired and their IDs are never reused: `MEM-HEAP-007` (committed heap above usage, which flagged normal GC headroom
   and every equal `-Xms`/`-Xmx`), `MEM-FOOTPRINT-004` (host swap, not attributable to the JVM), `MEM-POOL-006` (JIT
@@ -245,6 +258,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   longer scans `PARTIAL`. Learn-more links now point to MySQL 8.4, the PostgreSQL primary/foreign-key docs and the
   Jakarta Persistence 3.2 specification instead of blog posts and Wikipedia
   ([Database checks](docs/DATABASE-ADVISOR-CHECKS.md), [#1169](https://github.com/jdubois/boot-ui/pull/1169)).
+
+- **Quarkus Vulnerabilities coverage is no longer reported complete when the dependency model is missing or damaged.**
+  A missing or blank build-time model, a malformed entry, or a runtime JAR coordinate the build step could not encode
+  now reports `UNAVAILABLE` coverage instead of `COMPLETE`, so the Known-findings score is qualified rather than
+  presented as covering the whole application ([#1163](https://github.com/jdubois/boot-ui/pull/1163)).
 
 - **Live Activity durable persistence stores a failed or slow entry once, including a slow `4xx` request.**
   Persistence remembers the entries it stored in a bounded window. An entry that newer entries pushed out of Spring

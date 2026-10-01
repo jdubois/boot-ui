@@ -10,8 +10,8 @@ import java.util.List;
  *
  * <p>Kept separate from the bare {@link DependencyProvider#dependencies()} list so a provider that
  * <em>can</em> enumerate the application's archives (the Spring classpath catalogue) reports its blind spot,
- * while one whose inventory is authoritative by construction (the Quarkus build-time application model)
- * simply reports complete coverage.</p>
+ * while one whose inventory comes from a build-time model (Quarkus) reports complete coverage only when that
+ * model was captured and decoded whole.</p>
  */
 public record DependencyInventory(List<DependencyDto> dependencies, DependencyCoverageDto coverage) {
 

@@ -1,7 +1,9 @@
 package io.github.jdubois.bootui.quarkus;
 
 import io.github.jdubois.bootui.core.dto.DependencyAssessmentDto;
+import io.github.jdubois.bootui.core.dto.DependencyCoverageDto;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
+import io.github.jdubois.bootui.engine.vulnerabilities.DependencyInventory;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyProvider;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
@@ -27,7 +29,11 @@ import org.eclipse.microprofile.config.Config;
  * ({@code QuarkusBasePackageProvider} reading {@code bootui.internal.base-packages}) exactly.</p>
  *
  * <p>Like every build-time-populated provider it fails soft: a missing or blank key yields an empty list,
- * so the Vulnerabilities panel renders an empty inventory rather than failing. Entries are de-duplicated by
+ * so the Vulnerabilities panel renders an empty inventory rather than failing. The model is complete only
+ * when it was captured and decoded whole: a missing key (the build step never ran; a real Quarkus
+ * application always has runtime JARs), a malformed entry, or a coordinate the build step had to skip
+ * ({@link #SKIPPED_KEY}) reports {@code UNAVAILABLE} coverage instead of a false {@code COMPLETE}. Entries
+ * are de-duplicated by
  * {@code group:artifact:version} (resolved dependencies may repeat across classifiers) and sorted by
  * package name then version, matching the Spring catalogue. Each coordinate becomes a
  * {@link DependencyDto} with no vulnerabilities until the user triggers an OSV scan.</p>
@@ -42,6 +48,12 @@ public class QuarkusDependencyProvider implements DependencyProvider {
      */
     public static final String DEPENDENCIES_KEY = "bootui.internal.dependencies";
 
+    /**
+     * Runtime config key holding how many runtime JAR coordinates the deployment processor could not encode
+     * into {@link #DEPENDENCIES_KEY}; absent when none were skipped.
+     */
+    public static final String SKIPPED_KEY = "bootui.internal.dependencies-skipped";
+
     private static final String SOURCE = "Quarkus application model";
 
     private final Config config;
@@ -53,25 +65,59 @@ public class QuarkusDependencyProvider implements DependencyProvider {
 
     @Override
     public List<DependencyDto> dependencies() {
-        return config.getOptionalValue(DEPENDENCIES_KEY, String.class)
-                .map(QuarkusDependencyProvider::parse)
-                .orElseGet(List::of);
+        return parse(rawDependencies()).dependencies();
     }
 
-    private static List<DependencyDto> parse(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return List.of();
+    @Override
+    public DependencyInventory inventory() {
+        String raw = rawDependencies();
+        Parsed parsed = parse(raw);
+        if (raw == null || parsed.malformed() > 0 || skipped() != 0) {
+            return new DependencyInventory(parsed.dependencies(), DependencyCoverageDto.unavailable());
+        }
+        return DependencyInventory.complete(parsed.dependencies());
+    }
+
+    private String rawDependencies() {
+        return config.getOptionalValue(DEPENDENCIES_KEY, String.class)
+                .filter(raw -> !raw.isBlank())
+                .orElse(null);
+    }
+
+    /** The build-time skip count; an unreadable value is treated as a gap rather than as zero. */
+    private int skipped() {
+        try {
+            return config.getOptionalValue(SKIPPED_KEY, String.class)
+                    .map(String::trim)
+                    .map(Integer::parseInt)
+                    .orElse(0);
+        } catch (RuntimeException ex) {
+            return -1;
+        }
+    }
+
+    private record Parsed(List<DependencyDto> dependencies, int malformed) {}
+
+    private static Parsed parse(String raw) {
+        if (raw == null) {
+            return new Parsed(List.of(), 0);
         }
         Map<String, DependencyDto> dependencies = new LinkedHashMap<>();
+        int malformed = 0;
         for (String entry : raw.split(",")) {
-            DependencyDto dependency = coordinate(entry.trim());
+            String trimmed = entry.trim();
+            DependencyDto dependency = coordinate(trimmed);
             if (dependency != null) {
                 dependencies.putIfAbsent(dependency.packageName() + ":" + dependency.version(), dependency);
+            } else if (!trimmed.isEmpty()) {
+                malformed++;
             }
         }
-        return dependencies.values().stream()
-                .sorted(Comparator.comparing(DependencyDto::packageName).thenComparing(DependencyDto::version))
-                .toList();
+        return new Parsed(
+                dependencies.values().stream()
+                        .sorted(Comparator.comparing(DependencyDto::packageName).thenComparing(DependencyDto::version))
+                        .toList(),
+                malformed);
     }
 
     private static DependencyDto coordinate(String entry) {

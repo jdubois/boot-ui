@@ -29,14 +29,8 @@ import java.util.Map;
  * figure OSV.dev/NVD publish and label as "the" CVSS v3 score. Any Temporal or Environmental metrics
  * present in the vector string are validated but not scored.
  *
- * <p><strong>CVSS v4.0 is deliberately out of scope.</strong> Unlike v3.x, v4.0 has no closed-form Base
- * Score equation: it uses MacroVector lookup and interpolation rather than the v3 equations. FIRST
- * publishes the required reference implementation in its
- * <a href="https://github.com/FIRSTdotorg/cvss-v4-calculator">cvss-v4-calculator</a> repository.
- * Implementing and validating a separate v4 calculator is future work.
- * {@link DependencyReports#parseScore(String)} explicitly returns {@code null} for
- * {@code CVSS:4.x} vectors, and callers fall back to the {@code database_specific.severity} label for those
- * advisories.
+ * <p>CVSS v4.0 has no closed-form equation and is scored separately by {@link CvssV4Score}; this class
+ * returns {@code null} for {@code CVSS:4.x} vectors.
  *
  * <p>CVSS v2 vectors (unprefixed, e.g. {@code "AV:N/AC:L/Au:N/C:P/I:P/A:P"}) are not scored by this
  * v3-specific implementation.

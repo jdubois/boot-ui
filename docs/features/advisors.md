@@ -818,10 +818,12 @@ of application safety or complete runtime discovery. Panel and Overview use the 
 ### Severity scoring
 
 Severity is derived from [OSV.dev](https://osv.dev/)'s `severity[]` entries, whose `type` says how the `score` must be
-interpreted. BootUI computes only `CVSS_V3` entries carrying a CVSS v3.0/v3.1 vector; it never treats a bare number or
-another provider's scale as CVSS. CVSS `0.0` is reported as `NONE`, matching FIRST's qualitative scale. An advisory with
-neither a parseable CVSS v3 score nor a `database_specific` label renders as `UNKNOWN` rather than being silently
-dropped.
+interpreted. BootUI computes `CVSS_V4` entries carrying a CVSS v4.0 vector and `CVSS_V3` entries carrying a CVSS
+v3.0/v3.1 vector, preferring v4 when both are valid; it never treats a bare number or another provider's scale as CVSS,
+and never compares v3 and v4 numbers on one scale. CVSS `0.0` is reported as `NONE`, matching FIRST's qualitative scale.
+An advisory with neither a parseable CVSS score nor a `database_specific` label renders as `UNKNOWN` rather than being
+silently dropped. A malicious-package advisory (an OSV `MAL-` ID from OpenSSF Malicious Packages) is always `CRITICAL`,
+with no CVSS score: it reports malware, which removing the dependency, not upgrading it, remediates.
 
 ::: details How a CVSS score is selected and parsed
 BootUI matches exact `Maven` ecosystem and `groupId:artifactId`, allowing only OSV's literal `*` package wildcard,
@@ -830,7 +832,10 @@ explicit versions and supported Maven `ECOSYSTEM` ranges. Applicability is match
 unsupported `SEMVER`/`GIT` or malformed evidence never becomes an unaffected verdict. A positive OSV query retains
 the finding even when detail association is unsupported or contradictory, with `PARTIAL` and an explanation.
 
-Choose the highest valid v3 Base score across applicable matching package assessments, excluding unrelated branches.
+Choose the highest valid v4 score across applicable matching package assessments, excluding unrelated branches, and
+only when none is valid the highest valid v3 Base score. The v4 preference spans the whole applicable set, so one
+entry's v3 number never competes with another's v4 number. GitHub Advisory Database records carrying both vectors take
+their own severity label from the v4 vector, so preferring v4 keeps BootUI's severity aligned with the source database.
 Only when no applicable package severity is supplied does top-level severity supply the fallback. OSV makes package
 and top-level severity mutually exclusive: invalid/unsupported applicable package severity must not borrow a
 conflicting top-level score. A recognized `database_specific.severity` label remains a compatibility fallback,
@@ -840,9 +845,14 @@ A CVSS v3.0/v3.1 vector (for example `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A
 [FIRST CVSS v3.1 specification](https://www.first.org/cvss/v3.1/specification-document). All eight Base metrics are
 required. Valid metric orders and optional Temporal/Environmental metrics are accepted, but optional values are also
 validated; empty/trailing segments, unknown metrics, duplicates, and invalid values are rejected. Calculation remains
-**Base only**, with the specified scope and Roundup rules. CVSS v2/v4 calculation is deferred; v4 has a
-[public reference calculator](https://github.com/FIRSTdotorg/cvss-v4-calculator) but requires a separate implementation.
-Unsupported vectors do not remove findings.
+**Base only**, with the specified scope and Roundup rules.
+
+A CVSS v4.0 vector (for example `CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N`, 9.3) is scored with
+a port of FIRST's [reference calculator](https://github.com/FIRSTdotorg/cvss-v4-calculator), verified against it for
+every Base metric combination. All eleven Base metrics are required and every segment is validated as for v3. The
+vector is scored as published, so a supplied Threat metric such as GitHub's frequent `E:U` yields the CVSS-BT score
+GitHub itself labels. Supplemental metrics never change the score. CVSS v2 calculation is deferred, and unsupported
+vectors do not remove findings.
 :::
 
 ### OSV querying and robustness
@@ -1026,9 +1036,10 @@ dismiss/restore workflow. `bootui.vulnerabilities.osv-enabled=false` / `bootui.v
 disable on-demand scanning / EPSS enrichment on both adapters. The one platform difference is dependency discovery: the
 Quarkus inventory is captured at **build time** from the application's resolved runtime dependency model and read back at
 runtime (mirroring the Architecture panel's build-time base-package discovery). It does not require an SBOM to obtain
-those coordinates. However, the current provider can report `coverage.status=COMPLETE` even for a missing/blank model or
-after malformed entries were skipped. Distinguishing missing, truly empty, and partially decoded models is deferred;
-this change must not be read as repairing or independently verifying Quarkus inventory coverage.
+those coordinates. Coverage is `COMPLETE` only when that model was captured and decoded whole: a missing or blank model
+(the build step never ran; a real Quarkus application always has runtime JARs), a malformed entry, or a coordinate the
+build step could not encode reports `UNAVAILABLE` instead, keeping every readable dependency. `COMPLETE` still reflects
+the build-time model, not an independent verification of the running classpath.
 
 :::
 
@@ -1040,7 +1051,7 @@ of them:
 - **Discovery can overclaim coverage.** Spring de-duplicates archive basenames and matches filenames without group
   identity; case/classifier ambiguity can overstate identification. PURL literal-plus decoding and namespace rewriting,
   SBOM runtime-scope attribution, and a traversal cap on resolved coordinates rather than inspected nodes need separate
-  fixes. Quarkus missing/invalid model coverage can also overclaim completeness, as described above.
+  fixes.
 - **Without an SBOM, some JARs cannot be identified.** No JAR manifest header carries a `groupId` (the
   `spring-boot-jarmode-tools` exception above works only because its group is fixed and known)
   (`Implementation-Title` is a display name as often as an artifact id, and `Implementation-Vendor-Id` is not a group

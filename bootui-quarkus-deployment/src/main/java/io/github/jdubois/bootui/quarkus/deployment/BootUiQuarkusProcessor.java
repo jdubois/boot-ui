@@ -834,6 +834,7 @@ class BootUiQuarkusProcessor {
             return; // production: the console is dark, so nothing reads the key
         }
         Set<String> coordinates = new LinkedHashSet<>();
+        int skipped = 0;
         for (ResolvedDependency dependency : curateOutcome.getApplicationModel().getRuntimeDependencies()) {
             if (!"jar".equals(dependency.getType())) {
                 continue;
@@ -843,13 +844,19 @@ class BootUiQuarkusProcessor {
             if (coordinate.indexOf(',') >= 0
                     || coordinate.indexOf('$') >= 0
                     || coordinate.chars().anyMatch(Character::isWhitespace)) {
-                continue; // would corrupt the comma channel or trip ${...} expansion — never a real coordinate
+                // Would corrupt the comma channel or trip ${...} expansion; counted so coverage is not claimed.
+                skipped++;
+                continue;
             }
             coordinates.add(coordinate);
         }
         if (!coordinates.isEmpty()) {
             runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
                     QuarkusDependencyProvider.DEPENDENCIES_KEY, String.join(",", coordinates)));
+        }
+        if (skipped > 0) {
+            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                    QuarkusDependencyProvider.SKIPPED_KEY, Integer.toString(skipped)));
         }
     }
 
