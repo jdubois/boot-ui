@@ -1,8 +1,8 @@
 # GraalVM readiness checks
 
 The GraalVM panel surveys the host application for [GraalVM native-image](https://www.graalvm.org/latest/reference-manual/native-image/)
-readiness and can generate a `reachability-metadata.json` scaffold from the scan. The active catalogue contains **27
-checks: 22 GraalVM checks and 5 Spring AOT checks**. This page lists every active check, what it inspects, when it fires,
+readiness and can generate a `reachability-metadata.json` scaffold from the scan. The active catalogue contains **30
+checks: 22 GraalVM checks and 8 Spring AOT checks**. This page lists every active check, what it inspects, when it fires,
 and what to do about it.
 
 Each check is a small class registered in
@@ -18,6 +18,38 @@ wiring.
 This advisor is not applicable on Quarkus, which configures native images during its own build-time augmentation. The
 panel stays unavailable there with a platform-specific explanation rather than exposing a Spring-oriented scan or its
 generated files.
+
+## October 2026 audit
+
+The third audit re-checked every active rule against the GraalVM for JDK 25 feature releases (25.0.x through
+[25.4.4.1.1](https://github.com/oracle/graal/tree/graal-25.4.4.1.1), the current GraalVM Community build on JDK 25),
+Spring Framework 7.0.9 and Spring Boot 4.1.1 sources and AOT documentation, and Spring Cloud Commons. Each candidate
+removal, severity change, and new rule was critiqued independently by three reviewer models (GPT-6.1 Sol, Claude Opus 5,
+and Grok 4.7); a rule was added only with at least two in favour and with their objections resolved.
+
+| ID | Decision | Result |
+| --- | --- | --- |
+| `GRAAL-REFLECT-003` | **Retire** | `setAccessible`, `trySetAccessible`, and `privateLookupIn` need no metadata of their own: the unified schema has no access flag, and the member lookup, invocation, and field access that do need metadata are `GRAAL-REFLECT-001` and `GRAAL-MH-001`. Module-access failures are identical on the JVM. |
+| `GRAAL-REFLECT-004` | **Retire** | Native Image registers a member's declared, parameter, and type annotations whenever the member itself is registered, including query-only and image-heap members (`ReflectionDataBuilder.registerTypesForMethod/Field`). A reflected member therefore already carries its annotations; the check mostly fired on supported AOP aspects. |
+| `GRAAL-REFLECT-001` | Fix | Also flags Spring's reflection facades (`ReflectionUtils`, `ClassUtils.forName/getMethod*`, `BeanUtils.instantiateClass/copyProperties/property descriptors`), whose JDK call happens inside Spring on an argument. `ClassUtils.isPresent` and `ReflectionUtils.makeAccessible` stay excluded, as does Spring AOT-generated code. |
+| `GRAAL-RES-001` | Fix | Also flags `new ClassPathResource(...)` and `ResourcePatternResolver.getResources(...)`; names passed through Spring's resource abstraction are resolved later, outside constant-resource registration. |
+| `GRAAL-JMX-001` | Fix | No longer flags `ManagementFactory.getPlatformMBeanServer()`, which Native Image substitutes with an in-process server that needs no `--enable-monitoring`. Now flags MBean registration and attribute access, JMX proxies, connector servers, and remote clients, whose `ManagementFactory` methods silently return `null` without `jmxclient`. |
+| `SPRING-AOT-003` | Fix | Adds `@ConditionalOnCloudPlatform` and `@ConditionalOnThreading`, which read the deployment environment and freeze at AOT time. `@ConditionalOnJndi` stays excluded: JNDI is equally unavailable on the build machine and in a standalone native executable. |
+| `GRAAL-CLASSGEN-001`, `GRAAL-SEC-001`, `GRAAL-SER-002`, `GRAAL-REFLECT-005`, `GRAAL-FFM-001` | Guidance | Experimental run-time class loading in GraalVM 25.1+; runtime provider registration is disallowed by default and only existing provider instances can be reordered; constant `ObjectInputFilter` patterns register exact classes; unregistered unsafe allocation fails with `MissingReflectionRegistrationError` only under exact handling; FFM is enabled by default and needs `--enable-native-access`. |
+| `GRAAL-REFLECT-006` | **Add** (MEDIUM) | Application types bound with Jackson or Spring's HTTP clients inside a method body, which Spring AOT does not infer binding hints for. 2 of 3 reviewers in favour; the dissent (method-wide class-literal co-occurrence) was resolved by requiring the class literal on the binding call's source line and by skipping types covered by handler signatures, `@RegisterReflectionForBinding`, or an application `RuntimeHintsRegistrar`. |
+| `GRAAL-JDK-003` | **Add** (MEDIUM) | Non-trivial `finalize()` overrides, which Native Image never invokes. 3 of 3 in favour; two of three reviewers chose MEDIUM because cleanup silently disappears. |
+| `SPRING-AOT-006` | **Add** (MEDIUM) | `getBean(name/type, args...)` and `ObjectProvider.getObject(args...)` bypass AOT instance suppliers. 3 of 3 in favour. |
+| `SPRING-AOT-007` | **Add** (MEDIUM) | `BeanDefinitionRegistryPostProcessor` beans run again in the generated context. 3 of 3 in favour; limited to stereotype classes and `@Bean` return types, excluding both AOT processor interfaces. |
+| `SPRING-AOT-008` | **Add** (MEDIUM) | `@RefreshScope` / `@Scope("refresh")` beans; Spring Cloud does not support context refresh under AOT or native images. 3 of 3 in favour. |
+
+Deliberately not added: URL-protocol enablement (call sites cannot reveal the protocol), JFR custom events (unrecorded
+events degrade silently rather than fail), `--exact-reachability-metadata` and `-H:Preserve` (build flags, not bytecode
+evidence), circular dependencies (needs the bean graph; Spring Boot already rejects cycles by default), and imprecise
+`@Bean` return types (speculative).
+
+The generated scaffold was re-validated against
+[reachability-metadata schema 1.2.0](https://github.com/oracle/graal/blob/graal-25.4.4.1.1/docs/reference-manual/native-image/assets/reachability-metadata-schema-v1.2.0.json),
+the newest schema shipped with GraalVM 25.4.
 
 ## Earlier 2026 readiness audit
 
@@ -115,6 +147,8 @@ requires GraalVM 25+, independently of the JVM on which BootUI runs.
 | `GRAAL-FFM-001` | Retain | Actual call-handle creation matters, not passive FFM types; descriptors and native-access permission are separate. |
 
 `GRAAL-SERVICE-001`, `GRAAL-INIT-001`, and `GRAAL-INIT-002` **remain retired** for the reasons in the earlier audit.
+`GRAAL-REFLECT-003` and `GRAAL-REFLECT-004`, listed as retained here, were retired by the
+[October 2026 audit](#october-2026-audit). Retired IDs are never reused.
 No speculative additions are made: absent handwritten JSON, a metadata-free JAR, an interface-returning bean method,
 or the current JVM version does not alone establish a native-readiness defect.
 
@@ -328,8 +362,8 @@ Severity reflects the worst plausible impact if the finding is real, not how lik
 | -------- | ------- | -------- |
 | **CRITICAL** | The most severe native-image impact. No active check emits it. | — |
 | **HIGH** | Needs substantial native-image integration, or Spring AOT cannot safely capture it at run time. | Runtime class generation or Java compilation, script-engine discovery without a native integration, runtime classpath scanning, runtime instance suppliers, bean-referencing expression conditions, secondary context creation, dynamic and model MBeans |
-| **MEDIUM** | GraalVM cannot resolve it at build time, so it usually fails at run time without metadata. | Reflection, dynamic class loading, deep reflection, unsafe allocation, dynamic proxies, active JDK serialization, SpEL, method handles, frozen AOT conditions, runtime security-provider registration, runtime singleton registration |
-| **LOW** | Often needs extra configuration. | Runtime resource loading, resource bundles, reflective annotation access, native access, native methods, JMX, foreign functions |
+| **MEDIUM** | GraalVM cannot resolve it at build time, or the native image behaves differently, so it usually fails or silently degrades at run time. | Reflection, programmatic data binding, dynamic class loading, unsafe allocation, dynamic proxies, active JDK serialization, finalizers, SpEL, method handles, frozen AOT conditions, explicit-argument bean creation, replayed registry post-processors, refresh scope, runtime security-provider registration, runtime singleton registration |
+| **LOW** | Often needs extra configuration. | Runtime resource loading, resource bundles, native access, native methods, JMX, foreign functions |
 | **INFO** | Matters only if the type is actually used that way. | Serialization |
 
 The scan evaluates every registered check, but the panel lists only checks that found something to review. Findings are
@@ -344,13 +378,21 @@ ordered by severity, then by the number of occurrences, and include a few sample
 - **Severity**: MEDIUM
 - **Inspects**: calls to the reflection API (`Class.forName`, `Class.newInstance`, `Class.arrayType`, method/field/
   constructor lookups, record/sealed/nest/signer/nested-class lookups, `Method.invoke`, `Constructor.newInstance`, and
-  `Field` value get/set accessors).
-  Reflective metadata accessors such as `Field.getName()` are intentionally ignored.
-- **Fires when**: an application class uses those reflection APIs; constant targets may be resolved by native-image, but
+  `Field` value get/set accessors), and Spring's reflection facades that perform the same lookups on their arguments:
+  `ReflectionUtils` (`findField`, `findMethod`, `getField`, `setField`, `invokeMethod`, `doWith*`, declared-method
+  lookups, `accessibleConstructor`), `ClassUtils` (`forName`, `resolveClassName`, `getMethod*`,
+  `getConstructorIfAvailable`, `getStaticMethod`), and `BeanUtils` (`instantiateClass`, `findMethod`,
+  `findDeclaredMethod`, `getPropertyDescriptor(s)`, `copyProperties`).
+- **Exclusion**: reflective metadata accessors such as `Field.getName()`, `ClassUtils.isPresent` (the optional-dependency
+  probe), `ReflectionUtils.makeAccessible`, and Spring AOT-generated code, which ships with its own hints.
+- **Fires when**: an application class uses those reflection APIs; targets that native-image analysis resolves as
+  constants may be registered automatically, but a facade performs the JDK call inside Spring on an argument, and
   runtime-computed reflective targets need explicit metadata.
 - **Recommendation**: register the reflectively accessed types in `reachability-metadata.json`, or for application code
   register them with Spring's RuntimeHints (e.g. via `@ImportRuntimeHints` / `RuntimeHintsRegistrar`), after reviewing
   existing hints. Spring AOT covers known framework contracts, not all custom reflective accesses in managed beans.
+  `BeanUtils.copyProperties` and property-descriptor lookups find no accessors on an unregistered type, so a copy can
+  silently do nothing; register those types with `@RegisterReflection` or `@RegisterReflectionForBinding`.
 
 ### GRAAL-REFLECT-002 - Dynamic class loading may need reflection metadata
 
@@ -362,27 +404,12 @@ ordered by severity, then by the number of occurrences, and include a few sample
 - **Recommendation**: register the dynamically loaded types under `reflection` in `reachability-metadata.json`, or
   replace `ClassLoader.loadClass` with direct class literals where possible.
 
-### GRAAL-REFLECT-003 - Deep reflection (setAccessible / private lookups) may need reflection metadata
+### Retired: GRAAL-REFLECT-003 and GRAAL-REFLECT-004
 
-- **Severity**: MEDIUM
-- **Inspects**: `AccessibleObject.setAccessible` / `trySetAccessible` and `MethodHandles.privateLookupIn`.
-- **Fires when**: a class uses deep reflection that bypasses access checks, which native-image must be told about to keep
-  the members reachable.
-- **Recommendation**: register the accessed members under `reflection` in `reachability-metadata.json` and ensure the
-  required module opens are configured; prefer public APIs over deep
-  reflection.
-
-### GRAAL-REFLECT-004 - Reflective annotation access may need reflection metadata
-
-- **Severity**: LOW
-- **Inspects**: reflective annotation queries (`getAnnotation`, `getDeclaredAnnotations`, `isAnnotationPresent`, …) on
-  reflected members (`Method`, `Field`, `Constructor`, `Parameter`). Reads on `java.lang.Class` and other
-  `AnnotatedElement` subtypes (`Package`, `Module`, `RecordComponent`) are intentionally ignored — only calls whose
-  receiver is exactly one of those four member types are flagged.
-- **Fires when**: a class reads annotations from a reflected member whose annotations native-image only retains when the
-  element is registered for reflection.
-- **Recommendation**: register the inspected members under `reflection` in `reachability-metadata.json` so their
-  annotations are available at run time.
+`GRAAL-REFLECT-003` (deep reflection through `setAccessible` / `privateLookupIn`) and `GRAAL-REFLECT-004` (reflective
+annotation access on members) were retired in the [October 2026 audit](#october-2026-audit) and their IDs are never
+reused. Neither operation needs metadata of its own: the member lookup and access that do are `GRAAL-REFLECT-001` and
+`GRAAL-MH-001`, and a registered member carries its annotations.
 
 ### GRAAL-REFLECT-005 - Unsafe.allocateInstance bypasses construction and needs unsafeAllocated metadata
 
@@ -390,10 +417,33 @@ ordered by severity, then by the number of occurrences, and include a few sample
 - **Inspects**: calls to `allocateInstance(Class)` on `sun.misc.Unsafe` or `jdk.internal.misc.Unsafe`.
 - **Fires when**: a class allocates an instance via `Unsafe` instead of a constructor. Unsafe allocation bypasses the
   construction path native-image's reachability analysis tracks, so the allocated type needs its own metadata; otherwise
-  the call throws `MissingReflectionRegistrationError` at run time.
+  the allocation fails at run time — with `MissingReflectionRegistrationError` under `--exact-reachability-metadata` or
+  `--future-defaults=exact-reflection`, and with an `IllegalArgumentException` by default.
 - **Recommendation**: register the allocated type under `reflection` in `reachability-metadata.json` with
   `"unsafeAllocated": true` (in addition to its normal type registration), or replace `Unsafe.allocateInstance` with a
   public constructor or factory method where possible.
+
+### GRAAL-REFLECT-006 - Programmatically bound application types may need binding hints
+
+- **Severity**: MEDIUM
+- **Inspects**: application types passed as a class literal to a binding call inside a method body: Jackson 2 and 3
+  `ObjectMapper` / `ObjectReader` (`readValue`, `readValues`, `convertValue`, `treeToValue`, `readerFor`, `forType`),
+  `RestTemplate` / `RestOperations` (`getForObject`, `getForEntity`, `postForObject`, `postForEntity`,
+  `patchForObject`, `exchange`), `RestClient.ResponseSpec` (`body`, `toEntity`), and WebClient's `ResponseSpec` /
+  `ClientResponse` (`bodyToMono`, `bodyToFlux`, `toEntity`, `toEntityList`, `toEntityFlux`). Only overloads taking a
+  `Class` count, and a type is associated with a call only when its class literal is on the call's source line.
+- **Exclusion**: types in the scanned packages that already have an observable binding hint — a parameter or return
+  type (including generic arguments) of an application `@RequestMapping` or `@HttpExchange` method, a type named by
+  `@RegisterReflectionForBinding`, or a class literal referenced by an application `RuntimeHintsRegistrar` — plus JDK and
+  library types and Spring AOT-generated code.
+- **Fires when**: an application type is bound programmatically. Spring AOT infers binding hints for handler and HTTP
+  interface signatures, not for these calls, so without reflection metadata for constructors, fields, and accessors a
+  native image can bind an empty object or fail to find a creator.
+- **Limitations**: serializing an instance (`writeValueAsString(order)`), `ParameterizedTypeReference` / `TypeReference`
+  targets, calls split across source lines, and hints in JSON metadata files are not observed.
+- **Recommendation**: annotate the calling class or method with `@RegisterReflectionForBinding(Target.class)`, which
+  also registers the types its properties expose, or register binding hints through `BindingReflectionHintsRegistrar` in
+  a `RuntimeHintsRegistrar`. Exercise the call in the native executable before relying on it.
 
 ## Dynamic proxies
 
@@ -413,11 +463,14 @@ ordered by severity, then by the number of occurrences, and include a few sample
 ### GRAAL-RES-001 - Runtime resource loading may need resource metadata
 
 - **Severity**: LOW
-- **Inspects**: calls to `Class`/`ClassLoader` `getResource`, `getResources`/`resources`, and `getResourceAsStream`, plus
-  `Module.getResourceAsStream`.
+- **Inspects**: calls to `Class`/`ClassLoader` `getResource`, `getResources`/`resources`, and `getResourceAsStream`,
+  `Module.getResourceAsStream`, Spring classpath resource handles (`new ClassPathResource(...)`), and
+  `ResourcePatternResolver.getResources(...)` pattern lookups, outside Spring AOT-generated code.
 - **Fires when**: a class loads a resource by name that must be embedded in the native image to be available at runtime.
   Native Image automatically registers `Class.getResource/getResourceAsStream` only when both the receiver class and
-  resource name are constant; runtime-computed names need registration.
+  resource name are constant; runtime-computed names, and names passed through Spring's resource abstraction (resolved
+  later inside Spring), need registration unless Spring Boot's built-in hints for application configuration, banner,
+  messages, and logging configuration already cover them. Pattern lookups only see resources that were embedded.
 - **Recommendation**: register the loaded resource paths (as globs) in `reachability-metadata.json`, or for application
   code register them with Spring's RuntimeHints (`RuntimeHints.resources()` via `@ImportRuntimeHints`) so native-image
   bundles them. Embedded resources use `resource:` URLs; open a stream instead of treating `URL.getFile()` as a
@@ -454,7 +507,9 @@ ordered by severity, then by the number of occurrences, and include a few sample
   native-image must be told about explicitly.
 - **Recommendation**: register every serialized type under `reflection` with `serializable: true` in GraalVM 25's
   unified `reachability-metadata.json` schema (or with Spring's RuntimeHints serialization registration), or prefer a
-  serialization format that does not need build-time registration.
+  serialization format that does not need build-time registration. Native Image also registers the exact classes named
+  in a compile-time-constant `ObjectInputFilter.Config.createFilter("pkg.SerializableClass;!*;")` pattern (package
+  wildcards do not register), which restricts deserialization on the JVM as well.
 
 ## Native access
 
@@ -489,8 +544,8 @@ ordered by severity, then by the number of occurrences, and include a few sample
   require this metadata and is not flagged.
 - **Recommendation**: register the real native down/upcall descriptors under `foreign` in
   `reachability-metadata.json`, and pass `--enable-native-access=<module-name>` (or `ALL-UNNAMED` for classpath code) for
-  modules that perform restricted native operations. FFM support is enabled by default starting with GraalVM 25, but
-  metadata and native-access permission solve separate problems. BootUI emits empty `foreign` arrays as a safe scaffold;
+  modules that perform restricted native operations. [FFM support](https://www.graalvm.org/latest/reference-manual/native-image/native-code-interoperability/ffm-api/)
+  is enabled by default starting with GraalVM 25, but metadata and native-access permission solve separate problems. BootUI emits empty `foreign` arrays as a safe scaffold;
   it does not invent function layouts.
 
 ## Class generation
@@ -501,17 +556,22 @@ ordered by severity, then by the number of occurrences, and include a few sample
 - **Inspects**: runtime bytecode/class generation (`ClassLoader.defineClass`, `MethodHandles.Lookup.defineClass` /
   `defineHiddenClass` / `defineHiddenClassWithClassData`, Unsafe `defineClass` / `defineAnonymousClass`, CGLIB `Enhancer`,
   ByteBuddy, Javassist).
-- **Fires when**: a class contains generation/definition calls. GraalVM 25.0.0 documents experimental runtime loading
-  for trivial classes without fields or methods; current development-source capabilities must not be assumed for
-  every GraalVM 25 distribution. The native-image agent's
+- **Fires when**: a class contains generation/definition calls. A default native image cannot define new classes at
+  run time. GraalVM 25.0.x documents experimental runtime loading only for trivial classes without fields or methods;
+  the GraalVM 25.1+ feature releases add experimental
+  [run-time class loading](https://github.com/oracle/graal/blob/graal-25.4.4.1.1/substratevm/docs/runtime-class-loading.md)
+  (`-H:+RuntimeClassLoading`, interpreted, with optional `-H:+GraalJITCompileAtRuntime` from 25.3) with documented
+  limits: no parallel class loading, no reloading of classes already included in the image, and no fallback for members
+  the analysis removed from image classes (often requiring `-H:Preserve=package=...`). The native-image agent's
   experimental ["Predefined Classes"](https://www.graalvm.org/latest/reference-manual/native-image/metadata/ExperimentalAgentOptions/)
   mode (`experimental-class-define-support`) can trace and replay a bounded set of previously-seen classes, but it is
   best-effort: it replays only the exact bytecode traced ahead of time, allows only one class definition per class
   loader per execution, has no build-time-initialization support, and cannot help when classes are generated with
   varying names or bytecode (e.g. driven by counters or timestamps) — so it is a narrow escape hatch, not a general fix.
 - **Recommendation**: generate classes at build time (e.g. with Spring AOT) or replace them with statically compiled
-  equivalents. If generation cannot be avoided, validate the exact workload and experimental options against the
-  shipped GraalVM distribution, or evaluate Predefined Classes for bytecode that is stable across runs.
+  equivalents. If generation cannot be avoided, validate the exact workload with the experimental run-time class
+  loading options of the GraalVM release you ship, or evaluate Predefined Classes for bytecode that is stable across
+  runs; neither is a general compatibility guarantee.
 
 ### GRAAL-JDK-001 - The system Java compiler is unavailable in native images
 
@@ -532,6 +592,21 @@ ordered by severity, then by the number of occurrences, and include a few sample
   language/runtime setup must be part of the image.
 - **Recommendation**: remove runtime scripting, replace it with statically compiled application logic, or validate a
   specific engine's Native Image integration and its resource, reflection, class-loading, and native requirements.
+
+### GRAAL-JDK-003 - finalize() overrides are never invoked in native images
+
+- **Severity**: MEDIUM
+- **Category**: Runtime behavior
+- **Inspects**: application classes, including abstract base classes, that declare a non-static, non-private
+  `void finalize()`.
+- **Exclusion**: empty bodies (the `final` finalizer-attack guard) and bodies that only call `super.finalize()`.
+- **Fires when**: a finalizer does real work. GraalVM's
+  [compatibility guide](https://www.graalvm.org/jdk25/reference-manual/native-image/metadata/Compatibility/) states that
+  finalizers are not invoked, so that cleanup silently never runs in the native executable although it still runs on
+  the JVM. Generic deprecated-API hygiene for finalizers is not this advisor's concern.
+- **Recommendation**: release resources through an explicit lifecycle (`AutoCloseable` with try-with-resources, or a
+  Spring destroy callback). Use `java.lang.ref.Cleaner`, or weak references with a reference queue, only as a safety
+  net for resources a caller may forget to close.
 
 ## Classpath scanning
 
@@ -583,18 +658,21 @@ definitions, but the annotation alone is not a high-confidence readiness problem
 ### SPRING-AOT-003 - Environment-sensitive bean conditions freeze selection at AOT build time
 
 - **Severity**: MEDIUM
-- **Inspects**: `@Profile`, `@ConditionalOnProperty`, `@ConditionalOnBooleanProperty`, custom `@Conditional`, and
-  property-only `@ConditionalOnExpression` on application `@Configuration` / `@Component` (and stereotype) classes or
-  `@Bean` methods.
+- **Inspects**: `@Profile`, `@ConditionalOnProperty`, `@ConditionalOnBooleanProperty`, `@ConditionalOnCloudPlatform`,
+  `@ConditionalOnThreading`, custom `@Conditional`, and property-only `@ConditionalOnExpression` on application
+  `@Configuration` / `@Component` (and stereotype) classes or `@Bean` methods, directly or as meta-annotations.
 - **Fires when**: a Spring component or `@Bean` method carries a profile or property condition. Spring AOT evaluates
-  these conditions once at build time; if the active profiles or application properties differ between the AOT build and
-  the production runtime, the conditioned beans may be unexpectedly absent or present in the native image.
+  these conditions once at build time; if the active profiles, application properties, platform environment variables,
+  or virtual-thread setting differ between the AOT build and the production runtime, the conditioned beans may be
+  unexpectedly absent or present in the native image.
 - **Exclusion**: deliberate `@AutoConfiguration` classes are condition-driven by design and are handled by Spring's AOT
   processing, so they are not reported. Classpath-only Spring Boot conditions such as `@ConditionalOnClass` are fixed by
-  the build input and are not reported even on application configuration.
-- **Recommendation**: ensure the profiles and properties active during the AOT build (native-image compilation) match
-  the intended production configuration, or restructure the configuration to use explicit build-time selection rather
-  than runtime conditions.
+  the build input and are not reported even on application configuration. `@ConditionalOnJndi` is not reported either:
+  JNDI is equally unavailable on the build machine and in a standalone native executable.
+- **Recommendation**: ensure the profiles, properties, and platform active during the AOT build (native-image
+  compilation) match the intended production configuration — for example set `spring.main.cloud-platform` and
+  `spring.threads.virtual.enabled` explicitly for the build — or restructure the configuration to use explicit
+  build-time selection rather than runtime conditions.
 
 ### SPRING-AOT-005 - Bean-referencing @ConditionalOnExpression can initialize beans too early
 
@@ -618,6 +696,54 @@ definitions, but the annotation alone is not a high-confidence readiness problem
   `GenericApplicationContext.refreshForAotProcessing` intentionally creates a context during build-time AOT processing.
 - **Recommendation**: consolidate configuration into the main AOT-processed context or use `@Import` /
   `@ImportResource`. If this is build tooling, call `refreshForAotProcessing` and keep it out of runtime paths.
+
+### SPRING-AOT-006 - Explicit-argument bean retrieval may bypass AOT instance suppliers
+
+- **Severity**: MEDIUM
+- **Inspects**: `BeanFactory.getBean(String, Object...)`, `BeanFactory.getBean(Class, Object...)`, and
+  `ObjectProvider.getObject(Object...)` calls outside Spring AOT-generated code. `getBean(name)`,
+  `getBean(name, Class)`, and `getObject()` are not reported.
+- **Fires when**: a bean is retrieved with explicit creation arguments. Spring AOT
+  [translates bean creation into generated instance suppliers](https://docs.spring.io/spring-framework/reference/core/aot.html#aot.bestpractices.custom-arguments);
+  custom arguments bypass the supplier, so the matching constructor or factory method is introspected reflectively
+  (hints AOT cannot infer) and the autowiring on fields and methods that the supplier performs is skipped.
+- **Recommendation**: replace prototype beans created with custom arguments by a manual factory pattern: a regular bean
+  whose method creates the instance with `new`, taking the runtime arguments and its injected collaborators. If
+  explicit-argument retrieval must stay, use constructor injection only on the target bean and register invocation
+  hints for the constructor or factory method Spring selects.
+
+### SPRING-AOT-007 - Bean-definition registry post-processors may run again under AOT
+
+- **Severity**: MEDIUM
+- **Inspects**: `BeanDefinitionRegistryPostProcessor` beans declared by the application — a concrete Spring stereotype
+  class, or a `@Bean` method whose return type is one.
+- **Exclusion**: processors that also implement `BeanFactoryInitializationAotProcessor` or `BeanRegistrationAotProcessor`,
+  which Spring AOT implicitly excludes from the generated context; Spring AOT-generated code. Processors registered
+  programmatically are not observed.
+- **Fires when**: Spring AOT invokes the processor at build time and, as
+  [Spring's AOT best practices](https://docs.spring.io/spring-framework/reference/core/aot.html#aot.bestpractices.bean-registration)
+  warn, the generated context invokes it again at run time. At best it repeats work already captured in the generated
+  bean definitions; at worst re-registering a definition fails startup with `BeanDefinitionOverrideException` under
+  Spring Boot's default `spring.main.allow-bean-definition-overriding=false`.
+- **Recommendation**: prefer an `ImportBeanDefinitionRegistrar` imported with `@Import`, or Spring Framework 7's
+  `BeanRegistrar`, which Spring AOT processes during configuration parsing. If the post-processor must stay a bean,
+  also implementing `BeanFactoryInitializationAotProcessor` excludes it from the runtime context; Spring then initializes
+  it and its dependencies during AOT processing, and its contribution must reproduce any effect the generated bean
+  definitions do not already capture (return `null` only when none remains).
+
+### SPRING-AOT-008 - Refresh-scoped bean declarations are not supported under Spring AOT
+
+- **Severity**: MEDIUM
+- **Inspects**: Spring components and `@Bean` methods annotated or meta-annotated with Spring Cloud's `@RefreshScope`,
+  or declared with `@Scope("refresh")`.
+- **Fires when**: a refresh-scoped bean is declared. Spring Cloud
+  [does not support context refresh](https://docs.spring.io/spring-cloud-commons/reference/spring-cloud-commons/application-context-services.html#refresh-scope)
+  for Spring AOT transformations and native images and requires `spring.cloud.refresh.enabled=false` for them; that
+  property also removes the auto-configured refresh scope these declarations rely on, so in-process refresh does not
+  exist in the native executable. Whether a declaration is active in the AOT build is not observable statically.
+- **Recommendation**: for the native build, set `spring.cloud.refresh.enabled=false` and do not ship refresh-scoped
+  beans: bind their configuration at startup and restart the native executable to apply changes. Refresh scope can
+  remain in JVM deployments that still rely on it, including CRaC refresh-on-restore, which the CRaC advisor covers.
 
 ### GRAAL-SPEL-001 - Programmatic SpEL expressions may require application-specific reflection hints
 
@@ -654,23 +780,36 @@ definitions, but the annotation alone is not a high-confidence readiness problem
 - **Severity**: MEDIUM
 - **Inspects**: calls to `Security.addProvider` / `Security.insertProviderAt`. A class that merely extends
   `java.security.Provider` is intentionally ignored.
-- **Fires when**: code adds a provider at run time. Native Image automatically analyzes security services present at
-  build time, but adding new providers at run time is restricted and may need provider-specific initialization and
-  reachability support.
-- **Recommendation**: prefer providers configured at image build time and follow the provider's Native Image integration
-  guide. Review GraalVM's `--future-defaults=run-time-initialize-security-providers` migration behavior when applicable.
+- **Fires when**: code adds a provider at run time. Native Image
+  [captures the provider list and order at build time](https://www.graalvm.org/latest/reference-manual/native-image/dynamic-features/JCASecurityServices/),
+  and by default new security providers cannot be registered at run time; only provider instances already present in
+  the image can be reordered.
+- **Recommendation**: configure the provider statically in the build-time provider list (`java.security`) and follow the
+  provider's Native Image integration guide; re-inserting an instance obtained from `Security.getProvider` to change the
+  order is supported. With `--future-defaults=run-time-initialize-security-providers` (or `all` /
+  `run-time-initialize-jdk`) the provider list is constructed at run time; validate that mode before relying on runtime
+  registration.
 
 ## JMX
 
-### GRAAL-JMX-001 - JMX usage requires --enable-monitoring in the native image
+### GRAAL-JMX-001 - JMX MBeans and connectors need native-image monitoring and metadata review
 
 - **Severity**: LOW
-- **Inspects**: calls to `ManagementFactory.getPlatformMBeanServer` and `MBeanServer.registerMBean`.
-- **Fires when**: a class uses JMX. Native-image JMX support is experimental and disabled by default; server, client, and
-  JVM-statistics capabilities are enabled explicitly.
-- **Recommendation**: add `--enable-monitoring=jmxserver` (and `jmxclient` / `jvmstat` when needed). Register each standard
-  MBean interface as a structured reflection proxy type such as
-  `{"type":{"proxy":["com.example.FooMBean"]}}`, plus any implementation members accessed reflectively.
+- **Inspects**: `MBeanServer.registerMBean`; `getAttribute`, `getAttributes`, `setAttribute`, and `invoke` on an
+  `MBeanServerConnection`; `JMX.newMBeanProxy` / `newMXBeanProxy`; `JMXConnectorServerFactory.newJMXConnectorServer`;
+  `JMXConnectorFactory.connect` / `newJMXConnector`; `ManagementFactory.newPlatformMXBeanProxy` and the
+  `MBeanServerConnection` overloads of `getPlatformMXBean(s)`.
+- **Exclusion**: `ManagementFactory.getPlatformMBeanServer()` and the local `getPlatformMXBean(s)` overloads. Native Image
+  substitutes an in-process MBeanServer carrying the platform MXBeans, which works without `--enable-monitoring`.
+- **Fires when**: a class registers or reflectively reads MBeans, creates JMX proxies, or opens remote connectors.
+  Standard MBean introspection and JMX proxies are reflective, platform-bean attributes are only readable through the
+  MBeanServer when their interface methods are registered, connector servers need `jmxserver`, and without `jmxclient`
+  the remote-client `ManagementFactory` methods silently return `null` or an empty list instead of failing.
+- **Recommendation**: add `--enable-monitoring=jmxserver` for remote management and `jmxclient` for outgoing connections
+  (`jvmstat` for discovery). Register each standard MBean interface for reflection and as a structured proxy type such
+  as `{"type":{"proxy":["com.example.FooMBean"]}}`; notification-emitting proxies need the ordered interfaces
+  `["com.example.FooMBean","javax.management.NotificationEmitter"]`. Register the interface methods of any platform
+  MXBean whose attributes you read through the MBeanServer.
 
 ### GRAAL-JMX-002 - Dynamic/model MBeans are not supported by native-image JMX
 
