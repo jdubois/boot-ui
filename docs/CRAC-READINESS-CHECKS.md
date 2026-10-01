@@ -1,6 +1,6 @@
 # CRaC readiness checks
 
-The CRaC panel combines passive JVM status with **17 on-demand heuristic checks** of application bytecode and Spring
+The CRaC panel combines passive JVM status with **19 on-demand heuristic checks** of application bytecode and Spring
 resource metadata. It does not take a checkpoint, invoke resource callbacks, stop work, open connections, or inspect
 secret values. A report without findings is not proof that an application will checkpoint or restore successfully.
 
@@ -12,7 +12,7 @@ checkpoint environment is not evidence that the application itself is defective.
 ## Version and source applicability
 
 This audit uses **Spring Boot 4.1.1**, which selects **Spring Framework 7.0.9**, **org.crac 1.5.0**, **HikariCP 7.0.2**,
-and Spring Data Redis, AMQP, and Kafka **4.1.1**. See the tagged
+**Hibernate ORM 7.4.5**, **Flyway 12.4.0**, **Liquibase 5.0.3**, and Spring Data Redis, AMQP, and Kafka **4.1.1**. See the tagged
 [Boot version properties](https://github.com/spring-projects/spring-boot/blob/v4.1.1/gradle.properties) and
 [dependency declarations](https://github.com/spring-projects/spring-boot/blob/v4.1.1/platform/spring-boot-dependencies/build.gradle).
 Framework 7.1 development documentation is not substituted for this release baseline.
@@ -36,6 +36,10 @@ Primary evidence:
 | [Azul runtime support](https://docs.azul.com/crac/usage/running-crac) and [engines](https://docs.azul.com/crac/usage/crac-engines.html) | CRaC-specific 17/21/25 distributions, Linux support, simulation and engine-specific prerequisites. These are living vendor documents, not guarantees for every patch build. |
 | [BellSoft CRaC announcement](https://bell-sw.com/news/bellsoft-releases-dedicated-builds-of-liberica-jdk-17-and-21-with-crac/) | The announced JDK 17/21 Linux x86_64/AArch64 builds; not an exhaustive current release matrix. |
 | [Pinned OpenJDK CRaC SecureRandom](https://github.com/openjdk/crac/blob/945496fe5fded24a64a6a3683979bbc76788f83c/src/java.base/share/classes/sun/security/provider/SecureRandom.java), [NativePRNG](https://github.com/openjdk/crac/blob/945496fe5fded24a64a6a3683979bbc76788f83c/src/java.base/unix/classes/sun/security/provider/NativePRNG.java), [System](https://github.com/openjdk/crac/blob/945496fe5fded24a64a6a3683979bbc76788f83c/src/java.base/share/classes/java/lang/System.java) | Provider-specific reseeding and restore-time property/clock behavior in a **JDK 28 development tree**, not certification of deployed CRaC 17/21/25 behavior. |
+| [OpenJDK CRaC Timer](https://github.com/openjdk/crac/blob/945496fe5fded24a64a6a3683979bbc76788f83c/src/java.base/share/classes/java/util/Timer.java) and [ScheduledExecutorService](https://github.com/openjdk/crac/blob/945496fe5fded24a64a6a3683979bbc76788f83c/src/java.base/share/classes/java/util/concurrent/ScheduledExecutorService.java) | `@crac` notes: fixed-rate tasks catch up all delayed executions after restore; cancel before checkpoint and reschedule after restore. |
+| [OpenJDK CRaC InetAddress](https://github.com/openjdk/crac/blob/945496fe5fded24a64a6a3683979bbc76788f83c/src/java.base/share/classes/java/net/InetAddress.java) | The JDK's own resolution cache is wiped before checkpoint so lookups after restore resolve in the restore environment; application-retained results are not. |
+| [Spring Boot issue 43635](https://github.com/spring-projects/spring-boot/issues/43635) and [lifecycle smoke-test training-run guidance](https://github.com/spring-projects/spring-lifecycle-smoke-tests#training-run-configuration) ([JPA](https://github.com/spring-projects/spring-lifecycle-smoke-tests/blob/main/data/data-jpa/README.adoc), [JDBC](https://github.com/spring-projects/spring-lifecycle-smoke-tests/blob/main/data/data-jdbc/README.adoc), [Flyway](https://github.com/spring-projects/spring-lifecycle-smoke-tests/blob/main/boot/flyway/README.adoc), [Liquibase](https://github.com/spring-projects/spring-lifecycle-smoke-tests/blob/main/boot/liquibase/README.adoc)) | The onRefresh checkpoint runs before the Hikari lifecycle can suspend the pool; early database interaction must be avoided for that run. |
+| [Hibernate 7 JdbcMetadataOnBoot](https://github.com/hibernate/hibernate-orm/blob/7.4/hibernate-core/src/main/java/org/hibernate/engine/jdbc/env/JdbcMetadataOnBoot.java) and [Boot EmbeddedDatabaseConnection](https://github.com/spring-projects/spring-boot/blob/v4.1.1/module/spring-boot-jdbc/src/main/java/org/springframework/boot/jdbc/EmbeddedDatabaseConnection.java) | Metadata access on boot defaults to `allow`; `false`/`disallow` skip it. Embedded-mode script initializers obtain a connection to decide whether the database is embedded. |
 | [CRIU 4.1 completion](https://github.com/checkpoint-restore/criu/blob/v4.1/criu/cr-dump.c) and [pinned CRaC CRIU fork](https://github.com/CRaC/criu/blob/0ac0a95f1eb10fcb1f3fe23bae72322c4625ee4c/criu/cr-dump.c) | Inventory is written late, but subsequent completion can fail. A marker file is not an integrity certificate. |
 
 ## Complete audit disposition
@@ -65,7 +69,26 @@ public JSON record shape. Retained checks remain conditional review prompts.
 
 `CRAC-LIFECYCLE-001` remains **removed**: implementing Resource proves neither registration nor ordering/cleanup, and
 applications can rely entirely on Spring-managed resources. `CRAC-POOL-003` remains **removed**: RestClient/WebClient
-facades do not establish ownership of their underlying transports.
+facades do not establish ownership of their underlying transports. Neither ID is reused.
+
+### October 2026 audit
+
+Every active ID was retained; two checks were added. New checks and the severity change were each critiqued by three
+independent reviewers and implemented only with majority support. Not added: restore-time CPU/memory capacity captured
+in static initializers (no primary CRaC source, and sizing is normally computed in library code outside the scanned
+packages), AWS SDK client fields (shared HTTP clients make ownership unclear), Kafka `Producer`/`Consumer` interfaces
+(factory-managed producers are not self-owned), and fields typed only as `RandomGenerator` (may hold a SecureRandom).
+
+| Check | Disposition | Decision |
+| --- | --- | --- |
+| `CRAC-POOL-005` | ADD | Refresh-time database access defeats the Hikari checkpoint lifecycle for the onRefresh checkpoint, which the scaffold uses. |
+| `CRAC-NET-002` | ADD | Static host-name/interface lookups retain identity the CRaC JDK deliberately re-resolves after restore. |
+| `CRAC-SCHED-001` | UPDATE | Add programmatic `scheduleAtFixedRate` and `ScheduledTaskRegistrar.addFixedRateTask`; the onRefresh exclusion covers declarative tasks only. |
+| `CRAC-RANDOM-001` | UPDATE | HIGH only with explicit SecureRandom seeding, MEDIUM for generator fields alone; add `SplittableRandom`. |
+| `CRAC-SECRET-001` | UPDATE | Credential-named instance fields on JPA persistence classes are row data, not long-lived owners; key-typed and static fields remain. |
+| `CRAC-POOL-002` | UPDATE | Add concrete Kafka, Lettuce, Jedis and Netty event-loop owners; recognize `shutdownGracefully` cleanup; retitle to transport-owning clients. |
+| `CRAC-CACHE-001` | UPDATE | Distinguish non-expiring managers from nanoTime-based expiry without certifying deployed clock behavior. |
+| Other checks | RETAIN | Rechecked against the sources above; no change needed. |
 
 ## Collection and observation limits
 
@@ -74,9 +97,9 @@ cached resource evidence while refreshing cheap runtime status. Collection never
 product to improve confidence. Discovery uses non-eager type lookup and existing singleton metadata; samples are
 bounded and diagnostics do not expose arbitrary exception messages or secret-bearing JVM properties.
 
-Five rules need only runtime inventory: POOL-001, POOL-004, CACHE-001, THREAD-002 and LIFECYCLE-002. They still run when
-application packages or bytecode are unavailable. SCHED-001 needs bytecode and runtime phase evidence. The other eleven
-checks need bytecode. Missing observations are skipped with visible warnings, not converted into clean results.
+Six rules need only runtime inventory: POOL-001, POOL-004, POOL-005, CACHE-001, THREAD-002 and LIFECYCLE-002. They still
+run when application packages or bytecode are unavailable. SCHED-001 needs bytecode and runtime phase evidence. The other
+twelve checks need bytecode. Missing observations are skipped with visible warnings, not converted into clean results.
 Import/collection failure remains an error even when independent checks produced useful findings. Checks-run counts
 describe evaluated checks, not a claim that every possible resource was inspected.
 
@@ -135,12 +158,16 @@ receives that credit, but generic interfaces, unknown wrappers/subclasses, exter
 startup initialization do not become universally safe. Do not wrap/close managed resources twice or require every
 backing service to be reachable at checkpoint regardless of initialization behavior.
 
-### CRAC-POOL-002 - HTTP/RPC transport owners need checkpoint lifecycle review
+### CRAC-POOL-002 - Transport-owning client fields need checkpoint lifecycle review
 
 **HIGH**, or **MEDIUM** when all matching fields have compatible cleanup evidence. Matches JDK HttpClient, Apache
-CloseableHttpClient, OkHttpClient, Reactor ConnectionProvider and gRPC ManagedChannel fields. Excludes Spring RestClient,
-WebClient and Reactor HttpClient facades. Cleanup has RES-001's identity/registration limits. JDK HttpClient shutdown
-APIs require Java 21 or later; unread response bodies/in-flight work can affect shutdown. No client is closed by a scan.
+CloseableHttpClient, OkHttpClient, Reactor ConnectionProvider, gRPC ManagedChannel, Kafka `KafkaProducer`/`KafkaConsumer`,
+Lettuce `AbstractRedisClient`, Jedis `JedisPool`/`UnifiedJedis` and Netty `EventLoopGroup` fields. Excludes Spring
+RestClient, WebClient, Reactor HttpClient, KafkaTemplate and RedisTemplate facades and the generic Kafka
+`Producer`/`Consumer` interfaces. A field may reference a Spring-managed or shared instance, such as a server event loop;
+never close what the application does not own. Cleanup has RES-001's identity/registration limits and recognizes
+`shutdownGracefully`. JDK HttpClient shutdown APIs require Java 21 or later; unread response bodies/in-flight work can
+affect shutdown. No client is closed by a scan.
 
 ### CRAC-POOL-004 - Hikari pools need Spring Boot lifecycle coverage and suspension
 
@@ -150,11 +177,28 @@ it. Equal counts, even one pool and one lifecycle, do not prove pairing. Pairing
 Set suspension before pool startup using `spring.datasource.hikari.allow-pool-suspension=true` for the stock Boot pool
 or the appropriate custom binding. This setting alone proves neither pairing nor original startup-phase cleanup.
 
+### CRAC-POOL-005 - Startup database access leaves pooled connections open at an onRefresh checkpoint
+
+**MEDIUM planning guidance**, evaluated only when the org.crac API is present or onRefresh is configured; otherwise it is
+skipped with a reference to LIFECYCLE-002. Framework 7.0.9 takes the onRefresh checkpoint before lifecycle startup, and
+its checkpoint callback only stops running beans, so Boot's `HikariCheckpointRestoreLifecycle` never suspends or evicts
+the pool for that checkpoint. Reported when a Hikari pool whose JDBC URL is not in-memory (or unknown, for example a lazy
+pool) coexists with refresh-time access: a Flyway migration initializer, Liquibase, Boot schema initializers with
+bundled scripts (Batch, Session, Quartz, Integration), `spring.sql.init.mode=always`, or Hibernate boot JDBC metadata
+access or non-`none` schema management. Hibernate settings come from the entity manager factory's JPA property map,
+falling back to `spring.jpa` properties. The JDBC URL is classified by prefix and never stored or displayed. The rule
+cannot attribute a source to a specific datasource and does not observe custom migration strategies, Liquibase
+`shouldRun=false`, or R2DBC. Hikari suspension (POOL-004) does not help this mode. Disable early access for the
+checkpoint run as the Spring lifecycle smoke tests document, or checkpoint a running application on demand.
+
 ### CRAC-CACHE-001 - In-memory caches may hold stale entries after restore
 
 **LOW.** ConcurrentMapCacheManager and CaffeineCacheManager only; unknown, no-op and remote managers are excluded.
-Manager presence proves neither populated entries nor stale data. Refresh time-sensitive entries or verify their expiry
-semantics across the checkpoint gap; the scan never clears a cache.
+Manager presence proves neither populated entries nor expiry configuration. ConcurrentMapCacheManager never expires
+entries. Caffeine's default ticker uses `System.nanoTime`, which the pinned CRaC sources advance across restore, but
+that is not certified for every deployed runtime, and long TTLs, `refreshAfterWrite`, custom tickers and non-expiring
+caches can still serve checkpoint-era data. Refresh only where existing expiry is insufficient, and expect a reload
+burst if everything is cleared at once; the scan never clears a cache.
 
 ### CRAC-THREAD-001 - Threads or executor pools created outside the Spring lifecycle
 
@@ -171,17 +215,31 @@ work. Pooled Spring infrastructure has different pause/resume coordination, not 
 
 ### CRAC-SCHED-001 - Fixed-rate scheduled tasks may run a catch-up burst after restore
 
-**MEDIUM.** Direct, repeatable and bounded composed Scheduled metadata with fixed-rate declarations; one occurrence per
-method. Explicit default `fixedRate=-1` and empty `fixedRateString` do not establish a rate. The scan is not Spring's
-full alias/placeholder resolver; composed overrides, unresolved properties and custom schedulers require review.
-Only an observed original pre-start onRefresh phase is excluded; a running/restored process is checked even when its
-original property persists. Fixed delay, cron and explicit rescheduling have different semantics and tradeoffs.
+**MEDIUM.** Direct, repeatable and bounded composed Scheduled metadata with fixed-rate declarations, one occurrence per
+method, plus `ScheduledTaskRegistrar.addFixedRateTask` registrations and programmatic `scheduleAtFixedRate` calls on
+`ScheduledExecutorService`, `Timer` or Spring `TaskScheduler`; the OpenJDK CRaC javadoc of the latter two documents the
+catch-up. `scheduleWithFixedDelay` and `Timer.schedule` compute the next run from completion and are excluded. Calls
+from afterRestore/start are excluded because rescheduling there is the fix. Explicit default `fixedRate=-1` and empty
+`fixedRateString` do not establish a rate. The scan is not Spring's full alias/placeholder resolver; composed overrides,
+unresolved properties and custom schedulers require review. Only an observed original pre-start onRefresh phase
+excludes declarative tasks, which are registered after that checkpoint; programmatic calls can run earlier and are
+always checked. A running/restored process is checked even when its original property persists. Fixed delay, cron and
+cancel-then-reschedule have different semantics and tradeoffs.
 
 ### CRAC-TIME-001 - Static initializer may retain checkpoint-era wall-clock time
 
 **LOW.** Static `System.currentTimeMillis`, java.time `now` or **no-argument** Date construction. Date(long) is a supplied
 instant, not a clock read. The rule cannot establish retention. nanoTime is excluded from this wall-clock rule, not
 certified portable across every restore/reboot/machine.
+
+### CRAC-NET-002 - Static initializer may retain resolved host or network identity
+
+**LOW.** Static `InetAddress.getLocalHost`, `getByName`, `getAllByName`, `getHostName` and `getCanonicalHostName`
+calls, and `NetworkInterface` enumeration. The CRaC JDK wipes its own address cache before checkpoint so later lookups
+resolve where the image is restored; a value the application retains is frozen instead. NetworkInterface is included by
+analogy, not by the cited note. The rule cannot establish retention, and `getByName` with a literal IP performs no
+lookup. `getLoopbackAddress` and `getByAddress` are not lookups. Only direct static-initializer calls are seen, as for
+TIME-001 and CONFIG-001.
 
 ### CRAC-CONFIG-001 - Static initializer may retain startup configuration
 
@@ -191,11 +249,13 @@ regenerate the image when startup assumptions change.
 
 ### CRAC-RANDOM-001 - Random state or explicit SecureRandom seeding needs restore handling
 
-**HIGH potential impact**, not proof of security-sensitive use. Random fields and explicit SecureRandom seed calls
-outside exact afterRestore/start callbacks. Protected provider/SPI constructors are not explicit seeds.
-Intentional deterministic simulation may require no change. For
-security-sensitive uniqueness, verify initialization and the deployed provider rather than assuming universal reseeding.
-Excluding a restore seed call does not certify its entropy.
+**HIGH** when explicit SecureRandom seeding (`SecureRandom(byte[])` or `setSeed`) is observed outside exact
+afterRestore/start callbacks, **MEDIUM** when only `Random` (including ThreadLocalRandom) or `SplittableRandom` fields
+are found. In the pinned CRaC SHA1PRNG an explicit seed disables automatic reseeding after restore, while NativePRNG
+still mixes operating-system entropy, so identical replica streams are possible, not certain. Fields typed only as
+`RandomGenerator` are not reported because they may hold a SecureRandom. Protected provider/SPI constructors are not
+explicit seeds. Intentional deterministic simulation may require no change. Excluding a restore seed call does not
+certify its entropy. Neither severity is proof of security-sensitive use.
 
 ### CRAC-RANDOM-002 - SecureRandom restore behavior depends on construction and provider
 
@@ -206,7 +266,10 @@ Verify the actual JDK/provider, especially custom, FIPS and PKCS#11 implementati
 ### CRAC-SECRET-001 - Potential secret or key material is retained in a field
 
 **HIGH.** String/char[]/byte[] fields with bounded credential-like names and SecretKey, PrivateKey, KeyStore or KeyPair
-types. Values are never read; tokenUrl is not a credential name. Protect checkpoint files and minimize pre-checkpoint
+types. Values are never read; tokenUrl is not a credential name. Credential-named instance fields declared directly on
+JPA `@Entity`, `@Embeddable` or `@MappedSuperclass` classes are row data rather than long-lived owners and are not
+reported; entity instances loaded before checkpoint can still be in the image, and key-typed or static fields on those
+classes are still reported. A password field on an unannotated superclass of an entity remains a false positive. Protect checkpoint files and minimize pre-checkpoint
 exposure. Refreshing a field after restore cannot remove original bytes from an already-created image.
 
 ### CRAC-SECRET-002 - Cached TLS state may need restore-time rebuilding

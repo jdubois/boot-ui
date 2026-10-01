@@ -79,6 +79,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   longer reports identical Spring mappings, which Spring rejects at startup and so only appear for inactive profile
   alternatives, while still reporting partial overlaps that fail at request time. Rule names now match the catalogue
   and learn-more links point at specific sources. The catalogue has 60 rule IDs, 53 of which can emit ([#1168](https://github.com/jdubois/boot-ui/pull/1168)).
+- **CRaC readiness advisor audit.** Two checks are added: `CRAC-POOL-005` reports refresh-time database access
+  (Flyway, Liquibase, Boot schema initializers, `spring.sql.init.mode=always`, or Hibernate boot metadata access and
+  schema management) next to a non-in-memory Hikari pool, which leaves connections open at a
+  `spring.context.checkpoint=onRefresh` checkpoint because the Hikari lifecycle has not started yet; it runs only when
+  the `org.crac` API or onRefresh is present, and never displays the JDBC URL. `CRAC-NET-002` reports host-name and
+  network-interface lookups retained by static initializers. `CRAC-SCHED-001` now also finds programmatic
+  `scheduleAtFixedRate` calls and `addFixedRateTask` registrations, `CRAC-RANDOM-001` is `HIGH` only for explicit
+  SecureRandom seeding (`MEDIUM` for generator fields) and covers `SplittableRandom`, `CRAC-SECRET-001` no longer
+  reports credential-named JPA entity columns, `CRAC-POOL-002` covers Kafka, Lettuce, Jedis, and Netty event-loop
+  clients, and `CRAC-CACHE-001` explains expiry across restore precisely
+  ([CRaC readiness checks](docs/CRAC-READINESS-CHECKS.md), [#1170](https://github.com/jdubois/boot-ui/pull/1170)).
 - **Spring Security advisor audited against Spring Security 7.1.1.** Spring Security 7's passkey (`webAuthn()`),
   one-time-token and SAML 2.0 login filters are now recognized framework filters and browser-login credentials on
   Spring MVC, so those chains are assessed by the CSRF, framing, CSP and session checks instead of being left
