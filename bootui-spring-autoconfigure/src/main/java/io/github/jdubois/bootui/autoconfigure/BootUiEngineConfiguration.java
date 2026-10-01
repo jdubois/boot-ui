@@ -215,17 +215,22 @@ public class BootUiEngineConfiguration {
     }
 
     /**
-     * The incremental aggregates of the runtime journal ({@code docs/PLAN-v2.md} §5.2), fed by its dispatcher. When the
-     * context closes, as before a DevTools restart, they keep the run's summary in the JVM's run history.
+     * The incremental aggregates of the runtime journal ({@code docs/PLAN-v2.md} §5.2), fed by its dispatcher, and the
+     * run's resource track, fed by the resource sampler (§5.11). When the context closes, as before a DevTools restart,
+     * they keep the run's summary in the JVM's run history.
      */
     @Bean
     @ConditionalOnMissingBean
     JournalAggregates bootUiJournalAggregates(
-            RuntimeJournal journal, RunIdentity run, ObjectProvider<MappingProvider> mappingProvider) {
+            RuntimeJournal journal,
+            RunIdentity run,
+            ObjectProvider<MappingProvider> mappingProvider,
+            BootUiProperties properties) {
         JournalAggregates aggregates = new JournalAggregates();
         aggregates.setDeclaredRoutes(DeclaredRouteTemplates.caching(mappingProvider));
         aggregates.recordRunIn(RunHistory.shared(), run);
         journal.addListener(aggregates);
+        journal.startResourceSampler(properties.getResources().toSettings(), aggregates.resourceTrack());
         return aggregates;
     }
 

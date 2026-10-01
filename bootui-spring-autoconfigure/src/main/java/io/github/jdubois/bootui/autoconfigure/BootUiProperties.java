@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mysql.MySqlRowLimits;
 import io.github.jdubois.bootui.engine.postgres.PostgresRowLimits;
+import io.github.jdubois.bootui.engine.resources.ResourceSettings;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
@@ -218,6 +219,10 @@ public class BootUiProperties {
      * Runtime journal settings: the bounded in-memory record of every runtime event.
      */
     private RuntimeJournal runtimeJournal = new RuntimeJournal();
+    /**
+     * Resource correlation settings: the CPU ledger and resource track.
+     */
+    private Resources resources = new Resources();
     /**
      * Email Viewer panel settings (captured outgoing mail).
      */
@@ -622,6 +627,14 @@ public class BootUiProperties {
 
     public void setRuntimeJournal(RuntimeJournal runtimeJournal) {
         this.runtimeJournal = runtimeJournal == null ? new RuntimeJournal() : runtimeJournal;
+    }
+
+    public Resources getResources() {
+        return resources;
+    }
+
+    public void setResources(Resources resources) {
+        this.resources = resources == null ? new Resources() : resources;
     }
 
     public void setActivity(Activity activity) {
@@ -2672,6 +2685,40 @@ public class BootUiProperties {
                     maxBytes == null ? null : maxBytes.toBytes(),
                     queueCapacity,
                     sources == null ? null : String.join(",", sources));
+        }
+    }
+
+    /**
+     * Settings for the CPU ledger and resource track ({@code docs/PLAN-v2.md} §5.11), which sweep the JVM on one BootUI
+     * daemon thread while the runtime journal records the {@code resources} source.
+     */
+    public static class Resources {
+
+        /** How often the sampler sweeps the JVM's threads, CPU time, and heap. At least 100 ms. */
+        private Duration sampleInterval = ResourceSettings.DEFAULT_SAMPLE_INTERVAL;
+
+        /** The most platform threads one sweep reads; the CPU time of the others counts as the JVM's own work. */
+        private int maxThreads = ResourceSettings.DEFAULT_MAX_THREADS;
+
+        public Duration getSampleInterval() {
+            return sampleInterval;
+        }
+
+        public void setSampleInterval(Duration sampleInterval) {
+            this.sampleInterval = sampleInterval;
+        }
+
+        public int getMaxThreads() {
+            return maxThreads;
+        }
+
+        public void setMaxThreads(int maxThreads) {
+            this.maxThreads = maxThreads;
+        }
+
+        /** The engine settings these properties describe. */
+        public ResourceSettings toSettings() {
+            return new ResourceSettings(sampleInterval, maxThreads);
         }
     }
 

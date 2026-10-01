@@ -9,8 +9,6 @@ import io.github.jdubois.bootui.engine.resources.ResourceUsage.Availability;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage.Unmeasured;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.lang.reflect.Method;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
@@ -166,6 +164,27 @@ class SegmentMeterTests {
     }
 
     @Test
+    @SuppressWarnings("deprecation")
+    void theLedgerReadsEachPlatformThreadsCreditedCpuAndForgetsThreadsThatEnded() throws Exception {
+        AtomicReference<Thread> worker = new AtomicReference<>();
+        meter.begin("r1");
+        meter.switchTo(null);
+        runOn(thread -> {
+            worker.set(thread);
+            readings.set(thread, 0, 0);
+            meter.switchTo("r1");
+            readings.set(thread, 40, 0);
+            meter.switchTo(null);
+        });
+        long id = worker.get().getId();
+
+        assertThat(meter.attributedCpuNanos(id, 999)).isEqualTo(40);
+        meter.forgetEndedThreads();
+        assertThat(meter.attributedCpuNanos(id, 999)).isZero();
+        meter.take("r1");
+    }
+
+    @Test
     void anUnbegunRequestIsNeverMeasured() {
         meter.switchTo("never-begun");
         meter.switchTo(null);
@@ -246,69 +265,5 @@ class SegmentMeterTests {
         thread.start();
         thread.join();
         assertThat(failure.get()).isNull();
-    }
-
-    /** Readings the test sets per thread, with one pause collector named {@code Young} and one named {@code Old}. */
-    private static final class FakeReadings implements SegmentMeter.Readings {
-
-        private final Map<Long, long[]> threads = new ConcurrentHashMap<>();
-        private volatile long[] collections = {0, 0};
-        private volatile boolean supported = true;
-
-        @SuppressWarnings("deprecation")
-        void set(Thread thread, long cpu, long allocated) {
-            threads.put(thread.getId(), new long[] {cpu, allocated});
-        }
-
-        void collections(long young, long old) {
-            collections = new long[] {young, old};
-        }
-
-        @SuppressWarnings("deprecation")
-        private long[] of(long threadId) {
-            return threads.getOrDefault(threadId, new long[] {0, 0});
-        }
-
-        @Override
-        public boolean supported() {
-            return supported;
-        }
-
-        @Override
-        @SuppressWarnings("deprecation")
-        public long currentCpuNanos() {
-            return supported ? of(Thread.currentThread().getId())[0] : -1;
-        }
-
-        @Override
-        @SuppressWarnings("deprecation")
-        public long currentAllocatedBytes() {
-            return supported ? of(Thread.currentThread().getId())[1] : -1;
-        }
-
-        @Override
-        public long cpuNanos(long threadId) {
-            return supported ? of(threadId)[0] : -1;
-        }
-
-        @Override
-        public long allocatedBytes(long threadId) {
-            return supported ? of(threadId)[1] : -1;
-        }
-
-        @Override
-        public int collectors() {
-            return 2;
-        }
-
-        @Override
-        public String collector(int index) {
-            return index == 0 ? "Young" : "Old";
-        }
-
-        @Override
-        public void readCollections(long[] counts) {
-            System.arraycopy(collections, 0, counts, 0, counts.length);
-        }
     }
 }

@@ -654,6 +654,20 @@ template only. Nothing is written to disk. The same keys and defaults apply on S
 | `bootui.runtime-journal.queue-capacity` | `10000`                                 | Maximum number of events waiting to be recorded. The last 10 % admits only failed or slow events, so a burst drops routine events first. |
 | `bootui.runtime-journal.sources`       | Every source                             | Comma-separated sources to record: `http`, `sql`, `transaction`, `connection`, `exception`, `security`, `rest-client`, `cache`, `messaging`, `scheduled`, `log`, `gc`, and `resources`. An unknown name fails startup. |
 
+### Resource correlation
+
+While the runtime journal records the `resources` source, one BootUI daemon thread sweeps the JVM once per interval
+([PLAN-v2.md](PLAN-v2.md) §5.11). Its CPU ledger splits the process's CPU time three ways: the share credited to
+requests, the rest of each thread family's share (BootUI's own threads as one family), and the JVM's own work (GC,
+JIT, VM threads, and threads the sweep did not read), which together sum to the process's CPU time. Its resource track
+keeps heap use, heap after collections, allocation, and thread counts. The 900 most recent points are kept in memory,
+outside the journal's byte bound.
+
+| Property                           | Default | Description |
+| ---------------------------------- | ------- | ----------- |
+| `bootui.resources.sample-interval` | `1s`    | How often the sampler sweeps the JVM. At least `100ms`. |
+| `bootui.resources.max-threads`     | `500`   | Most platform threads one sweep reads. The CPU time of the others counts as the JVM's own work. |
+
 ### Traces
 
 | Property                                     | Default   | Description                                                                                            |

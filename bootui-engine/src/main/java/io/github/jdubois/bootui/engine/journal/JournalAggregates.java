@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.journal;
 
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.resources.GcPauseRange;
+import io.github.jdubois.bootui.engine.resources.ResourceTrack;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
@@ -64,6 +65,7 @@ public final class JournalAggregates implements JournalListener {
     private final LinkedHashMap<String, PendingRequest> pending = new LinkedHashMap<>();
     private final Map<String, Long> recentPauses = bounded(MAX_RECENT_COLLECTIONS);
     private final Map<String, List<String>> awaitedPauses = bounded(MAX_AWAITED_COLLECTIONS);
+    private final ResourceTrack resourceTrack = new ResourceTrack();
     private final long[] runCounts = new long[SOURCES];
     private final long[] runNanos = new long[SOURCES];
     private long firstEpochMillis = Long.MAX_VALUE;
@@ -243,8 +245,14 @@ public final class JournalAggregates implements JournalListener {
         return children;
     }
 
+    /** The run's resource track and CPU ledger (§5.11), which the resource sampler fills. */
+    public ResourceTrack resourceTrack() {
+        return resourceTrack;
+    }
+
     /** Drops every aggregate, for <b>Clear recording</b>. */
     public synchronized void clear() {
+        resourceTrack.clear();
         routes.clear();
         statements.clear();
         exceptionGroups.clear();

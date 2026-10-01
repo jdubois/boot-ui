@@ -57,6 +57,7 @@ import io.github.jdubois.bootui.engine.postgres.PostgresRowLimits;
 import io.github.jdubois.bootui.engine.quarkusapp.QuarkusAppScanner;
 import io.github.jdubois.bootui.engine.quarkussecurity.QuarkusSecurityScanner;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
+import io.github.jdubois.bootui.engine.resources.ResourceSettings;
 import io.github.jdubois.bootui.engine.restapi.RestApiScanner;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
@@ -281,6 +282,13 @@ public class BootUiEngineProducer {
         journal.setThreadKindClassifier(new QuarkusThreadKinds());
         journal.addListener(aggregates);
         journal.startGcSource();
+        journal.startResourceSampler(
+                new ResourceSettings(
+                        config.getOptionalValue("bootui.resources.sample-interval", Duration.class)
+                                .orElse(ResourceSettings.DEFAULT_SAMPLE_INTERVAL),
+                        config.getOptionalValue("bootui.resources.max-threads", Integer.class)
+                                .orElse(ResourceSettings.DEFAULT_MAX_THREADS)),
+                aggregates.resourceTrack());
         return journal;
     }
 

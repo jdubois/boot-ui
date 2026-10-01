@@ -6,6 +6,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Measures the CPU time, allocated bytes, and completed GC pauses of each request by identity, not by timestamp
@@ -32,6 +33,9 @@ public final class SegmentMeter {
     /** The most requests measured at once, so requests never taken cannot grow the meter without bound. */
     static final int MAX_OPEN_REQUESTS = 10_000;
 
+    /** The most platform threads whose attributed CPU the meter keeps for the ledger. */
+    static final int MAX_PLATFORM_THREADS = 4_096;
+
     /** How long an untaken request is kept before the meter may drop it to make room. */
     static final long STALE_NANOS = TimeUnit.MINUTES.toNanos(10);
 
@@ -40,6 +44,7 @@ public final class SegmentMeter {
     private final Readings readings;
     private final ConcurrentHashMap<String, Meter> meters = new ConcurrentHashMap<>();
     private final ThreadLocal<Segment> segments = new ThreadLocal<>();
+    private final ConcurrentHashMap<Long, Segment> platformThreads = new ConcurrentHashMap<>();
 
     SegmentMeter(Readings readings) {
         this.readings = readings;
@@ -98,6 +103,9 @@ public final class SegmentMeter {
             if (segment == null) {
                 segment = new Segment(Thread.currentThread(), readings.collectors());
                 segments.set(segment);
+                if (!segment.virtual) {
+                    register(segment);
+                }
             }
             segment.open(meter, requestId, readings);
         } catch (RuntimeException | LinkageError ex) {
@@ -120,6 +128,41 @@ public final class SegmentMeter {
             return meter == null ? null : meter.take(readings);
         } catch (RuntimeException | LinkageError ex) {
             return null;
+        }
+    }
+
+    /**
+     * The CPU time the meter has credited to requests on platform thread {@code threadId}: its closed segments, plus the
+     * progress of its open segment up to {@code threadCpuNanos}, the thread's CPU time read now. The CPU ledger
+     * subtracts it from the thread's CPU time, so request work is never counted twice ({@code docs/PLAN-v2.md}
+     * §5.11).
+     */
+    public long attributedCpuNanos(long threadId, long threadCpuNanos) {
+        Segment segment = platformThreads.get(threadId);
+        if (segment == null) {
+            return 0;
+        }
+        for (int attempt = 0; attempt < 4; attempt++) {
+            long openStart = segment.openStartCpuNanos;
+            long closed = segment.attributedCpuNanos.get();
+            if (openStart == segment.openStartCpuNanos) {
+                return closed + (openStart >= 0 && threadCpuNanos > openStart ? threadCpuNanos - openStart : 0);
+            }
+        }
+        return segment.attributedCpuNanos.get();
+    }
+
+    /** Forgets the platform threads that ended, which the CPU ledger calls once a sweep. */
+    public void forgetEndedThreads() {
+        platformThreads.values().removeIf(segment -> !segment.thread.isAlive());
+    }
+
+    private void register(Segment segment) {
+        if (platformThreads.size() >= MAX_PLATFORM_THREADS) {
+            forgetEndedThreads();
+        }
+        if (platformThreads.size() < MAX_PLATFORM_THREADS) {
+            platformThreads.put(segment.threadId, segment);
         }
     }
 
@@ -214,6 +257,10 @@ public final class SegmentMeter {
         private final long[] startCollections;
         private final long[] endCollections;
         private volatile Meter meter;
+        private final AtomicLong attributedCpuNanos = new AtomicLong();
+        /** The open segment's starting CPU time, or {@code -1} when none is open; read by the CPU ledger. */
+        private volatile long openStartCpuNanos = -1;
+
         private String requestId;
         private long startCpuNanos;
         private long startAllocatedBytes;
@@ -268,6 +315,7 @@ public final class SegmentMeter {
                 return false;
             }
             open.add(segment);
+            segment.openStartCpuNanos = segment.startCpuNanos;
             return true;
         }
 
@@ -302,6 +350,7 @@ public final class SegmentMeter {
         synchronized void discard() {
             done = true;
             for (Segment segment : open) {
+                segment.openStartCpuNanos = -1;
                 segment.meter = null;
             }
             open.clear();
@@ -314,7 +363,9 @@ public final class SegmentMeter {
         private void credit(Segment segment, long cpu, long allocated, long[] collections, Readings readings) {
             segments++;
             if (segment.startCpuNanos >= 0 && cpu >= 0 && segment.startAllocatedBytes >= 0 && allocated >= 0) {
-                cpuNanos += Math.max(0, cpu - segment.startCpuNanos);
+                long delta = Math.max(0, cpu - segment.startCpuNanos);
+                cpuNanos += delta;
+                segment.attributedCpuNanos.addAndGet(delta);
                 allocatedBytes += Math.max(0, allocated - segment.startAllocatedBytes);
             } else {
                 unmeasured++;
@@ -331,6 +382,7 @@ public final class SegmentMeter {
                     addRange(readings.collector(i), after, last);
                 }
             }
+            segment.openStartCpuNanos = -1;
             segment.meter = null;
         }
 

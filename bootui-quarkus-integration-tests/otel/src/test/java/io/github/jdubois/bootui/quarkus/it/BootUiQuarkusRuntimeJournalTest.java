@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.resources.ResourceTrack;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.spi.ThreadKind;
 import io.quarkus.test.common.http.TestHTTPResource;
@@ -32,6 +33,29 @@ import org.junit.jupiter.api.Test;
  */
 @QuarkusTest
 class BootUiQuarkusRuntimeJournalTest {
+
+    @Test
+    void theResourceSamplerSweepsAtTheConfiguredIntervalWithABalancedLedger() throws Exception {
+        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (aggregates.resourceTrack().points().size() < 3 && System.nanoTime() < deadline) {
+            Thread.sleep(50);
+        }
+
+        List<ResourceTrack.Point> points = aggregates.resourceTrack().points();
+        assertThat(points).hasSizeGreaterThanOrEqualTo(3);
+        ResourceTrack.Point last = points.get(points.size() - 1);
+        assertThat(last.intervalNanos())
+                .as("bootui.resources.sample-interval=200ms")
+                .isLessThan(Duration.ofMillis(900).toNanos());
+        assertThat(last.heapUsedBytes()).isPositive();
+        assertThat(points).allSatisfy(point -> {
+            if (point.processCpuNanos() >= 0) {
+                assertThat(point.requestCpuNanos() + point.familiesCpuNanos() + point.internalCpuNanos())
+                        .isEqualTo(point.processCpuNanos());
+            }
+        });
+        assertThat(aggregates.resourceTrack().families()).contains(ResourceTrack.BOOTUI_FAMILY);
+    }
 
     @TestHTTPResource
     URL baseUrl;

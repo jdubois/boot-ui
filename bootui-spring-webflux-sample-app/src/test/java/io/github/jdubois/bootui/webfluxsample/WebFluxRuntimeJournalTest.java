@@ -8,7 +8,9 @@ import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteResources;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.resources.ResourceTrack;
 import java.time.Duration;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,7 +29,8 @@ import org.springframework.boot.test.web.server.LocalServerPort;
         properties = {
             "spring.profiles.active=dev",
             "bootui.show-banner=false",
-            "bootui.overrides-file=target/runtime-journal/application-bootui.properties"
+            "bootui.overrides-file=target/runtime-journal/application-bootui.properties",
+            "bootui.resources.sample-interval=200ms"
         })
 class WebFluxRuntimeJournalTest {
 
@@ -42,6 +45,29 @@ class WebFluxRuntimeJournalTest {
 
     @Autowired
     JournalAggregates aggregates;
+
+    @Test
+    void theResourceSamplerSweepsAtTheConfiguredIntervalWithABalancedLedger() throws Exception {
+        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (aggregates.resourceTrack().points().size() < 3 && System.nanoTime() < deadline) {
+            Thread.sleep(50);
+        }
+
+        List<ResourceTrack.Point> points = aggregates.resourceTrack().points();
+        assertThat(points).hasSizeGreaterThanOrEqualTo(3);
+        ResourceTrack.Point last = points.get(points.size() - 1);
+        assertThat(last.intervalNanos())
+                .as("bootui.resources.sample-interval=200ms")
+                .isLessThan(Duration.ofMillis(900).toNanos());
+        assertThat(last.heapUsedBytes()).isPositive();
+        assertThat(points).allSatisfy(point -> {
+            if (point.processCpuNanos() >= 0) {
+                assertThat(point.requestCpuNanos() + point.familiesCpuNanos() + point.internalCpuNanos())
+                        .isEqualTo(point.processCpuNanos());
+            }
+        });
+        assertThat(aggregates.resourceTrack().families()).contains(ResourceTrack.BOOTUI_FAMILY);
+    }
 
     @Test
     void cacheAndExceptionEventsFoldIntoTheRouteThatProducedThem() throws Exception {

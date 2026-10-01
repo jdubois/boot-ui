@@ -4,6 +4,9 @@ import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.correlation.ThreadKinds;
 import io.github.jdubois.bootui.engine.resources.GcEventSource;
+import io.github.jdubois.bootui.engine.resources.ResourceSampler;
+import io.github.jdubois.bootui.engine.resources.ResourceSettings;
+import io.github.jdubois.bootui.engine.resources.ResourceTrack;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.ThreadKindClassifier;
@@ -76,6 +79,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
     private final Thread dispatcher;
     private final AtomicBoolean closed = new AtomicBoolean();
     private GcEventSource gcSource;
+    private ResourceSampler resourceSampler;
     private volatile boolean running;
 
     /** A journal whose dispatcher starts now, when {@code settings} enable it. */
@@ -160,6 +164,28 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
             gcSource = GcEventSource.start(this);
         }
         return gcSource != null && gcSource.collectors() > 0;
+    }
+
+    /**
+     * Starts the CPU ledger and resource track, which sweep the JVM into {@code track} until the journal closes
+     * ({@code docs/PLAN-v2.md} §5.11). Does nothing when the journal is disabled, does not record {@code resources}, has
+     * no dispatcher, or already started it.
+     *
+     * @return whether the sampler runs
+     */
+    public synchronized boolean startResourceSampler(ResourceSettings resourceSettings, ResourceTrack track) {
+        if (resourceSampler == null
+                && dispatcher != null
+                && !closed.get()
+                && settings.records(JournalSource.RESOURCES)) {
+            resourceSampler = ResourceSampler.start(resourceSettings, track, this::lastSequence);
+        }
+        return resourceSampler != null && !closed.get();
+    }
+
+    /** The sequence number of the last event the dispatcher processed in this run, {@code 0} before the first. */
+    public long lastSequence() {
+        return lastSequence.get();
     }
 
     /** Installs this stack's classifier of the thread an event is offered on; {@code null} restores the default. */
@@ -346,6 +372,9 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
         synchronized (this) {
             if (gcSource != null) {
                 gcSource.close();
+            }
+            if (resourceSampler != null) {
+                resourceSampler.close();
             }
         }
         if (dispatcher != null) {
