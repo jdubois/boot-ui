@@ -4,6 +4,10 @@ import java.util.List;
 
 final class MemoryRuleRegistry {
 
+    /**
+     * Retired IDs are never reused: MEM-HEAP-007, MEM-FOOTPRINT-004, MEM-POOL-006, MEM-THREAD-003,
+     * MEM-CONTENT-004 (see docs/MEMORY-CHECKS.md).
+     */
     private static final List<MemoryRule> ACTIVE_RULES = List.of(
             // Heap pressure
             new HighHeapUtilizationRule(),
@@ -11,20 +15,17 @@ final class MemoryRuleRegistry {
             new SmallMaxHeapUnderPressureRule(),
             new CompressedOopsCliffRule(),
             new PendingFinalizationBacklogRule(),
-            new OverProvisionedHeapRule(),
             new OldGenerationTrendingUpwardRule(),
             // Native memory
             new CommittedFootprintNearContainerLimitRule(),
             new PlatformThreadStackReservationRule(),
             new ContainerMemoryPressureRule(),
-            new HighSwapUtilizationRule(),
             // Memory pools
             new MetaspaceSaturationRule(),
             new CodeCacheSaturationRule(),
             new DirectBufferGrowthRule(),
             new UnboundedMetaspaceInContainerRule(),
             new CompressedClassSpaceRule(),
-            new InterpretedJitModeRule(),
             new BufferPoolGrowthWithoutReleaseRule(),
             // GC configuration
             new MissingHeapSizingInContainerRule(),
@@ -35,16 +36,15 @@ final class MemoryRuleRegistry {
             new SerialGcOnMultiCoreRule(),
             new G1FullGcFrequencyRule(),
             new GcEventDurationOutlierRule(),
+            new NonGenerationalZgcRule(),
             // Threads
             new DeadlockDetectedRule(),
             new HighBlockedThreadRatioRule(),
-            new ThreadPoolExhaustionGapRule(),
             new RunawayCpuThreadRule(),
             // Heap content
             new BigObjectsRule(),
             new CollectionBloatRule(),
             new DominantClassRule(),
-            new ArrayDominanceRule(),
             // Class loading
             new ExcessiveLoadedClassesRule(),
             new ClassLoadingChurnRule());

@@ -27,6 +27,9 @@ final class VendorFindingKinds {
                     "PostgreSQL NOT VALID constraints",
                     PostgresUnvalidatedConstraint.class);
 
+    static final VendorFindingKind<PostgresUnloggedTable> POSTGRES_UNLOGGED_TABLES = new VendorFindingKind<>(
+            "postgresql.unlogged-tables", "PostgreSQL unlogged tables", PostgresUnloggedTable.class);
+
     static final VendorFindingKind<PostgresIndexDetail> POSTGRES_INDEX_DETAILS = new VendorFindingKind<>(
             "postgresql.index-details", "PostgreSQL index semantics", PostgresIndexDetail.class);
 

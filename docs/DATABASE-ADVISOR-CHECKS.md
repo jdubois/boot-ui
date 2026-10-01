@@ -1,6 +1,6 @@
 # Database checks
 
-The Database advisor runs **24 fixed, on-demand checks** over the physical schema reported by the application's
+The Database advisor runs **28 fixed, on-demand checks** over the physical schema reported by the application's
 JDBC datasources, supplemented by vendor catalogs, available JPA declarations and already-retained SQL Trace
 observations. It never executes DDL, advances a sequence, queries application rows or starts work on page load.
 
@@ -90,13 +90,21 @@ A declared PK is useful row-identity documentation, but neither an ORM nor every
 universally requires a database PK. Review whether a natural key, surrogate key or intentional keyless
 relation is appropriate; absence alone does not prove unsafe updates or duplicate data.
 
+Framework-generated one-row identifier tables are excluded once their complete column inventory is read:
+Hibernate's sequence emulation (a single integer `next_val` column, which Hibernate 6/7 creates for
+`GenerationType.AUTO`/`SEQUENCE` on MySQL and never gives a key) and Spring Batch's MySQL `*_SEQ` tables
+(`ID` plus a unique `UNIQUE_KEY`). Their DDL belongs to the framework, so a PK recommendation is not actionable.
+See [Hibernate `SequenceStyleGenerator`](https://docs.hibernate.org/orm/7.2/javadocs/org/hibernate/id/enhanced/SequenceStyleGenerator.html).
+
 ### DB-SCHEMA-002 - Foreign key columns without a supporting index
 
 **MEDIUM.** Reviews physical FKs without a known ordinary leading index access path over the complete child
 column set. An equality lookup can use those leading columns in a different order; indexing just one column
 of a composite FK is not equivalent. Known trailing expressions must not erase a usable leading key.
 
-Partial, value-prefix and specialized definitions may require evidence this check does not have.
+Partial, value-prefix and specialized definitions may require evidence this check does not have, but only an
+index that keys a foreign-key column, an expression or nothing known can make one FK's result unknown: a GIN,
+partial or generic-JDBC index over unrelated columns cannot serve that lookup and does not hide a finding.
 Incomplete index inventories cannot prove absence. MySQL/MariaDB engines that require FK support normally
 create a suitable index automatically, so contradictory metadata warrants investigation rather than blind DDL.
 Review parent-key changes and actual query plans before adding an index; an unindexed FK is not universally
@@ -126,7 +134,9 @@ Fixed-width UUID pairs count as fully compared, as do identical declarations who
 and decimal digits are all reported and equal. A size or scale the driver does not report is unknown, not equal,
 so other date/time, boolean or vendor-type pairs remain an unknown comparison rather than a guess.
 Review intended value domains and vendor compatibility before aligning definitions. JDBC type-family
-classification alone cannot establish coercion behavior or query-plan quality.
+classification alone cannot establish coercion behavior or query-plan quality. MySQL itself requires the size and
+sign of integer and decimal FK pairs to match; see
+[MySQL 8.4 FK constraints](https://dev.mysql.com/doc/refman/8.4/en/create-table-foreign-keys.html).
 
 ### DB-SCHEMA-005 - Redundant unique index duplicating the primary key
 
@@ -155,6 +165,22 @@ unconditional removal.
 Their finite representable domain may be intentional. Type capacity is not a lifetime row count, a count
 of committed inserts or an exhaustion forecast. Review the intended domain; vendor generator checks
 separately inspect an observed frontier. No automatic widening is recommended.
+
+### DB-SCHEMA-010 - Invisible or ignored indexes
+
+**LOW.** Reports a MySQL 8.0+ invisible (`information_schema.statistics.IS_VISIBLE = 'NO'`), MariaDB 10.6+ ignored
+(`IGNORED = 'YES'`) or Oracle invisible (`ALL_INDEXES.VISIBILITY = 'INVISIBLE'`) index. The optimizer does not use
+it by default, yet every `INSERT`, `UPDATE` and `DELETE` still maintains it, and an invisible `UNIQUE` index still
+enforces uniqueness. Such a state is usually a staged "soft drop" or a trial: decide whether it is finished, then
+make the index visible again or drop it after reviewing constraints, hints and dependencies.
+
+Unknown visibility is a coverage gap, never a finding. Constraint-backing indexes, unusable indexes (see
+`DB-ORACLE-001`) and Oracle automatic-indexing candidates (`SYS_AI_` names, deliberately kept invisible in
+report-only mode) are excluded. Servers predating the feature (MySQL 5.7, MariaDB before 10.6) are not applicable.
+MySQL `use_invisible_indexes` and Oracle `OPTIMIZER_USE_INVISIBLE_INDEXES` let a session opt in; MariaDB ignored
+indexes cannot be re-enabled through hints. See [MySQL invisible indexes](https://dev.mysql.com/doc/refman/8.4/en/invisible-indexes.html),
+[MariaDB ignored indexes](https://mariadb.com/docs/server/ha-and-performance/optimization-and-tuning/optimization-and-indexes/ignored-indexes)
+and [Oracle invisible indexes](https://docs.oracle.com/en/database/oracle/oracle-database/19/admin/managing-indexes.html).
 
 ## Dialect detection and catalog augmentation
 
@@ -192,8 +218,12 @@ See [CREATE INDEX CONCURRENTLY](https://www.postgresql.org/docs/17/sql-createind
 
 **HIGH.** Reviews the observed sequence frontier against direction-aware sequence bounds and a known
 owning-column domain. Positive and negative increments and nondefault ranges matter.
-`pg_sequences.last_value` may be null because of permissions, lack of use or standby state; that is unknown
-consumption, not zero, and must not erase the sequence definition.
+`pg_sequences.last_value` may be null because of permissions, lack of use or standby state. A null value is
+treated as "never read" (0% consumed, no coverage gap) only when the role holds `SELECT` or `USAGE` on the sequence
+and it is not an unlogged sequence read on a standby; otherwise it is unknown consumption, not zero, and must not
+erase the sequence definition. A fresh development database with unused identity columns therefore scans complete.
+`setval(seq, v, false)` leaves the same never-read state, so a sequence positioned that way but not yet read is
+assessed as unused from its configured start until its first `nextval`.
 
 The 80% threshold describes a bounded-range snapshot, not remaining time. Cached reservations are not
 committed identifiers. Cycling can still exceed a narrower owning column before wrapping.
@@ -220,6 +250,18 @@ assumed usable. Relevant writes can fail without waiting for a subscriber to att
 Review publication actions and choose an appropriate PK, supported identity index or FULL identity.
 See [publications](https://www.postgresql.org/docs/17/logical-replication-publication.html) and
 [pg_publication_tables](https://www.postgresql.org/docs/17/view-pg-publication-tables.html).
+
+### DB-PG-005 - PostgreSQL unlogged tables
+
+**LOW.** Reports an ordinary table or leaf partition with `pg_class.relpersistence = 'u'`, excluding system and
+extension-owned tables. Unlogged tables skip write-ahead logging: PostgreSQL truncates them after a crash or
+immediate shutdown, does not replicate them to physical standbys (where they cannot be read), and cannot restore
+their contents by WAL-based point-in-time recovery. A logical `pg_dump` still copies their rows. Unlogged storage is
+an explicit DDL choice, often deliberate for caches or staging data, so this is a durability review prompt;
+`ALTER TABLE ... SET LOGGED` rewrites and WAL-logs a table that must be durable. Partitioned parents are not read:
+PostgreSQL 13-18 rejects unlogged partitioned tables, so their persistence flag carries no storage meaning. A denied
+or failed catalog read is `SKIPPED`, not clean.
+See [CREATE TABLE UNLOGGED](https://www.postgresql.org/docs/current/sql-createtable.html#SQL-CREATETABLE-UNLOGGED).
 
 ## MySQL and MariaDB
 
@@ -382,6 +424,36 @@ JPA cascade does **not** imply database ON DELETE CASCADE; FK-generation annotat
 the live database's intended cascade policy. Review whether a database constraint is intended before adding one.
 See [Jakarta Persistence 3.2](https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2.html).
 
+### DB-HIB-009 - IDENTITY identifier column without database-side generation
+
+**MEDIUM.** Reviews an explicitly named `@Id` declaring `@GeneratedValue(strategy = GenerationType.IDENTITY)` whose
+resolved PostgreSQL, MySQL or MariaDB column the driver explicitly reports with `IS_AUTOINCREMENT = NO`, no
+`COLUMN_DEF` default and no generated column. Hibernate omits an IDENTITY key from the `INSERT` and reads back the
+database-generated value, so such inserts fail, or store a placeholder on a nullable column or in non-strict MySQL
+modes, unless something the metadata cannot show, such as a `BEFORE INSERT` trigger, assigns the key. Hibernate
+schema validation does not compare this.
+
+pgjdbc reports `IS_AUTOINCREMENT = YES` for identity columns and `nextval(...)` defaults, and the MySQL/MariaDB
+drivers report `AUTO_INCREMENT`. A missing or empty value is unknown, never `NO`. Other drivers' semantics are not
+established, so other dialects are not compared. `GenerationType.AUTO` and an omitted strategy are provider-selected
+and are not treated as IDENTITY; the identifier column must be explicitly named because physical naming strategies
+differ between Spring Boot and Quarkus. Check for a trigger first, then make the column database-generated or change
+the strategy. This is a physical cross-reference, not the Hibernate advisor's `HIB-ID-001`/`HIB-ID-006` trade-offs.
+
+### DB-HIB-010 - Declared numeric precision or scale exceeds the observed column
+
+**MEDIUM.** Compares a positive `@Column(precision = p, scale = s)` on a `BigDecimal`/`BigInteger` attribute with a
+bounded physical `DECIMAL`/`NUMERIC` column. With a positive precision, Hibernate 7.2/7.4 applies the annotation's
+scale as written, including its default zero, so both are compared. A narrower physical scale silently rounds
+written values; fewer physical integer digits (precision minus scale) reject large values, or clamp them in
+non-strict MySQL/MariaDB modes. Converters, native column definitions, `@Lob` and non-decimal attributes are not
+compared. Unconstrained columns (PostgreSQL `numeric` without a type modifier, Oracle `NUMBER` without precision),
+negative scales and a scale larger than the precision are unknown rather than guessed. This complements the
+Hibernate advisor's `HIB-MAP-014`, which reports a *missing* declaration. `@Column(precision/scale)` is
+schema-generation metadata, not input validation.
+See [PostgreSQL numeric types](https://www.postgresql.org/docs/current/datatype-numeric.html#DATATYPE-NUMERIC-DECIMAL)
+and [MySQL 8.4 fixed-point types](https://dev.mysql.com/doc/refman/8.4/en/fixed-point-types.html).
+
 ## Runtime SQL
 
 ### DB-RUNTIME-001 - SQL text variations with predicate literals
@@ -431,6 +503,9 @@ bare names. See matching
 
 No application row counts, index cardinality/usage, bloat, cache-size tuning, sequence gaps, blanket
 NOT NULL policy, automatic sequence restart, arbitrary query plans or production workload predictions.
+PostgreSQL data-type preferences from the community "Don't Do This" list (`money`, `json` versus `jsonb`,
+`char(n)`, `timetz`) were reviewed and not added: each has intentional uses, and one rule-level dismissal would
+silence unrelated types.
 Catalog snapshots can change concurrently and depend on driver coverage and role visibility.
 Live MariaDB documentation is version-sensitive; Oracle 19c documentation can include later patch syntax.
 An unsupported or unverified capability stays unknown rather than being silently assumed absent.

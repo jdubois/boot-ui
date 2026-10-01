@@ -487,13 +487,15 @@ forwards to is a bean of its own, so the pool inside a `LazyConnectionDataSource
 resolved targets, named `beanName[lookupKey]`.
 
 ::: details The generic structural checks
-- A missing primary key.
+- A missing primary key, excluding framework-generated one-row identifier tables (Hibernate's `next_val` sequence
+  emulation and Spring Batch's `*_SEQ` tables).
 - A physical foreign key without a known complete leading-column access path, as a contextual review.
 - Exact ordinary-index definition overlap, not merely a shorter leading prefix.
 - A foreign-key column whose type disagrees with the column it references.
 - A redundant unique index duplicating the primary key.
 - Duplicate foreign-key constraints.
 - A narrow auto-generated primary key.
+- A MySQL invisible, MariaDB ignored or Oracle invisible index that writes still maintain.
 :::
 
 ### Bounded, honest scans
@@ -534,6 +536,7 @@ to the generic checks.
   (the classic `bigint` sequence feeding an `integer` column).
 - Constraints currently not validated, without inferring migration history.
 - A table publishing updates/deletes with no usable replica identity; INSERT-only publications are excluded.
+- An `UNLOGGED` table or leaf partition, truncated after a crash and absent from physical standbys.
 
 **MySQL/MariaDB:**
 
@@ -587,7 +590,10 @@ Hibernate metamodel is unavailable.
   comparison, without suppressing genuine table mismatches or view-name/column-name checks. If only view
   columns would be compared, the check is skipped with an informational diagnostic rather than a finding.
 - A nondefault declared `@Column(length=...)` longer than a positively bounded physical string column.
+- A positive `@Column(precision=..., scale=...)` wider than a bounded physical `DECIMAL`/`NUMERIC` column.
 - A mapped unique constraint with no physical index that genuinely enforces it.
+- An explicitly named `@Id` declaring `GenerationType.IDENTITY` whose PostgreSQL/MySQL/MariaDB column reports no
+  auto-increment, identity, default or generated value.
 
 Only entities with an *explicit* `@Table(name = ...)` are cross-referenced — entities relying on the default naming
 strategy are skipped rather than guessed. Even explicit names remain logical names subject to a physical naming
