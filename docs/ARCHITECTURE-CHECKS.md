@@ -550,6 +550,9 @@ Dismissing a rule removes all of its instances from the score.
   instantiate in tests.
 - **Recommendation**: prefer constructor injection so dependencies are explicit, final, and easy to test.
 - **Kotlin note**: an `@Autowired lateinit var` is a true positive; take the dependency as a constructor `val` instead.
+  An annotated constructor property such as `class Foo(@Value("\${key}") private val key: String)` is constructor
+  injection and is not reported, although Kotlin also copies the annotation onto the backing field: a field in a Kotlin
+  class is skipped when a constructor parameter of the same type carries an identical `@Autowired` or `@Value`.
 - **Quarkus/CDI note**: deliberately scoped to Spring's own annotations only, so it never fires on plain
   `jakarta.inject.Inject` / `@Resource` field injection — the idiomatic style on a CDI/Quarkus application. See
   ARCH-CODE-016 for the framework-neutral equivalent that covers those standard annotations instead.
