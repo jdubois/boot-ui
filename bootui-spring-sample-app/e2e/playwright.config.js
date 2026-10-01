@@ -65,6 +65,10 @@ export default defineConfig({
         reuseExistingServer: !process.env.CI,
         stdout: 'pipe',
         stderr: 'pipe',
-        timeout: WEBSERVER_TIMEOUT
+        timeout: WEBSERVER_TIMEOUT,
+        // Without this Playwright SIGKILLs the process group, so the app never runs its shutdown hook
+        // and, under the docker profile, leaves its Docker Compose services running. SIGTERM reaches the
+        // forked app JVM directly (same process group); allow time for `docker compose stop`.
+        gracefulShutdown: {signal: 'SIGTERM', timeout: 30_000}
       }
 })

@@ -82,7 +82,8 @@ export default defineConfig({
                 reuseExistingServer: false,
                 stdout: 'pipe',
                 stderr: 'pipe',
-                timeout: 10_000
+                timeout: 10_000,
+                gracefulShutdown: {signal: 'SIGTERM', timeout: 5_000}
               }
             ]
           : []),
@@ -96,7 +97,10 @@ export default defineConfig({
           reuseExistingServer: USE_LIVE_OSV && !process.env.CI,
           stdout: 'pipe',
           stderr: 'pipe',
-          timeout: WEBSERVER_TIMEOUT
+          timeout: WEBSERVER_TIMEOUT,
+          // Without this Playwright SIGKILLs the process group, so quarkus:dev never shuts down cleanly
+          // and leaves stopping its Dev Services containers to Ryuk. SIGTERM reaches the whole group.
+          gracefulShutdown: {signal: 'SIGTERM', timeout: 30_000}
         }
       ]
 })
