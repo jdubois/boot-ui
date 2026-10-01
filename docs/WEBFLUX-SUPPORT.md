@@ -254,6 +254,14 @@ just to build the catalogue.
 
 :::
 
+::: details One REST API rule depends on the active request stack
+
+The Spring adapter tells the REST API scanner whether the running context is servlet or reactive. Only `RAPI-RESP-010`
+uses it: Spring MVC discards the returned body when `@ResponseStatus` sets a `reason`, while WebFlux applies the status,
+ignores the reason, and still writes the body. The rule therefore reports on Spring MVC and is `SKIPPED` on WebFlux.
+
+:::
+
 ### 6.3 Rebuilt with a new reactive capture layer (9 panels)
 
 The DTO and UI are reused unchanged; only the capture/streaming source was rewritten because the servlet original

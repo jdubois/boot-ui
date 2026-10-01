@@ -130,6 +130,7 @@ final class RestApiEvaluationEvidence {
     private boolean completeExceptionModel = true;
     private boolean openApiKnown = true;
     private boolean versioningKnown = true;
+    private RestApiScanner.SpringWebStack springWebStack = RestApiScanner.SpringWebStack.UNKNOWN;
     private boolean applicable;
     private boolean usable;
     private boolean evaluated;
@@ -149,6 +150,15 @@ final class RestApiEvaluationEvidence {
 
     boolean usable() {
         return usable;
+    }
+
+    RestApiScanner.SpringWebStack springWebStack() {
+        return springWebStack;
+    }
+
+    /** Scan-wide observation of the Spring request stack, unaffected by {@link #reset()}. */
+    void springWebStack(RestApiScanner.SpringWebStack stack) {
+        this.springWebStack = stack == null ? RestApiScanner.SpringWebStack.UNKNOWN : stack;
     }
 
     boolean evaluated() {

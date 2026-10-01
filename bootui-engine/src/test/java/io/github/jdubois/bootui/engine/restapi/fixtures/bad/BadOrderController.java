@@ -44,7 +44,7 @@ public class BadOrderController {
         return "0";
     }
 
-    // RAPI-ERR-002 (broad throws), RAPI-DTO-004 (mutable DTO with setters)
+    // Broad throws and a mutable DTO: no longer reported (RAPI-ERR-002 and RAPI-DTO-004 are retired)
     @GetMapping("/find")
     public OrderDto find() throws Exception {
         return new OrderDto();

@@ -60,6 +60,7 @@ import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.core.env.Environment;
 import org.springframework.http.MediaType;
 import org.springframework.mock.env.MockEnvironment;
+import org.springframework.web.context.support.GenericWebApplicationContext;
 
 /**
  * Pins the property-to-record mappings in {@link BootUiEngineConfiguration}.
@@ -289,6 +290,20 @@ class BootUiEngineConfigurationTests {
             assertThat(scanner.initialReport().basePackages()).containsExactly("com.example.first");
             assertThat(scanner.initialReport().basePackages()).containsExactly("com.example.second");
             assertThat(scanner.initialReport().scan().status()).isEqualTo("NOT_SCANNED");
+        }
+    }
+
+    @Test
+    void restApiScannerReportsTheActiveSpringRequestStack() {
+        try (GenericReactiveWebApplicationContext reactive = new GenericReactiveWebApplicationContext();
+                GenericWebApplicationContext servlet = new GenericWebApplicationContext();
+                GenericApplicationContext plain = new GenericApplicationContext()) {
+            assertThat(BootUiEngineConfiguration.springWebStack(reactive))
+                    .isEqualTo(RestApiScanner.SpringWebStack.REACTIVE);
+            assertThat(BootUiEngineConfiguration.springWebStack(servlet))
+                    .isEqualTo(RestApiScanner.SpringWebStack.SERVLET);
+            assertThat(BootUiEngineConfiguration.springWebStack(plain))
+                    .isEqualTo(RestApiScanner.SpringWebStack.UNKNOWN);
         }
     }
 

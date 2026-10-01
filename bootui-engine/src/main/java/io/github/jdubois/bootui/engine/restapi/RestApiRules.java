@@ -83,17 +83,50 @@ abstract class AbstractRestApiRule implements RestApiRule {
 /** Shared static helpers for the REST API Advisor rules. */
 final class RestApiRuleHelp {
 
+    private static final String SPRING_MVC_REFERENCE =
+            "https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/";
+    private static final String RFC_9110 = "https://www.rfc-editor.org/rfc/rfc9110.html";
+
     static final String SPRING_WEB_DOCS =
             "https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller.html";
-    static final String REST_GUIDELINES = "https://www.rfc-editor.org/rfc/rfc9110.html";
+    static final String REST_GUIDELINES = RFC_9110;
+    static final String REQUEST_MAPPING_DOCS = SPRING_MVC_REFERENCE + "ann-requestmapping.html";
+    static final String CONSUMES_DOCS = REQUEST_MAPPING_DOCS + "#mvc-ann-requestmapping-consumes";
+    static final String PRODUCES_DOCS = REQUEST_MAPPING_DOCS + "#mvc-ann-requestmapping-produces";
+    static final String PATH_VARIABLE_DOCS =
+            "https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/web/bind/annotation/PathVariable.html";
+    static final String RESPONSE_STATUS_DOCS =
+            "https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/web/bind/annotation/ResponseStatus.html";
+    static final String REQUEST_BODY_DOCS = SPRING_MVC_REFERENCE + "ann-methods/requestbody.html";
+    static final String REQUEST_PARAM_DOCS = SPRING_MVC_REFERENCE + "ann-methods/requestparam.html";
+    static final String RESPONSE_BODY_DOCS = SPRING_MVC_REFERENCE + "ann-methods/responsebody.html";
+    static final String RESPONSE_ENTITY_DOCS = SPRING_MVC_REFERENCE + "ann-methods/responseentity.html";
+    static final String RETURN_TYPES_DOCS = SPRING_MVC_REFERENCE + "ann-methods/return-types.html";
+    static final String EXCEPTION_HANDLER_DOCS = SPRING_MVC_REFERENCE + "ann-exceptionhandler.html";
+    static final String REST_EXCEPTIONS_DOCS =
+            "https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-ann-rest-exceptions.html";
+    static final String RESOURCES_DOCS = RFC_9110 + "#section-3.1";
+    static final String REPRESENTATIONS_DOCS = RFC_9110 + "#section-3.2";
+    static final String SAFE_METHODS_DOCS = RFC_9110 + "#section-9.2.1";
+    static final String GET_DOCS = RFC_9110 + "#section-9.3.1";
+    static final String HEAD_DOCS = RFC_9110 + "#section-9.3.2";
+    static final String DELETE_DOCS = RFC_9110 + "#section-9.3.5";
+    static final String NO_CONTENT_DOCS = RFC_9110 + "#section-15.3.5";
+    static final String URI_CASE_DOCS = "https://www.rfc-editor.org/rfc/rfc3986.html#section-6.2.2.1";
+    static final String MASS_ASSIGNMENT_DOCS =
+            "https://cheatsheetseries.owasp.org/cheatsheets/Mass_Assignment_Cheat_Sheet.html";
+    static final String OPENAPI_SCHEMA_DOCS = "https://spec.openapis.org/oas/v3.1.1.html#schema-object";
+    static final String OPENAPI_OPERATION_DOCS = "https://spec.openapis.org/oas/v3.1.1.html#operation-object";
+    static final String JAVA_TIME_DOCS =
+            "https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/time/package-summary.html";
     static final String PROBLEM_DETAIL_DOCS = "https://www.rfc-editor.org/rfc/rfc9457.html";
-    static final String VALIDATION_DOCS =
-            "https://docs.spring.io/spring-framework/reference/web/webmvc/mvc-controller/ann-validation.html";
+    static final String JAVA_RECORD_DOCS = "https://docs.oracle.com/en/java/javase/17/language/records.html";
+    static final String JAVA_THROWS_DOCS = "https://docs.oracle.com/javase/specs/jls/se17/html/jls-8.html#jls-8.4.6";
+    static final String VALIDATION_DOCS = SPRING_MVC_REFERENCE + "ann-validation.html";
     static final String PAGINATION_DOCS =
             "https://docs.spring.io/spring-data/commons/reference/repositories/core-extensions.html";
     static final String PAGINATION_VOCABULARY_DOCS =
             "https://opensource.zalando.com/restful-api-guidelines/#pagination";
-    static final String OPENAPI_DOCS = "https://springdoc.org/";
     static final String CREATED_DOCS = "https://www.rfc-editor.org/rfc/rfc9110.html#section-15.3.2";
     static final String PATCH_DOCS = "https://www.rfc-editor.org/rfc/rfc5789.html";
     static final String API_VERSIONING_DOCS =
@@ -168,11 +201,17 @@ final class RestApiRuleHelp {
             "swagger-ui",
             "swagger",
             "api-docs",
-            "v3",
             "webjars",
             "favicon.ico");
 
+    private static final Set<String> DOCUMENTATION_SEGMENTS = Set.of("api-docs", "swagger-ui");
+
     private RestApiRuleHelp() {}
+
+    static String simpleName(String fullName) {
+        int lastDot = fullName.lastIndexOf('.');
+        return lastDot >= 0 ? fullName.substring(lastDot + 1) : fullName;
+    }
 
     static List<String> segments(String path) {
         List<String> result = new ArrayList<>();
@@ -322,12 +361,21 @@ final class RestApiRuleHelp {
         return key.substring(0, cut).trim().toLowerCase(Locale.ROOT);
     }
 
-    /** True when the handler's first static path segment is an operational/doc/auth endpoint. */
+    /**
+     * True when the handler's first static path segment is an operational/doc/auth endpoint, or when any static
+     * segment names generated API documentation (springdoc's {@code /v3/api-docs}). A leading {@code /v3} alone
+     * is an ordinary version segment, not documentation.
+     */
     static boolean isNonApiEndpoint(HandlerMethodModel handler) {
         for (String path : handler.effectivePaths()) {
             List<String> statics = staticSegments(path);
             if (!statics.isEmpty() && NON_API_SEGMENTS.contains(statics.get(0).toLowerCase(Locale.ROOT))) {
                 return true;
+            }
+            for (String segment : statics) {
+                if (DOCUMENTATION_SEGMENTS.contains(segment.toLowerCase(Locale.ROOT))) {
+                    return true;
+                }
             }
         }
         return false;
@@ -458,7 +506,7 @@ final class UseHttpMethodSpecificMappingsRule extends AbstractRestApiRule {
                         + " The declaration does not establish whether the handler changes state.",
                 "Replace @RequestMapping without a method with @GetMapping/@PostMapping/@PutMapping/@DeleteMapping/"
                         + "@PatchMapping (or set the method attribute).",
-                RestApiRuleHelp.SPRING_WEB_DOCS));
+                RestApiRuleHelp.REQUEST_MAPPING_DOCS));
     }
 
     @Override
@@ -478,39 +526,64 @@ final class NoDuplicateRouteMappingsRule extends AbstractRestApiRule {
                 "No duplicate route mappings",
                 RestApiCategory.ROUTING,
                 "HIGH",
-                "Two imported handlers declare the same HTTP method, complete path and dispatch conditions."
-                        + " This exact-condition check is not a complete framework ambiguity analysis.",
+                "Two imported handlers share an HTTP method, complete path and dispatch conditions. Spring rejects"
+                        + " identical mappings at startup but registers mappings that only partly overlap (a shared"
+                        + " path alternative or HTTP method), then fails matching requests with \"Ambiguous handler"
+                        + " methods\" (500). This exact-condition check is not a complete framework ambiguity analysis.",
                 "Ensure each (HTTP method, path, consumes/produces/params/headers/version) combination is handled by"
                         + " exactly one method.",
-                RestApiRuleHelp.SPRING_WEB_DOCS));
+                RestApiRuleHelp.REQUEST_MAPPING_DOCS));
     }
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        Map<RouteKey, List<String>> byRoute = new LinkedHashMap<>();
+        Map<RouteKey, List<HandlerMethodModel>> byRoute = new LinkedHashMap<>();
         for (HandlerMethodModel handler : context.targets(context.handlers())) {
             List<String> methods = handler.httpMethods().isEmpty() ? List.of("ANY") : handler.httpMethods();
             String condition = conditionKey(handler);
             for (String method : methods) {
                 for (String path : new LinkedHashSet<>(handler.effectivePaths())) {
                     RouteKey key = new RouteKey(handler.framework(), method, path, condition);
-                    byRoute.computeIfAbsent(key, ignored -> new ArrayList<>())
-                            .add(handler.controllerSimpleName() + "#" + handler.methodName());
+                    byRoute.computeIfAbsent(key, ignored -> new ArrayList<>()).add(handler);
                 }
             }
         }
         List<String> violations = new ArrayList<>();
-        for (Map.Entry<RouteKey, List<String>> entry : byRoute.entrySet()) {
-            if (entry.getValue().size() > 1) {
-                RouteKey route = entry.getKey();
-                violations.add(route.framework() + " " + route.method() + " " + route.path()
-                        + " with matching dispatch conditions handled by " + String.join(", ", entry.getValue()));
+        for (Map.Entry<RouteKey, List<HandlerMethodModel>> entry : byRoute.entrySet()) {
+            List<HandlerMethodModel> sharing = entry.getValue();
+            if (sharing.size() < 2 || startupRejected(sharing)) {
+                continue;
             }
+            RouteKey route = entry.getKey();
+            violations.add(route.framework() + " " + route.method() + " " + route.path()
+                    + " with matching dispatch conditions handled by "
+                    + String.join(
+                            ", ",
+                            sharing.stream()
+                                    .map(handler -> handler.controllerSimpleName() + "#" + handler.methodName())
+                                    .toList()));
         }
         return RestApiRuleSupport.fromViolations(context, definition(), violations);
     }
 
     private record RouteKey(RestApiModel.Framework framework, String method, String path, String conditions) {}
+
+    /**
+     * Spring rejects identical mappings ("Ambiguous mapping") while the context starts, so a running application can
+     * only contain them when at least one controller is not registered, such as profile- or condition-specific
+     * alternatives. Only mappings that differ in their method or path alternatives register and fail at request time.
+     */
+    private static boolean startupRejected(List<HandlerMethodModel> sharing) {
+        if (sharing.stream().anyMatch(HandlerMethodModel::jaxRs)) {
+            return false;
+        }
+        Set<String> mappings = new LinkedHashSet<>();
+        for (HandlerMethodModel handler : sharing) {
+            mappings.add(new java.util.TreeSet<>(handler.httpMethods()) + " "
+                    + new java.util.TreeSet<>(handler.effectivePaths()) + conditionKey(handler));
+        }
+        return mappings.size() == 1;
+    }
 
     /**
      * Distinguishes routes that share a verb and path but differ by content negotiation (consumes/produces),
@@ -549,7 +622,7 @@ final class StateChangingHandlersNotOnGetRule extends AbstractRestApiRule {
                 "GET must be safe, but a create/update/delete/save-style method name is only a review signal,"
                         + " not proof of mutation. Crawlers and prefetchers may invoke GET automatically.",
                 "Verify GET safety; if the operation requests a state change, use POST/PUT/PATCH/DELETE.",
-                RestApiRuleHelp.REST_GUIDELINES));
+                RestApiRuleHelp.SAFE_METHODS_DOCS));
     }
 
     @Override
@@ -576,7 +649,7 @@ final class PreferClassLevelBasePathRule extends AbstractRestApiRule {
                         + " implementing author cannot restructure them, and spec-first code generators (for example"
                         + " openapi-generator's kotlin-spring interfaceOnly output) emit exactly that layout.",
                 "Hoist the shared prefix into a class-level @RequestMapping and keep method paths relative.",
-                RestApiRuleHelp.SPRING_WEB_DOCS));
+                RestApiRuleHelp.REQUEST_MAPPING_DOCS));
     }
 
     @Override
@@ -646,14 +719,14 @@ final class ConsistentPathStyleRule extends AbstractRestApiRule {
     ConsistentPathStyleRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-MAP-005",
-                "Consistent path style (no trailing slash)",
+                "Review trailing and doubled slashes",
                 RestApiCategory.ROUTING,
                 "INFO",
                 "Trailing or doubled slashes may differ from a project's URL convention. This is optional style;"
                         + " Spring distinguishes trailing-slash variants, while other frameworks have different"
                         + " semantics.",
                 "Review literal slash conventions without rewriting intentional paths or regex templates.",
-                RestApiRuleHelp.SPRING_WEB_DOCS));
+                RestApiRuleHelp.REQUEST_MAPPING_DOCS));
     }
 
     @Override
@@ -712,13 +785,13 @@ final class PathVariablesAreBoundRule extends AbstractRestApiRule {
     PathVariablesAreBoundRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-MAP-006",
-                "@PathVariable names match a path token",
+                "Required Spring path bindings match each path",
                 RestApiCategory.ROUTING,
                 "HIGH",
                 "A @PathVariable whose explicit name has no matching {token} in the mapping path fails at runtime with"
                         + " a missing-path-variable error.",
                 "Make each @PathVariable name match a {token} in the mapping path (or correct the path template).",
-                RestApiRuleHelp.SPRING_WEB_DOCS));
+                RestApiRuleHelp.PATH_VARIABLE_DOCS));
     }
 
     @Override
@@ -766,7 +839,7 @@ final class NoRequestBodyOnBodylessMethodsRule extends AbstractRestApiRule {
                         + " agreements are possible, but intermediary and client interoperability needs review.",
                 "Prefer query/path parameters or POST/PUT/PATCH unless a private request-content agreement is"
                         + " intentional.",
-                RestApiRuleHelp.REST_GUIDELINES));
+                RestApiRuleHelp.GET_DOCS));
     }
 
     @Override
@@ -789,13 +862,13 @@ final class ResourcePathsAreNounsRule extends AbstractRestApiRule {
     ResourcePathsAreNounsRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-NAME-001",
-                "Resource paths are nouns, not verbs",
+                "Consider noun-oriented resource paths",
                 RestApiCategory.NAMING,
                 "INFO",
                 "Verb-like paths may duplicate the HTTP method under a noun-oriented URL convention."
                         + " This is optional design guidance; action endpoints can be legitimate.",
                 "Consider resource nouns (/users, /orders) where they fit the API's design.",
-                RestApiRuleHelp.REST_GUIDELINES));
+                RestApiRuleHelp.RESOURCES_DOCS));
     }
 
     @Override
@@ -861,13 +934,13 @@ final class CollectionsUsePluralNounsRule extends AbstractRestApiRule {
     CollectionsUsePluralNounsRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-NAME-002",
-                "Collections use plural nouns",
+                "Consider plural collection names",
                 RestApiCategory.NAMING,
                 "INFO",
                 "An English-language spelling heuristic suggests a singular path for a collection return declaration."
                         + " It does not establish runtime resource cardinality or an HTTP requirement.",
                 "Consider plural collection names if that matches the project's language and naming convention.",
-                RestApiRuleHelp.REST_GUIDELINES));
+                RestApiRuleHelp.RESOURCES_DOCS));
     }
 
     @Override
@@ -902,13 +975,13 @@ final class PathSegmentsAreKebabCaseRule extends AbstractRestApiRule {
     PathSegmentsAreKebabCaseRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-NAME-003",
-                "Path segments are kebab-case/lowercase",
+                "Consider lowercase kebab-case paths",
                 RestApiCategory.NAMING,
                 "INFO",
                 "camelCase, snake_case or uppercase segments differ from an optional lowercase kebab-case convention."
                         + " Case-sensitive URI paths are valid.",
                 "Consider lowercase kebab-case (/order-items) when choosing a consistent project convention.",
-                RestApiRuleHelp.REST_GUIDELINES));
+                RestApiRuleHelp.URI_CASE_DOCS));
     }
 
     @Override
@@ -938,7 +1011,7 @@ final class CreationReturns201Rule extends AbstractRestApiRule {
     CreationReturns201Rule() {
         super(new RestApiRuleDefinition(
                 "RAPI-RESP-001",
-                "Creation endpoints return 201 Created",
+                "Review the default status of creation-like POST handlers",
                 RestApiCategory.RESPONSES,
                 "LOW",
                 "A creation-like POST name with no visible status selection suggests reviewing the success status."
@@ -968,14 +1041,14 @@ final class VoidDeleteReturns204Rule extends AbstractRestApiRule {
     VoidDeleteReturns204Rule() {
         super(new RestApiRuleDefinition(
                 "RAPI-RESP-002",
-                "Void DELETE returns 204 No Content",
+                "Review default empty DELETE responses",
                 RestApiCategory.RESPONSES,
                 "LOW",
                 "A Spring DELETE with a no-body return and no visible status selection may use the default 200. Review"
                         + " whether 204 more precisely describes completed deletion; explicit statuses are preserved.",
                 "Annotate void DELETE handlers with @ResponseStatus(HttpStatus.NO_CONTENT) or return"
                         + " ResponseEntity.noContent().",
-                RestApiRuleHelp.REST_GUIDELINES));
+                RestApiRuleHelp.DELETE_DOCS));
     }
 
     @Override
@@ -998,7 +1071,7 @@ final class NoUntypedResponseEntityRule extends AbstractRestApiRule {
     NoUntypedResponseEntityRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-RESP-003",
-                "Response envelopes expose a typed body contract",
+                "Prefer informative response-envelope body types",
                 RestApiCategory.RESPONSES,
                 "LOW",
                 "A raw or dynamic generic response envelope limits body-schema inference from the signature."
@@ -1006,7 +1079,7 @@ final class NoUntypedResponseEntityRule extends AbstractRestApiRule {
                         + " a raw generic declaration.",
                 "Use a concrete response-envelope payload type where practical, or document its dynamic schema"
                         + " explicitly.",
-                RestApiRuleHelp.SPRING_WEB_DOCS));
+                RestApiRuleHelp.RESPONSE_ENTITY_DOCS));
     }
 
     @Override
@@ -1029,13 +1102,13 @@ final class ReadEndpointsReturnRepresentationRule extends AbstractRestApiRule {
     ReadEndpointsReturnRepresentationRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-RESP-004",
-                "Consider evolvable representations for scalar reads",
+                "Consider structured read representations",
                 RestApiCategory.RESPONSES,
                 "INFO",
                 "A scalar is a valid representation, but adding fields later may require a contract change.",
                 "Consider a DTO/record if the read representation is expected to grow; scalar and text APIs can be"
                         + " intentional.",
-                RestApiRuleHelp.SPRING_WEB_DOCS));
+                RestApiRuleHelp.REPRESENTATIONS_DOCS));
     }
 
     @Override
@@ -1069,14 +1142,14 @@ final class VoidReadEndpointsReturnContentRule extends AbstractRestApiRule {
     VoidReadEndpointsReturnContentRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-RESP-005",
-                "GET endpoints return content",
+                "Review default no-body GET declarations",
                 RestApiCategory.RESPONSES,
                 "LOW",
                 "A no-body GET declaration with no explicit status or imperative response argument warrants a"
                         + " representation review. Its actual status and content are not observed.",
                 "Return the resource representation from GET handlers (or use a more precise status when no body is"
                         + " expected).",
-                RestApiRuleHelp.REST_GUIDELINES));
+                RestApiRuleHelp.RETURN_TYPES_DOCS));
     }
 
     @Override
@@ -1098,13 +1171,15 @@ final class NoContentResponsesHaveNoBodyRule extends AbstractRestApiRule {
     NoContentResponsesHaveNoBodyRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-RESP-006",
-                "204 No Content responses carry no body",
+                "204 declarations must not promise content",
                 RestApiCategory.RESPONSES,
-                "HIGH",
+                "MEDIUM",
                 "204 forbids response content. A content-capable return declaration alongside"
-                        + " @ResponseStatus(NO_CONTENT) deserves review, but does not prove that content is transmitted.",
+                        + " @ResponseStatus(NO_CONTENT) contradicts it: servers such as Tomcat and Reactor Netty drop"
+                        + " the serialized body, so clients never receive it, and generated documentation may describe"
+                        + " a schema that is never sent.",
                 "Return void (or ResponseEntity) for 204 responses, or use 200 OK when a body is required.",
-                RestApiRuleHelp.REST_GUIDELINES));
+                RestApiRuleHelp.NO_CONTENT_DOCS));
     }
 
     @Override
@@ -1127,14 +1202,14 @@ final class ResponseStatusIgnoredWithResponseEntityRule extends AbstractRestApiR
     ResponseStatusIgnoredWithResponseEntityRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-RESP-007",
-                "Review overlapping ResponseStatus and ResponseEntity declarations",
+                "Review method-level status and response-envelope overlap",
                 RestApiCategory.RESPONSES,
                 "MEDIUM",
                 "A status-bearing ResponseEntity normally selects status instead of a method-level @ResponseStatus. A"
                         + " nonempty annotation reason may short-circuit Spring response processing; inspect precedence.",
                 "Choose an intentional status-selection path. Before removing @ResponseStatus, check whether its"
                         + " reason participates in the framework's error dispatch.",
-                RestApiRuleHelp.SPRING_WEB_DOCS));
+                RestApiRuleHelp.RESPONSE_STATUS_DOCS));
     }
 
     @Override
@@ -1142,8 +1217,18 @@ final class ResponseStatusIgnoredWithResponseEntityRule extends AbstractRestApiR
         return handlersMatching(
                 context,
                 handler -> !handler.jaxRs() && handler.methodHasResponseStatus(),
-                handler -> !handler.jaxRs() && handler.methodHasResponseStatus() && handler.returnsResponseEntity(),
+                handler -> !handler.jaxRs()
+                        && handler.methodHasResponseStatus()
+                        && handler.returnsResponseEntity()
+                        && !reportedAsDiscardedBody(context, handler),
                 "method-level @ResponseStatus and status-bearing ResponseEntity both declared; review precedence");
+    }
+
+    /** On Spring MVC a reason discards the ResponseEntity outright; RAPI-RESP-010 reports that case. */
+    private static boolean reportedAsDiscardedBody(RestApiContext context, HandlerMethodModel handler) {
+        return context.evidence().springWebStack() == RestApiScanner.SpringWebStack.SERVLET
+                && !handler.responseStatusReason().isEmpty()
+                && ResponseStatusReasonOnBodyHandlersRule.returnsBody(handler);
     }
 }
 
@@ -1151,7 +1236,7 @@ final class RequestBodyIsValidatedRule extends AbstractRestApiRule {
     RequestBodyIsValidatedRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-VALID-001",
-                "Review request-body cascade validation",
+                "Review request-payload cascade validation",
                 RestApiCategory.VALIDATION,
                 "LOW",
                 "A complex request payload without a recognized cascade-validation annotation warrants review."
@@ -1176,13 +1261,13 @@ final class NoMassAssignmentViaEntitiesRule extends AbstractRestApiRule {
     NoMassAssignmentViaEntitiesRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-VALID-002",
-                "No mass-assignment via JPA entities",
+                "Avoid binding requests directly to JPA entities",
                 RestApiCategory.VALIDATION,
                 "HIGH",
                 "Binding a request directly to a JPA @Entity couples input to persistence and may allow over-posting."
                         + " The signature does not establish which fields the binder actually permits.",
                 "Bind requests to a dedicated request DTO and map explicitly to the entity.",
-                RestApiRuleHelp.VALIDATION_DOCS));
+                RestApiRuleHelp.MASS_ASSIGNMENT_DOCS));
     }
 
     @Override
@@ -1199,7 +1284,7 @@ final class OptionalPrimitiveRequestParamRule extends AbstractRestApiRule {
     OptionalPrimitiveRequestParamRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-VALID-003",
-                "Optional @RequestParam is not a primitive",
+                "Optional Spring numeric parameters need a nullable/defaulted binding",
                 RestApiCategory.VALIDATION,
                 "MEDIUM",
                 "An optional Java numeric primitive @RequestParam without a nonblank default can fail binding"
@@ -1207,7 +1292,7 @@ final class OptionalPrimitiveRequestParamRule extends AbstractRestApiRule {
                         + " Spring supplies false for boolean; uncertain Kotlin defaults are excluded.",
                 "Use the boxed wrapper type (e.g. Integer) or provide a defaultValue for optional primitive query"
                         + " parameters.",
-                RestApiRuleHelp.VALIDATION_DOCS));
+                RestApiRuleHelp.REQUEST_PARAM_DOCS));
     }
 
     @Override
@@ -1228,13 +1313,13 @@ final class NoEntitiesInResponsesRule extends AbstractRestApiRule {
     NoEntitiesInResponsesRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-DTO-001",
-                "Don't expose JPA entities in responses",
+                "Avoid persistence entities in responses",
                 RestApiCategory.PAYLOADS,
                 "HIGH",
                 "Returning a JPA @Entity couples the API to the persistence model and can leak lazy associations or"
                         + " internal fields and trigger serialization-time queries.",
                 "Return a response DTO/record and map from the entity in the service or controller.",
-                RestApiRuleHelp.SPRING_WEB_DOCS));
+                RestApiRuleHelp.RESPONSE_BODY_DOCS));
     }
 
     @Override
@@ -1251,13 +1336,13 @@ final class NoUntypedResponseBodiesRule extends AbstractRestApiRule {
     NoUntypedResponseBodiesRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-DTO-002",
-                "No untyped response bodies",
+                "Prefer informative response body types",
                 RestApiCategory.PAYLOADS,
                 "LOW",
                 "Map, Object or JsonNode limits schema inference from the return signature. Dynamic objects are valid"
                         + " and can be documented through explicit schemas.",
                 "Prefer a typed DTO/record for inference, or explicitly document the dynamic response schema.",
-                RestApiRuleHelp.SPRING_WEB_DOCS));
+                RestApiRuleHelp.OPENAPI_SCHEMA_DOCS));
     }
 
     @Override
@@ -1280,28 +1365,17 @@ final class DtosAreImmutableRule extends AbstractRestApiRule {
                 "Response DTOs are immutable",
                 RestApiCategory.PAYLOADS,
                 "INFO",
-                "Response payload types that expose public setters are mutable, which makes them easy to mutate"
-                        + " accidentally and harder to reason about.",
-                "Prefer Java records or otherwise immutable response DTOs without public setters.",
-                RestApiRuleHelp.SPRING_WEB_DOCS));
+                "Retired heuristic: public setters on a response type do not change the serialized HTTP contract;"
+                        + " DTO mutability is general code style.",
+                "Choose records or mutable DTOs by code convention; mutability is not a REST contract concern.",
+                RestApiRuleHelp.JAVA_RECORD_DOCS));
     }
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        AdvisorFindings violations = new AdvisorFindings();
-        for (HandlerMethodModel handler : context.targets(
-                context.handlers(), candidate -> !candidate.returnsVoid() && candidate.serializesBody())) {
-            if (handler.bodyIsUntyped()) {
-                // Object/Map/JsonNode does not describe an inspected DTO's members.
-                context.evidence().markRequiredUnknown();
-            }
-            if (handler.bodyExposesSetters() && !handler.returnsVoid() && handler.serializesBody()) {
-                violations.add(
-                        handler.describe() + " — response DTO '" + handler.bodyTypeName() + "' exposes public setters",
-                        context.location(handler));
-            }
-        }
-        return RestApiRuleSupport.fromViolations(context, definition(), violations);
+        return RestApiRuleSupport.skipped(
+                definition(),
+                "Retired heuristic: response DTO setters do not affect the HTTP contract; mutability is code style.");
     }
 }
 
@@ -1313,7 +1387,7 @@ final class CollectionReadsArePaginatedRule extends AbstractRestApiRule {
     CollectionReadsArePaginatedRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-PAGE-001",
-                "Collection reads are paginated",
+                "Review collection reads without visible pagination",
                 RestApiCategory.PAGINATION,
                 "LOW",
                 "A collection return without visible pagination input warrants a bounded-result review."
@@ -1357,7 +1431,7 @@ final class ReturnPagedTypeRule extends AbstractRestApiRule {
     ReturnPagedTypeRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-PAGE-002",
-                "Pageable handlers return a paged type",
+                "Preserve paging metadata for Pageable handlers",
                 RestApiCategory.PAGINATION,
                 "LOW",
                 "A Spring Pageable handler returning a collection exposes no paging metadata in that body signature."
@@ -1385,7 +1459,7 @@ final class ConsistentPaginationVocabularyRule extends AbstractRestApiRule {
     ConsistentPaginationVocabularyRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-PAGE-003",
-                "Consistent pagination parameter vocabulary across handlers",
+                "Review pagination vocabulary differences",
                 RestApiCategory.PAGINATION,
                 "INFO",
                 "Different declared pagination vocabularies may increase client learning cost, but can suit different"
@@ -1425,7 +1499,7 @@ final class ApiIsVersionedRule extends AbstractRestApiRule {
     ApiIsVersionedRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-VER-001",
-                "API uses a consistent versioning strategy",
+                "Review absent or uneven version signals",
                 RestApiCategory.VERSIONING,
                 "INFO",
                 "No version signal (no /vN path segment, version header/param, or versioned media type) was found, or"
@@ -1482,13 +1556,16 @@ final class MutatingEndpointsDeclareMediaTypesRule extends AbstractRestApiRule {
     MutatingEndpointsDeclareMediaTypesRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-VER-002",
-                "Mutating endpoints declare a consumes media type",
+                "Consider explicit consumes declarations",
                 RestApiCategory.VERSIONING,
-                "LOW",
+                "INFO",
                 "A POST/PUT/PATCH request entity without a consumes constraint has no explicit mapping-level media"
-                        + " contract. Framework converters/readers still restrict which content types are readable.",
-                "Declare consumes (e.g. application/json) on mutating endpoints that accept a request body.",
-                RestApiRuleHelp.SPRING_WEB_DOCS));
+                        + " contract. Framework converters/readers still restrict which content types are readable;"
+                        + " an explicit consumes narrows acceptance further and documents it.",
+                "Optionally declare consumes (e.g. application/json) on the body-accepting method itself. On Spring, do"
+                        + " not hoist it to the class level: GET/HEAD/DELETE handlers would then reject requests"
+                        + " without Content-Type (RAPI-VER-007).",
+                RestApiRuleHelp.CONSUMES_DOCS));
     }
 
     @Override
@@ -1513,13 +1590,13 @@ final class NoWildcardMediaTypesRule extends AbstractRestApiRule {
     NoWildcardMediaTypesRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-VER-003",
-                "Review wildcard media-type scope",
+                "Review wildcard media ranges",
                 RestApiCategory.VERSIONING,
                 "INFO",
                 "Wildcard media ranges are valid negotiation behavior and may be intentional."
                         + " Review whether their breadth expresses the intended contract.",
                 "Use concrete media types where appropriate, or document intentional wildcard negotiation.",
-                RestApiRuleHelp.SPRING_WEB_DOCS));
+                RestApiRuleHelp.CONSUMES_DOCS));
     }
 
     @Override
@@ -1536,7 +1613,7 @@ final class PatchUsesPatchMediaTypeRule extends AbstractRestApiRule {
     PatchUsesPatchMediaTypeRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-VER-004",
-                "PATCH declares a patch media type",
+                "State the PATCH document format",
                 RestApiCategory.VERSIONING,
                 "INFO",
                 "A PATCH without a positive concrete consumes declaration leaves the patch format unspecified by"
@@ -1573,13 +1650,13 @@ final class CentralizedExceptionHandlingRule extends AbstractRestApiRule {
     CentralizedExceptionHandlingRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-ERR-001",
-                "Centralized exception handling exists",
+                "Review application-wide exception handling declarations",
                 RestApiCategory.ERROR_HANDLING,
                 "INFO",
                 "No application-wide advice or registered exception mapper was found in the imported model."
                         + " Framework defaults and local handlers may already provide an intentional error policy.",
                 "Review the existing error policy before adding native application-wide advice or an exception mapper.",
-                RestApiRuleHelp.PROBLEM_DETAIL_DOCS));
+                RestApiRuleHelp.EXCEPTION_HANDLER_DOCS));
     }
 
     @Override
@@ -1629,18 +1706,18 @@ final class NoBroadThrowsOnHandlersRule extends AbstractRestApiRule {
                 "No broad throws on handlers",
                 RestApiCategory.ERROR_HANDLING,
                 "LOW",
-                "Handlers declaring throws Exception or Throwable obscure the real failure modes and discourage"
-                        + " targeted exception handling.",
-                "Prefer specific declared failures and native exception handlers where useful; this is maintainability"
-                        + " guidance, not an HTTP requirement. Missing Kotlin throws declarations do not prove no"
-                        + " failures.",
-                RestApiRuleHelp.PROBLEM_DETAIL_DOCS));
+                "Retired heuristic: a throws clause does not influence Spring or Jakarta REST exception resolution or"
+                        + " the HTTP error contract; broad declarations are general Java style.",
+                "Map failures through exception handlers or mappers; the Java throws clause is not part of the REST"
+                        + " contract.",
+                RestApiRuleHelp.JAVA_THROWS_DOCS));
     }
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        return handlersMatching(
-                context, HandlerMethodModel::declaresBroadThrows, "declares throws Exception/Throwable");
+        return RestApiRuleSupport.skipped(
+                definition(),
+                "Retired heuristic: throws clauses do not affect exception resolution or the HTTP contract.");
     }
 }
 
@@ -1648,14 +1725,14 @@ final class PreferProblemDetailRule extends AbstractRestApiRule {
     PreferProblemDetailRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-ERR-003",
-                "Prefer RFC 9457 ProblemDetail",
+                "Consider Spring ProblemDetail convenience types",
                 RestApiCategory.ERROR_HANDLING,
                 "INFO",
                 "Spring's ProblemDetail/ErrorResponse types can simplify optional RFC 9457 adoption. A custom error"
                         + " DTO may already implement that contract; declarations alone do not prove nonconformance.",
                 "Consider Spring ProblemDetail/ErrorResponse if RFC 9457 fits the error policy; custom contracts"
                         + " remain valid.",
-                RestApiRuleHelp.PROBLEM_DETAIL_DOCS));
+                RestApiRuleHelp.REST_EXCEPTIONS_DOCS));
     }
 
     @Override
@@ -1697,7 +1774,7 @@ final class ExceptionHandlersSetErrorStatusRule extends AbstractRestApiRule {
     ExceptionHandlersSetErrorStatusRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-ERR-004",
-                "Exception handlers set an explicit error status",
+                "Make error-handler status ownership explicit",
                 RestApiCategory.ERROR_HANDLING,
                 "MEDIUM",
                 "An @ExceptionHandler that renders a body but neither returns ResponseEntity nor declares"
@@ -1705,7 +1782,7 @@ final class ExceptionHandlersSetErrorStatusRule extends AbstractRestApiRule {
                         + " Runtime response rewriting is not observed.",
                 "Return ResponseEntity/ProblemDetail or add @ResponseStatus so the handler responds with an error"
                         + " status.",
-                RestApiRuleHelp.PROBLEM_DETAIL_DOCS));
+                RestApiRuleHelp.EXCEPTION_HANDLER_DOCS));
     }
 
     @Override
@@ -1748,14 +1825,14 @@ final class EndpointsAreDocumentedRule extends AbstractRestApiRule {
     EndpointsAreDocumentedRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-DOC-001",
-                "Consider explicit operation documentation enrichment",
+                "Consider explicit operation documentation",
                 RestApiCategory.ERROR_HANDLING,
                 "INFO",
                 "OpenAPI annotations are available but some handlers have no explicit @Operation enrichment."
                         + " Generated, static or filtered documentation may already describe them.",
                 "Consider @Operation summaries/descriptions where they add useful information beyond generated"
                         + " documentation.",
-                RestApiRuleHelp.OPENAPI_DOCS));
+                RestApiRuleHelp.OPENAPI_OPERATION_DOCS));
     }
 
     @Override
@@ -1777,13 +1854,13 @@ final class ControllersAreTaggedRule extends AbstractRestApiRule {
     ControllersAreTaggedRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-DOC-002",
-                "Consider explicit OpenAPI grouping",
+                "Consider explicit operation grouping",
                 RestApiCategory.ERROR_HANDLING,
                 "INFO",
                 "No explicit tag or operation-tag grouping was found on some controllers/resources."
                         + " Generators and static documents can supply grouping without these annotations.",
                 "Consider explicit tags when they improve the generated or supplied OpenAPI grouping.",
-                RestApiRuleHelp.OPENAPI_DOCS));
+                RestApiRuleHelp.OPENAPI_OPERATION_DOCS));
     }
 
     @Override
@@ -1843,7 +1920,7 @@ final class CreatedResponsesExposeLocationRule extends AbstractRestApiRule {
     CreatedResponsesExposeLocationRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-RESP-008",
-                "Review discoverability of created resources",
+                "Consider discoverability for declared 201 responses",
                 RestApiCategory.RESPONSES,
                 "INFO",
                 "A declared 201 is an optional discoverability review opportunity, not proof of a missing Location."
@@ -1861,7 +1938,8 @@ final class CreatedResponsesExposeLocationRule extends AbstractRestApiRule {
                 handler -> "CREATED".equals(handler.responseStatusValue()),
                 handler -> "CREATED".equals(handler.responseStatusValue())
                         && !handler.returnsResponseEntity()
-                        && !handler.hasResponseParam(),
+                        && !handler.hasResponseParam()
+                        && !handler.declaresResponseHeader("Location"),
                 "declares 201 Created; optionally review resource discoverability (Location is not universally"
                         + " required)");
     }
@@ -1871,14 +1949,14 @@ final class ResponseProducingEndpointsDeclareProducesRule extends AbstractRestAp
     ResponseProducingEndpointsDeclareProducesRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-VER-005",
-                "Response-producing endpoints declare produces consistently",
+                "Review inconsistent produces declarations",
                 RestApiCategory.VERSIONING,
                 "LOW",
                 "Within a controller that declares produces media types on some response handlers, other"
                         + " body-returning handlers that omit produces create an inconsistent content contract.",
                 "Declare produces (e.g. application/json) consistently on the response-producing handlers of a"
                         + " controller.",
-                RestApiRuleHelp.SPRING_WEB_DOCS));
+                RestApiRuleHelp.PRODUCES_DOCS));
     }
 
     @Override
@@ -1917,13 +1995,13 @@ final class DuplicatePathVariableTokenRule extends AbstractRestApiRule {
     DuplicatePathVariableTokenRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-MAP-009",
-                "No duplicate path-variable tokens in one template",
+                "No duplicate Spring path-variable tokens",
                 RestApiCategory.ROUTING,
                 "HIGH",
                 "Spring path templates reject duplicate capture names such as /users/{id}/orders/{id}."
                         + " Jakarta REST has different scoped binding semantics and is not evaluated.",
                 "Use distinct token names for each path variable (e.g. /users/{userId}/orders/{orderId}).",
-                RestApiRuleHelp.SPRING_WEB_DOCS));
+                RestApiRuleHelp.REQUEST_MAPPING_DOCS));
     }
 
     @Override
@@ -1968,14 +2046,14 @@ final class CatchAllPatternRule extends AbstractRestApiRule {
     CatchAllPatternRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-MAP-010",
-                "No catch-all wildcard patterns on REST handlers",
+                "Review catch-all REST mappings",
                 RestApiCategory.ROUTING,
                 "INFO",
                 "A /** or {*path} catch-all (Spring) or an all-matching {token:.*}/{token:.+} regex path template"
                         + " (JAX-RS) broadens the declared routing surface. It does not prove shadowing or a 200 response;"
                         + " Spring orders catch-alls after more-specific mappings.",
                 "Review catch-all intent and unmatched-path handling; generic forwarding may legitimately need it.",
-                RestApiRuleHelp.SPRING_WEB_DOCS));
+                RestApiRuleHelp.REQUEST_MAPPING_DOCS));
     }
 
     @Override
@@ -1999,14 +2077,14 @@ final class DeepResourceNestingRule extends AbstractRestApiRule {
     DeepResourceNestingRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-MAP-011",
-                "Resource nesting depth should not exceed 3 levels",
+                "Review deeply nested resource paths",
                 RestApiCategory.ROUTING,
                 "INFO",
                 "More than 3 collection/{id} pairs exceeds this advisor's optional readability threshold,"
                         + " not an HTTP or URI limit.",
                 "Flatten deep nesting by exposing a top-level resource or reducing to at most 3 collection/{id}"
                         + " pairs in one path template.",
-                RestApiRuleHelp.REST_GUIDELINES));
+                RestApiRuleHelp.RESOURCES_DOCS));
     }
 
     @Override
@@ -2071,7 +2149,7 @@ final class MixedVersioningStrategiesRule extends AbstractRestApiRule {
     MixedVersioningStrategiesRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-VER-006",
-                "Consistent versioning strategy across handlers",
+                "Review mixed versioning strategies",
                 RestApiCategory.VERSIONING,
                 "INFO",
                 "Handlers in the same application use different API versioning strategies (e.g. some use /vN/ path"
@@ -2110,7 +2188,7 @@ final class BroadExceptionHandlerRule extends AbstractRestApiRule {
     BroadExceptionHandlerRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-ERR-005",
-                "Broad @ExceptionHandler should not collapse all errors to one status",
+                "Review broad handlers with fixed non-5xx statuses",
                 RestApiCategory.ERROR_HANDLING,
                 "LOW",
                 "A broad Exception/Throwable handler with a declared fixed non-5xx status warrants review."
@@ -2118,7 +2196,7 @@ final class BroadExceptionHandlerRule extends AbstractRestApiRule {
                         + " that different errors collapse to one inappropriate status.",
                 "Catch specific exception types and map each to its appropriate status (e.g. 400, 404, 409), and"
                         + " keep any Exception/Throwable catch-all as a last-resort fallback mapped to a 5xx status.",
-                RestApiRuleHelp.PROBLEM_DETAIL_DOCS));
+                RestApiRuleHelp.EXCEPTION_HANDLER_DOCS));
     }
 
     @Override
@@ -2162,14 +2240,14 @@ final class ResponseStatusOnExceptionRule extends AbstractRestApiRule {
     ResponseStatusOnExceptionRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-ERR-006",
-                "Prefer ErrorResponseException over @ResponseStatus on exceptions",
+                "Review mixed Spring error-declaration approaches",
                 RestApiCategory.ERROR_HANDLING,
                 "INFO",
                 "ResponseStatus exception annotations coexist with typed Spring problem declarations."
                         + " This is optional migration guidance, not proof of inconsistent runtime payloads.",
                 "Review direct exception declarations against the chosen policy; adopting Spring ErrorResponseException"
                         + " is optional and introduces framework coupling.",
-                RestApiRuleHelp.PROBLEM_DETAIL_DOCS));
+                RestApiRuleHelp.REST_EXCEPTIONS_DOCS));
     }
 
     @Override
@@ -2223,14 +2301,14 @@ final class UnboundedMapRequestParamRule extends AbstractRestApiRule {
     UnboundedMapRequestParamRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-VALID-004",
-                "Avoid @RequestParam Map/MultiValueMap on public endpoints",
+                "Review aggregate query-map contracts",
                 RestApiCategory.VALIDATION,
                 "LOW",
                 "An unnamed Spring @RequestParam Map/MultiValueMap aggregates query parameters. Its signature does not"
                         + " establish individual typing or allowlisting; explicit documentation and validation may exist.",
                 "Declare each accepted query parameter explicitly with a typed @RequestParam so the contract is"
                         + " self-documenting and validatable.",
-                RestApiRuleHelp.VALIDATION_DOCS));
+                RestApiRuleHelp.REQUEST_PARAM_DOCS));
     }
 
     @Override
@@ -2247,14 +2325,14 @@ final class LegacyDateInDtoRule extends AbstractRestApiRule {
     LegacyDateInDtoRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-DTO-005",
-                "Response DTOs should prefer java.time over Date/Calendar",
+                "Consider java.time in response DTOs",
                 RestApiCategory.PAYLOADS,
                 "LOW",
                 "Declared response DTO fields use legacy Date/Calendar types. java.time offers more explicit"
                         + " temporal concepts; the signature does not prove a serialization failure.",
                 "Replace java.util.Date/Calendar fields with java.time equivalents (Instant, LocalDate,"
                         + " ZonedDateTime, etc.).",
-                RestApiRuleHelp.SPRING_WEB_DOCS));
+                RestApiRuleHelp.JAVA_TIME_DOCS));
     }
 
     @Override
@@ -2274,24 +2352,18 @@ final class IdempotencyKeyOnCreationEndpointsRule extends AbstractRestApiRule {
                 "Consider an Idempotency-Key header on creation endpoints",
                 RestApiCategory.VALIDATION,
                 "INFO",
-                "A creation-like POST has no declared Idempotency-Key parameter. Filters, gateways, natural keys"
-                        + " or application deduplication may already make retries safe. This is an optional convention,"
-                        + " not an HTTP requirement or proof of duplicate creation.",
-                "Worth a design review: accept an Idempotency-Key header (@RequestHeader/@HeaderParam) and"
-                        + " de-duplicate retried requests by that key for non-idempotent creation endpoints.",
+                "Retired heuristic: a creation-like method name without an Idempotency-Key binding cannot establish"
+                        + " unsafe retries; filters, gateways, natural keys and application logic deduplicate"
+                        + " invisibly.",
+                "Review retry deduplication in the API design where duplicate creation matters.",
                 RestApiRuleHelp.IDEMPOTENCY_KEY_DOCS));
     }
 
     @Override
     RestApiRuleResultDto doEvaluate(RestApiContext context) {
-        return handlersMatching(
-                context,
-                handler ->
-                        handler.httpMethods().contains("POST") && RestApiRuleHelp.isCreationName(handler.methodName()),
-                handler -> handler.httpMethods().contains("POST")
-                        && RestApiRuleHelp.isCreationName(handler.methodName())
-                        && !handler.hasIdempotencyKeyHeader(),
-                "POST creation endpoint has no Idempotency-Key header parameter");
+        return RestApiRuleSupport.skipped(
+                definition(),
+                "Retired heuristic: method names and header bindings cannot establish missing retry deduplication.");
     }
 }
 
@@ -2326,7 +2398,7 @@ final class RetryAfterOnThrottlingResponsesRule extends AbstractRestApiRule {
     RetryAfterOnThrottlingResponsesRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-ERR-007",
-                "Review Retry-After for declared 429/503 statuses",
+                "Consider Retry-After for declared 429/503 statuses",
                 RestApiCategory.ERROR_HANDLING,
                 "INFO",
                 "A 429/503 status annotation is a Retry-After design-review opportunity. Response headers and the"
@@ -2344,7 +2416,8 @@ final class RetryAfterOnThrottlingResponsesRule extends AbstractRestApiRule {
                 context.handlers(), candidate -> THROTTLING_STATUS_NAMES.contains(candidate.responseStatusValue()))) {
             if (THROTTLING_STATUS_NAMES.contains(handler.responseStatusValue())
                     && !handler.returnsResponseEntity()
-                    && !handler.hasResponseParam()) {
+                    && !handler.hasResponseParam()
+                    && !handler.declaresResponseHeader("Retry-After")) {
                 violations.add(
                         handler.describe() + " declares " + handler.responseStatusValue()
                                 + "; optionally review Retry-After policy",

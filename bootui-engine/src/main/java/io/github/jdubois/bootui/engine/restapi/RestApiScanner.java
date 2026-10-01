@@ -40,6 +40,16 @@ import java.util.regex.Pattern;
  */
 public final class RestApiScanner {
 
+    /**
+     * The Spring request stack that serves the scanned controllers, for the few Spring rules whose outcome differs
+     * between Spring MVC and Spring WebFlux. {@link #UNKNOWN} when the adapter does not supply it.
+     */
+    public enum SpringWebStack {
+        SERVLET,
+        REACTIVE,
+        UNKNOWN
+    }
+
     private static final String ANALYZER = "BootUI REST API Advisor";
     private static final Pattern PACKAGE_NAME = Pattern.compile(
             "\\p{javaJavaIdentifierStart}\\p{javaJavaIdentifierPart}*(?:\\.\\p{javaJavaIdentifierStart}\\p{javaJavaIdentifierPart}*)*");
@@ -62,6 +72,7 @@ public final class RestApiScanner {
     private final BiFunction<JavaClasses, Collection<AdvisorViolationLocationDto>, AdvisorLocations.Resolution>
             sourceLocations;
     private final SingleFlightAction singleFlight = new SingleFlightAction();
+    private volatile Supplier<SpringWebStack> springWebStack = () -> SpringWebStack.UNKNOWN;
     private final AdvisorScanState<RestApiReport> state = new AdvisorScanState<>(RestApiReport::withViolationDetails);
 
     RestApiScanner(
@@ -182,6 +193,11 @@ public final class RestApiScanner {
         state.setRetentionLimit(limit);
     }
 
+    /** Supplies the Spring request stack (Spring MVC or WebFlux) that serves the scanned controllers. */
+    public void setSpringWebStack(Supplier<SpringWebStack> stack) {
+        this.springWebStack = stack == null ? () -> SpringWebStack.UNKNOWN : stack;
+    }
+
     private RestApiReport doScan(AdvisorViolationCollector collector) {
         Set<String> failures = new LinkedHashSet<>();
         List<String> basePackages = basePackages(failures);
@@ -270,6 +286,7 @@ public final class RestApiScanner {
                 collector,
                 model.locations());
         context.evidence().observations(!model.incomplete(), openApi != null, versioning != null);
+        context.evidence().springWebStack(readSpringWebStack());
 
         List<RestApiRuleResultDto> results = new ArrayList<>();
         boolean usable = false;
@@ -308,6 +325,15 @@ public final class RestApiScanner {
                 results.size(),
                 results,
                 evidence(usable, requiredUnknown, failures));
+    }
+
+    private SpringWebStack readSpringWebStack() {
+        try {
+            SpringWebStack stack = springWebStack.get();
+            return stack == null ? SpringWebStack.UNKNOWN : stack;
+        } catch (RuntimeException | LinkageError ex) {
+            return SpringWebStack.UNKNOWN;
+        }
     }
 
     private static AdvisorEvidenceDto evidence(boolean usable, boolean requiredUnknown, Set<String> failures) {

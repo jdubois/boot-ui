@@ -9,7 +9,7 @@ final class ExceptionHandlersDoNotReturnRawStringsRule extends AbstractRestApiRu
     ExceptionHandlersDoNotReturnRawStringsRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-ERR-008",
-                "Exception handlers return structured errors",
+                "Consider structured error bodies",
                 RestApiCategory.ERROR_HANDLING,
                 "LOW",
                 "An exception handler that returns a raw String exposes an unstructured error contract with no stable"

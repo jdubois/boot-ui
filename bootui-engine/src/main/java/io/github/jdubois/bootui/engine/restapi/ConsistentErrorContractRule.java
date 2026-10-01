@@ -20,7 +20,7 @@ final class ConsistentErrorContractRule extends AbstractRestApiRule {
     ConsistentErrorContractRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-ERR-010",
-                "Error responses share one contract",
+                "Review differing known error contracts",
                 RestApiCategory.ERROR_HANDLING,
                 "LOW",
                 "Informative exception-handler body declarations differ for compatible media types. Dynamic/unknown"

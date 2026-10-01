@@ -9,6 +9,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Four REST API rules catch request and response declarations that break at runtime.** `RAPI-VALID-006` (HIGH)
+  reports a Spring handler with several `@RequestBody` parameters, which fails every request on Spring MVC.
+  `RAPI-VER-007` (HIGH) reports a GET/HEAD/DELETE handler that binds no body but carries a consumes condition, usually
+  a class-level `consumes`, so requests without `Content-Type` get 415 on MVC and WebFlux. `RAPI-RESP-010` (MEDIUM)
+  reports a `@ResponseStatus` `reason` on a body-returning Spring MVC handler, which discards the returned body.
+  `RAPI-RESP-011` (LOW) reports a GET that returns `Optional`, which answers 200 rather than 404 when empty. The Spring
+  adapter now tells the scanner whether the context is servlet or reactive so `RAPI-RESP-010` is skipped on WebFlux
+  ([REST API checks](docs/REST-API-CHECKS.md#contract-defect-audit-2026), [#1168](https://github.com/jdubois/boot-ui/pull/1168)).
 - **Architecture advisor reports injection and lifecycle annotations the container silently ignores.**
   `ARCH-SPRING-023` (HIGH) flags `@Autowired`, `@Value`, or, on Spring and CDI beans, `jakarta.inject.Inject` on static
   fields and methods, which Spring Framework 7 skips with an INFO log and Quarkus Arc ignores with a warning.
@@ -64,6 +72,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **REST API advisor audit: three noisy rules retired, two severities recalibrated.** `RAPI-VALID-005`
+  (Idempotency-Key), `RAPI-DTO-004` (response DTO setters), and `RAPI-ERR-002` (`throws Exception`) now always return
+  `SKIPPED`; their IDs and dismissals are kept. `RAPI-RESP-006` drops from HIGH to MEDIUM because servers already strip
+  204 content, and `RAPI-VER-002` drops from LOW to INFO and now recommends method-level `consumes`. `RAPI-MAP-002` no
+  longer reports identical Spring mappings, which Spring rejects at startup and so only appear for inactive profile
+  alternatives, while still reporting partial overlaps that fail at request time. Rule names now match the catalogue
+  and learn-more links point at specific sources. The catalogue has 60 rule IDs, 53 of which can emit ([#1168](https://github.com/jdubois/boot-ui/pull/1168)).
 - **Spring advisor audit against Spring Boot 4.1.1 and Spring Framework 7.0.9.** Four rules are added:
   SPRING-CONFIG-007 (LOW) flags Boot's deprecated `spring-boot-jackson2` auto-configuration, scheduled for removal in
   Boot 4.3; SPRING-CONFIG-008 (INFO) reminds you to remove `spring-boot-properties-migrator` once migration is done;
@@ -235,6 +250,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The REST API advisor reads Quarkus REST `@ResponseStatus` and `@ResponseHeader`.** A `@POST @ResponseStatus(201)`
+  creation method is no longer reported as using the default status, and a declared `Location` or `Retry-After`
+  header satisfies `RAPI-RESP-008` and `RAPI-ERR-007`. Versioned `/v3/...` API handlers are no longer mistaken for
+  springdoc's `/v3/api-docs` and excluded from the versioning rules ([#1168](https://github.com/jdubois/boot-ui/pull/1168)).
 - **The Spring advisor no longer penalizes DevTools' development defaults or valid enum spellings.** While a DevTools
   restart is active, DevTools sets `spring.web.error.include-message`, `include-binding-errors` and
   `include-stacktrace` to `always`, which made SPRING-WEB-004 report three MEDIUM findings on every IDE run. Those

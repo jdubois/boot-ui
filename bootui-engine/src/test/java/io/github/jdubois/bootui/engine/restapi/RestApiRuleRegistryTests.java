@@ -10,10 +10,10 @@ import org.junit.jupiter.api.Test;
 class RestApiRuleRegistryTests {
 
     @Test
-    void registersFiftySixRulesWithUniqueIds() {
+    void registersSixtyRulesWithUniqueIds() {
         List<RestApiRule> rules = RestApiRuleRegistry.activeRules();
 
-        assertThat(rules).hasSize(56);
+        assertThat(rules).hasSize(60);
 
         List<String> ids = rules.stream().map(rule -> rule.definition().id()).toList();
         assertThat(ids).doesNotHaveDuplicates();
@@ -40,7 +40,11 @@ class RestApiRuleRegistryTests {
                         "RAPI-DTO-005",
                         "RAPI-DOC-003",
                         "RAPI-PAGE-003",
-                        "RAPI-NAME-004");
+                        "RAPI-NAME-004",
+                        "RAPI-VALID-006",
+                        "RAPI-VER-007",
+                        "RAPI-RESP-010",
+                        "RAPI-RESP-011");
         assertThat(ids).doesNotContain("RAPI-DTO-003");
     }
 
@@ -60,7 +64,14 @@ class RestApiRuleRegistryTests {
 
     @Test
     void retiredDefinitionsKeepTheirIdsWithoutEmittingFindings() {
-        Set<String> retired = Set.of("RAPI-MAP-008", "RAPI-NAME-004", "RAPI-ERR-011", "RAPI-DOC-003");
+        Set<String> retired = Set.of(
+                "RAPI-MAP-008",
+                "RAPI-NAME-004",
+                "RAPI-ERR-011",
+                "RAPI-DOC-003",
+                "RAPI-VALID-005",
+                "RAPI-DTO-004",
+                "RAPI-ERR-002");
         RestApiContext empty = new RestApiContext(
                 List.of(),
                 List.of(),
@@ -75,7 +86,7 @@ class RestApiRuleRegistryTests {
         List<RestApiRule> rules = RestApiRuleRegistry.activeRules();
         assertThat(rules.stream()
                         .filter(rule -> retired.contains(rule.definition().id())))
-                .hasSize(4);
+                .hasSize(7);
         for (RestApiRule rule : rules) {
             if (retired.contains(rule.definition().id())) {
                 var result = rule.evaluate(empty);
@@ -86,7 +97,7 @@ class RestApiRuleRegistryTests {
         }
         assertThat(rules.stream()
                         .filter(rule -> !retired.contains(rule.definition().id())))
-                .hasSize(52);
+                .hasSize(53);
     }
 
     @Test
@@ -97,7 +108,8 @@ class RestApiRuleRegistryTests {
                 Map.entry("RAPI-NAME-003", "INFO"), Map.entry("RAPI-RESP-001", "LOW"),
                 Map.entry("RAPI-RESP-008", "INFO"), Map.entry("RAPI-RESP-009", "INFO"),
                 Map.entry("RAPI-VALID-001", "LOW"), Map.entry("RAPI-DTO-002", "LOW"),
-                Map.entry("RAPI-VER-003", "INFO"), Map.entry("RAPI-ERR-001", "INFO"));
+                Map.entry("RAPI-VER-003", "INFO"), Map.entry("RAPI-ERR-001", "INFO"),
+                Map.entry("RAPI-RESP-006", "MEDIUM"), Map.entry("RAPI-VER-002", "INFO"));
         for (RestApiRule rule : RestApiRuleRegistry.activeRules()) {
             if (expected.containsKey(rule.definition().id())) {
                 assertThat(rule.definition().severity())

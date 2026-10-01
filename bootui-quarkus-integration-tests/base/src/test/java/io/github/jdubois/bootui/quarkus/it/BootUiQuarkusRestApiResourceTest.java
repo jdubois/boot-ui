@@ -51,12 +51,19 @@ class BootUiQuarkusRestApiResourceTest {
                 .isGreaterThan(0);
         assertThat(scanned.path("rulesEvaluated").asInt())
                 .as("the shared REST best-practice ruleset must have run")
-                .isEqualTo(56);
+                .isEqualTo(60);
 
         boolean stateChangingGetFailed = false;
         for (JsonNode result : scanned.path("results")) {
             assertThat(result.path("id").asText())
-                    .isNotIn("RAPI-MAP-008", "RAPI-NAME-004", "RAPI-ERR-011", "RAPI-DOC-003");
+                    .isNotIn(
+                            "RAPI-MAP-008",
+                            "RAPI-NAME-004",
+                            "RAPI-ERR-011",
+                            "RAPI-DOC-003",
+                            "RAPI-VALID-005",
+                            "RAPI-DTO-004",
+                            "RAPI-ERR-002");
             if (Set.of("RAPI-RESP-002", "RAPI-RESP-006", "RAPI-RESP-007", "RAPI-VER-004")
                     .contains(result.path("id").asText())) {
                 assertThat(result.path("sampleViolations").toString())

@@ -14,15 +14,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 class RestApiEvaluationEvidenceTests {
     @Test
-    void untypedResponseDoesNotEstablishAnInspectedImmutableDto() {
-        RestApiContext context = context(UntypedController.class);
-        var result = new DtosAreImmutableRule().evaluate(context);
-        assertThat(result.status()).isEqualTo("PASS");
-        assertThat(context.evidence().usable()).isFalse();
-        assertThat(context.evidence().requiredUnknown()).isTrue();
-    }
-
-    @Test
     void dedicatedHeadSelectorSuppliesBothEvaluationAndCompletion() {
         RestApiContext get = context(ReadController.class);
         assertThat(new HeadHandlersDoNotReturnBodiesRule().evaluate(get).status())
@@ -84,14 +75,6 @@ class RestApiEvaluationEvidenceTests {
                 model.responseStatusExceptionClasses(),
                 model.thrownExceptions(),
                 model.framework());
-    }
-
-    @RestController
-    static class UntypedController {
-        @GetMapping("/unknown")
-        Object get() {
-            return new Object();
-        }
     }
 
     @RestController
