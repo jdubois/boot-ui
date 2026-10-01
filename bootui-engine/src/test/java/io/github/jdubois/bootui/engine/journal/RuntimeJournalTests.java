@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.journal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.ThreadKind;
@@ -103,6 +104,25 @@ class RuntimeJournalTests {
                 .extracting(entry -> entry.event().epochMillis())
                 .isEqualTo(1_002L);
         assertThat(journal.status().dropped()).isEmpty();
+    }
+
+    @Test
+    void theWorkOfBootUisOwnRequestsIsNeverRecordedWhereverTheAdapterSaysItRuns() {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.BOOTUI)) {
+            assertThat(journal.offer(sql(1, false))).isFalse();
+        }
+        journal.setCorrelationContextProvider(() -> CorrelationContext.BOOTUI);
+        assertThat(journal.offer(sql(2, false)))
+                .as("as the Quarkus adapter reads it from the Vert.x context")
+                .isFalse();
+        journal.setCorrelationContextProvider(null);
+        assertThat(journal.offer(sql(3, false))).isTrue();
+
+        assertThat(journal.status().dropped()).isEmpty();
+        assertThat(CorrelationContext.BOOTUI.isEmpty()).isFalse();
+        assertThat(CorrelationContext.BOOTUI.requestId()).isNull();
     }
 
     @Test

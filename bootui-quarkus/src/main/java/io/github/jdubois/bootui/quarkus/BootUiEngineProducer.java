@@ -274,6 +274,7 @@ public class BootUiEngineProducer {
                 config.getOptionalValue("bootui.runtime-journal.sources", String.class)
                         .orElse(null));
         RuntimeJournal journal = new RuntimeJournal(settings, application.run());
+        journal.setCorrelationContextProvider(QuarkusRequestCorrelation::current);
         journal.addListener(aggregates);
         return journal;
     }

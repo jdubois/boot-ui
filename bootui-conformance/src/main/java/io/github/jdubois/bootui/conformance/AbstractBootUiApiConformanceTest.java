@@ -1497,6 +1497,28 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void runtimeJournalReportsOneShapeAndClearingItNeedsConfirmation() {
+        assumeTrue(isPanelUsableInLiveManifest("activity"), "activity panel is not available in this environment");
+        ReadContract contract = BootUiApiContractCatalog.runtimeJournal();
+        BootUiHttpProbe probe = probe();
+
+        Response status = probe.get(api(contract.relativePath()));
+
+        assertThat(status.status()).as("GET %s status", contract.relativePath()).isEqualTo(200);
+        List<String> failures = new ArrayList<>();
+        assertJsonContract("runtime journal status", contract, status.json(), failures);
+        assertThat(failures).as("runtime journal contract").isEmpty();
+        assertThat(status.json().path("enabled").asBoolean(false)).isTrue();
+        assertThat(status.json().path("runId").asText()).matches("[0-9a-f]{8}");
+
+        Response unconfirmed = probe.request("POST", api("/activity/journal/clear"), stateChangingHeaders(probe), "{}");
+        assertThat(unconfirmed.status())
+                .as("Clear recording without confirm=true")
+                .isEqualTo(400);
+        assertThat(unconfirmed.json().path("status").asText()).isEqualTo("blocked");
+    }
+
+    @Test
     void requestProfileKeepsOneBackwardCompatibleShapeForAnUnknownRequest() {
         // The profile drill-down is a detail read of Live Activity, so the root-read sweep never reaches it.
         // An id that was never captured must answer 200 with the canonical unavailable profile, and every

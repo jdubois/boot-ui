@@ -362,6 +362,31 @@ public final class BootUiApiContractCatalog {
                     "correlationTiers", JsonType.ARRAY,
                     "approximate", JsonType.BOOLEAN));
 
+    /**
+     * The runtime journal's status block, a detail read of the {@code activity} panel ({@code docs/PLAN-v2.md} §5.2),
+     * kept out of {@link #reads()} like {@link #requestProfile()}. {@code oldestRetainedAt} is a nullable number, so it
+     * is not listed.
+     */
+    private static final ReadContract RUNTIME_JOURNAL = read(
+            "activity",
+            "/activity/journal",
+            fields(
+                    "enabled", JsonType.BOOLEAN,
+                    "runId", JsonType.NULLABLE_STRING,
+                    "retainedEvents", JsonType.INTEGER,
+                    "retainedBytes", JsonType.INTEGER,
+                    "maxEvents", JsonType.INTEGER,
+                    "maxBytes", JsonType.INTEGER,
+                    "reservedEvents", JsonType.INTEGER,
+                    "reservedCapacity", JsonType.INTEGER,
+                    "evictedEvents", JsonType.INTEGER,
+                    "bindingBound", JsonType.NULLABLE_STRING,
+                    "queueDepth", JsonType.INTEGER,
+                    "queueCapacity", JsonType.INTEGER,
+                    "recorded", JsonType.OBJECT,
+                    "dropped", JsonType.OBJECT,
+                    "droppedEvents", JsonType.INTEGER));
+
     private static final List<ActionContract> ACTIONS = buildActions();
 
     private BootUiApiContractCatalog() {}
@@ -379,6 +404,11 @@ public final class BootUiApiContractCatalog {
     /** The per-request profile detail read of the {@code activity} panel, for an id that is never captured. */
     public static ReadContract requestProfile() {
         return REQUEST_PROFILE;
+    }
+
+    /** The runtime journal's status block, a detail read of the {@code activity} panel. */
+    public static ReadContract runtimeJournal() {
+        return RUNTIME_JOURNAL;
     }
 
     public static List<ActionContract> actions() {
@@ -446,6 +476,7 @@ public final class BootUiApiContractCatalog {
         all(actions, "rest-client-trace.recording", "rest-client-trace", "POST", "/rest-client-trace/recording");
         all(actions, "mcp-server.toggle", "mcp-server", "POST", "/mcp-server/toggle");
         all(actions, "activity.use-existing-datasource", "activity", "POST", "/activity/use-existing-datasource");
+        all(actions, "activity.clear-recording", "activity", "POST", "/activity/journal/clear");
         all(actions, "email.clear", "email", "DELETE", "/email");
         all(actions, "kafka.clear", "kafka", "DELETE", "/kafka");
         all(actions, "rabbitmq.clear", "rabbitmq", "DELETE", "/rabbitmq");

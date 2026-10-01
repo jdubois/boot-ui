@@ -340,11 +340,26 @@ nothing is written to disk, so a restart reverts to in-memory unless the propert
 
 With persistence off, none of this costs anything: no extra bean, thread, or connection is created.
 
+### Runtime journal
+
+BootUI 2.0 also records every runtime event once in a bounded, in-memory runtime journal: requests, SQL statements,
+exceptions, security events, REST client calls, cache accesses, messages, and scheduled runs, each with the request or
+execution it belongs to. It keeps running aggregates per route, statement, exception group, and thread family, which
+count every event even after the journal evicts it. Recording never slows a request: when the journal cannot keep up,
+it drops events, counts them per source, and drops routine events before failed or slow ones. BootUI's own requests,
+and the SQL its panels run while serving them, are never recorded.
+
+**Recording** in the panel header opens the journal's status: the events and memory it retains against its bounds,
+when its oldest event happened, how many events each source recorded in this run, and how many were evicted or
+dropped. The status is read only when you open it. **Clear recording** drops the events and aggregates of this run,
+after a confirmation, and keeps the counts, so drops and evictions stay visible. The journal is sized and scoped by the
+`bootui.runtime-journal.*` [properties](../PROPERTIES.md#runtime-journal).
+
 ### Safety and limits
 
 The panel inherits BootUI's full safety model — loopback filter, Host allow-list, cross-site write defenses, value
-masking. Its reads are read-only, and its one state-changing action is confirmation-gated and blocked whenever the app
-or panel is read-only.
+masking. Its reads are read-only, and its two state-changing actions, **Use the existing datasource** and **Clear
+recording**, are confirmation-gated and blocked whenever the app or panel is read-only.
 
 The stream is capped by `bootui.activity.max-entries`. The slow-request threshold,
 `bootui.activity.request-slow-threshold-ms` (1,000 ms by default, `0` to disable), applies on Spring MVC, Spring

@@ -222,6 +222,13 @@ public abstract class AbstractCorrelationCoverageTest {
                     .append(" approximate.\n");
         }
         writeFile(runtimeLabel() + "-feed.json", feed.body());
+
+        JsonNode journal = readJournal();
+        markdown.append("\nRuntime journal: ")
+                .append(journal.path("recorded").path("http").asLong())
+                .append(" requests recorded, ")
+                .append(journal.path("droppedEvents").asLong())
+                .append(" events dropped.\n");
         writeFile(runtimeLabel() + ".md", markdown.toString());
         System.out.println(markdown);
 
@@ -229,6 +236,29 @@ public abstract class AbstractCorrelationCoverageTest {
             assertPhase(phase, reports.get(phase), perPhase);
             assertProfiles(phase, profiles.get(phase));
         }
+        int sent = traffic.size() + Phase.values().length * perPhase;
+        assertThat(journal.path("droppedEvents").asLong(-1))
+                .as("the runtime journal drops nothing at default settings (docs/PLAN-v2.md §5.2)")
+                .isZero();
+        assertThat(journal.path("recorded").path("http").asLong())
+                .as("the runtime journal recorded every request the scenario sent")
+                .isGreaterThanOrEqualTo(sent);
+    }
+
+    /** The runtime journal's status, read through its public endpoint after the journal has caught up. */
+    private JsonNode readJournal() throws InterruptedException {
+        BootUiHttpProbe probe = new BootUiHttpProbe(baseUrl());
+        JsonNode journal = null;
+        for (int attempt = 0; attempt < MAX_FEED_READS; attempt++) {
+            BootUiHttpProbe.Response response = probe.get("/bootui/api/activity/journal");
+            assertThat(response.status()).as("runtime journal status").isEqualTo(200);
+            journal = response.json();
+            if (journal.path("queueDepth").asInt() == 0) {
+                break;
+            }
+            Thread.sleep(200);
+        }
+        return journal;
     }
 
     private void assertProfiles(Phase phase, List<ProfileRead> read) {

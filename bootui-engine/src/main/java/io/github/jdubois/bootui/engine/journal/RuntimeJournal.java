@@ -1,6 +1,9 @@
 package io.github.jdubois.bootui.engine.journal;
 
+import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import java.lang.System.Logger.Level;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -26,7 +29,8 @@ import java.util.concurrent.atomic.LongAdder;
  * gives each event its sequence number, retains it in the {@link EvidenceRing}, and hands the batch to the listeners,
  * such as the incremental aggregates, which therefore see every accepted event, including those later evicted.</p>
  *
- * <p>Work on BootUI's own threads, named {@value #BOOTUI_THREAD_PREFIX}…, is never recorded.</p>
+ * <p>BootUI's own work is never recorded: work on its threads, named {@value #BOOTUI_THREAD_PREFIX}…, and work
+ * its own requests do, which the adapters mark with {@link CorrelationContext#BOOTUI}.</p>
  *
  * <p>Sequence numbers are unique within the run, and each event's id joins the run id and its sequence, so a restart
  * never collides with an earlier run.</p>
@@ -63,6 +67,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
     private final AtomicLong processed = new AtomicLong();
     private final AtomicLong lastSequence = new AtomicLong();
     private final LongAdder listenerFailures = new LongAdder();
+    private final CorrelationSource correlation = new CorrelationSource();
     private final Thread dispatcher;
     private volatile boolean running;
 
@@ -95,7 +100,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
      */
     @Override
     public boolean offer(RuntimeEvent event) {
-        if (event == null || !settings.records(event.source()) || isBootUiThread()) {
+        if (event == null || !settings.records(event.source()) || isBootUiWork()) {
             return false;
         }
         int source = event.source().ordinal();
@@ -112,9 +117,21 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
         return false;
     }
 
-    /** BootUI's own threads, such as its pollers and flushers, never enter the journal. */
-    private static boolean isBootUiThread() {
-        return Thread.currentThread().getName().startsWith(BOOTUI_THREAD_PREFIX);
+    /**
+     * BootUI's own work never enters the journal: its threads, such as its pollers and flushers, and the work its own
+     * requests do, such as a panel's SQL, which the adapters mark with {@link CorrelationContext#BOOTUI}.
+     */
+    private boolean isBootUiWork() {
+        return Thread.currentThread().getName().startsWith(BOOTUI_THREAD_PREFIX)
+                || correlation.current().bootUi();
+    }
+
+    /**
+     * Installs where the journal reads the correlation of the work offering an event, to recognize BootUI's own. The
+     * default is the thread's scope; the Quarkus adapter also reads the request's Vert.x context.
+     */
+    public void setCorrelationContextProvider(CorrelationContextProvider provider) {
+        correlation.set(provider);
     }
 
     private void dispatchLoop() {

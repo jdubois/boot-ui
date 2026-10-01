@@ -13,6 +13,8 @@ import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
+import io.github.jdubois.bootui.core.dto.RuntimeJournalClearRequest;
+import io.github.jdubois.bootui.core.dto.RuntimeJournalStatusDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.engine.activity.ActivityCaptureFactory;
@@ -28,6 +30,9 @@ import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
+import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournalService;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
@@ -155,6 +160,8 @@ public class LiveActivityResource {
     private final SwitchableActivityStore activityStore;
     private final ActivityPersistenceSettings persistenceSettings;
     private final Instance<DataSource> dataSources;
+    private Instance<RuntimeJournal> journal;
+    private Instance<JournalAggregates> journalAggregates;
     private final KafkaActivityRecorder kafkaRecorder;
     private final RabbitActivityRecorder rabbitRecorder;
     private final FaultToleranceEventRecorder faultToleranceRecorder;
@@ -218,6 +225,13 @@ public class LiveActivityResource {
     @Inject
     void setMappings(Instance<MappingProvider> mappings) {
         this.declaredRoutes = DeclaredRouteTemplates.caching(mappings);
+    }
+
+    /** The runtime journal whose status block and <b>Clear recording</b> this panel serves. */
+    @Inject
+    void setRuntimeJournal(Instance<RuntimeJournal> journal, Instance<JournalAggregates> journalAggregates) {
+        this.journal = journal;
+        this.journalAggregates = journalAggregates;
     }
 
     /**
@@ -286,6 +300,30 @@ public class LiveActivityResource {
                 live.warnings(),
                 new ActivityPageInfo(true, page.nextCursor(), page.hasMore()),
                 persistenceOption);
+    }
+
+    /** The runtime journal's status block ({@code docs/PLAN-v2.md} §5.2). */
+    @GET
+    @Path("/journal")
+    @Produces(MediaType.APPLICATION_JSON)
+    public RuntimeJournalStatusDto journal() {
+        return runtimeJournal().status();
+    }
+
+    /** <b>Clear recording</b>: drops the run's recorded events and aggregates, when confirmed. */
+    @POST
+    @Path("/journal/clear")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response clearJournal(RuntimeJournalClearRequest request) {
+        RuntimeJournalService.Response response = runtimeJournal().clear(request);
+        return Response.status(response.status()).entity(response.body()).build();
+    }
+
+    private RuntimeJournalService runtimeJournal() {
+        return new RuntimeJournalService(
+                journal != null && journal.isResolvable() ? journal.get() : null,
+                journalAggregates != null && journalAggregates.isResolvable() ? journalAggregates.get() : null);
     }
 
     /**

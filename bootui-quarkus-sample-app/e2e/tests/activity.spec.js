@@ -1,5 +1,5 @@
 // @ts-check
-import {expect, test} from './fixtures.js'
+import {acceptConfirm, expect, test} from './fixtures.js'
 
 /**
  * Live Activity (Quarkus).
@@ -43,6 +43,33 @@ test.describe('Live Activity view (Quarkus)', () => {
     await expect(table.locator('tbody tr.table-danger').first()).toBeVisible()
   })
 
+  test('opens the runtime journal status on demand and clears the recording after confirmation', async ({
+    openView,
+    page
+  }) => {
+    const traffic = await page.request.get('/api/sample/product-search')
+    expect(traffic.ok()).toBeTruthy()
+
+    await openView('activity', 'Live Activity')
+
+    const toggle = page.getByRole('button', {name: 'Recording', exact: true})
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await expect(page.locator('#activity-runtime-journal')).toHaveCount(0)
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+    const journal = page.locator('#activity-runtime-journal')
+    await expect(page.getByRole('heading', {name: 'Runtime journal'})).toHaveCount(1)
+    await expect(journal).toContainText('Recorded this run')
+    await expect(journal.locator('code', {hasText: /^http$/})).toBeVisible()
+    await expect(journal).toContainText('None: every event was recorded.')
+
+    await journal.getByRole('button', {name: 'Clear recording'}).click()
+    await acceptConfirm(page)
+    await expect(
+      page.locator('.alert', {hasText: /Cleared \d+ recorded events? and the aggregates of this run/})
+    ).toBeVisible()
+  })
   test('captures the failing request with its real method and path, not null placeholders', async ({
     openView,
     page

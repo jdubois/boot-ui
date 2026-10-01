@@ -185,6 +185,22 @@ test.describe('BootUI on Spring WebFlux', () => {
     await expect(drawer).toHaveCount(0)
   })
 
+  test('opens the runtime journal status, which records the reactive requests', async ({page, request, baseURL}) => {
+    const notes = await request.get(`${baseURL}/api/notes`)
+    expect(notes.ok()).toBeTruthy()
+
+    await page.goto('/bootui/#/activity')
+    const toggle = page.getByRole('button', {name: 'Recording', exact: true})
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+    const journal = page.locator('#activity-runtime-journal')
+    await expect(page.getByRole('heading', {name: 'Runtime journal'})).toHaveCount(1)
+    await expect(journal.locator('code', {hasText: /^http$/})).toBeVisible()
+    await expect(journal.locator('code', {hasText: /^sql$/})).toBeVisible()
+  })
+
   test("profiles a request's SQL exactly by its BootUI request id", async ({request, baseURL}) => {
     // BootUI's own request id follows the request across Reactor hops to its blocking SQL, and it decides
     // before the trace id, so the SQL is correlated by it whether or not the request is traced.

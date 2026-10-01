@@ -112,7 +112,12 @@ public class QuarkusHttpExchangeCaptureFilter {
     void handle(RoutingContext rc) {
         String path = rc.normalizedPath();
         if (QuarkusBootUiPaths.isBootUiRequest(config, path)) {
-            rc.next();
+            // BootUI's own request: never recorded, and the work it does, on the event loop or a worker, stays out of
+            // the runtime journal (docs/PLAN-v2.md §5.2).
+            QuarkusRequestCorrelation.attach(CorrelationContext.BOOTUI);
+            try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.BOOTUI)) {
+                rc.next();
+            }
             return;
         }
         long startNanos = System.nanoTime();

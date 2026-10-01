@@ -116,6 +116,15 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
             }
             return;
         }
+        if (isBootUiRequest(request)) {
+            // BootUI's own request: never recorded, and the work it does, such as a panel's SQL, stays out of the
+            // runtime journal (docs/PLAN-v2.md §5.2).
+            request.setAttribute(CORRELATION_ATTRIBUTE, CorrelationContext.BOOTUI);
+            try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.BOOTUI)) {
+                chain.doFilter(request, response);
+            }
+            return;
+        }
         CorrelationContext correlation = CorrelationContext.forRequest(RequestIds.next());
         request.setAttribute(CORRELATION_ATTRIBUTE, correlation);
         if (phases != null) {
@@ -222,8 +231,7 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
      * recorded exchanges cover the same requests. With it off, BootUI's own exchanges are recorded and shown without a
      * server trace id or route template, as before.
      */
-    @Override
-    protected boolean shouldNotFilter(HttpServletRequest request) {
+    private boolean isBootUiRequest(HttpServletRequest request) {
         return BootUiMounts.contains(
                 UrlPathHelper.defaultInstance.getPathWithinApplication(request), bootUiPath, bootUiApiPath);
     }

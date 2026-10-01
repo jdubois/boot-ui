@@ -183,9 +183,14 @@ class RequestCorrelationFilterTests {
         HttpExchangeTraceRegistry traceRegistry = new HttpExchangeTraceRegistry(10);
         RequestCorrelationFilter filter = new RequestCorrelationFilter(registry, traceRegistry, "/bootui");
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/bootui/api/activity/stream");
+        List<CorrelationContext> seen = new ArrayList<>();
 
-        filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+        filter.doFilter(request, new MockHttpServletResponse(), (req, res) -> seen.add(BootUiCorrelation.current()));
 
+        assertThat(seen)
+                .as("BootUI's own work is marked, and carries no request id")
+                .containsExactly(CorrelationContext.BOOTUI);
+        assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
         assertThat(registry.snapshot()).isEmpty();
         long now = System.currentTimeMillis();
         assertThat(traceRegistry.match("GET", "/bootui/api/activity/stream", now - 1000, now + 1000))

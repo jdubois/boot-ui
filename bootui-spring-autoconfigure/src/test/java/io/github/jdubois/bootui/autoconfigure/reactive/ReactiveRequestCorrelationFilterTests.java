@@ -189,7 +189,7 @@ class ReactiveRequestCorrelationFilterTests {
     }
 
     @Test
-    void theHandlerDecoratorSkipsBootUiOwnRequests() {
+    void theHandlerDecoratorMarksBootUiOwnRequestsSoTheirWorkStaysOutOfTheJournal() {
         List<CorrelationContext> seen = new ArrayList<>();
         MockServerWebExchange exchange = exchange("/bootui/api/overview");
         HttpHandler decorated = filter.apply((request, response) -> Mono.deferContextual(context -> {
@@ -199,7 +199,7 @@ class ReactiveRequestCorrelationFilterTests {
 
         decorated.handle(exchange.getRequest(), exchange.getResponse()).block(Duration.ofSeconds(5));
 
-        assertThat(seen).containsExactly(CorrelationContext.NONE);
+        assertThat(seen).containsExactly(CorrelationContext.BOOTUI);
     }
 
     @Test

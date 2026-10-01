@@ -78,7 +78,9 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
     public HttpHandler apply(HttpHandler handler) {
         return (request, response) -> {
             if (isBootUiPath(request)) {
-                return handler.handle(request, response);
+                // BootUI's own request: never recorded, and the work it does, on whichever scheduler, stays out of
+                // the runtime journal (docs/PLAN-v2.md §5.2).
+                return correlated(CorrelationContext.BOOTUI, () -> handler.handle(request, response));
             }
             return correlated(
                     CorrelationContext.forRequest(RequestIds.next()), () -> handler.handle(request, response));

@@ -17,6 +17,9 @@ import io.github.jdubois.bootui.core.dto.ActivitySwitchRequest;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchResult;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
+import io.github.jdubois.bootui.core.dto.RuntimeJournalClearRequest;
+import io.github.jdubois.bootui.core.dto.RuntimeJournalClearResult;
+import io.github.jdubois.bootui.core.dto.RuntimeJournalStatusDto;
 import io.github.jdubois.bootui.engine.activity.ActivityCaptureFactory;
 import io.github.jdubois.bootui.engine.activity.ActivityCapturePoller;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
@@ -30,6 +33,9 @@ import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
+import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournalService;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
@@ -41,6 +47,7 @@ import java.util.Collections;
 import java.util.List;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.actuate.audit.AuditEvent;
 import org.springframework.boot.actuate.audit.listener.AuditApplicationEvent;
 import org.springframework.context.event.ContextClosedEvent;
@@ -285,6 +292,28 @@ public class LiveActivityController {
                 live.warnings(),
                 new ActivityPageInfo(true, page.nextCursor(), page.hasMore()),
                 persistenceOption);
+    }
+
+    private volatile RuntimeJournalService runtimeJournal = new RuntimeJournalService(null, null);
+
+    /** Installs the runtime journal whose status block and <b>Clear recording</b> this panel serves. */
+    @Autowired(required = false)
+    public void setRuntimeJournal(RuntimeJournal journal, JournalAggregates aggregates) {
+        this.runtimeJournal = new RuntimeJournalService(journal, aggregates);
+    }
+
+    /** The runtime journal's status block ({@code docs/PLAN-v2.md} §5.2). */
+    @GetMapping("/journal")
+    public RuntimeJournalStatusDto journal() {
+        return runtimeJournal.status();
+    }
+
+    /** <b>Clear recording</b>: drops the run's recorded events and aggregates, when confirmed. */
+    @PostMapping("/journal/clear")
+    public ResponseEntity<RuntimeJournalClearResult> clearJournal(
+            @RequestBody(required = false) RuntimeJournalClearRequest request) {
+        RuntimeJournalService.Response response = runtimeJournal.clear(request);
+        return ResponseEntity.status(HttpStatus.valueOf(response.status())).body(response.body());
     }
 
     /**

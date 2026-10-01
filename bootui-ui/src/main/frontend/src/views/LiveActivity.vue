@@ -7,6 +7,7 @@ import PanelSkeleton from './components/PanelSkeleton.vue'
 import UnavailableState from './components/UnavailableState.vue'
 import FlashBanner from './components/FlashBanner.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
+import RuntimeJournalStatus from './components/RuntimeJournalStatus.vue'
 import {formatBytes, formatClockTime, formatMillis, formatNumber} from '../utils/format.js'
 import {formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
@@ -78,6 +79,8 @@ const errorsOnly = ref(false)
 // configured, the "Use the existing datasource" switch action) next to the title. Collapsed by
 // default so the panel never surprises the user with an unsolicited call to action.
 const showDatabaseInfo = ref(false)
+// The runtime journal's status block, opened on demand so the panel makes no extra request on render.
+const showJournal = ref(false)
 const switchingToDatabase = ref(false)
 
 const profile = ref(null)
@@ -738,10 +741,28 @@ function toggleFlow() {
         >
           <i class="bi bi-database-add me-1"></i>Use a database
         </button>
+        <button
+          v-if="report"
+          type="button"
+          class="btn btn-outline-secondary btn-sm"
+          aria-controls="activity-runtime-journal"
+          :aria-expanded="showJournal"
+          @click="showJournal = !showJournal"
+        >
+          <i class="bi bi-journal-text me-1" aria-hidden="true"></i>Recording
+        </button>
       </template>
     </PanelHeader>
 
     <FlashBanner :message="banner" @dismiss="clearBanner" />
+
+    <RuntimeJournalStatus
+      v-if="showJournal"
+      id="activity-runtime-journal"
+      :read-only="readOnly"
+      :read-only-reason="readOnlyReason"
+      @flash="flash"
+    />
 
     <div
       v-if="showDatabaseInfo && report && !persistent"

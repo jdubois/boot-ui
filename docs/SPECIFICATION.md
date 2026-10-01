@@ -2705,6 +2705,8 @@ Initial endpoints:
 | `/bootui/api/activity/stream`                | GET    | Live Activity change notifications over Server-Sent Events (re-fetch trigger)           |
 | `/bootui/api/activity/request/{id}`          | GET    | Per-request profile correlating SQL, exceptions, auth, REST client calls, cache accesses, and trace for one HTTP exchange |
 | `/bootui/api/activity/use-existing-datasource` | POST | Hot-switch Live Activity from in-memory to the existing `DataSource` (confirmation-gated) |
+| `/bootui/api/activity/journal`               | GET    | The runtime journal's status: retained events and bytes against their bounds, events recorded and dropped per source |
+| `/bootui/api/activity/journal/clear`         | POST   | **Clear recording**: drop the run's recorded events and aggregates (confirmation-gated, blocked by read-only policy) |
 | `/bootui/api/email`                          | GET    | Captured outgoing email summaries and content-policy status                             |
 | `/bootui/api/kafka`                          | GET    | Bounded Kafka producer and consumer activity                                            |
 | `/bootui/api/rabbitmq`                       | GET    | Bounded RabbitMQ publisher and consumer activity                                        |

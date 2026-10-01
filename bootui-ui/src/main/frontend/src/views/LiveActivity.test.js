@@ -156,6 +156,26 @@ describe('LiveActivity', () => {
     expect(wrapper.text()).toContain('—')
   })
 
+  it('opens the runtime journal status only on demand', async () => {
+    const fetchMock = stubFetch(activityReport(), requestProfile())
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    expect(fetchMock.mock.calls.some(([url]) => url === 'api/activity/journal')).toBe(false)
+    const toggle = wrapper.findAll('button').find((button) => button.text().includes('Recording'))
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(toggle.attributes('aria-controls')).toBe('activity-runtime-journal')
+
+    await toggle.trigger('click')
+    await flushPromises()
+
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(fetchMock.mock.calls.some(([url]) => url === 'api/activity/journal')).toBe(true)
+    expect(wrapper.find('#activity-runtime-journal').exists()).toBe(true)
+  })
+
   it('keeps filters usable when browser storage reads and writes are denied', async () => {
     vi.stubGlobal('localStorage', {
       getItem() {

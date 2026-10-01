@@ -1,5 +1,5 @@
 // @ts-check
-import {expect, test} from './fixtures.js'
+import {acceptConfirm, expect, test} from './fixtures.js'
 
 test.describe('Live Activity view', () => {
   test('merges requests, SQL and exceptions into one live stream', async ({openView, page}) => {
@@ -18,6 +18,33 @@ test.describe('Live Activity view', () => {
     await expect(table.locator('tbody tr.table-danger').first()).toBeVisible()
   })
 
+  test('opens the runtime journal status on demand and clears the recording after confirmation', async ({
+    openView,
+    page
+  }) => {
+    const products = await page.request.get('/api/sample/products')
+    expect(products.ok()).toBeTruthy()
+
+    await openView('activity', 'Live Activity')
+
+    const toggle = page.getByRole('button', {name: 'Recording', exact: true})
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await expect(page.locator('#activity-runtime-journal')).toHaveCount(0)
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+    const journal = page.locator('#activity-runtime-journal')
+    await expect(page.getByRole('heading', {name: 'Runtime journal'})).toHaveCount(1)
+    await expect(journal).toContainText('Recorded this run')
+    await expect(journal.locator('code', {hasText: /^http$/})).toBeVisible()
+    await expect(journal).toContainText('None: every event was recorded.')
+
+    await journal.getByRole('button', {name: 'Clear recording'}).click()
+    await acceptConfirm(page)
+    await expect(
+      page.locator('.alert', {hasText: /Cleared \d+ recorded events? and the aggregates of this run/})
+    ).toBeVisible()
+  })
   test('opens a per-request profile drawer with correlated signals', async ({openView, page}) => {
     // product-search runs SQL on every call (unlike the cached products endpoint), so the request
     // reliably has SQL to correlate.
