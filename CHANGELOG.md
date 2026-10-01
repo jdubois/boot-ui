@@ -55,12 +55,27 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   score decides the severity, as it does for GitHub's own label: in a live OSV.dev sample, the v3 band overstated
   GitHub's severity for 6 of 21 dual-vector records. Some findings therefore drop a severity band, and v3 and v4 numbers
   are never compared. Same behavior on Spring MVC, Spring WebFlux, and Quarkus
-  ([Vulnerabilities checks](docs/VULNERABILITIES-CHECKS.md#severity-applicable-assessments-cvss-v4-preferred-over-v3)).
+  ([Vulnerabilities checks](docs/VULNERABILITIES-CHECKS.md#severity-applicable-assessments-cvss-v4-preferred-over-v3),
+  [#1163](https://github.com/jdubois/boot-ui/pull/1163)).
 - **Vulnerabilities reports malicious packages as CRITICAL.** An OpenSSF Malicious Packages advisory (`MAL-` ID), which
   OSV.dev serves for Maven packages, used to read as `UNKNOWN` with no score penalty. It is now `CRITICAL`, without a
   synthesized CVSS score, and its details lead with removal guidance
-  ([Malicious-package advisories](docs/VULNERABILITIES-CHECKS.md#malicious-package-advisories)).
-
+  ([Malicious-package advisories](docs/VULNERABILITIES-CHECKS.md#malicious-package-advisories),
+  [#1163](https://github.com/jdubois/boot-ui/pull/1163)).
+- **Memory advisor audit: fewer, more reliable findings.** The advisor now evaluates 32 rules. Five noisy rules are
+  retired and their IDs are never reused: `MEM-HEAP-007` (committed heap above usage, which flagged normal GC headroom
+  and every equal `-Xms`/`-Xmx`), `MEM-FOOTPRINT-004` (host swap, not attributable to the JVM), `MEM-POOL-006` (JIT
+  tier flags such as IntelliJ's `-XX:TieredStopAtLevel=1`), `MEM-THREAD-003` (peak versus current threads), and
+  `MEM-CONTENT-004` (arrays at half the heap, the normal shape of a Java heap). `MEM-HEAP-004` now reports the classic
+  `-Xmx32g`, which already disables compressed oops, using the live `MaxHeapSize`, `ObjectAlignmentInBytes`, and
+  `UseCompressedOops` options. `MEM-GC-006` no longer reports a ZGC or Shenandoah concurrent cycle as a long GC event.
+  `MEM-POOL-002` evaluates the whole code cache and the combined compiled-method segments instead of one segment that
+  HotSpot can fall back from. `MEM-FOOTPRINT-002` thread-stack reservations drop to LOW, and `MEM-POOL-003` rises to
+  MEDIUM when `-XX:+DisableExplicitGC` disables the `System.gc()` that java.nio needs to reclaim direct buffers. GC
+  filler objects (JDK 19+) are excluded from the class histogram. New INFO rule `MEM-GC-008` notes non-generational
+  ZGC on JDK 21-23, where generational ZGC is available
+  ([Memory checks](docs/MEMORY-CHECKS.md#complete-rule-audit-and-current-behavior),
+  [#1162](https://github.com/jdubois/boot-ui/pull/1162)).
 - **One request slow threshold on every stack.** `bootui.activity.request-slow-threshold-ms` (default 1,000 ms) is now
   honored by Spring WebFlux and Quarkus as well as Spring MVC. It sets the `SLOW` severity of Live Activity `REQUEST`
   and `SCHEDULED` entries and decides which exchanges are kept longer. Spring WebFlux and Quarkus previously used a
@@ -103,7 +118,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Quarkus Vulnerabilities coverage is no longer reported complete when the dependency model is missing or damaged.**
   A missing or blank build-time model, a malformed entry, or a runtime JAR coordinate the build step could not encode
   now reports `UNAVAILABLE` coverage instead of `COMPLETE`, so the Known-findings score is qualified rather than
-  presented as covering the whole application.
+  presented as covering the whole application ([#1163](https://github.com/jdubois/boot-ui/pull/1163)).
 
 - **Live Activity durable persistence stores a failed or slow entry once, including a slow `4xx` request.**
   Persistence remembers the entries it stored in a bounded window. An entry that newer entries pushed out of Spring
