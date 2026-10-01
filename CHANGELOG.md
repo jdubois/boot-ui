@@ -56,6 +56,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Quarkus advisor audit: client-proxy field rule, production bind logging, fewer false positives.** A second audit
+  against Quarkus 3.33 and CDI 4.1 retires `QA-CDI-001` and adds `QA-CDI-004` (MEDIUM): a public instance field on any
+  normal-scoped bean — application, request, session or custom scope — is a CDI definition error that ArC tolerates,
+  and access through an injected reference reaches the shared client proxy rather than the current instance. Final
+  atomics and concurrent collections are no longer exempt there, and `QA-CDI-002` now covers singleton REST resources
+  only. New `QA-CFG-005` (HIGH) reports build-time Hibernate bind-parameter logging that a production build would
+  package. `QA-CFG-004` also detects the deprecated `database.generation.create-schemas` and `halt-on-error` keys and
+  names each replacement. An explicit `quarkus.http.enable-compression=false` now suppresses `QA-WEB-001`,
+  `QA-WEB-002` drops from MEDIUM to LOW, and the compression and shutdown rules prefer a visible `%prod.` declaration,
+  fixing a `QA-WEB-004` false positive in development mode; they now report incomplete production coverage there
+  like the other production rules. The advisor has 14 rules
+  ([Quarkus checks](docs/QUARKUS-ADVISOR-CHECKS.md#second-audit-disposition), [#1167](https://github.com/jdubois/boot-ui/pull/1167)).
 - **Memory advisor audit: fewer, more reliable findings.** The advisor now evaluates 32 rules. Five noisy rules are
   retired and their IDs are never reused: `MEM-HEAP-007` (committed heap above usage, which flagged normal GC headroom
   and every equal `-Xms`/`-Xmx`), `MEM-FOOTPRINT-004` (host swap, not attributable to the JVM), `MEM-POOL-006` (JIT
