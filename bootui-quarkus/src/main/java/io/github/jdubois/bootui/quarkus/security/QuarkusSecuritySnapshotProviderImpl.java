@@ -42,8 +42,16 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
             Pattern.compile("^quarkus\\.http\\.auth\\.permission\\.([^.]+)\\.policy$");
     private static final Pattern SECRET_NAME = Pattern.compile(
             "^(?:.*[._-])?(?:password|passwd|secret|token|api-?key|client-secret|private-key|"
-                    + "access-?token|refresh-?token)(?:\\.value)?$",
+                    + "access-?token|refresh-?token|encryption-key|signature-key|signing-key|secretkey)"
+                    + "(?:\\.value)?$",
             Pattern.CASE_INSENSITIVE);
+    // Inline private keys whose terminal segment is the generic "key"; public verification keys stay excluded.
+    private static final Pattern PRIVATE_KEY_NAME = Pattern.compile(
+            "^(?:%[^.]+\\.)?(?:smallrye\\.jwt\\.(?:sign|decrypt)\\.key|quarkus\\.oidc(?:\\.[^.]+)?\\.credentials\\.jwt\\.key)$");
+    private static final Pattern TLS_PROTOCOLS = Pattern.compile(
+            "^(quarkus\\.http\\.ssl\\.protocols|quarkus\\.tls\\.(?:(.+)\\.)?protocols)(?:\\[\\d+\\])?$");
+    private static final Set<String> LEGACY_TLS_PROTOCOLS = Set.of("tlsv1", "tlsv1.1", "sslv3");
+    private static final Set<String> UNIVERSAL_PROXY_RANGES = Set.of("0.0.0.0/0", "::/0", "[::]/0");
     private static final Pattern NAMED_TLS_TRUST_ALL = Pattern.compile("^quarkus\\.tls\\.(.+)\\.trust-all$");
     private static final Pattern NAMED_TLS_HOSTNAME_VERIFICATION =
             Pattern.compile("^quarkus\\.tls\\.(.+)\\.hostname-verification-algorithm$");
@@ -253,7 +261,16 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                 oidcTenants.stream().anyMatch(prefix -> isHttpUrl(str(prefix + ".auth-server-url", null)))
                         || (jwt && isHttpUrl(effectiveJwtLocation()));
         boolean oidcIssuerAny = oidcTenants.stream().anyMatch(this::oidcIssuerAny);
-        boolean embeddedUsersPlainText = bool("quarkus.security.users.embedded.plain-text", false);
+        // BootUI runs in dev/test, so the embedded-store review reads production declarations, not this runtime.
+        boolean embeddedUsersForProd =
+                capability("properties") && prodAwareBoolean("quarkus.security.users.embedded.enabled");
+        boolean embeddedUsersPlainText =
+                embeddedUsersForProd && prodAwareBoolean("quarkus.security.users.embedded.plain-text");
+        List<String> legacyTlsProtocols = legacyTlsProtocols();
+        boolean oidcTokenEncryptionDisabled = oidcTenants.stream()
+                .filter(this::isWebOidcTenant)
+                .anyMatch(prefix -> !bool(prefix + ".token-state-manager.encryption-required", true));
+        boolean forwardedHeadersTrustAnyProxy = forwardedHeadersTrustAnyProxy();
         List<String> tlsHostnameVerificationDisabled = tlsHostnameVerificationDisabled(oidcTenants);
 
         List<QuarkusSecurityPermission> permissions = permissions();
@@ -311,7 +328,7 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                 managementHostUnpinnedForProd,
                 jwtAlgorithmUnpinnedForRemoteJwks,
                 jdbcClearPasswordMapper,
-                embeddedUsers,
+                embeddedUsersForProd,
                 jwtAudiences,
                 jwtInlineKey,
                 referrerPolicy,
@@ -336,6 +353,9 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                 nonApplicationRootPathMerged,
                 count(QUARKUS_AUTHZ_KEY),
                 defaultRolesAllowed,
+                legacyTlsProtocols,
+                oidcTokenEncryptionDisabled,
+                forwardedHeadersTrustAnyProxy,
                 new QuarkusSecurityEvidence(
                         unknownRules, List.copyOf(incomplete), List.copyOf(failures), endpoints, endpointMetadata));
     }
@@ -543,6 +563,99 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
         return value;
     }
 
+    /**
+     * HTTP SSL and TLS registry protocol lists that opt into TLS 1.0/1.1 or SSLv3. Like {@code HttpServerOptionsUtils},
+     * the legacy HTTP list is skipped when a named or default TLS registry bucket owns the listener.
+     */
+    private List<String> legacyTlsProtocols() {
+        Map<String, String> declarations = new LinkedHashMap<>();
+        for (String name : names) {
+            var matcher = TLS_PROTOCOLS.matcher(name);
+            if (!matcher.matches()) {
+                continue;
+            }
+            String key = matcher.group(1);
+            String label = key.startsWith("quarkus.http.")
+                    ? "HTTP server SSL declaration"
+                    : matcher.group(2) == null ? "default TLS registry bucket" : "named TLS registry declaration";
+            declarations.putIfAbsent(key, label);
+        }
+        boolean registryOwnsListener =
+                has("quarkus.http.tls-configuration-name") || tlsBucketHasKeyStore("quarkus.tls.key-store.");
+        Set<String> legacy = new java.util.TreeSet<>();
+        declarations.forEach((key, label) -> {
+            if (key.startsWith("quarkus.http.") && registryOwnsListener) {
+                return;
+            }
+            String protocols = csv(key, "");
+            for (String protocol : protocols.split(",")) {
+                if (LEGACY_TLS_PROTOCOLS.contains(protocol.trim().toLowerCase(Locale.ROOT))) {
+                    legacy.add(label + " (" + protocol.trim() + ")");
+                }
+            }
+        });
+        return List.copyOf(legacy);
+    }
+
+    /**
+     * Mirrors {@code ForwardingProxyOptions}: forwarded headers are processed when address forwarding is on and either
+     * header family is allowed ({@code allow-x-forwarded} defaults to {@code !allow-forwarded}); an absent or empty
+     * {@code trusted-proxies} list trusts every peer. Production declarations are read like the other prod reviews.
+     */
+    private boolean forwardedHeadersTrustAnyProxy() {
+        String prefix = "quarkus.http.proxy.";
+        if (!prodAwareBoolean(prefix + "proxy-address-forwarding")) {
+            return false;
+        }
+        boolean allowForwarded = prodAwareBoolean(prefix + "allow-forwarded");
+        String allowXForwardedValue = productionValue(prefix + "allow-x-forwarded", null);
+        boolean allowXForwarded =
+                allowXForwardedValue == null ? !allowForwarded : prodAwareBoolean(prefix + "allow-x-forwarded");
+        if (!allowForwarded && !allowXForwarded) {
+            return false;
+        }
+        List<String> trusted = productionList(prefix + "trusted-proxies");
+        if (trusted == null) {
+            String runtime = csv(prefix + "trusted-proxies", null);
+            trusted = runtime == null ? List.of() : splitList(runtime);
+        }
+        return trusted.isEmpty()
+                || trusted.stream().anyMatch(range -> UNIVERSAL_PROXY_RANGES.contains(range.toLowerCase(Locale.ROOT)));
+    }
+
+    /** A production-scoped (then base) local list declaration, scalar or indexed; {@code null} when undeclared. */
+    private List<String> productionList(String key) {
+        for (String scoped : List.of("%prod." + key, key)) {
+            String scalar = literalPropertyValue(scoped);
+            if (scalar != null) {
+                return splitList(scalar);
+            }
+            Pattern indexed = Pattern.compile(Pattern.quote(scoped) + "\\[\\d+\\]");
+            List<String> entries = new ArrayList<>();
+            boolean declared = false;
+            for (String name : names) {
+                if (indexed.matcher(name).matches()) {
+                    declared = true;
+                    String entry = literalPropertyValue(name);
+                    if (entry != null && !entry.isBlank()) {
+                        entries.add(entry.trim());
+                    }
+                }
+            }
+            if (declared) {
+                return entries;
+            }
+        }
+        return null;
+    }
+
+    private static List<String> splitList(String value) {
+        return java.util.Arrays.stream(value.split(","))
+                .map(String::trim)
+                .filter(entry -> !entry.isEmpty())
+                .toList();
+    }
+
     private boolean jdbcClearPasswordMapperEnabled() {
         if (!capability("jdbc") || !bool("quarkus.security.jdbc.enabled", false)) {
             return false;
@@ -741,7 +854,8 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
                 if (name.startsWith("bootui.")
                         || name.startsWith("%dev.")
                         || name.startsWith("%test.")
-                        || !SECRET_NAME.matcher(name).matches()) {
+                        || !(SECRET_NAME.matcher(name).matches()
+                                || PRIVATE_KEY_NAME.matcher(name).matches())) {
                     continue;
                 }
                 String rawValue;
@@ -1174,7 +1288,10 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
 
     private String productionValue(String key, String fallback) {
         String value = literalPropertyValue("%prod." + key);
-        return value == null ? java.util.Objects.requireNonNullElse(literalPropertyValue(key), fallback) : value;
+        if (value == null) {
+            value = literalPropertyValue(key);
+        }
+        return value == null ? fallback : value;
     }
 
     private static boolean safeLabel(String label) {
@@ -1222,6 +1339,9 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
     }
 
     private static String[] rules(String key) {
+        if (key.contains(".http.proxy.")) {
+            return new String[] {"QS-PROXY-001"};
+        }
         if (key.contains("cors")) {
             return new String[] {"QS-CORS-001", "QS-CORS-002"};
         }
@@ -1241,6 +1361,9 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
             if (key.contains("pkce") || key.contains("credentials")) {
                 return new String[] {"QS-OIDC-003"};
             }
+            if (key.contains("token-state-manager")) {
+                return new String[] {"QS-OIDC-005"};
+            }
             return new String[] {
                 "QS-AUTH-001", "QS-OIDC-001", "QS-OIDC-002", "QS-OIDC-003", "QS-OIDC-004", "QS-DEV-001", "QS-TLS-004"
             };
@@ -1259,6 +1382,9 @@ public class QuarkusSecuritySnapshotProviderImpl implements QuarkusSecuritySnaps
         }
         if (key.contains("csrf")) {
             return new String[] {"QS-AUTH-003"};
+        }
+        if (key.endsWith(".protocols") || key.matches(".*\\.protocols\\[\\d+\\]")) {
+            return new String[] {"QS-TLS-006"};
         }
         if (key.contains("insecure-requests") || key.contains("ssl") || key.contains("tls")) {
             return new String[] {

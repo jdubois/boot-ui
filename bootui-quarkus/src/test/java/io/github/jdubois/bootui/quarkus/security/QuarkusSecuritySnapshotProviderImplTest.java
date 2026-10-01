@@ -271,6 +271,159 @@ class QuarkusSecuritySnapshotProviderImplTest {
     }
 
     @Test
+    void embeddedIdentityStoreReviewReadsProductionDeclarationsNotTheDevRuntime() {
+        QuarkusSecuritySnapshot devOnly = snapshot(Map.of(
+                "%dev.quarkus.security.users.embedded.enabled", "true",
+                "%dev.quarkus.security.users.embedded.plain-text", "true"));
+        assertThat(devOnly.embeddedUsersEnabled()).isFalse();
+        assertThat(devOnly.embeddedUsersPlainText()).isFalse();
+
+        QuarkusSecuritySnapshot prodDisabled = snapshot(Map.of(
+                "quarkus.security.users.embedded.enabled", "true",
+                "quarkus.security.users.embedded.plain-text", "true",
+                "%prod.quarkus.security.users.embedded.enabled", "false"));
+        assertThat(prodDisabled.embeddedUsersEnabled()).isFalse();
+        assertThat(prodDisabled.embeddedUsersPlainText()).isFalse();
+        assertThat(prodDisabled.basicAuth()).isTrue();
+
+        QuarkusSecuritySnapshot prodOnly = snapshot(Map.of(
+                "%prod.quarkus.security.users.embedded.enabled", "true",
+                "%prod.quarkus.security.users.embedded.plain-text", "true"));
+        assertThat(prodOnly.embeddedUsersEnabled()).isTrue();
+        assertThat(prodOnly.embeddedUsersPlainText()).isTrue();
+    }
+
+    @Test
+    void detectsLegacyTlsProtocolsAcrossHttpAndRegistryDeclarations() {
+        QuarkusSecuritySnapshot snapshot = snapshot(Map.of(
+                "quarkus.http.ssl.protocols", "TLSv1.2,TLSv1",
+                "quarkus.tls.protocols", "TLSv1.3",
+                "quarkus.tls.\"legacy-peer\".protocols[0]", "TLSv1.2",
+                "quarkus.tls.\"legacy-peer\".protocols[1]", "tlsv1.1",
+                "quarkus.tls.modern.protocols", "TLSv1.3,TLSv1.2",
+                "quarkus.tls.compat.protocols", "SSLv2Hello,TLSv1.2"));
+
+        assertThat(snapshot.legacyTlsProtocols())
+                .containsExactly("HTTP server SSL declaration (TLSv1)", "named TLS registry declaration (tlsv1.1)");
+        assertThat(snapshot.evidence().unknownRules()).doesNotContain("QS-TLS-006");
+    }
+
+    @Test
+    void selectedTlsRegistryOwnsListenerProtocolsAndUnresolvedListsAreUnknown() {
+        QuarkusSecuritySnapshot selected = snapshot(Map.of(
+                "quarkus.http.tls-configuration-name", "https",
+                "quarkus.http.ssl.protocols", "TLSv1"));
+        assertThat(selected.legacyTlsProtocols()).isEmpty();
+        QuarkusSecuritySnapshot defaultBucket = snapshot(Map.of(
+                "quarkus.tls.key-store.p12.path", "server.p12",
+                "quarkus.http.ssl.protocols", "TLSv1"));
+        assertThat(defaultBucket.legacyTlsProtocols()).isEmpty();
+
+        QuarkusSecuritySnapshot unresolved = snapshot(Map.of("quarkus.tls.protocols", "${TLS_PROTOCOLS}"));
+        assertThat(unresolved.legacyTlsProtocols()).isEmpty();
+        assertThat(unresolved.evidence().unknownRules()).contains("QS-TLS-006");
+    }
+
+    @Test
+    void detectsDisabledOidcTokenEncryptionOnlyForActiveWebTenants() {
+        assertThat(snapshot(Map.of(
+                                "quarkus.oidc.auth-server-url", "https://identity.example/realms/app",
+                                "quarkus.oidc.application-type", "web-app",
+                                "quarkus.oidc.token-state-manager.encryption-required", "false"))
+                        .oidcTokenEncryptionDisabled())
+                .isTrue();
+        assertThat(snapshot(Map.of(
+                                "quarkus.oidc.portal.auth-server-url", "https://identity.example/realms/portal",
+                                "quarkus.oidc.portal.application-type", "hybrid",
+                                "quarkus.oidc.portal.token-state-manager.encryption-required", "false"))
+                        .oidcTokenEncryptionDisabled())
+                .isTrue();
+        assertThat(snapshot(Map.of(
+                                "quarkus.oidc.auth-server-url", "https://identity.example/realms/app",
+                                "quarkus.oidc.application-type", "service",
+                                "quarkus.oidc.token-state-manager.encryption-required", "false"))
+                        .oidcTokenEncryptionDisabled())
+                .isFalse();
+        assertThat(snapshot(Map.of(
+                                "quarkus.oidc.portal.auth-server-url", "https://identity.example/realms/portal",
+                                "quarkus.oidc.portal.application-type", "web-app",
+                                "quarkus.oidc.portal.tenant-enabled", "false",
+                                "quarkus.oidc.portal.token-state-manager.encryption-required", "false"))
+                        .oidcTokenEncryptionDisabled())
+                .isFalse();
+        assertThat(snapshot(Map.of(
+                                "quarkus.oidc.auth-server-url", "https://identity.example/realms/app",
+                                "quarkus.oidc.application-type", "web-app"))
+                        .oidcTokenEncryptionDisabled())
+                .isFalse();
+    }
+
+    @Test
+    void forwardedHeaderTrustMirrorsQuarkusProxyDefaults() {
+        String forwarding = "quarkus.http.proxy.proxy-address-forwarding";
+        assertThat(snapshot(Map.of(forwarding, "true")).forwardedHeadersTrustAnyProxy())
+                .isTrue();
+        assertThat(snapshot(Map.of(forwarding, "true", "quarkus.http.proxy.trusted-proxies", "10.0.0.0/8"))
+                        .forwardedHeadersTrustAnyProxy())
+                .isFalse();
+        assertThat(snapshot(Map.of(forwarding, "true", "quarkus.http.proxy.trusted-proxies", "10.0.0.1,0.0.0.0/0"))
+                        .forwardedHeadersTrustAnyProxy())
+                .isTrue();
+        assertThat(snapshot(Map.of(forwarding, "true", "%prod.quarkus.http.proxy.trusted-proxies[0]", "127.0.0.1"))
+                        .forwardedHeadersTrustAnyProxy())
+                .isFalse();
+        assertThat(snapshot(Map.of(
+                                forwarding,
+                                "true",
+                                "quarkus.http.proxy.allow-forwarded",
+                                "true",
+                                "quarkus.http.proxy.allow-x-forwarded",
+                                "false"))
+                        .forwardedHeadersTrustAnyProxy())
+                .isTrue();
+        assertThat(snapshot(Map.of(
+                                forwarding,
+                                "true",
+                                "quarkus.http.proxy.allow-forwarded",
+                                "false",
+                                "quarkus.http.proxy.allow-x-forwarded",
+                                "false"))
+                        .forwardedHeadersTrustAnyProxy())
+                .isFalse();
+        assertThat(snapshot(Map.of("%dev." + forwarding, "true")).forwardedHeadersTrustAnyProxy())
+                .isFalse();
+        assertThat(snapshot(Map.of("%prod." + forwarding, "true")).forwardedHeadersTrustAnyProxy())
+                .isTrue();
+        assertThat(snapshot(Map.of(forwarding, "true", "%prod." + forwarding, "false"))
+                        .forwardedHeadersTrustAnyProxy())
+                .isFalse();
+        QuarkusSecuritySnapshot unresolved = snapshot(Map.of(forwarding, "${FORWARDING}"));
+        assertThat(unresolved.forwardedHeadersTrustAnyProxy()).isFalse();
+        assertThat(unresolved.evidence().unknownRules()).contains("QS-PROXY-001");
+    }
+
+    @Test
+    void secretHygieneCoversSymmetricKeysAndInlinePrivateKeysButNotPublicKeys() {
+        QuarkusSecuritySnapshot snapshot = snapshot(Map.of(
+                "quarkus.http.auth.session.encryption-key", "form-cookie-key-literal",
+                "quarkus.rest-csrf.token-signature-key", "csrf-hmac-key-literal",
+                "smallrye.jwt.verify.secretkey", "hmac-literal",
+                "smallrye.jwt.sign.key", "-----BEGIN PRIVATE KEY-----",
+                "quarkus.oidc.portal.credentials.jwt.key", "-----BEGIN PRIVATE KEY-----",
+                "mp.jwt.verify.publickey", "-----BEGIN PUBLIC KEY-----",
+                "smallrye.jwt.sign.key.location", "privateKey.pem",
+                "quarkus.oidc.credentials.jwt.key-file", "key.pem"));
+
+        assertThat(snapshot.suspectedSecretKeys())
+                .containsExactly(
+                        "quarkus.http.auth.session.encryption-key",
+                        "quarkus.oidc.portal.credentials.jwt.key",
+                        "quarkus.rest-csrf.token-signature-key",
+                        "smallrye.jwt.sign.key",
+                        "smallrye.jwt.verify.secretkey");
+    }
+
+    @Test
     void detectsTlsHostnameVerificationDisabledAcrossRegistryAndOidc() {
         QuarkusSecuritySnapshot snapshot = snapshot(Map.of(
                 "quarkus.tls.hostname-verification-algorithm",
