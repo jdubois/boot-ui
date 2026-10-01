@@ -1728,7 +1728,7 @@ final class ErrorResponseDisclosureRule extends AbstractSecurityRule {
                 "Error responses should not leak stack traces or internal messages",
                 SecurityCategory.CONFIGURATION,
                 "MEDIUM",
-                "Reviews Boot 4 spring.web.error inclusion settings that are unconditional or caller-enabled; custom error responses are not observed.",
+                "Reviews application-configured Boot 4 spring.web.error inclusion settings that are unconditional or caller-enabled. DevTools' development-only defaults are ignored; custom error responses are not observed.",
                 "Use 'never' for sensitive error details. The 'on-param' mode is caller-controlled, not a confidentiality boundary.",
                 "https://docs.spring.io/spring-boot/reference/web/servlet.html#web.servlet.spring-mvc.error-handling"));
     }
@@ -1739,7 +1739,7 @@ final class ErrorResponseDisclosureRule extends AbstractSecurityRule {
         context.applies(!context.chains().isEmpty());
         for (String suffix : List.of("include-stacktrace", "include-message", "include-binding-errors")) {
             String key = "spring.web.error." + suffix;
-            String value = context.firstProperty(key);
+            String value = context.applicationProperty(key);
             if (value != null && Set.of("always", "on-param", "on_param").contains(value.toLowerCase(Locale.ROOT))) {
                 details.add(
                         key + " permits inclusion of internal error details, unconditionally or by caller request.");

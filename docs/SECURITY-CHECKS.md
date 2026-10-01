@@ -518,7 +518,7 @@ management-context authorization remain unknown. No endpoint discoverer, operati
 ### SEC-CONFIG-005 - Error responses should not leak stack traces or internal messages
 
 - **Severity**: MEDIUM
-- **Detects**: Boot 4 `spring.web.error.include-stacktrace`, `include-message`, or `include-binding-errors` is `always` or caller-enabled `on-param`/`on_param`. The obsolete `server.error.*` namespace is not used. Custom error handlers and actual response bodies are outside the observation.
+- **Detects**: Boot 4 `spring.web.error.include-stacktrace`, `include-message`, or `include-binding-errors` is `always` or caller-enabled `on-param`/`on_param` in application configuration. While a DevTools restart is active, DevTools appends a `devtools` source setting all three to `always` for local development; those defaults are not the application's configuration and are ignored, while an application value still wins and is reported (matching the Spring advisor's WEB-004). The obsolete `server.error.*` namespace is not used. Custom error handlers and actual response bodies are outside the observation.
 - **Configuration evidence**: MVC security checks copy bounded native property-source maps and supported value types without invoking custom sources or value conversion. An opaque higher-priority source blocks lower fallback; unsupported backing maps and placeholder expansion remain unknown. Incomplete configuration does not discard independent known filter/provider findings.
 - **Recommendation**: Use `never` for sensitive error details. `on-param` is caller-controlled, not a confidentiality boundary.
 - **Learn more**: <https://docs.spring.io/spring-boot/reference/web/servlet.html#web.servlet.spring-mvc.error-handling>

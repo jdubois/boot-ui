@@ -1441,6 +1441,43 @@ class SecurityRulesTests {
         assertThat(result.status()).isEqualTo(SecurityRuleSupport.PASS);
     }
 
+    // --- SEC-CONFIG-005: DevTools development defaults ---------------------------------------
+
+    @Test
+    void errorDisclosureIgnoresDevToolsDefaultsButNotApplicationConfiguration() {
+        Map<String, Object> devToolsDefaults = Map.of(
+                "spring.web.error.include-stacktrace", "always",
+                "spring.web.error.include-message", "always",
+                "spring.web.error.include-binding-errors", "always");
+        FilterChainModel chain = chain("any request", List.of("AuthorizationFilter"));
+        ErrorResponseDisclosureRule rule = new ErrorResponseDisclosureRule();
+
+        MockEnvironment devtools = new MockEnvironment();
+        devtools.getPropertySources()
+                .addLast(new org.springframework.core.env.MapPropertySource("devtools", devToolsDefaults));
+        assertThat(rule.evaluate(context(List.of(chain), devtools)).status()).isEqualTo(SecurityRuleSupport.PASS);
+        assertThat(rule.evaluate(context(List.of(chain), SecurityEnvironmentSnapshot.capture(devtools)))
+                        .status())
+                .as("captured snapshot keeps DevTools provenance")
+                .isEqualTo(SecurityRuleSupport.PASS);
+
+        devtools.setProperty("spring.web.error.include-stacktrace", "on-param");
+        SecurityRuleResultDto overridden = rule.evaluate(context(List.of(chain), devtools));
+        assertThat(overridden.status()).isEqualTo(SecurityRuleSupport.VIOLATION);
+        assertThat(overridden.sampleViolations()).singleElement().asString().contains("include-stacktrace");
+
+        Properties properties = new Properties();
+        properties.putAll(devToolsDefaults);
+        MockEnvironment appNamedDevtools = new MockEnvironment();
+        appNamedDevtools.getPropertySources().addFirst(new PropertiesPropertySource("devtools", properties));
+        assertThat(rule.evaluate(context(List.of(chain), appNamedDevtools)).violationCount())
+                .as("only DevTools' own map source is ignored")
+                .isEqualTo(3);
+        assertThat(rule.evaluate(context(List.of(chain), SecurityEnvironmentSnapshot.capture(appNamedDevtools)))
+                        .violationCount())
+                .isEqualTo(3);
+    }
+
     // --- SEC-OAUTH-005: opaque-token introspection transport ---------------------------------
 
     @Test
