@@ -761,14 +761,14 @@ The Pentesting panel runs explicit, local-only OWASP Top 10 2025 hygiene checks 
 BootUI's `/bootui` routes. On an explicit scan it combines bounded framework metadata with at most one `GET` and one
 `OPTIONS` request to literal `127.0.0.1` under the validated application context path; the two-second client never
 follows redirects or uses configured proxies. Checks cover missing or unsafe browser-document headers, CORS behavior,
-cookie flags, verbose error exposure, Spring Security wiring, actuator exposure, Quarkus CORS/OIDC/TLS configuration, and
-common Spring Boot hardening gaps.
+cookie flags, verbose error exposure, Spring Security wiring, actuator exposure, and common Spring Boot hardening gaps.
+Quarkus CORS, OIDC, and TLS configuration is reviewed by the Security panel (`QS-*`) rather than duplicated here.
 
 It intentionally does not crawl discovered endpoints, send SQL/XSS/destructive payloads, contact external hosts, or
 include raw response bodies, cookie values, credentials, or full issuer URLs. Findings are heuristic review prompts, not
 proof of exploitability or a replacement for a full security assessment.
 
-The 79 active checks each carry a stable identifier, OWASP 2025 category, evidence source, and recommendation.
+The 77 active checks each carry a stable identifier, OWASP 2025 category, evidence source, and recommendation.
 The panel shows **Findings by severity**, matching the other advisors, rather than a separate OWASP Top 10 coverage
 matrix. Severity bars summarize active, non-dismissed findings; category metadata is not a passing-check count.
 Failed or bounded-away evidence produces a `PARTIAL` scan. Usable known findings still score under the shared
