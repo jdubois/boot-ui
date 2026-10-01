@@ -106,6 +106,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Dependencies and build tooling updated**, including Vue 3.5.43 in the bundled console, the Quarkus LangChain4j BOM
   1.13.3 in the Quarkus sample app, GraalVM Native Build Tools 1.1.14, Vitest 5.0.1, jsdom 30.1.1, Prettier 3.9.8, and
   the patched `undici` 7.30.0 and `brace-expansion` transitive dependencies.
+- **The Pentesting advisor no longer duplicates Quarkus Security rules and catches weaker CSPs** (77 checks, down
+  from 79). `PT-A05-070` (Quarkus CORS configuration) and `PT-A05-072` (Quarkus TLS with plaintext HTTP) are retired
+  because the Security panel's `QS-CORS-001`/`QS-CORS-002` and `QS-TLS-001` already review that configuration on every
+  Quarkus application; `PT-A05-072` also ignored the `client-auth=required` default. `PT-A07-006` now reviews Spring
+  issuer URIs only, leaving `quarkus.oidc.auth-server-url` to `QS-TLS-004`, and Quarkus A07 coverage reads `HANDOFF`.
+  The synthetic CORS preflight still exercises Quarkus's global CORS filter. `PT-A05-060` now reports plain `data:`,
+  `http:`, or `https:` script sources (MEDIUM) and an enforced CSP that restricts no scripts, such as a
+  `frame-ancestors`-only policy (LOW). `PT-A05-043` is MEDIUM only when the management listener binds more broadly
+  than a narrowed `server.address`, which Spring Boot does not inherit, and LOW otherwise. `PT-A05-011` rates an
+  unversioned `Server` header INFO ([#1166](https://github.com/jdubois/boot-ui/pull/1166),
+  [Pentesting checks](docs/PENTEST-CHECKS.md#pentesting-advisor-audit-2026)).
 
 ### Fixed
 
