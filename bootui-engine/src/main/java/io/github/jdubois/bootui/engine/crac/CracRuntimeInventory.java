@@ -36,6 +36,9 @@ import java.util.List;
  *     handling, not a guarantee for external shared resources or early initialization
  * @param available whether runtime observations were successfully collected
  * @param warnings bounded explanations of unavailable or partial observations
+ * @param startupDatabaseAccess bounded observations of refresh-time database access (migrations, schema
+ *     initializers, Hibernate boot metadata or schema management) alongside Hikari pools without an
+ *     in-memory JDBC URL; JDBC URLs are classified but never included
  */
 public record CracRuntimeInventory(
         List<String> connectionPoolBeans,
@@ -48,9 +51,11 @@ public record CracRuntimeInventory(
         boolean applicationRunning,
         List<String> managedConnectionPoolBeans,
         boolean available,
-        List<String> warnings) {
+        List<String> warnings,
+        List<String> startupDatabaseAccess) {
 
     public CracRuntimeInventory {
+        startupDatabaseAccess = startupDatabaseAccess == null ? List.of() : List.copyOf(startupDatabaseAccess);
         connectionPoolBeans = connectionPoolBeans == null ? List.of() : List.copyOf(connectionPoolBeans);
         cacheManagerBeans = cacheManagerBeans == null ? List.of() : List.copyOf(cacheManagerBeans);
         hikariPoolIssues = hikariPoolIssues == null ? List.of() : List.copyOf(hikariPoolIssues);
@@ -58,6 +63,33 @@ public record CracRuntimeInventory(
         managedConnectionPoolBeans =
                 managedConnectionPoolBeans == null ? List.of() : List.copyOf(managedConnectionPoolBeans);
         warnings = warnings == null ? List.of() : List.copyOf(warnings);
+    }
+
+    public CracRuntimeInventory(
+            List<String> connectionPoolBeans,
+            List<String> cacheManagerBeans,
+            List<String> hikariPoolIssues,
+            List<String> unmanagedTaskBeans,
+            boolean cracApiPresent,
+            boolean checkpointOnRefresh,
+            boolean restoredProcess,
+            boolean applicationRunning,
+            List<String> managedConnectionPoolBeans,
+            boolean available,
+            List<String> warnings) {
+        this(
+                connectionPoolBeans,
+                cacheManagerBeans,
+                hikariPoolIssues,
+                unmanagedTaskBeans,
+                cracApiPresent,
+                checkpointOnRefresh,
+                restoredProcess,
+                applicationRunning,
+                managedConnectionPoolBeans,
+                available,
+                warnings,
+                List.of());
     }
 
     public CracRuntimeInventory(
