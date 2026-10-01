@@ -82,6 +82,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Trace attributes requests to their declared route instead of a masked path when the application has a root path.
 - **Quarkus 3.33.3.3.** The Quarkus extension, integration tests, and sample app move to Quarkus 3.33.3.3, the
   newest micro release of the 3.33 LTS stream.
+- **Dependencies and build tooling updated**, including Vue 3.5.43 in the bundled console, the Quarkus LangChain4j BOM
+  1.13.3 in the Quarkus sample app, GraalVM Native Build Tools 1.1.14, Vitest 5.0.1, jsdom 30.1.1, Prettier 3.9.8, and
+  the patched `undici` 7.30.0 and `brace-expansion` transitive dependencies.
 
 ### Fixed
 
@@ -122,7 +125,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   outbound call. Because the Spring MVC, Spring WebFlux, and Quarkus sample apps live under it, their call sites were
   always empty, including in statement rankings, N+1 groups, and Live Activity. Only BootUI's own module packages are
   now skipped, and a test fails if a new BootUI package is added without being classified.
-
 - **Live Activity durable persistence works on MySQL and Oracle.** On MySQL, every read used the SQL-standard
   `OFFSET … FETCH FIRST` row limit, which MySQL rejects, so the Live Activity panel and `GET /bootui/api/activity`
   failed once persistence was on, while rows kept piling up unread. On Oracle, the table could never be created,
@@ -132,7 +134,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   database that rejects the query is reported as a failed switch instead of breaking the panel. This applies to
   Spring MVC, Spring WebFlux, and Quarkus
   ([#1142](https://github.com/jdubois/boot-ui/issues/1142)).
-
 - **Spring MVC Log Tail streams no longer throw on a worker thread when a client disconnects or the application
   stops.** When the servlet container had already failed the async request, the stream worker still tried to
   complete the `SseEmitter`. Tomcat rejected that with an uncaught `IllegalStateException`, and the session could
