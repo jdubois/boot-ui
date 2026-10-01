@@ -29,7 +29,7 @@ final class DeclaredExceptionsHaveHandlersRule extends AbstractRestApiRule {
     DeclaredExceptionsHaveHandlersRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-ERR-009",
-                "Declared exceptions have a declared handler",
+                "Review declared exceptions without a mapping in the model",
                 RestApiCategory.ERROR_HANDLING,
                 "MEDIUM",
                 "An endpoint declares an application exception with no corresponding handler declaration found in"
@@ -37,7 +37,7 @@ final class DeclaredExceptionsHaveHandlersRule extends AbstractRestApiRule {
                         + " runtime coverage, and framework defaults may be intentional. Unresolved mapper exception"
                         + " types make absence conclusions inapplicable.",
                 "Review native handler/mapper coverage and the chosen error policy; add a declaration only if needed.",
-                RestApiRuleHelp.PROBLEM_DETAIL_DOCS));
+                RestApiRuleHelp.EXCEPTION_HANDLER_DOCS));
     }
 
     @Override

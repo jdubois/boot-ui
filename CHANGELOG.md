@@ -9,6 +9,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Four REST API rules catch request and response declarations that break at runtime.** `RAPI-VALID-006` (HIGH)
+  reports a Spring handler with several `@RequestBody` parameters, which fails every request on Spring MVC.
+  `RAPI-VER-007` (HIGH) reports a GET/HEAD/DELETE handler that binds no body but carries a consumes condition, usually
+  a class-level `consumes`, so requests without `Content-Type` get 415 on MVC and WebFlux. `RAPI-RESP-010` (MEDIUM)
+  reports a `@ResponseStatus` `reason` on a body-returning Spring MVC handler, which discards the returned body.
+  `RAPI-RESP-011` (LOW) reports a GET that returns `Optional`, which answers 200 rather than 404 when empty. The Spring
+  adapter now tells the scanner whether the context is servlet or reactive so `RAPI-RESP-010` is skipped on WebFlux
+  ([REST API checks](docs/REST-API-CHECKS.md#contract-defect-audit-2026), PR_LINK).
 - **Failure-preserving retention for HTTP Exchanges, SQL Trace, and REST Client.** Each BootUI-owned capture buffer
   now reserves a share of its existing capacity, 25% by default, for the most recent failed and slow records: `5xx`
   and slow exchanges, failed and slow statements, and failed, `4xx`/`5xx`, and slow calls. Routine records are evicted
@@ -49,6 +57,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **REST API advisor audit: three noisy rules retired, two severities recalibrated.** `RAPI-VALID-005`
+  (Idempotency-Key), `RAPI-DTO-004` (response DTO setters), and `RAPI-ERR-002` (`throws Exception`) now always return
+  `SKIPPED`; their IDs and dismissals are kept. `RAPI-RESP-006` drops from HIGH to MEDIUM because servers already strip
+  204 content, and `RAPI-VER-002` drops from LOW to INFO and now recommends method-level `consumes`. `RAPI-MAP-002` no
+  longer reports identical Spring mappings, which Spring rejects at startup and so only appear for inactive profile
+  alternatives, while still reporting partial overlaps that fail at request time. Rule names now match the catalogue
+  and learn-more links point at specific sources. The catalogue has 60 rule IDs, 53 of which can emit (PR_LINK).
 - **One request slow threshold on every stack.** `bootui.activity.request-slow-threshold-ms` (default 1,000 ms) is now
   honored by Spring WebFlux and Quarkus as well as Spring MVC. It sets the `SLOW` severity of Live Activity `REQUEST`
   and `SCHEDULED` entries and decides which exchanges are kept longer. Spring WebFlux and Quarkus previously used a
@@ -85,6 +100,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The REST API advisor reads Quarkus REST `@ResponseStatus` and `@ResponseHeader`.** A `@POST @ResponseStatus(201)`
+  creation method is no longer reported as using the default status, and a declared `Location` or `Retry-After`
+  header satisfies `RAPI-RESP-008` and `RAPI-ERR-007`. Versioned `/v3/...` API handlers are no longer mistaken for
+  springdoc's `/v3/api-docs` and excluded from the versioning rules (PR_LINK).
 - **Live Activity durable persistence stores a failed or slow entry once, including a slow `4xx` request.**
   Persistence remembers the entries it stored in a bounded window. An entry that newer entries pushed out of Spring
   MVC's capped stream and that came back later, for example once `bootui.free-on-idle` released captured SQL, could be

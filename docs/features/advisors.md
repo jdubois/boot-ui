@@ -372,8 +372,8 @@ when needed. The scan still runs on demand and caches the last report, and dismi
 The REST API panel runs a curated, zero-config ruleset against the host application's own web layer — `@RestController`
 / `@Controller` handler methods on Spring, or JAX-RS resources on Quarkus. Like the Architecture panel, it imports the
 compiled handlers from bounded base packages and derives a read-only model: HTTP method(s), path(s), parameters and
-annotations, return type, `produces`/`consumes`, validation flags, and declared throws. It then evaluates 56 stable rule
-definitions across eight categories, of which 52 can emit a finding: routing and HTTP-method mapping, resource naming,
+annotations, return type, `produces`/`consumes`, validation flags, and declared throws. It then evaluates 60 stable rule
+definitions across eight categories, of which 53 can emit a finding: routing and HTTP-method mapping, resource naming,
 status codes and responses, input validation and binding, DTO and payload contracts, pagination, versioning and content
 negotiation, and error handling and documentation. The `RAPI-DOC-*` rules run only when Swagger or MicroProfile OpenAPI
 annotations are on the classpath.

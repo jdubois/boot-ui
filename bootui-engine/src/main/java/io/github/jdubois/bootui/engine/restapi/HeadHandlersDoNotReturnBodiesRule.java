@@ -7,7 +7,7 @@ final class HeadHandlersDoNotReturnBodiesRule extends AbstractRestApiRule {
     HeadHandlersDoNotReturnBodiesRule() {
         super(new RestApiRuleDefinition(
                 "RAPI-RESP-009",
-                "Review dedicated HEAD representation work",
+                "Review dedicated HEAD handler efficiency",
                 RestApiCategory.RESPONSES,
                 "INFO",
                 "RFC 9110 requires HEAD responses to omit message content. A dedicated HEAD handler that returns a"
@@ -15,7 +15,7 @@ final class HeadHandlersDoNotReturnBodiesRule extends AbstractRestApiRule {
                         + " does not prove forbidden content is transmitted.",
                 "Return void or a headers-only response from dedicated HEAD handlers; let the framework derive HEAD"
                         + " from GET when no distinct metadata calculation is needed.",
-                RestApiRuleHelp.REST_GUIDELINES));
+                RestApiRuleHelp.HEAD_DOCS));
     }
 
     @Override

@@ -19,7 +19,6 @@ class RestApiRulesTests {
     private static final String PHASE3_BAD = "io.github.jdubois.bootui.engine.restapi.phase3.bad";
     private static final String PHASE3_GOOD = "io.github.jdubois.bootui.engine.restapi.phase3.good";
     private static final String PHASE3_FIXES = "io.github.jdubois.bootui.engine.restapi.phase3.fixes";
-    private static final String NEWRULES_IDEMPOTENCY = "io.github.jdubois.bootui.engine.restapi.newrules.idempotency";
     private static final String NEWRULES_DEPRECATION = "io.github.jdubois.bootui.engine.restapi.newrules.deprecation";
     private static final String NEWRULES_RETRY_AFTER = "io.github.jdubois.bootui.engine.restapi.newrules.retryafter";
     private static final String NEWRULES_PAGINATION = "io.github.jdubois.bootui.engine.restapi.newrules.pagination";
@@ -88,11 +87,10 @@ class RestApiRulesTests {
     }
 
     @Test
-    void payloadRulesFlagEntitiesCollectionsAndMutableDtos() {
+    void payloadRulesFlagEntitiesAndCollections() {
         RestApiContext context = context(false, FIXTURES);
 
         assertThat(status(new NoEntitiesInResponsesRule(), context)).isEqualTo("VIOLATION");
-        assertThat(status(new DtosAreImmutableRule(), context)).isEqualTo("VIOLATION");
     }
 
     @Test
@@ -122,8 +120,6 @@ class RestApiRulesTests {
 
     @Test
     void errorHandlingRulesReflectCentralizedHandling() {
-        assertThat(status(new NoBroadThrowsOnHandlersRule(), context(false, FIXTURES)))
-                .isEqualTo("VIOLATION");
         // The advice in the good package provides centralized handling for the full scan.
         assertThat(status(new CentralizedExceptionHandlingRule(), context(false, FIXTURES)))
                 .isEqualTo("PASS");
@@ -366,20 +362,6 @@ class RestApiRulesTests {
         RestApiContext context = context(false, PHASE3_GOOD);
 
         assertThat(status(new CollectionsUsePluralNounsRule(), context)).isEqualTo("PASS");
-    }
-
-    @Test
-    void idempotencyKeyRuleFlagsCreationEndpointWithoutHeaderAndPassesWithIt() {
-        // Absence of a header parameter is a policy review signal, not proof that retries are unsafe.
-        RestApiContext context = context(false, NEWRULES_IDEMPOTENCY);
-        RestApiRuleResultDto result = new IdempotencyKeyOnCreationEndpointsRule().evaluate(context);
-
-        assertThat(result.status()).isEqualTo("VIOLATION");
-        assertThat(result.sampleViolations())
-                .anyMatch(violation -> violation.contains("CreateWidgetWithoutIdempotencyKeyController"));
-        assertThat(result.sampleViolations())
-                .noneMatch(violation -> violation.contains("CreateWidgetWithIdempotencyKeyController"));
-        assertThat(result.sampleViolations()).noneMatch(violation -> violation.contains("CreateWidgetResource"));
     }
 
     @Test

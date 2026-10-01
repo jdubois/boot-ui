@@ -47,6 +47,8 @@ final class RestApiModel {
                 "org.springframework.http.server.reactive.ServerHttpResponse";
         static final String SERVER_WEB_EXCHANGE = "org.springframework.web.server.ServerWebExchange";
         static final String REQUEST_HEADER = "org.springframework.web.bind.annotation.RequestHeader";
+        static final String REQUEST_PART = "org.springframework.web.bind.annotation.RequestPart";
+        static final String REQUEST_ENTITY = "org.springframework.http.RequestEntity";
 
         static final String DEPRECATED = "java.lang.Deprecated";
 
@@ -104,6 +106,11 @@ final class RestApiModel {
         // RESTEasy Reactive's simpler, @Provider-free exception-mapper style (no ExceptionMapper<X>
         // interface to implement): https://quarkus.io/guides/rest#exception-mapping
         static final String SERVER_EXCEPTION_MAPPER = "org.jboss.resteasy.reactive.server.ServerExceptionMapper";
+        // Quarkus REST's declarative status and headers for resource methods that do not return Response or
+        // RestResponse: https://quarkus.io/guides/rest#setting-other-response-properties
+        static final String QUARKUS_RESPONSE_STATUS = "org.jboss.resteasy.reactive.ResponseStatus";
+        static final String QUARKUS_RESPONSE_HEADER = "org.jboss.resteasy.reactive.ResponseHeader";
+        static final String QUARKUS_RESPONSE_HEADERS = "org.jboss.resteasy.reactive.ResponseHeader$List";
         static final String REGISTER_REST_CLIENT = "org.eclipse.microprofile.rest.client.inject.RegisterRestClient";
 
         // --- RESTEasy Reactive (quarkus-rest) parameter annotations: still mark a param as bound, so the
@@ -169,7 +176,6 @@ final class RestApiModel {
             boolean bodyIsEntity,
             boolean bodyIsUntyped,
             boolean bodyIsScalar,
-            boolean bodyExposesSetters,
             boolean bodyIsRecord,
             boolean bodyHasLegacyDateField,
             boolean hasRequestBody,
@@ -183,7 +189,6 @@ final class RestApiModel {
             boolean hasResponseStatus,
             boolean methodHasResponseStatus,
             String responseStatusValue,
-            boolean declaresBroadThrows,
             boolean hasOperationAnnotation,
             boolean nameLooksStateChanging,
             boolean nameLooksLikeFindAll,
@@ -199,15 +204,21 @@ final class RestApiModel {
             boolean hidden,
             boolean hasResponseParam,
             String paginationParamFamily,
-            boolean hasIdempotencyKeyHeader,
             boolean isDeprecated,
             boolean operationMarkedDeprecated,
             Framework framework,
             List<String> versionBindings,
             boolean returnsBodyEnvelope,
-            boolean returnsStream) {
+            boolean returnsStream,
+            List<String> declaredResponseHeaders,
+            int requestBodyCount,
+            boolean hasBodyAccessParam,
+            String responseStatusReason,
+            boolean returnsOptional,
+            boolean consumesFromType) {
 
         HandlerMethodModel {
+            declaredResponseHeaders = List.copyOf(declaredResponseHeaders);
             httpMethods = List.copyOf(httpMethods);
             mappingPaths = List.copyOf(mappingPaths);
             effectivePaths = List.copyOf(effectivePaths);
@@ -223,6 +234,11 @@ final class RestApiModel {
 
         boolean jaxRs() {
             return framework == Framework.JAX_RS;
+        }
+
+        /** Whether a response header (case-insensitive) is declared on the method, e.g. Quarkus {@code @ResponseHeader}. */
+        boolean declaresResponseHeader(String name) {
+            return declaredResponseHeaders.contains(name.toLowerCase(java.util.Locale.ROOT));
         }
 
         String describe() {
@@ -251,7 +267,8 @@ final class RestApiModel {
             boolean rendersBody,
             List<String> handledExceptionTypes,
             List<String> produces,
-            Framework framework) {
+            Framework framework,
+            String responseStatusReason) {
 
         ExceptionHandlerModel {
             handledExceptionTypes = List.copyOf(handledExceptionTypes);

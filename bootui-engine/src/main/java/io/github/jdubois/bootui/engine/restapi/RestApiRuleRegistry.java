@@ -36,12 +36,15 @@ final class RestApiRuleRegistry {
             new ResponseStatusIgnoredWithResponseEntityRule(),
             new CreatedResponsesExposeLocationRule(),
             new HeadHandlersDoNotReturnBodiesRule(),
+            new ResponseStatusReasonOnBodyHandlersRule(),
+            new OptionalReadsMapAbsenceRule(),
             // Input validation & binding
             new RequestBodyIsValidatedRule(),
             new NoMassAssignmentViaEntitiesRule(),
             new OptionalPrimitiveRequestParamRule(),
             new UnboundedMapRequestParamRule(),
             new IdempotencyKeyOnCreationEndpointsRule(),
+            new SingleRequestBodyRule(),
             // DTO & payload contracts
             new NoEntitiesInResponsesRule(),
             new NoUntypedResponseBodiesRule(),
@@ -58,6 +61,7 @@ final class RestApiRuleRegistry {
             new PatchUsesPatchMediaTypeRule(),
             new ResponseProducingEndpointsDeclareProducesRule(),
             new MixedVersioningStrategiesRule(),
+            new BodylessHandlersDoNotRequireContentTypeRule(),
             // Error handling & documentation
             new CentralizedExceptionHandlingRule(),
             new NoBroadThrowsOnHandlersRule(),

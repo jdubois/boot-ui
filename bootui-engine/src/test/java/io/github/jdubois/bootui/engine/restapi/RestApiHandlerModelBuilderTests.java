@@ -99,10 +99,6 @@ class RestApiHandlerModelBuilderTests {
         HandlerMethodModel count = handler(model, "count");
         assertThat(count.bodyIsScalar()).isTrue();
         assertThat(count.returnsCollection()).isFalse();
-
-        HandlerMethodModel find = handler(model, "find");
-        assertThat(find.declaresBroadThrows()).isTrue();
-        assertThat(find.bodyExposesSetters()).isTrue();
     }
 
     @Test

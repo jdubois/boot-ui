@@ -652,8 +652,40 @@ public final class RestApiRuleAccuracyFixtures {
             return null;
         }
 
-        @GetMapping(value = "/same-condition", headers = "X-Api-Key=fixture-value-not-for-output")
+        @GetMapping(
+                value = {"/same-condition", "/other-condition"},
+                headers = "X-Api-Key=fixture-value-not-for-output")
         public Payload second() {
+            return null;
+        }
+    }
+
+    /** Spring rejects identical mappings at startup, so both cannot be registered in a running context. */
+    @RestController
+    public static class StartupRejectedDuplicate {
+        @GetMapping("/profile-alternative")
+        public Payload devVariant() {
+            return null;
+        }
+
+        @GetMapping("/profile-alternative")
+        public Payload prodVariant() {
+            return null;
+        }
+    }
+
+    /** A shared HTTP method across different method sets registers, then fails as ambiguous at request time. */
+    @RestController
+    public static class OverlappingMethodSets {
+        @RequestMapping(
+                path = "/overlap",
+                method = {RequestMethod.GET, RequestMethod.POST})
+        public Payload any() {
+            return null;
+        }
+
+        @GetMapping("/overlap")
+        public Payload read() {
             return null;
         }
     }
