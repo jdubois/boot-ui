@@ -308,12 +308,12 @@ class SourceLocatorTests {
                         "com.example.Order",
                         Path.of("/r/shop/target/classes/com/example/Order.class")
                                 .toUri()))
-                .contains(new LocalSourceModule(Path.of("/r/shop"), false, "main"));
+                .contains(new LocalSourceModule(Path.of("/r/shop").toAbsolutePath(), false, "main"));
         assertThat(LocalSourceModule.of(
                         "com.example.Order",
                         Path.of("/r/svc/build/classes/kotlin/test/com/example/Order.class")
                                 .toUri()))
-                .contains(new LocalSourceModule(Path.of("/r/svc"), true, "test"));
+                .contains(new LocalSourceModule(Path.of("/r/svc").toAbsolutePath(), true, "test"));
         assertThat(LocalSourceModule.of(
                         "com.example.Order",
                         Path.of("/r/shop/target/classes/other/Order.class").toUri()))
