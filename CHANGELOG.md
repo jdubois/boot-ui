@@ -60,7 +60,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   logging/tracing, OpenTelemetry, Brave, Zipkin and Wavefront keys, RabbitMQ `retry.max-attempts`, Kafka
   `backoff.random`, `spring.jackson.parser`/`generator`, and template-engine `*.enabled` switches. SPRING-WIRING-007
   no longer claims Framework 7.0 deprecates `RestTemplate` (the deprecation lands in 7.1). The advisor now ships 41
-  rules ([Spring checks](docs/SPRING-CHECKS.md), #PR_NUMBER).
+  rules ([Spring checks](docs/SPRING-CHECKS.md), #1164).
 
 - **One request slow threshold on every stack.** `bootui.activity.request-slow-threshold-ms` (default 1,000 ms) is now
   honored by Spring WebFlux and Quarkus as well as Spring MVC. It sets the `SLOW` severity of Live Activity `REQUEST`
@@ -106,7 +106,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `include-stacktrace` to `always`, which made SPRING-WEB-004 report three MEDIUM findings on every IDE run. Those
   defaults are now ignored like BootUI's own Actuator defaults; values the application configures are still reported.
   SPRING-WEB-004 and SPRING-MGMT-003 also accept every spelling Boot's lenient enum binding accepts, such as
-  `ON_PARAM` or `whenauthorized`, instead of reporting an analysis error (#PR_NUMBER).
+  `ON_PARAM` or `whenauthorized`, instead of reporting an analysis error (#1164).
 
 - **Live Activity durable persistence stores a failed or slow entry once, including a slow `4xx` request.**
   Persistence remembers the entries it stored in a bounded window. An entry that newer entries pushed out of Spring
