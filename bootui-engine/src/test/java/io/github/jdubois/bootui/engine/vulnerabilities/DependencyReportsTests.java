@@ -438,12 +438,17 @@ class DependencyReportsTests {
     }
 
     @Test
-    void parseScoreReturnsNullForACvss40VectorRatherThanGuessing() {
-        // No closed-form v4.0 Base Score equation exists (see CvssV3BaseScore's class Javadoc); callers
-        // fall back to the database_specific.severity label for these advisories.
+    void parseScoreScoresTypedCvss40VectorsOnly() {
+        // GHSA-3pxv-7cmr-fjr4 (log4j-core), published by GitHub as MODERATE.
         assertThat(DependencyReports.parseScore(
                         "CVSS_V4", "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:N/SC:N/SI:L/SA:N"))
+                .isEqualTo(6.9d);
+        assertThat(DependencyReports.parseScore(
+                        "CVSS_V3", "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:N/SC:N/SI:L/SA:N"))
                 .isNull();
+        assertThat(DependencyReports.parseScore("CVSS_V4", "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"))
+                .isNull();
+        assertThat(DependencyReports.parseScore("CVSS_V4", "6.9")).isNull();
     }
 
     @Test

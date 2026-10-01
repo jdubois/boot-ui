@@ -245,17 +245,22 @@ public final class DependencyReports {
      * Parses a supported OSV severity entry into a numeric Base Score.
      *
      * <p>Per the <a href="https://ossf.github.io/osv-schema/">OSV schema</a>, {@code type} identifies how
-     * {@code score} must be interpreted. This method computes only {@code CVSS_V3} entries carrying a
-     * prefixed CVSS v3.0/v3.1 vector via {@link CvssV3BaseScore}; CVSS v2/v4 and provider-specific score
-     * types are left to the caller's database-specific severity fallback.
+     * {@code score} must be interpreted. This method computes {@code CVSS_V3} entries carrying a prefixed
+     * CVSS v3.0/v3.1 vector via {@link CvssV3BaseScore} (Base score) and {@code CVSS_V4} entries carrying a
+     * {@code CVSS:4.0/} vector via {@link CvssV4Score} (the vector's score as published); CVSS v2 and
+     * provider-specific score types are left to the caller's database-specific severity fallback. Scores of
+     * different CVSS versions are not comparable, so callers must not take a maximum across them.
      *
-     * @return the Base Score, or {@code null} if it can't be determined from {@code type}/{@code value}
+     * @return the score, or {@code null} if it can't be determined from {@code type}/{@code value}
      */
     public static Double parseScore(String type, String value) {
-        if (!"CVSS_V3".equals(type) || value == null) {
+        if (value == null) {
             return null;
         }
-        return CvssV3BaseScore.baseScore(value);
+        if ("CVSS_V3".equals(type)) {
+            return CvssV3BaseScore.baseScore(value);
+        }
+        return "CVSS_V4".equals(type) ? CvssV4Score.score(value) : null;
     }
 
     /**

@@ -2,7 +2,9 @@ package io.github.jdubois.bootui.quarkus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.core.dto.DependencyCoverageDto;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
+import io.github.jdubois.bootui.engine.vulnerabilities.DependencyInventory;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -83,5 +85,73 @@ class QuarkusDependencyProviderTest {
     @Test
     void returnsEmptyWhenTheKeyIsBlank() {
         assertThat(dependencies("   ")).isEmpty();
+    }
+
+    @Test
+    void aWhollyDecodedModelReportsCompleteCoverage() {
+        DependencyInventory inventory = inventory(Map.of(
+                QuarkusDependencyProvider.DEPENDENCIES_KEY, "org.acme:widget:1.0.0,,io.quarkus:quarkus-arc:3.20.0"));
+
+        assertThat(inventory.dependencies()).hasSize(2);
+        assertThat(inventory.coverage().status()).isEqualTo(DependencyCoverageDto.COMPLETE);
+        assertThat(inventory.coverage().archivesIdentified()).isEqualTo(2);
+    }
+
+    @Test
+    void aMissingOrBlankModelReportsUnavailableRatherThanCompleteCoverage() {
+        assertThat(new QuarkusDependencyProvider(StubConfig.empty())
+                        .inventory()
+                        .coverage()
+                        .status())
+                .isEqualTo(DependencyCoverageDto.UNAVAILABLE);
+        assertThat(inventory(Map.of(QuarkusDependencyProvider.DEPENDENCIES_KEY, "  "))
+                        .coverage()
+                        .status())
+                .isEqualTo(DependencyCoverageDto.UNAVAILABLE);
+    }
+
+    @Test
+    void aMalformedEntryKeepsTheReadableDependenciesButReportsUnavailableCoverage() {
+        DependencyInventory inventory =
+                inventory(Map.of(QuarkusDependencyProvider.DEPENDENCIES_KEY, "org.acme:widget:1.0.0,not-a-coordinate"));
+
+        assertThat(inventory.dependencies())
+                .extracting(DependencyDto::packageName)
+                .containsExactly("org.acme:widget");
+        assertThat(inventory.coverage().status()).isEqualTo(DependencyCoverageDto.UNAVAILABLE);
+    }
+
+    @Test
+    void coordinatesSkippedAtBuildTimeReportUnavailableCoverage() {
+        String raw = "org.acme:widget:1.0.0";
+
+        assertThat(inventory(Map.of(
+                                QuarkusDependencyProvider.DEPENDENCIES_KEY,
+                                raw,
+                                QuarkusDependencyProvider.SKIPPED_KEY,
+                                "2"))
+                        .coverage()
+                        .status())
+                .isEqualTo(DependencyCoverageDto.UNAVAILABLE);
+        assertThat(inventory(Map.of(
+                                QuarkusDependencyProvider.DEPENDENCIES_KEY,
+                                raw,
+                                QuarkusDependencyProvider.SKIPPED_KEY,
+                                "unreadable"))
+                        .coverage()
+                        .status())
+                .isEqualTo(DependencyCoverageDto.UNAVAILABLE);
+        assertThat(inventory(Map.of(
+                                QuarkusDependencyProvider.DEPENDENCIES_KEY,
+                                raw,
+                                QuarkusDependencyProvider.SKIPPED_KEY,
+                                "0"))
+                        .coverage()
+                        .status())
+                .isEqualTo(DependencyCoverageDto.COMPLETE);
+    }
+
+    private static DependencyInventory inventory(Map<String, String> config) {
+        return new QuarkusDependencyProvider(new StubConfig(config)).inventory();
     }
 }

@@ -64,8 +64,8 @@ public record DependencyCoverageDto(
     }
 
     /**
-     * Coverage for a provider whose inventory is authoritative by construction &mdash; for example Quarkus,
-     * which reads the fully-resolved build-time application model rather than probing the classpath.
+     * Coverage for a provider whose inventory is complete by construction &mdash; for example Quarkus, when it
+     * read a wholly decoded build-time application model rather than probing the classpath.
      *
      * @param identified the number of resolved dependencies in the inventory
      */
