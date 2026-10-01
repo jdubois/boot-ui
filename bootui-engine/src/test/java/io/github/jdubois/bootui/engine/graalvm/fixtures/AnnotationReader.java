@@ -2,7 +2,7 @@ package io.github.jdubois.bootui.engine.graalvm.fixtures;
 
 import java.lang.reflect.Method;
 
-/** Triggers GRAAL-REFLECT-004 by reading annotations from a reflected member. */
+/** Reads member annotations only; the retired GRAAL-REFLECT-004 must not reappear in any active check. */
 public class AnnotationReader {
 
     public boolean deprecated(Method method) {

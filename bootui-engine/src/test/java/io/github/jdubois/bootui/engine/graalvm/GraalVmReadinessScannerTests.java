@@ -80,8 +80,7 @@ class GraalVmReadinessScannerTests {
                 .contains(
                         "GRAAL-REFLECT-001",
                         "GRAAL-REFLECT-002",
-                        "GRAAL-REFLECT-003",
-                        "GRAAL-REFLECT-004",
+                        "GRAAL-REFLECT-006",
                         "GRAAL-PROXY-001",
                         "GRAAL-RES-001",
                         "GRAAL-RES-002",
@@ -93,6 +92,10 @@ class GraalVmReadinessScannerTests {
                         "SPRING-AOT-002",
                         "SPRING-AOT-003",
                         "SPRING-AOT-005",
+                        "SPRING-AOT-006",
+                        "SPRING-AOT-007",
+                        "SPRING-AOT-008",
+                        "GRAAL-JDK-003",
                         "GRAAL-NATIVE-001",
                         "GRAAL-NATIVE-002");
         assertThat(report.findings().stream().map(GraalVmFindingDto::severity).toList())
