@@ -1505,6 +1505,10 @@ analyze button, busy state, or read-only toggle. Opening it starts no capture, s
   cached until the journal records more or a panel's enablement changes.
 - `GET /bootui/api/runtime-insights/insights/{id}` returns one observation's evidence: at most 20 rows and the count left
   out. Ids are `kind:hash`, stable across refreshes and restarts.
+- `notExercised` lists, up to 100, the declared application routes no request of this run reached, counted from the
+  run's aggregates so an evicted request still counts; framework endpoints and catch-all patterns are left out.
+- Live Activity links to the slowest route's breakdown under its KPIs, and a request's drawer loads **Why this route is
+  slow** on demand. **Export JSON** saves the report client-side.
 - Each observation carries a status (`OBSERVED`, `INSUFFICIENT`, or `PARTIAL`), one sentence naming what was counted,
   the eligible and affected request counts, the correlation tier it relies on, one to three conditional checks, up to
   three exemplar request ids, and limitations. No severity, score, or Overview contribution.
@@ -2733,7 +2737,7 @@ Initial endpoints:
 | `/bootui/api/activity/journal`               | GET    | The runtime journal's status: retained events and bytes against their bounds, events recorded and dropped per source, and the previous runs whose summaries are kept |
 | `/bootui/api/activity/journal/clear`         | POST   | **Clear recording**: drop the run's recorded events and aggregates (confirmation-gated, blocked by read-only policy) |
 | `/bootui/api/activity/resources`             | GET    | The run's resource track and CPU ledger: one point per sweep (process CPU split into requests, thread families, and the JVM's own work; heap; allocation; threads) and the run's totals, or why the sampler does not run |
-| `/bootui/api/runtime-insights`               | GET    | Runtime Insights: the journal's retained events projected into observations, with the window, per-source correlation coverage, each check's status, and limitations |
+| `/bootui/api/runtime-insights`               | GET    | Runtime Insights: the journal's retained events projected into observations, with the window, per-source correlation coverage, each check's status, limitations, and the declared routes not exercised in this run |
 | `/bootui/api/runtime-insights/insights/{id}` | GET    | One observation by its stable id, with up to 20 evidence rows and how many were left out; an unknown id answers unavailable |
 | `/bootui/api/email`                          | GET    | Captured outgoing email summaries and content-policy status                             |
 | `/bootui/api/kafka`                          | GET    | Bounded Kafka producer and consumer activity                                            |

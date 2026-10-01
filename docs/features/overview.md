@@ -531,6 +531,8 @@ the feed stays visible underneath. The viewport adapts to the graph's content, u
 
 ## Runtime Insights
 
+![Runtime Insights: a route's warm requests split into authentication, SQL, and response write, with what to check and the evidence](../images/bootui-runtime-insights.webp)
+
 **Runtime Insights** answers what this run did that no single panel shows. It reads the
 [runtime journal](#runtime-journal) and projects its retained events into observations: each one names what was counted
 on a route, never a cause, a severity, or a score. Opening the panel starts no capture, scan, database read, or network
@@ -562,6 +564,14 @@ three exemplar request ids to open in Live Activity, and at most 20 evidence row
 The header states the window the journal retains, and a coverage strip shows how each source's events are linked to a
 request: by request id, by execution id, by trace id, or not at all. `bootui.runtime-insights.ai-token-threshold` sets
 the tokens of one model call above which AI usage reports its route from that call alone.
+
+**Not exercised in this run** lists the application's declared routes that no request of this run reached, so nothing
+in the panel is mistaken for a verdict on a route that never ran. Framework endpoints, such as the error controller and
+Actuator, and catch-all patterns are left out. **Export JSON** saves the report as the panel received it, with no new
+request.
+
+Live Activity links here in two places. Under its KPIs, **Why is … slow?** opens the slowest route's time breakdown. In
+a request's drawer, **Why this route is slow** loads that route's breakdown on demand and links to it.
 
 The panel is available while the runtime journal is enabled (`bootui.runtime-journal.enabled`), on Spring MVC, Spring
 WebFlux, and Quarkus. Where a stack lacks a fact, the observations that need it say so: WebFlux marks no request phases,

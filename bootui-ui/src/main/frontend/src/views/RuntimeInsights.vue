@@ -1,5 +1,6 @@
 <script setup>
 import {computed, ref, watch} from 'vue'
+import {useRoute} from 'vue-router'
 import {getJson} from '../api.js'
 import {formatClockTime, formatNumber} from '../utils/format.js'
 import {describeLoadError} from '../utils/loadError.js'
@@ -27,9 +28,11 @@ const {manifestAvailable, manifestUnavailableReason} = usePanelState(props)
 const report = ref(null)
 const error = ref(null)
 const lastFetched = ref(null)
-const query = ref('')
+// Live Activity links here with ?q=<route> and, from a request's drawer, ?insight=<id> to open one observation.
+const route = useRoute()
+const query = ref(typeof route?.query?.q === 'string' ? route.query.q : '')
 const theme = ref('')
-const selectedId = ref(null)
+const selectedId = ref(typeof route?.query?.insight === 'string' ? route.query.insight : null)
 const detail = ref(null)
 const detailError = ref(null)
 const detailLoading = ref(false)
@@ -63,6 +66,7 @@ const selected = computed(() => visibleObservations.value.find((observation) => 
 watch(
   visibleObservations,
   (observations) => {
+    if (!report.value) return
     if (!observations.some((observation) => observation.id === selectedId.value)) {
       selectedId.value = observations[0]?.id ?? null
     }
@@ -87,6 +91,17 @@ watch(selected, async (observation, previous) => {
     detailLoading.value = false
   }
 })
+
+// The report as the engine projected it, saved by the browser: no request is made.
+function exportJson() {
+  const blob = new Blob([JSON.stringify(report.value, null, 2)], {type: 'application/json'})
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `runtime-insights-${report.value?.window?.runId ?? 'report'}.json`
+  link.click()
+  URL.revokeObjectURL(url)
+}
 
 function toggleTheme(id) {
   theme.value = theme.value === id ? '' : id
@@ -135,7 +150,19 @@ const windowText = computed(() => {
       :last-fetched="lastFetched"
       v-model:auto-refresh="autoRefresh"
       @refresh="load"
-    />
+    >
+      <template #actions>
+        <button
+          v-if="report?.available"
+          type="button"
+          class="btn btn-sm btn-outline-secondary insight-export"
+          title="Download this report as JSON"
+          @click="exportJson"
+        >
+          <i class="bi bi-download me-1" aria-hidden="true"></i>Export JSON
+        </button>
+      </template>
+    </PanelHeader>
 
     <PanelSkeleton v-if="initialLoading && manifestAvailable" />
 
@@ -379,6 +406,27 @@ const windowText = computed(() => {
             </ul>
           </div>
         </section>
+
+        <section
+          v-if="report.notExercised?.length"
+          class="card insight-not-exercised mt-3"
+          aria-labelledby="insight-not-exercised-title"
+        >
+          <div class="card-body">
+            <h2 id="insight-not-exercised-title" class="h6 mb-1">Not exercised in this run</h2>
+            <p class="small text-muted mb-2">
+              Declared routes no request of this run reached, so nothing above speaks for them.
+            </p>
+            <ul class="list-unstyled small mb-0 insight-not-exercised-list">
+              <li v-for="declared in report.notExercised" :key="declared">
+                <code class="bootui-break-anywhere">{{ declared }}</code>
+              </li>
+            </ul>
+            <p v-if="report.notExercisedOmitted > 0" class="small text-muted mb-0 mt-2">
+              {{ formatNumber(report.notExercisedOmitted) }} more routes not listed.
+            </p>
+          </div>
+        </section>
       </template>
     </template>
   </div>
@@ -387,6 +435,11 @@ const windowText = computed(() => {
 <style scoped>
 .insight-search {
   max-width: 22rem;
+}
+
+.insight-not-exercised-list {
+  columns: 2 22rem;
+  column-gap: 1.25rem;
 }
 
 .insight-coverage-bar {

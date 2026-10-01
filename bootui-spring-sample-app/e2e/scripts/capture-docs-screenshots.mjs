@@ -97,6 +97,7 @@ const panelOrder = [
   ['ai', 'AI Framework'],
   ['cache', 'Cache'],
   ['activity', 'Live Activity'],
+  ['runtime-insights', 'Runtime Insights'],
   ['traces', 'Traces'],
   ['log-tail', 'Log Tail'],
   ['exceptions', 'Exceptions'],
@@ -4122,6 +4123,157 @@ const sqlTraceInsights = {
 
 const activityRequestId = 'act-req-1'
 
+const insightCheck = (kind, title, eligibleRequests, findings, status = 'EVALUATED', reason = null) => ({
+  kind,
+  title,
+  status,
+  eligibleRequests,
+  findings,
+  reason
+})
+
+const runtimeInsightsReport = {
+  available: true,
+  unavailableReason: null,
+  window: {
+    runId: 'run-3',
+    firstEventAt: nowMillis - 9 * 60_000,
+    lastEventAt: nowMillis - 4_000,
+    retainedEvents: 18412,
+    requests: 1240,
+    evictedEvents: 0,
+    droppedEvents: 0
+  },
+  coverage: [
+    {source: 'sql', events: 9620, byRequestId: 9410, byExecutionId: 160, byTraceId: 0, unlinked: 50, dropped: 0},
+    {source: 'connection', events: 2480, byRequestId: 2440, byExecutionId: 32, byTraceId: 0, unlinked: 8, dropped: 0},
+    {source: 'http', events: 1240, byRequestId: 1240, byExecutionId: 0, byTraceId: 0, unlinked: 0, dropped: 0},
+    {source: 'transaction', events: 1180, byRequestId: 1150, byExecutionId: 30, byTraceId: 0, unlinked: 0, dropped: 0},
+    {source: 'rest-client', events: 310, byRequestId: 304, byExecutionId: 6, byTraceId: 0, unlinked: 0, dropped: 0},
+    {source: 'ai', events: 96, byRequestId: 0, byExecutionId: 0, byTraceId: 96, unlinked: 0, dropped: 0},
+    {source: 'log', events: 42, byRequestId: 31, byExecutionId: 2, byTraceId: 0, unlinked: 9, dropped: 0}
+  ],
+  checks: [
+    insightCheck('route-time-breakdown', 'Route time breakdown', 1220, 9),
+    insightCheck('exception-hotspots', 'Exception hotspots', 1240, 2),
+    insightCheck('errors-behind-2xx', 'Errors behind 2xx responses', 1108, 1),
+    insightCheck('repeated-selects', 'Repeated SELECTs', 1240, 1),
+    insightCheck('connections-per-request', 'Connections per request', 1240, 1),
+    insightCheck('safe-method-dml', 'Writes in GET requests', 980, 0),
+    insightCheck('split-transaction-writes', 'Writes split across transactions', 210, 0),
+    insightCheck('transaction-across-remote-call', 'Transactions open across remote calls', 96, 1),
+    insightCheck('lazy-sql-after-handler', 'SQL after the handler returned', 1240, 0),
+    insightCheck(
+      'event-loop-blocking',
+      'Blocking on event loops',
+      0,
+      0,
+      'NOT_APPLICABLE',
+      'Spring MVC serves requests on worker threads, not on event loops.'
+    ),
+    insightCheck('ai-usage-by-route', 'AI usage by route', 1240, 1),
+    insightCheck('framework-warnings-by-route', 'Framework warnings by route', 1240, 1)
+  ],
+  observations: [
+    {
+      id: 'route-time-breakdown:4c1f9a20b7',
+      kind: 'route-time-breakdown',
+      subject: 'GET /api/secure/products',
+      status: 'OBSERVED',
+      sentence:
+        '`GET /api/secure/products`: warm median 101 ms over 30 requests; Authentication 95 %, SQL 3 %, Response write 1 %. First request 412 ms (cold).',
+      eligible: 30,
+      affected: 30,
+      minimumTier: 'REQUEST_ID',
+      whatToCheck: [
+        'Most of the time is authentication: check how credentials are verified.',
+        'Open the slowest exemplar request in Live Activity to see its timeline.'
+      ],
+      exemplarRequestIds: ['8f2c4be19d7a3e61', '1a77c0de5b9f2e30', 'c4e9a1f0b7d26853'],
+      evidenceRows: 5,
+      limitations: []
+    },
+    {
+      id: 'route-time-breakdown:0b9e7d1c55',
+      kind: 'route-time-breakdown',
+      subject: 'GET /api/sample/products',
+      status: 'OBSERVED',
+      sentence: '`GET /api/sample/products`: warm median 11 ms over 412 requests; SQL 61 %, Handler, other work 24 %.',
+      eligible: 412,
+      affected: 412,
+      minimumTier: 'REQUEST_ID',
+      whatToCheck: ['Most of the time is SQL: compare its statements in SQL Trace, and see Repeated SELECTs.'],
+      exemplarRequestIds: ['5d0e8c2a91f7b436'],
+      evidenceRows: 6,
+      limitations: []
+    },
+    {
+      id: 'repeated-selects:7ec8a0575e',
+      kind: 'repeated-selects',
+      subject: 'GET /api/owners/{id}',
+      status: 'OBSERVED',
+      sentence:
+        '`GET /api/owners/{id}` ran `select * from pet where owner_id = ?` 5 or more times after another statement in 18 of 24 requests, up to 40 times in one.',
+      eligible: 24,
+      affected: 18,
+      minimumTier: 'REQUEST_ID',
+      whatToCheck: ['If each row loads its own children, fetch them with the parent in one query.'],
+      exemplarRequestIds: ['9b3d1e7f24a0c865'],
+      evidenceRows: 18,
+      limitations: []
+    },
+    {
+      id: 'connections-per-request:2d8f61a9c3',
+      kind: 'connections-per-request',
+      subject: 'POST /api/orders',
+      status: 'OBSERVED',
+      sentence: '`POST /api/orders` held 2 connections of `dataSource` at the same time in 12 of 40 requests.',
+      eligible: 40,
+      affected: 12,
+      minimumTier: 'REQUEST_ID',
+      whatToCheck: ['If a nested transaction opens its own connection, check that the pool can hold both per request.'],
+      exemplarRequestIds: ['e1f04c7b9a2d6538'],
+      evidenceRows: 12,
+      limitations: []
+    },
+    {
+      id: 'ai-usage-by-route:6a2e0f9b14',
+      kind: 'ai-usage-by-route',
+      subject: 'POST /api/chat',
+      status: 'OBSERVED',
+      sentence:
+        '`POST /api/chat` made 96 AI operations in 24 of 24 requests: 72 model calls, up to 5 in one request, a median 840 ms each.',
+      eligible: 24,
+      affected: 24,
+      minimumTier: 'TRACE_ID',
+      whatToCheck: [
+        'Several model calls in one request suggest an agent or tool loop: check that it ends and caps its iterations.'
+      ],
+      exemplarRequestIds: ['7a19c3e0f5b2d846'],
+      evidenceRows: 20,
+      limitations: []
+    }
+  ],
+  limitations: [],
+  notExercised: ['DELETE /api/orders/{id}', 'PUT /api/owners/{id}', 'POST /api/sample/mail'],
+  notExercisedOmitted: 0
+}
+
+const runtimeInsightDetail = {
+  available: true,
+  unavailableReason: null,
+  observation: runtimeInsightsReport.observations[0],
+  columns: ['Phase', 'Total (ms)', 'Share', 'Median per request (ms)'],
+  rows: [
+    {cells: ['Authentication', '2878', '95 %', '96']},
+    {cells: ['Other filters', '18', '1 %', '0.6']},
+    {cells: ['Connection wait', '3.0', '0 %', '0.1']},
+    {cells: ['SQL', '91', '3 %', '3.0']},
+    {cells: ['Response write', '30', '1 %', '1.0']}
+  ],
+  truncated: 0
+}
+
 const activityReport = {
   available: true,
   entries: [
@@ -6083,6 +6235,16 @@ const screenshots = [
       await page.getByText('Cache hit ratio').waitFor()
     }
   ],
+  [
+    'runtime-insights',
+    'Runtime Insights',
+    'bootui-runtime-insights.webp',
+    async (page) => {
+      await page.locator('.insight-item', {hasText: '/api/secure/products'}).click()
+      await page.locator('#insight-sentence', {hasText: 'warm median 101 ms'}).waitFor()
+      await page.locator('.insight-evidence').getByText('Authentication').waitFor()
+    }
+  ],
   ['traces', 'Traces', 'bootui-traces.webp', waitForText('/api/chat')],
   ['log-tail', 'Log Tail', 'bootui-log-tail.webp', waitForText('Started BootUI sample application')],
   [
@@ -6637,6 +6799,8 @@ async function handleApiRoute(route) {
   if (endpoint === 'exceptions') return fulfillJson(route, exceptions)
   if (endpoint === 'activity/service-map') return fulfillJson(route, activityServiceMap)
   if (endpoint === 'activity') return fulfillJson(route, activityReport)
+  if (endpoint === 'runtime-insights') return fulfillJson(route, runtimeInsightsReport)
+  if (endpoint.startsWith('runtime-insights/insights/')) return fulfillJson(route, runtimeInsightDetail)
   if (endpoint === `activity/request/${activityRequestId}`) return fulfillJson(route, activityProfile)
   if (endpoint.startsWith('exceptions/'))
     return fulfillJson(route, exceptionDetail(endpoint.slice('exceptions/'.length)))

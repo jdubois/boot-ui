@@ -1648,6 +1648,13 @@ public abstract class AbstractBootUiApiConformanceTest {
                     && coverage.path("byRequestId").asLong() > 0;
         }
         assertThat(httpCovered).as("HTTP events are linked by request id").isTrue();
+        for (JsonNode route : report.path("notExercised")) {
+            assertThat(route.asText())
+                    .as("a route not exercised is a METHOD route label, never a BootUI or framework endpoint")
+                    .matches("[A-Z]+ /.*")
+                    .doesNotContain("/bootui")
+                    .doesNotContain("*");
+        }
     }
 
     @Test

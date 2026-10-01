@@ -275,6 +275,22 @@ public final class JournalAggregates implements JournalListener {
     }
 
     /** An immutable copy of every aggregate. */
+    /**
+     * The route labels of the requests this run completed, such as {@code GET /api/orders/{id}}, without copying their
+     * statistics, and whether more routes were seen than {@value #MAX_ROUTES} kept.
+     */
+    public synchronized RouteLabels routeLabels() {
+        return new RouteLabels(Set.copyOf(routes.entries().keySet()), routes.overflowed() > 0);
+    }
+
+    /**
+     * The route labels of a run.
+     *
+     * @param labels the labels kept
+     * @param overflowed whether some routes were not kept
+     */
+    public record RouteLabels(Set<String> labels, boolean overflowed) {}
+
     public synchronized AggregatesSnapshot snapshot() {
         List<RouteStats> routeStats = new ArrayList<>();
         routes.entries().forEach((key, route) -> routeStats.add(route.stats(key)));

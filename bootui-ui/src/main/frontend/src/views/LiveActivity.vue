@@ -1,5 +1,5 @@
 <script setup>
-import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {computed, defineAsyncComponent, inject, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import {useRoute} from 'vue-router'
 import {apiFetch} from '../api.js'
 import PanelHeader from './components/PanelHeader.vue'
@@ -7,6 +7,7 @@ import PanelSkeleton from './components/PanelSkeleton.vue'
 import UnavailableState from './components/UnavailableState.vue'
 import FlashBanner from './components/FlashBanner.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
+import {insightsUsable} from '../utils/insightsPanel.js'
 import RequestJournalProfile from './components/RequestJournalProfile.vue'
 import RuntimeJournalStatus from './components/RuntimeJournalStatus.vue'
 import RuntimeResources from './components/RuntimeResources.vue'
@@ -282,6 +283,14 @@ const slowestEndpointLink = computed(() => {
   return k.slowestEndpointRouteId
     ? {path: '/http-exchanges', query: {route: k.slowestEndpointRouteId, rank: 'maxDurationMs'}}
     : {path: '/http-exchanges', query: {q: k.slowestEndpoint}}
+})
+
+// The slowest route's time breakdown in Runtime Insights, when that panel can be opened.
+const panels = inject('panels', ref(null))
+const whySlowLink = computed(() => {
+  const routeId = kpis.value?.slowestEndpointRouteId
+  if (!routeId || !insightsUsable(panels.value)) return null
+  return {path: '/runtime-insights', query: {q: routeId}}
 })
 
 const slowestEndpointTitle = computed(() => {
@@ -1057,6 +1066,11 @@ function toggleFlow() {
           </router-link>
         </div>
       </div>
+      <p v-if="available && whySlowLink" class="small mb-3 activity-why-slow">
+        <router-link :to="whySlowLink">
+          Why is <code>{{ kpis.slowestEndpointRouteId }}</code> slow? Open its time breakdown in Runtime Insights
+        </router-link>
+      </p>
 
       <section class="activity-flow mb-3" aria-labelledby="activity-flow-title">
         <div class="activity-flow__header">

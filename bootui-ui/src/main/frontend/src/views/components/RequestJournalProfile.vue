@@ -2,6 +2,7 @@
 import {computed} from 'vue'
 
 import {formatBytes, formatDuration, formatNumber} from '../../utils/format.js'
+import RouteWhySlow from './RouteWhySlow.vue'
 
 // The runtime journal's view of one request (docs/PLAN-v2.md §5.3, §5.11): its work on one timeline, the collections
 // that completed while it ran, the CPU time and memory it used, how it compares with its route, and what it touched.
@@ -114,6 +115,7 @@ function itemTitle(item) {
           <dd class="col-8">{{ resourcesSummary }}</dd>
         </template>
       </dl>
+      <RouteWhySlow v-if="profile.route" :route="profile.route" />
 
       <h4 class="h6 small text-muted mb-1">Timeline</h4>
       <p v-if="!timeline.length && !gcPauses.length" class="small text-muted">No work of this request was recorded.</p>

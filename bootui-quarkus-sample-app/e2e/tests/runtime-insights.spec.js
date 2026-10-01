@@ -30,6 +30,8 @@ test.describe('Runtime Insights view', () => {
     await expect(detail.getByRole('heading', {name: 'What to check'})).toBeVisible()
     await expect(detail.locator('.insight-evidence')).toContainText('Phase')
 
+    await expect(page.getByRole('button', {name: 'Export JSON'})).toBeVisible()
+
     await page.locator('.insight-search').fill('no-such-route-xyz')
     await expect(page.getByText('No observation matches this search.')).toBeVisible()
   })

@@ -50,6 +50,11 @@ public final class DeclaredRouteTemplates {
         return RouteTemplateResolver.caching(() -> mappings(mappings));
     }
 
+    /** The declared routes themselves, under the application's mount, read on each call. */
+    public static Supplier<List<MappingDto>> declared(Instance<? extends MappingProvider> mappings) {
+        return mappings == null ? List::of : () -> mappings(mappings);
+    }
+
     private static List<MappingDto> mappings(Instance<? extends MappingProvider> mappings) {
         if (!mappings.isResolvable()) {
             return List.of();

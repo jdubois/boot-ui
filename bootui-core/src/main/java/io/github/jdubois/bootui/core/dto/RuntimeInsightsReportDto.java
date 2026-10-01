@@ -14,6 +14,9 @@ import java.util.List;
  * @param checks every observation kind, with whether it could run and over how many requests
  * @param observations what the checks found, most affected requests first
  * @param limitations what the report as a whole cannot see
+ * @param notExercised the application's declared routes no request of this run reached, such as
+ *     {@code DELETE /api/orders/{id}}, at most {@value #MAX_NOT_EXERCISED}
+ * @param notExercisedOmitted the declared routes not reached beyond those listed
  */
 public record RuntimeInsightsReportDto(
         boolean available,
@@ -22,9 +25,15 @@ public record RuntimeInsightsReportDto(
         List<RuntimeInsightCoverageDto> coverage,
         List<RuntimeInsightCheckDto> checks,
         List<RuntimeObservationDto> observations,
-        List<String> limitations) {
+        List<String> limitations,
+        List<String> notExercised,
+        int notExercisedOmitted) {
+
+    /** The declared routes not reached that a report lists at most. */
+    public static final int MAX_NOT_EXERCISED = 100;
 
     public RuntimeInsightsReportDto {
+        notExercised = DtoCollections.immutableCopy(notExercised);
         coverage = DtoCollections.immutableCopy(coverage);
         checks = DtoCollections.immutableCopy(checks);
         observations = DtoCollections.immutableCopy(observations);

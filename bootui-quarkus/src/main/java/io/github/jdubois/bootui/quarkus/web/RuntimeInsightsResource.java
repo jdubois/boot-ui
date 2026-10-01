@@ -9,6 +9,7 @@ import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
+import io.github.jdubois.bootui.spi.MappingProvider;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
@@ -34,6 +35,7 @@ public class RuntimeInsightsResource {
             Instance<RuntimeJournal> journal,
             Instance<JournalAggregates> aggregates,
             QuarkusPanelAvailability panelAvailability,
+            Instance<MappingProvider> mappings,
             Config config) {
         JournalAggregates journalAggregates = aggregates.isResolvable() ? aggregates.get() : null;
         this.insights = new RuntimeInsightsService(
@@ -45,6 +47,9 @@ public class RuntimeInsightsResource {
                 config.getOptionalValue("bootui.runtime-insights.ai-token-threshold", Long.class)
                         .filter(threshold -> threshold > 0)
                         .orElse(AiUsageByRoute.DEFAULT_TOKEN_THRESHOLD));
+        if (journalAggregates != null) {
+            this.insights.setDeclaredRoutes(DeclaredRouteTemplates.declared(mappings), journalAggregates::routeLabels);
+        }
     }
 
     @GET

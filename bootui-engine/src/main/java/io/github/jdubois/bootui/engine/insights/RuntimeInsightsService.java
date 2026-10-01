@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.insights;
 
+import io.github.jdubois.bootui.core.dto.MappingDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCoverageDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
@@ -7,6 +8,7 @@ import io.github.jdubois.bootui.core.dto.RuntimeInsightsWindowDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationRowDto;
+import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalStatus;
@@ -16,9 +18,11 @@ import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -50,6 +54,8 @@ public final class RuntimeInsightsService {
     private final Supplier<List<RunSummary>> runs;
     private Cached cached;
     private volatile Function<String, Integer> poolSizes;
+    private volatile Supplier<List<MappingDto>> declaredMappings;
+    private volatile Supplier<JournalAggregates.RouteLabels> runRoutes;
     private String previousRunOf;
     private RunSummary previousRun;
 
@@ -116,6 +122,17 @@ public final class RuntimeInsightsService {
         return kind + ":" + InsightText.stableHash(key);
     }
 
+    /**
+     * Installs the application's declared routes and the route labels of every request this run completed, which
+     * together list the routes no request reached. Without them, the report lists none.
+     */
+    public synchronized void setDeclaredRoutes(
+            Supplier<List<MappingDto>> declaredMappings, Supplier<JournalAggregates.RouteLabels> runRoutes) {
+        this.declaredMappings = declaredMappings;
+        this.runRoutes = runRoutes;
+        this.cached = null;
+    }
+
     /** The observations of 2.0, in report order. */
     public static List<Observation> defaultObservations() {
         return defaultObservations(AiUsageByRoute.DEFAULT_TOKEN_THRESHOLD);
@@ -178,7 +195,8 @@ public final class RuntimeInsightsService {
                     -1,
                     -1,
                     0,
-                    new RuntimeInsightsReportDto(false, DISABLED, null, List.of(), List.of(), List.of(), List.of()),
+                    new RuntimeInsightsReportDto(
+                            false, DISABLED, null, List.of(), List.of(), List.of(), List.of(), List.of(), 0),
                     Map.of());
         }
         JournalStatus status = journal.status();
@@ -295,6 +313,7 @@ public final class RuntimeInsightsService {
             limitations.add("The journal evicted " + evicted + " older events, so requests before "
                     + "the oldest retained event are not projected.");
         }
+        List<String> notExercised = notExercised(snapshot, limitations);
         RuntimeInsightsReportDto report = new RuntimeInsightsReportDto(
                 true,
                 null,
@@ -309,8 +328,36 @@ public final class RuntimeInsightsService {
                 coverage,
                 checks,
                 rows,
-                limitations);
+                limitations,
+                notExercised.subList(0, Math.min(notExercised.size(), RuntimeInsightsReportDto.MAX_NOT_EXERCISED)),
+                Math.max(0, notExercised.size() - RuntimeInsightsReportDto.MAX_NOT_EXERCISED));
         return new Cached(watermark, evicted, visibility, report, details);
+    }
+
+    /**
+     * The declared routes no request of this run reached. The run's aggregates count every request, retained or
+     * evicted, so an evicted request still counts as reaching its route.
+     */
+    private List<String> notExercised(InsightsSnapshot snapshot, List<String> limitations) {
+        Supplier<List<MappingDto>> mappings = declaredMappings;
+        if (mappings == null) {
+            return List.of();
+        }
+        try {
+            Set<String> exercised = new HashSet<>(snapshot.byRoute().keySet());
+            Supplier<JournalAggregates.RouteLabels> run = runRoutes;
+            JournalAggregates.RouteLabels labels = run == null ? null : run.get();
+            if (labels != null) {
+                exercised.addAll(labels.labels());
+                if (labels.overflowed()) {
+                    limitations.add("This run reached more routes than its aggregates keep, so some routes listed as"
+                            + " not exercised may have been reached.");
+                }
+            }
+            return NotExercisedRoutes.of(mappings.get(), exercised);
+        } catch (RuntimeException ex) {
+            return List.of();
+        }
     }
 
     private static Long newest(List<JournalEntry> entries) {

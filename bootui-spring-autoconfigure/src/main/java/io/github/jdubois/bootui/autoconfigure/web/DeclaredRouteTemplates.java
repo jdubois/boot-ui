@@ -39,6 +39,11 @@ public final class DeclaredRouteTemplates {
         return RouteTemplateResolver.caching(() -> mappings(mappingProvider));
     }
 
+    /** The declared routes themselves, read on each call, or none without a mappings provider. */
+    public static Supplier<List<MappingDto>> declared(ObjectProvider<MappingProvider> mappingProvider) {
+        return mappingProvider == null ? List::of : () -> mappings(mappingProvider);
+    }
+
     private static List<MappingDto> mappings(ObjectProvider<MappingProvider> mappingProvider) {
         MappingProvider provider = mappingProvider.getIfAvailable();
         return provider == null || !provider.available() ? List.of() : provider.mappings();

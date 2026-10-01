@@ -1109,6 +1109,10 @@ describe('LiveActivity', () => {
         'Open GET /api/orders/{id}, the route of the slowest request (/api/orders/42), in HTTP Exchanges'
       )
       expect(wrapper.get('.activity-kpi-latency-samples').text()).toBe('over 7 retained requests')
+      expect(JSON.parse(wrapper.get('.activity-why-slow a').attributes('data-to'))).toEqual({
+        path: '/runtime-insights',
+        query: {q: 'GET /api/orders/{id}'}
+      })
     })
 
     it('falls back to a path search when an older server sends no route', async () => {
@@ -1132,6 +1136,7 @@ describe('LiveActivity', () => {
         query: {q: '/api/orders/42'}
       })
       expect(wrapper.find('.activity-kpi-latency-samples').exists()).toBe(false)
+      expect(wrapper.find('.activity-why-slow').exists()).toBe(false)
     })
 
     it('opens the request profile an HTTP Exchanges link names', async () => {

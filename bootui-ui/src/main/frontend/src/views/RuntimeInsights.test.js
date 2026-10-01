@@ -3,6 +3,9 @@ import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import RuntimeInsights from './RuntimeInsights.vue'
 
+const routeState = vi.hoisted(() => ({query: {}}))
+vi.mock('vue-router', () => ({useRoute: () => routeState}))
+
 const report = {
   available: true,
   unavailableReason: null,
@@ -50,7 +53,9 @@ const report = {
       limitations: ['Counts statements the journal retained.']
     }
   ],
-  limitations: []
+  limitations: [],
+  notExercised: ['DELETE /api/owners/{id}'],
+  notExercisedOmitted: 2
 }
 
 const detail = {
@@ -74,6 +79,7 @@ describe('Runtime Insights panel', () => {
   let wrapper
 
   afterEach(() => {
+    routeState.query = {}
     wrapper?.unmount()
     wrapper = null
     vi.unstubAllGlobals()
@@ -157,5 +163,65 @@ describe('Runtime Insights panel', () => {
 
     await wrapper.find('.insight-search').setValue('no-such-route')
     expect(wrapper.text()).toContain('No observation matches this search.')
+  })
+
+  it('lists the declared routes this run never reached', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : report)))
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+
+    const section = wrapper.get('.insight-not-exercised')
+    expect(section.text()).toContain('Not exercised in this run')
+    expect(section.text()).toContain('DELETE /api/owners/{id}')
+    expect(section.text()).toContain('2 more routes not listed.')
+  })
+
+  it('opens the observation and search a deep link names', async () => {
+    const second = {...report.observations[0], id: 'repeated-selects:9999999999', subject: 'GET /api/pets'}
+    routeState.query = {q: '/api/pets', insight: second.id}
+    const fetchMock = vi.fn((url) =>
+      Promise.resolve(
+        jsonResponse(
+          String(url).includes('/insights/')
+            ? {...detail, observation: second}
+            : {
+                ...report,
+                observations: [...report.observations, second]
+              }
+        )
+      )
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.get('.insight-search').element.value).toBe('/api/pets')
+    expect(wrapper.get('.insight-item.active').text()).toContain('GET /api/pets')
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain(
+      'api/runtime-insights/insights/repeated-selects%3A9999999999'
+    )
+  })
+
+  it('exports the report it already has as JSON without another request', async () => {
+    const fetchMock = vi.fn((url) =>
+      Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : report))
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const createObjectURL = vi.fn(() => 'blob:report')
+    vi.stubGlobal('URL', {...URL, createObjectURL, revokeObjectURL: vi.fn()})
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    wrapper = mountPanel()
+    await flushPromises()
+    const calls = fetchMock.mock.calls.length
+
+    await wrapper.get('.insight-export').trigger('click')
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1)
+    expect(click).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls.length).toBe(calls)
+    click.mockRestore()
   })
 })

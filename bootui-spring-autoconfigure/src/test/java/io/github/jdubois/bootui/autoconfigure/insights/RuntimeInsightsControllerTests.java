@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.core.dto.MappingDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.insights.EventLoopBlocking;
@@ -17,6 +18,8 @@ import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies;
+import io.github.jdubois.bootui.spi.MappingProvider;
+import java.util.List;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -62,6 +65,35 @@ class RuntimeInsightsControllerTests {
     }
 
     @Test
+    void listsTheDeclaredRoutesNoRequestOfThisRunReached() throws Exception {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(RuntimeJournal.class, () -> journal);
+            context.registerBean(JournalAggregates.class, JournalAggregates::new);
+            context.registerBean(BootUiProperties.class, BootUiProperties::new);
+            context.registerBean(MappingProvider.class, () -> new MappingProvider() {
+                @Override
+                public boolean available() {
+                    return true;
+                }
+
+                @Override
+                public List<MappingDto> mappings() {
+                    return List.of(new MappingDto("GET", "/api/orders", "com.example.Orders#list()", null, null));
+                }
+            });
+            context.registerBean(RuntimeInsightsController.class);
+            context.refresh();
+            MockMvc mvc = standaloneSetup(context.getBean(RuntimeInsightsController.class))
+                    .build();
+
+            mvc.perform(get("/bootui/api/runtime-insights"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.notExercised[0]").value("GET /api/orders"))
+                    .andExpect(jsonPath("$.notExercisedOmitted").value(0));
+        }
+    }
+
+    @Test
     void theStackDecidesWhereAnObservationApplies() {
         try (GenericApplicationContext servlet = new GenericApplicationContext();
                 GenericReactiveWebApplicationContext reactive = new GenericReactiveWebApplicationContext()) {
@@ -101,7 +133,8 @@ class RuntimeInsightsControllerTests {
                         context,
                         new BootUiProperties(),
                         context.getBeanProvider(RuntimeJournal.class),
-                        context.getBeanProvider(JournalAggregates.class))
+                        context.getBeanProvider(JournalAggregates.class),
+                        context.getBeanProvider(MappingProvider.class))
                 .report().checks().stream()
                         .filter(check -> check.kind().equals(EventLoopBlocking.KIND))
                         .findFirst()

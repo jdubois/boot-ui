@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.insights;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.web.DeclaredRouteTemplates;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.engine.insights.InsightsStack;
@@ -8,6 +9,7 @@ import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.spi.MappingProvider;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.web.context.reactive.ReactiveWebApplicationContext;
 import org.springframework.context.ApplicationContext;
@@ -33,7 +35,8 @@ public class RuntimeInsightsController {
             ApplicationContext context,
             BootUiProperties properties,
             ObjectProvider<RuntimeJournal> journal,
-            ObjectProvider<JournalAggregates> aggregates) {
+            ObjectProvider<JournalAggregates> aggregates,
+            ObjectProvider<MappingProvider> mappings) {
         JournalAggregates journalAggregates = aggregates.getIfAvailable();
         this.insights = new RuntimeInsightsService(
                 journal.getIfAvailable(),
@@ -45,6 +48,9 @@ public class RuntimeInsightsController {
                 RunHistory.shared()::summaries,
                 properties.getRuntimeInsights().getAiTokenThreshold());
         this.insights.setPoolSizes(new DataSourcePoolSizes(context));
+        if (journalAggregates != null) {
+            this.insights.setDeclaredRoutes(DeclaredRouteTemplates.declared(mappings), journalAggregates::routeLabels);
+        }
     }
 
     @GetMapping
