@@ -1519,6 +1519,34 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void liveActivityServesTheFeedRenderedFromTheJournalOnRequest() {
+        assumeTrue(isPanelUsableInLiveManifest("activity"), "activity panel is not available in this environment");
+        ReadContract contract = BootUiApiContractCatalog.reads().stream()
+                .filter(read -> read.relativePath().equals("/activity"))
+                .findFirst()
+                .orElseThrow();
+        BootUiHttpProbe probe = probe();
+
+        Response journal = probe.get(api("/activity?source=journal"));
+
+        assertThat(journal.status()).as("GET /activity?source=journal status").isEqualTo(200);
+        List<String> failures = new ArrayList<>();
+        assertJsonContract("live activity from the journal", contract, journal.json(), failures);
+        assertThat(failures).as("live activity contract, from the journal").isEmpty();
+        assertThat(journal.json().path("available").asBoolean(false)).isTrue();
+        assertThat(journal.json().path("sources").toString()).contains("Runtime journal");
+
+        Response unknown = probe.get(api("/activity?source=elsewhere"));
+        assertThat(unknown.status()).as("an unknown feed source is rejected").isEqualTo(400);
+
+        Response buffers = probe.get(api("/activity?source=buffers&noRequest=true"));
+        assertThat(buffers.status()).isEqualTo(200);
+        assertThat(buffers.json().path("warnings").toString())
+                .as("a journal-only filter on the buffers' feed is reported, never silently dropped")
+                .contains("source=journal");
+    }
+
+    @Test
     void runtimeResourcesReportOneShapeWithABalancedLedger() {
         assumeTrue(isPanelUsableInLiveManifest("activity"), "activity panel is not available in this environment");
         ReadContract contract = BootUiApiContractCatalog.runtimeResources();

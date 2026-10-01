@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure;
 
 import io.github.jdubois.bootui.core.BootUiPathNormalizer;
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.engine.journal.ActivityFeedSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.mcp.McpProtocol;
 import io.github.jdubois.bootui.engine.mysql.MySqlRowLimits;
@@ -2762,6 +2763,26 @@ public class BootUiProperties {
          * {@code SCHEDULED} entries in the activity stream.
          */
         private int maxScheduledTaskRuns = 200;
+
+        /**
+         * Where the activity stream comes from: {@code buffers}, merging each panel's own buffer as in 1.x, or
+         * {@code journal}, rendering the runtime journal's retained events with every child nested by request or
+         * execution id. A request may override it with {@code ?source=}.
+         */
+        private String feedSource = "buffers";
+
+        public String getFeedSource() {
+            return feedSource;
+        }
+
+        public void setFeedSource(String feedSource) {
+            this.feedSource = feedSource;
+        }
+
+        /** The feed source these properties name. */
+        public ActivityFeedSource feedSource() {
+            return ActivityFeedSource.parse(feedSource, ActivityFeedSource.DEFAULT);
+        }
 
         public int getMaxEntries() {
             return maxEntries;

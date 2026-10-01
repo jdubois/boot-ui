@@ -31,6 +31,9 @@ import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionsService;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
+import io.github.jdubois.bootui.engine.journal.ActivityFeedSource;
+import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
+import io.github.jdubois.bootui.engine.journal.JournalActivityReports;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalService;
@@ -42,6 +45,7 @@ import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.engine.security.SecurityLogsService;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceGrouping;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.telemetry.TracesService;
 import io.github.jdubois.bootui.engine.web.ExecutionProfileAssembler;
@@ -61,6 +65,7 @@ import io.smallrye.mutiny.Multi;
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
@@ -78,6 +83,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import javax.sql.DataSource;
+import org.eclipse.microprofile.config.Config;
 
 /**
  * JAX-RS resource for the Live Activity panel ({@code GET /bootui/api/activity}). The Quarkus analogue of
@@ -175,6 +181,7 @@ public class LiveActivityResource {
     private final AtomicInteger openStreams = new AtomicInteger();
     private volatile ActivityCapturePoller switchPoller;
     private Supplier<RouteTemplateResolver> declaredRoutes = RouteTemplateResolver::empty;
+    private ActivityFeedSource feedSource = ActivityFeedSource.DEFAULT;
 
     @Inject
     public LiveActivityResource(
@@ -228,6 +235,18 @@ public class LiveActivityResource {
         this.declaredRoutes = DeclaredRouteTemplates.caching(mappings);
     }
 
+    /**
+     * {@code bootui.activity.feed-source}, the same key and default as on Spring ({@code docs/PLAN-v2.md} §5.3). An
+     * unknown source fails startup rather than silently serving another feed.
+     */
+    @Inject
+    void setFeedSource(Config config) {
+        this.feedSource = ActivityFeedSource.parse(
+                config.getOptionalValue("bootui.activity.feed-source", String.class)
+                        .orElse(null),
+                ActivityFeedSource.DEFAULT);
+    }
+
     /** The runtime journal whose status block and <b>Clear recording</b> this panel serves. */
     @Inject
     void setRuntimeJournal(Instance<RuntimeJournal> journal, Instance<JournalAggregates> journalAggregates) {
@@ -251,6 +270,19 @@ public class LiveActivityResource {
         }
     }
 
+    /** The feed from the configured source, without the journal-only filters; for callers such as the MCP bridge. */
+    public LiveActivityReport activity(
+            Integer limit,
+            String type,
+            String severity,
+            String q,
+            Long since,
+            Long until,
+            String cursor,
+            Integer pageSize) {
+        return activity(limit, type, severity, q, since, until, cursor, pageSize, null, null, null, null, false);
+    }
+
     @GET
     @Produces(MediaType.APPLICATION_JSON)
     public LiveActivityReport activity(
@@ -261,8 +293,17 @@ public class LiveActivityResource {
             @QueryParam("since") Long since,
             @QueryParam("until") Long until,
             @QueryParam("cursor") String cursor,
-            @QueryParam("pageSize") Integer pageSize) {
-        LiveActivityReport live = mergedReport(limit == null ? 0 : limit);
+            @QueryParam("pageSize") Integer pageSize,
+            @QueryParam("source") String source,
+            @QueryParam("route") String route,
+            @QueryParam("run") String run,
+            @QueryParam("requestId") String requestId,
+            @QueryParam("noRequest") boolean noRequest) {
+        LiveActivityReport live = live(
+                source,
+                new JournalActivityFeed.Filter(
+                        type, severity, since == null ? 0 : since, route, run, requestId, noRequest),
+                limit == null ? 0 : limit);
         ActivityPersistenceOptionDto persistenceOption = new ActivityPersistenceOptionDto(
                 activityStore.persistent(),
                 BootUiEngineProducer.resolveDataSource(dataSources) != null,
@@ -327,6 +368,37 @@ public class LiveActivityResource {
     public Response clearJournal(RuntimeJournalClearRequest request) {
         RuntimeJournalService.Response response = runtimeJournal().clear(request);
         return Response.status(response.status()).entity(response.body()).build();
+    }
+
+    /**
+     * The live feed from the requested source, or the configured one ({@code docs/PLAN-v2.md} §5.3). An unknown source
+     * is rejected, never silently replaced.
+     */
+    private LiveActivityReport live(String source, JournalActivityFeed.Filter filter, int limit) {
+        ActivityFeedSource resolved;
+        try {
+            resolved = ActivityFeedSource.parse(source, feedSource);
+        } catch (IllegalArgumentException ex) {
+            throw new BadRequestException(ex.getMessage());
+        }
+        if (resolved == ActivityFeedSource.JOURNAL) {
+            return new JournalActivityReports(
+                            journal != null && journal.isResolvable() ? journal.get() : null,
+                            buffer.slowThresholdMillis(),
+                            SqlTraceGrouping.DEFAULT_N_PLUS_ONE_THRESHOLD,
+                            declaredRoutes,
+                            panel -> panelAvailability.isPanelAvailable(panel)
+                                    && panelAvailability.isPanelEnabled(panel))
+                    .report(filter, limit, null);
+        }
+        LiveActivityReport live = mergedReport(limit);
+        if (!JournalActivityReports.hasJournalOnlyFilter(filter)) {
+            return live;
+        }
+        List<String> warnings = new ArrayList<>(live.warnings());
+        warnings.add(JournalActivityReports.JOURNAL_FILTERS_IGNORED);
+        return new LiveActivityReport(
+                live.available(), live.entries(), live.typeCounts(), live.kpis(), live.sources(), warnings);
     }
 
     private RuntimeJournalService runtimeJournal() {
@@ -450,7 +522,7 @@ public class LiveActivityResource {
     @Produces(MediaType.APPLICATION_JSON)
     public RequestProfileDto request(@PathParam("id") String id) {
         List<HttpExchangeDto> requests = requestsReport().exchanges();
-        boolean found = requests.stream().anyMatch(exchange -> id.equals(exchange.id()));
+        boolean found = requests.stream().anyMatch(exchange -> ExecutionProfileAssembler.identifies(exchange, id));
         ProfileEvidence evidence = found
                 ? new ProfileEvidence(
                         requests,

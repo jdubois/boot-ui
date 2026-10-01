@@ -223,6 +223,28 @@ public abstract class AbstractCorrelationCoverageTest {
         }
         writeFile(runtimeLabel() + "-feed.json", feed.body());
 
+        // The same scenario, read from the feed rendered from the runtime journal (docs/PLAN-v2.md §5.3): it must meet
+        // every floor the panel buffers meet, nest at least as much, and resolve the profile of its request ids.
+        FeedRead journalFeed =
+                readFeed(windows.get(Phase.PACED)[0], Phase.values().length * perPhase, "&source=journal&limit=5000");
+        Map<Phase, Report> journalReports = new EnumMap<>(Phase.class);
+        Map<Phase, List<ProfileRead>> journalProfiles = new EnumMap<>(Phase.class);
+        markdown.append("\n# Feed rendered from the runtime journal\n");
+        for (Phase phase : Phase.values()) {
+            long[] window = windows.get(phase);
+            Report report = CorrelationCoverage.measure(
+                    journalFeed.entries(),
+                    window[0],
+                    window[1],
+                    window[2],
+                    requestThreadPattern(),
+                    unownedThreadPattern());
+            journalReports.put(phase, report);
+            journalProfiles.put(phase, readProfiles(journalFeed.entries(), window[0], window[1]));
+            markdown.append("\n## ").append(phase.title).append("\n\n").append(report.toMarkdown());
+        }
+        writeFile(runtimeLabel() + "-journal-feed.json", journalFeed.body());
+
         JsonNode journal = readJournal();
         markdown.append("\nRuntime journal: ")
                 .append(journal.path("recorded").path("http").asLong())
@@ -235,6 +257,9 @@ public abstract class AbstractCorrelationCoverageTest {
         for (Phase phase : Phase.values()) {
             assertPhase(phase, reports.get(phase), perPhase);
             assertProfiles(phase, profiles.get(phase));
+            assertPhase(phase, journalReports.get(phase), perPhase);
+            assertProfiles(phase, journalProfiles.get(phase));
+            assertJournalParity(phase, reports.get(phase), journalReports.get(phase));
         }
         int sent = traffic.size() + Phase.values().length * perPhase;
         assertThat(journal.path("droppedEvents").asLong(-1))
@@ -315,6 +340,25 @@ public abstract class AbstractCorrelationCoverageTest {
                 assertThat(coverage.nestedShare())
                         .as(phase + ": " + floor.getKey() + " nested under its request")
                         .isGreaterThanOrEqualTo(floor.getValue());
+            }
+        }
+    }
+
+    /**
+     * The journal's feed nests every child type at least as well as the panel buffers' feed. Their counts may differ:
+     * the journal records each exception occurrence where the buffers show one row per exception group, and emails and
+     * fault-tolerance events are not journal sources yet (D27).
+     */
+    private static void assertJournalParity(Phase phase, Report buffers, Report journal) {
+        assertThat(journal.requests())
+                .as(phase + ": the journal's feed retains the requests the buffers' feed does")
+                .isEqualTo(buffers.requests());
+        for (TypeCoverage coverage : buffers.children().values()) {
+            TypeCoverage fromJournal = journal.child(coverage.type());
+            if (coverage.observed() > 0 && fromJournal.observed() > 0) {
+                assertThat(fromJournal.nestedShare())
+                        .as(phase + ": " + coverage.type() + " nested under its request in the journal's feed")
+                        .isGreaterThanOrEqualTo(coverage.nestedShare());
             }
         }
     }
@@ -407,11 +451,15 @@ public abstract class AbstractCorrelationCoverageTest {
      * BootUI's own API calls still occupy HTTP exchange slots.
      */
     private FeedRead readFeed(long windowStart, int expectedRequests) throws InterruptedException {
+        return readFeed(windowStart, expectedRequests, "");
+    }
+
+    private FeedRead readFeed(long windowStart, int expectedRequests, String query) throws InterruptedException {
         BootUiHttpProbe probe = new BootUiHttpProbe(baseUrl());
         FeedRead feed = new FeedRead(List.of(), "");
         for (int attempt = 0; attempt < MAX_FEED_READS; attempt++) {
             Thread.sleep(300L * (attempt + 1));
-            BootUiHttpProbe.Response response = probe.get("/bootui/api/activity?since=" + (windowStart - 1));
+            BootUiHttpProbe.Response response = probe.get("/bootui/api/activity?since=" + (windowStart - 1) + query);
             assertThat(response.status()).as("Live Activity feed").isEqualTo(200);
             List<Entry> entries = new ArrayList<>();
             for (JsonNode node : response.json().path("entries")) {

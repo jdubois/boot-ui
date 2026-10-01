@@ -213,7 +213,20 @@ public final class ExecutionProfileAssembler {
                 return exchange;
             }
         }
+        for (HttpExchangeDto exchange : requests) {
+            if (requestId.equals(exchange.requestId())) {
+                return exchange;
+            }
+        }
         return null;
+    }
+
+    /**
+     * Whether {@code id} names {@code exchange}: its exchange id, which the 1.x feed uses, or BootUI's request id, which
+     * the feed rendered from the runtime journal uses ({@code docs/PLAN-v2.md} §5.3).
+     */
+    public static boolean identifies(HttpExchangeDto exchange, String id) {
+        return exchange != null && id != null && (id.equals(exchange.id()) || id.equals(exchange.requestId()));
     }
 
     private static Context context(

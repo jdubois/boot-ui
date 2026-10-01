@@ -45,6 +45,9 @@ import reactor.core.publisher.SignalType;
  */
 public final class ReactiveHttpExchangeTraceFilter extends AbstractReactiveBootUiFilter implements Ordered {
 
+    /** The exchange attribute holding the trace id read while the request's span was still current. */
+    public static final String TRACE_ID_ATTRIBUTE = ReactiveHttpExchangeTraceFilter.class.getName() + ".traceId";
+
     private final HttpExchangeTraceRegistry registry;
     private final TraceIdProvider traceIdProvider;
     private final long requestSlowThresholdMs;
@@ -86,22 +89,35 @@ public final class ReactiveHttpExchangeTraceFilter extends AbstractReactiveBootU
         String method = request.getMethod() == null ? null : request.getMethod().name();
         String path = request.getURI() == null ? null : request.getURI().getPath();
         AtomicReference<Throwable> failure = new AtomicReference<>();
-        return chain.filter(exchange).doOnError(failure::set).doFinally(signal -> {
-            long end = System.currentTimeMillis();
-            String traceId = safeCurrentTraceId();
-            registry.record(
-                    new HttpExchangeTrace(
-                            start,
-                            end,
-                            method,
-                            path,
-                            traceId,
-                            routeTemplate(exchange),
-                            ReactiveRequestCorrelationFilter.correlation(exchange)
-                                    .requestId()),
-                    RequestSlowThreshold.isFailedOrSlow(
-                            status(exchange, signal, failure.get()), end - start, requestSlowThresholdMs));
-        });
+        return chain.filter(exchange)
+                .doOnError(failure::set)
+                .doOnTerminate(() -> {
+                    // Before the completion signal travels outward: the outermost correlation filter publishes the
+                    // request's journal event once the span has closed, so it reads the trace id from here.
+                    String current = safeCurrentTraceId();
+                    if (current != null) {
+                        exchange.getAttributes().put(TRACE_ID_ATTRIBUTE, current);
+                    }
+                })
+                .doFinally(signal -> {
+                    long end = System.currentTimeMillis();
+                    String traceId = safeCurrentTraceId();
+                    if (traceId == null && exchange.getAttribute(TRACE_ID_ATTRIBUTE) instanceof String captured) {
+                        traceId = captured;
+                    }
+                    registry.record(
+                            new HttpExchangeTrace(
+                                    start,
+                                    end,
+                                    method,
+                                    path,
+                                    traceId,
+                                    routeTemplate(exchange),
+                                    ReactiveRequestCorrelationFilter.correlation(exchange)
+                                            .requestId()),
+                            RequestSlowThreshold.isFailedOrSlow(
+                                    status(exchange, signal, failure.get()), end - start, requestSlowThresholdMs));
+                });
     }
 
     /**

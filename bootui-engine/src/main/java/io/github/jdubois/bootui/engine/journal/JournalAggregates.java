@@ -84,6 +84,11 @@ public final class JournalAggregates implements JournalListener {
         this.declaredRoutes = declaredRoutes == null ? RouteTemplateResolver::empty : declaredRoutes;
     }
 
+    /** The application's declared routes, as installed now, for views that name routes as the aggregates do. */
+    public Supplier<RouteTemplateResolver> declaredRoutes() {
+        return () -> declaredRoutes.get();
+    }
+
     /**
      * Keeps the summary of {@code run} in {@code history} when the journal closes at the end of the run, so a later
      * run can be compared with it ({@code docs/PLAN-v2.md} §5.2, §5.8).

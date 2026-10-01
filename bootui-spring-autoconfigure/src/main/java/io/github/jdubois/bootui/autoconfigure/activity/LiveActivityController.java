@@ -34,6 +34,9 @@ import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
+import io.github.jdubois.bootui.engine.journal.ActivityFeedSource;
+import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
+import io.github.jdubois.bootui.engine.journal.JournalActivityReports;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalService;
@@ -64,6 +67,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.support.ServletRequestHandledEvent;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
@@ -103,6 +107,9 @@ public class LiveActivityController {
     private final ActivityPersistenceSettings persistenceSettings;
     private final ObjectProvider<DataSource> dataSourceProvider;
     private final ReservedActivityEntries reservedEntries;
+    private final BootUiProperties properties;
+    private final ActivityFeedSource feedSource;
+    private volatile JournalActivityReports journalReports;
 
     public LiveActivityController(
             ObjectProvider<HttpExchangesController> httpExchanges,
@@ -160,6 +167,9 @@ public class LiveActivityController {
         this.securityCorrelations = securityCorrelations.getIfAvailable();
         this.changeStream = new BootUiChangeStream("activity");
         this.selfPath = properties.getPath();
+        this.properties = properties;
+        this.feedSource = properties.getActivity().feedSource();
+        this.journalReports = journalReports(null, null);
         SqlTraceRecorder recorder = sqlTraceRecorder.getIfAvailable();
         if (recorder != null) {
             unsubscribers.add(recorder.subscribe(changeStream::signal));
@@ -250,6 +260,12 @@ public class LiveActivityController {
         changeStream.close();
     }
 
+    /** The feed from the configured source, without the journal-only filters; for callers such as the MCP tools. */
+    public LiveActivityReport activity(
+            String type, String severity, long since, int limit, String q, Long until, String cursor, int pageSize) {
+        return activity(type, severity, since, limit, q, until, cursor, pageSize, null, null, null, null, false);
+    }
+
     @GetMapping
     public LiveActivityReport activity(
             @RequestParam(name = "type", required = false) String type,
@@ -259,8 +275,15 @@ public class LiveActivityController {
             @RequestParam(name = "q", required = false) String q,
             @RequestParam(name = "until", required = false) Long until,
             @RequestParam(name = "cursor", required = false) String cursor,
-            @RequestParam(name = "pageSize", required = false, defaultValue = "0") int pageSize) {
-        LiveActivityReport live = service.report(type, severity, since, limit);
+            @RequestParam(name = "pageSize", required = false, defaultValue = "0") int pageSize,
+            @RequestParam(name = "source", required = false) String source,
+            @RequestParam(name = "route", required = false) String route,
+            @RequestParam(name = "run", required = false) String run,
+            @RequestParam(name = "requestId", required = false) String requestId,
+            @RequestParam(name = "noRequest", required = false, defaultValue = "false") boolean noRequest) {
+        JournalActivityFeed.Filter filter =
+                new JournalActivityFeed.Filter(type, severity, since, route, run, requestId, noRequest);
+        LiveActivityReport live = live(source, filter, limit);
         ActivityPersistenceOptionDto persistenceOption = new ActivityPersistenceOptionDto(
                 activityStore.persistent(),
                 BootUiEngineConfiguration.resolveActivityDataSource(dataSourceProvider) != null,
@@ -301,6 +324,41 @@ public class LiveActivityController {
     @Autowired(required = false)
     public void setRuntimeJournal(RuntimeJournal journal, JournalAggregates aggregates) {
         this.runtimeJournal = new RuntimeJournalService(journal, aggregates);
+        this.journalReports = journalReports(journal, aggregates);
+    }
+
+    private JournalActivityReports journalReports(RuntimeJournal journal, JournalAggregates aggregates) {
+        return new JournalActivityReports(
+                journal,
+                properties.getActivity().getRequestSlowThresholdMs(),
+                properties.getActivity().getNPlusOneThreshold(),
+                aggregates == null ? null : aggregates.declaredRoutes(),
+                properties::isPanelEnabled);
+    }
+
+    /**
+     * The live feed from the requested source, or the configured one ({@code docs/PLAN-v2.md} §5.3). An unknown source
+     * is rejected, never silently replaced.
+     */
+    private LiveActivityReport live(String source, JournalActivityFeed.Filter filter, int limit) {
+        ActivityFeedSource resolved;
+        try {
+            resolved = ActivityFeedSource.parse(source, feedSource);
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+        }
+        if (resolved == ActivityFeedSource.JOURNAL) {
+            int max = properties.getActivity().getMaxEntries();
+            return journalReports.report(filter, limit <= 0 ? max : limit, service.currentHealthStatus());
+        }
+        LiveActivityReport live = service.report(filter.type(), filter.severity(), filter.since(), limit);
+        if (!JournalActivityReports.hasJournalOnlyFilter(filter)) {
+            return live;
+        }
+        List<String> warnings = new ArrayList<>(live.warnings());
+        warnings.add(JournalActivityReports.JOURNAL_FILTERS_IGNORED);
+        return new LiveActivityReport(
+                live.available(), live.entries(), live.typeCounts(), live.kpis(), live.sources(), warnings);
     }
 
     /** The runtime journal's status block ({@code docs/PLAN-v2.md} §5.2). */

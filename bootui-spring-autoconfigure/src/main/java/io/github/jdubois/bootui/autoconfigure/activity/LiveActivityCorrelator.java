@@ -80,12 +80,13 @@ public class LiveActivityCorrelator {
         this.properties = properties;
     }
 
-    /** Build the profile for the request with the given HTTP exchange id. */
+    /** Build the profile for the request with the given HTTP exchange id or BootUI request id. */
     public RequestProfileDto profile(String requestId) {
         ExecutionProfileAssembler assembler =
                 new ExecutionProfileAssembler(properties.getActivity().getNPlusOneThreshold());
         List<HttpExchangeDto> requests = requests();
-        boolean found = requestId != null && requests.stream().anyMatch(exchange -> requestId.equals(exchange.id()));
+        boolean found =
+                requests.stream().anyMatch(exchange -> ExecutionProfileAssembler.identifies(exchange, requestId));
         ProfileEvidence evidence = found
                 ? new ProfileEvidence(
                         requests,

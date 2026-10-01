@@ -174,12 +174,17 @@ export function deepLink(entry) {
         ? {path: '/fault-tolerance', query: {q: needle}, label: 'Open in Fault Tolerance'}
         : {path: '/fault-tolerance', label: 'Open in Fault Tolerance'}
     }
+    case 'TRANSACTION':
+      return {path: '/transactions', label: 'Open in Transactions'}
+    case 'LOG':
+      return {path: '/log-tail', label: 'Open in Log Tail'}
     case 'MESSAGING': {
-      if ((entry.id || '').startsWith('jms-')) {
+      // Rows rendered from the runtime journal name their broker in the detail line instead of an id prefix.
+      if ((entry.id || '').startsWith('jms-') || entry.detail === 'jms') {
         const needle = jmsNeedle(entry.summary)
         return needle ? {path: '/jms', query: {q: needle}, label: 'Open in JMS'} : {path: '/jms', label: 'Open in JMS'}
       }
-      if ((entry.id || '').startsWith('rabbit-')) {
+      if ((entry.id || '').startsWith('rabbit-') || entry.detail === 'rabbitmq') {
         const needle = rabbitNeedle(entry)
         return needle
           ? {path: '/rabbitmq', query: {q: needle}, label: 'Open in RabbitMQ'}

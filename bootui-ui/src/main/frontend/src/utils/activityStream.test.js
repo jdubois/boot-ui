@@ -191,6 +191,32 @@ describe('deepLink', () => {
     })
   })
 
+  it('links transaction and log rows from the runtime journal to their panels', () => {
+    expect(deepLink({type: 'TRANSACTION', summary: 'OrderService.pay'})).toEqual({
+      path: '/transactions',
+      label: 'Open in Transactions'
+    })
+    expect(deepLink({type: 'LOG', summary: 'Order {} failed'})).toEqual({path: '/log-tail', label: 'Open in Log Tail'})
+  })
+
+  it('links a messaging row from the runtime journal by the broker its detail names', () => {
+    expect(deepLink({type: 'MESSAGING', id: 'a1b2c3d4-12', summary: '→ orders.queue', detail: 'jms'})).toEqual({
+      path: '/jms',
+      query: {q: 'orders.queue'},
+      label: 'Open in JMS'
+    })
+    expect(deepLink({type: 'MESSAGING', id: 'a1b2c3d4-13', summary: '← invoices', detail: 'rabbitmq'})).toEqual({
+      path: '/rabbitmq',
+      query: {q: 'invoices'},
+      label: 'Open in RabbitMQ'
+    })
+    expect(deepLink({type: 'MESSAGING', id: 'a1b2c3d4-14', summary: '→ orders', detail: 'kafka'})).toEqual({
+      path: '/kafka',
+      query: {q: 'orders'},
+      label: 'Open in Kafka'
+    })
+  })
+
   it('still links a fault tolerance entry with an unexpected summary to the unfiltered panel', () => {
     expect(deepLink({type: 'FAULT_TOLERANCE', summary: ''})).toEqual({
       path: '/fault-tolerance',

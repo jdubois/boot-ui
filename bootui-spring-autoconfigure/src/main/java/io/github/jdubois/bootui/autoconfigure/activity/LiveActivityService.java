@@ -1240,7 +1240,7 @@ public class LiveActivityService {
                 latency.slowestRouteSource());
     }
 
-    private String currentHealthStatus() {
+    String currentHealthStatus() {
         if (!properties.isPanelEnabled(BootUiPanels.HEALTH)) {
             return null;
         }

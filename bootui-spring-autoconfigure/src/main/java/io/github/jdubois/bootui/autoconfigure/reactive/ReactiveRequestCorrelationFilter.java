@@ -141,7 +141,7 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
                         durationNanos,
                         requestId,
                         null,
-                        correlation.traceId(),
+                        traceId(exchange, correlation),
                         null,
                         // The thread the request completed on, whose kind the journal records: a reactive request
                         // has no single serving thread.
@@ -163,6 +163,18 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
                 // Publishing never disturbs the response.
             }
         });
+    }
+
+    /**
+     * The request's trace id: the one its correlation carries, else the one the innermost trace filter read while the
+     * request's span was current, since this outermost filter completes after the span closed.
+     */
+    private static String traceId(ServerWebExchange exchange, CorrelationContext correlation) {
+        if (correlation.traceId() != null) {
+            return correlation.traceId();
+        }
+        Object traceId = exchange.getAttribute(ReactiveHttpExchangeTraceFilter.TRACE_ID_ATTRIBUTE);
+        return traceId instanceof String value && !value.isBlank() ? value : null;
     }
 
     /** The request's correlation, or {@link CorrelationContext#NONE} when this filter did not see it. */
