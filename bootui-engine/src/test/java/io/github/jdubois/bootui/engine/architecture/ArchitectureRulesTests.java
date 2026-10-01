@@ -16,10 +16,12 @@ import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.Logger;
@@ -56,6 +58,9 @@ import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebSession;
 
 class ArchitectureRulesTests {
+
+    @TempDir
+    Path tempDir;
 
     @Test
     void packageCyclesCountEachDetectedCycleOnceRatherThanEachDependencyEdge() {
@@ -118,53 +123,24 @@ class ArchitectureRulesTests {
     }
 
     @Test
-    void interfacesShouldNotHaveInterfaceSuffixFlagsInterfaceSuffix() {
-        ArchitectureRuleResultDto result =
-                evaluate(new InterfacesShouldNotHaveInterfaceSuffixRule(), PaymentInterface.class);
+    void noStandardStreamsFlagsNoArgPrintStackTrace() {
+        ArchitectureRuleResultDto result = evaluate(new NoStandardStreamsRule(), NoArgPrintStackTraceCaller.class);
 
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
-        assertThat(result.id()).isEqualTo("ARCH-CODE-011");
-        assertThat(result.violationCount()).isPositive();
-        assertThat(result.sampleViolations())
-                .anySatisfy(sample -> assertThat(sample).contains("PaymentInterface"));
+        assertThat(result.id()).isEqualTo("ARCH-CODE-001");
     }
 
     @Test
-    void interfacesShouldNotHaveInterfaceSuffixPassesWhenInterfaceHasRoleName() {
-        ArchitectureRuleResultDto result =
-                evaluate(new InterfacesShouldNotHaveInterfaceSuffixRule(), PaymentPort.class);
-
-        assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
-    }
-
-    @Test
-    void noStandardStreamsFlagsNoArgPrintStackTraceExclusively() {
-        ArchitectureRuleResultDto standardStreamsResult =
-                evaluate(new NoStandardStreamsRule(), NoArgPrintStackTraceCaller.class);
-        ArchitectureRuleResultDto printStackTraceResult =
-                evaluate(new NoPrintStackTraceRule(), NoArgPrintStackTraceCaller.class);
-
-        assertThat(standardStreamsResult.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
-        assertThat(standardStreamsResult.id()).isEqualTo("ARCH-CODE-001");
-        assertThat(printStackTraceResult.status())
-                .as("the no-arg printStackTrace() overload is exclusively covered by ARCH-CODE-001, so"
-                        + " ARCH-CODE-005 must not also fire on the same call site")
+    void capturingAStackTraceThroughAnExplicitWriterIsNotReported() {
+        // ARCH-CODE-005 used to report printStackTrace(PrintWriter); it was retired because the remaining matches
+        // were mostly the legitimate StringWriter capture idiom, and printStackTrace(System.err) already reads the
+        // System.err field, which ARCH-CODE-001 reports.
+        assertThat(evaluate(new NoStandardStreamsRule(), WriterArgPrintStackTraceCaller.class)
+                        .status())
                 .isEqualTo(ArchitectureRuleSupport.PASS);
-    }
-
-    @Test
-    void noPrintStackTraceFlagsArgTakingOverloadExclusively() {
-        ArchitectureRuleResultDto printStackTraceResult =
-                evaluate(new NoPrintStackTraceRule(), WriterArgPrintStackTraceCaller.class);
-        ArchitectureRuleResultDto standardStreamsResult =
-                evaluate(new NoStandardStreamsRule(), WriterArgPrintStackTraceCaller.class);
-
-        assertThat(printStackTraceResult.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
-        assertThat(printStackTraceResult.id()).isEqualTo("ARCH-CODE-005");
-        assertThat(standardStreamsResult.status())
-                .as("the printStackTrace(PrintWriter) overload is exclusively covered by ARCH-CODE-005, so"
-                        + " ARCH-CODE-001 must not also fire on the same call site")
-                .isEqualTo(ArchitectureRuleSupport.PASS);
+        assertThat(evaluate(new NoStandardStreamsRule(), SystemErrPrintStackTraceCaller.class)
+                        .status())
+                .isEqualTo(ArchitectureRuleSupport.VIOLATION);
     }
 
     @Test
@@ -224,7 +200,8 @@ class ArchitectureRulesTests {
 
     @Test
     void noTestFrameworkDependenciesFlagsMainCodeUsingTestApis() {
-        ArchitectureRuleResultDto result = evaluate(new NoTestFrameworkDependenciesRule(), TestFrameworkUser.class);
+        ArchitectureRuleResultDto result =
+                evaluateMainOutput(new NoTestFrameworkDependenciesRule(), TestFrameworkUser.class);
 
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.VIOLATION);
         assertThat(result.id()).isEqualTo("ARCH-CODE-013");
@@ -235,7 +212,7 @@ class ArchitectureRulesTests {
     @Test
     void noTestFrameworkDependenciesFlagsMainCodeUsingQuarkusTestApi() {
         ArchitectureRuleResultDto result =
-                evaluate(new NoTestFrameworkDependenciesRule(), QuarkusTestFrameworkUser.class);
+                evaluateMainOutput(new NoTestFrameworkDependenciesRule(), QuarkusTestFrameworkUser.class);
 
         assertThat(result.status())
                 .as("io.quarkus.test.. must be flagged the same way org.springframework.boot.test.. already is,"
@@ -1125,6 +1102,13 @@ class ArchitectureRulesTests {
         assertThat(result.status()).isEqualTo(ArchitectureRuleSupport.PASS);
     }
 
+    // Fixtures compile into target/test-classes, which ARCH-CODE-013 deliberately ignores; copy them to main output.
+    private ArchitectureRuleResultDto evaluateMainOutput(ArchitectureRule rule, Class<?>... classes) {
+        JavaClasses importedClasses = CompiledOutputFixtures.importFrom(tempDir, "target/classes", classes);
+        return rule.evaluate(new ArchitectureContext(
+                importedClasses, List.of(ArchitectureRulesTests.class.getPackageName()), ArchitecturePlatform.SPRING));
+    }
+
     private static ArchitectureRuleResultDto evaluate(ArchitectureRule rule, Class<?>... classes) {
         JavaClasses importedClasses = new ClassFileImporter().importClasses(classes);
         return rule.evaluate(new ArchitectureContext(
@@ -1157,10 +1141,6 @@ class ArchitectureRulesTests {
 
     private static class GoodFailureException extends RuntimeException {}
 
-    private interface PaymentInterface {}
-
-    private interface PaymentPort {}
-
     private static class NoArgPrintStackTraceCaller {
 
         void log(Exception e) {
@@ -1172,6 +1152,13 @@ class ArchitectureRulesTests {
 
         void log(Exception e, PrintWriter writer) {
             e.printStackTrace(writer);
+        }
+    }
+
+    private static class SystemErrPrintStackTraceCaller {
+
+        void log(Exception e) {
+            e.printStackTrace(System.err);
         }
     }
 

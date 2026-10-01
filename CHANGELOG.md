@@ -9,6 +9,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Architecture advisor reports injection and lifecycle annotations the container silently ignores.**
+  `ARCH-SPRING-023` (HIGH) flags `@Autowired`, `@Value`, or, on Spring and CDI beans, `jakarta.inject.Inject` on static
+  fields and methods, which Spring Framework 7 skips with an INFO log and Quarkus Arc ignores with a warning.
+  `ARCH-SPRING-024` (HIGH) flags legacy `javax.annotation.PostConstruct`/`PreDestroy`, and `javax.inject.Inject` or
+  `javax.annotation.Resource` on beans, which neither Spring Framework 7 nor Quarkus 3 recognizes. Both run on Spring
+  MVC, Spring WebFlux, and Quarkus, and the field-injection rules no longer report the same fields
+  ([#PRNUM](https://github.com/jdubois/boot-ui/pull/PRNUM)).
+
 - **Failure-preserving retention for HTTP Exchanges, SQL Trace, and REST Client.** Each BootUI-owned capture buffer
   now reserves a share of its existing capacity, 25% by default, for the most recent failed and slow records: `5xx`
   and slow exchanges, failed and slow statements, and failed, `4xx`/`5xx`, and slow calls. Routine records are evicted
@@ -49,6 +57,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Architecture advisor catalog audit.** Three rules are retired and their IDs reserved: `ARCH-CODE-005`
+  (`printStackTrace` into an explicit writer, mostly the legitimate `StringWriter` idiom), `ARCH-CODE-011` (the
+  `Interface` name suffix), and `ARCH-SPRING-005` (default-package stereotypes, which a scan can never import).
+  `ARCH-SPRING-011` is now HIGH, because Spring Framework 7 throws `IllegalArgumentException` on every call of an
+  `@Async` method with another return type, and it no longer judges private, static, or final methods of an `@Async`
+  class. `ARCH-CODE-007` is now MEDIUM, `ARCH-SPRING-002` LOW, and `ARCH-CODE-010` INFO. `ARCH-CODE-016` stays MEDIUM on
+  Spring and is LOW on Quarkus, where `@Inject` field injection is idiomatic, and `ARCH-CODE-003` no longer runs on
+  Quarkus, where `java.util.logging` is a built-in logging API. The self-invocation, proxyability, and lifecycle-callback
+  rules now also cover Spring Framework 7 `@Retryable` and `@ConcurrencyLimit`, Spring Retry, and method security
+  annotations such as `@PreAuthorize`, whose self-invocation skips the authorization check
+  ([#PRNUM](https://github.com/jdubois/boot-ui/pull/PRNUM)).
+
 - **One request slow threshold on every stack.** `bootui.activity.request-slow-threshold-ms` (default 1,000 ms) is now
   honored by Spring WebFlux and Quarkus as well as Spring MVC. It sets the `SLOW` severity of Live Activity `REQUEST`
   and `SCHEDULED` entries and decides which exchanges are kept longer. Spring WebFlux and Quarkus previously used a
@@ -87,6 +107,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the patched `undici` 7.30.0 and `brace-expansion` transitive dependencies.
 
 ### Fixed
+
+- **Fewer Architecture advisor false positives.** `ARCH-CODE-013` ignores classes compiled into `target/test-classes`
+  or `build/classes/*/test`, which are on the classpath under `spring-boot:test-run` or `bootTestRun`.
+  `ARCH-SPRING-008` no longer reports services throwing `ResponseStatusException` or other web exception types.
+  `ARCH-CODE-015` no longer asks `@Bean` or CDI producer holders and composed stereotypes such as `@AutoConfiguration` to
+  become final utility classes. `ARCH-MOD-001` reports each internal-package access with its own description and source
+  line instead of repeating one class-level line, and `ARCH-SPRING-022` now says that Quarkus 3 also ignores
+  `javax.transaction.Transactional` ([#PRNUM](https://github.com/jdubois/boot-ui/pull/PRNUM)).
 
 - **Live Activity durable persistence stores a failed or slow entry once, including a slow `4xx` request.**
   Persistence remembers the entries it stored in a bounded window. An entry that newer entries pushed out of Spring
