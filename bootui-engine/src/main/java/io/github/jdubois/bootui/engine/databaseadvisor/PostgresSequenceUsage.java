@@ -2,7 +2,12 @@ package io.github.jdubois.bootui.engine.databaseadvisor;
 
 import java.math.BigInteger;
 
-/** Sequence definition and nullable cached frontier, independently of whether consumption is visible. */
+/**
+ * Sequence definition and nullable cached frontier, independently of whether consumption is visible.
+ *
+ * @param neverUsed whether a null {@code last_value} is known to mean "never read": the role holds SELECT or
+ *     USAGE (otherwise {@code pg_sequences} hides the value) and it is not an unlogged sequence on a standby
+ */
 record PostgresSequenceUsage(
         String schema,
         String sequence,
@@ -18,7 +23,43 @@ record PostgresSequenceUsage(
         BigInteger sequenceMin,
         BigInteger startValue,
         BigInteger columnMinimum,
-        BigInteger cacheSize) {
+        BigInteger cacheSize,
+        boolean neverUsed) {
+
+    PostgresSequenceUsage(
+            String schema,
+            String sequence,
+            BigInteger lastValue,
+            BigInteger sequenceMax,
+            BigInteger columnCapacity,
+            boolean cycle,
+            String ownerSchema,
+            String ownerTable,
+            String ownerColumn,
+            String ownerType,
+            Long incrementBy,
+            BigInteger sequenceMin,
+            BigInteger startValue,
+            BigInteger columnMinimum,
+            BigInteger cacheSize) {
+        this(
+                schema,
+                sequence,
+                lastValue,
+                sequenceMax,
+                columnCapacity,
+                cycle,
+                ownerSchema,
+                ownerTable,
+                ownerColumn,
+                ownerType,
+                incrementBy,
+                sequenceMin,
+                startValue,
+                columnMinimum,
+                cacheSize,
+                false);
+    }
 
     PostgresSequenceUsage(
             String schema,
@@ -85,7 +126,11 @@ record PostgresSequenceUsage(
         return table + "." + ownerColumn + (ownerType == null ? "" : " (" + ownerType + ")");
     }
 
+    /** A never-read sequence has consumed nothing; otherwise the snapshot progress toward the effective bound. */
     int percentUsed() {
+        if (neverUsed && effectiveBound() != null) {
+            return 0;
+        }
         return VendorRuleSupport.percentUsed(
                 lastValue, startValue, effectiveBound(), incrementBy == null ? null : BigInteger.valueOf(incrementBy));
     }

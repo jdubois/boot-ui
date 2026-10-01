@@ -488,13 +488,15 @@ forwards to is a bean of its own, so the pool inside a `LazyConnectionDataSource
 resolved targets, named `beanName[lookupKey]`.
 
 ::: details The generic structural checks
-- A missing primary key.
+- A missing primary key, excluding framework-generated one-row identifier tables (Hibernate's `next_val` sequence
+  emulation and Spring Batch's `*_SEQ` tables).
 - A physical foreign key without a known complete leading-column access path, as a contextual review.
 - Exact ordinary-index definition overlap, not merely a shorter leading prefix.
 - A foreign-key column whose type disagrees with the column it references.
 - A redundant unique index duplicating the primary key.
 - Duplicate foreign-key constraints.
 - A narrow auto-generated primary key.
+- A MySQL invisible, MariaDB ignored or Oracle invisible index that writes still maintain.
 :::
 
 ### Bounded, honest scans
@@ -535,6 +537,7 @@ to the generic checks.
   (the classic `bigint` sequence feeding an `integer` column).
 - Constraints currently not validated, without inferring migration history.
 - A table publishing updates/deletes with no usable replica identity; INSERT-only publications are excluded.
+- An `UNLOGGED` table or leaf partition, truncated after a crash and absent from physical standbys.
 
 **MySQL/MariaDB:**
 
@@ -588,7 +591,10 @@ Hibernate metamodel is unavailable.
   comparison, without suppressing genuine table mismatches or view-name/column-name checks. If only view
   columns would be compared, the check is skipped with an informational diagnostic rather than a finding.
 - A nondefault declared `@Column(length=...)` longer than a positively bounded physical string column.
+- A positive `@Column(precision=..., scale=...)` wider than a bounded physical `DECIMAL`/`NUMERIC` column.
 - A mapped unique constraint with no physical index that genuinely enforces it.
+- An explicitly named `@Id` declaring `GenerationType.IDENTITY` whose PostgreSQL/MySQL/MariaDB column reports no
+  auto-increment, identity, default or generated value.
 
 Only entities with an *explicit* `@Table(name = ...)` are cross-referenced — entities relying on the default naming
 strategy are skipped rather than guessed. Even explicit names remain logical names subject to a physical naming
@@ -762,14 +768,14 @@ The Pentesting panel runs explicit, local-only OWASP Top 10 2025 hygiene checks 
 BootUI's `/bootui` routes. On an explicit scan it combines bounded framework metadata with at most one `GET` and one
 `OPTIONS` request to literal `127.0.0.1` under the validated application context path; the two-second client never
 follows redirects or uses configured proxies. Checks cover missing or unsafe browser-document headers, CORS behavior,
-cookie flags, verbose error exposure, Spring Security wiring, actuator exposure, Quarkus CORS/OIDC/TLS configuration, and
-common Spring Boot hardening gaps.
+cookie flags, verbose error exposure, Spring Security wiring, actuator exposure, and common Spring Boot hardening gaps.
+Quarkus CORS, OIDC, and TLS configuration is reviewed by the Security panel (`QS-*`) rather than duplicated here.
 
 It intentionally does not crawl discovered endpoints, send SQL/XSS/destructive payloads, contact external hosts, or
 include raw response bodies, cookie values, credentials, or full issuer URLs. Findings are heuristic review prompts, not
 proof of exploitability or a replacement for a full security assessment.
 
-The 79 active checks each carry a stable identifier, OWASP 2025 category, evidence source, and recommendation.
+The 77 active checks each carry a stable identifier, OWASP 2025 category, evidence source, and recommendation.
 The panel shows **Findings by severity**, matching the other advisors, rather than a separate OWASP Top 10 coverage
 matrix. Severity bars summarize active, non-dismissed findings; category metadata is not a passing-check count.
 Failed or bounded-away evidence produces a `PARTIAL` scan. Usable known findings still score under the shared

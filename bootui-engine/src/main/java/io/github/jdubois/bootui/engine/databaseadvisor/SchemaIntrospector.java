@@ -585,6 +585,16 @@ final class SchemaIntrospector {
     private static ColumnModel readColumn(ResultSet rs) throws SQLException {
         Integer size = nullableInt(rs, "COLUMN_SIZE");
         Integer decimalDigits = nullableInt(rs, "DECIMAL_DIGITS");
+        String defaultValue = null;
+        boolean defaultRead = true;
+        try {
+            // Read before later columns: Oracle exposes COLUMN_DEF as a LONG stream that is lost once a
+            // later column of the row has been accessed.
+            defaultValue = rs.getString("COLUMN_DEF");
+        } catch (SQLException ex) {
+            defaultRead = false;
+        }
+        String autoIncrement = safeColumn(rs, "IS_AUTOINCREMENT");
         return new ColumnModel(
                 rs.getString("COLUMN_NAME"),
                 rs.getString("TYPE_NAME"),
@@ -592,7 +602,10 @@ final class SchemaIntrospector {
                 nullability(nullableInt(rs, "NULLABLE")),
                 size,
                 decimalDigits,
-                "YES".equalsIgnoreCase(safeColumn(rs, "IS_AUTOINCREMENT")));
+                "YES".equalsIgnoreCase(autoIncrement),
+                defaultRead ? yesNo(autoIncrement) : null,
+                defaultValue,
+                yesNo(safeColumn(rs, "IS_GENERATEDCOLUMN")));
     }
 
     private record PrimaryKey(String name, List<String> columns) {}
@@ -1051,6 +1064,14 @@ final class SchemaIntrospector {
     private static Integer nullableInt(ResultSet rs, String column) throws SQLException {
         int value = rs.getInt(column);
         return rs.wasNull() ? null : value;
+    }
+
+    /** {@code YES}/{@code NO} as a tri-state; an empty or unexpected value is unknown, not {@code NO}. */
+    private static Boolean yesNo(String value) {
+        if ("YES".equalsIgnoreCase(value)) {
+            return Boolean.TRUE;
+        }
+        return "NO".equalsIgnoreCase(value) ? Boolean.FALSE : null;
     }
 
     private static String safeColumn(ResultSet rs, String column) {
