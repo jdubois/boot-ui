@@ -180,6 +180,9 @@ test.describe('BootUI on Spring WebFlux', () => {
     await expect(drawer.getByRole('heading', {name: /^Cache accesses/})).toBeVisible()
     await expect(drawer).toContainText('Serving thread and time window correlation are unavailable on this adapter')
     await expect(drawer.getByRole('button', {name: /Copy profile/})).toBeVisible()
+    const journal = drawer.locator('.request-journal')
+    await expect(journal.getByRole('heading', {name: 'Recorded by the runtime journal'})).toHaveCount(1)
+    await expect(journal).toContainText('GET /api/greetings/{name}')
 
     await page.keyboard.press('Escape')
     await expect(drawer).toHaveCount(0)

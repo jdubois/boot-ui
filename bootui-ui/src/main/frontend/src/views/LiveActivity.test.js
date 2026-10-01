@@ -103,8 +103,11 @@ function requestProfile(overrides = {}) {
   }
 }
 
-function stubFetch(activity, profile) {
+function stubFetch(activity, profile, journalProfile = {available: false, unavailableReason: 'Not retained.'}) {
   return vi.fn((url) => {
+    if (typeof url === 'string' && url.startsWith('api/activity/request/') && url.endsWith('/journal')) {
+      return Promise.resolve(jsonResponse(journalProfile))
+    }
     if (typeof url === 'string' && url.startsWith('api/activity/request/')) {
       return Promise.resolve(jsonResponse(profile))
     }
@@ -221,6 +224,32 @@ describe('LiveActivity', () => {
     }
   })
 
+  it('loads the runtime journal record of an opened request by its request id', async () => {
+    const profile = requestProfile({request: {...requestProfile().request, requestId: '0a1b2c3d4e5f6a7b'}})
+    const fetchMock = stubFetch(activityReport(), profile, {
+      available: true,
+      route: 'GET /api/todos',
+      durationMicros: 120000,
+      timeline: [],
+      gcPauses: [],
+      touched: {tables: ['todos']},
+      notes: []
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    routeState.query = {request: 'exchange-7'}
+    try {
+      wrapper = mountLiveActivity()
+      await flushPromises()
+
+      expect(fetchMock).toHaveBeenCalledWith('api/activity/request/exchange-7', expect.anything())
+      expect(fetchMock).toHaveBeenCalledWith('api/activity/request/0a1b2c3d4e5f6a7b/journal', expect.anything())
+      expect(wrapper.text()).toContain('Recorded by the runtime journal')
+      expect(wrapper.text()).toContain('todos')
+    } finally {
+      routeState.query = {}
+    }
+  })
+
   it('keeps filters usable when browser storage reads and writes are denied', async () => {
     vi.stubGlobal('localStorage', {
       getItem() {
@@ -296,7 +325,10 @@ describe('LiveActivity', () => {
 
     await row.get('button.btn-outline-primary').trigger('click')
     await flushPromises()
-    expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith('api/activity/request/'))).toHaveLength(2)
+    const profileCalls = fetchMock.mock.calls.filter(
+      ([url]) => String(url).startsWith('api/activity/request/') && !String(url).endsWith('/journal')
+    )
+    expect(profileCalls).toHaveLength(2)
   })
 
   it('renders a scheduled-task-run entry with its own icon and links the KPI card to the Scheduled Tasks panel', async () => {

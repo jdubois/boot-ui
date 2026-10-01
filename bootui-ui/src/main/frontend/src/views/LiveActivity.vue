@@ -7,6 +7,7 @@ import PanelSkeleton from './components/PanelSkeleton.vue'
 import UnavailableState from './components/UnavailableState.vue'
 import FlashBanner from './components/FlashBanner.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
+import RequestJournalProfile from './components/RequestJournalProfile.vue'
 import RuntimeJournalStatus from './components/RuntimeJournalStatus.vue'
 import {formatBytes, formatClockTime, formatMillis, formatNumber} from '../utils/format.js'
 import {formatLoadError} from '../utils/loadError.js'
@@ -96,6 +97,8 @@ const profile = ref(null)
 const profileLoading = ref(false)
 const profileError = ref(null)
 const profileRequestId = ref(null)
+// The runtime journal's view of the open request, loaded right after its profile (docs/PLAN-v2.md §5.3).
+const journalProfile = ref(null)
 const drawerEl = ref(null)
 const profileOpenerEl = ref(null)
 
@@ -478,12 +481,14 @@ async function loadProfile(id, opener) {
   profileLoading.value = true
   profileError.value = null
   profile.value = null
+  journalProfile.value = null
   try {
     const response = await apiFetch(`api/activity/request/${encodeURIComponent(id)}`)
     if (!response.ok) {
       throw new Error(`Request failed with status ${response.status}`)
     }
     profile.value = await response.json()
+    await loadJournalProfile(profile.value?.request?.requestId || id)
   } catch (err) {
     profileError.value = err.message || 'Could not load request profile'
   } finally {
@@ -492,10 +497,25 @@ async function loadProfile(id, opener) {
   }
 }
 
+async function loadJournalProfile(requestId) {
+  try {
+    const response = await apiFetch(`api/activity/request/${encodeURIComponent(requestId)}/journal`)
+    if (!response.ok) throw new Error(`status ${response.status}`)
+    const loaded = await response.json()
+    if (profileRequestId.value) journalProfile.value = loaded
+  } catch (err) {
+    journalProfile.value = {
+      available: false,
+      unavailableReason: `Could not load the runtime journal's record of this request (${err.message}).`
+    }
+  }
+}
+
 function closeProfile() {
   const opener = profileOpenerEl.value
   profileRequestId.value = null
   profile.value = null
+  journalProfile.value = null
   profileError.value = null
   profileOpenerEl.value = null
   requestAnimationFrame(() => opener?.focus?.())
@@ -1357,6 +1377,8 @@ function toggleFlow() {
               <h3 class="h6">Timing</h3>
               <p class="small mb-1">{{ timingSummary }}</p>
             </section>
+
+            <RequestJournalProfile v-if="journalProfile" :profile="journalProfile" />
 
             <p v-if="profile.approximate" class="alert alert-secondary small py-2 mb-3" role="note">
               <i class="bi bi-info-circle me-1" aria-hidden="true"></i>Parts of this profile are approximate: some

@@ -368,6 +368,13 @@ more filters apply on the server: a **Route** such as `GET /api/orders/{id}`, wi
 id**, and **No request**, which keeps only work outside any request. Rows from the journal carry metadata only: no
 exception or log messages and no principals. The feed refreshes whenever the journal records anything.
 
+A request's profile drawer also shows **Recorded by the runtime journal**: the route it was grouped under and where it
+stands against that route's median and 95th percentile once the route has 5 requests; the CPU time, memory, and GC
+pauses it used, or why they could not be measured, as on a virtual thread; a timeline of its statements, connections,
+transactions, cache accesses, messages, log events, and REST client calls, each placed at its start, with a GC lane for
+the collections that completed while it ran; and what it touched: the tables its statements name, data sources,
+transactions, caches, destinations, hosts, and log templates.
+
 ### Safety and limits
 
 The panel inherits BootUI's full safety model — loopback filter, Host allow-list, cross-site write defenses, value

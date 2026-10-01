@@ -182,6 +182,12 @@ test.describe('Live Activity view (Quarkus)', () => {
     await expect(cache).toContainText('not available on Quarkus')
     await expect(drawer).toContainText('Serving thread and time window correlation are unavailable on this adapter')
 
+    // The runtime journal's record of the same request (docs/PLAN-v2.md §5.3): its route and the SQL on its timeline.
+    const journal = drawer.locator('.request-journal')
+    await expect(journal.getByRole('heading', {name: 'Recorded by the runtime journal'})).toHaveCount(1)
+    await expect(journal).toContainText('GET /api/sample/product-search')
+    await expect(journal.locator('.request-journal__source', {hasText: /^sql$/}).first()).toBeVisible()
+
     await drawer.getByRole('button', {name: 'Close'}).click()
     await expect(drawer).toHaveCount(0)
   })
