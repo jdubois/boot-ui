@@ -5,7 +5,7 @@ the panel ID remains `spring`, the endpoint remains `/bootui/api/spring`, and th
 `SpringReport` JSON and dismissal contract are unchanged. It is separate from the
 [Quarkus Security advisor](QUARKUS-CHECKS.md).
 
-The advisor has **13 active rules**. It inspects application-owned build metadata and
+The advisor has **14 active rules**. It inspects application-owned build metadata and
 selected configuration only when the user requests a scan. It never invokes application
 beans, constructs REST clients, executes scheduled work, reads JDBC data, intercepts
 traffic, or changes configuration. Findings are review prompts, not proof of a race,
@@ -30,7 +30,9 @@ production exclusion remains unchanged. Missing or unreadable metadata is **unkn
 not an empty, clean application.
 
 Configuration analysis distinguishes active effective settings, framework defaults, and
-visible production declarations. The native configuration machinery resolves active
+visible production declarations. Development mode builds with the development profile and never drains HTTP
+requests, so the compression and request-draining rules prefer a visible literal `%prod.` declaration over the active
+value and, like the other production rules, report incomplete coverage unless `prod` is the sole active profile. The native configuration machinery resolves active
 values and registered REST-client aliases. An inactive production profile is inspected
 only through already-loaded production declarations: BootUI does not load another
 profile's files, invent external environment values, resolve a production expression
@@ -62,39 +64,52 @@ unrecognized configuration values, and exception messages are not exposed.
 
 ## CDI
 
-### QA-CDI-001 - Public mutable state on an application-scoped bean
+### QA-CDI-004 - Public field on a normal-scoped bean
 
-**LOW.** A resolved `@ApplicationScoped` application class bean exposes a public,
-potentially mutable instance field that is not an injection point. Public final immutable
-values are excluded. Private fields alone are not evidence of unsynchronized access:
-initialization-only writes, volatile flags, atomics, concurrent collections and locking
-can all be legitimate.
+**MEDIUM.** A resolved application class bean whose effective scope is a **normal scope** — `@ApplicationScoped`,
+`@RequestScoped`, `@SessionScoped` or a custom normal scope, including scopes assigned by stereotypes and Quarkus
+REST's automatic `@RequestScoped` for resources with REST parameter fields — declares or inherits a non-static public
+field that is not an injection point or a REST parameter/`@Context` field.
 
-Review whether the field should expose an immutable value or an encapsulated operation.
-`final` does not make an object deeply immutable, and making a field private does not
-itself make its accesses thread-safe. Arc `@Lock` protects intercepted method calls,
-not arbitrary external reads/writes of public fields; a returned asynchronous operation
-is not necessarily protected for its entire lifetime.
+CDI 4.1 §3.1 makes such a field a definition error; ArC's default mode does not enforce it. Every injection point of
+a normal-scoped bean receives one shared client proxy, a generated subclass with its own copy of every field, and the
+proxy delegates **methods only**. Reading or writing the field through an injected reference therefore works on the
+proxy, not on the current contextual instance; for request or session scope, a value written that way can be seen by
+other requests. The Quarkus CDI guide states this directly: never read or write a field of a normal-scoped bean.
+The finding is conditional: field accesses are not observed, and `this.field` inside the bean reaches the contextual
+instance.
 
-### QA-CDI-002 - Public mutable state on a shared REST resource
+Make the field private and access the state through methods. Package-private visibility still permits direct proxy
+field access from the same package. Final atomics and concurrent collections are **not** exempt here, because the proxy
+holds a second object. To limit noise, final primitives and immutable value types (`String`, boxed numbers,
+`java.time`, `BigDecimal`, `UUID`) remain excluded, although a constructor-assigned value can still differ on the proxy.
 
-**MEDIUM.** An actual application REST resource with a resolved shared scope exposes
-a public mutable instance field that is not injected. Quarkus REST's default singleton
-scope and its automatic request scope for REST parameter-field injection are respected;
-outbound REST-client interfaces are not inbound resources. The resource-specific rule
-does not also charge the same field under the two general CDI rules.
+### QA-CDI-002 - Public state on a singleton REST resource
 
-Review the state lifetime and public access. Move genuinely request-specific state into
-a request-scoped object, or expose an appropriate immutable value or operation. This is
-not a claim that concurrent mutation was observed.
+**MEDIUM.** An actual application REST resource resolved as `@Singleton` — the Quarkus REST default — exposes a
+public, potentially mutable instance field that is not injected. Singletons have no client proxy, so the field is
+shared by concurrent requests. Final immutable values, atomics and concurrent collections are excluded; REST parameter
+and `@Context` fields are excluded. Normal-scoped resources are reported once under QA-CDI-004 instead, and the
+resource-specific rule does not also charge the same field under QA-CDI-003.
+
+Keep request-specific data in method-local variables or parameters, and expose shared state only as an immutable
+value or an encapsulated operation. This is not a claim that concurrent mutation was observed.
 
 ### QA-CDI-003 - Public mutable state on a singleton bean
 
-**LOW.** The same policy as QA-CDI-001 applies to a resolved `@Singleton` application
-class bean, including a scope assigned by the framework. Scope annotations on a producer
-class do not establish the scope of the object returned by a producer.
+**LOW.** A resolved `@Singleton` application class bean, including a scope assigned by the framework, exposes a
+public, potentially mutable instance field that is not an injection point. CDI allows public fields on this
+pseudo-scope. Public final immutable values, atomics and concurrent collections are excluded. Scope annotations on a
+producer class do not establish the scope of the object returned by a producer.
 
-CDI sources: [Jakarta CDI scopes](https://jakarta.ee/specifications/cdi/4.1/jakarta-cdi-spec-4.1.html#scopes),
+Review whether the field should expose an immutable value or an encapsulated operation. `final` does not make an
+object deeply immutable. Do not move the field to a normal scope such as request scope: that turns it into a
+QA-CDI-004 client-proxy defect.
+
+CDI sources: [Jakarta CDI 4.1 managed beans](https://jakarta.ee/specifications/cdi/4.1/jakarta-cdi-spec-4.1.html#managed_beans),
+[Quarkus client proxies](https://quarkus.io/guides/cdi#client_proxies),
+[ArC client proxy generation](https://github.com/quarkusio/quarkus/blob/3.33.3.1/independent-projects/arc/processor/src/main/java/io/quarkus/arc/processor/ClientProxyGenerator.java),
+[ArC maintainer on proxy field access](https://github.com/quarkusio/quarkus/issues/1632),
 [Arc effective scope resolution](https://github.com/quarkusio/quarkus/blob/3.33.3.1/independent-projects/arc/processor/src/main/java/io/quarkus/arc/processor/Beans.java#L1382-L1393),
 [implicit qualifier-field injection](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/arc/deployment/src/main/java/io/quarkus/arc/deployment/AutoInjectFieldProcessor.java#L70-L82),
 and [Quarkus REST scope handling](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/resteasy-reactive/rest/deployment/src/main/java/io/quarkus/resteasy/reactive/server/deployment/ResteasyReactiveCDIProcessor.java#L69-L121).
@@ -117,15 +132,33 @@ secret disclosure from the level alone.
 
 ### QA-CFG-004 - Deprecated Hibernate schema property
 
-**LOW.** A configured default/named/profile variant of
-`quarkus.hibernate-orm.database.generation` uses the deprecated namespace.
-Migrate to `quarkus.hibernate-orm.schema-management.strategy`, preserving the intended
-action. A property name merely supplied by framework defaults or an empty value is not
-enough to trigger this rule.
+**LOW.** A configured default/named/profile variant of the `quarkus.hibernate-orm.database.generation` group,
+deprecated for removal since Quarkus 3.22, is declared: `database.generation`, `database.generation.create-schemas`
+or `database.generation.halt-on-error`. One finding is reported per persistence unit and profile prefix, however many
+legacy keys it declares. Migrate each key to its replacement — `schema-management.strategy`,
+`schema-management.create-schemas` and `schema-management.halt-on-error` — preserving the intended value. A property
+name merely supplied by framework defaults or an empty value is not enough to trigger this rule.
 
 On Quarkus **3.33.3.1**, an explicitly configured legacy property takes precedence over
 the new property. Remove or migrate the old declaration rather than assuming a new
 `schema-management.strategy=none` has overridden it.
+
+### QA-CFG-005 - Production bind-parameter logging
+
+**HIGH.** Hibernate ORM is present and the production view of `quarkus.hibernate-orm.log.bind-parameters` or its
+deprecated alias `quarkus.hibernate-orm.log.bind-param` is true. Quarkus ORs both global flags and forces the
+`org.hibernate.orm.jdbc.bind` logger to TRACE, so every bound value — personal data, credentials or tokens — can be
+written to the logs. There is no per-persistence-unit key; a quoted unit variant is ignored.
+
+The setting is fixed at **build time**, so the production view is built from declarations a production build packages:
+a visible `%prod.` declaration, or an unqualified declaration in a base `application.properties`/`application.yaml`
+file, resolved with Quarkus' own profile and source-ordinal precedence. Profile-aware files such as
+`application-dev.properties`, system properties and environment variables of the development run are not production
+evidence. When `prod` is the sole active profile, the rule defers to the Hibernate advisor's HIB-CONFIG-018, which reads
+the effective logger, so one setting is not charged twice. Build-time overrides of a future packaging step are not
+observed, so the rule always reports incomplete coverage in development mode.
+
+Remove the production declaration and enable bind logging only temporarily outside production.
 
 ### QA-PROD-002 - Production schema creation, alteration or dropping
 
@@ -158,23 +191,26 @@ Sources: [profile and source precedence](https://quarkus.io/guides/config-refere
 [Quarkus schema-action wiring and legacy precedence](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/hibernate-orm/runtime/src/main/java/io/quarkus/hibernate/orm/runtime/FastBootHibernatePersistenceProvider.java#L497-L499),
 [Hibernate create-only distinction](https://github.com/hibernate/hibernate-orm/blob/7.2.19/hibernate-core/src/main/java/org/hibernate/tool/schema/Action.java#L22-L25),
 [separate bind logging](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/hibernate-orm/deployment/src/main/java/io/quarkus/hibernate/orm/deployment/HibernateOrmConfig.java#L145-L163),
-and [H2 storage modes](https://github.com/h2database/h2database/blob/version-2.4.240/h2/src/docsrc/html/features.html#L246-L260).
+[H2 storage modes](https://github.com/h2database/h2database/blob/version-2.4.240/h2/src/docsrc/html/features.html#L246-L260),
+[deprecated database.generation group](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/hibernate-orm/runtime/src/main/java/io/quarkus/hibernate/orm/runtime/HibernateOrmRuntimeConfigPersistenceUnit.java#L246-L275),
+and [build-time bind-parameter logging](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/hibernate-orm/deployment/src/main/java/io/quarkus/hibernate/orm/deployment/HibernateOrmConfig.java#L142-L165).
 
 ## HTTP and clients
 
 ### QA-WEB-001 - Application HTTP compression disabled
 
-**INFO.** Compression is either explicitly disabled or disabled by the framework
-default; the report distinguishes the two. Enabling compression may help suitable
-payloads, but is not universally necessary. Upstream compression, client negotiation,
-response media types and workload are not inspected.
+**INFO.** Compression is disabled by the framework default. An explicit
+`quarkus.http.enable-compression=false` records a deliberate decision, for example edge compression, and suppresses
+this prompt, as SPRING-WEB-001 does on Spring. The setting is fixed at build time, so in development mode a visible
+`%prod.` declaration is preferred and labelled as such. Enabling compression may help suitable payloads, but is not
+universally necessary. Upstream compression, client negotiation, response media types and workload are not inspected.
 
 ### QA-WEB-002 - Explicit zero shutdown timeout
 
-**MEDIUM.** `quarkus.shutdown.timeout=0` disables HTTP request-draining grace.
-Set a **positive duration**, for example `10s`, if requests should be allowed to finish.
-Removing the override is not equivalent: the framework default also leaves draining
-disabled. This does not promise completion of every scheduled or messaging operation.
+**LOW.** `quarkus.shutdown.timeout=0` disables HTTP request-draining grace; zero does not mean waiting without
+limit. Set a **positive duration**, for example `10s`, if requests should be allowed to finish. Removing the override
+is not equivalent: the framework default also leaves draining disabled, which is why the behaviourally identical
+default is only the INFO prompt QA-WEB-004. This does not promise completion of every scheduled or messaging operation.
 
 ### QA-WEB-003 - Managed REST-client timer disabled
 
@@ -196,7 +232,9 @@ extension produces incomplete coverage, not a claim that no clients exist.
 ### QA-WEB-004 - HTTP request draining not configured
 
 **INFO.** The shutdown timeout is known to be absent. Quarkus request-draining grace is
-opt-in, so configure a positive `quarkus.shutdown.timeout` if required.
+opt-in, so configure a positive `quarkus.shutdown.timeout` if required. Development mode never drains, even with a
+positive timeout, so a visible `%prod.quarkus.shutdown.timeout` declaration is preferred over the active value for both
+shutdown rules, and both report incomplete production coverage unless `prod` is the sole active profile.
 This rule is mutually exclusive with QA-WEB-002. An unreadable duration is an analysis
 error, not an absent value.
 
@@ -229,7 +267,7 @@ and [Quarkus virtual-thread guide](https://quarkus.io/guides/virtual-threads).
 
 ## Complete audit disposition
 
-All 19 original IDs are accounted for. Retired IDs remain reserved so stored dismissals
+All 19 original IDs are accounted for. The table records the first audit; see the second audit below. Retired IDs remain reserved so stored dismissals
 cannot later target an unrelated rule.
 
 | Rule | Disposition | Reason |
@@ -259,6 +297,30 @@ Retirement sources: [supported configuration APIs](https://github.com/quarkusio/
 [local versus composite scheduling](https://github.com/quarkusio/quarkus/blob/3.33.3.1/docs/src/main/asciidoc/scheduler-reference.adoc#L282-L403),
 [launch modes](https://github.com/quarkusio/quarkus/blob/3.33.3.1/core/runtime/src/main/java/io/quarkus/runtime/LaunchMode.java#L3-L17),
 and [Agroal default maximum](https://github.com/quarkusio/quarkus/blob/3.33.3.1/extensions/agroal/runtime/src/main/java/io/quarkus/agroal/runtime/DataSourceJdbcRuntimeConfig.java#L39-L43).
+
+## Second audit disposition
+
+A second audit re-checked every surviving rule against Quarkus 3.33.3.x sources and CDI 4.1. Twenty-one IDs are now
+accounted for: 14 active and 7 retired. Each added rule and severity change was reviewed independently by three
+models before implementation.
+
+| Rule | Disposition | Reason |
+| --- | --- | --- |
+| QA-CDI-001 | Retired | Framed as a concurrency review prompt, but the real defect on a normal scope is client-proxy field access. Replaced by QA-CDI-004 under a new ID so earlier dismissals of the LOW prompt do not hide the MEDIUM definition error. |
+| QA-CDI-002 | Updated | Now singleton resources only; application- or request-scoped resources move to QA-CDI-004. |
+| QA-CDI-003 | Updated | Recommendation no longer suggests request scope, which would create a QA-CDI-004 defect. |
+| QA-CDI-004 | Added | Public fields on every normal scope, including request and session scope; atomics and concurrent collections are not exempt behind a proxy. |
+| QA-CFG-004 | Updated | Also detects the deprecated `create-schemas` and `halt-on-error` keys, names each replacement and reports once per unit. |
+| QA-CFG-005 | Added | Build-time bind-parameter logging in the production view; complements HIB-CONFIG-018, which reads only an active production profile. |
+| QA-WEB-001 | Updated | Explicit `false` suppresses the prompt; a visible `%prod.` declaration is preferred in development mode. |
+| QA-WEB-002 | Updated | MEDIUM to LOW: an explicit zero behaves like the INFO default; visible `%prod.` declaration preferred. |
+| QA-WEB-004 | Updated | False positive fixed: `%prod.quarkus.shutdown.timeout` was invisible to the development profile. |
+| Others | Retained | QA-CFG-002, QA-CFG-003, QA-PROD-002, QA-PROD-003, QA-WEB-003 and QA-PERF-002 were re-verified. |
+
+Not added: a REST client without a URL (Quarkus already fails with a precise message on first use), a log category
+below `quarkus.log.min-level` and `@RunOnVirtualThread` on JDK 17 (Quarkus warns at startup), scheduled-job overlap
+(the default `PROCEED` policy is legitimate), and unqualified base-file declarations for the runtime production rules
+(development-only sources, Dev Services and launch overrides cannot be told apart reliably at runtime).
 
 The source audit targets Quarkus **3.33.3.1**. Pinned supporting JDK, Hibernate, SmallRye
 and database references explain specific semantics; they do not claim every application

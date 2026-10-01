@@ -94,10 +94,37 @@ class QuarkusAppMetadataCollectorTest {
     }
 
     @Test
-    void excludesPrivateStaticImmutableConcurrentAndResolvedImplicitInjectionFields() throws IOException {
-        Index application = index(FieldBean.class, InjectedDependency.class);
+    void singletonExcludesPrivateStaticImmutableConcurrentAndResolvedImplicitInjectionFields() throws IOException {
+        Index application = index(SingletonFieldBean.class, InjectedDependency.class);
         Index combined = index(
-                FieldBean.class, FieldParent.class, InjectedDependency.class, CustomQualifier.class, Object.class);
+                SingletonFieldBean.class,
+                FieldParent.class,
+                InjectedDependency.class,
+                CustomQualifier.class,
+                Object.class);
+        var context = arc(combined, false);
+
+        QuarkusAppMetadata result = collect(application, combined, context, List.of(), List.of(), List.of());
+
+        assertThat(result.sharedFields())
+                .containsExactlyInAnyOrder(
+                        field(SingletonFieldBean.class, "mutable", "SINGLETON", false),
+                        field(SingletonFieldBean.class, "finalList", "SINGLETON", false),
+                        field(SingletonFieldBean.class, "finalArray", "SINGLETON", false),
+                        field(SingletonFieldBean.class, "inherited", "SINGLETON", false));
+        assertThat(result.problems()).isEmpty();
+    }
+
+    @Test
+    void proxiedNormalScopeReportsThreadSafeHoldersButKeepsValueInjectionAndStaticExclusions() throws IOException {
+        Index application = index(FieldBean.class, RequestFieldBean.class, InjectedDependency.class);
+        Index combined = index(
+                FieldBean.class,
+                RequestFieldBean.class,
+                FieldParent.class,
+                InjectedDependency.class,
+                CustomQualifier.class,
+                Object.class);
         var context = arc(combined, false);
 
         QuarkusAppMetadata result = collect(application, combined, context, List.of(), List.of(), List.of());
@@ -105,9 +132,12 @@ class QuarkusAppMetadataCollectorTest {
         assertThat(result.sharedFields())
                 .containsExactlyInAnyOrder(
                         field(FieldBean.class, "mutable", "APPLICATION", false),
+                        field(FieldBean.class, "atomic", "APPLICATION", false),
+                        field(FieldBean.class, "concurrent", "APPLICATION", false),
                         field(FieldBean.class, "finalList", "APPLICATION", false),
                         field(FieldBean.class, "finalArray", "APPLICATION", false),
-                        field(FieldBean.class, "inherited", "APPLICATION", false));
+                        field(FieldBean.class, "inherited", "APPLICATION", false),
+                        field(RequestFieldBean.class, "tenant", "NORMAL", false));
         assertThat(result.problems()).isEmpty();
     }
 
@@ -133,6 +163,7 @@ class QuarkusAppMetadataCollectorTest {
         assertThat(result.sharedFields())
                 .containsExactlyInAnyOrder(
                         field(SharedResource.class, "state", "SINGLETON", true),
+                        field(RequestResource.class, "state", "NORMAL", true),
                         field(NonResource.class, "state", "APPLICATION", false));
     }
 
@@ -373,7 +404,7 @@ class QuarkusAppMetadataCollectorTest {
         Index combined = index(InheritedBean.class, ParentBean.class, SingletonStereotype.class, Object.class);
         var context = arc(combined, false);
         QuarkusAppMetadata result = collect(application, application, context, List.of(), List.of(), List.of());
-        assertThat(result.problems()).extracting("ruleId").contains("QA-CDI-001");
+        assertThat(result.problems()).extracting("ruleId").contains("QA-CDI-004");
     }
 
     private static QuarkusAppMetadata collect(
@@ -557,6 +588,31 @@ class QuarkusAppMetadataCollectorTest {
         public final ConcurrentHashMap<String, String> concurrent = new ConcurrentHashMap<>();
         public final List<String> finalList = new ArrayList<>();
         public final int[] finalArray = new int[1];
+    }
+
+    @Singleton
+    static class SingletonFieldBean extends FieldParent {
+        public int mutable;
+        private int hidden;
+        public static int global;
+        public final int primitive = 1;
+        public final String text = "";
+        public final java.time.Instant time = java.time.Instant.EPOCH;
+        public final AtomicInteger atomic = new AtomicInteger();
+        public final ConcurrentHashMap<String, String> concurrent = new ConcurrentHashMap<>();
+        public final List<String> finalList = new ArrayList<>();
+        public final int[] finalArray = new int[1];
+    }
+
+    @RequestScoped
+    static class RequestFieldBean {
+        public String tenant;
+        private String hidden;
+        public static String global;
+
+        @Inject
+        @CustomQualifier
+        public InjectedDependency injected;
     }
 
     @Singleton
