@@ -15,7 +15,7 @@ test.describe('Hibernate Advisor view', () => {
     const response = await scanResponse
     expect(response.ok()).toBeTruthy()
     const report = await response.json()
-    expect(report.rulesEvaluated).toBe(71)
+    expect(report.rulesEvaluated).toBe(72)
     expect(report.scan.status).toBe('PARTIAL')
     expect(report.scan.message).toBeTruthy()
     expect(Array.isArray(report.diagnostics)).toBe(true)
@@ -28,7 +28,16 @@ test.describe('Hibernate Advisor view', () => {
     }
     expect(report.entitiesAnalyzed).toBeGreaterThan(0)
     expect(new Set(report.results.map((result) => result.id)).size).toBe(report.results.length)
-    for (const id of ['HIB-FETCH-004', 'HIB-MAP-012', 'HIB-MAP-019', 'HIB-ENTITY-003', 'HIB-ENTITY-004']) {
+    for (const id of [
+      'HIB-FETCH-004',
+      'HIB-MAP-012',
+      'HIB-MAP-017',
+      'HIB-MAP-019',
+      'HIB-MAP-021',
+      'HIB-ENTITY-003',
+      'HIB-ENTITY-004',
+      'HIB-CONFIG-001'
+    ]) {
       expect(report.results.map((result) => result.id)).not.toContain(id)
     }
 

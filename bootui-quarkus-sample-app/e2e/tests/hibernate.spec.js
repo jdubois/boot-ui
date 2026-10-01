@@ -21,7 +21,7 @@ test.describe('Hibernate advisor (Quarkus)', () => {
     const response = await scanResponse
     expect(response.ok()).toBeTruthy()
     const report = await response.json()
-    expect(report.rulesEvaluated).toBe(71)
+    expect(report.rulesEvaluated).toBe(72)
     expect(report.scan.status).toBe('PARTIAL')
     expect(report.scan.message).toBeTruthy()
     expect(Array.isArray(report.diagnostics)).toBe(true)
