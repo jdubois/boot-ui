@@ -30,20 +30,37 @@
 
     <modules>
         <module>base</module>
-        <module>otel</module>
-        <module>health</module>
-        <module>micrometer</module>
-        <module>scheduler</module>
-        <module>fault-tolerance</module>
-        <module>security</module>
-        <module>cache</module>
-        <module>email</module>
-        <module>rabbit</module>
-        <module>flyway</module>
-        <module>liquibase</module>
-        <module>datasource</module>
-        <module>rest-client</module>
-        <module>websockets</module>
-        <module>prod-shell-guard</module>
     </modules>
+
+    <profiles>
+        <!-- Active by default. -Dbootui.skipQuarkusExtensionIts drops these modules (and the JDK-gated Hibernate
+             module wired in the root pom) from the reactor, so CI can test them in a job that runs in parallel
+             with the main build: see the quarkus-extension-its job in .github/workflows/build.yml. The base
+             module always stays, because its execution data feeds the bootui-coverage aggregate. -->
+        <profile>
+            <id>quarkus-extension-its</id>
+            <activation>
+                <property>
+                    <name>!bootui.skipQuarkusExtensionIts</name>
+                </property>
+            </activation>
+            <modules>
+                <module>otel</module>
+                <module>health</module>
+                <module>micrometer</module>
+                <module>scheduler</module>
+                <module>fault-tolerance</module>
+                <module>security</module>
+                <module>cache</module>
+                <module>email</module>
+                <module>rabbit</module>
+                <module>flyway</module>
+                <module>liquibase</module>
+                <module>datasource</module>
+                <module>rest-client</module>
+                <module>websockets</module>
+                <module>prod-shell-guard</module>
+            </modules>
+        </profile>
+    </profiles>
 </project>

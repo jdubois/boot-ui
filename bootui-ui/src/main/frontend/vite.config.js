@@ -103,7 +103,8 @@ export default defineConfig(({command}) => ({
     coverage: {
       provider: 'v8',
       reportsDirectory: './coverage',
-      reporter: ['text', 'html', 'json-summary', 'lcov', 'cobertura'],
+      // text-summary keeps the build log short; per-file numbers are in the HTML, LCOV and Cobertura reports.
+      reporter: ['text-summary', 'html', 'json-summary', 'lcov', 'cobertura'],
       include: ['src/**/*.{js,vue}', 'scripts/**/*.mjs'],
       exclude: ['src/generated/**', 'src/main.js'],
       thresholds: {

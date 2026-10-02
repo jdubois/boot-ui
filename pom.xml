@@ -244,6 +244,10 @@
                              without multiplying out of control. -->
                         <forkCount>2</forkCount>
                         <reuseForks>true</reuseForks>
+                        <!-- Keep each test class's stdout/stderr (application logs, expected-failure stack
+                             traces) in target/surefire-reports/<class>-output.txt instead of the build log.
+                             Failures, errors and the per-class summary are still printed. -->
+                        <redirectTestOutputToFile>true</redirectTestOutputToFile>
                     </configuration>
                 </plugin>
                 <plugin>
@@ -587,11 +591,17 @@
             import it on any JDK) and skips only its Hibernate augmentation on JDK 28+ via a profile in its own pom.
             The extension's own modules (bootui-quarkus*, the non-Hibernate integration-tests) have no Hibernate
             dependency and stay in the always-on reactor above, so they are built and tested on every JDK.
+            Like the other per-extension integration-test modules (see bootui-quarkus-integration-tests/pom.xml),
+            it also leaves the reactor when -Dbootui.skipQuarkusExtensionIts is set, so CI can run them in a
+            separate, parallel job.
         -->
         <profile>
             <id>quarkus-sample-app</id>
             <activation>
                 <jdk>[17,28)</jdk>
+                <property>
+                    <name>!bootui.skipQuarkusExtensionIts</name>
+                </property>
             </activation>
             <modules>
                 <module>bootui-quarkus-integration-tests/hibernate</module>

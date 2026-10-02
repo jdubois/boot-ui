@@ -258,6 +258,8 @@
                     </execution>
                 </executions>
                 <configuration>
+                    <!-- Same as the root Surefire configuration: test output goes to target/failsafe-reports. -->
+                    <redirectTestOutputToFile>true</redirectTestOutputToFile>
                     <systemPropertyVariables>
                         <sample.jar>${project.build.directory}/${project.build.finalName}.jar</sample.jar>
                         <host.asm.jar>${org.ow2.asm:asm:jar}</host.asm.jar>

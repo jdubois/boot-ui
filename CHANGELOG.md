@@ -72,6 +72,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Faster, quieter CI builds.** The per-extension Quarkus integration-test modules and the three Spring Playwright
+  suites now run on parallel runners instead of competing with the coverage build or running back to back. Surefire
+  and Failsafe write each test class's console output to `*-output.txt` files, uploaded as the `test-output`
+  artifacts, instead of the build log, and Vitest prints a coverage summary rather than its per-file table.
+
 - **The sidebar's pinned top is now Home: Scorecard, Live Activity, and Runtime Insights.** The Overview panel is
   renamed **Scorecard**, which is what it shows, at `#/scorecard`; `#/overview` and the root still land there. Its
   `overview` panel id, `bootui.panels.overview.*` properties, `GET /bootui/api/overview`, and the `get_overview` tool

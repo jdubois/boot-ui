@@ -73,8 +73,10 @@ jobs:
       # forkCount to a value that does not race Quarkus's own test-bootstrap classloading (see the
       # maven-surefire-plugin comment in the root pom and the forkCount comment in
       # bootui-quarkus-integration-tests/base/pom.xml).
+      # -Dbootui.skipQuarkusExtensionIts leaves the per-extension Quarkus integration-test modules to the
+      # parallel quarkus-extension-its job below; none of them feeds the bootui-coverage aggregate.
       - name: Build all modules with coverage
-        run: ./mvnw -T 1C -B -ntp -Pcoverage clean install
+        run: ./mvnw -T 1C -B -ntp -Pcoverage -Dbootui.skipQuarkusExtensionIts clean install
 
       - name: Require executed MySQL collector, Spring HTTP, and activity store tests
         run: >
@@ -84,17 +86,6 @@ jobs:
           MySqlReplicationLiveTests MySqlDigestOverflowLiveTests MySqlPerformanceSchemaOffLiveTests
           MySqlInstrumentationLiveTests MySqlIdentifierCaseLiveTests MySqlHttpLiveTests
           MySqlActivityStoreLiveTests
-
-      - name: Run MySQL Quarkus HTTP contract
-        run: >
-          ./mvnw -B -ntp -pl bootui-quarkus-integration-tests/datasource
-          -Pmysql-live test -Dtest=BootUiQuarkusMySqlLiveTest
-
-      - name: Require executed MySQL Quarkus HTTP tests
-        run: >
-          python3 .github/scripts/check-mysql-live-tests.py
-          bootui-quarkus-integration-tests/datasource/target/surefire-reports
-          BootUiQuarkusMySqlLiveTest
 
       - name: Publish coverage summary
         if: ${{ !cancelled() }}
@@ -151,6 +142,19 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      # Surefire and Failsafe redirect each test class's stdout/stderr to these files (see the root pom), so
+      # this artifact is where to read application logs and stack traces printed by tests.
+      - name: Upload test output
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-output
+          path: |
+            **/target/surefire-reports/*-output.txt
+            **/target/failsafe-reports/*-output.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Upload coverage reports
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
@@ -172,9 +176,111 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  spring-e2e:
-    name: Spring end-to-end (Java 17)
+  quarkus-extension-its:
+    name: Quarkus extension integration tests (Java 17)
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24.18.0'
+          cache: npm
+          cache-dependency-path: bootui-ui/src/main/frontend/package-lock.json
+
+      # Install, without running their tests, the modules the per-extension integration tests consume. The
+      # build job above runs those tests with coverage; this job runs in parallel with it.
+      - name: Install BootUI Quarkus extension and conformance suite
+        run: >
+          ./mvnw -T 1C -B -ntp
+          -pl bootui-conformance,bootui-quarkus-deployment,bootui-quarkus-integration-tests
+          -am -DskipTests install
+
+      # Selecting the aggregator with -amd picks up every child module, including the JDK-gated Hibernate
+      # module, so a new integration-test module needs no workflow change. The base module is excluded because
+      # the build job runs it: its execution data feeds the bootui-coverage aggregate. -T 1C is safe for the
+      # same reasons as in the build job, and bootui-quarkus-deployment is already installed.
+      - name: Test Quarkus extension integration modules
+        run: >
+          ./mvnw -T 1C -B -ntp
+          -pl 'bootui-quarkus-integration-tests,!bootui-quarkus-integration-tests/base'
+          -amd verify
+
+      - name: Run MySQL Quarkus HTTP contract
+        run: >
+          ./mvnw -B -ntp -pl bootui-quarkus-integration-tests/datasource
+          -Pmysql-live test -Dtest=BootUiQuarkusMySqlLiveTest
+
+      - name: Require executed MySQL Quarkus HTTP tests
+        run: >
+          python3 .github/scripts/check-mysql-live-tests.py
+          bootui-quarkus-integration-tests/datasource/target/surefire-reports
+          BootUiQuarkusMySqlLiveTest
+
+      - name: Publish Java test report
+        if: ${{ !cancelled() }}
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+        with:
+          name: Quarkus extension integration tests (Surefire)
+          path: 'bootui-quarkus-integration-tests/*/target/surefire-reports/TEST-*.xml'
+          reporter: java-junit
+          fail-on-error: false
+          fail-on-empty: false
+
+      - name: Upload JUnit test reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-test-reports-quarkus-extension-its
+          path: bootui-quarkus-integration-tests/*/target/surefire-reports/TEST-*.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload test output
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-output-quarkus-extension-its
+          path: bootui-quarkus-integration-tests/*/target/surefire-reports/*-output.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # One leg per Playwright suite: each suite boots its own sample app(s), so running them on separate runners
+  # instead of back to back roughly divides this job's duration by three.
+  spring-e2e:
+    name: Spring end-to-end (${{ matrix.suite.name }}, Java 17)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - id: mvc
+            name: MVC
+            script: test
+            report-name: End-to-end tests (Playwright)
+            report-dir: playwright-report
+            results-dir: test-results
+          - id: webflux
+            name: WebFlux
+            script: test:webflux
+            report-name: WebFlux end-to-end tests (Playwright)
+            report-dir: playwright-report-webflux
+            results-dir: test-results-webflux
+          - id: custom-path
+            name: custom path
+            script: test:custom-path
+            report-name: Custom-path end-to-end tests (Playwright)
+            report-dir: playwright-report-custom-path
+            results-dir: test-results-custom-path
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -206,6 +312,7 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Check Playwright formatting
+        if: ${{ matrix.suite.id == 'mvc' }}
         working-directory: bootui-spring-sample-app/e2e
         run: npm run format:check
 
@@ -215,44 +322,14 @@ jobs:
 
       - name: Run Playwright end-to-end tests
         working-directory: bootui-spring-sample-app/e2e
-        run: npm test
-
-      - name: Run WebFlux Playwright end-to-end tests
-        if: ${{ !cancelled() }}
-        working-directory: bootui-spring-sample-app/e2e
-        run: npm run test:webflux
-
-      - name: Run custom-path Playwright end-to-end tests
-        if: ${{ !cancelled() }}
-        working-directory: bootui-spring-sample-app/e2e
-        run: npm run test:custom-path
+        run: npm run "${{ matrix.suite.script }}"
 
       - name: Publish end-to-end test report
         if: ${{ !cancelled() }}
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         with:
-          name: End-to-end tests (Playwright)
-          path: bootui-spring-sample-app/e2e/test-results/junit/results.xml
-          reporter: jest-junit
-          fail-on-error: false
-          fail-on-empty: false
-
-      - name: Publish WebFlux end-to-end test report
-        if: ${{ !cancelled() }}
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
-        with:
-          name: WebFlux end-to-end tests (Playwright)
-          path: bootui-spring-sample-app/e2e/test-results-webflux/junit/results.xml
-          reporter: jest-junit
-          fail-on-error: false
-          fail-on-empty: false
-
-      - name: Publish custom-path end-to-end test report
-        if: ${{ !cancelled() }}
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
-        with:
-          name: Custom-path end-to-end tests (Playwright)
-          path: bootui-spring-sample-app/e2e/test-results-custom-path/junit/results.xml
+          name: ${{ matrix.suite.report-name }}
+          path: bootui-spring-sample-app/e2e/${{ matrix.suite.results-dir }}/junit/results.xml
           reporter: jest-junit
           fail-on-error: false
           fail-on-empty: false
@@ -261,44 +338,19 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report
+          name: ${{ matrix.suite.report-dir }}
           path: |
-            bootui-spring-sample-app/e2e/playwright-report/
-            bootui-spring-sample-app/e2e/test-results/
+            bootui-spring-sample-app/e2e/${{ matrix.suite.report-dir }}/
+            bootui-spring-sample-app/e2e/${{ matrix.suite.results-dir }}/
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Upload WebFlux Playwright report
+      - name: Upload end-to-end JUnit test report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report-webflux
-          path: |
-            bootui-spring-sample-app/e2e/playwright-report-webflux/
-            bootui-spring-sample-app/e2e/test-results-webflux/
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Upload custom-path Playwright report
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: playwright-report-custom-path
-          path: |
-            bootui-spring-sample-app/e2e/playwright-report-custom-path/
-            bootui-spring-sample-app/e2e/test-results-custom-path/
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Upload end-to-end JUnit test reports
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: junit-test-reports-spring-e2e
-          path: |
-            bootui-spring-sample-app/e2e/test-results/junit/results.xml
-            bootui-spring-sample-app/e2e/test-results-webflux/junit/results.xml
-            bootui-spring-sample-app/e2e/test-results-custom-path/junit/results.xml
+          name: junit-test-reports-spring-e2e-${{ matrix.suite.id }}
+          path: bootui-spring-sample-app/e2e/${{ matrix.suite.results-dir }}/junit/results.xml
           if-no-files-found: ignore
           retention-days: 7
 
