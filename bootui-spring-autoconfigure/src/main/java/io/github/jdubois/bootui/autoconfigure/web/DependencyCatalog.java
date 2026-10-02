@@ -55,6 +55,11 @@ import tools.jackson.databind.ObjectMapper;
  *       adjacent {@code .pom}.</li>
  * </ol>
  *
+ * <p>An SBOM component declared not shipped ({@code scope: "excluded"}, or the
+ * {@code cdx:maven:package:test=true} property the CycloneDX Gradle plugin sets on the test-classpath libraries
+ * it lists by default) is left out of the inventory unless the archive census below finds its JAR, so a
+ * test-only library is never scanned as an application dependency, yet a mislabeled shipped one still is.</p>
+ *
  * <p>The SBOM matters because sources 2 and 3 leave a large, security-relevant hole. Many artifacts are
  * published with no Maven descriptor at all (Spring Framework, Spring Boot, Spring Security,
  * {@code tomcat-embed-*}, {@code hibernate-core}, {@code kotlin-stdlib}, the PostgreSQL driver, and the
@@ -111,6 +116,9 @@ final class DependencyCatalog implements DependencyProvider {
     /** Upper bound on SBOM components read, so a pathological BOM cannot stall a panel load. */
     private static final int MAX_SBOM_COMPONENTS = 10_000;
 
+    /** CycloneDX property-taxonomy name marking a test-only package; see {@link #isNotShipped}. */
+    private static final String TEST_PACKAGE_PROPERTY = "cdx:maven:package:test";
+
     private static final System.Logger LOGGER = System.getLogger(DependencyCatalog.class.getName());
 
     /** The only Spring Boot packaging-time artifact identified from its manifest; see {@link #bootArtifact}. */
@@ -157,7 +165,8 @@ final class DependencyCatalog implements DependencyProvider {
         Map<String, DependencyDto> dependencies = new LinkedHashMap<>();
         Set<String> identifiedArchives = new LinkedHashSet<>();
 
-        for (DependencyDto dependency : sbomDependencies()) {
+        SbomComponents sbom = sbomComponents();
+        for (DependencyDto dependency : sbom.shipped()) {
             dependencies.putIfAbsent(key(dependency), dependency);
         }
         for (Resource resource : resources(MAVEN_PROPERTIES_PATTERN)) {
@@ -174,7 +183,14 @@ final class DependencyCatalog implements DependencyProvider {
             dependencies.putIfAbsent(key(dependency), dependency);
         }
 
-        DependencyCoverageDto coverage = coverage(dependencies, identifiedArchives);
+        List<CensusArchive> archives = archiveCensus();
+        for (DependencyDto dependency : sbom.notShipped()) {
+            if (!dependencies.containsKey(key(dependency)) && isShipped(dependency, archives)) {
+                dependencies.put(key(dependency), dependency);
+            }
+        }
+
+        DependencyCoverageDto coverage = coverage(archives, dependencies, identifiedArchives);
         List<DependencyDto> resolved = dependencies.values().stream()
                 .sorted(Comparator.comparing(DependencyDto::packageName).thenComparing(DependencyDto::version))
                 .toList();
@@ -199,8 +215,8 @@ final class DependencyCatalog implements DependencyProvider {
      * {@code dependencies}, so it is scanned too), and an archive whose every class lives in the application's
      * base packages is reported as first-party. Anything else stays unidentified.</p>
      */
-    private DependencyCoverageDto coverage(Map<String, DependencyDto> dependencies, Set<String> identifiedArchives) {
-        List<CensusArchive> archives = archiveCensus();
+    private DependencyCoverageDto coverage(
+            List<CensusArchive> archives, Map<String, DependencyDto> dependencies, Set<String> identifiedArchives) {
         if (archives.isEmpty()) {
             return DependencyCoverageDto.unavailable();
         }
@@ -230,6 +246,19 @@ final class DependencyCatalog implements DependencyProvider {
                 unidentified.stream().limit(MAX_UNIDENTIFIED_ARCHIVES).toList(),
                 firstParty.size(),
                 firstParty.stream().limit(MAX_UNIDENTIFIED_ARCHIVES).toList());
+    }
+
+    /**
+     * Whether the archive census holds the JAR Maven would publish for {@code dependency}: the evidence that
+     * overrides an SBOM marking it as not shipped.
+     */
+    private static boolean isShipped(DependencyDto dependency, List<CensusArchive> archives) {
+        for (CensusArchive archive : archives) {
+            if (ArchiveNames.matches(archive.name(), dependency.artifactId(), dependency.version())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isIdentified(String archive, List<DependencyDto> resolved) {
@@ -755,18 +784,23 @@ final class DependencyCatalog implements DependencyProvider {
      * Reads the application's embedded CycloneDX SBOM, taking one dependency per Maven {@code purl}. This is
      * the only local source able to resolve the {@code groupId} of an artifact published without a Maven
      * descriptor, so it is what closes the classpath gap on a repackaged application.
+     *
+     * <p>A component the SBOM declares not shipped &mdash; CycloneDX {@code scope: "excluded"}, or the
+     * {@code cdx:maven:package:test=true} property the CycloneDX Gradle plugin puts on test-classpath libraries
+     * &mdash; is returned separately, together with every component nested in it, so that it is only inventoried
+     * when the archive census proves its JAR is on the classpath after all.</p>
      */
-    private List<DependencyDto> sbomDependencies() {
-        Map<String, DependencyDto> dependencies = new LinkedHashMap<>();
+    private SbomComponents sbomComponents() {
+        SbomComponents sbom = new SbomComponents(new LinkedHashMap<>(), new LinkedHashMap<>());
         for (String pattern : SBOM_PATTERNS) {
             for (Resource resource : resources(pattern)) {
-                readSbom(resource, dependencies);
+                readSbom(resource, sbom);
             }
         }
-        return List.copyOf(dependencies.values());
+        return sbom;
     }
 
-    private void readSbom(Resource resource, Map<String, DependencyDto> dependencies) {
+    private void readSbom(Resource resource, SbomComponents sbom) {
         JsonNode root;
         try (InputStream input = resource.getInputStream()) {
             root = objectMapper.readTree(input);
@@ -783,39 +817,84 @@ final class DependencyCatalog implements DependencyProvider {
         }
         // The BOM's own metadata.component is the application itself, not one of its dependencies, so only
         // the components array is read.
-        collectSbomComponents(root.get("components"), dependencies);
+        collectSbomComponents(root.get("components"), sbom, false);
     }
 
-    private void collectSbomComponents(JsonNode components, Map<String, DependencyDto> dependencies) {
+    private void collectSbomComponents(JsonNode components, SbomComponents sbom, boolean parentNotShipped) {
         if (components == null || !components.isArray()) {
             return;
         }
         for (JsonNode component : components) {
-            if (dependencies.size() >= MAX_SBOM_COMPONENTS) {
+            if (sbom.size() >= MAX_SBOM_COMPONENTS) {
                 return;
             }
             if (!component.isObject()) {
                 continue;
             }
+            boolean notShipped = parentNotShipped || isNotShipped(component);
             JsonNode purl = component.get("purl");
             PackageUrls.MavenCoordinates coordinates =
                     purl == null || !purl.isString() ? null : PackageUrls.mavenCoordinates(purl.stringValue());
             if (coordinates != null) {
-                dependencies.putIfAbsent(
-                        coordinates.packageName() + ":" + coordinates.version(),
-                        new DependencyDto(
-                                coordinates.groupId(),
-                                coordinates.artifactId(),
-                                coordinates.version(),
-                                coordinates.packageName(),
-                                "CycloneDX SBOM",
-                                0,
-                                "NONE",
-                                List.of(),
-                                DependencyAssessmentDto.unknown()));
+                (notShipped ? sbom.notShippedByKey() : sbom.shippedByKey())
+                        .putIfAbsent(
+                                coordinates.packageName() + ":" + coordinates.version(),
+                                new DependencyDto(
+                                        coordinates.groupId(),
+                                        coordinates.artifactId(),
+                                        coordinates.version(),
+                                        coordinates.packageName(),
+                                        "CycloneDX SBOM",
+                                        0,
+                                        "NONE",
+                                        List.of(),
+                                        DependencyAssessmentDto.unknown()));
             }
             // CycloneDX allows a component to nest the components it in turn assembles.
-            collectSbomComponents(component.get("components"), dependencies);
+            collectSbomComponents(component.get("components"), sbom, notShipped);
+        }
+    }
+
+    /**
+     * Whether the SBOM declares {@code component} absent from the running application: CycloneDX's own
+     * {@code scope: "excluded"}, or the {@code cdx:maven:package:test=true} property of the CycloneDX property
+     * taxonomy, which the CycloneDX Gradle plugin sets on test-classpath libraries it lists by default.
+     */
+    private static boolean isNotShipped(JsonNode component) {
+        if (equalsIgnoreCaseTrimmed(component.get("scope"), "excluded")) {
+            return true;
+        }
+        JsonNode properties = component.get("properties");
+        if (properties == null || !properties.isArray()) {
+            return false;
+        }
+        for (JsonNode property : properties) {
+            if (property.isObject()
+                    && equalsIgnoreCaseTrimmed(property.get("name"), TEST_PACKAGE_PROPERTY)
+                    && equalsIgnoreCaseTrimmed(property.get("value"), "true")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean equalsIgnoreCaseTrimmed(JsonNode node, String expected) {
+        return node != null && node.isString() && node.stringValue().trim().equalsIgnoreCase(expected);
+    }
+
+    /** SBOM components split by whether the SBOM declares them shipped; see {@link #sbomComponents()}. */
+    private record SbomComponents(Map<String, DependencyDto> shippedByKey, Map<String, DependencyDto> notShippedByKey) {
+
+        Collection<DependencyDto> shipped() {
+            return shippedByKey.values();
+        }
+
+        Collection<DependencyDto> notShipped() {
+            return notShippedByKey.values();
+        }
+
+        int size() {
+            return shippedByKey.size() + notShippedByKey.size();
         }
     }
 
