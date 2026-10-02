@@ -23,7 +23,9 @@ const sidebarLabels = {
   'PROPERTIES.md': 'Properties',
   'REPOSITORY.md': 'Repository',
   'WORKS-WITH.md': 'BootUI family',
-  'CLI.md': 'Command line'
+  'CLI.md': 'Command line',
+  'V2-EARLY-ADOPTERS.md': 'Try 2.0 early',
+  'V2-VALIDATION-REPORT.md': 'v2 validation report'
 }
 
 const featureDocs = [
@@ -83,7 +85,16 @@ const groups = [
   {
     text: 'Contributing',
     collapsed: true,
-    docs: ['REPOSITORY.md', 'SPECIFICATION.md', 'PLAN.md', 'PLAN-v2.md', 'QUARKUS-SUPPORT.md', 'WEBFLUX-SUPPORT.md']
+    docs: [
+      'REPOSITORY.md',
+      'SPECIFICATION.md',
+      'PLAN.md',
+      'PLAN-v2.md',
+      'V2-EARLY-ADOPTERS.md',
+      'V2-VALIDATION-REPORT.md',
+      'QUARKUS-SUPPORT.md',
+      'WEBFLUX-SUPPORT.md'
+    ]
   }
 ]
 
