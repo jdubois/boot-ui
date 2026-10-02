@@ -428,6 +428,13 @@ uses the same rule, and Spring MVC is unaffected.
 
 :::
 
+**Hibernate sessions in the runtime journal.** The `orm` source (`docs/PLAN-v2.md` §5.18, M4-9) needs Hibernate to
+create BootUI's `SessionEventListener` for every session. Quarkus offers no supported property for that, so in dev and
+test mode the deployment processor defaults `quarkus.hibernate-orm.unsupported-properties."hibernate.session.events.auto"`
+for the default persistence unit, and Quarkus logs at startup that the unit sets that unsupported property. Named
+persistence units are not metered. ORM sessions also give Quarkus what its statement inspector cannot: measured statement
+time, which `route-time-breakdown` uses as its SQL phase.
+
 ::: details The optional durable JDBC persistence backend
 
 `bootui.activity.persistence.enabled` is implemented identically to Spring. Every engine class — `ActivityStore`,

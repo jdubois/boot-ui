@@ -62,6 +62,14 @@ public class BootUiActuatorDefaultsEnvironmentPostProcessor implements Environme
      */
     private static final String CONTEXT_REGISTRY_CLASS = "io.micrometer.context.ContextRegistry";
 
+    /** Hibernate's property naming a listener it creates for every session, as Spring Boot passes it through. */
+    static final String HIBERNATE_SESSION_EVENTS_PROPERTY = "spring.jpa.properties.hibernate.session.events.auto";
+
+    static final String HIBERNATE_SESSION_LISTENER =
+            "io.github.jdubois.bootui.autoconfigure.orm.BootUiHibernateSessionListener";
+
+    private static final String HIBERNATE_SESSION_LISTENER_TYPE = "org.hibernate.SessionEventListener";
+
     private static final Map<String, Object> ACTUATOR_DEFAULTS = Map.of(
             "management.endpoints.web.exposure.include",
             REQUIRED_ENDPOINTS,
@@ -88,6 +96,9 @@ public class BootUiActuatorDefaultsEnvironmentPostProcessor implements Environme
         if (reactiveCorrelationPropagationAvailable(application)) {
             defaults.put(REACTOR_CONTEXT_PROPAGATION_PROPERTY, REACTOR_CONTEXT_PROPAGATION_VALUE);
         }
+        if (ormSessionEventsAvailable(environment, application)) {
+            defaults.put(HIBERNATE_SESSION_EVENTS_PROPERTY, HIBERNATE_SESSION_LISTENER);
+        }
 
         // Only contribute defaults the host has not already configured through any property source,
         // so BootUI never overrides application-provided actuator settings. containsProperty is used
@@ -101,6 +112,23 @@ public class BootUiActuatorDefaultsEnvironmentPostProcessor implements Environme
         // source, so configuration added by any other mechanism (including later post-processors) wins.
         MutablePropertySources sources = environment.getPropertySources();
         DefaultPropertiesPropertySource.addOrMerge(defaults, sources);
+    }
+
+    /**
+     * Whether Hibernate is present and the runtime journal records its {@code orm} source, so Hibernate should create
+     * BootUI's session listener ({@code docs/PLAN-v2.md} §5.18, M4-9). An application that names its own
+     * {@code hibernate.session.events.auto} listener keeps it, and the source then records nothing.
+     */
+    private boolean ormSessionEventsAvailable(ConfigurableEnvironment environment, SpringApplication application) {
+        if (!ClassUtils.isPresent(HIBERNATE_SESSION_LISTENER_TYPE, application.getClassLoader())
+                || !environment.getProperty("bootui.runtime-journal.enabled", Boolean.class, true)) {
+            return false;
+        }
+        String sources = environment.getProperty("bootui.runtime-journal.sources");
+        return sources == null
+                || sources.isBlank()
+                || java.util.Arrays.stream(sources.split(","))
+                        .anyMatch(source -> source.trim().equalsIgnoreCase("orm"));
     }
 
     private boolean telemetryEnabled(ConfigurableEnvironment environment) {
@@ -137,6 +165,7 @@ public class BootUiActuatorDefaultsEnvironmentPostProcessor implements Environme
             case "management.endpoints.web.exposure.include" -> REQUIRED_ENDPOINTS.equals(normalized);
             case "management.endpoint.health.show-details" -> "always".equalsIgnoreCase(normalized);
             case TRACING_SAMPLING_PROBABILITY_PROPERTY -> TRACING_SAMPLING_PROBABILITY.equals(normalized);
+            case HIBERNATE_SESSION_EVENTS_PROPERTY -> HIBERNATE_SESSION_LISTENER.equals(normalized);
             case "logging.level.io.opentelemetry", "logging.level.io.micrometer.tracing" ->
                 TRACING_LOG_LEVEL.equalsIgnoreCase(normalized);
             case REACTOR_CONTEXT_PROPAGATION_PROPERTY -> REACTOR_CONTEXT_PROPAGATION_VALUE.equalsIgnoreCase(normalized);

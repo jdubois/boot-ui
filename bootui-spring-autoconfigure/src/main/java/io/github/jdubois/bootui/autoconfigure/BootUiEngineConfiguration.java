@@ -772,6 +772,21 @@ public class BootUiEngineConfiguration {
     }
 
     /**
+     * The {@code orm} journal source ({@code docs/PLAN-v2.md} §5.18, M4-9): installs the journal and correlation for the
+     * {@code BootUiHibernateSessionListener} Hibernate creates per session, once the journal exists, and uninstalls
+     * them when the context closes, so a DevTools restart's next run installs its own.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(name = "org.hibernate.SessionEventListener")
+    static class OrmJournalConfiguration {
+
+        @Bean
+        io.github.jdubois.bootui.engine.journal.OrmSessionEvents.Publisher bootUiOrmSessionEventsPublisher() {
+            return new io.github.jdubois.bootui.engine.journal.OrmSessionEvents.Publisher();
+        }
+    }
+
+    /**
      * R2 optional-dependency port: the Hibernate advisor scanner is only wired when JPA + Hibernate are
      * on the classpath. The JPA-typed factory parameters live in this nested, {@code @ConditionalOnClass}-
      * gated configuration (never inline in the always-active root config), so their types are never linked

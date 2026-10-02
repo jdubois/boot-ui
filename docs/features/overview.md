@@ -185,7 +185,9 @@ targeted, never a value. **APP_EVENT** rows list the application events a reques
 on Spring through BootUI's event multicaster, transactional listeners' deferral, phase, and skips included; on Quarkus
 through an interceptor bound at build time to the application's `@Observes` and `@ObservesAsync` methods. Framework
 events are left out, and an event's fields are never recorded. Change impact accepts an event type, such as
-`OrderPlaced`, and lists the routes that published or consumed it.
+`OrderPlaced`, and lists the routes that published or consumed it. **ORM** rows give each Hibernate session's statements, flushes,
+the auto-flushes that wrote before a query, and the most entities its persistence context held, under the request that
+opened it; **WEBSOCKET** rows are inbound WebSocket messages, each an execution owning what its handler did.
 
 Because the feed is genuinely event-driven, it refreshes over **Server-Sent Events** rather than fixed-interval polling.
 The browser subscribes to `/bootui/api/activity/stream` and re-fetches when any source signals a change. The feed can be
@@ -601,6 +603,8 @@ Nineteen observations run over the completed requests and garbage collections th
 | `transaction-across-remote-call` | Transactions still open when a REST client call starts, with the connection they held |
 | `lazy-sql-after-handler` | SQL run while the response was written, outside every transaction (open session in view) |
 | `event-loop-blocking` | JDBC statements started on an event-loop thread |
+| `orm-auto-flush` | Requests in which Hibernate wrote pending changes before a query three times or more, or for at least a fifth of their ORM time, in two requests of a route or more |
+| `large-persistence-context` | Requests whose Hibernate session held 500 entities or more at a flush, in three requests of a route or more |
 | `gc-inflated-latency` | The share of a route's slowest tenth of requests, at least five, during which a stop-the-world pause completed, against the share of its other requests, with the pauses' total. Pauses join requests by collector and collection id, never by time, and are worded "a pause completed during", never "caused by" |
 | `transactional-listener-skipped` | Spring: a `@TransactionalEventListener` that never ran because its event was published with no transaction active, from one event. Not applicable on Quarkus, where CDI notifies a transactional observer at once |
 | `after-commit-writes` | Spring: INSERT, UPDATE, or DELETE statements run by an after-commit, after-rollback, or after-completion listener outside every transaction that began within it; such writes join the finished transaction and are never committed |

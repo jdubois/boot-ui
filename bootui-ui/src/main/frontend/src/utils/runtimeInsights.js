@@ -8,7 +8,13 @@ export const THEMES = [
   {
     id: 'queries',
     label: 'Queries',
-    kinds: ['repeated-selects', 'safe-method-dml', 'lazy-sql-after-handler']
+    kinds: [
+      'repeated-selects',
+      'safe-method-dml',
+      'lazy-sql-after-handler',
+      'orm-auto-flush',
+      'large-persistence-context'
+    ]
   },
   {id: 'errors', label: 'Errors', kinds: ['exception-hotspots', 'errors-behind-2xx']},
   {

@@ -292,6 +292,9 @@ class BootUiQuarkusProcessor {
             DotName.createSimple("io.quarkus.websockets.next.OnClose"),
             DotName.createSimple("io.quarkus.websockets.next.OnError"));
 
+    private static final String ORM_SESSION_LISTENER_CLASS =
+            "io.github.jdubois.bootui.quarkus.orm.BootUiHibernateSessionListener";
+
     private static final String WEBSOCKET_MESSAGE_INTERCEPTOR_CLASS =
             "io.github.jdubois.bootui.quarkus.websocket.QuarkusWebSocketMessageInterceptor";
 
@@ -2116,6 +2119,25 @@ class BootUiQuarkusProcessor {
                 })
                 .transform(context -> context.add(AnnotationInstance.builder(WEBSOCKET_MESSAGE_BINDING)
                         .buildWithTarget(context.declaration())))));
+    }
+
+    /**
+     * Makes Hibernate create BootUI's session listener for every session of the default persistence unit, the {@code
+     * orm} journal source ({@code docs/PLAN-v2.md} §5.18, M4-9), through Hibernate's {@code hibernate.session.events.auto}
+     * property passed as a runtime configuration default, so an application's own value wins. Gated on the Hibernate ORM
+     * capability, outside normal (production) mode; the listener class is named, never loaded, here.
+     */
+    @BuildStep
+    void registerOrmSessionListener(
+            LaunchModeBuildItem launchMode,
+            Capabilities capabilities,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
+        if (launchMode.getLaunchMode() == LaunchMode.NORMAL || !capabilities.isPresent(Capability.HIBERNATE_ORM)) {
+            return;
+        }
+        runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                "quarkus.hibernate-orm.unsupported-properties.\"hibernate.session.events.auto\"",
+                ORM_SESSION_LISTENER_CLASS));
     }
 
     private static boolean webSocketsPresent(LaunchModeBuildItem launchMode) {

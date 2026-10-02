@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.MessagingPayload;
+import io.github.jdubois.bootui.engine.journal.OrmPayload;
 import io.github.jdubois.bootui.engine.journal.RequestTiming;
 import io.github.jdubois.bootui.engine.journal.RestClientPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
@@ -45,6 +46,7 @@ public final class RouteTimeBreakdown implements Observation {
         REST_CLIENT("REST client"),
         AI("AI calls"),
         MESSAGE_SENDS("Message sends"),
+        HIBERNATE("Hibernate flushes"),
         HANDLER("Handler, other work"),
         RESPONSE("Response write"),
         UNATTRIBUTED("Unattributed");
@@ -242,6 +244,9 @@ public final class RouteTimeBreakdown implements Observation {
                 "Most of the time is waiting for a connection: compare the pool size with Connections per request.";
             case REST_CLIENT -> "Most of the time is outgoing calls: check their latency in REST Client.";
             case AI -> "Most of the time is AI calls: check their tokens and model in AI usage by route.";
+            case HIBERNATE ->
+                "Most of the time is Hibernate flushing and dirty-checking: see Hibernate auto-flushes and Large"
+                        + " persistence contexts.";
             case MESSAGE_SENDS ->
                 "Most of the time is sending messages synchronously: check whether the send must wait for the broker.";
             case RESPONSE ->
@@ -395,13 +400,16 @@ public final class RouteTimeBreakdown implements Observation {
         }
 
         /**
-         * Names the AI calls and synchronous message sends the handler made (M3-8), moving their time out of its other
-         * work. Neither is placed on the request's monotonic clock, so only their totals move, at most what the
+         * Names the AI calls and synchronous message sends the handler made (M3-8), and Hibernate's own flush time
+         * (M4-9), moving their time out of its other work. Neither is placed on the request's monotonic clock, so only their totals move, at most what the
          * handler holds, as with authorization.
          */
         private static void carveHandlerCalls(ProjectedRequest request, Map<Phase, Long> phases) {
             long ai = 0;
             long sends = 0;
+            long hibernate = 0;
+            long ormStatements = 0;
+            boolean measuredSql = false;
             for (RuntimeEvent child : request.children()) {
                 if (child.durationNanos() <= 0) {
                     continue;
@@ -410,8 +418,19 @@ public final class RouteTimeBreakdown implements Observation {
                     ai += child.durationNanos();
                 } else if (child.payload() instanceof MessagingPayload message && message.sent()) {
                     sends += child.durationNanos();
+                } else if (child.payload() instanceof OrmPayload orm) {
+                    hibernate += orm.hibernateNanos();
+                    ormStatements += Math.max(0, orm.statementNanos());
+                } else if (child.source() == JournalSource.SQL) {
+                    measuredSql = true;
                 }
             }
+            // Where SQL events carry no duration, as Quarkus's statement inspector records them, the ORM session's
+            // measured statement time names the SQL phase instead (M4-9).
+            if (!measuredSql) {
+                carve(phases, Phase.HANDLER, Phase.SQL, ormStatements);
+            }
+            carve(phases, Phase.HANDLER, Phase.HIBERNATE, hibernate);
             carve(phases, Phase.HANDLER, Phase.AI, ai);
             carve(phases, Phase.HANDLER, Phase.MESSAGE_SENDS, sends);
         }

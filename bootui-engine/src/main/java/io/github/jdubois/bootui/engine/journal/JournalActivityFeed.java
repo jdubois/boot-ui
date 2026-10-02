@@ -60,6 +60,7 @@ public final class JournalActivityFeed {
     public static final String TYPE_MARKER = "MARKER";
     public static final String TYPE_APP_EVENT = "APP_EVENT";
     public static final String TYPE_WEBSOCKET = "WEBSOCKET";
+    public static final String TYPE_ORM = "ORM";
 
     static final String SEVERITY_OK = "OK";
     static final String SEVERITY_SLOW = "SLOW";
@@ -556,6 +557,22 @@ public final class JournalActivityFeed {
                     parentId,
                     false);
         }
+        if (payload instanceof OrmPayload orm) {
+            return entry(
+                    id,
+                    TYPE_ORM,
+                    event,
+                    orm.partialFlushes() >= 3 ? SEVERITY_WARN : SEVERITY_OK,
+                    "Hibernate session" + (orm.persistenceUnit() == null ? "" : " " + orm.persistenceUnit()),
+                    ormDetail(orm),
+                    durationMs,
+                    null,
+                    null,
+                    null,
+                    false,
+                    parentId,
+                    false);
+        }
         if (payload instanceof WebSocketPayload webSocket) {
             String summary = (webSocket.inbound() ? "← " : "→ ")
                     + (webSocket.destination() == null ? webSocket.kind() : webSocket.destination());
@@ -696,6 +713,24 @@ public final class JournalActivityFeed {
         if (transaction.failureClass() != null) {
             int dot = transaction.failureClass().lastIndexOf('.');
             detail.append(" · ").append(transaction.failureClass().substring(dot + 1));
+        }
+        return detail.toString();
+    }
+
+    /** A Hibernate session row's detail, such as {@code 12 statements · 3 flushes (2 auto) · 540 entities}. */
+    static String ormDetail(OrmPayload orm) {
+        StringBuilder detail = new StringBuilder()
+                .append(orm.statements())
+                .append(orm.statements() == 1 ? " statement" : " statements");
+        int flushes = orm.flushes() + orm.partialFlushes();
+        if (flushes > 0) {
+            detail.append(" · ").append(flushes).append(flushes == 1 ? " flush" : " flushes");
+            if (orm.partialFlushes() > 0) {
+                detail.append(" (").append(orm.partialFlushes()).append(" auto)");
+            }
+        }
+        if (orm.entitiesInContext() >= 0) {
+            detail.append(" · ").append(orm.entitiesInContext()).append(" entities");
         }
         return detail.toString();
     }

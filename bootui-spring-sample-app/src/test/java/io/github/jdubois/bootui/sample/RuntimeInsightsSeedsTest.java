@@ -79,6 +79,12 @@ class RuntimeInsightsSeedsTest {
             assertThat(probe.post("/api/insights/orders/1/" + action, JSON).status())
                     .isEqualTo(200);
         }
+        for (int i = 0; i < 3; i++) {
+            assertThat(probe.post("/api/insights/tags/auto-flush", JSON).status())
+                    .isEqualTo(200);
+            assertThat(probe.post("/api/insights/tags/read-then-write", JSON).status())
+                    .isEqualTo(200);
+        }
         assertThat(probe.post("/api/insights/debug/reset-totals", JSON).status())
                 .isEqualTo(200);
         assertThat(probe.get("/api/insights/reports/payroll").status()).isEqualTo(403);
@@ -180,6 +186,13 @@ class RuntimeInsightsSeedsTest {
                 .map(payload -> ((AppEventPayload) payload).eventType())
                 .isNotEmpty()
                 .allMatch(type -> type.startsWith("io.github.jdubois.bootui.sample."));
+    }
+
+    @Test
+    void savingBeforeEachQueryIsAnAutoFlushPatternButQueryingFirstIsNot() {
+        assertThat(subjects("orm-auto-flush", "OBSERVED"))
+                .contains("POST /api/insights/tags/auto-flush")
+                .doesNotContain("POST /api/insights/tags/read-then-write");
     }
 
     @Test

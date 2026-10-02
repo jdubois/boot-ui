@@ -422,6 +422,26 @@ public class BootUiEngineProducer {
      * the context {@code QuarkusHttpExchangeCaptureFilter} attached to the request's Vert.x duplicated context, with
      * the trace id filled in from OpenTelemetry when it is present.
      */
+    /**
+     * The journal and correlation of the {@code orm} source ({@code docs/PLAN-v2.md} §5.18, M4-9), for the session listener
+     * Hibernate creates itself: installed by the startup observer that installs every publisher, uninstalled at
+     * shutdown so a live reload's next run installs its own.
+     */
+    @Produces
+    @Singleton
+    public io.github.jdubois.bootui.engine.journal.OrmSessionEvents.Publisher ormSessionEventsPublisher() {
+        io.github.jdubois.bootui.engine.journal.OrmSessionEvents.Publisher publisher =
+                new io.github.jdubois.bootui.engine.journal.OrmSessionEvents.Publisher();
+        publisher.setCorrelationContextProvider(QuarkusRequestCorrelation::current);
+        return publisher;
+    }
+
+    void closeOrmSessionEventsPublisher(
+            @jakarta.enterprise.inject.Disposes
+                    io.github.jdubois.bootui.engine.journal.OrmSessionEvents.Publisher publisher) {
+        publisher.close();
+    }
+
     @Produces
     @Singleton
     public CorrelationContextProvider correlationContextProvider(Instance<TraceIdSource> traceIdProvider) {

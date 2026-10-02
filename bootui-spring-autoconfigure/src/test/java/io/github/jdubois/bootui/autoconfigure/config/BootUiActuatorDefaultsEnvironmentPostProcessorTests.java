@@ -54,6 +54,27 @@ class BootUiActuatorDefaultsEnvironmentPostProcessorTests {
     }
 
     @Test
+    void namesBootUisHibernateSessionListenerUnlessTheApplicationOrTheJournalSourcesSayOtherwise() {
+        String property = BootUiActuatorDefaultsEnvironmentPostProcessor.HIBERNATE_SESSION_EVENTS_PROPERTY;
+        MockEnvironment defaults = new MockEnvironment().withProperty("bootui.enabled", "ON");
+        MockEnvironment own = new MockEnvironment()
+                .withProperty("bootui.enabled", "ON")
+                .withProperty(property, "com.example.MyListener");
+        MockEnvironment withoutOrm = new MockEnvironment()
+                .withProperty("bootui.enabled", "ON")
+                .withProperty("bootui.runtime-journal.sources", "http,sql");
+
+        processor.postProcessEnvironment(defaults, new SpringApplication());
+        processor.postProcessEnvironment(own, new SpringApplication());
+        processor.postProcessEnvironment(withoutOrm, new SpringApplication());
+
+        assertThat(defaults.getProperty(property))
+                .isEqualTo(BootUiActuatorDefaultsEnvironmentPostProcessor.HIBERNATE_SESSION_LISTENER);
+        assertThat(own.getProperty(property)).isEqualTo("com.example.MyListener");
+        assertThat(withoutOrm.getProperty(property)).isNull();
+    }
+
+    @Test
     void keepsUserConfiguredActuatorExposure() {
         MockEnvironment env = new MockEnvironment()
                 .withProperty("bootui.enabled", "ON")

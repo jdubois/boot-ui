@@ -213,6 +213,13 @@ describe('deepLink', () => {
     })
   })
 
+  it('links a Hibernate session row from the runtime journal to the Hibernate Statistics panel', () => {
+    expect(deepLink({type: 'ORM', summary: 'Hibernate session', detail: '7 statements'})).toEqual({
+      path: '/hibernate-statistics',
+      label: 'Open in Hibernate Statistics'
+    })
+  })
+
   it('links a WebSocket message row from the runtime journal to the WebSockets panel', () => {
     expect(deepLink({type: 'WEBSOCKET', summary: '← /app/chat/{room}', detail: 'websocket stomp:/ws'})).toEqual({
       path: '/websockets',

@@ -27,10 +27,22 @@ public class InsightSeedController {
 
     private final InsightOrderService orders;
     private final InsightOrderEvents events;
+    private final InsightTagService tags;
 
-    public InsightSeedController(InsightOrderService orders, InsightOrderEvents events) {
+    public InsightSeedController(InsightOrderService orders, InsightOrderEvents events, InsightTagService tags) {
         this.orders = orders;
         this.events = events;
+        this.tags = tags;
+    }
+
+    @PostMapping("/tags/auto-flush")
+    public Map<String, Object> tagsWithAutoFlush() {
+        return Map.of("tags", tags.saveThenCountEachTime());
+    }
+
+    @PostMapping("/tags/read-then-write")
+    public Map<String, Object> tagsReadThenWrite() {
+        return Map.of("tags", tags.countThenSave());
     }
 
     @GetMapping("/orders")

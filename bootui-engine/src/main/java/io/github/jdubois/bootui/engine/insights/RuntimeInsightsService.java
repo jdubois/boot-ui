@@ -175,6 +175,8 @@ public final class RuntimeInsightsService {
                 new SplitTransactionWrites(),
                 new TransactionalListenerSkipped(),
                 new AfterCommitWrites(),
+                new OrmAutoFlush(),
+                new LargePersistenceContext(),
                 new TransactionAcrossRemoteCall(),
                 new LazySqlAfterHandler(),
                 new EventLoopBlocking(),

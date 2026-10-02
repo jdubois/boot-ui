@@ -1,0 +1,223 @@
+package io.github.jdubois.bootui.engine.insights;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
+import io.github.jdubois.bootui.core.dto.RuntimeObservationRowDto;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.journal.HttpPayload;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.OrmPayload;
+import io.github.jdubois.bootui.engine.journal.OrmSessionEvents;
+import io.github.jdubois.bootui.engine.journal.RequestTiming;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import java.time.Duration;
+import java.util.List;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+
+/** M4-9: the {@code orm} source's session meter, its two observations with counterexamples, and the Hibernate phase. */
+class OrmObservationsTests {
+
+    private static final long MS = 1_000_000;
+
+    private final RuntimeJournal journal = new RuntimeJournal(
+            new RuntimeJournalSettings(true, 10_000, 50_000_000, 10_000, 10, 10, JournalSource.all()),
+            RunIdentity.start());
+    private int requests;
+    private long clock = 1_000_000_000L;
+
+    @AfterEach
+    void close() {
+        journal.close();
+    }
+
+    @Test
+    void aSessionMeterCountsOnlyAutoFlushesThatWroteAndReportsFlushTimeWithoutItsStatements() throws Exception {
+        OrmSessionEvents.Publisher publisher = new OrmSessionEvents.Publisher();
+        publisher.setRuntimeEventSink(journal);
+        CorrelationContext request = CorrelationContext.forRequest("r-meter");
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(request)) {
+            OrmSessionEvents.Session session = OrmSessionEvents.open();
+            assertThat(session).isNotNull();
+            // An auto-flush check before a query that finds nothing to write.
+            session.partialFlushStart();
+            session.partialFlushEnd(0);
+            session.statementStart();
+            session.statementEnd();
+            // One that writes a pending insert before the next query.
+            session.partialFlushStart();
+            session.statementStart();
+            Thread.sleep(2);
+            session.statementEnd();
+            session.partialFlushEnd(4);
+            session.flushStart();
+            session.flushEnd(4);
+            session.end("orders");
+        } finally {
+            publisher.close();
+        }
+        assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+
+        RuntimeEvent event = journal.entries().stream()
+                .map(entry -> entry.event())
+                .filter(e -> e.source() == JournalSource.ORM)
+                .findFirst()
+                .orElseThrow();
+        OrmPayload orm = (OrmPayload) event.payload();
+        assertThat(event.requestId()).isEqualTo("r-meter");
+        assertThat(orm.persistenceUnit()).isEqualTo("orders");
+        assertThat(orm.statements()).isEqualTo(2);
+        assertThat(orm.partialFlushes()).as("only the auto-flush that wrote").isEqualTo(1);
+        assertThat(orm.flushes()).isEqualTo(1);
+        assertThat(orm.entitiesInContext()).isEqualTo(4);
+        assertThat(orm.partialFlushNanos())
+                .as("flush time leaves out the statement it executed")
+                .isLessThan(orm.statementNanos());
+        assertThat(OrmSessionEvents.open())
+                .as("nothing is metered once the run's publisher closed")
+                .isNull();
+    }
+
+    @Test
+    void aSessionThatNeverFlushedReportsNoContextSizeAndOneThatDidNothingIsNotPublished() throws Exception {
+        OrmSessionEvents.Publisher publisher = new OrmSessionEvents.Publisher();
+        publisher.setRuntimeEventSink(journal);
+        try {
+            OrmSessionEvents.Session idle = OrmSessionEvents.open();
+            idle.end(null);
+            OrmSessionEvents.Session readOnly = OrmSessionEvents.open();
+            readOnly.statementStart();
+            readOnly.statementEnd();
+            readOnly.end(null);
+        } finally {
+            publisher.close();
+        }
+        assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+
+        assertThat(journal.entries())
+                .extracting(entry -> entry.event().payload())
+                .filteredOn(OrmPayload.class::isInstance)
+                .singleElement()
+                .satisfies(payload ->
+                        assertThat(((OrmPayload) payload).entitiesInContext()).isEqualTo(-1));
+    }
+
+    @Test
+    void repeatedWritingAutoFlushesAreReportedButAFlushAtCommitIsNot() {
+        for (int i = 0; i < 3; i++) {
+            request("/api/tags/auto-flush", orm(1, 3, 6, 0, 4 * MS, 2 * MS, 12));
+            request("/api/tags/read-then-write", orm(1, 0, 4, 0, 0, 2 * MS, 3));
+        }
+        request("/api/tags/once", orm(1, 3, 6, 0, 4 * MS, 2 * MS, 12));
+
+        List<RuntimeObservationDto> flushes = observations(OrmAutoFlush.KIND);
+
+        assertThat(flushes)
+                .extracting(RuntimeObservationDto::subject, RuntimeObservationDto::status)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple("POST /api/tags/auto-flush", "OBSERVED"),
+                        org.assertj.core.groups.Tuple.tuple("POST /api/tags/once", "INSUFFICIENT"));
+        assertThat(flushes.stream()
+                        .filter(o -> o.status().equals("OBSERVED"))
+                        .findFirst()
+                        .orElseThrow()
+                        .sentence())
+                .isEqualTo("`POST /api/tags/auto-flush` made Hibernate write pending changes before a query up to 3"
+                        + " times in one request, in 3 of 3 requests.");
+    }
+
+    @Test
+    void aContextOf500EntitiesInThreeRequestsIsReportedButASmallerOneIsNot() {
+        for (int i = 0; i < 3; i++) {
+            request("/api/report/all", orm(1, 0, 3, 0, 0, MS, 1_200));
+            request("/api/report/page", orm(1, 0, 3, 0, 0, MS, 499));
+        }
+
+        assertThat(observations(LargePersistenceContext.KIND)).singleElement().satisfies(observation -> {
+            assertThat(observation.subject()).isEqualTo("POST /api/report/all");
+            assertThat(observation.status()).isEqualTo("OBSERVED");
+            assertThat(observation.sentence())
+                    .isEqualTo("`POST /api/report/all` held up to 1200 entities in its persistence context in"
+                            + " 3 of 3 requests.");
+        });
+    }
+
+    @Test
+    void hibernateFlushTimeIsAPhaseOfItsOwnAndMeasuresSqlWhereStatementsHaveNoDuration() {
+        for (int i = 0; i < 6; i++) {
+            request("/api/tags/auto-flush", orm(1, 2, 6, 2, 20 * MS, 10 * MS, 12));
+        }
+        RuntimeInsightsService service = new RuntimeInsightsService(journal, null, null, InsightsStack.QUARKUS, null);
+        RuntimeObservationDto breakdown = service.report().observations().stream()
+                .filter(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(service.insight(breakdown.id()).rows())
+                .extracting(RuntimeObservationRowDto::cells)
+                .extracting(cells -> cells.get(0) + "=" + cells.get(3))
+                .contains("Hibernate flushes=30", "SQL=30");
+    }
+
+    private List<RuntimeObservationDto> observations(String kind) {
+        return new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null)
+                .report().observations().stream()
+                        .filter(observation -> observation.kind().equals(kind))
+                        .toList();
+    }
+
+    /**
+     * @param flushes full flushes, each taking {@code flushNanos} in total
+     * @param partialFlushes auto-flushes that wrote, together taking {@code partialFlushNanos}
+     */
+    private static OrmPayload orm(
+            int flushes,
+            int partialFlushes,
+            int statements,
+            int unused,
+            long partialFlushNanos,
+            long flushNanos,
+            int entities) {
+        return new OrmPayload(
+                null,
+                statements,
+                statements * 5L * MS,
+                1,
+                MS,
+                flushes,
+                flushNanos,
+                partialFlushes,
+                partialFlushNanos,
+                0,
+                entities,
+                0,
+                0,
+                0);
+    }
+
+    private void request(String path, OrmPayload orm) {
+        CorrelationContext context = CorrelationContext.forRequest("r" + (++requests));
+        journal.offer(RuntimeEvent.of(JournalSource.ORM, 1_000, 80 * MS, context, "http-1", null, false, orm));
+        journal.offer(RuntimeEvent.of(
+                JournalSource.HTTP,
+                1_000 + requests,
+                100 * MS,
+                context,
+                "http-1",
+                null,
+                false,
+                new HttpPayload("POST", path, path, null, 200, null, new RequestTiming(clock, -1, 2 * MS, 95 * MS))));
+        clock += 1_000 * MS;
+        try {
+            assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(ex);
+        }
+    }
+}

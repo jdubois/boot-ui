@@ -428,7 +428,8 @@ function typeIcon(type) {
       LOG: 'bi-journal-text',
       MARKER: 'bi-flag',
       APP_EVENT: 'bi-broadcast',
-      WEBSOCKET: 'bi-plug'
+      WEBSOCKET: 'bi-plug',
+      ORM: 'bi-layers'
     }[type] || 'bi-dot'
   )
 }

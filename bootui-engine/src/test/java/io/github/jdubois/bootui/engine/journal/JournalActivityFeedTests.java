@@ -154,6 +154,26 @@ class JournalActivityFeedTests {
     }
 
     @Test
+    void aHibernateSessionIsARowUnderItsRequestNamingItsStatementsFlushesAndEntities() {
+        add(
+                event(
+                        "r1",
+                        null,
+                        JournalSource.ORM,
+                        3,
+                        "http-1",
+                        new OrmPayload(null, 7, 1, 1, 1, 1, 1, 3, 1, 0, 540, 0, 0, 0)),
+                1_000);
+
+        ActivityEntryDto orm =
+                only(feed.render(entries, EVENT_ID, "run", Filter.NONE, 0).entries(), "ORM");
+
+        assertThat(orm.summary()).isEqualTo("Hibernate session");
+        assertThat(orm.detail()).isEqualTo("7 statements · 4 flushes (3 auto) · 540 entities");
+        assertThat(orm.severity()).isEqualTo("WARN");
+    }
+
+    @Test
     void transactionsAndLogsAreRowsAndConnectionsAndCollectionsAreNot() {
         add(
                 event("r1", null, JournalSource.TRANSACTION, 5, null, new TransactionPayload("OrderService.pay", true)),
