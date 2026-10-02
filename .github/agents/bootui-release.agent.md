@@ -70,9 +70,10 @@ These override any instinct carried over from ordinary pull-request work, where 
    and `bootui-cli`. Everything else keeps `maven.deploy.skip=true` and stays in the root POM `excludeArtifacts` list,
    which the guard count-checks, and stays out of the publication reactor and the smoke-test step.
 9. Keep the coupled release surfaces aligned: the availability poll list matches the publication reactor, the
-   `jbang-catalog.json` alias tracks the CLI shade execution and its `:all` classifier, the source-less published
-   modules (`bootui-ui` and both Spring starters) attach their empty `javadoc.jar` during `package` before signing at
-   `verify`, and `quarkus.platform.version` stays independent of the BootUI project version.
+   `jbang-catalog.json` alias tracks the CLI shade execution and its `:all` classifier, every published jar module
+   attaches an empty placeholder `javadoc.jar` during `package` before signing at `verify` (the release profile's
+   `attach-empty-javadocs` execution, which the source-less `bootui-ui` and both Spring starters override by id with
+   `skipIfEmpty=false`), and `quarkus.platform.version` stays independent of the BootUI project version.
 10. Releases stay on the Java 17 baseline. Broader JDK coverage belongs to `jdk-compatibility.yml`.
 
 ## Non-negotiable review checklist

@@ -72,6 +72,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Maven Central releases ship an empty placeholder `-javadoc.jar` instead of generated Javadoc.** Central requires
+  the file but not its content, and BootUI's public surface is its HTTP, MCP, and CLI contract rather than a Java API;
+  `-sources.jar` files are still published for IDE navigation. This shrinks uploads and release build time.
 - **REST API advisor audit: three noisy rules retired, two severities recalibrated.** `RAPI-VALID-005`
   (Idempotency-Key), `RAPI-DTO-004` (response DTO setters), and `RAPI-ERR-002` (`throws Exception`) now always return
   `SKIPPED`; their IDs and dismissals are kept. `RAPI-RESP-006` drops from HIGH to MEDIUM because servers already strip

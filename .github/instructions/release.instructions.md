@@ -15,9 +15,10 @@ applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scri
   fails when `jbang-catalog.json` still resolves the previous version, so `jbang bootui@jdubois/boot-ui` cannot install
   a stale release. The catalog alias points at the shaded `:all` classifier, so the CLI's shade execution and the alias
   must change together; `release.yml` verifies the `bootui-cli-${VERSION}-all.jar` is published.
-- The source-less published modules (`bootui-ui`, `bootui-spring-boot-starter`, and
-  `bootui-spring-boot-starter-reactive`) must attach their empty `javadoc.jar` during `package`, before release-profile
-  signing at `verify`.
+- Every published jar module attaches an empty placeholder `javadoc.jar` during `package`, before release-profile
+  signing at `verify`; Maven Central requires the file, not generated Javadoc. The release profile's
+  `attach-empty-javadocs` execution covers modules with build output, and the source-less modules (`bootui-ui`,
+  `bootui-spring-boot-starter`, and `bootui-spring-boot-starter-reactive`) keep their own execution with the same id.
 - Preserve the immutable source-first workflow sequence: prepare and verify the versioned working tree; commit the exact
   release contents; refuse to continue if the source branch advanced; create and verify a GPG-signed annotated tag; then
   atomically push the release commit and tag before any publication. Publish, verify, smoke-test, and deploy documentation
