@@ -214,11 +214,11 @@ describe('Overview', () => {
     expect(wrapper.get('.overall-assessment').text()).toContain('1 not scanned')
   })
 
-  it('renders the Overview panel header and an unscored overall state before scans', async () => {
+  it('renders the Scorecard panel header and an unscored overall state before scans', async () => {
     stubFetch({})
     const wrapper = mountOverview(allPanels)
     await flushPromises()
-    expect(wrapper.find('h2').text()).toBe('Overview')
+    expect(wrapper.find('h2').text()).toBe('Scorecard')
     expect(wrapper.text()).toContain('Overall score')
     expect(wrapper.get('.overall-card').text()).toContain('Not scored')
     expect(wrapper.find('.overall-score').exists()).toBe(false)

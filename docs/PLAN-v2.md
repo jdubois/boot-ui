@@ -98,7 +98,7 @@ a polished but simple UI, and testable architecture. In addition:
 - **Instrumentation stays optional.** Every capability in §5.1–§5.12 works from framework hooks alone. The BootUI Java
   agent (§5.13) is a separate artifact the developer attaches on purpose; it deepens the same evidence and never
   becomes a prerequisite.
-- **A runtime view, not an advisor.** Observations carry no severity, no score, and no effect on Overview, like the
+- **A runtime view, not an advisor.** Observations carry no severity, no score, and no effect on the Scorecard, like the
   PostgreSQL and MySQL panels. They do say what to check.
 - **Nothing expensive on page load.** Observations are projections over aggregates the journal maintains as events
   arrive, read the way Live Activity already computes its KPI strip. Opening a panel or calling a read tool never
@@ -237,7 +237,7 @@ Three design points shape how v2 reuses v1 foundations:
 M0–M4 total about **179–230 engineer-days**, roughly seven to nine months with two developers who also maintain 1.x.
 Opt-in JFR attribution (§5.11) is not included; it adds 6–9 engineer-days if D17 brings it into 2.0.
 §5.18's journal coverage adds about 15–21 engineer-days for the slices §5.8 and §5.9 need (M3-8, M3-9, M4-3, M4-4)
-and 25–35 for the others (M4-5 to M4-8), which D28 places.
+and 25–35 for the others (M4-5 to M4-8), which D29 places.
 M5 is estimated separately and **does not gate 2.0.0** (D20): its slices land on `v2` as they are ready, what is merged
 when M4 meets its gates ships in 2.0.0, and the rest follows in 2.x.
 The v1 foundations are estimated in their own plan. Before v1 wave 1 lands, `v2` works on M0 and the spikes.
@@ -287,7 +287,7 @@ against.
 | M4-8 | §5.18's `websocket` source: each inbound application message opens an execution, so its SQL and exceptions nest under it and request-level observations cover message handlers. Spring MVC first, from its existing STOMP and handler capture; then WebFlux and Quarkus WebSockets Next, which need new hooks | M3-8 | 📋 Planned |
 
 M4-3 and M4-4 are prerequisites of §5.8 and §5.9, which cannot be delivered as written without them. M4-5 to M4-8 do
-not gate 2.0.0 unless D28 says so: what is merged when M4 meets its gates ships, and the rest follows in 2.x.
+not gate 2.0.0 unless D29 says so: what is merged when M4 meets its gates ships, and the rest follows in 2.x.
 
 M5 is split into slices ordered by business value, each one pull request to `v2`. The spike comes first; each later
 slice depends on M5-1, and on the milestone named:
@@ -578,7 +578,7 @@ track. Each slice is one pull request to `v2` with its own tests and documentati
 | M2-9b | The journal profile in the request drawer, as **Recorded by the runtime journal**, loaded right after the request profile by the request id it names. It shows the route and where the request stands against it, its CPU time, memory, and GC pauses, or why they are unavailable or partial, never zero; the timeline on the request's own axis, with instants as markers and the GC lane's retained pauses at their offsets; and the touched resources. Vitest covers the component and the drawer, and browser tests on Spring MVC, WebFlux, and Quarkus find the section in a real request's drawer | M2-9a | ✅ Delivered |
 | M2-9c | §5.11's **Work outside requests** breakdown, opened on demand from a **Resources** button in Live Activity's header and read from `GET /activity/resources`: the run's process CPU time split into requests, each thread family, BootUI's own threads, and JVM internals, as a stacked bar and an accessible table, and a resource lane of heap used and process CPU over the kept points. Vitest covers the component and its on-demand loading, and browser tests on Spring MVC, WebFlux, and Quarkus find the ledger | M2-7b | ✅ Delivered |
 
-### 5.3 Live Activity on the journal — Overview ✅ Delivered
+### 5.3 Live Activity on the journal — Home ✅ Delivered
 
 Live Activity is where developers already connect events, and where the missing links show. This item serves it from
 the journal and extends its request profile, behind parity tests, before the poller is retired.
@@ -662,9 +662,9 @@ Acceptance criteria:
 - The PoC evidence, converted into a Java fixture builder, reproduces the PoC's findings that 2.0 keeps.
 - A fixture where two routes share only a table never reports a path between their executions.
 
-### 5.5 Runtime Insights panel — Overview 🚧 In progress
+### 5.5 Runtime Insights panel — Home 🚧 In progress
 
-A new panel, `runtime-insights`, titled **Runtime Insights**, in the Overview group directly after Live Activity. It
+A new panel, `runtime-insights`, titled **Runtime Insights**, in the Home group directly after Live Activity. It
 lists the current observations and is reachable from where developers already are.
 
 Scope:
@@ -757,7 +757,7 @@ Architecture:
 
 Out of scope for 2.0:
 
-- Severities, scores, Overview contributions, rule catalogs, and free-form query languages.
+- Severities, scores, Scorecard contributions, rule catalogs, and free-form query languages.
 
 Acceptance criteria:
 
@@ -1264,7 +1264,7 @@ Scope:
   the run are listed as **not loaded in this run**, never as unused, with the run's traffic as the caveat.
 - **Vulnerable code reach.** The Vulnerabilities panel gains a **Runtime reach** column and filter when the agent is
   active: `NOT_LOADED`, `LOADED` (with the class count and first route), or, where an OSV advisory names affected
-  classes or methods, `AFFECTED_CLASS_LOADED`. Reach never changes a finding's severity, score, or Overview penalty:
+  classes or methods, `AFFECTED_CLASS_LOADED`. Reach never changes a finding's severity, score, or Scorecard penalty:
   a class not loaded in this run may load in another.
 - **Dynamic access recording** (user-triggered, bounded session). While recording, the agent records reflection
   (`Class.forName`, `getDeclared*`, `Method.invoke`, `Constructor.newInstance`, and field access), `Proxy` creation,
@@ -1550,7 +1550,7 @@ Out of scope:
   Observations are used as hooks for specific sources instead.
 - `INFO` and `DEBUG` logs, HTTP headers, and cookies.
 - Health status transitions, which would need polling.
-- Executor propagation, unless D29 brings Spring's and Quarkus's managed executors in before the agent (M5-2).
+- Executor propagation, unless D30 brings Spring's and Quarkus's managed executors in before the agent (M5-2).
 
 Acceptance criteria:
 
@@ -1774,8 +1774,9 @@ lands on `v2` and before 2.0.0:
 | D25 | Should Quarkus apply the same instrumentation at build time instead of through the agent? | Open. Recommendation: not in M5. Quarkus's bytecode transformer build items could instrument application and dependency classes without an agent, but not JDK classes, so the agent stays the one mechanism; revisit after M5-4 |
 | D26 | Does the run history need its own `bootui-run-holder` artifact? | No. The engine jar already stays in the class loader that survives restarts, which `RunIdentity`'s ordinal relies on and the M1-6g live-reload test proves, so a separate artifact would keep nothing more and add a published module. `RunHistory` keeps encoded byte arrays, so it pins no class loader, and reports when BootUI itself is reloadable (M2-5) |
 | D27 | What does a Live Activity row rendered from the journal show? | **Decided, as recommended** (the maintainer asked to finish M2): the journal stays metadata-only. The live feed completes rows by identity with the detail the panels still hold, already masked under the live policy: a request's principal, an exception's message and location, an email's subject and recipients. Persisted rows are never completed, so they stay at least as masked as `MASKED` (§8). `mail` and `fault-tolerance` are journal sources carrying no subject, address, body, or message. Exceptions are shown per occurrence, not per group |
-| D28 | Which §5.18 sources and observations join 2.0? | Open. Recommendation: M4-3 (run-start facts) and M4-4 (authorization decisions) yes, because §5.8 and §5.9 cannot be delivered without them, together with M3-8 and M3-9. Application events (M4-6) and ORM facts (M4-7) in 2.0 if capacity allows, their four observations (`transactional-listener-skipped`, `after-commit-writes`, `orm-auto-flush`, `large-persistence-context`) joining D14's list only once their counterexample fixtures pass; control markers (M4-5) and WebSocket messages (M4-8) by capacity; data-store commands after 2.0 |
-| D29 | Should Spring- and Quarkus-managed executors propagate the request's context before the agent? | Open. §5.1 leaves executors to the agent (M5-2). Recommendation: yes for managed executors only, as a §5.18 slice: a `TaskDecorator` (Micrometer's `ContextPropagatingTaskDecorator` with `BootUiCorrelationThreadLocalAccessor`) on Spring's auto-configured executor and scheduler, and a SmallRye Context Propagation `ThreadContextProvider` on Quarkus, each task an execution linked to its parent request. It owns `@Async` work, the largest correlation gap left on Spring, and brings `work-after-response` forward for those executors; raw executors and `CompletableFuture` stay with M5-2 |
+| D28 | Does the pinned top of the sidebar grow with Runtime Insights? | **Maintainer decision:** it holds only what a developer starts from. It becomes **Home**: the Overview panel is renamed **Scorecard** (route `#/scorecard`, with `#/overview` redirecting; the `overview` id, properties, `GET /overview`, and `get_overview` unchanged), followed by Live Activity and Runtime Insights. GitHub moves to Developer tools. Change impact, run comparison, and anonymous access stay inside Runtime Insights instead of adding panels |
+| D29 | Which §5.18 sources and observations join 2.0? | Open. Recommendation: M4-3 (run-start facts) and M4-4 (authorization decisions) yes, because §5.8 and §5.9 cannot be delivered without them, together with M3-8 and M3-9. Application events (M4-6) and ORM facts (M4-7) in 2.0 if capacity allows, their four observations (`transactional-listener-skipped`, `after-commit-writes`, `orm-auto-flush`, `large-persistence-context`) joining D14's list only once their counterexample fixtures pass; control markers (M4-5) and WebSocket messages (M4-8) by capacity; data-store commands after 2.0 |
+| D30 | Should Spring- and Quarkus-managed executors propagate the request's context before the agent? | Open. §5.1 leaves executors to the agent (M5-2). Recommendation: yes for managed executors only, as a §5.18 slice: a `TaskDecorator` (Micrometer's `ContextPropagatingTaskDecorator` with `BootUiCorrelationThreadLocalAccessor`) on Spring's auto-configured executor and scheduler, and a SmallRye Context Propagation `ThreadContextProvider` on Quarkus, each task an execution linked to its parent request. It owns `@Async` work, the largest correlation gap left on Spring, and brings `work-after-response` forward for those executors; raw executors and `CompletableFuture` stay with M5-2 |
 
 ## Appendix A. Review log
 
@@ -1839,7 +1840,7 @@ shaped §5.18.
 | Link CPU, allocation, and GC to runtime events by identity: scope readings, GC by id, a CPU ledger, a resource track, and opt-in JFR attribution | Resource-correlation research (user-directed) | Adopted as §5.11 in M2, with D16–D19 open |
 | Store events in a graph database or a search engine for richer insights | Storage research | Rejected for 2.0 (D15): no insight needs a graph database at these volumes; cohort comparison, bounded path templates, and optional Lucene deferred (§5.10) |
 | Add an optional Java agent, after surveying APM agents (OpenTelemetry, Glowroot, SkyWalking, Pinpoint, Elastic, Datadog, New Relic, Dynatrace, Sentry, inspectIT Ocelot, Kieker), diagnostic agents (Arthas, BTrace, Byteman, Lightrun, Rookout, Digma), profilers (async-profiler, JFR, Pyroscope, YourKit, JProfiler), coverage and inventory tools (JaCoCo, Azul Code Inventory and Vulnerability Detection, Contrast), hot-reload agents (JRebel, HotswapAgent), leak and concurrency tools (BlockHound, file-leak-detector), GraalVM's tracing agent, and JEP 451 and JEP 484 | Agent research | Adopted as M5, not gating 2.0.0 (D20): executor propagation, Code Paths with method probes, Code Inventory with changed methods and vulnerable reach, Side Effects, and eight agent observations (§5.13–§5.17). Exception replay, fault injection, test impact, and configuration reads deferred; live patching, full taint tracking, time-tunnel replay, a native profiler, and decompilation cut (§5.10) |
-| Audit the journal's event types against what §5.5–§5.9 read, and add sources from framework hooks: authorization decisions, run lifecycle and BootUI's own actions, application events, Hibernate session facts, WebSocket messages, and non-JDBC data stores; enrich transaction, HTTP, SQL, and cache payloads; project jobs and listeners as executions; record AI calls without tracing | Journal audit (user-directed) | Adopted as §5.18: M3-8, M3-9, and M4-3 to M4-8 planned, data stores and four narrower sources deferred (§5.10), placement in D28, managed-executor propagation in D29 |
+| Audit the journal's event types against what §5.5–§5.9 read, and add sources from framework hooks: authorization decisions, run lifecycle and BootUI's own actions, application events, Hibernate session facts, WebSocket messages, and non-JDBC data stores; enrich transaction, HTTP, SQL, and cache payloads; project jobs and listeners as executions; record AI calls without tracing | Journal audit (user-directed) | Adopted as §5.18: M3-8, M3-9, and M4-3 to M4-8 planned, data stores and four narrower sources deferred (§5.10), placement in D29, managed-executor propagation in D30 |
 
 ## Appendix B. Proof-of-concept evidence
 

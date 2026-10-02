@@ -11,7 +11,7 @@ import {expect, test} from './fixtures.js'
  * skipped — they are covered by not-applicable.spec.js instead.
  */
 const PANEL_HEADINGS = {
-  overview: /^Overview/,
+  overview: /^Scorecard/,
   activity: /Live Activity/,
   'runtime-insights': /Runtime Insights/,
   github: /^GitHub/,
@@ -178,8 +178,28 @@ test.describe('BootUI app shell (Quarkus)', () => {
     }
   })
 
-  test('redirects the root path to /overview', async ({page}) => {
+  test('redirects the root path to /scorecard', async ({page}) => {
     await page.goto('/bootui/')
-    await expect(page).toHaveURL(/\/bootui\/#\/overview$/)
+    await expect(page).toHaveURL(/\/bootui\/#\/scorecard$/)
+  })
+
+  test('redirects the former /overview route to /scorecard', async ({page}) => {
+    await page.goto('/bootui/#/overview')
+    await expect(page).toHaveURL(/\/bootui\/#\/scorecard$/)
+    await expect(page.locator('main h2').filter({hasText: /^Scorecard/})).toBeVisible()
+  })
+
+  test('pins Home at the top of the sidebar and lists GitHub under Developer tools', async ({page}) => {
+    await page.goto('/bootui/')
+
+    await expect(page.getByRole('group', {name: 'Home panels'}).locator('.bootui-nav-link__label')).toHaveText([
+      'Scorecard',
+      'Live Activity',
+      'Runtime Insights'
+    ])
+    await page.getByRole('button', {name: /Developer tools\s+\d+/}).click()
+    await expect(
+      page.getByRole('group', {name: 'Developer tools panels'}).locator('.bootui-nav-link', {hasText: 'GitHub'})
+    ).toHaveCount(1)
   })
 })

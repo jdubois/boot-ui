@@ -7,11 +7,11 @@ import {
 
 registerAdvisorScoringTests(test, expect)
 
-test.describe('Overview view (Quarkus)', () => {
+test.describe('Scorecard view (Quarkus)', () => {
   test.beforeEach(async ({page}) => stubUnscannedAdvisorReports(page))
 
   test('renders the panel header and the scanner dashboard', async ({openView}) => {
-    const page = await openView('overview', 'Overview')
+    const page = await openView('scorecard', 'Scorecard')
 
     await expect(page.locator('.topbar-title')).toContainText('bootui-quarkus-sample')
     await expect(page.locator('.topbar-subtitle')).toContainText(/Quarkus/)
@@ -35,7 +35,7 @@ test.describe('Overview view (Quarkus)', () => {
   })
 
   test('renders the shared Spring advisor card under its platform-aware "Quarkus" label', async ({openView}) => {
-    const page = await openView('overview', 'Overview')
+    const page = await openView('scorecard', 'Scorecard')
 
     // The `spring` scanner id/endpoint is reused on Quarkus (see routes.js meta.titleByPlatform),
     // but the card title itself must render the Quarkus-specific label, not "Spring".
@@ -46,7 +46,7 @@ test.describe('Overview view (Quarkus)', () => {
   })
 
   test('does not run scanners until requested, then scores on demand', async ({openView, page}) => {
-    await openView('overview', 'Overview')
+    await openView('scorecard', 'Scorecard')
 
     // The cached reports are explicitly unscanned, independently of earlier tests' scans.
     await expect(page.locator('.overall-card').first()).toContainText('0 of')
@@ -63,7 +63,7 @@ test.describe('Overview view (Quarkus)', () => {
   })
 
   test('GitHub card exposes a connect button since a repository is detected', async ({openView, page}) => {
-    await openView('overview', 'Overview')
+    await openView('scorecard', 'Scorecard')
 
     // The sample app is checked out from a real git repository, so the GitHub panel is
     // dynamically available (unlike the Spring spec, this is asserted unconditionally here).
@@ -73,7 +73,7 @@ test.describe('Overview view (Quarkus)', () => {
   })
 
   test('reveals an MCP Server tip after running all scanners', async ({openView, page}) => {
-    await openView('overview', 'Overview')
+    await openView('scorecard', 'Scorecard')
 
     const overall = page.locator('.overall-card').first()
     await expect(page.locator('.mcp-tip')).toHaveCount(0)
@@ -90,7 +90,7 @@ test.describe('Overview view (Quarkus)', () => {
   })
 
   test('links to the BootUI GitHub project', async ({openView}) => {
-    const page = await openView('overview', 'Overview')
+    const page = await openView('scorecard', 'Scorecard')
 
     await expect(page.getByRole('link', {name: /View BootUI on GitHub/})).toHaveAttribute(
       'href',

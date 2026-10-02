@@ -386,8 +386,9 @@ Dismissals remove penalties, not coverage gaps; optional EPSS availability does 
 See [Score eligibility](features/advisors.md#score-eligibility). Existing MCP/CLI commands return the additive facts;
 no new tool or backend numeric scorer is introduced.
 
-Advisor scores and the Overall score are calculated in the browser, not by a separate MCP/CLI scorer. Overview averages
-eligible visible advisor scores and GitHub's eligible security-alert score; missing signals never supply a fake 100.
+Advisor scores and the Overall score are calculated in the browser, not by a separate MCP/CLI scorer. The Scorecard
+averages eligible visible advisor scores and GitHub's eligible security-alert score; missing signals never supply a fake
+100.
 `get_overview` (`bootui overview`) returns application context, not that aggregate. CLI transport success and JSON output
 must not be interpreted as a passing assessment.
 

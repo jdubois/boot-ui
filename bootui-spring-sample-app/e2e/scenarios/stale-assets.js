@@ -101,8 +101,8 @@ export function registerStaleAssetTests(test, expect, {uiPath = '/bootui', apiPa
       await expect(page).toHaveURL(new RegExp(`${uiPath}/\\?mode=dev#/hibernate\\?tab=findings#details$`))
       expect(documents).toHaveLength(2)
       // An unrelated, healthy navigation remains usable and clears the stale failure.
-      await page.getByRole('link', {name: 'Overview', exact: true}).click()
-      await expect(heading(page, /^Overview/)).toBeVisible()
+      await page.getByRole('link', {name: 'Scorecard', exact: true}).click()
+      await expect(heading(page, /^Scorecard/)).toBeVisible()
       await expect(alert).toHaveCount(0)
       expect(documents).toHaveLength(2)
       expect(writes).toEqual([])

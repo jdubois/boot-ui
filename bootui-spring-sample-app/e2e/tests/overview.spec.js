@@ -4,11 +4,11 @@ import {registerAdvisorScoringTests, stubUnscannedAdvisorReports} from '../scena
 
 registerAdvisorScoringTests(test, expect)
 
-test.describe('Overview view', () => {
+test.describe('Scorecard view', () => {
   test.beforeEach(async ({page}) => stubUnscannedAdvisorReports(page))
 
   test('renders the panel header and the scanner dashboard', async ({openView}) => {
-    const page = await openView('overview', 'Overview')
+    const page = await openView('scorecard', 'Scorecard')
 
     await expect(page.locator('.topbar-title')).toContainText('bootui-sample')
     await expect(page.locator('.topbar-subtitle')).toContainText(/Spring Boot/)
@@ -32,7 +32,7 @@ test.describe('Overview view', () => {
   })
 
   test('does not run scanners until requested, then scores on demand', async ({openView, page}) => {
-    await openView('overview', 'Overview')
+    await openView('scorecard', 'Scorecard')
 
     // The cached reports are explicitly unscanned, independently of earlier tests' scans.
     await expect(page.locator('.overall-card').first()).toContainText('0 of')
@@ -49,7 +49,7 @@ test.describe('Overview view', () => {
   })
 
   test('GitHub card exposes a connect button when the repository is detected', async ({openView, page}) => {
-    await openView('overview', 'Overview')
+    await openView('scorecard', 'Scorecard')
 
     const githubCard = page.locator('.scanner-card', {hasText: 'GitHub'})
     if (await githubCard.count()) {
@@ -58,7 +58,7 @@ test.describe('Overview view', () => {
   })
 
   test('reveals an MCP Server tip after running all scanners', async ({openView, page}) => {
-    await openView('overview', 'Overview')
+    await openView('scorecard', 'Scorecard')
 
     const overall = page.locator('.overall-card').first()
     await expect(page.locator('.mcp-tip')).toHaveCount(0)
@@ -75,7 +75,7 @@ test.describe('Overview view', () => {
   })
 
   test('links to the BootUI GitHub project', async ({openView}) => {
-    const page = await openView('overview', 'Overview')
+    const page = await openView('scorecard', 'Scorecard')
 
     await expect(page.getByRole('link', {name: /View BootUI on GitHub/})).toHaveAttribute(
       'href',
@@ -84,7 +84,7 @@ test.describe('Overview view', () => {
   })
 
   test('returns to the host application homepage', async ({openView, page}) => {
-    await openView('overview', 'Overview')
+    await openView('scorecard', 'Scorecard')
 
     await expect(page.locator('meta[name="bootui-application-path"]')).toHaveAttribute('content', '/')
     const home = page.getByRole('link', {name: 'Application homepage'})

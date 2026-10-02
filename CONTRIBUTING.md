@@ -512,7 +512,7 @@ run `./mvnw install -pl bootui-ui` once to re-bundle the assets into the JAR.
 
 To develop against custom BootUI mounts, set `BOOTUI_DEV_PATH` for the Vite shell base and, when the API path is not
 `<BOOTUI_DEV_PATH>/api`, set `BOOTUI_DEV_API_PATH` independently. When the host application has a non-root context,
-also set `BOOTUI_DEV_APPLICATION_PATH` so the Overview link targets that application root:
+also set `BOOTUI_DEV_APPLICATION_PATH` so the Scorecard's homepage link targets that application root:
 
 ```bash
 BOOTUI_DEV_PATH=/host/dev-console \

@@ -18,7 +18,7 @@ function openSearch(event) {
       </p>
     </div>
     <div class="not-found-actions">
-      <router-link class="btn btn-primary" to="/overview">Go to Overview</router-link>
+      <router-link class="btn btn-primary" to="/scorecard">Go to Scorecard</router-link>
       <button class="btn btn-outline-secondary" type="button" @click="openSearch">
         <i class="bi bi-search me-1" aria-hidden="true"></i>
         Search panels
