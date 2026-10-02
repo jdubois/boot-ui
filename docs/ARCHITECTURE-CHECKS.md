@@ -611,6 +611,20 @@ Dismissing a rule removes all of its instances from the score.
   not treated as making every self-call a finding: the calling method already runs inside the same transaction, retry,
   permit, or authorization decision, and routing a nested call through the proxy could even deadlock a
   `@ConcurrencyLimit(1)`.
+- **Joined transactions**: a self-call is not reported when the proxy would only have joined the transaction the
+  caller already runs in, so nothing is lost. Four conditions must all hold. First, the callee's only proxy annotation
+  is `@Transactional`, with `REQUIRED` (the default), `SUPPORTS` or `MANDATORY` propagation. Second, the caller is
+  guaranteed to run in a transaction. Its own `@Transactional`, or the class-level one, must use `REQUIRED`,
+  `REQUIRES_NEW`, `MANDATORY` or `NESTED`, and a class-based proxy must be able to intercept it, so the caller cannot
+  be static or final. A private caller is never intercepted, so it qualifies only when every caller in its class
+  qualifies and no method reference reaches it. Third, both declarations use the same transaction manager and rollback
+  rules. Fourth, the callee declares no isolation or timeout different from the caller's. `readOnly` is not compared,
+  because Spring ignores it when joining.
+  The call stays reported in all other cases: a caller that may run without a transaction, a callee that uses
+  `REQUIRES_NEW`, `NESTED`, `NOT_SUPPORTED` or `NEVER`, or a call written inside a lambda, which may run after the
+  transaction ends or on another thread. A call inside a `try` block also stays reported. Through the proxy, an
+  exception leaving the callee marks the shared transaction rollback-only, so catching it still ends in a rollback.
+  Called directly, the caller commits its partial work. Attribute values that cannot be read also keep the finding.
 - **Recommendation**: refactor so the call goes through the Spring proxy: move the proxied method to a separate bean, or,
   only if necessary, inject a `@Lazy` self-reference and call through it.
 - **Kotlin note**: Kotlin behaves identically — marking a function `open` does not make a `this`-call go through the
