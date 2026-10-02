@@ -316,7 +316,7 @@ slice depends on M5-1, and on the milestone named:
 | M5-7 | Change impact by method and run comparison led by code changes (§5.17) | M5-3, M5-4, M4 | 6–8 | 📋 Planned |
 | M5-8 | Method probes, in the UI and as agent tools (§5.14, §5.17) | M5-4 | 8–10 | 📋 Planned |
 | M5-9 | Vulnerable code reach and dynamic access recording with its reachability-metadata export (§5.15) | M5-3 | 8–10 | 📋 Planned |
-| M5-10 | The remaining agent tools, the `verify_after_change` and `diagnose_runtime_issue` updates, `McpGuidance.instructions` and `assess_application` updates, the agent benchmark investigation and its refusal fixture, the consumer skill, and documentation | M5-3, M5-4, M5-5 | 5–7 | 📋 Planned |
+| M5-10 | The remaining agent tools, the `verify_after_change` and `diagnose_runtime_issue` updates, `McpGuidance.instructions` and `assess_application` updates, the agent benchmark investigation and its refusal fixture, the consumer skill, and documentation | M5-3, M5-4, M5-5, M5-6, M5-8, M5-9 | 5–7 | 📋 Planned |
 
 #### M5 implementation steps
 
@@ -546,8 +546,9 @@ revisited here, after M5-4: `jdk.attach.allowAttachSelf` is read once at JVM sta
 retransformation, so it adds little over the `-javaagent` line.
 
 Critical path: the second pass, then M5-1, then M5-2 and M5-3 in either order, then M5-4, then M5-7 and M5-8; M5-5 and
-M5-6 follow M5-3 (the transport ring), and M5-9 follows M5-3. Before 2.0.0 (D20), the target is M5-0 to M5-3. With the
-review's re-estimates, M5 comes to about 111–140 engineer-days.
+M5-6 follow M5-3 (the transport ring), and M5-9 follows M5-3. M5-10 follows M5-6, M5-8, and M5-9, since its prompt and
+skill updates name `start_method_probe`, `request-input-in-sink`, and vulnerable code reach. Before 2.0.0 (D20), the
+target is M5-0 to M5-3. With the review's re-estimates, M5 comes to about 111–140 engineer-days.
 
 ```mermaid
 graph LR
@@ -1701,19 +1702,20 @@ Agent tools (§5.6), on existing schemas only, each moving in lockstep as PLAN.m
 
 - The `verify_after_change` prompt (§5.6) starts with `get_code_inventory` and `changed` when the agent is active: an
   agent that finds its edited method not executed runs the test that reaches it, or says so, before reading any latency.
-  When the method still was not executed after that test, the prompt names `start_method_probe` on the method as the
-  next step to find out why (wrong route, wrong bean, never wired), rather than leaving the probe as a separately
-  discovered tool.
-- `diagnose_runtime_issue` suggests `get_code_paths` on the exemplar's route after `get_request_profile`, and, wherever
-  `get_side_effects` or `get_code_inventory`'s dependency facts surface a vulnerable dependency's runtime reach
-  (§5.15), states plainly that reach and verbatim-match facts are not a vulnerability verdict: verify against source
-  and configuration before treating a `request-input-in-sink` or reach result as actionable.
+  When the method still was not executed after that test, the prompt names `start_method_probe` as the next step: with
+  separate approval, start a probe on the method, rerun the candidate test or route, then read `get_method_probe`; no
+  hits is evidence the candidate path never reaches the method (wrong route, wrong bean, never wired).
+- `diagnose_runtime_issue` suggests `get_code_paths` on the exemplar's route after `get_request_profile`. Wherever
+  `get_side_effects`'s sink matches (§5.16) or `get_code_inventory`'s dependency and reach results (§5.15, vulnerable
+  code reach) surface a finding, it states plainly that these are checks, not a vulnerability verdict: verify against
+  source and configuration before treating a `request-input-in-sink` or reach result as actionable.
 - `McpGuidance.instructions` gains one line: call `get_agent_status` once before relying on an agent-only tool or
   observation, so an agent learns up front whether Code Paths, Code Inventory, and Side Effects questions are
   answerable at all, instead of discovering `NOT_APPLICABLE` one tool call at a time.
 - `assess_application`'s "Discover and collect" step names `start_method_probe` beside `memory_scan`, `pentest_scan`,
   `vulnerabilities_scan`, and `database_advisor_scan` as needing separate approval before it starts, since it is the
-  one M5 tool that acts, even gated by read-only policy.
+  one M5 agent tool that acts, even gated by read-only policy; M5-9's dynamic access recording session needs the same
+  approval once it ships.
 - The consumer skill (`skills/bootui/SKILL.md`, mirrored into the Claude Code plugin payload) documents the
   verify-then-probe workflow as a named step, not just the tool list, so skill-based agents gain the same "did my
   change run" workflow MCP-native agents get from the prompt text.
