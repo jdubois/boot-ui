@@ -23,10 +23,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `jdbc:mysql:` datasource is now read on a best-effort basis on Spring MVC, WebFlux, and Quarkus instead of being
   skipped. The report names the flavor `MARIADB`, the datasource carries an Unsupported badge, and an informational
   diagnostic names the gaps. The panel uses MariaDB's `max_statement_time` guards and its `information_schema` InnoDB
-  lock views for row-lock waits. It reports no replication receiver state and computes no counter changes between reads, and
-  `super_read_only` and `information_schema_stats_expiry` are omitted. MariaDB 11.4 LTS and 11.8 LTS were checked
+  lock views for row-lock waits. It reports no replication receiver state and computes no counter changes between
+  reads, and `super_read_only` and `information_schema_stats_expiry` are omitted. MariaDB 11.4 LTS and 11.8 LTS were checked
   manually; there is no automated MariaDB coverage. MariaDB Connector/J (`jdbc:mariadb:`) is still not offered the
-  panel ([MySQL](docs/features/database.md#mysql)).
+  panel ([MySQL](docs/features/database.md#mysql), [#1194](https://github.com/jdubois/boot-ui/pull/1194)).
 - **Four REST API rules catch request and response declarations that break at runtime.** `RAPI-VALID-006` (HIGH)
   reports a Spring handler with several `@RequestBody` parameters, which fails every request on Spring MVC.
   `RAPI-VER-007` (HIGH) reports a GET/HEAD/DELETE handler that binds no body but carries a consumes condition, usually
