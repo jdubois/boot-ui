@@ -61,7 +61,7 @@ const Jms = () => import('./views/Jms.vue')
 const NotFound = () => import('./views/NotFound.vue')
 
 export const groups = {
-  overview: 'overview',
+  home: 'home',
   advisors: 'advisors',
   runtime: 'runtime',
   configuration: 'configuration',
@@ -74,17 +74,17 @@ export const groups = {
 
 /** @type {import('vue-router').RouteRecordRaw[]} */
 export const routes = [
-  {path: '/', redirect: '/overview'},
+  {path: '/', redirect: '/scorecard'},
   {
-    path: '/overview',
+    path: '/scorecard',
     name: 'overview',
     component: Overview,
     meta: {
-      group: groups.overview,
+      group: groups.home,
       icon: 'bi-speedometer2',
-      title: 'Overview',
-      shortcut: 'ov',
-      keywords: ['home', 'dashboard', 'summary', 'score', 'advisors', 'start']
+      title: 'Scorecard',
+      shortcut: 'sco',
+      keywords: ['overview', 'home', 'dashboard', 'summary', 'score', 'findings', 'advisors', 'start']
     }
   },
   {
@@ -92,7 +92,7 @@ export const routes = [
     name: 'activity',
     component: LiveActivity,
     meta: {
-      group: groups.overview,
+      group: groups.home,
       icon: 'bi-broadcast',
       title: 'Live Activity',
       shortcut: 'la',
@@ -104,7 +104,7 @@ export const routes = [
     name: 'runtime-insights',
     component: RuntimeInsights,
     meta: {
-      group: groups.overview,
+      group: groups.home,
       icon: 'bi-lightbulb',
       title: 'Runtime Insights',
       shortcut: 'ri',
@@ -120,18 +120,6 @@ export const routes = [
         'n+1',
         'observations'
       ]
-    }
-  },
-  {
-    path: '/github',
-    name: 'github',
-    component: GitHub,
-    meta: {
-      group: groups.overview,
-      icon: 'bi-github',
-      title: 'GitHub',
-      shortcut: 'gh',
-      keywords: ['repo', 'repository', 'git', 'source', 'remote']
     }
   },
   {
@@ -1060,6 +1048,19 @@ export const routes = [
       keywords: ['claude', 'anthropic', 'ai sessions', 'agent activity', 'claude code']
     }
   },
+  {
+    path: '/github',
+    name: 'github',
+    component: GitHub,
+    meta: {
+      group: groups.developerTools,
+      icon: 'bi-github',
+      title: 'GitHub',
+      shortcut: 'gh',
+      keywords: ['repo', 'repository', 'git', 'source', 'remote']
+    }
+  },
+  {path: '/overview', redirect: '/scorecard'},
   {path: '/tuning-advisor', redirect: '/jvm-tuning'},
   {path: '/pentest', redirect: '/pentesting'},
   {path: '/dependencies', redirect: '/vulnerabilities'},

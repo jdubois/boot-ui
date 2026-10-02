@@ -77,6 +77,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and Failsafe write each test class's console output to `*-output.txt` files, uploaded as the `test-output`
   artifacts, instead of the build log, and Vitest prints a coverage summary rather than its per-file table.
 
+- **The sidebar's pinned top is now Home: Scorecard, Live Activity, and Runtime Insights.** The Overview panel is
+  renamed **Scorecard**, which is what it shows, at `#/scorecard`; `#/overview` and the root still land there. Its
+  `overview` panel id, `bootui.panels.overview.*` properties, `GET /bootui/api/overview`, and the `get_overview` tool
+  are unchanged. GitHub moves to the Developer tools group ([Home](docs/features/overview.md),
+  [GitHub](docs/features/developer-tools.md#github)).
+
 - **REST API advisor audit: three noisy rules retired, two severities recalibrated.** `RAPI-VALID-005`
   (Idempotency-Key), `RAPI-DTO-004` (response DTO setters), and `RAPI-ERR-002` (`throws Exception`) now always return
   `SKIPPED`; their IDs and dismissals are kept. `RAPI-RESP-006` drops from HIGH to MEDIUM because servers already strip

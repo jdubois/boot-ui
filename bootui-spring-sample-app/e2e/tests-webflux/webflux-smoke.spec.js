@@ -73,9 +73,9 @@ test.describe('BootUI on Spring WebFlux', () => {
     })
   })
 
-  test('redirects the root path to /overview', async ({page}) => {
+  test('redirects the root path to /scorecard', async ({page}) => {
     await page.goto('/bootui/')
-    await expect(page).toHaveURL(/\/bootui\/#\/overview$/)
+    await expect(page).toHaveURL(/\/bootui\/#\/scorecard$/)
   })
 
   test('a representative sample of ported panels render', async ({page}) => {

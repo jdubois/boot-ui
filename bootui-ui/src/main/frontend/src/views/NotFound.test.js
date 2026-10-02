@@ -19,7 +19,7 @@ describe('NotFound', () => {
     })
 
     expect(wrapper.get('h2').text()).toBe('Page not found')
-    expect(wrapper.get('a').attributes('href')).toBe('/overview')
+    expect(wrapper.get('a').attributes('href')).toBe('/scorecard')
 
     await wrapper.get('button').trigger('click')
     expect(openCommandPalette).toHaveBeenCalledOnce()

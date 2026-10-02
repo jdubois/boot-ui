@@ -154,7 +154,7 @@ Useful URLs:
 | ------------------------------------------- | --------------------------------------------------- |
 | <http://localhost:8080/>                    | Sample application welcome page                     |
 | <http://localhost:8080/bootui>              | BootUI console                                      |
-| <http://localhost:8080/bootui/api/overview> | Stable BootUI JSON DTO for the Overview panel       |
+| <http://localhost:8080/bootui/api/overview> | Stable BootUI JSON DTO for the console header       |
 | <http://localhost:8080/api/echo>            | Sample REST endpoint surfaced by the Mappings panel |
 
 ## Suggested walkthrough
@@ -162,7 +162,7 @@ Useful URLs:
 This walkthrough follows the default Docker-free `dev` mode (a bare `spring-boot:run`). The Dev Services, Cache,
 and AI Framework steps note where the `docker` profile adds Postgres/Redis/Ollama-backed behavior.
 
-1. **Overview and GitHub** — confirm BootUI is active (the activation reason is `devtools` for a bare run, or
+1. **Scorecard and GitHub** — confirm BootUI is active (the activation reason is `devtools` for a bare run, or
    `profile=dev` when you pass the profile explicitly), localhost-only is `true`, and the local GitHub origin is
    detected.
 2. **Beans** — search for `EchoScheduler` and follow the dependency graph back
