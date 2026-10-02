@@ -214,6 +214,16 @@ Use the CI-equivalent build before opening or updating a pull request:
 ./mvnw -B -ntp clean install
 ```
 
+Surefire and Failsafe write each test class's standard output and error to
+`target/surefire-reports/<class>-output.txt` (`target/failsafe-reports/` for the Spring sample app's integration
+tests) instead of the console, so look there for application logs and stack traces printed by tests. Failures and
+errors are still reported in the console. CI uploads these files as the `test-output` artifacts.
+
+CI splits that build across parallel jobs: the main job runs the reactor with
+`-Dbootui.skipQuarkusExtensionIts`, which leaves out the per-extension Quarkus integration-test modules (every
+`bootui-quarkus-integration-tests` child except `base`, plus the JDK-gated Hibernate module), and a separate job tests
+those modules. Without the property, a local build includes them.
+
 For frontend-only unit test iteration:
 
 ```bash

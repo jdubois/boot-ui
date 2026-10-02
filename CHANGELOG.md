@@ -72,6 +72,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Faster, quieter CI builds.** The per-extension Quarkus integration-test modules and the three Spring Playwright
+  suites now run on parallel runners instead of competing with the coverage build or running back to back. Surefire
+  and Failsafe write each test class's console output to `*-output.txt` files, uploaded as the `test-output`
+  artifacts, instead of the build log, and Vitest prints a coverage summary rather than its per-file table.
+
 - **REST API advisor audit: three noisy rules retired, two severities recalibrated.** `RAPI-VALID-005`
   (Idempotency-Key), `RAPI-DTO-004` (response DTO setters), and `RAPI-ERR-002` (`throws Exception`) now always return
   `SKIPPED`; their IDs and dismissals are kept. `RAPI-RESP-006` drops from HIGH to MEDIUM because servers already strip
