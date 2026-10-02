@@ -37,6 +37,8 @@ public final class MySqlInsightService {
                     + " association is not exhaustive schema access. Pool acquisition and network timeouts are separate"
                     + " from the cooperative 15-second read budget. No health score or complete-history claim.";
     private static final int MAX_SOURCES = 32;
+    // Oracle MySQL LTS lines covered by the live fixtures. Other Oracle MySQL versions are read with an INFO note.
+    private static final List<String> TESTED_LINES = List.of("8.4.", "9.7.");
     private final Supplier<DatabaseAdvisorDataSourceDiscovery> discovery;
     private final ExposurePolicy exposure;
     private final Clock clock;
@@ -262,8 +264,12 @@ public final class MySqlInsightService {
             connection = named.dataSource().getConnection();
             context = new MySqlReadContext(connection, budget);
             // Only product metadata is used here; JDBC URLs and vendor exception messages never escape.
-            String product = connection.getMetaData().getDatabaseProductName();
-            if (product == null || !product.equalsIgnoreCase("MySQL")) {
+            // MariaDB answers MySQL Connector/J as "MySQL"; its version string is checked before any SQL runs.
+            var metadata = connection.getMetaData();
+            String product = metadata.getDatabaseProductName();
+            if (product == null
+                    || !product.equalsIgnoreCase("MySQL")
+                    || mariaDb(metadata.getDatabaseProductVersion(), null)) {
                 throw new SQLException("UNSUPPORTED_VENDOR", "BUI03");
             }
             context.open();
@@ -274,12 +280,16 @@ public final class MySqlInsightService {
                             + " CURRENT_USER() AS account,@@server_uuid AS server_id,CONNECTION_ID() AS"
                             + " connection_id, @@global.performance_schema AS performance_schema,"
                             + " @@lower_case_table_names AS lower_case_table_names LIMIT ?");
-            String version = identity.getOrDefault("version", "").toLowerCase(Locale.ROOT);
-            String flavor = identity.getOrDefault("flavor", "").toLowerCase(Locale.ROOT);
-            if (!version.startsWith("8.4.")
-                    || version.contains("mariadb")
-                    || !(flavor.contains("mysql community") || flavor.contains("mysql enterprise"))) {
-                throw new SQLException("UNVERIFIED_SERVER", "BUI03");
+            if (!oracleMySql(identity.get("version"), identity.get("flavor"))) {
+                throw new SQLException("UNSUPPORTED_VENDOR", "BUI03");
+            }
+            if (!testedLine(identity.get("version"))) {
+                diagnostics.add(new MySqlDiagnosticDto(
+                        MySqlValues.text(named.name()),
+                        "INFO",
+                        "MySQL " + MySqlValues.text(identity.get("version"))
+                                + " is not a tested server line (Oracle MySQL 8.4 LTS and 9.7 LTS are tested). It was"
+                                + " read anyway; any section the server cannot answer reports its own reason."));
             }
             String caseMode = identity.get("lower_case_table_names");
             if (!"0".equals(caseMode) && !"1".equals(caseMode) && !"2".equals(caseMode)) {
@@ -310,7 +320,8 @@ public final class MySqlInsightService {
                                     + " commit or roll back the application's transaction.";
                         case "BUI02" -> "Server-enforced READ ONLY could not be established; collection was refused.";
                         case "BUI03" ->
-                            "This server is not the tested Oracle MySQL 8.4 line; no compatibility is claimed.";
+                            "This datasource is not an Oracle MySQL Community or Enterprise server (for example"
+                                    + " MariaDB); it was not read.";
                         default -> MySqlQuery.reason(ex);
                     };
             result = failed(named.name(), reason);
@@ -349,6 +360,24 @@ public final class MySqlInsightService {
             result = withChanges(result, changes);
         }
         return result;
+    }
+
+    static boolean oracleMySql(String reportedVersion, String reportedFlavor) {
+        String flavor = reportedFlavor == null ? "" : reportedFlavor.toLowerCase(Locale.ROOT);
+        return !mariaDb(reportedVersion, reportedFlavor)
+                && (flavor.contains("mysql community") || flavor.contains("mysql enterprise"));
+    }
+
+    static boolean testedLine(String reportedVersion) {
+        String version = reportedVersion == null ? "" : reportedVersion.toLowerCase(Locale.ROOT);
+        return TESTED_LINES.stream().anyMatch(version::startsWith);
+    }
+
+    private static boolean mariaDb(String reportedVersion, String reportedFlavor) {
+        return (reportedVersion != null
+                        && reportedVersion.toLowerCase(Locale.ROOT).contains("mariadb"))
+                || (reportedFlavor != null
+                        && reportedFlavor.toLowerCase(Locale.ROOT).contains("mariadb"));
     }
 
     private MySqlDataSourceDto failed(String name, String message) {

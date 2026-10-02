@@ -90,6 +90,23 @@ jobs:
           MySqlInstrumentationLiveTests MySqlIdentifierCaseLiveTests MySqlHttpLiveTests
           MySqlActivityStoreLiveTests
 
+      # The panel claims two Oracle MySQL LTS lines. The full build above covers 8.4; this reruns the Spring panel's
+      # live suites against 9.7 (the quarkus-its job reruns the Quarkus contract). Earlier reports are set aside so 8.4
+      # evidence cannot satisfy the 9.7 gate, then restored for the published test report; the collector tests assert
+      # the reported server line.
+      - name: Run MySQL panel live suites on MySQL 9.7 LTS
+        run: |
+          spring=bootui-spring-autoconfigure/target
+          mv "$spring/surefire-reports" "$spring/surefire-reports-mysql-8.4"
+          ./mvnw -B -ntp -pl bootui-spring-autoconfigure test -Dbootui.mysql.image=mysql:9.7.2 \
+            -Dtest='MySqlExecutionLiveTests,MySqlPermissionsLiveTests,MySqlCollectorsLiveTests,MySqlReplicationLiveTests,MySqlDigestOverflowLiveTests,MySqlPerformanceSchemaOffLiveTests,MySqlInstrumentationLiveTests,MySqlIdentifierCaseLiveTests,MySqlHttpLiveTests'
+          python3 .github/scripts/check-mysql-live-tests.py "$spring/surefire-reports" \
+            MySqlExecutionLiveTests MySqlPermissionsLiveTests MySqlCollectorsLiveTests \
+            MySqlReplicationLiveTests MySqlDigestOverflowLiveTests MySqlPerformanceSchemaOffLiveTests \
+            MySqlInstrumentationLiveTests MySqlIdentifierCaseLiveTests MySqlHttpLiveTests
+          mv "$spring/surefire-reports" "$spring/surefire-reports-mysql-9.7"
+          mv "$spring/surefire-reports-mysql-8.4" "$spring/surefire-reports"
+
       - name: Publish coverage summary
         if: ${{ !cancelled() }}
         run: bash .github/scripts/coverage-summary.sh >> "$GITHUB_STEP_SUMMARY"
@@ -228,6 +245,18 @@ jobs:
           python3 .github/scripts/check-mysql-live-tests.py
           bootui-quarkus-integration-tests/datasource/target/surefire-reports
           BootUiQuarkusMySqlLiveTest
+
+      # Reruns the Quarkus MySQL HTTP contract against the second tested LTS line, 9.7, setting the 8.4 reports aside
+      # so they cannot satisfy this gate, then restoring them for the published test report.
+      - name: Run MySQL Quarkus HTTP contract on MySQL 9.7 LTS
+        run: |
+          quarkus=bootui-quarkus-integration-tests/datasource/target
+          mv "$quarkus/surefire-reports" "$quarkus/surefire-reports-mysql-8.4"
+          ./mvnw -B -ntp -pl bootui-quarkus-integration-tests/datasource \
+            -Pmysql-live test -Dtest=BootUiQuarkusMySqlLiveTest -Dbootui.mysql.image=mysql:9.7.2
+          python3 .github/scripts/check-mysql-live-tests.py "$quarkus/surefire-reports" BootUiQuarkusMySqlLiveTest
+          mv "$quarkus/surefire-reports" "$quarkus/surefire-reports-mysql-9.7"
+          mv "$quarkus/surefire-reports-mysql-8.4" "$quarkus/surefire-reports"
 
       - name: Publish Java test report
         if: ${{ !cancelled() }}

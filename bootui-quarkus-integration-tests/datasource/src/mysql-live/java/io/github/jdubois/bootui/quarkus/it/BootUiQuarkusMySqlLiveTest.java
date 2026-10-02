@@ -118,7 +118,7 @@ class BootUiQuarkusMySqlLiveTest {
                 .isNotNull();
         assertThat(source.path("schemaName").asText()).isEqualTo("bootui_mysql");
         assertThat(source.path("serverFlavor").asText()).containsIgnoringCase("mysql");
-        assertThat(source.path("serverVersion").asText()).startsWith("8.4.");
+        assertThat(source.path("serverVersion").asText()).startsWith(MySqlLiveResource.expectedVersionLine());
         assertThat(source.path("vitalSigns")).isNotEmpty();
         assertThat(source.path("tables")).isNotEmpty();
         assertThat(source.path("tables").toString()).contains("fixture_products");

@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class MySqlInsightServiceTests {
@@ -372,6 +373,107 @@ class MySqlInsightServiceTests {
         when(fixture.connection.getMetaData().getDatabaseProductName()).thenReturn("MariaDB");
         assertThat(service(fixture).read().status()).isEqualTo("DISABLED");
         assertThat(fixture.sql).isEmpty();
+    }
+
+    @Test
+    void mariaDbBehindMySqlConnectorIsSkippedBeforeAnySql() throws Exception {
+        MySqlJdbcFixture fixture = new MySqlJdbcFixture();
+        when(fixture.connection.getMetaData().getDatabaseProductVersion()).thenReturn("11.4.13-MariaDB-ubu2404");
+        var report = service(fixture).read();
+        assertThat(report.status()).isEqualTo("DISABLED");
+        assertThat(report.diagnostics()).singleElement().satisfies(diagnostic -> {
+            assertThat(diagnostic.level()).isEqualTo("INFO");
+            assertThat(diagnostic.message()).contains("not an Oracle MySQL");
+        });
+        assertThat(fixture.sql).isEmpty();
+    }
+
+    @ParameterizedTest
+    @CsvSource(
+            delimiter = '|',
+            value = {
+                "8.4.6|MySQL Community Server - GPL|true|true",
+                "8.4.11|MySQL Enterprise Server - Commercial|true|true",
+                "9.7.2|MySQL Community Server - GPL|true|true",
+                "8.0.46|MySQL Community Server - GPL|true|false",
+                "9.6.0|MySQL Community Server - GPL|true|false",
+                "9.70.0|MySQL Community Server - GPL|true|false",
+                "10.0.0|MySQL Enterprise Server - Commercial|true|false",
+                "|MySQL Community Server - GPL|true|false",
+                "11.4.13-MariaDB-ubu2404|mariadb.org binary distribution|false|false",
+                "8.4.6-mariadb|MySQL Community Server - GPL|false|true",
+                "8.4.6-6|Percona Server (GPL), Release 6|false|true",
+                "9.7.2|Source distribution|false|true",
+                "9.7.2||false|true"
+            })
+    void anyOracleMySqlVersionIsReadAndOnlyTheLtsLinesAreTested(
+            String version, String flavor, boolean read, boolean tested) {
+        assertThat(MySqlInsightService.oracleMySql(version, flavor)).isEqualTo(read);
+        assertThat(MySqlInsightService.testedLine(version)).isEqualTo(tested);
+    }
+
+    @Test
+    void testedLtsLinesAreReadWithoutAnUntestedNote() throws Exception {
+        MySqlJdbcFixture fixture = withServerVersion("9.7.2");
+        var report = service(fixture).read();
+        assertThat(report.dataSources()).singleElement().satisfies(source -> {
+            assertThat(source.serverVersion()).isEqualTo("9.7.2");
+            assertThat(source.status()).isNotEqualTo("ERROR");
+        });
+        assertThat(report.diagnostics())
+                .noneMatch(diagnostic -> diagnostic.message().contains("not a tested server line"));
+        assertThat(fixture.sql).anyMatch(sql -> sql.contains("performance_schema."));
+    }
+
+    @Test
+    void untestedOracleMySqlVersionsAreReadWithAnInformationalNote() throws Exception {
+        MySqlJdbcFixture fixture = withServerVersion("9.8.0");
+        var report = service(fixture).read();
+        assertThat(report.dataSources()).singleElement().satisfies(source -> {
+            assertThat(source.serverVersion()).isEqualTo("9.8.0");
+            assertThat(source.status()).isNotEqualTo("ERROR");
+        });
+        assertThat(report.diagnostics()).singleElement().satisfies(diagnostic -> {
+            assertThat(diagnostic.source()).isEqualTo("fixture");
+            assertThat(diagnostic.level()).isEqualTo("INFO");
+            assertThat(diagnostic.message())
+                    .contains("MySQL 9.8.0 is not a tested server line")
+                    .contains("8.4 LTS and 9.7 LTS");
+        });
+        assertThat(fixture.sql).anyMatch(sql -> sql.contains("performance_schema."));
+    }
+
+    @Test
+    void nonOracleFlavorsAreSkippedBeforeAnyStatisticsRead() throws Exception {
+        MySqlJdbcFixture fixture = new MySqlJdbcFixture();
+        fixture.results = sql -> {
+            List<java.util.Map<String, String>> rows = fixture.defaults(sql);
+            if (!sql.contains("@@version AS version")) {
+                return rows;
+            }
+            java.util.Map<String, String> identity = new java.util.LinkedHashMap<>(rows.get(0));
+            identity.put("flavor", "Percona Server (GPL), Release 6");
+            return List.of(identity);
+        };
+        var report = service(fixture).read();
+        assertThat(report.status()).isEqualTo("DISABLED");
+        assertThat(report.dataSources()).isEmpty();
+        assertThat(fixture.sql).noneMatch(sql -> sql.contains("performance_schema."));
+        verify(fixture.connection).rollback();
+    }
+
+    private static MySqlJdbcFixture withServerVersion(String version) throws Exception {
+        MySqlJdbcFixture fixture = new MySqlJdbcFixture();
+        fixture.results = sql -> {
+            List<java.util.Map<String, String>> rows = fixture.defaults(sql);
+            if (!sql.contains("@@version AS version")) {
+                return rows;
+            }
+            java.util.Map<String, String> identity = new java.util.LinkedHashMap<>(rows.get(0));
+            identity.put("version", version);
+            return List.of(identity);
+        };
+        return fixture;
     }
 
     static MySqlInsightService service(MySqlJdbcFixture fixture) {
