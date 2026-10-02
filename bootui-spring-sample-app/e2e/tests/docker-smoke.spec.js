@@ -1,14 +1,16 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
 
-// These checks run with a Docker profile: the full PostgreSQL stack or lightweight MySQL + Redis.
+// These checks run with a Docker profile: the full PostgreSQL stack or lightweight PostgreSQL or MySQL + Redis.
 // They assert the runtime uses the selected database and Redis instead of
 // the Docker-free `dev` defaults (H2, an in-memory cache, no KafkaTemplate, disabled Spring AI), so a
 // green run actually proves the Docker-based configuration works rather than passing in a broadly
 // compatible mode.
 const profiles = (process.env.BOOTUI_SAMPLE_PROFILES || '').split(',').map((profile) => profile.trim())
 const mysql = profiles.includes('docker-mysql')
-const dockerProfile = mysql ? 'docker-mysql' : 'docker'
+const lightweightPostgresql = profiles.includes('docker-postgresql')
+const lightweight = mysql || lightweightPostgresql
+const dockerProfile = mysql ? 'docker-mysql' : lightweightPostgresql ? 'docker-postgresql' : 'docker'
 const database = mysql ? 'MySQL' : 'PostgreSQL'
 const panelId = mysql ? 'mysql' : 'postgresql'
 
@@ -68,13 +70,13 @@ test.describe('Docker profile smoke checks', () => {
   })
 
   test(
-    mysql ? 'keeps Ollama disabled in the MySQL profile' : 'answers a chat prompt through Ollama',
+    lightweight ? `keeps Ollama disabled in the ${dockerProfile} profile` : 'answers a chat prompt through Ollama',
     async ({request}) => {
       const response = await request.post('/api/chat', {
         data: {message: 'Reply with the single word: pong.'},
         timeout: 120_000
       })
-      if (mysql) {
+      if (lightweight) {
         expect(response.status()).toBe(503)
         expect((await response.json()).error).toContain('ChatClient')
         return
@@ -87,9 +89,11 @@ test.describe('Docker profile smoke checks', () => {
   )
 
   test(
-    mysql ? 'keeps Kafka disabled in the MySQL profile' : 'captures a real Kafka produce/consume round trip',
+    lightweight
+      ? `keeps Kafka disabled in the ${dockerProfile} profile`
+      : 'captures a real Kafka produce/consume round trip',
     async ({request}) => {
-      if (mysql) {
+      if (lightweight) {
         const response = await request.get('/bootui/api/kafka')
         expect(response.ok()).toBeTruthy()
         expect((await response.json()).available).toBe(false)
