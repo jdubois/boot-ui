@@ -11,7 +11,8 @@ import java.util.Map;
  *
  * <p>It is bounded by entries and by bytes, and its bytes count against the journal's byte bound. Once full, it interns
  * nothing more: {@link #intern} returns {@link #NOT_INTERNED}, and the event keeps its own string, which then counts in
- * its own size. Codes are never reused, so a code read from an event always names the same string.</p>
+ * its own size. Within a recording, codes are never reused, so a code read from an event always names the same string;
+ * clearing the recording empties the ring first and then the dictionary ({@link #clear}).</p>
  */
 public final class JournalDictionary {
 
@@ -100,6 +101,16 @@ public final class JournalDictionary {
     /** The bytes the dictionary retains, counted against the journal's byte bound. */
     public synchronized long bytes() {
         return bytes;
+    }
+
+    /**
+     * Forgets every string, when the recording is cleared. The journal calls it under its processing lock once the ring
+     * is empty, so no retained event still references a forgotten string or code.
+     */
+    public synchronized void clear() {
+        strings.clear();
+        codes.clear();
+        bytes = 0;
     }
 
     /** A string, its map entry, and its list slot. */

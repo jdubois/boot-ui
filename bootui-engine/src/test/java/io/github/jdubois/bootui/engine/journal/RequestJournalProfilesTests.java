@@ -225,6 +225,49 @@ class RequestJournalProfilesTests {
     }
 
     @Test
+    void anAiCallWhoseTraceLostARequestToEvictionJoinsNoRetainedRequest() {
+        RuntimeJournal small = new RuntimeJournal(
+                new RuntimeJournalSettings(true, 4, 10_000_000, 100, 50, 10, JournalSource.all()),
+                RunIdentity.start(),
+                false);
+        try {
+            // A failed call keeps its reserved share; r1, which made it, is routine and is evicted first.
+            small.offer(new RuntimeEvent(
+                    JournalSource.AI,
+                    1_010,
+                    1_000_000,
+                    null,
+                    null,
+                    "trace-1",
+                    null,
+                    null,
+                    null,
+                    true,
+                    new AiPayload("chat", "openai", "gpt-4o", 1L, null, null, true)));
+            small.offer(traced(http("r1", 1_000, 50_000_000, null), "trace-1"));
+            small.offer(traced(http("r2", 1_005, 100_000_000, null), "trace-1"));
+            small.offer(http("r3", 2_000, 1_000_000, null));
+            small.offer(http("r4", 3_000, 1_000_000, null));
+            small.dispatchPending();
+
+            assertThat(small.entries())
+                    .extracting(entry -> entry.event().requestId())
+                    .doesNotContain("r1");
+            assertThat(small.evictedARequestOf("trace-1")).isTrue();
+            assertThat(new RequestJournalProfiles(small, null, 1_000, 5, null)
+                            .profile("r2")
+                            .timeline())
+                    .as("r1, which shared its trace and contained it, may have made it")
+                    .isEmpty();
+
+            small.clear();
+            assertThat(small.evictedARequestOf("trace-1")).isFalse();
+        } finally {
+            small.close();
+        }
+    }
+
+    @Test
     void anUnknownRequestOrADisabledJournalSaysWhy() {
         assertThat(profiles(null).profile("missing").unavailableReason()).contains("does not retain request missing");
         assertThat(profiles(null).profile(" ").available()).isFalse();

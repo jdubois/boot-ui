@@ -83,7 +83,7 @@ public final class RequestJournalProfiles {
         List<JournalEntry> children = new ArrayList<>();
         List<JournalEntry> aiCalls = new ArrayList<>();
         Map<String, JournalEntry> collections = new HashMap<>();
-        AiCallOwners aiCallOwners = new AiCallOwners();
+        AiCallOwners aiCallOwners = new AiCallOwners(journal::evictedARequestOf);
         for (JournalEntry entry : all) {
             RuntimeEvent event = entry.event();
             aiCallOwners.learn(event);

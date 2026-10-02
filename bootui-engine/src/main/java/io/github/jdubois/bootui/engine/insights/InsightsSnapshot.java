@@ -109,13 +109,31 @@ public final class InsightsSnapshot {
             InsightsStack stack,
             RunSummary previousRun,
             Function<String, Integer> poolSizes) {
+        return of(entries, status, routes, recorded, visible, stack, previousRun, poolSizes, traceId -> false);
+    }
+
+    /**
+     * Projects {@code entries} as {@link #of(List, JournalStatus, RouteTemplateResolver, Predicate, Predicate,
+     * InsightsStack, RunSummary, Function)} does, with {@code evictedRequestTraces} naming the traces of requests the
+     * journal evicted, whose AI calls linked only by trace belong to no request ({@link AiCallOwners}).
+     */
+    public static InsightsSnapshot of(
+            List<JournalEntry> entries,
+            JournalStatus status,
+            RouteTemplateResolver routes,
+            Predicate<JournalSource> recorded,
+            Predicate<JournalSource> visible,
+            InsightsStack stack,
+            RunSummary previousRun,
+            Function<String, Integer> poolSizes,
+            Predicate<String> evictedRequestTraces) {
         List<JournalEntry> ordered = new ArrayList<>(entries);
         ordered.sort(Comparator.comparingLong(JournalEntry::sequence));
         Map<String, RuntimeEvent> http = new HashMap<>();
         Map<String, List<RuntimeEvent>> children = new HashMap<>();
         Map<JournalSource, long[]> coverage = new EnumMap<>(JournalSource.class);
         List<RuntimeEvent> traced = new ArrayList<>();
-        AiCallOwners aiCallOwners = new AiCallOwners();
+        AiCallOwners aiCallOwners = new AiCallOwners(evictedRequestTraces);
         for (JournalEntry entry : ordered) {
             RuntimeEvent event = entry.event();
             aiCallOwners.learn(event);

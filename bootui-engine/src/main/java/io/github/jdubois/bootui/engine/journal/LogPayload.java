@@ -26,14 +26,23 @@ public record LogPayload(String logger, String level, String template, String ex
                 };
     }
 
-    /** This log event with its logger, level, template, and exception class replaced by the run's shared copies. */
+    /**
+     * This log event with its logger, level, template, and exception class replaced by the run's shared copies. A
+     * template with a digit keeps, and is counted for, its own copy, since an application that concatenates ids or
+     * numbers into its messages would otherwise fill the dictionary with one-off strings.
+     */
     @Override
     public RuntimeEventPayload interned(JournalDictionary dictionary) {
         return new LogPayload(
                 dictionary.shared(logger),
                 dictionary.shared(level),
-                dictionary.shared(template),
+                shareable(template) ? dictionary.shared(template) : template,
                 dictionary.shared(exceptionClass));
+    }
+
+    /** Whether the dictionary should share {@code template}: it has no digit, which a concatenated value would add. */
+    static boolean shareable(String template) {
+        return template != null && template.chars().noneMatch(Character::isDigit);
     }
 
     /** Its fixed part and its strings, each counted as the payload's own. */

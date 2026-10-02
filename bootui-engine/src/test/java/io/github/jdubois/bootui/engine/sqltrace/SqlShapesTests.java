@@ -38,10 +38,14 @@ class SqlShapesTests {
     }
 
     @Test
-    void onlyAStatementWithoutAPredicateLiteralIsShareable() {
+    void onlyAStatementWithoutAnyLiteralIsShareable() {
         assertThat(SqlShapes.shareable("select * from orders where id = ?")).isTrue();
-        assertThat(SqlShapes.shareable("select * from orders order by id limit 10"))
+        assertThat(SqlShapes.shareable("select * from orders order by id limit ? offset ?"))
                 .isTrue();
+        assertThat(SqlShapes.shareable("select * from orders order by id limit 10"))
+                .isFalse();
+        assertThat(SqlShapes.shareable("insert into customers (id, name) values (42, 'a')"))
+                .isFalse();
         assertThat(SqlShapes.shareable("select * from orders where id = 42")).isFalse();
         assertThat(SqlShapes.shareable("select * from orders where name like 'a%'"))
                 .isFalse();

@@ -240,7 +240,8 @@ public final class RuntimeInsightsService {
                 this::panelVisible,
                 stack,
                 previousRun(status.runId()),
-                poolSizes);
+                poolSizes,
+                journal::evictedARequestOf);
         List<RuntimeInsightCheckDto> checks = new ArrayList<>();
         List<RuntimeObservationDto> rows = new ArrayList<>();
         Map<String, Detail> details = new LinkedHashMap<>();

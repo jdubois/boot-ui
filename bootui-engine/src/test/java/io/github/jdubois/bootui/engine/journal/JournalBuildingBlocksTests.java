@@ -169,7 +169,7 @@ class JournalBuildingBlocksTests {
                         null,
                         false,
                         new SqlPayload(
-                                new String("select 1"),
+                                new String("select * from orders where id = ?"),
                                 new String("A.a(A.java:1)"),
                                 null,
                                 false,
@@ -233,6 +233,26 @@ class JournalBuildingBlocksTests {
         assertThatThrownBy(() -> RuntimeEvent.of(JournalSource.RESOURCES, 1, 1, null, null, null, false, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("resources");
+    }
+
+    @Test
+    void aLogTemplateWithADigitKeepsItsOwnCopy() {
+        JournalDictionary dictionary = new JournalDictionary(100, 1_000_000);
+        LogPayload template = new LogPayload("l", "WARN", new String("Connection {} timed out after {} ms"), null);
+        LogPayload concatenated = new LogPayload("l", "WARN", new String("Order 4217 was rejected"), null);
+
+        LogPayload sharedTemplate = (LogPayload) template.interned(dictionary);
+        LogPayload keptConcatenated = (LogPayload) concatenated.interned(dictionary);
+
+        assertThat(dictionary.size())
+                .as("the logger, the level, and the template")
+                .isEqualTo(3);
+        assertThat(sharedTemplate.template()).isSameAs(dictionary.canonical("Connection {} timed out after {} ms"));
+        assertThat(keptConcatenated.template()).isSameAs(concatenated.template());
+        assertThat(keptConcatenated.estimatedBytes(dictionary))
+                .isEqualTo(16
+                        + JournalDictionary.REFERENCE_BYTES * 2
+                        + RuntimeEvent.stringBytes("Order 4217 was rejected"));
     }
 
     @Test
