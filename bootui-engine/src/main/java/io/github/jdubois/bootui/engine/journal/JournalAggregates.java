@@ -1,6 +1,9 @@
 package io.github.jdubois.bootui.engine.journal;
 
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.model.EdgeDiff.EdgeRef;
+import io.github.jdubois.bootui.engine.model.ObservedEdge;
+import io.github.jdubois.bootui.engine.model.ObservedEdges;
 import io.github.jdubois.bootui.engine.resources.GcPauseRange;
 import io.github.jdubois.bootui.engine.resources.ResourceTrack;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
@@ -34,6 +37,14 @@ import java.util.function.Supplier;
  * whose notification arrives after the request was folded waits, up to {@value #MAX_AWAITED_COLLECTIONS} of them, and
  * adds its pause to the request's route when it arrives.</p>
  *
+ * <p>They also count the runtime model's observed edges ({@code docs/PLAN-v2.md} §5.8), named by
+ * {@link ObservedEdges} as the model's projection names them, so the run summary keeps the whole run's edge set, and an
+ * edge whose events the journal later evicts still counts. An execution's events usually arrive before it completes, so
+ * their edges wait, up to {@value #MAX_EDGES_PER_EXECUTION} per execution, until the execution names its node; at most
+ * {@value #MAX_PENDING_REQUESTS} executions wait, and an AI span exported after its request joins it by trace id.
+ * Beyond {@value #MAX_EDGES} edges, an observation of a new edge is counted under {@value #EDGES} in
+ * {@link AggregatesSnapshot#overflowed()}.</p>
+ *
  * <p>The dispatcher updates the aggregates under their monitor, and readers take an immutable {@link #snapshot()}.</p>
  */
 public final class JournalAggregates implements JournalListener {
@@ -47,6 +58,12 @@ public final class JournalAggregates implements JournalListener {
     public static final int MAX_THREAD_FAMILIES = 100;
     public static final int MAX_CALL_SITES = 20;
     public static final int MAX_PENDING_REQUESTS = 4_096;
+    public static final int MAX_EDGES = 5_000;
+
+    /** The {@link AggregatesSnapshot#overflowed()} key of the edge observations not counted beyond {@value #MAX_EDGES}. */
+    public static final String EDGES = "edges";
+
+    static final int MAX_EDGES_PER_EXECUTION = 64;
     static final int MAX_FINGERPRINTS_PER_REQUEST = 64;
     static final int MAX_GROUPS_PER_REQUEST = 16;
     static final int MAX_AWAITED_COLLECTIONS = 4_096;
@@ -73,6 +90,11 @@ public final class JournalAggregates implements JournalListener {
     private final Map<String, Long> recentPauses = bounded(MAX_RECENT_COLLECTIONS);
     private final Map<String, List<String>> awaitedPauses = bounded(MAX_AWAITED_COLLECTIONS);
     private final ResourceTrack resourceTrack = new ResourceTrack();
+    private final LinkedHashMap<EdgeRef, EdgeCount> edges = new LinkedHashMap<>();
+    private final LinkedHashMap<String, PendingEdges> pendingEdges = new LinkedHashMap<>();
+    private final Map<String, ObservedEdges.Execution> executions = bounded(MAX_PENDING_REQUESTS);
+    private final Map<String, ObservedEdges.Execution> requestsByTrace = bounded(MAX_PENDING_REQUESTS);
+    private long edgeOverflow;
     private final long[] runCounts = new long[SOURCES];
     private final long[] runNanos = new long[SOURCES];
     private long firstEpochMillis = Long.MAX_VALUE;
@@ -132,6 +154,9 @@ public final class JournalAggregates implements JournalListener {
             collected(gc, Math.max(0, event.durationNanos()));
             return;
         }
+        String label =
+                event.source() == JournalSource.HTTP && payload instanceof HttpPayload http ? routeOf(http) : null;
+        observeEdges(event, label);
         // An event not observed on a thread, such as an AI call joined to its request by trace id or a message sent
         // from an I/O callback, belongs to no thread family rather than inflating an unknown one.
         if (event.requestId() == null && event.executionId() == null && event.thread() != null) {
@@ -141,7 +166,6 @@ public final class JournalAggregates implements JournalListener {
             if (http.status() >= 500) {
                 failedRequests++;
             }
-            String label = routeOf(http);
             Route route = routes.get(label);
             route.add(event, http.status());
             if (http.resources() != null) {
@@ -178,6 +202,65 @@ public final class JournalAggregates implements JournalListener {
             transactionalMethods.get(transaction.method()).add(event, transaction);
         } else if (payload instanceof ConnectionPayload connection && children != null) {
             children.connectionWaitNanos += connection.waitNanos();
+        }
+    }
+
+    /**
+     * Counts the edges {@code event} adds from the execution that owns it, or holds them until that execution
+     * completes, and, when {@code event} completes an execution, counts the edges its earlier events held.
+     */
+    private void observeEdges(RuntimeEvent event, String routeLabel) {
+        ObservedEdges.Execution execution = ObservedEdges.execution(event, http -> routeLabel);
+        if (execution != null) {
+            String key = ObservedEdges.executionKey(event, execution);
+            executions.put(key, execution);
+            if (execution.request() && event.traceId() != null) {
+                requestsByTrace.put(event.traceId(), execution);
+            }
+            PendingEdges held = pendingEdges.remove(key);
+            if (held != null) {
+                held.targets.forEach((target, count) -> count(execution.to(target), count));
+            }
+        }
+        List<ObservedEdges.Target> targets = ObservedEdges.targets(event);
+        if (targets.isEmpty()) {
+            return;
+        }
+        String owner = ObservedEdges.ownerKey(event);
+        ObservedEdges.Execution completed = owner != null
+                ? executions.get(owner)
+                : ObservedEdges.ownedByTrace(event) ? requestsByTrace.get(event.traceId()) : null;
+        long at = event.epochMillis();
+        if (completed != null) {
+            for (ObservedEdges.Target target : targets) {
+                EdgeCount observed = new EdgeCount(at);
+                count(completed.to(target), observed);
+            }
+        } else if (owner != null) {
+            PendingEdges held = pendingEdges.get(owner);
+            if (held == null) {
+                if (pendingEdges.size() >= MAX_PENDING_REQUESTS) {
+                    Iterator<String> oldest = pendingEdges.keySet().iterator();
+                    oldest.next();
+                    oldest.remove();
+                }
+                held = new PendingEdges();
+                pendingEdges.put(owner, held);
+            }
+            for (ObservedEdges.Target target : targets) {
+                held.add(target, at);
+            }
+        }
+    }
+
+    private void count(EdgeRef edge, EdgeCount observed) {
+        EdgeCount count = edges.get(edge);
+        if (count != null) {
+            count.merge(observed);
+        } else if (edges.size() < MAX_EDGES) {
+            edges.put(edge, observed.copy());
+        } else {
+            edgeOverflow += observed.count;
         }
     }
 
@@ -290,6 +373,11 @@ public final class JournalAggregates implements JournalListener {
         completed.clear();
         recentPauses.clear();
         awaitedPauses.clear();
+        edges.clear();
+        pendingEdges.clear();
+        executions.clear();
+        requestsByTrace.clear();
+        edgeOverflow = 0;
         Arrays.fill(runCounts, 0);
         Arrays.fill(runNanos, 0);
         firstEpochMillis = Long.MAX_VALUE;
@@ -298,7 +386,6 @@ public final class JournalAggregates implements JournalListener {
         unattributedRequests = 0;
     }
 
-    /** An immutable copy of every aggregate. */
     /**
      * The route labels of the requests this run completed, such as {@code GET /api/orders/{id}}, without copying their
      * statistics, and whether more routes were seen than {@value #MAX_ROUTES} kept.
@@ -315,6 +402,7 @@ public final class JournalAggregates implements JournalListener {
      */
     public record RouteLabels(Set<String> labels, boolean overflowed) {}
 
+    /** An immutable copy of every aggregate. */
     public synchronized AggregatesSnapshot snapshot() {
         List<RouteStats> routeStats = new ArrayList<>();
         routes.entries().forEach((key, route) -> routeStats.add(route.stats(key)));
@@ -341,8 +429,11 @@ public final class JournalAggregates implements JournalListener {
         overflowed.put("exceptionGroups", exceptionGroups.overflowed());
         overflowed.put("transactionalMethods", transactionalMethods.overflowed());
         overflowed.put("threadFamilies", threadFamilies.overflowed());
+        overflowed.put(EDGES, edgeOverflow);
+        List<ObservedEdge> edgeStats = new ArrayList<>(edges.size());
+        edges.forEach((edge, count) -> edgeStats.add(new ObservedEdge(edge, count.count, count.first, count.last)));
         return new AggregatesSnapshot(
-                routeStats, statementStats, groupStats, methodStats, familyStats, run, overflowed);
+                routeStats, statementStats, groupStats, methodStats, familyStats, edgeStats, run, overflowed);
     }
 
     private static Map<JournalSource, Long> bySource(long[] values) {
@@ -353,6 +444,51 @@ public final class JournalAggregates implements JournalListener {
             }
         }
         return Collections.unmodifiableMap(map);
+    }
+
+    /** An edge's observations: how many, and the first and last. */
+    private static final class EdgeCount {
+
+        private long count;
+        private long first;
+        private long last;
+
+        EdgeCount(long at) {
+            this(1, at, at);
+        }
+
+        private EdgeCount(long count, long first, long last) {
+            this.count = count;
+            this.first = first;
+            this.last = last;
+        }
+
+        void merge(EdgeCount other) {
+            count += other.count;
+            first = Math.min(first, other.first);
+            last = Math.max(last, other.last);
+        }
+
+        EdgeCount copy() {
+            return new EdgeCount(count, first, last);
+        }
+    }
+
+    /** The edges of an execution's events that arrived before it completed. */
+    private final class PendingEdges {
+
+        private final Map<ObservedEdges.Target, EdgeCount> targets = new LinkedHashMap<>();
+
+        void add(ObservedEdges.Target target, long at) {
+            EdgeCount count = targets.get(target);
+            if (count != null) {
+                count.merge(new EdgeCount(at));
+            } else if (targets.size() < MAX_EDGES_PER_EXECUTION) {
+                targets.put(target, new EdgeCount(at));
+            } else {
+                edgeOverflow++;
+            }
+        }
     }
 
     private static final class PendingRequest {
@@ -539,17 +675,22 @@ public final class JournalAggregates implements JournalListener {
         }
     }
 
-    /** Every aggregate at one instant, and the events each dimension routed to its {@code Other} bucket. */
+    /**
+     * Every aggregate at one instant, the run's observed edges, and the events each dimension routed to its
+     * {@code Other} bucket, or, under {@value #EDGES}, the edge observations not counted.
+     */
     public record AggregatesSnapshot(
             List<RouteStats> routes,
             List<StatementStats> statements,
             List<ExceptionGroupStats> exceptionGroups,
             List<TransactionalMethodStats> transactionalMethods,
             List<ThreadFamilyStats> threadFamilies,
+            List<ObservedEdge> edges,
             RunStats run,
             Map<String, Long> overflowed) {
 
         public AggregatesSnapshot {
+            edges = List.copyOf(edges);
             routes = List.copyOf(routes);
             statements = List.copyOf(statements);
             exceptionGroups = List.copyOf(exceptionGroups);

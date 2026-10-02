@@ -7,7 +7,7 @@ import java.util.Objects;
 /**
  * The summary of one application run's aggregates, kept after the run ends so a later run can be compared with it
  * ({@code docs/PLAN-v2.md} §5.2, §5.8). It holds route templates, statement fingerprints, exception-group ids, thread
- * families, counts, and histograms, all of which the aggregates already hold without principals, values, or SQL
+ * families, the observed edges of the runtime model, counts, and histograms, all of which the aggregates already hold without principals, values, or SQL
  * literals.
  *
  * @param header the run and its totals
@@ -35,6 +35,7 @@ public record RunSummary(Header header, AggregatesSnapshot aggregates) {
                         aggregates.run().failedRequests(),
                         events,
                         0,
+                        0,
                         0),
                 aggregates);
     }
@@ -50,6 +51,8 @@ public record RunSummary(Header header, AggregatesSnapshot aggregates) {
      * @param failedRequests those that answered with a {@code 5xx} status
      * @param events the events the run recorded, from every source
      * @param omittedEntries aggregate entries left out, least used first, to keep the summary within its byte bound
+     * @param omittedEdges observed edges among them, least observed first, so a comparison can say an edge it reports as
+     *     new may have been left out
      * @param encodedBytes the size of the encoded summary, or {@code 0} before it is encoded
      */
     public record Header(
@@ -61,23 +64,11 @@ public record RunSummary(Header header, AggregatesSnapshot aggregates) {
             long failedRequests,
             long events,
             int omittedEntries,
+            int omittedEdges,
             int encodedBytes) {
 
         public Header {
             Objects.requireNonNull(runId, "runId must not be null");
-        }
-
-        Header withEncoding(int omitted, int bytes) {
-            return new Header(
-                    runId,
-                    ordinal,
-                    startedAtEpochMillis,
-                    endedAtEpochMillis,
-                    requests,
-                    failedRequests,
-                    events,
-                    omitted,
-                    bytes);
         }
     }
 }

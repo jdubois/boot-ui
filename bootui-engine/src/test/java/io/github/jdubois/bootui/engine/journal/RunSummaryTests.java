@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.AggregatesSnapshot;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.StatementStats;
+import io.github.jdubois.bootui.engine.model.ObservedEdge;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.util.ArrayList;
@@ -52,6 +53,7 @@ class RunSummaryTests {
         assertThat(decoded.header().failedRequests()).isEqualTo(1);
         assertThat(decoded.header().events()).isEqualTo(8);
         assertThat(decoded.header().omittedEntries()).isZero();
+        assertThat(decoded.header().omittedEdges()).isZero();
         assertThat(decoded.header().encodedBytes()).isEqualTo(encoded.length).isLessThan(1_024);
         assertThat(RunSummaryCodec.header(encoded)).isEqualTo(decoded.header());
 
@@ -61,6 +63,10 @@ class RunSummaryTests {
         assertThat(copy.exceptionGroups()).isEqualTo(original.exceptionGroups());
         assertThat(copy.exceptionGroups().get(0).signature()).isEqualTo("s1");
         assertThat(copy.threadFamilies()).isEqualTo(original.threadFamilies());
+        assertThat(original.edges())
+                .extracting(edge -> edge.edge().type() + " " + edge.edge().toKey() + " " + edge.count())
+                .containsExactlyInAnyOrder("READS orders 2", "RAISES g1 1");
+        assertThat(copy.edges()).isEqualTo(original.edges());
         RouteStats route = copy.routes().get(0);
         RouteStats originalRoute = original.routes().get(0);
         assertThat(route.route()).isEqualTo("GET /api/orders/{id}");
@@ -125,6 +131,21 @@ class RunSummaryTests {
                 .orElseThrow();
         assertThat(fewestKept).as("the most used routes are kept").isGreaterThanOrEqualTo(mostLeftOut);
         assertThat(kept.aggregates().run()).as("run totals are never trimmed").isEqualTo(full.run());
+        assertThat(kept.header().omittedEdges())
+                .isPositive()
+                .isEqualTo(full.edges().size() - kept.aggregates().edges().size());
+        long fewestObservationsKept = kept.aggregates().edges().stream()
+                .mapToLong(ObservedEdge::count)
+                .min()
+                .orElseThrow();
+        long mostObservationsLeftOut = full.edges().stream()
+                .filter(edge -> !kept.aggregates().edges().contains(edge))
+                .mapToLong(ObservedEdge::count)
+                .max()
+                .orElseThrow();
+        assertThat(fewestObservationsKept)
+                .as("the most observed edges are kept")
+                .isGreaterThanOrEqualTo(mostObservationsLeftOut);
     }
 
     @Test

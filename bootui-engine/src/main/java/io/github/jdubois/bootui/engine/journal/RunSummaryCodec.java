@@ -8,6 +8,10 @@ import io.github.jdubois.bootui.engine.journal.JournalAggregates.RunStats;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.StatementStats;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.ThreadFamilyStats;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.TransactionalMethodStats;
+import io.github.jdubois.bootui.engine.model.EdgeDiff.EdgeRef;
+import io.github.jdubois.bootui.engine.model.EdgeType;
+import io.github.jdubois.bootui.engine.model.NodeType;
+import io.github.jdubois.bootui.engine.model.ObservedEdge;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -29,26 +33,30 @@ import java.util.function.ToLongFunction;
  *
  * <p>The encoding starts with the run's header, then a table of the summary's distinct strings, which entries
  * reference by index, then the aggregates. Numbers are variable-length, and histograms keep only their non-empty
- * buckets. When the summary exceeds the bound, the least-used entries of each aggregate are left out, halving how many
- * are kept until it fits, and the header counts what was left out.</p>
+ * buckets. When the summary exceeds the bound, the least-used entries of each aggregate and the least-observed edges are
+ * left out, halving how many are kept until it fits, and the header counts what was left out, and how many edges.</p>
  */
 final class RunSummaryCodec {
 
     private static final int MAGIC = 0x42555253;
 
-    private static final int VERSION = 3;
+    private static final int VERSION = 4;
 
     private RunSummaryCodec() {}
 
     /** Encodes {@code summary} within {@code maxBytes}, leaving out its least-used entries if it must. */
     static byte[] encode(RunSummary summary, int maxBytes) {
         AggregatesSnapshot full = summary.aggregates();
-        byte[] bytes = encode(summary.header(), full, 0);
+        byte[] bytes = encode(summary.header(), full, 0, 0);
         int limit = largestDimension(full);
         while (bytes.length > maxBytes && limit > 0) {
             limit /= 2;
             AggregatesSnapshot kept = trim(full, limit);
-            bytes = encode(summary.header(), kept, entries(full) - entries(kept));
+            bytes = encode(
+                    summary.header(),
+                    kept,
+                    entries(full) - entries(kept),
+                    full.edges().size() - kept.edges().size());
         }
         if (bytes.length > maxBytes) {
             throw new IllegalArgumentException("A run summary needs at least " + bytes.length + " bytes");
@@ -101,12 +109,14 @@ final class RunSummaryCodec {
                 in.list(() -> new TransactionalMethodStats(in.string(), in.number(), in.number(), in.histogram()));
         List<ThreadFamilyStats> families =
                 in.list(() -> new ThreadFamilyStats(in.string(), in.sourceMap(), in.sourceMap()));
+        List<ObservedEdge> edges = in.edges();
         Map<String, Long> overflowed = in.stringMap();
         return new RunSummary(
-                header, new AggregatesSnapshot(routes, statements, groups, methods, families, run, overflowed));
+                header, new AggregatesSnapshot(routes, statements, groups, methods, families, edges, run, overflowed));
     }
 
-    private static byte[] encode(RunSummary.Header header, AggregatesSnapshot aggregates, int omitted) {
+    private static byte[] encode(
+            RunSummary.Header header, AggregatesSnapshot aggregates, int omitted, int omittedEdges) {
         Out body = new Out();
         RunStats run = aggregates.run();
         body.sourceMap(run.events());
@@ -166,6 +176,18 @@ final class RunSummaryCodec {
             body.sourceMap(family.events());
             body.sourceMap(family.nanos());
         }
+        body.number(aggregates.edges().size());
+        for (ObservedEdge observed : aggregates.edges()) {
+            EdgeRef edge = observed.edge();
+            body.string(edge.fromType().name());
+            body.string(edge.fromKey());
+            body.string(edge.type().name());
+            body.string(edge.toType().name());
+            body.string(edge.toKey());
+            body.number(observed.count());
+            body.number(observed.firstSeenEpochMillis());
+            body.number(observed.lastSeenEpochMillis());
+        }
         body.stringMap(aggregates.overflowed());
 
         Out out = new Out();
@@ -179,6 +201,7 @@ final class RunSummaryCodec {
         out.number(header.failedRequests());
         out.number(header.events());
         out.number(omitted);
+        out.number(omittedEdges);
         out.number(body.table.size());
         body.table.keySet().forEach(out::text);
         out.bytes.writeBytes(body.bytes.toByteArray());
@@ -193,7 +216,9 @@ final class RunSummaryCodec {
                         aggregates.exceptionGroups().size(),
                         Math.max(
                                 aggregates.transactionalMethods().size(),
-                                aggregates.threadFamilies().size())));
+                                Math.max(
+                                        aggregates.threadFamilies().size(),
+                                        aggregates.edges().size()))));
         for (RouteStats route : aggregates.routes()) {
             largest = Math.max(largest, route.statements().size());
         }
@@ -250,8 +275,9 @@ final class RunSummaryCodec {
                         .sum(),
                 limit,
                 Function.identity());
+        List<ObservedEdge> edges = top(aggregates.edges(), ObservedEdge::count, limit, Function.identity());
         return new AggregatesSnapshot(
-                routes, statements, groups, methods, families, aggregates.run(), aggregates.overflowed());
+                routes, statements, groups, methods, families, edges, aggregates.run(), aggregates.overflowed());
     }
 
     private static <T> List<T> top(List<T> entries, ToLongFunction<T> weight, int limit, Function<T, T> nested) {
@@ -280,7 +306,8 @@ final class RunSummaryCodec {
                 + aggregates.statements().size()
                 + aggregates.exceptionGroups().size()
                 + aggregates.transactionalMethods().size()
-                + aggregates.threadFamilies().size();
+                + aggregates.threadFamilies().size()
+                + aggregates.edges().size();
         for (RouteStats route : aggregates.routes()) {
             entries += route.statements().size();
         }
@@ -413,6 +440,7 @@ final class RunSummaryCodec {
                     number(),
                     number(),
                     (int) number(),
+                    (int) number(),
                     bytes.length);
         }
 
@@ -498,6 +526,38 @@ final class RunSummaryCodec {
                 }
             }
             return Collections.unmodifiableMap(counts);
+        }
+
+        /** Observed edges; an edge naming a node or edge type this version does not know is skipped. */
+        List<ObservedEdge> edges() {
+            int size = (int) number();
+            List<ObservedEdge> edges = new ArrayList<>(size);
+            for (int i = 0; i < size; i++) {
+                NodeType fromType = constant(NodeType.class, string());
+                String fromKey = string();
+                EdgeType type = constant(EdgeType.class, string());
+                NodeType toType = constant(NodeType.class, string());
+                String toKey = string();
+                long count = number();
+                long first = number();
+                long last = number();
+                if (fromType != null && type != null && toType != null && fromKey != null && toKey != null) {
+                    edges.add(
+                            new ObservedEdge(new EdgeRef(fromType, fromKey, type, toType, toKey), count, first, last));
+                }
+            }
+            return edges;
+        }
+
+        private static <E extends Enum<E>> E constant(Class<E> type, String name) {
+            if (name == null) {
+                return null;
+            }
+            try {
+                return Enum.valueOf(type, name);
+            } catch (IllegalArgumentException ex) {
+                return null;
+            }
         }
 
         LatencyHistogram histogram() {
