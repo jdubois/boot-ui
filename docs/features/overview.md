@@ -587,6 +587,19 @@ in the panel is mistaken for a verdict on a route that never ran. Framework endp
 Actuator, and catch-all patterns are left out. **Export JSON** saves the report as the panel received it, with no new
 request.
 
+**Compared with the previous run** compares this run with the newest run whose summary is kept, after a DevTools
+restart, a Quarkus live reload, or, with `bootui.runtime-journal.baseline-file`, a full JVM restart; a picker chooses
+another kept run. On a laptop, warmup and noise dominate latency while the work identical requests do is stable, so the
+comparison leads with behavior: per route, the statements, REST calls, AI calls, cache misses, and tokens per request,
+the share of 4xx and 5xx answers, and the memory allocated per request, each once the route served 3 requests in both
+runs; and, from their first occurrence, the statements and exceptions a route did not have before and the routes newly
+hit. The runtime model's edges come next, such as "`GET /api/orders` calls host `pay.internal:8443`, 15 times, and not in
+run 4", then the restart cost: the time to ready and the beans whose initialization moved by 200 ms and 50 %, compared
+only between two restarts, never with a cold start, and on Spring only. Latency comes last and is labelled noisy: the
+warm median, leaving out each route's first request, with 10 warm requests on each side and a move of 50 % and 20 ms.
+Runs on another database, profile, or cache are **not comparable**, with the difference first; too little traffic is
+**needs more traffic**, never "no change".
+
 Live Activity links here in two places. Under its KPIs, **Why is … slow?** opens the slowest route's time breakdown. In
 a request's drawer, **Why this route is slow** loads that route's breakdown on demand and links to it.
 

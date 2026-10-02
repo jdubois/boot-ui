@@ -40,7 +40,7 @@ final class RunSummaryCodec {
 
     private static final int MAGIC = 0x42555253;
 
-    private static final int VERSION = 5;
+    private static final int VERSION = 6;
 
     private RunSummaryCodec() {}
 
@@ -100,7 +100,10 @@ final class RunSummaryCodec {
                         in.number(),
                         in.number(),
                         in.number(),
-                        in.number())));
+                        in.number()),
+                in.histogram(),
+                in.number(),
+                in.number()));
         List<StatementStats> statements = in.list(
                 () -> new StatementStats(in.string(), in.number(), in.number(), in.histogram(), in.stringMap()));
         List<ExceptionGroupStats> groups = in.list(
@@ -146,6 +149,9 @@ final class RunSummaryCodec {
             body.number(resources.gcPauses());
             body.number(resources.requestsWithGcPause());
             body.number(resources.gcPauseNanos());
+            body.histogram(route.warmLatency());
+            body.number(route.cacheMisses());
+            body.number(route.aiTokens());
         }
         body.number(aggregates.statements().size());
         for (StatementStats statement : aggregates.statements()) {
@@ -246,7 +252,10 @@ final class RunSummaryCodec {
                         route.childNanos(),
                         top(route.statements(), limit),
                         route.connectionWaitNanos(),
-                        route.resources()));
+                        route.resources(),
+                        route.warmLatency(),
+                        route.cacheMisses(),
+                        route.aiTokens()));
         List<StatementStats> statements = top(
                 aggregates.statements(),
                 StatementStats::executions,

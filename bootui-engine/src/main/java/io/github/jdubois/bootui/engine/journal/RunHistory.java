@@ -43,6 +43,7 @@ public final class RunHistory {
     private final String unavailableReason;
     private final ArrayDeque<byte[]> runs = new ArrayDeque<>();
     private volatile String baselineNote;
+    private volatile String baselineRunId;
 
     RunHistory(int maxRuns, int maxSummaryBytes, String unavailableReason) {
         this.maxRuns = maxRuns;
@@ -103,6 +104,7 @@ public final class RunHistory {
             RunBaselineFile.Read read = baseline.read();
             if (read.summary() != null) {
                 record(read.summary());
+                baselineRunId = read.summary().header().runId();
                 baselineNote = "The previous run was read from the baseline file " + baseline.path() + ".";
             } else {
                 baselineNote = read.ignoredReason();
@@ -119,6 +121,11 @@ public final class RunHistory {
      */
     public String baselineNote() {
         return baselineNote;
+    }
+
+    /** The id of the kept run read from the baseline file, or {@code null} when none was. */
+    public String baselineRunId() {
+        return baselineRunId;
     }
 
     /** The kept runs' headers, newest first, without decoding their aggregates. */
@@ -157,6 +164,7 @@ public final class RunHistory {
         synchronized (runs) {
             runs.clear();
             baselineNote = null;
+            baselineRunId = null;
         }
     }
 

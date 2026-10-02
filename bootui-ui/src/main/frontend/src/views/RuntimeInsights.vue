@@ -19,6 +19,7 @@ import {
 import InsightText from './components/InsightText.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import RunComparison from './components/RunComparison.vue'
 
 // Runtime Insights (docs/PLAN-v2.md §5.5): the runtime journal's retained events projected into observations. Every
 // read is a GET of what the journal already recorded; opening the panel starts no capture, scan, or network call.
@@ -427,6 +428,8 @@ const windowText = computed(() => {
             </p>
           </div>
         </section>
+
+        <RunComparison :refresh-key="lastFetched ?? 0" />
       </template>
     </template>
   </div>

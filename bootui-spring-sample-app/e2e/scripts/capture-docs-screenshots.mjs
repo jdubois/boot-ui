@@ -4259,6 +4259,86 @@ const runtimeInsightsReport = {
   notExercisedOmitted: 0
 }
 
+const runtimeRunComparison = {
+  status: 'COMPARED',
+  reason: null,
+  current: {runId: 'run-5', ordinal: 5, startedAt: nowMillis - 240_000, endedAt: null, requests: 64, source: 'CURRENT'},
+  previous: {
+    runId: 'run-4',
+    ordinal: 4,
+    startedAt: nowMillis - 900_000,
+    endedAt: nowMillis - 250_000,
+    requests: 58,
+    source: 'MEMORY'
+  },
+  runs: [
+    {
+      runId: 'run-4',
+      ordinal: 4,
+      startedAt: nowMillis - 900_000,
+      endedAt: nowMillis - 250_000,
+      requests: 58,
+      source: 'MEMORY'
+    },
+    {
+      runId: 'run-3',
+      ordinal: 3,
+      startedAt: nowMillis - 1_800_000,
+      endedAt: nowMillis - 910_000,
+      requests: 41,
+      source: 'MEMORY'
+    }
+  ],
+  notComparableReasons: [],
+  behavior: [
+    {
+      kind: 'new-statement',
+      subject: 'GET /api/sample/products',
+      detail: 'select p.id, p.name from sample_product_review p where p.product_id = ?',
+      change: 'ADDED',
+      before: null,
+      after: 12,
+      beforeSamples: 12,
+      afterSamples: 12,
+      sentence:
+        '`GET /api/sample/products` ran `select p.id, p.name from sample_product_review p where p.product_id = ?` 12 times, which its 12 requests in run 4 never ran.'
+    },
+    {
+      kind: 'statements-per-request',
+      subject: 'GET /api/sample/products',
+      detail: null,
+      change: 'INCREASED',
+      before: 1,
+      after: 2,
+      beforeSamples: 12,
+      afterSamples: 12,
+      sentence: '`GET /api/sample/products` ran 2.0 statements per request, up from 1.0 in run 4 (12 and 12 requests).'
+    }
+  ],
+  edges: [
+    {
+      kind: 'edge',
+      subject: 'GET /api/sample/products',
+      detail: 'READS TABLE sample_product_review',
+      change: 'ADDED',
+      before: null,
+      after: 12,
+      beforeSamples: 0,
+      afterSamples: 12,
+      sentence: '`GET /api/sample/products` reads table `sample_product_review`, 12 times, and not in run 4.'
+    }
+  ],
+  restartCost: {
+    status: 'COMPARED',
+    reason: null,
+    readyMsBefore: 2140,
+    readyMsAfter: 1870,
+    beans: []
+  },
+  latency: [],
+  limitations: []
+}
+
 const runtimeInsightDetail = {
   available: true,
   unavailableReason: null,
@@ -6801,6 +6881,7 @@ async function handleApiRoute(route) {
   if (endpoint === 'activity') return fulfillJson(route, activityReport)
   if (endpoint === 'runtime-insights') return fulfillJson(route, runtimeInsightsReport)
   if (endpoint.startsWith('runtime-insights/insights/')) return fulfillJson(route, runtimeInsightDetail)
+  if (endpoint === 'runtime-insights/comparison') return fulfillJson(route, runtimeRunComparison)
   if (endpoint === `activity/request/${activityRequestId}`) return fulfillJson(route, activityProfile)
   if (endpoint.startsWith('exceptions/'))
     return fulfillJson(route, exceptionDetail(endpoint.slice('exceptions/'.length)))

@@ -21,5 +21,9 @@ test.describe('Runtime Insights on Spring WebFlux', () => {
     await expect(page.locator('#insight-sentence')).toContainText('warm median')
     await expect(page.locator('.insight-detail')).toContainText('WebFlux marks no phases')
     await expect(page.locator('.insight-unrun')).toContainText('SQL after the handler returned')
+
+    const comparison = page.locator('.insight-comparison')
+    await expect(comparison.getByRole('heading', {name: 'Compared with the previous run'})).toBeVisible()
+    await expect(comparison).toContainText(/Compared|Needs more traffic|Not comparable|No previous run/)
   })
 })

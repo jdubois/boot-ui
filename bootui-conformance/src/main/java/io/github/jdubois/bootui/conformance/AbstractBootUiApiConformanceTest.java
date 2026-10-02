@@ -1588,6 +1588,35 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void theRunComparisonComparesTheCurrentRunWithAKeptOneOrSaysWhyNot() {
+        assumeTrue(
+                isPanelUsableInLiveManifest("runtime-insights"),
+                "runtime-insights panel is not available in this environment");
+        ReadContract contract = BootUiApiContractCatalog.runComparison();
+        BootUiHttpProbe probe = probe();
+        List<String> failures = new ArrayList<>();
+
+        Response newest = probe.get(api(contract.relativePath()));
+        assertThat(newest.status()).as("GET %s status", contract.relativePath()).isEqualTo(200);
+        assertJsonContract("run comparison, newest", contract, newest.json(), failures);
+        JsonNode json = newest.json();
+        assertThat(json.path("status").asText()).isIn("COMPARED", "INSUFFICIENT", "NOT_COMPARABLE", "NO_PREVIOUS_RUN");
+        assertThat(json.path("current").path("source").asText()).isEqualTo("CURRENT");
+        if (json.path("previous").isNull()) {
+            assertThat(json.path("status").asText()).isEqualTo("NO_PREVIOUS_RUN");
+            assertThat(json.path("reason").asText()).isNotBlank();
+        }
+        assertThat(json.path("restartCost").path("status").asText()).isIn("COMPARED", "UNAVAILABLE");
+
+        Response unknown = probe.get(api(contract.relativePath() + "?run=conformance-unknown-run"));
+        assertThat(unknown.status()).isEqualTo(200);
+        assertJsonContract("run comparison, unknown run", contract, unknown.json(), failures);
+        assertThat(failures).as("run comparison contract").isEmpty();
+        assertThat(unknown.json().path("status").asText()).isEqualTo("NO_PREVIOUS_RUN");
+        assertThat(unknown.json().path("reason").asText()).contains("conformance-unknown-run");
+    }
+
+    @Test
     void runtimeInsightsProjectTheJournalIntoObservationsWithStableIdsAndEvidence() throws InterruptedException {
         assumeTrue(
                 isPanelUsableInLiveManifest("runtime-insights"),

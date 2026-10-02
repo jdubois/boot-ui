@@ -78,6 +78,12 @@ class RunSummaryTests {
         assertThat(route.resources()).isEqualTo(originalRoute.resources());
         assertThat(route.resources().cpuNanos()).isEqualTo(11_500_000);
         assertSameHistogram(route.latency(), originalRoute.latency());
+        assertThat(originalRoute.warmLatency().count())
+                .as("the route's first request is its cold one")
+                .isEqualTo(1);
+        assertSameHistogram(route.warmLatency(), originalRoute.warmLatency());
+        assertThat(route.cacheMisses()).isEqualTo(originalRoute.cacheMisses());
+        assertThat(route.aiTokens()).isEqualTo(originalRoute.aiTokens());
         StatementStats statement = copy.statements().get(0);
         assertThat(statement.callSites()).containsEntry("OrderRepository.find:42", 2L);
         assertSameHistogram(statement.latency(), original.statements().get(0).latency());

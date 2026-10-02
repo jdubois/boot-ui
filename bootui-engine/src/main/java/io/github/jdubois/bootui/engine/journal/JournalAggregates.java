@@ -237,6 +237,13 @@ public final class JournalAggregates implements JournalListener {
             transactionalMethods.get(transaction.method()).add(event, transaction);
         } else if (payload instanceof ConnectionPayload connection && children != null) {
             children.connectionWaitNanos += connection.waitNanos();
+        } else if (payload instanceof CachePayload cache
+                && children != null
+                && "MISS".equalsIgnoreCase(cache.operation())) {
+            children.cacheMisses++;
+        } else if (payload instanceof AiPayload ai && children != null) {
+            children.aiTokens += Math.max(0, ai.inputTokens() == null ? 0 : ai.inputTokens())
+                    + Math.max(0, ai.outputTokens() == null ? 0 : ai.outputTokens());
         }
     }
 
@@ -541,6 +548,8 @@ public final class JournalAggregates implements JournalListener {
         private final Map<String, Long> statements = new LinkedHashMap<>();
         private final Set<String> exceptionGroups = new LinkedHashSet<>();
         private long connectionWaitNanos;
+        private long cacheMisses;
+        private long aiTokens;
 
         void add(RuntimeEvent event) {
             counts[event.source().ordinal()]++;
@@ -564,6 +573,7 @@ public final class JournalAggregates implements JournalListener {
     private static final class Route {
 
         private final LatencyHistogram latency = new LatencyHistogram();
+        private final LatencyHistogram warmLatency = new LatencyHistogram();
         private final long[] statusClasses = new long[5];
         private final long[] childCounts = new long[SOURCES];
         private final long[] childNanos = new long[SOURCES];
@@ -577,6 +587,8 @@ public final class JournalAggregates implements JournalListener {
         private long gcPauses;
         private long requestsWithGcPause;
         private long gcPauseNanos;
+        private long cacheMisses;
+        private long aiTokens;
 
         void resources(ResourceUsage usage) {
             switch (usage.availability()) {
@@ -595,6 +607,10 @@ public final class JournalAggregates implements JournalListener {
         }
 
         void add(RuntimeEvent event, int status) {
+            // A route's first request is its cold one, which loads classes and fills caches.
+            if (latency.count() > 0) {
+                warmLatency.recordNanos(event.durationNanos());
+            }
             latency.recordNanos(event.durationNanos());
             if (status >= 100 && status < 600) {
                 statusClasses[status / 100 - 1]++;
@@ -607,6 +623,8 @@ public final class JournalAggregates implements JournalListener {
                 childNanos[i] += children.nanos[i];
             }
             connectionWaitNanos += children.connectionWaitNanos;
+            cacheMisses += children.cacheMisses;
+            aiTokens += children.aiTokens;
             children.statements.forEach((fingerprint, count) -> statements.get(fingerprint)[0] += count);
             for (String groupId : children.exceptionGroups) {
                 aggregates.exceptionGroups.get(groupId).routes.get(label)[0]++;
@@ -633,7 +651,10 @@ public final class JournalAggregates implements JournalListener {
                             allocatedBytes,
                             gcPauses,
                             requestsWithGcPause,
-                            gcPauseNanos));
+                            gcPauseNanos),
+                    warmLatency.copy(),
+                    cacheMisses,
+                    aiTokens);
         }
     }
 
@@ -747,7 +768,9 @@ public final class JournalAggregates implements JournalListener {
      * One route, keyed as {@code METHOD route}: its requests, status classes ({@code 1xx} to {@code 5xx}), latency, the count and time of its
      * requests' children per source, how many statements each fingerprint ran in it, and how long its requests waited
      * to obtain database connections. The time of its {@code CONNECTION} children is how long they held them.
-     * {@code resources} is what its requests' segments measured (§5.11).
+     * {@code resources} is what its requests' segments measured (§5.11). {@code warmLatency} leaves out the route's
+     * first, cold request, and {@code cacheMisses} and {@code aiTokens} sum its requests' cache misses and model
+     * tokens, for the run comparison (§5.8).
      */
     public record RouteStats(
             String route,
@@ -758,10 +781,14 @@ public final class JournalAggregates implements JournalListener {
             Map<JournalSource, Long> childNanos,
             Map<String, Long> statements,
             long connectionWaitNanos,
-            RouteResources resources) {
+            RouteResources resources,
+            LatencyHistogram warmLatency,
+            long cacheMisses,
+            long aiTokens) {
 
         public RouteStats {
             resources = resources == null ? RouteResources.NONE : resources;
+            warmLatency = warmLatency == null ? new LatencyHistogram() : warmLatency;
         }
     }
 

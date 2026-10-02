@@ -32,6 +32,10 @@ test.describe('Runtime Insights view', () => {
 
     await expect(page.getByRole('button', {name: 'Export JSON'})).toBeVisible()
 
+    const comparison = page.locator('.insight-comparison')
+    await expect(comparison.getByRole('heading', {name: 'Compared with the previous run'})).toBeVisible()
+    await expect(comparison).toContainText(/Compared|Needs more traffic|Not comparable|No previous run/)
+
     await page.locator('.insight-search').fill('no-such-route-xyz')
     await expect(page.getByText('No observation matches this search.')).toBeVisible()
   })

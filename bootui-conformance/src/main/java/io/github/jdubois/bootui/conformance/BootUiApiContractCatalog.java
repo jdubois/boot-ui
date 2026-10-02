@@ -432,6 +432,27 @@ public final class BootUiApiContractCatalog {
                     "truncated", JsonType.INTEGER));
 
     /**
+     * The current run compared with a kept run, a read of the {@code runtime-insights} panel ({@code docs/PLAN-v2.md}
+     * §5.8), kept out of {@link #reads()} like {@link #runtimeInsight()}. Its run and restart-cost objects are nullable
+     * when no run is kept or the journal is off.
+     */
+    private static final ReadContract RUN_COMPARISON = read(
+            "runtime-insights",
+            "/runtime-insights/comparison",
+            fields(
+                    "status", JsonType.STRING,
+                    "reason", JsonType.NULLABLE_STRING,
+                    "current", JsonType.NULLABLE_OBJECT,
+                    "previous", JsonType.NULLABLE_OBJECT,
+                    "runs", JsonType.ARRAY,
+                    "notComparableReasons", JsonType.ARRAY,
+                    "behavior", JsonType.ARRAY,
+                    "edges", JsonType.ARRAY,
+                    "restartCost", JsonType.OBJECT,
+                    "latency", JsonType.ARRAY,
+                    "limitations", JsonType.ARRAY));
+
+    /**
      * One request as the runtime journal recorded it, a detail read of the {@code activity} panel ({@code docs/PLAN-v2.md}
      * §5.3, §5.11), kept out of {@link #reads()} like {@link #requestProfile()}. Its nullable objects and numbers are
      * not listed.
@@ -486,6 +507,11 @@ public final class BootUiApiContractCatalog {
     /** One Runtime Insights observation's evidence, a detail read of its panel ({@code docs/PLAN-v2.md} §5.5). */
     public static ReadContract runtimeInsight() {
         return RUNTIME_INSIGHT;
+    }
+
+    /** The run comparison's read contract ({@code docs/PLAN-v2.md} §5.8). */
+    public static ReadContract runComparison() {
+        return RUN_COMPARISON;
     }
 
     public static List<ActionContract> actions() {

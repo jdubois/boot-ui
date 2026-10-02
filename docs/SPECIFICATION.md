@@ -1511,6 +1511,13 @@ analyze button, busy state, or read-only toggle. Opening it starts no capture, s
   cached until the journal records more or a panel's enablement changes.
 - `GET /bootui/api/runtime-insights/insights/{id}` returns one observation's evidence: at most 20 rows and the count left
   out. Ids are `kind:hash`, stable across refreshes and restarts.
+- `GET /bootui/api/runtime-insights/comparison[?run=<runId>]` compares the current run with the newest kept run, or the
+  chosen one ([PLAN-v2.md](PLAN-v2.md) §5.8). Its status is `COMPARED`, `INSUFFICIENT` when no route served 3 requests
+  in both runs, `NOT_COMPARABLE` with the database, profile, or cache difference first, `NO_PREVIOUS_RUN` with the
+  reason, or `UNAVAILABLE`. Behavior rows come first (statements, REST and AI calls, cache misses, and tokens per
+  request; new statements, exceptions, and routes; status-class shares; allocation), then the runtime model's added and
+  removed edges, the restart cost compared only between two restarts, and the warm latency last, labelled noisy. Each
+  list holds at most 200 rows.
 - `notExercised` lists, up to 100, the declared application routes no request of this run reached, counted from the
   run's aggregates so an evicted request still counts; framework endpoints and catch-all patterns are left out.
 - Live Activity links to the slowest route's breakdown under its KPIs, and a request's drawer loads **Why this route is
@@ -2745,6 +2752,7 @@ Initial endpoints:
 | `/bootui/api/activity/resources`             | GET    | The run's resource track and CPU ledger: one point per sweep (process CPU split into requests, thread families, and the JVM's own work; heap; allocation; threads) and the run's totals, or why the sampler does not run |
 | `/bootui/api/runtime-insights`               | GET    | Runtime Insights: the journal's retained events projected into observations, with the window, per-source correlation coverage, each check's status, limitations, and the declared routes not exercised in this run |
 | `/bootui/api/runtime-insights/insights/{id}` | GET    | One observation by its stable id, with up to 20 evidence rows and how many were left out; an unknown id answers unavailable |
+| `/bootui/api/runtime-insights/comparison`    | GET    | The current run compared with the newest kept run, or `?run=<runId>`: behavior rows, new and gone edges, restart cost, and warm latency last; `INSUFFICIENT`, `NOT_COMPARABLE`, or `NO_PREVIOUS_RUN` with the reason |
 | `/bootui/api/email`                          | GET    | Captured outgoing email summaries and content-policy status                             |
 | `/bootui/api/kafka`                          | GET    | Bounded Kafka producer and consumer activity                                            |
 | `/bootui/api/rabbitmq`                       | GET    | Bounded RabbitMQ publisher and consumer activity                                        |
