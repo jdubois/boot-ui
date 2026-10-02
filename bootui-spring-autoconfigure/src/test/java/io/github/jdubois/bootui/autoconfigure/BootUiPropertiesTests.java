@@ -20,6 +20,17 @@ import org.springframework.mock.env.MockEnvironment;
 class BootUiPropertiesTests {
 
     @Test
+    void aProfileResourcesSessionLastsThirtySecondsUnlessConfigured() {
+        assertThat(new BootUiProperties().getResources().toSettings().jfrMaxDuration())
+                .isEqualTo(Duration.ofSeconds(30));
+        BootUiProperties bound = bind(new MockEnvironment().withProperty("bootui.resources.jfr.max-duration", "2m"));
+        assertThat(bound.getResources().toSettings().jfrMaxDuration()).isEqualTo(Duration.ofMinutes(2));
+        BootUiProperties tooLong = bind(new MockEnvironment().withProperty("bootui.resources.jfr.max-duration", "1h"));
+        assertThatThrownBy(() -> tooLong.getResources().toSettings())
+                .hasMessageContaining("bootui.resources.jfr.max-duration");
+    }
+
+    @Test
     void postgresqlDefaultsMatchTheSharedEngine() {
         assertThat(postgresRowLimits(new BootUiProperties())).isEqualTo(PostgresRowLimits.defaults());
     }

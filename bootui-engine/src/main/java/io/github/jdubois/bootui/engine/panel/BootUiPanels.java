@@ -147,7 +147,7 @@ public final class BootUiPanels {
             // therefore drives only the sidebar entry and its enable/read-only toggles.
             new Panel(CLI, "Command Line", false, List.of()),
             new Panel(ACTIVITY, "Live Activity", true, "/activity"),
-            new Panel(RUNTIME_INSIGHTS, "Runtime Insights", false, "/runtime-insights"),
+            new Panel(RUNTIME_INSIGHTS, "Runtime Insights", true, "/runtime-insights"),
             new Panel(EMAIL, "Email", true, "/email"),
             new Panel(KAFKA, "Kafka", true, "/kafka"),
             new Panel(RABBITMQ, "RabbitMQ", true, "/rabbitmq"),

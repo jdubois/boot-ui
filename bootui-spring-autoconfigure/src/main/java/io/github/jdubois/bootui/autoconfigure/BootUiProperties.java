@@ -2752,6 +2752,8 @@ public class BootUiProperties {
         /** The most platform threads one sweep reads; the CPU time of the others counts as the JVM's own work. */
         private int maxThreads = ResourceSettings.DEFAULT_MAX_THREADS;
 
+        private final Jfr jfr = new Jfr();
+
         public Duration getSampleInterval() {
             return sampleInterval;
         }
@@ -2768,9 +2770,28 @@ public class BootUiProperties {
             this.maxThreads = maxThreads;
         }
 
+        public Jfr getJfr() {
+            return jfr;
+        }
+
         /** The engine settings these properties describe. */
         public ResourceSettings toSettings() {
-            return new ResourceSettings(sampleInterval, maxThreads);
+            return new ResourceSettings(sampleInterval, maxThreads, jfr.getMaxDuration());
+        }
+
+        /** Runtime Insights' opt-in <b>Profile resources</b> session ({@code docs/PLAN-v2.md} §5.11, D17). */
+        public static class Jfr {
+
+            /** How long a session records once the developer starts it. Between 1 s and 10 min. */
+            private Duration maxDuration = ResourceSettings.DEFAULT_JFR_MAX_DURATION;
+
+            public Duration getMaxDuration() {
+                return maxDuration;
+            }
+
+            public void setMaxDuration(Duration maxDuration) {
+                this.maxDuration = maxDuration;
+            }
         }
     }
 

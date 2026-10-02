@@ -262,6 +262,9 @@ public final class SegmentMeter {
         private volatile long openStartCpuNanos = -1;
 
         private String requestId;
+        /** The JFR segment event open with it during a Profile resources session, or {@code null}. */
+        private Object jfrEvent;
+
         private long startCpuNanos;
         private long startAllocatedBytes;
 
@@ -279,16 +282,25 @@ public final class SegmentMeter {
             startAllocatedBytes = readings.currentAllocatedBytes();
             startCpuNanos = readings.currentCpuNanos();
             this.requestId = requestId;
+            jfrEvent = JfrSegments.begin(requestId);
             if (meter.opened(this)) {
                 this.meter = meter;
             }
         }
 
         void closeOnOwnThread(Meter meter, Readings readings) {
+            endJfrEvent();
             long cpu = readings.currentCpuNanos();
             long allocated = readings.currentAllocatedBytes();
             readings.readCollections(endCollections);
             meter.closed(this, cpu, allocated, endCollections, readings);
+        }
+
+        /** Commits the segment's JFR event; only its own thread may, since JFR records the committing thread. */
+        void endJfrEvent() {
+            Object event = jfrEvent;
+            jfrEvent = null;
+            JfrSegments.end(event);
         }
     }
 
@@ -334,6 +346,9 @@ public final class SegmentMeter {
                 Thread caller = Thread.currentThread();
                 for (Segment segment : open) {
                     boolean own = segment.thread == caller;
+                    if (own) {
+                        segment.endJfrEvent();
+                    }
                     long cpu = own ? readings.currentCpuNanos() : readings.cpuNanos(segment.threadId);
                     long allocated = own ? readings.currentAllocatedBytes() : readings.allocatedBytes(segment.threadId);
                     credit(segment, cpu, allocated, collections, readings);

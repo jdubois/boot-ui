@@ -30,5 +30,9 @@ test.describe('Runtime Insights on Spring WebFlux', () => {
     await impact.getByRole('searchbox').fill('noSuchSymbolAnywhere')
     await impact.getByRole('button', {name: 'Check impact'}).click()
     await expect(impact.locator('.insight-impact-reason')).toBeVisible()
+
+    const profile = page.locator('.insight-profile')
+    await expect(profile.getByRole('heading', {name: 'Profile resources'})).toBeVisible()
+    await expect(profile.getByRole('button', {name: /Profile (resources|again)/})).toBeEnabled()
   })
 })

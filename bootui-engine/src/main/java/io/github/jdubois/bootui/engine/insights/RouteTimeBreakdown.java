@@ -122,6 +122,14 @@ public final class RouteTimeBreakdown implements Observation {
         if (unplaced > 0) {
             limitations.add(InsightText.counted(unplaced, "request") + " had no monotonic start and are left out.");
         }
+        if (warm.stream()
+                .anyMatch(breakdown -> breakdown.request().resources() != null
+                        && breakdown.request().resources().unmeasuredReason()
+                                == ResourceUsage.Unmeasured.VIRTUAL_THREAD)) {
+            limitations.add(
+                    "Some requests ran on virtual threads, whose CPU time and allocation the JVM does not report"
+                            + " per thread: Profile resources samples them with JFR.");
+        }
         if (snapshot.stack() == InsightsStack.SPRING_WEBFLUX) {
             limitations.add("Spring WebFlux marks no phases, so filters, handler, and response write are one"
                     + " unattributed span around the calls.");
@@ -232,7 +240,8 @@ public final class RouteTimeBreakdown implements Observation {
                         + " request.";
             case FILTERS -> "Most of the time is in filters before the handler: check what they do per request.";
             case HANDLER, UNATTRIBUTED ->
-                "Most of the time is in application code outside recorded calls: profile the handler.";
+                "Most of the time is in application code outside recorded calls: run Profile resources to see the"
+                        + " route's hottest frames.";
         };
     }
 

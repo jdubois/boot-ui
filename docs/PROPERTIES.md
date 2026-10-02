@@ -161,7 +161,7 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | --------------- | ------------------------- | --------------------------- | ------------------------------------------------- | ----------------------------------------- |
 | Home            | Scorecard                 | `overview`                  | `bootui.panels.overview.enabled`                  | Not applicable; view-only.                |
 | Home            | Live Activity             | `activity`                  | `bootui.panels.activity.enabled`                  | `bootui.panels.activity.read-only`         |
-| Home            | Runtime Insights          | `runtime-insights`          | `bootui.panels.runtime-insights.enabled`          | Not applicable; view-only.                |
+| Home            | Runtime Insights          | `runtime-insights`          | `bootui.panels.runtime-insights.enabled`          | `bootui.panels.runtime-insights.read-only` |
 | Advisors        | Architecture              | `architecture`              | `bootui.panels.architecture.enabled`              | `bootui.panels.architecture.read-only`    |
 | Advisors        | REST API                  | `rest-api`                  | `bootui.panels.rest-api.enabled`                  | `bootui.panels.rest-api.read-only`        |
 | Advisors        | Spring                    | `spring`                    | `bootui.panels.spring.enabled`                    | `bootui.panels.spring.read-only`          |
@@ -681,6 +681,7 @@ outside the journal's byte bound.
 | ---------------------------------- | ------- | ----------- |
 | `bootui.resources.sample-interval` | `1s`    | How often the sampler sweeps the JVM. At least `100ms`. |
 | `bootui.resources.max-threads`     | `500`   | Most platform threads one sweep reads. The CPU time of the others counts as the JVM's own work. |
+| `bootui.resources.jfr.max-duration` | `30s` | How long a Runtime Insights **Profile resources** JFR session records once the developer starts it. Between `1s` and `10m`. No session ever starts on its own. |
 
 ### Traces
 

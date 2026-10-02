@@ -22,13 +22,14 @@ import InsightText from './components/InsightText.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import ChangeImpact from './components/ChangeImpact.vue'
+import ResourceProfile from './components/ResourceProfile.vue'
 import RunComparison from './components/RunComparison.vue'
 import {comparisonSummary} from '../utils/runComparison.js'
 
 // Runtime Insights (docs/PLAN-v2.md §5.5): the runtime journal's retained events projected into observations. Every
 // read is a GET of what the journal already recorded; opening the panel starts no capture, scan, or network call.
 const props = defineProps(panelProps)
-const {manifestAvailable, manifestUnavailableReason} = usePanelState(props)
+const {manifestAvailable, manifestUnavailableReason, readOnly, readOnlyReason} = usePanelState(props)
 
 const report = ref(null)
 const error = ref(null)
@@ -463,6 +464,8 @@ const windowText = computed(() => {
         <RunComparison class="mb-3" :refresh-key="lastFetched ?? 0" @loaded="comparison = $event" />
 
         <ChangeImpact class="mb-3" :initial-symbol="initialImpact" />
+
+        <ResourceProfile class="mb-3" :read-only="readOnly" :read-only-reason="readOnlyReason" />
 
         <div v-if="unrun.length || report.notExercised?.length" class="row g-3 insight-caveats">
           <div v-if="report.notExercised?.length" :class="unrun.length ? 'col-xl-7' : 'col-12'">

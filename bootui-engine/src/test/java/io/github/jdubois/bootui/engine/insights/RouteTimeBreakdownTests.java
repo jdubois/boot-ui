@@ -17,6 +17,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
+import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -172,6 +173,44 @@ class RouteTimeBreakdownTests {
         assertThat(breakdown.sentence()).contains("Unattributed 60 %, SQL 40 %");
         assertThat(breakdown.limitations())
                 .anySatisfy(limitation -> assertThat(limitation).contains("WebFlux"));
+    }
+
+    @Test
+    void routesServedOnVirtualThreadsPointToProfileResourcesForTheirCpu() {
+        for (int i = 0; i < 6; i++) {
+            String requestId = "v" + i;
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.HTTP,
+                    1_000 + i,
+                    20 * MS,
+                    CorrelationContext.forRequest(requestId),
+                    "virtual-1",
+                    null,
+                    false,
+                    new HttpPayload(
+                            "GET",
+                            "/api/virtual",
+                            "/api/virtual",
+                            null,
+                            200,
+                            new ResourceUsage(0, 0, 1, 1, ResourceUsage.Unmeasured.VIRTUAL_THREAD, 0, List.of(), false),
+                            new RequestTiming(clock, -1, 1 * MS, 18 * MS))));
+            clock += 1_000 * MS;
+        }
+        try {
+            assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(ex);
+        }
+
+        RuntimeObservationDto virtual = new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null)
+                .report().observations().stream()
+                        .filter(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
+                        .findFirst()
+                        .orElseThrow();
+
+        assertThat(virtual.limitations()).anyMatch(limitation -> limitation.contains("Profile resources samples them"));
     }
 
     private void request(String template, long durationNanos, RequestTiming timing, Child... children) {

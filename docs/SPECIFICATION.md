@@ -1503,8 +1503,9 @@ Acceptance criteria:
 ### 5.14.2.2 Runtime Insights Panel
 
 Runtime Insights (`runtime-insights`, Home group, after Live Activity) projects the runtime journal's retained events
-into observations on read ([PLAN-v2.md](PLAN-v2.md) §5.4, §5.5). It is read-only and has no action: there is no
-analyze button, busy state, or read-only toggle. Opening it starts no capture, scan, database read, or network call.
+into observations on read ([PLAN-v2.md](PLAN-v2.md) §5.4, §5.5). Opening it starts no capture, scan, database read, or
+network call. Its one action is **Profile resources**, an opt-in JFR session the developer starts, which
+`bootui.panels.runtime-insights.read-only` or `bootui.read-only` blocks.
 
 - `GET /bootui/api/runtime-insights` returns the window, per-source correlation coverage, every check with its status
   (`EVALUATED`, `PARTIAL`, or `NOT_APPLICABLE` with its reason), the observations, and limitations. The projection is
@@ -1525,6 +1526,13 @@ analyze button, busy state, or read-only toggle. Opening it starts no capture, s
   request; new statements, exceptions, and routes; status-class shares; allocation), then the runtime model's added and
   removed edges, the restart cost compared only between two restarts, and the warm latency last, labelled noisy. Each
   list holds at most 200 rows.
+- `GET /bootui/api/runtime-insights/resource-profile` returns the **Profile resources** session ([PLAN-v2.md](PLAN-v2.md)
+  §5.11): `IDLE`, `RUNNING`, `COMPLETED`, `FAILED`, or `UNAVAILABLE` with the reason, such as a runtime without JFR or a
+  journal that does not record the `resources` source, and the last session's results. Reading it starts nothing.
+  `POST /bootui/api/runtime-insights/resource-profile` starts a JFR session of `bootui.resources.jfr.max-duration`,
+  joining a running one, and `POST /bootui/api/runtime-insights/resource-profile/stop` ends it early. The results count
+  CPU samples and JFR's estimate of allocated bytes per route, virtual threads included, with each route's five hottest
+  frames, at most 20 routes.
 - `notExercised` lists, up to 100, the declared application routes no request of this run reached, counted from the
   run's aggregates so an evicted request still counts; framework endpoints and catch-all patterns are left out.
 - Live Activity links to the slowest route's breakdown under its KPIs, and a request's drawer loads **Why this route is
@@ -2761,6 +2769,9 @@ Initial endpoints:
 | `/bootui/api/runtime-insights/insights/{id}` | GET    | One observation by its stable id, with up to 20 evidence rows and how many were left out; an unknown id answers unavailable |
 | `/bootui/api/runtime-insights/impact`        | GET    | `?symbol=<symbol>`: the routes that ran through a bean, class, repository, table, cache, or host in this run, those that did not, and those sharing a resource with it; `AMBIGUOUS`, `NOT_FOUND`, or `UNAVAILABLE` with the reason |
 | `/bootui/api/runtime-insights/comparison`    | GET    | The current run compared with the newest kept run, or `?run=<runId>`: behavior rows, new and gone edges, restart cost, and warm latency last; `INSUFFICIENT`, `NOT_COMPARABLE`, or `NO_PREVIOUS_RUN` with the reason |
+| `/bootui/api/runtime-insights/resource-profile` | GET | The **Profile resources** session's state and the last session's CPU samples, allocation, and hot frames by route; starts nothing |
+| `/bootui/api/runtime-insights/resource-profile` | POST | Start a JFR session bounded by `bootui.resources.jfr.max-duration` |
+| `/bootui/api/runtime-insights/resource-profile/stop` | POST | End the running session now and return its results |
 | `/bootui/api/email`                          | GET    | Captured outgoing email summaries and content-policy status                             |
 | `/bootui/api/kafka`                          | GET    | Bounded Kafka producer and consumer activity                                            |
 | `/bootui/api/rabbitmq`                       | GET    | Bounded RabbitMQ publisher and consumer activity                                        |

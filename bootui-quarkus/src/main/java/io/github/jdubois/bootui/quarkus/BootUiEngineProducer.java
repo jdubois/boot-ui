@@ -297,7 +297,9 @@ public class BootUiEngineProducer {
                         config.getOptionalValue("bootui.resources.sample-interval", Duration.class)
                                 .orElse(ResourceSettings.DEFAULT_SAMPLE_INTERVAL),
                         config.getOptionalValue("bootui.resources.max-threads", Integer.class)
-                                .orElse(ResourceSettings.DEFAULT_MAX_THREADS)),
+                                .orElse(ResourceSettings.DEFAULT_MAX_THREADS),
+                        config.getOptionalValue("bootui.resources.jfr.max-duration", Duration.class)
+                                .orElse(ResourceSettings.DEFAULT_JFR_MAX_DURATION)),
                 aggregates.resourceTrack());
         return journal;
     }

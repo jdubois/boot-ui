@@ -453,6 +453,26 @@ public final class BootUiApiContractCatalog {
                     "limitations", JsonType.ARRAY));
 
     /**
+     * The <b>Profile resources</b> session's state, a read of the {@code runtime-insights} panel ({@code docs/PLAN-v2.md}
+     * §5.11) kept out of {@link #reads()}: reading it starts nothing, and it answers the same shape whether no session
+     * ran, one runs, or JFR is unavailable. Its nullable times are not listed.
+     */
+    private static final ReadContract RESOURCE_PROFILE = read(
+            "runtime-insights",
+            "/runtime-insights/resource-profile",
+            fields(
+                    "state", JsonType.STRING,
+                    "reason", JsonType.NULLABLE_STRING,
+                    "sampler", JsonType.NULLABLE_STRING,
+                    "maxDurationSeconds", JsonType.INTEGER,
+                    "cpuSamples", JsonType.INTEGER,
+                    "outsideSamples", JsonType.INTEGER,
+                    "requests", JsonType.INTEGER,
+                    "routes", JsonType.ARRAY,
+                    "routesOmitted", JsonType.INTEGER,
+                    "limitations", JsonType.ARRAY));
+
+    /**
      * What a change to one symbol reaches, a read of the {@code runtime-insights} panel ({@code docs/PLAN-v2.md} §5.7),
      * kept out of {@link #reads()}: an unknown symbol answers the same shape, not found or unavailable.
      */
@@ -536,6 +556,11 @@ public final class BootUiApiContractCatalog {
         return CHANGE_IMPACT;
     }
 
+    /** The <b>Profile resources</b> session's read contract ({@code docs/PLAN-v2.md} §5.11). */
+    public static ReadContract resourceProfile() {
+        return RESOURCE_PROFILE;
+    }
+
     /** The run comparison's read contract ({@code docs/PLAN-v2.md} §5.8). */
     public static ReadContract runComparison() {
         return RUN_COMPARISON;
@@ -562,6 +587,18 @@ public final class BootUiApiContractCatalog {
         all(actions, "heap-dump.delete", "heap-dump", "POST", "/heap-dump/delete");
         all(actions, "threads.download", "threads", "POST", "/threads/download");
         all(actions, "memory.scan", "memory", "POST", "/memory/scan");
+        all(
+                actions,
+                "runtime-insights.resource-profile",
+                "runtime-insights",
+                "POST",
+                "/runtime-insights/resource-profile");
+        all(
+                actions,
+                "runtime-insights.resource-profile.stop",
+                "runtime-insights",
+                "POST",
+                "/runtime-insights/resource-profile/stop");
         spring(actions, "graalvm.scan.cancel", "graalvm", "POST", "/graalvm/scan/cancel");
         spring(actions, "graalvm.scan", "graalvm", "POST", "/graalvm/scan");
         spring(actions, "graalvm.install", "graalvm", "POST", "/graalvm/install");

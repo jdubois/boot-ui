@@ -608,6 +608,17 @@ request went through the changed code. Spring MVC and WebFlux read the bean grap
 when the beans cannot be read, the impact says so rather than listing nothing. `?impact=<symbol>` opens the panel on a
 symbol.
 
+**Profile resources** measures what scope readings cannot, such as CPU on virtual threads. Only when you click it, it
+records a JDK Flight Recorder session of `bootui.resources.jfr.max-duration` (30 seconds by default; **Stop now** ends
+it early), then joins each CPU and allocation sample to the request that ran on the sampled thread at that moment, in
+JFR's own clock, virtual threads included. The results list, per route, the requests sampled, the CPU samples with a bar
+for each route's share, JFR's estimate of the bytes allocated, and the hottest application frames. CPU is counted in
+samples, never as a measured time. JFR's CPU-time sampler is used on Linux with JDK 25 and later, and its execution
+sampler elsewhere; the results say which ran. Starting JFR takes about a third of a second and some 40 MB, and writes a
+temporary recording that is deleted once read. A runtime without JFR, or a journal that does not record the
+`resources` source, reports why no session can run, and `bootui.panels.runtime-insights.read-only` or
+`bootui.read-only` blocks starting one.
+
 **Compared with the previous run** compares this run with the newest run whose summary is kept, after a DevTools
 restart, a Quarkus live reload, or, with `bootui.runtime-journal.baseline-file`, a full JVM restart; a picker chooses
 another kept run. On a laptop, warmup and noise dominate latency while the work identical requests do is stable, so the

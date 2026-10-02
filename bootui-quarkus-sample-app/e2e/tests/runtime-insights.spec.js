@@ -44,4 +44,24 @@ test.describe('Runtime Insights view', () => {
     await page.locator('.insight-search').fill('no-such-route-xyz')
     await expect(page.getByText('No observation matches this search.')).toBeVisible()
   })
+
+  test('profiles resources only when asked, and splits the samples by route', async ({openView, page}) => {
+    await openView('runtime-insights', 'Runtime Insights')
+
+    const profile = page.locator('.insight-profile')
+    const start = profile.getByRole('button', {name: /Profile (resources|again)/})
+    await expect(start).toBeEnabled()
+
+    await start.click()
+    await expect(profile.getByRole('progressbar')).toBeVisible()
+    // Allocation samples join requests as CPU samples do, so enough requests always leave a route in the table.
+    for (let i = 0; i < 40; i += 1) {
+      const search = await page.request.get('/api/sample/product-search')
+      expect(search.ok()).toBeTruthy()
+    }
+    await profile.getByRole('button', {name: 'Stop now'}).click()
+
+    await expect(profile.locator('.insight-profile-summary')).toContainText('CPU samples', {timeout: 30_000})
+    await expect(profile.locator('.insight-profile-table')).toContainText('/api/sample/product-search')
+  })
 })

@@ -4339,6 +4339,53 @@ const runtimeRunComparison = {
   limitations: []
 }
 
+const runtimeResourceProfile = {
+  state: 'COMPLETED',
+  reason: null,
+  sampler: 'jdk.ExecutionSample',
+  startedAt: nowMillis - 95_000,
+  endsAt: nowMillis - 65_000,
+  finishedAt: nowMillis - 65_000,
+  maxDurationSeconds: 30,
+  cpuSamples: 1840,
+  outsideSamples: 410,
+  requests: 96,
+  routes: [
+    {
+      route: 'GET /api/sample/products',
+      requests: 64,
+      cpuSamples: 1012,
+      allocatedBytes: 186_400_000,
+      virtualThreads: true,
+      hotFrames: [
+        {frame: 'io.github.jdubois.bootui.sample.ProductService.findAll:58', samples: 604},
+        {frame: 'io.github.jdubois.bootui.sample.ProductController.list:41', samples: 211}
+      ]
+    },
+    {
+      route: 'GET /api/secure/products',
+      requests: 30,
+      cpuSamples: 398,
+      allocatedBytes: 41_200_000,
+      virtualThreads: true,
+      hotFrames: [{frame: 'io.github.jdubois.bootui.sample.SecurityConfig.passwordEncoder:33', samples: 352}]
+    },
+    {
+      route: 'POST /api/orders',
+      requests: 2,
+      cpuSamples: 20,
+      allocatedBytes: 2_100_000,
+      virtualThreads: false,
+      hotFrames: []
+    }
+  ],
+  routesOmitted: 0,
+  limitations: [
+    'CPU is counted in samples of running threads every 10 ms (jdk.ExecutionSample), not as a measured time; JFR samples a bounded number of threads each time.',
+    "Allocated bytes are JFR's estimate from its allocation samples."
+  ]
+}
+
 const runtimeInsightDetail = {
   available: true,
   unavailableReason: null,
@@ -6882,6 +6929,7 @@ async function handleApiRoute(route) {
   if (endpoint === 'runtime-insights') return fulfillJson(route, runtimeInsightsReport)
   if (endpoint.startsWith('runtime-insights/insights/')) return fulfillJson(route, runtimeInsightDetail)
   if (endpoint === 'runtime-insights/comparison') return fulfillJson(route, runtimeRunComparison)
+  if (endpoint === 'runtime-insights/resource-profile') return fulfillJson(route, runtimeResourceProfile)
   if (endpoint === `activity/request/${activityRequestId}`) return fulfillJson(route, activityProfile)
   if (endpoint.startsWith('exceptions/'))
     return fulfillJson(route, exceptionDetail(endpoint.slice('exceptions/'.length)))

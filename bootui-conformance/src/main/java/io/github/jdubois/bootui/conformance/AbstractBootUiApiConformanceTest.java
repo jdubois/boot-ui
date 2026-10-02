@@ -1608,6 +1608,31 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void readingTheResourceProfileStartsNoSession() {
+        assumeTrue(
+                isPanelUsableInLiveManifest("runtime-insights"),
+                "runtime-insights panel is not available in this environment");
+        ReadContract contract = BootUiApiContractCatalog.resourceProfile();
+        BootUiHttpProbe probe = probe();
+        List<String> failures = new ArrayList<>();
+
+        Response first = probe.get(api(contract.relativePath()));
+        Response second = probe.get(api(contract.relativePath()));
+
+        assertThat(first.status()).as("GET %s status", contract.relativePath()).isEqualTo(200);
+        assertJsonContract("resource profile", contract, first.json(), failures);
+        assertThat(failures).as("resource profile contract").isEmpty();
+        assertThat(first.json().path("state").asText()).isIn("IDLE", "COMPLETED", "FAILED", "UNAVAILABLE");
+        assertThat(second.json().path("state").asText())
+                .as("a read never starts a JFR session")
+                .isEqualTo(first.json().path("state").asText());
+        assertThat(first.json().path("maxDurationSeconds").asLong()).isPositive();
+        if ("UNAVAILABLE".equals(first.json().path("state").asText())) {
+            assertThat(first.json().path("reason").asText()).isNotBlank();
+        }
+    }
+
+    @Test
     void theRunComparisonComparesTheCurrentRunWithAKeptOneOrSaysWhyNot() {
         assumeTrue(
                 isPanelUsableInLiveManifest("runtime-insights"),
