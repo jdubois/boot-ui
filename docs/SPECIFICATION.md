@@ -2327,8 +2327,14 @@ MySQL is an operational sibling to PostgreSQL, not another Database advisor. Ora
 the tested server lines, with live coverage on 8.4.6 and 9.7.2 using Spring's Connector/J 9.7.0 / HikariCP 7.0.2 and
 Quarkus' Connector/J 9.6.0 / Agroal 3.0.1. Any other Oracle MySQL Community or Enterprise version is read with an INFO
 diagnostic naming it as untested; sections the server cannot answer report their own reasons, and the read-only session
-guards still fail closed. MariaDB (detected from the driver's product version before any SQL, and again from
-`@@version`/`@@version_comment`) and other compatible/managed flavors are skipped with an INFO diagnostic.
+guards still fail closed. Other compatible/managed flavors are skipped with an INFO diagnostic.
+MariaDB reached through MySQL Connector/J (detected from the driver's product version before any SQL, and confirmed by
+`@@version`) is read on a best-effort basis and labelled unsupported: `serverFlavor` is `MARIADB`, an INFO diagnostic
+names the gaps, and the UI shows an Unsupported badge. It uses MariaDB's `max_statement_time` session and per-statement
+guards, `information_schema` InnoDB lock views for row-lock waits, and a settings list without `super_read_only` and
+`information_schema_stats_expiry`. It reports no replication receiver state, which stays unknown, and computes no
+counter comparisons, because there is no `@@server_uuid`. MariaDB 11.4 LTS and 11.8 LTS were checked manually only.
+MariaDB Connector/J (`jdbc:mariadb:`, Quarkus `db-kind=mariadb`) is not a supported declaration.
 
 - Use existing default/named JDBC datasources on Spring MVC, Spring WebFlux, and Quarkus. R2DBC-only and
   reactive-client-only applications are unavailable, not partially supported JDBC applications. Discovery uses
@@ -2367,7 +2373,8 @@ guards still fail closed. MariaDB (detected from the driver's product version be
   wait limit, and 400 displayed statement characters. The JDBC network guard is
   at most 7 seconds, preserving a tighter existing positive timeout. Application-controlled pool acquisition can
   exceed the cooperative budget; connection/socket configuration is separate. These are not hard end-to-end deadlines.
-- Use server `MAX_EXECUTION_TIME` hints capped by the remaining budget for SELECTs. If
+- Use server `MAX_EXECUTION_TIME` hints capped by the remaining budget for SELECTs (MariaDB:
+  `SET STATEMENT max_statement_time=... FOR`, in an executable comment Connector/J accepts). If
   `performance_schema.global_status` is unreadable, use `SHOW GLOBAL STATUS` filtered to 17 fixed safe names:
   the allow-list bounds output, and the JDBC network guard covers I/O. Do not claim a SELECT execution-time
   guarantee for SHOW or control statements. Restore the original network timeout afterward.

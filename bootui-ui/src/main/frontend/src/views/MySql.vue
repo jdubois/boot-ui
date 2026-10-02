@@ -260,8 +260,8 @@ onMounted(async () => {
           <i class="bi bi-database-check fs-2 text-muted" aria-hidden="true"></i>
           <h3 class="fs-6 mt-2">No MySQL data yet</h3>
           <p class="text-muted mb-0">
-            Run the MySQL read to inspect the configured server. MySQL 8.4 LTS and 9.7 LTS are the tested server lines;
-            MariaDB is not supported.
+            Run the MySQL read to inspect the configured server. MySQL 8.4 LTS and 9.7 LTS are the tested server lines.
+            MariaDB reached through MySQL Connector/J is read on a best-effort basis but is not supported.
           </p>
           <p v-if="report.message" class="small text-muted mt-2 mb-0">{{ report.message }}</p>
         </div>
@@ -310,6 +310,12 @@ onMounted(async () => {
             <h3 class="fs-6 font-monospace mb-0">{{ source.name }}</h3>
             <span v-if="source.serverVersion" class="small font-monospace text-muted">{{ source.serverVersion }}</span>
             <span v-if="source.serverFlavor" class="small font-monospace text-muted">{{ source.serverFlavor }}</span>
+            <span
+              v-if="source.serverFlavor === 'MARIADB'"
+              class="badge text-bg-warning"
+              title="MariaDB is read on a best-effort basis through MySQL Connector/J and is not a supported server."
+              >Unsupported</span
+            >
             <span class="small text-muted"
               >Schema: <span class="font-monospace">{{ source.schemaName || 'not selected' }}</span></span
             >

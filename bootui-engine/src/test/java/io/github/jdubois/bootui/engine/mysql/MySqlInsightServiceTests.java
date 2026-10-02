@@ -375,19 +375,6 @@ class MySqlInsightServiceTests {
         assertThat(fixture.sql).isEmpty();
     }
 
-    @Test
-    void mariaDbBehindMySqlConnectorIsSkippedBeforeAnySql() throws Exception {
-        MySqlJdbcFixture fixture = new MySqlJdbcFixture();
-        when(fixture.connection.getMetaData().getDatabaseProductVersion()).thenReturn("11.4.13-MariaDB-ubu2404");
-        var report = service(fixture).read();
-        assertThat(report.status()).isEqualTo("DISABLED");
-        assertThat(report.diagnostics()).singleElement().satisfies(diagnostic -> {
-            assertThat(diagnostic.level()).isEqualTo("INFO");
-            assertThat(diagnostic.message()).contains("not an Oracle MySQL");
-        });
-        assertThat(fixture.sql).isEmpty();
-    }
-
     @ParameterizedTest
     @CsvSource(
             delimiter = '|',

@@ -225,9 +225,30 @@ unknown instead of being shown as zero.
 Other Oracle MySQL Community and Enterprise versions, such as end-of-life 8.0 or Innovation releases like 9.6, are read
 anyway with an informational "not a tested server line" diagnostic; any section the server cannot answer reports its
 own reason, and a server that cannot establish the read-only session guards fails closed before any statistics query.
-MariaDB, including MariaDB reached through MySQL Connector/J, and other compatible or managed flavors are skipped
-without running SQL. Other driver/pool combinations are not certified by this matrix. JDBC support does not imply R2DBC
-or reactive-client support.
+Other compatible or managed flavors, such as Percona Server, are skipped. Other driver/pool combinations are not
+certified by this matrix. JDBC support does not imply R2DBC or reactive-client support.
+:::
+
+::: warning MariaDB is read but not supported
+A MariaDB server reached through **MySQL Connector/J** (`jdbc:mysql://...`) is read on a best-effort basis. The report
+names its flavor `MARIADB`, the datasource carries an **Unsupported** badge, and every read adds an informational
+diagnostic. MariaDB 11.4 LTS and 11.8 LTS were checked manually; no automated test covers MariaDB, so any server
+change can break it. MariaDB Connector/J (`jdbc:mariadb:`) is not offered the panel at all.
+
+On MariaDB the panel uses MariaDB's own equivalents: the session `max_statement_time` (in seconds) instead of
+`max_execution_time`, `information_schema.INNODB_LOCK_WAITS` / `INNODB_LOCKS` / `INNODB_TRX` for row-lock waits
+(mapped to the same performance_schema thread IDs, and needing `PROCESS`), and InnoDB metrics' `ENABLED` column. Some
+evidence is unavailable:
+
+- **Replication receiver state.** MariaDB has no `performance_schema.replication_connection_status`, so a configured
+  channel shows its applier state only; its receiver state and error stay unknown, and the section says so.
+- **Counter changes between reads.** MariaDB has no `@@server_uuid` to prove the same server is observed twice, so no
+  comparison is computed.
+- **Two settings.** `super_read_only` and `information_schema_stats_expiry` do not exist on MariaDB and are omitted.
+
+MariaDB disables the metadata-lock instrument by default, so its reads are usually **Partial** until
+`performance_schema_instrument='wait/lock/metadata/sql/mdl=ON'` is set. MariaDB before 11.1 has no
+`transaction_read_only` variable: its read-only session guards cannot be established, and the read fails closed.
 :::
 
 ::: details Try it with the sample application
@@ -309,7 +330,8 @@ exposure. Collection is an interval, not an atomic cross-table snapshot, and the
 
 The execution bounds are a **15-second cooperative total read budget**,
 a **5-second server SELECT limit**, a **2-second metadata-lock wait limit**, and **400 characters of displayed
-normalized statement text**. SELECTs use MySQL `MAX_EXECUTION_TIME` hints capped by the remaining budget.
+normalized statement text**. SELECTs use MySQL `MAX_EXECUTION_TIME` hints capped by the remaining budget; on MariaDB,
+which ignores that hint, each SELECT runs under `SET STATEMENT max_statement_time=... FOR` instead.
 The borrowed connection also gets a JDBC network guard of **at most 7 seconds**, retaining a tighter existing
 positive timeout, to bound control/SHOW I/O that SELECT limits do not cover.
 
@@ -393,7 +415,7 @@ state, and timing availability are separate evidence.
 | --- | --- |
 | Status and settings | Probe readability of `performance_schema.global_status` before requesting additional permissions. An explicit table grant is not universally required for it: the restricted MySQL 8.4.6 fixture reads it without one. An unreadable status source can fall back to fixed-name `SHOW GLOBAL STATUS`. Settings use fixed `@@global` expressions, not a `global_variables` table read. |
 | Session state | `SELECT` on `performance_schema.threads`. Reading `threads` exposes other users' thread rows **without `PROCESS`**; this is a meaningful permission decision. Current statement text is not selected, and `events_statements_current` is not required. |
-| Blocking | `SELECT` on `performance_schema.data_lock_waits`, `data_locks`, and `metadata_locks` for the corresponding wait evidence. |
+| Blocking | `SELECT` on `performance_schema.data_lock_waits`, `data_locks`, and `metadata_locks` for the corresponding wait evidence. On MariaDB, row-lock waits come from `information_schema.INNODB_LOCK_WAITS` / `INNODB_LOCKS` / `INNODB_TRX` instead, which need `PROCESS`. |
 | Statement ranking | `SELECT` on `performance_schema.events_statements_summary_by_digest`, with the relevant collection and timing enabled. Global digest collection depends on `global_instrumentation` and `statements_digest`, not `thread_instrumentation`. |
 | Table/index activity | `SELECT` on `performance_schema.table_io_waits_summary_by_table` and `table_io_waits_summary_by_index_usage`, with enabled global, handler, and matching object instrumentation. Information Schema object visibility still follows application-object permissions. |
 | Instrumentation explanation | `SELECT` on `performance_schema.setup_consumers`, `setup_instruments`, and `setup_objects`. Denied probes leave collection state unknown, not enabled. |
@@ -426,7 +448,7 @@ error source produces partial coverage rather than certifying zero errors.
 
 | Situation | Interpretation and next step |
 | --- | --- |
-| No supported JDBC datasource / wrong vendor | Check the application's driver and datasource declarations. MariaDB and reactive-only clients are outside this panel's first scope. Do not create another monitoring pool automatically. |
+| No supported JDBC datasource / wrong vendor | Check the application's driver and datasource declarations. MariaDB Connector/J (`jdbc:mariadb:`) and reactive-only clients are outside this panel's scope; a MariaDB server is read only through MySQL Connector/J, and is unsupported. Do not create another monitoring pool automatically. |
 | Permission denied / inactive role | Keep readable sections. Review the named source with the operator; table access and the role active on this connection matter, not just a grant recorded elsewhere. |
 | Performance Schema, digests, or timing disabled | Missing evidence is not an idle workload or zero latency. Some status/replication evidence can remain readable with Performance Schema disabled. BootUI does not enable anything automatically. |
 | Manual-commit pool default | Collection is refused to protect application transactions. Review the pool contract; do not change application transaction settings just to silence the diagnostic. |

@@ -181,8 +181,9 @@ datasources. Oracle MySQL 8.4 LTS and 9.7 LTS are the tested server lines; the Q
 9.7.2 with Connector/J 9.6.0 and Agroal 3.0.1, including custom-mount REST/MCP/CLI contracts and physical connection eviction.
 The manifest requires Agroal/JDBC capability, classloading-safe Connector/J presence, and an active JDBC MySQL
 declaration (`db-kind=mysql` or a recognized JDBC URL, including supported wrapping/routing forms), without resolving
-a datasource bean. Unknown, MariaDB, and reactive-only declarations are unavailable;
-`quarkus-reactive-mysql-client` alone is insufficient. MariaDB is a separate unsupported follow-up.
+a datasource bean. Unknown, MariaDB Connector/J (`db-kind=mariadb`), and reactive-only declarations are unavailable;
+`quarkus-reactive-mysql-client` alone is insufficient. A MariaDB server behind `db-kind=mysql` is read on a
+best-effort basis through the shared engine and labelled unsupported, exactly as on MVC and WebFlux.
 
 The thin resource returns the sanitized cache for `GET <api-path>/mysql` and performs the explicit
 `POST <api-path>/mysql/read` as blocking work off the event loop. REST, MCP (`get_mysql_report` / `mysql_read`), and

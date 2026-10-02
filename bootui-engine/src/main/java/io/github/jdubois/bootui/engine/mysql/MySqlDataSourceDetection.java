@@ -24,8 +24,9 @@ public final class MySqlDataSourceDetection {
      * <p>Only the sub-protocol can name a driver, so parsing stops at the first vendor token: everything after
      * it is that vendor's own address, path, database name or parameter syntax. {@code jdbc:h2:mem:mysql} is an
      * H2 database that happens to be called {@code mysql}, and {@code jdbc:sqlserver://host;database=mysql} is
-     * SQL Server; treating either as MySQL would offer a panel whose every query is invalid there. MariaDB is
-     * rejected for the same reason — it is a separate integration, not a MySQL dialect BootUI can read.</p>
+     * SQL Server; treating either as MySQL would offer a panel whose every query is invalid there. MariaDB
+     * Connector/J ({@code jdbc:mariadb:}) is rejected too: only a MariaDB server reached through MySQL Connector/J
+     * is read, on a best-effort basis.</p>
      */
     public static boolean isMySqlJdbcUrl(String value) {
         if (value == null) {

@@ -22,7 +22,8 @@ action-capable panel behaves identically to the servlet adapter, behind the same
 
 **MySQL uses the same shared controller/report on MVC and WebFlux** when the application has a supported **JDBC**
 datasource. Oracle MySQL 8.4 LTS and 9.7 LTS are the tested lines, with 8.4.6 and 9.7.2 live coverage using
-Connector/J 9.7.0 and HikariCP 7.0.2. R2DBC-only applications and MariaDB are outside this scope. See [MySQL](features/database.md#mysql).
+Connector/J 9.7.0 and HikariCP 7.0.2. R2DBC-only applications are outside this scope; MariaDB reached through MySQL
+Connector/J is read but unsupported. See [MySQL](features/database.md#mysql).
 
 ::: details Action-capable panels (identical to servlet)
 
