@@ -8,8 +8,10 @@ import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RunStart;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
+import io.github.jdubois.bootui.engine.journal.StartupStepTiming;
 import io.github.jdubois.bootui.engine.resources.ResourceTrack;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import java.nio.charset.StandardCharsets;
@@ -52,6 +54,28 @@ class SpringRuntimeJournalTest {
 
     @Autowired
     JournalAggregates aggregates;
+
+    @Test
+    void theRunStartRecordsTheTimeToReadyTheSlowestBeansAndTheComparabilityFacts() throws Exception {
+        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (aggregates.runStart() == null && System.nanoTime() < deadline) {
+            Thread.sleep(50);
+        }
+
+        RunStart start = aggregates.runStart();
+        assertThat(start).isNotNull();
+        assertThat(start.readyNanos()).isPositive();
+        assertThat(start.slowestSteps()).isNotEmpty().allSatisfy(step -> {
+            assertThat(step.name()).isEqualTo("spring.beans.instantiate");
+            assertThat(step.bean()).isNotBlank();
+        });
+        assertThat(start.slowestSteps())
+                .extracting(StartupStepTiming::durationNanos)
+                .isSortedAccordingTo(java.util.Comparator.reverseOrder());
+        assertThat(start.facts().activeProfiles()).containsExactly("dev");
+        assertThat(start.facts().dataSources()).containsValue("jdbc:h2:mem");
+        assertThat(start.facts().journalSources()).contains("lifecycle", "http", "sql");
+    }
 
     @Test
     void theResourceSamplerSweepsAtTheConfiguredIntervalWithABalancedLedger() throws Exception {

@@ -66,7 +66,8 @@ export function groupObservations(report, {query = '', theme = ''} = {}) {
 }
 
 // Garbage collections belong to the JVM, never to one request: a request's pauses are joined to it by collection id.
-const RUN_LEVEL_SOURCES = new Set(['gc'])
+// Lifecycle events, such as the run's start, belong to the run.
+const RUN_LEVEL_SOURCES = new Set(['gc', 'lifecycle'])
 
 /**
  * How the retained events are linked to their request, summed over every request-level source: by request id, by trace

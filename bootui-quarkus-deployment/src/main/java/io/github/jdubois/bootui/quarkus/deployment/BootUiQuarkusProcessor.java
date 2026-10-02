@@ -14,6 +14,7 @@ import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.QuarkusMemoryRuntimeConfig;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAccessFilter;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
+import io.github.jdubois.bootui.quarkus.QuarkusRunStart;
 import io.github.jdubois.bootui.quarkus.QuarkusServerPortSupplier;
 import io.github.jdubois.bootui.quarkus.QuarkusTelemetrySettings;
 import io.github.jdubois.bootui.quarkus.activity.QuarkusActivityCapture;
@@ -369,6 +370,7 @@ class BootUiQuarkusProcessor {
                         QuarkusMemoryRuntimeConfig.class,
                         QuarkusServerPortSupplier.class,
                         QuarkusApplicationInfo.class,
+                        QuarkusRunStart.class,
                         QuarkusBasePackageProvider.class,
                         QuarkusDependencyProvider.class,
                         QuarkusConfigProvider.class,
@@ -897,9 +899,13 @@ class BootUiQuarkusProcessor {
             LaunchModeBuildItem launchMode,
             Capabilities capabilities,
             BuildProducer<AdditionalBeanBuildItem> additionalBeans,
-            BuildProducer<ExcludedTypeBuildItem> excludedTypes) {
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes,
+            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
         boolean enableCapture = launchMode.getLaunchMode() != LaunchMode.NORMAL
                 && capabilities.isPresent(Capability.OPENTELEMETRY_TRACER);
+        // The run's start records whether tracing is on (docs/PLAN-v2.md §5.18), without loading an OTel type.
+        runtimeDefaults.produce(
+                new RunTimeConfigurationDefaultBuildItem(QuarkusRunStart.OTEL_TRACER_PRESENT_KEY, "" + enableCapture));
         // No OpenTelemetry tracing (or production): keep the OTel-importing producer out of bean
         // discovery so Arc never tries to resolve its SpanProcessor return type. Traces/AI still wire
         // via BootUiTelemetryProducer and render empty.

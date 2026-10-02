@@ -22,6 +22,15 @@ public record RunSummary(Header header, AggregatesSnapshot aggregates) {
 
     /** The summary of {@code run}, which ended at {@code endedAtEpochMillis}, from its final aggregates. */
     public static RunSummary of(RunIdentity run, AggregatesSnapshot aggregates, long endedAtEpochMillis) {
+        return of(run, aggregates, null, endedAtEpochMillis);
+    }
+
+    /**
+     * The summary of {@code run}, which ended at {@code endedAtEpochMillis}, from its final aggregates and what it
+     * recorded when it started, or {@code null}.
+     */
+    public static RunSummary of(
+            RunIdentity run, AggregatesSnapshot aggregates, RunStart runStart, long endedAtEpochMillis) {
         long events = aggregates.run().events().values().stream()
                 .mapToLong(Long::longValue)
                 .sum();
@@ -36,7 +45,8 @@ public record RunSummary(Header header, AggregatesSnapshot aggregates) {
                         events,
                         0,
                         0,
-                        0),
+                        0,
+                        runStart),
                 aggregates);
     }
 
@@ -54,6 +64,8 @@ public record RunSummary(Header header, AggregatesSnapshot aggregates) {
      * @param omittedEdges observed edges among them, least observed first, so a comparison can say an edge it reports as
      *     new may have been left out
      * @param encodedBytes the size of the encoded summary, or {@code 0} before it is encoded
+     * @param runStart what the run recorded when it started ({@code docs/PLAN-v2.md} §5.18): its time to ready, its
+     *     slowest startup steps, and its comparability facts, or {@code null} when it recorded none
      */
     public record Header(
             String runId,
@@ -65,7 +77,8 @@ public record RunSummary(Header header, AggregatesSnapshot aggregates) {
             long events,
             int omittedEntries,
             int omittedEdges,
-            int encodedBytes) {
+            int encodedBytes,
+            RunStart runStart) {
 
         public Header {
             Objects.requireNonNull(runId, "runId must not be null");

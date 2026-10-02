@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RequestTiming;
+import io.github.jdubois.bootui.engine.journal.RunStart;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.resources.ResourceTrack;
@@ -57,6 +58,24 @@ class BootUiQuarkusRuntimeJournalTest {
             }
         });
         assertThat(aggregates.resourceTrack().families()).contains(ResourceTrack.BOOTUI_FAMILY);
+    }
+
+    @Test
+    void theRunStartRecordsTheComparabilityFactsWithoutATimeToReady() throws Exception {
+        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (aggregates.runStart() == null && System.nanoTime() < deadline) {
+            Thread.sleep(50);
+        }
+
+        RunStart start = aggregates.runStart();
+        assertThat(start).isNotNull();
+        assertThat(start.readyNanos()).isNull();
+        assertThat(start.slowestSteps()).isEmpty();
+        assertThat(start.facts().activeProfiles()).contains("test");
+        assertThat(start.facts().dataSources()).containsValue("jdbc:h2:mem");
+        assertThat(start.facts().tracing()).isTrue();
+        assertThat(start.facts().cacheType()).isEqualTo("none");
+        assertThat(start.facts().journalSources()).contains("lifecycle", "http", "sql");
     }
 
     @TestHTTPResource

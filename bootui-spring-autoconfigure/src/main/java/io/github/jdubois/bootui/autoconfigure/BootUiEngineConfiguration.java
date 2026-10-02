@@ -24,6 +24,7 @@ import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateStatistic
 import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsListenerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsProducerCaptureBeanPostProcessor;
+import io.github.jdubois.bootui.autoconfigure.journal.RunStartPublisher;
 import io.github.jdubois.bootui.autoconfigure.journal.RuntimeEventPublisherInstaller;
 import io.github.jdubois.bootui.autoconfigure.journal.RuntimeJournalLogAppender;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaConsumerCaptureBeanPostProcessor;
@@ -240,6 +241,16 @@ public class BootUiEngineConfiguration {
         journal.addListener(aggregates);
         journal.startResourceSampler(properties.getResources().toSettings(), aggregates.resourceTrack());
         return aggregates;
+    }
+
+    /**
+     * Publishes the run's start to the runtime journal when the application is ready ({@code docs/PLAN-v2.md} §5.18):
+     * its time to ready, its slowest bean instantiations, and its comparability facts, which the run summary keeps.
+     */
+    @Bean
+    RunStartPublisher bootUiRunStartPublisher(
+            RuntimeJournal journal, ApplicationContext context, ObjectProvider<BootUiSelfDataFilter> selfData) {
+        return new RunStartPublisher(journal, context, selfData.getIfAvailable());
     }
 
     /**

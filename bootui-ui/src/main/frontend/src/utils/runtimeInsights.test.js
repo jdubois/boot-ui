@@ -19,7 +19,8 @@ const report = {
     {source: 'http', byRequestId: 12, byExecutionId: 0, byTraceId: 0, unlinked: 0},
     {source: 'sql', byRequestId: 70, byExecutionId: 8, byTraceId: 0, unlinked: 2},
     {source: 'ai', byRequestId: 0, byExecutionId: 0, byTraceId: 8, unlinked: 0},
-    {source: 'gc', events: 40, byRequestId: 0, byExecutionId: 0, byTraceId: 0, unlinked: 40}
+    {source: 'gc', events: 40, byRequestId: 0, byExecutionId: 0, byTraceId: 0, unlinked: 40},
+    {source: 'lifecycle', events: 1, byRequestId: 0, byExecutionId: 0, byTraceId: 0, unlinked: 1}
   ],
   checks: [
     {kind: 'route-time-breakdown', title: 'Route time breakdown', status: 'EVALUATED', reason: null},
@@ -91,8 +92,9 @@ describe('runtimeInsights helpers', () => {
     expect(coverageSummary({coverage: []}).segments.every((segment) => segment.share === 0)).toBe(true)
   })
 
-  it('leaves run-level sources such as garbage collections out of the coverage', () => {
+  it('leaves run-level sources such as garbage collections and the run start out of the coverage', () => {
     expect(coverageSources(report).map((source) => source.source)).not.toContain('gc')
+    expect(coverageSources(report).map((source) => source.source)).not.toContain('lifecycle')
   })
 
   it('renders backticked engine text as code and names machine columns', () => {

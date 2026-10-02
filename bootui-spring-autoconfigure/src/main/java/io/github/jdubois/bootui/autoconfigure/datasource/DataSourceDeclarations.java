@@ -7,7 +7,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.context.ApplicationContext;
@@ -39,18 +41,44 @@ public final class DataSourceDeclarations {
         if (!(context.getAutowireCapableBeanFactory() instanceof ConfigurableListableBeanFactory factory)) {
             return new Snapshot(true, true, List.of());
         }
-        ArrayDeque<DataSource> pending = new ArrayDeque<>();
+        List<DataSource> roots = new ArrayList<>();
         boolean incomplete = false;
         for (String name : names) {
             Object singleton = factory.getSingleton(name);
             if (singleton instanceof DataSource dataSource) {
-                pending.add(dataSource);
+                roots.add(dataSource);
             } else {
                 incomplete = true;
             }
         }
-        Set<DataSource> seen = Collections.newSetFromMap(new IdentityHashMap<>());
         List<DataSource> sources = new ArrayList<>();
+        incomplete |= resolve(roots, Collections.newSetFromMap(new IdentityHashMap<>()), sources);
+        return new Snapshot(true, incomplete, sources);
+    }
+
+    /**
+     * The pools each existing datasource bean reaches, by bean name, as {@link #inspect} resolves them; a bean that
+     * has not been created, or that cannot be observed without creating its target, maps to an empty list.
+     */
+    public static Map<String, List<DataSource>> byBeanName(ApplicationContext context) {
+        Map<String, List<DataSource>> byName = new TreeMap<>();
+        if (!(context.getAutowireCapableBeanFactory() instanceof ConfigurableListableBeanFactory factory)) {
+            return byName;
+        }
+        for (String name : context.getBeanNamesForType(DataSource.class, true, false)) {
+            List<DataSource> sources = new ArrayList<>();
+            if (factory.getSingleton(name) instanceof DataSource dataSource) {
+                resolve(List.of(dataSource), Collections.newSetFromMap(new IdentityHashMap<>()), sources);
+            }
+            byName.put(name, List.copyOf(sources));
+        }
+        return byName;
+    }
+
+    /** Adds the pools {@code roots} reach to {@code sources}, and returns whether some could not be observed. */
+    private static boolean resolve(List<DataSource> roots, Set<DataSource> seen, List<DataSource> sources) {
+        ArrayDeque<DataSource> pending = new ArrayDeque<>(roots);
+        boolean incomplete = false;
         while (!pending.isEmpty() && seen.size() < 64) {
             DataSource source = pending.removeFirst();
             if (!seen.add(source)) {
@@ -98,6 +126,6 @@ public final class DataSourceDeclarations {
             }
             sources.add(source);
         }
-        return new Snapshot(true, incomplete || !pending.isEmpty(), sources);
+        return incomplete || !pending.isEmpty();
     }
 }

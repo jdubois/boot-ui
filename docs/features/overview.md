@@ -369,7 +369,9 @@ same JVM, as after a DevTools restart or a Quarkus live reload, BootUI keeps a s
 256 KB each, for the 5 most recent runs. **Previous runs** lists them with their requests, failures, and events, or says
 why none can be kept when BootUI itself is reloaded with the application. A summary keeps the run's counts and
 histograms per route, statement fingerprint, and exception group, and the edges its requests, jobs, and listeners
-observed, such as a route reading a table or calling a host. To keep the last run across a full JVM restart, set
+observed, such as a route reading a table or calling a host, and what the run recorded when it started: its time to
+ready and slowest bean instantiations (Spring), its active profiles, data source URL shapes, cache, and whether
+tracing was on, which decide whether two runs can be compared. To keep the last run across a full JVM restart, set
 `bootui.runtime-journal.baseline-file`, for example to `target/bootui-baseline.bin`: the summary is written there
 when the run ends, and read back at the next start when the JVM keeps no previous run. The journal is sized and
 scoped by the `bootui.runtime-journal.*` [properties](../PROPERTIES.md#runtime-journal).

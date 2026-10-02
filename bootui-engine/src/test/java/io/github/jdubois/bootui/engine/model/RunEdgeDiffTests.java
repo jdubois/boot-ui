@@ -255,7 +255,8 @@ class RunEdgeDiffTests {
                         header.events(),
                         omittedEdges,
                         omittedEdges,
-                        0),
+                        0,
+                        null),
                 aggregates);
     }
 

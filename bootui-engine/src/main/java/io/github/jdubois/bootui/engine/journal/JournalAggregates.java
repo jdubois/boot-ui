@@ -110,6 +110,7 @@ public final class JournalAggregates implements JournalListener {
     private volatile RunHistory history;
     private volatile RunIdentity run;
     private volatile RunBaselineFile baseline;
+    private RunStart runStart;
 
     /**
      * Installs the application's declared routes, which name a request's route when the framework recorded no
@@ -151,7 +152,7 @@ public final class JournalAggregates implements JournalListener {
         RunHistory target = history;
         RunIdentity ended = run;
         if (target != null && ended != null) {
-            RunSummary summary = RunSummary.of(ended, snapshot(), System.currentTimeMillis());
+            RunSummary summary = RunSummary.of(ended, snapshot(), runStart(), System.currentTimeMillis());
             target.record(summary);
             RunBaselineFile file = baseline;
             if (file != null) {
@@ -180,6 +181,12 @@ public final class JournalAggregates implements JournalListener {
         RuntimeEventPayload payload = event.payload();
         if (payload instanceof GcPayload gc) {
             collected(gc, Math.max(0, event.durationNanos()));
+            return;
+        }
+        if (payload instanceof LifecyclePayload lifecycle) {
+            if (runStart == null && LifecyclePayload.RUN_STARTED.equals(lifecycle.kind())) {
+                runStart = lifecycle.runStart();
+            }
             return;
         }
         String label =
@@ -373,6 +380,14 @@ public final class JournalAggregates implements JournalListener {
             pending.put(requestId, children);
         }
         return children;
+    }
+
+    /**
+     * What the run recorded when it started, from its first {@link LifecyclePayload#RUN_STARTED} event, or {@code null}
+     * before it. <b>Clear recording</b> keeps it, as it describes the run rather than its activity.
+     */
+    public synchronized RunStart runStart() {
+        return runStart;
     }
 
     /** The run's resource track and CPU ledger (§5.11), which the resource sampler fills. */

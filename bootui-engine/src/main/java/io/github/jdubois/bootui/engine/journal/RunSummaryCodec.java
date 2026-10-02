@@ -40,7 +40,7 @@ final class RunSummaryCodec {
 
     private static final int MAGIC = 0x42555253;
 
-    private static final int VERSION = 4;
+    private static final int VERSION = 5;
 
     private RunSummaryCodec() {}
 
@@ -202,6 +202,7 @@ final class RunSummaryCodec {
         out.number(header.events());
         out.number(omitted);
         out.number(omittedEdges);
+        out.runStart(header.runStart());
         out.number(body.table.size());
         body.table.keySet().forEach(out::text);
         out.bytes.writeBytes(body.bytes.toByteArray());
@@ -365,6 +366,46 @@ final class RunSummaryCodec {
             number(index + 1L);
         }
 
+        /** A run's start, written in the header with plain texts so the header reads without the string table. */
+        void runStart(RunStart start) {
+            if (start == null) {
+                number(0);
+                return;
+            }
+            number(1);
+            optionalLong(start.readyNanos());
+            number(start.slowestSteps().size());
+            for (StartupStepTiming step : start.slowestSteps()) {
+                text(step.name());
+                optionalText(step.bean());
+                number(step.durationNanos());
+            }
+            ComparabilityFacts facts = start.facts();
+            texts(facts.activeProfiles());
+            number(facts.dataSources().size());
+            facts.dataSources().forEach((name, shape) -> {
+                text(name);
+                text(shape);
+            });
+            text(facts.cacheType());
+            number(facts.tracing() ? 1 : 0);
+            texts(facts.journalSources());
+        }
+
+        void optionalText(String value) {
+            if (value == null) {
+                number(0);
+            } else {
+                number(1);
+                text(value);
+            }
+        }
+
+        void texts(List<String> values) {
+            number(values.size());
+            values.forEach(this::text);
+        }
+
         void stringMap(Map<String, Long> counts) {
             number(counts.size());
             counts.forEach((key, count) -> {
@@ -441,7 +482,44 @@ final class RunSummaryCodec {
                     number(),
                     (int) number(),
                     (int) number(),
-                    bytes.length);
+                    bytes.length,
+                    runStart());
+        }
+
+        RunStart runStart() {
+            if (number() == 0) {
+                return null;
+            }
+            Long readyNanos = optionalLong();
+            int steps = (int) number();
+            List<StartupStepTiming> slowest = new ArrayList<>(steps);
+            for (int i = 0; i < steps; i++) {
+                slowest.add(new StartupStepTiming(text(), optionalText(), number()));
+            }
+            List<String> profiles = texts();
+            int dataSources = (int) number();
+            Map<String, String> shapes = new LinkedHashMap<>();
+            for (int i = 0; i < dataSources; i++) {
+                shapes.put(text(), text());
+            }
+            String cacheType = text();
+            boolean tracing = number() != 0;
+            List<String> sources = texts();
+            return new RunStart(
+                    readyNanos, slowest, new ComparabilityFacts(profiles, shapes, cacheType, tracing, sources));
+        }
+
+        String optionalText() {
+            return number() == 0 ? null : text();
+        }
+
+        List<String> texts() {
+            int size = (int) number();
+            List<String> values = new ArrayList<>(size);
+            for (int i = 0; i < size; i++) {
+                values.add(text());
+            }
+            return values;
         }
 
         void strings() {
