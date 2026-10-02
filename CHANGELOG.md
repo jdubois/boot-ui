@@ -86,6 +86,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The MySQL panel reads every Oracle MySQL version instead of only 8.4.** It previously skipped every server outside
+  the 8.4 line, so a MySQL 9.7 database showed "No supported MySQL JDBC datasource was found". Oracle MySQL 8.4 LTS and
+  9.7 LTS are now the tested lines, and CI runs the Spring and Quarkus MySQL live suites against both `mysql:8.4.6` and
+  `mysql:9.7.2`. Other Oracle MySQL versions, such as 8.0 or Innovation releases, are read with an informational
+  "not a tested server line" diagnostic, and any section the server cannot answer reports its own reason. MariaDB,
+  including MariaDB reached through MySQL Connector/J, is now skipped before any SQL instead of failing the read
+  ([MySQL](docs/features/database.md#mysql)).
 - **Maven Central releases ship an empty placeholder `-javadoc.jar` instead of generated Javadoc.** Central requires
   the file but not its content, and BootUI's public surface is its HTTP, MCP, and CLI contract rather than a Java API;
   `-sources.jar` files are still published for IDE navigation. This shrinks uploads and release build time.

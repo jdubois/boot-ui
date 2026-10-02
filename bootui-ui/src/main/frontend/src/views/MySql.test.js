@@ -77,7 +77,7 @@ describe('MySQL report lifecycle', () => {
     )
     expect(fetchMock).toHaveBeenCalledExactlyOnceWith('api/mysql', {})
     expect(wrapper.text()).toContain('No MySQL data yet')
-    expect(wrapper.text()).toContain('MySQL 8.4')
+    expect(wrapper.text()).toContain('MySQL 8.4 LTS and 9.7 LTS')
     expect(wrapper.text()).toContain('MariaDB is not supported')
   })
 

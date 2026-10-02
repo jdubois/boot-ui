@@ -260,8 +260,8 @@ onMounted(async () => {
           <i class="bi bi-database-check fs-2 text-muted" aria-hidden="true"></i>
           <h3 class="fs-6 mt-2">No MySQL data yet</h3>
           <p class="text-muted mb-0">
-            Run the MySQL read to inspect the configured server. MySQL 8.4 is the first tested server line; MariaDB is
-            not supported.
+            Run the MySQL read to inspect the configured server. MySQL 8.4 LTS and 9.7 LTS are the tested server lines;
+            MariaDB is not supported.
           </p>
           <p v-if="report.message" class="small text-muted mt-2 mb-0">{{ report.message }}</p>
         </div>

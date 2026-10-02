@@ -177,8 +177,8 @@ those fields so the same UI build renders the correct sidebar and status on each
 > returns the same busy message in-band, and passive reads continue serving the last completed report.
 
 **MySQL is implemented** through the same shared engine/report as MVC and WebFlux, using default or named **JDBC**
-datasources. Oracle MySQL 8.4 LTS is the tested server line; the Quarkus live fixture uses 8.4.6 with
-Connector/J 9.6.0 and Agroal 3.0.1, including custom-mount REST/MCP/CLI contracts and physical connection eviction.
+datasources. Oracle MySQL 8.4 LTS and 9.7 LTS are the tested server lines; the Quarkus live fixture runs on 8.4.6 and
+9.7.2 with Connector/J 9.6.0 and Agroal 3.0.1, including custom-mount REST/MCP/CLI contracts and physical connection eviction.
 The manifest requires Agroal/JDBC capability, classloading-safe Connector/J presence, and an active JDBC MySQL
 declaration (`db-kind=mysql` or a recognized JDBC URL, including supported wrapping/routing forms), without resolving
 a datasource bean. Unknown, MariaDB, and reactive-only declarations are unavailable;

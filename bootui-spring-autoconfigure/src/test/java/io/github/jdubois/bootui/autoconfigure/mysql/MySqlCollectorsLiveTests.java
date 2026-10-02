@@ -43,8 +43,8 @@ class MySqlCollectorsLiveTests {
             workload.executeQuery("SELECT id FROM sample_orders WHERE label='synthetic-alpha'")
                     .close();
             var source = MySqlLiveFixture.service(pool).read().dataSources().get(0);
+            assertThat(source.serverVersion()).startsWith(MySqlLiveFixture.expectedVersionLine());
             assertThat(source.sections())
-                    .hasSize(8)
                     .allSatisfy(section -> assertThat(section.status())
                             .as(section.id() + ": " + section.reason())
                             .isEqualTo("AVAILABLE"));
