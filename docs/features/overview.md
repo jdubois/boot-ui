@@ -367,8 +367,12 @@ dropped. The status is read only when you open it. **Clear recording** drops the
 after a confirmation, and keeps the counts, so drops and evictions stay visible. When the application restarts in the
 same JVM, as after a DevTools restart or a Quarkus live reload, BootUI keeps a summary of the run that ended, at most
 256 KB each, for the 5 most recent runs. **Previous runs** lists them with their requests, failures, and events, or says
-why none can be kept when BootUI itself is reloaded with the application. The journal is sized and scoped by the
-`bootui.runtime-journal.*` [properties](../PROPERTIES.md#runtime-journal).
+why none can be kept when BootUI itself is reloaded with the application. A summary keeps the run's counts and
+histograms per route, statement fingerprint, and exception group, and the edges its requests, jobs, and listeners
+observed, such as a route reading a table or calling a host. To keep the last run across a full JVM restart, set
+`bootui.runtime-journal.baseline-file`, for example to `target/bootui-baseline.bin`: the summary is written there
+when the run ends, and read back at the next start when the JVM keeps no previous run. The journal is sized and
+scoped by the `bootui.runtime-journal.*` [properties](../PROPERTIES.md#runtime-journal).
 
 **Recorded by** chooses where the feed comes from. **Default** follows `bootui.activity.feed-source`, which is the
 runtime journal unless set to `buffers`. **Runtime journal** renders the feed from the journal: every child nests under

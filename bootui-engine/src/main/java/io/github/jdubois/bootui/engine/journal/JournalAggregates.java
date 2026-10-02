@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -21,6 +22,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * The incremental aggregates observations read ({@code docs/PLAN-v2.md} §5.2), maintained by the journal's dispatcher
@@ -72,6 +75,8 @@ public final class JournalAggregates implements JournalListener {
 
     private static final int SOURCES = JournalSource.values().length;
 
+    private static final Logger log = Logger.getLogger(JournalAggregates.class.getName());
+
     private final CappedMap<Route> routes = new CappedMap<>(MAX_ROUTES, Route::new);
     private final CappedMap<Statement> statements = new CappedMap<>(MAX_FINGERPRINTS, Statement::new);
     private final CappedMap<ExceptionGroup> exceptionGroups =
@@ -104,6 +109,7 @@ public final class JournalAggregates implements JournalListener {
     private volatile Supplier<RouteTemplateResolver> declaredRoutes = RouteTemplateResolver::empty;
     private volatile RunHistory history;
     private volatile RunIdentity run;
+    private volatile RunBaselineFile baseline;
 
     /**
      * Installs the application's declared routes, which name a request's route when the framework recorded no
@@ -123,8 +129,21 @@ public final class JournalAggregates implements JournalListener {
      * run can be compared with it ({@code docs/PLAN-v2.md} §5.2, §5.8).
      */
     public void recordRunIn(RunHistory history, RunIdentity run) {
+        recordRunIn(history, run, null);
+    }
+
+    /**
+     * Keeps the summary of {@code run} in {@code history} when the journal closes, and writes it to {@code baseline}
+     * when it is set, after reading that file into {@code history} as the previous run if {@code history} keeps none
+     * ({@code docs/PLAN-v2.md} §5.8).
+     */
+    public void recordRunIn(RunHistory history, RunIdentity run, RunBaselineFile baseline) {
         this.history = history;
         this.run = run;
+        this.baseline = baseline;
+        if (history != null) {
+            history.loadBaseline(baseline);
+        }
     }
 
     @Override
@@ -132,7 +151,16 @@ public final class JournalAggregates implements JournalListener {
         RunHistory target = history;
         RunIdentity ended = run;
         if (target != null && ended != null) {
-            target.record(RunSummary.of(ended, snapshot(), System.currentTimeMillis()));
+            RunSummary summary = RunSummary.of(ended, snapshot(), System.currentTimeMillis());
+            target.record(summary);
+            RunBaselineFile file = baseline;
+            if (file != null) {
+                try {
+                    file.write(summary);
+                } catch (IOException | RuntimeException ex) {
+                    log.log(Level.WARNING, "BootUI could not write the baseline file " + file.path(), ex);
+                }
+            }
         }
     }
 

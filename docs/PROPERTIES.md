@@ -649,7 +649,10 @@ are recorded. The `resources` source measures each request's CPU time, allocated
 the collections that completed while it ran, summed over every thread its work ran on ([PLAN-v2.md](PLAN-v2.md)
 §5.11). The JVM does not measure virtual threads, so a request served on one reports its CPU time and allocated bytes
 as unavailable or partial, never as zero. Payloads hold no bind values, keys, message bodies, exception or log messages, or principals: a log event keeps its unformatted
-template only. Nothing is written to disk. The same keys and defaults apply on Spring and Quarkus.
+template only. Nothing is written to disk unless `bootui.runtime-journal.baseline-file` is set, and that file holds a run
+summary only: route templates, statement fingerprints, call sites, exception-group ids, thread families, observed
+edges, counts, and histograms, never principals, literals, SQL text, or values. The same keys and defaults apply on
+Spring and Quarkus.
 
 | Property                               | Default                                  | Description |
 | -------------------------------------- | ---------------------------------------- | ----------- |
@@ -658,6 +661,7 @@ template only. Nothing is written to disk. The same keys and defaults apply on S
 | `bootui.runtime-journal.max-bytes`     | The smaller of 32 MB and 5 % of the heap | Maximum memory the retained events may use, estimated per event, such as `16MB`. Whichever bound is reached first evicts the oldest routine events. |
 | `bootui.runtime-journal.queue-capacity` | `10000`                                 | Maximum number of events waiting to be recorded. The last 10 % admits only failed or slow events, so a burst drops routine events first. |
 | `bootui.runtime-journal.sources`       | Every source                             | Comma-separated sources to record: `http`, `sql`, `transaction`, `connection`, `exception`, `security`, `rest-client`, `cache`, `messaging`, `scheduled`, `log`, `mail`, `fault-tolerance`, `ai`, `gc`, and `resources`. An unknown name fails startup. |
+| `bootui.runtime-journal.baseline-file` | Unset                                    | File that keeps the last run's summary across a full JVM restart, such as `target/bootui-baseline.bin` or `build/bootui-baseline.bin`. Written atomically when a run ends, and read back at the next start as the previous run when the JVM keeps none; a file from another BootUI version or application is ignored and the reason logged. Relative to the working directory; its directory must exist, as it is never created. Unset writes and reads nothing. |
 | `bootui.runtime-insights.ai-token-threshold` | `8000`                                | Tokens of one model call above which Runtime Insights' AI usage by route reports the route from that call alone, rather than from three AI operations. Must be positive. |
 
 ### Resource correlation

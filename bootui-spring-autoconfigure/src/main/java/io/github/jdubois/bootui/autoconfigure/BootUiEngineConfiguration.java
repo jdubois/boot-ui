@@ -76,6 +76,7 @@ import io.github.jdubois.bootui.engine.hibernate.HibernateStatisticsService;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RunBaselineFile;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
@@ -218,7 +219,7 @@ public class BootUiEngineConfiguration {
     /**
      * The incremental aggregates of the runtime journal ({@code docs/PLAN-v2.md} §5.2), fed by its dispatcher, and the
      * run's resource track, fed by the resource sampler (§5.11). When the context closes, as before a DevTools restart,
-     * they keep the run's summary in the JVM's run history.
+     * they keep the run's summary in the JVM's run history, and in the baseline file when one is set (§5.8).
      */
     @Bean
     @ConditionalOnMissingBean
@@ -226,10 +227,16 @@ public class BootUiEngineConfiguration {
             RuntimeJournal journal,
             RunIdentity run,
             ObjectProvider<MappingProvider> mappingProvider,
-            BootUiProperties properties) {
+            BootUiProperties properties,
+            Environment environment) {
         JournalAggregates aggregates = new JournalAggregates();
         aggregates.setDeclaredRoutes(DeclaredRouteTemplates.caching(mappingProvider));
-        aggregates.recordRunIn(RunHistory.shared(), run);
+        aggregates.recordRunIn(
+                RunHistory.shared(),
+                run,
+                RunBaselineFile.of(
+                        properties.getRuntimeJournal().getBaselineFile(),
+                        environment.getProperty("spring.application.name", "application")));
         journal.addListener(aggregates);
         journal.startResourceSampler(properties.getResources().toSettings(), aggregates.resourceTrack());
         return aggregates;

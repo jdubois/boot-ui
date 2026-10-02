@@ -42,6 +42,7 @@ public final class RunHistory {
     private final int maxSummaryBytes;
     private final String unavailableReason;
     private final ArrayDeque<byte[]> runs = new ArrayDeque<>();
+    private volatile String baselineNote;
 
     RunHistory(int maxRuns, int maxSummaryBytes, String unavailableReason) {
         this.maxRuns = maxRuns;
@@ -86,6 +87,40 @@ public final class RunHistory {
         }
     }
 
+    /**
+     * Reads {@code baseline} as the previous run when this history keeps none, as after a full JVM restart or when
+     * BootUI is reloaded with the application ({@code docs/PLAN-v2.md} §5.8). Never throws: a file that cannot be used
+     * is ignored, and {@link #baselineNote()} says why.
+     */
+    public void loadBaseline(RunBaselineFile baseline) {
+        if (baseline == null) {
+            return;
+        }
+        synchronized (runs) {
+            if (!runs.isEmpty()) {
+                return;
+            }
+            RunBaselineFile.Read read = baseline.read();
+            if (read.summary() != null) {
+                record(read.summary());
+                baselineNote = "The previous run was read from the baseline file " + baseline.path() + ".";
+            } else {
+                baselineNote = read.ignoredReason();
+                if (read.ignoredReason() != null) {
+                    log.info(read.ignoredReason());
+                }
+            }
+        }
+    }
+
+    /**
+     * Whether the previous run came from the baseline file, or why that file was ignored, or {@code null} when no
+     * baseline file was read.
+     */
+    public String baselineNote() {
+        return baselineNote;
+    }
+
     /** The kept runs' headers, newest first, without decoding their aggregates. */
     public List<RunSummary.Header> headers() {
         List<RunSummary.Header> headers = new ArrayList<>();
@@ -121,6 +156,7 @@ public final class RunHistory {
     void clear() {
         synchronized (runs) {
             runs.clear();
+            baselineNote = null;
         }
     }
 

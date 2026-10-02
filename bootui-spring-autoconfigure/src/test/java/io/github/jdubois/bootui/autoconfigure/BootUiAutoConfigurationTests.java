@@ -37,6 +37,7 @@ import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RunBaselineFile;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalService;
@@ -178,6 +179,28 @@ class BootUiAutoConfigurationTests {
                     .contains(first.get().id())
                     .doesNotContain(context.getBean(RunIdentity.class).id());
         });
+    }
+
+    @Test
+    void closingTheContextWritesItsRunSummaryToTheBaselineFileWhenOneIsSet(@TempDir Path target) {
+        Path file = target.resolve("bootui-baseline.bin");
+        AtomicReference<RunIdentity> run = new AtomicReference<>();
+        runner.withPropertyValues(
+                        "bootui.enabled=ON",
+                        "spring.application.name=shop",
+                        "bootui.runtime-journal.baseline-file=" + file)
+                .run(context -> {
+                    run.set(context.getBean(RunIdentity.class));
+                    assertThat(file)
+                            .as("nothing is written before the run ends")
+                            .doesNotExist();
+                });
+
+        RunBaselineFile.Read read = new RunBaselineFile(file, "shop").read();
+        assertThat(read.ignoredReason()).isNull();
+        assertThat(read.summary().header().runId()).isEqualTo(run.get().id());
+        assertThat(new RunBaselineFile(file, "billing").read().ignoredReason())
+                .contains("written for the application 'shop'");
     }
 
     @Test

@@ -36,6 +36,7 @@ import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.hibernate.HibernateStatisticsService;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.RunBaselineFile;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
@@ -245,14 +246,23 @@ public class BootUiEngineProducer {
     /**
      * The incremental aggregates of the runtime journal ({@code docs/PLAN-v2.md} §5.2), which name a request's route
      * from the declared JAX-RS mappings, since Quarkus records no route template. When the application stops, as
-     * before a live reload, they keep the run's summary in the JVM's run history.
+     * before a live reload, they keep the run's summary in the JVM's run history, and in the baseline file when one is
+     * set ({@code docs/PLAN-v2.md} §5.8).
      */
     @Produces
     @Singleton
-    public JournalAggregates journalAggregates(Instance<MappingProvider> mappings, QuarkusApplicationInfo application) {
+    public JournalAggregates journalAggregates(
+            Instance<MappingProvider> mappings, QuarkusApplicationInfo application, Config config) {
         JournalAggregates aggregates = new JournalAggregates();
         aggregates.setDeclaredRoutes(DeclaredRouteTemplates.caching(mappings));
-        aggregates.recordRunIn(RunHistory.shared(), application.run());
+        aggregates.recordRunIn(
+                RunHistory.shared(),
+                application.run(),
+                RunBaselineFile.of(
+                        config.getOptionalValue("bootui.runtime-journal.baseline-file", String.class)
+                                .orElse(null),
+                        config.getOptionalValue("quarkus.application.name", String.class)
+                                .orElse("application")));
         return aggregates;
     }
 

@@ -2673,12 +2673,28 @@ public class BootUiProperties {
          */
         private List<String> sources;
 
+        /**
+         * File that keeps the summary of the last run across a full JVM restart, such as
+         * {@code target/bootui-baseline.bin}: written when a run ends and read at the next start when this JVM keeps no
+         * previous run. It holds route templates, statement fingerprints, edges, counts, and histograms only. Relative
+         * to the working directory; its directory must exist. Unset writes and reads nothing.
+         */
+        private String baselineFile;
+
         public boolean isEnabled() {
             return enabled;
         }
 
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
+        }
+
+        public String getBaselineFile() {
+            return baselineFile;
+        }
+
+        public void setBaselineFile(String baselineFile) {
+            this.baselineFile = baselineFile;
         }
 
         public int getMaxEvents() {
