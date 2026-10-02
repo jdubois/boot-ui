@@ -419,7 +419,7 @@ public final class RestClientTraceRecorder implements IdleReclaimable, RuntimeEv
                 host,
                 path,
                 status,
-                durationMillis,
+                Math.max(0, durationMillis) * 1_000_000,
                 success,
                 errorMessage,
                 clientType,
@@ -552,6 +552,43 @@ public final class RestClientTraceRecorder implements IdleReclaimable, RuntimeEv
             String traceId,
             CorrelationContext caller,
             ThreadKind threadKind) {
+        recordNanos(
+                method,
+                uri,
+                host,
+                path,
+                status,
+                Math.max(0, durationMillis) * 1_000_000,
+                success,
+                errorMessage,
+                clientType,
+                headers,
+                thread,
+                traceId,
+                caller,
+                threadKind);
+    }
+
+    /**
+     * Records one outbound call timed in nanoseconds, with the trace id and BootUI correlation captured explicitly at
+     * the interception boundary: the panel keeps milliseconds, and the runtime journal the nanoseconds
+     * ({@code docs/PLAN-v2.md} §5.2). A {@code null} thread kind is classified on the recording thread.
+     */
+    public void recordNanos(
+            String method,
+            String uri,
+            String host,
+            String path,
+            Integer status,
+            long durationNanos,
+            boolean success,
+            String errorMessage,
+            String clientType,
+            Map<String, String> headers,
+            String thread,
+            String traceId,
+            CorrelationContext caller,
+            ThreadKind threadKind) {
         if (!shouldRecord()) {
             return;
         }
@@ -561,7 +598,7 @@ public final class RestClientTraceRecorder implements IdleReclaimable, RuntimeEv
                 host,
                 path,
                 status,
-                durationMillis,
+                durationNanos,
                 success,
                 errorMessage,
                 clientType,
@@ -591,7 +628,7 @@ public final class RestClientTraceRecorder implements IdleReclaimable, RuntimeEv
             String host,
             String path,
             Integer status,
-            long durationMillis,
+            long durationNanos,
             boolean success,
             String errorMessage,
             String clientType,
@@ -600,14 +637,18 @@ public final class RestClientTraceRecorder implements IdleReclaimable, RuntimeEv
             String traceId,
             CorrelationContext caller,
             ThreadKind threadKind) {
-        ApplicationFrames frames = captureCallSite ? ApplicationFrames.capture() : null;
+        boolean panel = capturesForPanel();
+        boolean toJournal = journal.records(JournalSource.REST_CLIENT);
+        // The stack is walked only for what keeps it: the panel's call sites, or the journal's application frames.
+        ApplicationFrames frames =
+                ApplicationFrames.wanted(panel, captureCallSite, toJournal) ? ApplicationFrames.capture() : null;
         long timestamp = System.currentTimeMillis();
-        long duration = Math.max(0, durationMillis);
+        long nanos = Math.max(0, durationNanos);
+        long duration = nanos / 1_000_000;
         String maskedUri = truncate(UriMasking.maskUserInfo(uri), maxUriLength);
         String truncatedPath = truncate(path, maxUriLength);
         ThreadKind kind = threadKind == null ? threadKinds.current() : threadKind;
         boolean failedOrSlow = isFailedOrSlow(success, status, isSlow(duration));
-        boolean panel = capturesForPanel();
         if (panel) {
             CapturedCall entry = new CapturedCall(
                     sequence.incrementAndGet(),
@@ -624,32 +665,36 @@ public final class RestClientTraceRecorder implements IdleReclaimable, RuntimeEv
                     captureHeaders ? truncateHeaderValues(headers) : Map.of(),
                     thread,
                     traceId,
-                    frames == null ? null : frames.callSite(),
+                    captureCallSite && frames != null ? frames.callSite() : null,
                     caller.requestId(),
                     caller.executionId(),
                     kind.name());
             buffer.add(entry, failedOrSlow);
         }
-        journal.offer(new RuntimeEvent(
-                JournalSource.REST_CLIENT,
-                timestamp,
-                duration * 1_000_000,
-                caller.requestId(),
-                caller.executionId(),
-                traceId,
-                caller.spanId(),
-                thread,
-                kind,
-                failedOrSlow,
-                new RestClientPayload(
-                        method,
-                        RestClientAuthority.of(host, maskedUri),
-                        truncatedPath,
-                        status,
-                        clientType,
-                        !success,
-                        frames,
-                        System.nanoTime())));
+        if (toJournal) {
+            try {
+                journal.offer(RuntimeEvent.of(
+                        JournalSource.REST_CLIENT,
+                        RuntimeEvent.startMillis(timestamp, nanos),
+                        nanos,
+                        caller,
+                        traceId,
+                        thread,
+                        kind,
+                        failedOrSlow,
+                        new RestClientPayload(
+                                method,
+                                RestClientAuthority.of(host, maskedUri),
+                                truncatedPath,
+                                status,
+                                clientType,
+                                !success,
+                                frames,
+                                System.nanoTime())));
+            } catch (RuntimeException ex) {
+                // Publishing never disturbs the call it observes.
+            }
+        }
         if (panel) {
             totalCaptured.incrementAndGet();
             notifyListeners();

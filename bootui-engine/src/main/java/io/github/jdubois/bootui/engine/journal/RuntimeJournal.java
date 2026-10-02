@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.engine.resources.GcEventSource;
 import io.github.jdubois.bootui.engine.resources.ResourceSampler;
 import io.github.jdubois.bootui.engine.resources.ResourceSettings;
 import io.github.jdubois.bootui.engine.resources.ResourceTrack;
+import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.ThreadKindClassifier;
@@ -244,7 +245,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
             for (RuntimeEvent offered : batch) {
                 RuntimeEvent event = interned(offered);
                 long sequence = lastSequence.get() + 1;
-                JournalEntry entry = new JournalEntry(sequence, event, event.estimatedBytes());
+                JournalEntry entry = new JournalEntry(sequence, event, event.estimatedBytes(dictionary));
                 ring.add(entry);
                 lastSequence.set(sequence);
                 entries.add(entry);
@@ -353,6 +354,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
      */
     public void clear() {
         ring.clear();
+        SqlShapes.clear();
     }
 
     public JournalStatus status() {
@@ -391,6 +393,8 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
             return;
         }
         running = false;
+        // The next run starts with its own statements (docs/PLAN-v2.md §5.4).
+        SqlShapes.clear();
         synchronized (this) {
             if (gcSource != null) {
                 gcSource.close();

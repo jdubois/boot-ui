@@ -36,9 +36,18 @@ public record GcPayload(
                 heapAfterBytes);
     }
 
-    /** Its numbers and references; the collector, action, and cause are a handful of strings the dictionary shares. */
+    /** Its fixed part and its strings, each counted as the payload's own. */
     @Override
     public int estimatedBytes() {
-        return 48;
+        return estimatedBytes(null);
+    }
+
+    /** Its fixed part, with each string {@code dictionary} shares counted as a reference. */
+    @Override
+    public int estimatedBytes(JournalDictionary dictionary) {
+        return 40
+                + JournalDictionary.retained(dictionary, collector)
+                + JournalDictionary.retained(dictionary, action)
+                + JournalDictionary.retained(dictionary, cause);
     }
 }

@@ -12,7 +12,7 @@ import io.github.jdubois.bootui.engine.journal.ScheduledPayload;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
-import io.github.jdubois.bootui.engine.sqltrace.SqlTables;
+import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -145,7 +145,7 @@ public final class RuntimeModelProjection {
         Object payload = event.payload();
         if (payload instanceof SqlPayload sql) {
             EdgeType access = isWrite(sql.sql()) ? EdgeType.WRITES : EdgeType.READS;
-            for (String table : SqlTables.of(sql.sql())) {
+            for (String table : SqlShapes.tables(sql.sql())) {
                 builder.observe(owner, access, builder.node(NodeType.TABLE, table), at);
             }
         } else if (payload instanceof CachePayload cache) {

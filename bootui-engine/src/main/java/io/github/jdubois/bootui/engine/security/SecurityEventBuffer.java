@@ -1,10 +1,9 @@
 package io.github.jdubois.bootui.engine.security;
 
 import io.github.jdubois.bootui.engine.journal.JournalSource;
-import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
-import io.github.jdubois.bootui.engine.journal.SecurityPayload;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -51,6 +50,14 @@ public final class SecurityEventBuffer implements IdleReclaimable, RuntimeEventP
      * docs/PLAN-v2.md} §5.2).
      */
     public void record(CapturedSecurityEvent event) {
+        record(event, event == null ? null : CorrelationContext.forRequest(event.requestId()));
+    }
+
+    /**
+     * Records a captured event observed under {@code context}, the correlation current where the adapter observed it,
+     * so its journal event carries the request, execution, and trace that context names.
+     */
+    public void record(CapturedSecurityEvent event, CorrelationContext context) {
         if (event == null) {
             return;
         }
@@ -66,20 +73,8 @@ public final class SecurityEventBuffer implements IdleReclaimable, RuntimeEventP
                 entries.addLast(event);
             }
         }
-        journal.offer(new RuntimeEvent(
-                JournalSource.SECURITY,
-                event.timestamp() == null
-                        ? System.currentTimeMillis()
-                        : event.timestamp().toEpochMilli(),
-                -1,
-                event.requestId(),
-                null,
-                event.traceId(),
-                null,
-                Thread.currentThread().getName(),
-                null,
-                SecurityPayload.isFailure(event.type()),
-                new SecurityPayload(event.type())));
+        CorrelationContext correlation = context == null ? CorrelationContext.forRequest(event.requestId()) : context;
+        SecurityJournal.publish(journal, event.type(), event.timestamp(), correlation, event.traceId());
         if (retain) {
             notifyListeners();
         }

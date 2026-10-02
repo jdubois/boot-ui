@@ -40,7 +40,7 @@ class RequestJournalProfilesTests {
         offer(child(
                 "r1",
                 JournalSource.SQL,
-                1_012,
+                1_008,
                 4_000_000,
                 new SqlPayload("select * from orders o join lines l on l.o = o.id", null, "orders", false)));
         offer(child(
@@ -61,7 +61,7 @@ class RequestJournalProfilesTests {
         offer(child(
                 "r1",
                 JournalSource.REST_CLIENT,
-                1_030,
+                1_025,
                 5_000_000,
                 new RestClientPayload("GET", "pricing:8443", "/p", 200, "RestClient", false)));
         offer(child(
@@ -94,7 +94,7 @@ class RequestJournalProfilesTests {
         assertThat(profile.status()).isEqualTo(201);
         assertThat(profile.timeline())
                 .extracting(RequestTimelineItemDto::source, RequestTimelineItemDto::offsetMillis)
-                .as("SQL and REST client calls start their duration before their stamp")
+                .as("every source stamps when its work started, so the timeline places each item at its stamp")
                 .containsExactly(
                         tuple("transaction", 1L),
                         tuple("connection", 2L),

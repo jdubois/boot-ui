@@ -6,7 +6,7 @@ import io.github.jdubois.bootui.engine.resources.ResourceTrack;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
-import io.github.jdubois.bootui.engine.sqltrace.SqlStatementNormalizer;
+import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -152,7 +152,7 @@ public final class JournalAggregates implements JournalListener {
             children.add(event);
         }
         if (payload instanceof SqlPayload sql) {
-            String fingerprint = SqlStatementNormalizer.fingerprintOf(sql.sql());
+            String fingerprint = SqlShapes.fingerprint(sql.sql());
             statements.get(fingerprint).add(event, sql);
             if (children != null) {
                 children.statement(fingerprint);

@@ -13,11 +13,25 @@ public record MessagingPayload(String broker, boolean sent, String destination, 
         this(broker, sent, destination, failed, null);
     }
 
+    /** This message with its broker and destination replaced by the run's shared copies. */
+    @Override
+    public RuntimeEventPayload interned(JournalDictionary dictionary) {
+        return new MessagingPayload(
+                dictionary.shared(broker), sent, dictionary.shared(destination), failed, linkedTraceId);
+    }
+
+    /** Its fixed part and its strings, each counted as the payload's own. */
     @Override
     public int estimatedBytes() {
+        return estimatedBytes(null);
+    }
+
+    /** Its fixed part, with each string {@code dictionary} shares counted as a reference. */
+    @Override
+    public int estimatedBytes(JournalDictionary dictionary) {
         return 16
-                + RuntimeEvent.stringBytes(broker)
-                + RuntimeEvent.stringBytes(destination)
-                + RuntimeEvent.stringBytes(linkedTraceId);
+                + JournalDictionary.retained(dictionary, broker)
+                + JournalDictionary.retained(dictionary, destination)
+                + JournalDictionary.retained(dictionary, linkedTraceId);
     }
 }

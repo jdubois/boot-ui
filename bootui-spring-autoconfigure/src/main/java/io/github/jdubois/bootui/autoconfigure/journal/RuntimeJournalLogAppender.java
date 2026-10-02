@@ -11,7 +11,6 @@ import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.LogPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
-import io.github.jdubois.bootui.spi.CorrelationContext;
 import org.slf4j.ILoggerFactory;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.DisposableBean;
@@ -64,15 +63,11 @@ public final class RuntimeJournalLogAppender extends AppenderBase<ILoggingEvent>
         }
         try {
             IThrowableProxy throwable = event.getThrowableProxy();
-            CorrelationContext context = BootUiCorrelation.current();
-            journal.offer(new RuntimeEvent(
+            journal.offer(RuntimeEvent.of(
                     JournalSource.LOG,
                     event.getTimeStamp(),
                     -1,
-                    context.requestId(),
-                    context.executionId(),
-                    context.traceId(),
-                    context.spanId(),
+                    BootUiCorrelation.current(),
                     event.getThreadName(),
                     null,
                     event.getLevel().isGreaterOrEqual(Level.ERROR),

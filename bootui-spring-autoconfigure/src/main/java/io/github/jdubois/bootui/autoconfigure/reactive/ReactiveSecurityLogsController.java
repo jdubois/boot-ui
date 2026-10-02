@@ -5,15 +5,12 @@ import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIdStamps;
-import io.github.jdubois.bootui.engine.journal.JournalSource;
-import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
-import io.github.jdubois.bootui.engine.journal.SecurityPayload;
 import io.github.jdubois.bootui.engine.security.CapturedSecurityEvent;
+import io.github.jdubois.bootui.engine.security.SecurityJournal;
 import io.github.jdubois.bootui.engine.security.SecurityLogsService;
 import io.github.jdubois.bootui.engine.support.BlankStrings;
-import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.time.format.DateTimeParseException;
 import java.util.List;
@@ -193,21 +190,7 @@ public class ReactiveSecurityLogsController
         if (event == null) {
             return;
         }
-        CorrelationContext context = BootUiCorrelation.current();
-        journal.offer(new RuntimeEvent(
-                JournalSource.SECURITY,
-                event.getTimestamp() == null
-                        ? System.currentTimeMillis()
-                        : event.getTimestamp().toEpochMilli(),
-                -1,
-                context.requestId(),
-                context.executionId(),
-                context.traceId(),
-                context.spanId(),
-                Thread.currentThread().getName(),
-                null,
-                SecurityPayload.isFailure(event.getType()),
-                new SecurityPayload(event.getType())));
+        SecurityJournal.publish(journal, event.getType(), event.getTimestamp(), BootUiCorrelation.current(), null);
     }
 
     /**

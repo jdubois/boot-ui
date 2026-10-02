@@ -16,8 +16,21 @@ public record ConnectionPayload(String dataSource, long waitNanos, int statement
         this(dataSource, waitNanos, statements, -1);
     }
 
+    /** This connection with its data source replaced by the run's shared copy. */
+    @Override
+    public RuntimeEventPayload interned(JournalDictionary dictionary) {
+        return new ConnectionPayload(dictionary.shared(dataSource), waitNanos, statements, checkoutNanos);
+    }
+
+    /** Its fixed part and its strings, each counted as the payload's own. */
     @Override
     public int estimatedBytes() {
-        return 24 + RuntimeEvent.stringBytes(dataSource);
+        return estimatedBytes(null);
+    }
+
+    /** Its fixed part, with each string {@code dictionary} shares counted as a reference. */
+    @Override
+    public int estimatedBytes(JournalDictionary dictionary) {
+        return 24 + JournalDictionary.retained(dictionary, dataSource);
     }
 }

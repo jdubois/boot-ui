@@ -8,7 +8,6 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
-import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.text.MessageFormat;
 import java.util.logging.Handler;
 import java.util.logging.LogRecord;
@@ -68,16 +67,12 @@ public final class QuarkusLogTailHandler extends Handler {
 
     private void publish(LogRecord record, String logger, String level) {
         try {
-            CorrelationContext context = QuarkusRequestCorrelation.current();
             Throwable thrown = record.getThrown();
-            journal.offer(new RuntimeEvent(
+            journal.offer(RuntimeEvent.of(
                     JournalSource.LOG,
                     record.getMillis(),
                     -1,
-                    context.requestId(),
-                    context.executionId(),
-                    context.traceId(),
-                    context.spanId(),
+                    QuarkusRequestCorrelation.current(),
                     Thread.currentThread().getName(),
                     null,
                     "ERROR".equals(level) || "FATAL".equals(level),

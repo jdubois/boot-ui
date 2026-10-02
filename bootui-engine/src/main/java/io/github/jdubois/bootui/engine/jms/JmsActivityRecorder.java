@@ -171,7 +171,7 @@ public final class JmsActivityRecorder implements RuntimeEventPublisher {
                 Direction.PRODUCE,
                 destination,
                 messageId,
-                durationMillis,
+                RuntimeEvent.millisToNanos(durationMillis),
                 success,
                 failureType,
                 null,
@@ -191,7 +191,49 @@ public final class JmsActivityRecorder implements RuntimeEventPublisher {
                 Direction.CONSUME,
                 destination,
                 messageId,
-                durationMillis,
+                RuntimeEvent.millisToNanos(durationMillis),
+                success,
+                failureType,
+                subscriptionName,
+                listenerId,
+                correlation.current());
+    }
+
+    /**
+     * Records a send timed in nanoseconds: the panel keeps milliseconds, and the runtime journal the nanoseconds
+     * ({@code docs/PLAN-v2.md} §5.2).
+     */
+    public void recordProduceNanos(
+            String destination, String messageId, Long durationNanos, boolean success, String failureType) {
+        record(
+                Direction.PRODUCE,
+                destination,
+                messageId,
+                durationNanos,
+                success,
+                failureType,
+                null,
+                null,
+                correlation.current());
+    }
+
+    /**
+     * Records a consumed message timed in nanoseconds: the panel keeps milliseconds, and the runtime journal the
+     * nanoseconds ({@code docs/PLAN-v2.md} §5.2).
+     */
+    public void recordConsumeNanos(
+            String destination,
+            String messageId,
+            Long durationNanos,
+            boolean success,
+            String failureType,
+            String subscriptionName,
+            String listenerId) {
+        record(
+                Direction.CONSUME,
+                destination,
+                messageId,
+                durationNanos,
                 success,
                 failureType,
                 subscriptionName,
@@ -203,7 +245,7 @@ public final class JmsActivityRecorder implements RuntimeEventPublisher {
             Direction direction,
             String destination,
             String messageId,
-            Long durationMillis,
+            Long durationNanos,
             boolean success,
             String failureType,
             String subscriptionName,
@@ -212,13 +254,14 @@ public final class JmsActivityRecorder implements RuntimeEventPublisher {
         if (!enabled) {
             return;
         }
+        long nanos = durationNanos == null || durationNanos < 0 ? -1 : durationNanos;
         CapturedMessage entry = new CapturedMessage(
                 sequence.incrementAndGet(),
                 System.currentTimeMillis(),
                 direction,
                 truncate(destination),
                 captureMessageId ? hashMessageId(messageId, maxMessageIdLength) : null,
-                durationMillis == null ? null : Math.max(0, durationMillis),
+                nanos < 0 ? null : nanos / 1_000_000,
                 success,
                 success ? null : truncate(failureType),
                 truncate(subscriptionName),
@@ -232,19 +275,20 @@ public final class JmsActivityRecorder implements RuntimeEventPublisher {
             }
         }
         boolean sent = direction == Direction.PRODUCE;
-        journal.offer(new RuntimeEvent(
-                JournalSource.MESSAGING,
-                entry.timestamp(),
-                entry.durationMillis() == null ? -1 : entry.durationMillis() * 1_000_000,
-                context.requestId(),
-                context.executionId(),
-                context.traceId(),
-                context.spanId(),
-                sent ? null : Thread.currentThread().getName(),
-                null,
-                !success,
-                new MessagingPayload(
-                        "jms", sent, entry.destination(), !success, sent ? null : context.linkedTraceId())));
+        try {
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.MESSAGING,
+                    RuntimeEvent.startMillis(entry.timestamp(), nanos),
+                    nanos,
+                    context,
+                    sent ? null : Thread.currentThread().getName(),
+                    null,
+                    !success,
+                    new MessagingPayload(
+                            "jms", sent, entry.destination(), !success, sent ? null : context.linkedTraceId())));
+        } catch (RuntimeException ex) {
+            // Publishing never disturbs the message it observes.
+        }
         totalCaptured.incrementAndGet();
         notifyListeners();
     }

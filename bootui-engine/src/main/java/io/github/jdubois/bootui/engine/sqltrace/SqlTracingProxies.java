@@ -432,12 +432,12 @@ public final class SqlTracingProxies {
                 if (checkout != null) {
                     checkout.statementExecuted();
                 }
-                recorder.record(
+                recorder.recordNanos(
                         statementType,
                         category,
                         sql,
                         preparedSql != null && recorder.capturesForPanel() ? orderedParameters() : List.of(),
-                        micros(start),
+                        nanos(start),
                         success,
                         error,
                         affected,
@@ -466,12 +466,12 @@ public final class SqlTracingProxies {
                 if (checkout != null) {
                     checkout.statementExecuted();
                 }
-                recorder.record(
+                recorder.recordNanos(
                         statementType,
                         category,
                         sql,
                         preparedSql != null && recorder.capturesForPanel() ? batchParameterPreview() : List.of(),
-                        micros(start),
+                        nanos(start),
                         success,
                         error,
                         affected,
@@ -555,12 +555,13 @@ public final class SqlTracingProxies {
         }
 
         /**
-         * Elapsed time in microseconds. Deliberately not milliseconds: an ordinary primary-key {@code SELECT}
+         * Elapsed time in nanoseconds. Deliberately not milliseconds: an ordinary primary-key {@code SELECT}
          * against a local database finishes in a few hundred microseconds, so truncating here would record
-         * almost every execution as {@code 0} and leave every downstream aggregate with nothing to rank.
+         * almost every execution as {@code 0} and leave every downstream aggregate with nothing to rank. The panel
+         * keeps microseconds, and the runtime journal the nanoseconds.
          */
-        private long micros(long startNanos) {
-            return (System.nanoTime() - startNanos) / 1_000L;
+        private long nanos(long startNanos) {
+            return Math.max(0L, System.nanoTime() - startNanos);
         }
     }
 

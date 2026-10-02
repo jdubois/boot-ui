@@ -27,8 +27,21 @@ public record TransactionPayload(String method, boolean rolledBack, boolean nest
         return !savepoint;
     }
 
+    /** This transaction with its method replaced by the run's shared copy. */
+    @Override
+    public RuntimeEventPayload interned(JournalDictionary dictionary) {
+        return new TransactionPayload(dictionary.shared(method), rolledBack, nested, savepoint, startNanos);
+    }
+
+    /** Its fixed part and its strings, each counted as the payload's own. */
     @Override
     public int estimatedBytes() {
-        return 24 + RuntimeEvent.stringBytes(method);
+        return estimatedBytes(null);
+    }
+
+    /** Its fixed part, with each string {@code dictionary} shares counted as a reference. */
+    @Override
+    public int estimatedBytes(JournalDictionary dictionary) {
+        return 24 + JournalDictionary.retained(dictionary, method);
     }
 }

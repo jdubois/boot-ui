@@ -243,18 +243,20 @@ public final class ExceptionStore implements RuntimeEventPublisher {
             group.count++;
             group.addOccurrence(occurrence, maxOccurrencesPerGroup);
         }
-        journal.offer(new RuntimeEvent(
-                JournalSource.EXCEPTION,
-                now,
-                -1,
-                context.requestId(),
-                context.executionId(),
-                traceId,
-                context.spanId(),
-                thread,
-                null,
-                true,
-                new ExceptionPayload(fingerprint, className, signature(className, safeFrames))));
+        try {
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.EXCEPTION,
+                    now,
+                    -1,
+                    context,
+                    traceId,
+                    thread,
+                    null,
+                    true,
+                    new ExceptionPayload(fingerprint, className, signature(className, safeFrames))));
+        } catch (RuntimeException ex) {
+            // Publishing never disturbs the exception's capture.
+        }
         notifyListeners();
         spanEnricher.onException(className);
     }

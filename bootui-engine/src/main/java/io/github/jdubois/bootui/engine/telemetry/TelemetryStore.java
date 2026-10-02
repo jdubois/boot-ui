@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -135,14 +136,12 @@ public class TelemetryStore implements RuntimeEventPublisher {
                 return;
             }
             String model = AiSpanRecognizer.responseModel(span);
-            sink.offer(new RuntimeEvent(
+            // An AI span belongs to no BootUI request or execution: its trace links it to its request.
+            sink.offer(RuntimeEvent.of(
                     JournalSource.AI,
                     span.startEpochNanos() / 1_000_000,
                     span.durationNanos(),
-                    null,
-                    null,
-                    span.traceId(),
-                    span.spanId(),
+                    CorrelationContext.NONE.withTrace(span.traceId(), span.spanId()),
                     null,
                     null,
                     span.isError(),

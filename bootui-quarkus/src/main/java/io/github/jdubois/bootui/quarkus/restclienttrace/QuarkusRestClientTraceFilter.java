@@ -13,7 +13,6 @@ import jakarta.ws.rs.client.ClientResponseContext;
 import jakarta.ws.rs.client.ClientResponseFilter;
 import java.net.URI;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import org.jboss.logging.Logger;
 
 /**
@@ -57,19 +56,19 @@ public final class QuarkusRestClientTraceFilter implements ClientRequestFilter, 
     public void filter(ClientRequestContext requestContext, ClientResponseContext responseContext) {
         try {
             RequestCapture capture = requestCapture(requestContext.getProperty(CAPTURE_PROPERTY));
-            long durationMillis = elapsedMillis(capture);
+            long durationNanos = elapsedNanos(capture);
             CapturedUri uri = sanitize(requestContext.getUri());
             int status = responseContext.getStatus();
             boolean responseReceived = status > 0;
             // Any received HTTP response is a successful transport exchange. Quarkus reports pre-response
             // transport failures to client filters with status 0.
-            recorder.record(
+            recorder.recordNanos(
                     requestContext.getMethod(),
                     uri.value(),
                     uri.host(),
                     uri.path(),
                     responseReceived ? status : null,
-                    durationMillis,
+                    durationNanos,
                     responseReceived,
                     responseReceived ? null : "REST client transport failed before receiving an HTTP response",
                     CLIENT_TYPE,
@@ -90,8 +89,8 @@ public final class QuarkusRestClientTraceFilter implements ClientRequestFilter, 
                 : new RequestCapture(System.nanoTime(), null, CorrelationContext.NONE, null);
     }
 
-    private static long elapsedMillis(RequestCapture capture) {
-        return Math.max(0L, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - capture.startNanos()));
+    private static long elapsedNanos(RequestCapture capture) {
+        return Math.max(0L, System.nanoTime() - capture.startNanos());
     }
 
     /**

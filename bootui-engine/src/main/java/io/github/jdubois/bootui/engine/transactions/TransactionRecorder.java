@@ -251,24 +251,25 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
             }
             totalCaptured.incrementAndGet();
         }
-        CorrelationContext context = transaction.context();
-        journal.offer(new RuntimeEvent(
-                JournalSource.TRANSACTION,
-                transaction.startTimestamp(),
-                System.nanoTime() - transaction.startNanos(),
-                context.requestId(),
-                context.executionId(),
-                transaction.traceId() != null ? transaction.traceId() : context.traceId(),
-                context.spanId(),
-                transaction.thread(),
-                null,
-                status != Status.COMMITTED || isSlow(duration),
-                new TransactionPayload(
-                        transaction.methodName(),
-                        status == Status.ROLLED_BACK,
-                        transaction.parentId() != null,
-                        transaction.savepoint(),
-                        transaction.startNanos())));
+        try {
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.TRANSACTION,
+                    transaction.startTimestamp(),
+                    System.nanoTime() - transaction.startNanos(),
+                    transaction.context(),
+                    transaction.traceId(),
+                    transaction.thread(),
+                    null,
+                    status != Status.COMMITTED || isSlow(duration),
+                    new TransactionPayload(
+                            transaction.methodName(),
+                            status == Status.ROLLED_BACK,
+                            transaction.parentId() != null,
+                            transaction.savepoint(),
+                            transaction.startNanos())));
+        } catch (RuntimeException ex) {
+            // Publishing never disturbs the transaction it observes.
+        }
         if (transaction.panel()) {
             notifyListeners();
         }

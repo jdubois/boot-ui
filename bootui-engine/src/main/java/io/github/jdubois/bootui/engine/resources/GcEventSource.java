@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.engine.memory.GcCollectorKinds;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryPoolMXBean;
@@ -115,14 +116,12 @@ public final class GcEventSource implements AutoCloseable {
             long durationMillis,
             long heapBeforeBytes,
             long heapAfterBytes) {
-        return new RuntimeEvent(
+        // The JVM reports a collection's start and duration in whole milliseconds, and no request owns it.
+        return RuntimeEvent.of(
                 JournalSource.GC,
                 startEpochMillis,
-                Math.max(0, durationMillis) * 1_000_000L,
-                null,
-                null,
-                null,
-                null,
+                RuntimeEvent.millisToNanos(durationMillis),
+                CorrelationContext.NONE,
                 null,
                 null,
                 false,

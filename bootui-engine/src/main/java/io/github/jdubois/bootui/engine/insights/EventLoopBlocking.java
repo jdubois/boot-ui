@@ -3,7 +3,7 @@ package io.github.jdubois.bootui.engine.insights;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
-import io.github.jdubois.bootui.engine.sqltrace.SqlStatementNormalizer;
+import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import io.github.jdubois.bootui.engine.web.CorrelationTier;
 import io.github.jdubois.bootui.spi.ThreadKind;
 import java.util.ArrayList;
@@ -64,9 +64,7 @@ public final class EventLoopBlocking implements Observation {
                 Map<String, Integer> perRequest = new LinkedHashMap<>();
                 for (RuntimeEvent event : request.children(JournalSource.SQL)) {
                     if (event.threadKind() == ThreadKind.EVENT_LOOP && event.payload() instanceof SqlPayload sql) {
-                        String site = sql.callSite() != null
-                                ? sql.callSite()
-                                : SqlStatementNormalizer.fingerprintOf(sql.sql());
+                        String site = sql.callSite() != null ? sql.callSite() : SqlShapes.fingerprint(sql.sql());
                         sites.computeIfAbsent(site, s -> new Site()).add(request, event, sql);
                         perRequest.merge(site, 1, Integer::sum);
                     }
@@ -116,7 +114,7 @@ public final class EventLoopBlocking implements Observation {
             rows.add(List.of(
                     request.requestId(),
                     event.thread() == null ? "" : event.thread(),
-                    InsightText.quoted(SqlStatementNormalizer.fingerprintOf(sql.sql())),
+                    InsightText.quoted(SqlShapes.fingerprint(sql.sql())),
                     InsightText.millis(Math.max(0, event.durationNanos()))));
         }
     }

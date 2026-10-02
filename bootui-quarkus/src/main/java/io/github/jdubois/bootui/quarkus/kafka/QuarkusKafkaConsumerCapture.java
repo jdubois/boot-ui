@@ -110,14 +110,14 @@ public class QuarkusKafkaConsumerCapture implements IncomingInterceptor {
                 return;
             }
             CaptureStart start = message.getMetadata(CaptureStart.class).orElse(null);
-            Long durationMillis = start == null ? null : Math.max(0L, (System.nanoTime() - start.nanos()) / 1_000_000L);
+            Long durationNanos = start == null ? null : Math.max(0L, System.nanoTime() - start.nanos());
             CorrelationContext execution = start == null ? CorrelationContext.NONE : start.execution();
-            recorder.recordConsume(
+            recorder.recordConsumeNanos(
                     metadata.getTopic(),
                     metadata.getPartition(),
                     metadata.getOffset(),
                     keyOf(metadata.getKey()),
-                    durationMillis,
+                    durationNanos,
                     success,
                     errorMessage,
                     null, // IncomingKafkaRecordMetadata exposes no consumer group id, so leave it null

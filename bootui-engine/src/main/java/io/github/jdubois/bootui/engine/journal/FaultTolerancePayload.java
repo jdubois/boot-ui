@@ -40,8 +40,21 @@ public record FaultTolerancePayload(
                 protective);
     }
 
+    /** Its fixed part and its strings, each counted as the payload's own. */
     @Override
     public int estimatedBytes() {
-        return 48;
+        return estimatedBytes(null);
+    }
+
+    /** Its fixed part, with each string {@code dictionary} shares counted as a reference. */
+    @Override
+    public int estimatedBytes(JournalDictionary dictionary) {
+        return 40
+                + JournalDictionary.retained(dictionary, policy)
+                + JournalDictionary.retained(dictionary, policyType)
+                + JournalDictionary.retained(dictionary, target)
+                + JournalDictionary.retained(dictionary, outcome)
+                + JournalDictionary.retained(dictionary, state)
+                + JournalDictionary.retained(dictionary, failureCategory);
     }
 }

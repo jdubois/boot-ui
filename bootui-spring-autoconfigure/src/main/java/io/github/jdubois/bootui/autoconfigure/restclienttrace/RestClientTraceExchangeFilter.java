@@ -43,8 +43,8 @@ public class RestClientTraceExchangeFilter implements ExchangeFilterFunction {
         Caller caller = caller();
         return next.exchange(request)
                 .doOnNext(
-                        response -> recordSafely(request, elapsedMillis(start), statusOf(response), true, null, caller))
-                .doOnError(ex -> recordSafely(request, elapsedMillis(start), null, false, ex.getMessage(), caller));
+                        response -> recordSafely(request, elapsedNanos(start), statusOf(response), true, null, caller))
+                .doOnError(ex -> recordSafely(request, elapsedNanos(start), null, false, ex.getMessage(), caller));
     }
 
     private Caller caller() {
@@ -65,20 +65,20 @@ public class RestClientTraceExchangeFilter implements ExchangeFilterFunction {
 
     private void recordSafely(
             ClientRequest request,
-            long durationMillis,
+            long durationNanos,
             Integer status,
             boolean success,
             String errorMessage,
             Caller caller) {
         try {
             URI uri = request.url();
-            recorder.record(
+            recorder.recordNanos(
                     request.method() == null ? null : request.method().name(),
                     uri.toString(),
                     uri.getHost(),
                     uri.getPath(),
                     status,
-                    durationMillis,
+                    durationNanos,
                     success,
                     errorMessage,
                     CLIENT_TYPE,
@@ -95,8 +95,8 @@ public class RestClientTraceExchangeFilter implements ExchangeFilterFunction {
 
     private record Caller(CorrelationContext correlation, ThreadKind threadKind) {}
 
-    private static long elapsedMillis(long startNanos) {
-        return Math.max(0, (System.nanoTime() - startNanos) / 1_000_000);
+    private static long elapsedNanos(long startNanos) {
+        return Math.max(0, System.nanoTime() - startNanos);
     }
 
     private static Map<String, String> flattenHeaders(HttpHeaders headers) {

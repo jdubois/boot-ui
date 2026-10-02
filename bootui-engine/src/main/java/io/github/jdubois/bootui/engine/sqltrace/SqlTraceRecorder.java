@@ -508,6 +508,36 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
             int batchSize,
             String connectionId,
             String thread) {
+        recordNanos(
+                statementType,
+                category,
+                sql,
+                parameters,
+                Math.max(0, durationMicros) * 1_000,
+                success,
+                errorMessage,
+                affectedRows,
+                batchSize,
+                connectionId,
+                thread);
+    }
+
+    /**
+     * Records one execution timed in nanoseconds, as the JDBC proxy times it: the panel keeps microseconds, and the
+     * runtime journal the nanoseconds ({@code docs/PLAN-v2.md} §5.2).
+     */
+    public void recordNanos(
+            StatementType statementType,
+            Category category,
+            String sql,
+            List<String> parameters,
+            long durationNanos,
+            boolean success,
+            String errorMessage,
+            Long affectedRows,
+            int batchSize,
+            String connectionId,
+            String thread) {
         if (!enabled || BootUiJdbcCaptureGuard.isSuppressed()) {
             return;
         }
@@ -523,11 +553,14 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
         long completedNanos = System.nanoTime();
         long timestamp = System.currentTimeMillis();
         RequestPhase phase = requestPhase(context.requestId());
-        ApplicationFrames frames = captureCallSite ? ApplicationFrames.capture() : null;
+        // The stack is walked only for what keeps it: the panel's call sites, or the journal's application frames.
+        ApplicationFrames frames =
+                ApplicationFrames.wanted(panel, captureCallSite, toJournal) ? ApplicationFrames.capture() : null;
         String truncatedSql = truncate(sql, maxSqlLength);
-        long micros = Math.max(0, durationMicros);
+        long nanos = Math.max(0, durationNanos);
+        long micros = nanos / 1_000;
         String traceId = resolveTraceId();
-        String callSite = frames == null ? null : frames.callSite();
+        String callSite = captureCallSite && frames != null ? frames.callSite() : null;
         boolean failedOrSlow = isFailedOrSlow(success, isSlow(micros));
         if (panel) {
             CapturedStatement entry = new CapturedStatement(
@@ -553,24 +586,61 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
             buffer.add(entry, failedOrSlow);
         }
         if (toJournal) {
-            journal.offer(new RuntimeEvent(
-                    JournalSource.SQL,
-                    timestamp,
-                    micros * 1_000,
-                    context.requestId(),
-                    context.executionId(),
+            publish(
+                    context,
                     traceId,
-                    context.spanId(),
+                    timestamp,
+                    nanos,
                     thread,
                     threadKind,
                     failedOrSlow,
-                    new SqlPayload(
-                            truncatedSql, callSite, context.dataSource(), !success, frames, phase, completedNanos)));
+                    truncatedSql,
+                    success,
+                    frames,
+                    phase,
+                    completedNanos);
         }
         if (panel) {
             totalCaptured.incrementAndGet();
             notifyListeners();
             enrichActiveSpan(traceId);
+        }
+    }
+
+    /** Publishes a statement to the journal, stamped when it started; never throws. */
+    private void publish(
+            CorrelationContext context,
+            String traceId,
+            long completedEpochMillis,
+            long durationNanos,
+            String thread,
+            ThreadKind threadKind,
+            boolean failedOrSlow,
+            String sql,
+            boolean success,
+            ApplicationFrames frames,
+            RequestPhase phase,
+            long completedNanos) {
+        try {
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.SQL,
+                    RuntimeEvent.startMillis(completedEpochMillis, durationNanos),
+                    durationNanos,
+                    context,
+                    traceId,
+                    thread,
+                    threadKind,
+                    failedOrSlow,
+                    new SqlPayload(
+                            sql,
+                            frames == null ? null : frames.callSite(),
+                            context.dataSource(),
+                            !success,
+                            frames,
+                            phase,
+                            completedNanos)));
+        } catch (RuntimeException ex) {
+            // Publishing never disturbs the statement it observes.
         }
     }
 
@@ -615,24 +685,24 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
         if (checkout == null || !checkout.release()) {
             return;
         }
-        long heldNanos = Math.max(0, System.nanoTime() - checkout.obtainedNanos());
-        CorrelationContext context = checkout.context();
-        journal.offer(new RuntimeEvent(
-                JournalSource.CONNECTION,
-                checkout.epochMillis(),
-                heldNanos,
-                context.requestId(),
-                context.executionId(),
-                context.traceId(),
-                context.spanId(),
-                checkout.thread(),
-                checkout.threadKind(),
-                isSlow(heldNanos / 1_000),
-                new ConnectionPayload(
-                        checkout.dataSource(),
-                        checkout.waitNanos(),
-                        checkout.statements().get(),
-                        checkout.obtainedNanos())));
+        try {
+            long heldNanos = Math.max(0, System.nanoTime() - checkout.obtainedNanos());
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.CONNECTION,
+                    checkout.epochMillis(),
+                    heldNanos,
+                    checkout.context(),
+                    checkout.thread(),
+                    checkout.threadKind(),
+                    isSlow(heldNanos / 1_000),
+                    new ConnectionPayload(
+                            checkout.dataSource(),
+                            checkout.waitNanos(),
+                            checkout.statements().get(),
+                            checkout.obtainedNanos())));
+        } catch (RuntimeException ex) {
+            // Publishing never disturbs the connection's release.
+        }
     }
 
     /**

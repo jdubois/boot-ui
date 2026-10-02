@@ -143,19 +143,20 @@ public final class KafkaConsumerCaptureBeanPostProcessor implements BeanPostProc
                 // spring-kafka never does in practice (both are always invoked on the same thread for the
                 // same record); 0 is used rather than null in that defensive case since it is not a real,
                 // reachable "unknown duration" state worth modelling explicitly.
-                Long durationMillis = start == null ? 0L : (System.nanoTime() - start) / 1_000_000L;
+                Long durationNanos = start == null ? 0L : Math.max(0L, System.nanoTime() - start);
                 Object key = record.key();
                 String groupId = groupIdOf(consumer);
-                recorder.recordConsume(
+                recorder.recordConsumeNanos(
                         record.topic(),
                         record.partition(),
                         record.offset(),
                         key == null ? null : String.valueOf(key),
-                        durationMillis,
+                        durationNanos,
                         success,
                         errorMessage,
                         groupId,
-                        listenerId);
+                        listenerId,
+                        null);
             } catch (RuntimeException ex) {
                 log.warn("BootUI could not capture an incoming Kafka message; leaving it untouched", ex);
             }

@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.engine.journal.ScheduledPayload;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -86,12 +87,38 @@ public final class ScheduledTaskRunStore implements RuntimeEventPublisher {
             String message,
             String thread,
             String executionId) {
+        recordNanos(
+                runnable,
+                startTimestamp,
+                Math.max(0L, durationMs) * 1_000_000,
+                success,
+                exceptionClassName,
+                message,
+                thread,
+                executionId);
+    }
+
+    /**
+     * Records one run timed in nanoseconds by a monotonic clock: the panel keeps milliseconds, and the runtime journal
+     * the nanoseconds ({@code docs/PLAN-v2.md} §5.2). Adapters that only know the run's wall-clock start, such as
+     * Quarkus's scheduler, which reports its fire time, pass whole milliseconds.
+     */
+    public void recordNanos(
+            String runnable,
+            long startTimestamp,
+            long durationNanos,
+            boolean success,
+            String exceptionClassName,
+            String message,
+            String thread,
+            String executionId) {
         try {
+            long nanos = Math.max(0L, durationNanos);
             Run run = new Run(
                     sequence.incrementAndGet(),
                     runnable,
                     startTimestamp,
-                    Math.max(0L, durationMs),
+                    nanos / 1_000_000,
                     success,
                     exceptionClassName,
                     message,
@@ -103,14 +130,11 @@ public final class ScheduledTaskRunStore implements RuntimeEventPublisher {
                     runs.removeLast();
                 }
             }
-            journal.offer(new RuntimeEvent(
+            journal.offer(RuntimeEvent.of(
                     JournalSource.SCHEDULED,
                     startTimestamp,
-                    Math.max(0L, durationMs) * 1_000_000,
-                    null,
-                    executionId,
-                    null,
-                    null,
+                    nanos,
+                    CorrelationContext.forExecution(executionId),
                     thread,
                     null,
                     !success,

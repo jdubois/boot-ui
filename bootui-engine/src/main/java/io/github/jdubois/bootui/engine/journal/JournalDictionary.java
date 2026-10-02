@@ -18,6 +18,9 @@ public final class JournalDictionary {
     /** The code {@link #intern} returns for a {@code null} string or once the dictionary is full. */
     public static final int NOT_INTERNED = -1;
 
+    /** Bytes a payload retains for a string the dictionary shares: one reference. */
+    public static final int REFERENCE_BYTES = 8;
+
     private final int maxEntries;
     private final long maxBytes;
     private final Map<String, Integer> codes = new HashMap<>();
@@ -62,6 +65,27 @@ public final class JournalDictionary {
     public String shared(String value) {
         String canonical = canonical(value);
         return canonical == null ? value : canonical;
+    }
+
+    /**
+     * The bytes a payload retains for {@code value}: a reference when {@code value} is this dictionary's shared copy,
+     * as {@link #shared} returns it, otherwise the string itself, since a full dictionary leaves the payload its own
+     * copy.
+     */
+    public synchronized int retainedBytes(String value) {
+        if (value == null) {
+            return 0;
+        }
+        Integer code = codes.get(value);
+        return code != null && strings.get(code) == value ? REFERENCE_BYTES : RuntimeEvent.stringBytes(value);
+    }
+
+    /**
+     * The bytes a payload retains for {@code value} with {@code dictionary}'s sharing, or as its own string when
+     * {@code dictionary} is {@code null}.
+     */
+    static int retained(JournalDictionary dictionary, String value) {
+        return dictionary == null ? RuntimeEvent.stringBytes(value) : dictionary.retainedBytes(value);
     }
 
     /** The string {@code code} names, or {@code null} for {@link #NOT_INTERNED} or an unknown code. */

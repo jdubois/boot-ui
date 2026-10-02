@@ -3,7 +3,7 @@ package io.github.jdubois.bootui.engine.insights;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
-import io.github.jdubois.bootui.engine.sqltrace.SqlStatementNormalizer;
+import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import io.github.jdubois.bootui.engine.web.CorrelationTier;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -70,7 +70,7 @@ public final class RepeatedSelects implements Observation {
             if (!(event.payload() instanceof SqlPayload sql)) {
                 continue;
             }
-            String fingerprint = SqlStatementNormalizer.fingerprintOf(sql.sql());
+            String fingerprint = SqlShapes.fingerprint(sql.sql());
             if (firstFingerprint == null) {
                 firstFingerprint = fingerprint;
             }

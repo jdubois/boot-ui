@@ -14,9 +14,23 @@ import java.util.Objects;
  * ({@link JournalEntry}). Recorders build events on the application thread, so an event holds only references the
  * recorder already has.</p>
  *
+ * <p>Clocks ({@code docs/PLAN-v2.md} §5.2): {@code epochMillis} is when the work <em>started</em>, for every source,
+ * so an event with a duration covers {@code [epochMillis, epochMillis + durationNanos)}. A recorder that only learns
+ * of the work when it completes stamps its start as the completion time minus the duration
+ * ({@link #startMillis}). The wall clock only orders and displays events; {@code durationNanos} comes from
+ * {@link System#nanoTime()} and is nanosecond-precise wherever the source measures it. A few sources only know
+ * milliseconds, such as garbage collections, scheduled runs on Quarkus, and fault-tolerance events, whose libraries
+ * report a millisecond or {@link java.time.Duration} elapsed time; their durations are whole milliseconds. Monotonic
+ * times that observations order work by, such as {@link SqlPayload#completedNanos()}, live in the payloads and keep
+ * their own meaning.</p>
+ *
+ * <p>Recorders build events with {@link #of}, from the {@link CorrelationContext} they captured, so the request,
+ * execution, trace, and span ids are filled the same way for every source.</p>
+ *
  * @param source the source that recorded it
- * @param epochMillis when it happened, used only to order events across sources and to display them
- * @param durationNanos how long it took, from {@link System#nanoTime()}, or {@code -1} when it has no duration
+ * @param epochMillis when it started, used only to order events across sources and to display them
+ * @param durationNanos how long it took, from {@link System#nanoTime()} where measured, or {@code -1} when it has no
+ *     duration
  * @param requestId the BootUI request it belongs to, or {@code null}
  * @param executionId the scheduled run or consumed message it belongs to, or {@code null}
  * @param traceId its distributed-trace id, or {@code null}
@@ -62,19 +76,55 @@ public record RuntimeEvent(
             ThreadKind threadKind,
             boolean failedOrSlow,
             RuntimeEventPayload payload) {
+        return of(source, epochMillis, durationNanos, context, null, thread, threadKind, failedOrSlow, payload);
+    }
+
+    /**
+     * An event correlated with {@code context}, whose trace id is {@code traceIdFallback} when the context carries
+     * none, for recorders that also resolve the trace from the adapter's tracer, or from the work they observe.
+     */
+    public static RuntimeEvent of(
+            JournalSource source,
+            long epochMillis,
+            long durationNanos,
+            CorrelationContext context,
+            String traceIdFallback,
+            String thread,
+            ThreadKind threadKind,
+            boolean failedOrSlow,
+            RuntimeEventPayload payload) {
         CorrelationContext correlation = context == null ? CorrelationContext.NONE : context;
+        String traceId = correlation.traceId() != null ? correlation.traceId() : blankToNull(traceIdFallback);
         return new RuntimeEvent(
                 source,
                 epochMillis,
                 durationNanos,
                 correlation.requestId(),
                 correlation.executionId(),
-                correlation.traceId(),
+                traceId,
                 correlation.spanId(),
                 thread,
                 threadKind,
                 failedOrSlow,
                 payload);
+    }
+
+    /**
+     * When work that completed at {@code completedEpochMillis} after {@code durationNanos} started: the completion time
+     * minus the duration, for recorders that only learn of the work when it completes. A negative duration, meaning
+     * none, leaves the completion time.
+     */
+    public static long startMillis(long completedEpochMillis, long durationNanos) {
+        return durationNanos <= 0 ? completedEpochMillis : completedEpochMillis - durationNanos / 1_000_000L;
+    }
+
+    /** {@code millis} as nanoseconds, or {@code -1} when it is {@code null}, for sources that only know milliseconds. */
+    public static long millisToNanos(Long millis) {
+        return millis == null ? -1 : Math.max(0L, millis) * 1_000_000L;
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     /** This event with {@code replacement} as its payload. */
@@ -120,15 +170,26 @@ public record RuntimeEvent(
         return traceId != null ? CorrelationTier.TRACE_ID : null;
     }
 
-    /** The bytes the event retains, estimated once when the journal retains it. */
+    /** The bytes the event retains when none of its payload's strings are shared. */
     public int estimatedBytes() {
+        return estimatedBytes(null);
+    }
+
+    /**
+     * The bytes the event retains, estimated once when the journal retains it, counting each payload string that
+     * {@code dictionary} shares as a reference ({@link RuntimeEventPayload#estimatedBytes(JournalDictionary)}).
+     */
+    public int estimatedBytes(JournalDictionary dictionary) {
+        int payloadBytes = payload == null
+                ? 0
+                : (dictionary == null ? payload.estimatedBytes() : payload.estimatedBytes(dictionary));
         long bytes = (long) ENVELOPE_BYTES
                 + stringBytes(requestId)
                 + stringBytes(executionId)
                 + stringBytes(traceId)
                 + stringBytes(spanId)
                 + stringBytes(thread)
-                + (payload == null ? 0 : Math.max(0, payload.estimatedBytes()));
+                + Math.max(0, payloadBytes);
         return (int) Math.min(Integer.MAX_VALUE, bytes);
     }
 

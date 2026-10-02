@@ -281,11 +281,11 @@ public final class JmsListenerCaptureBeanPostProcessor implements BeanPostProces
             boolean success,
             String failureType) {
         try {
-            long durationMillis = (System.nanoTime() - start) / 1_000_000L;
-            recorder.recordConsume(
+            long durationNanos = Math.max(0L, System.nanoTime() - start);
+            recorder.recordConsumeNanos(
                     JmsCaptureMetadata.destination(message),
                     JmsCaptureMetadata.messageId(message),
-                    durationMillis,
+                    durationNanos,
                     success,
                     failureType,
                     subscriptionName,
