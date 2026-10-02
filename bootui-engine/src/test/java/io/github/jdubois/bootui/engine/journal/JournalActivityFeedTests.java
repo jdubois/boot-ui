@@ -481,18 +481,19 @@ class JournalActivityFeedTests {
     }
 
     @Test
-    void capturedAiCallsNestUnderARequestRecordedInAnEarlierBatch() {
-        AiCallOwners owners = new AiCallOwners();
+    void capturedAiCallsNestOnlyUnderTheRequestThatStartedTheirSpan() {
         add(traced(http("r1", "POST", "/api/chat", "/api/chat", 200, 50), "trace-1"), 1_010);
-        entries.forEach(entry -> owners.learn(entry.event()));
-        feed.renderForCapture(List.copyOf(entries), EVENT_ID, new java.util.HashMap<>(), owners);
-        entries.clear();
         add(ai("trace-1", new AiPayload("chat", "openai", "gpt-4o", 1L, 1L, "stop", false)), 1_020);
-        add(ai("trace-9", new AiPayload("chat", "openai", "gpt-4o", 1L, 1L, "stop", false)), 1_021);
+        AiPayload stamped = new AiPayload("embeddings", "openai", "text-embedding-3", 1L, null, null, false);
+        add(traced(event("r1", null, JournalSource.AI, 1_000_000, null, stamped), "trace-1"), 1_021);
 
-        List<ActivityEntryDto> captured = feed.renderForCapture(entries, EVENT_ID, new java.util.HashMap<>(), owners);
+        List<ActivityEntryDto> captured = feed.renderForCapture(entries, EVENT_ID, new java.util.HashMap<>());
 
-        assertThat(captured).extracting(ActivityEntryDto::parentId).containsExactly(null, "r1");
+        assertThat(captured)
+                .filteredOn(entry -> entry.type().equals(JournalActivityFeed.TYPE_AI))
+                .extracting(ActivityEntryDto::parentId)
+                .as("a call linked only by trace and time is written on its own, since a written row is never revised")
+                .containsExactly("r1", null);
     }
 
     private List<String> ids(Filter filter) {

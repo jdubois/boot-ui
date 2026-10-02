@@ -63,7 +63,8 @@ public class TelemetryStore implements RuntimeEventPublisher {
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     /**
-     * The request or execution that started each span still in flight, by span id, read on the thread that started it
+     * The request or execution that started each span still in flight, by trace and span id (a span id is unique only
+     * within its trace), read on the thread that started it
      * ({@link #spanStarted}), since the exporter runs later on its own thread ({@code docs/PLAN-v2.md} §5.3).
      */
     private final Map<String, CorrelationContext> spanOwners = Collections.synchronizedMap(new LinkedHashMap<>() {
@@ -119,13 +120,11 @@ public class TelemetryStore implements RuntimeEventPublisher {
      * @return {@code true} when the span was stored, {@code false} when it was dropped
      */
     public boolean add(NormalizedSpan span, boolean selfSpan) {
-        if (span == null) {
+        if (span == null || span.traceId() == null || span.traceId().isEmpty()) {
             return false;
         }
-        CorrelationContext owner = span.spanId() == null ? null : spanOwners.remove(span.spanId());
-        if (span.traceId() == null || span.traceId().isEmpty()) {
-            return false;
-        }
+        CorrelationContext owner =
+                span.spanId() == null ? null : spanOwners.remove(spanKey(span.traceId(), span.spanId()));
         if (idleSuspended) {
             // The store is suspended while BootUI is idle, but the runtime journal keeps recording AI calls
             // (docs/PLAN-v2.md §5.2), so an application span is still recognized and published without being stored.
@@ -143,14 +142,15 @@ public class TelemetryStore implements RuntimeEventPublisher {
     }
 
     /**
-     * Remembers the request or execution doing the work that starts span {@code spanId}, read on the starting thread,
+     * Remembers the request or execution doing the work that starts span {@code spanId} of trace {@code traceId}, read
+     * on the starting thread,
      * so the AI call it records once exported nests under it by id ({@code docs/PLAN-v2.md} §5.3). Called by the span
      * processor on every span start; it remembers nothing while capture is off, the journal does not record AI calls,
      * or no request or execution owns the work, and never throws.
      */
-    public void spanStarted(String spanId) {
+    public void spanStarted(String traceId, String spanId) {
         try {
-            if (spanId == null || !settings.enabled() || !journal.records(JournalSource.AI)) {
+            if (traceId == null || spanId == null || !settings.enabled() || !journal.records(JournalSource.AI)) {
                 return;
             }
             CorrelationContext context = correlation.current();
@@ -158,7 +158,7 @@ public class TelemetryStore implements RuntimeEventPublisher {
                 return;
             }
             spanOwners.put(
-                    spanId,
+                    spanKey(traceId, spanId),
                     CorrelationContext.NONE.withRequestId(context.requestId()).withExecutionId(context.executionId()));
         } catch (RuntimeException ex) {
             // Remembering an owner never disturbs the span it observes.
@@ -171,6 +171,10 @@ public class TelemetryStore implements RuntimeEventPublisher {
      */
     public void setCorrelationContextProvider(CorrelationContextProvider provider) {
         correlation.set(provider);
+    }
+
+    private static String spanKey(String traceId, String spanId) {
+        return traceId + '/' + spanId;
     }
 
     /** The spans remembered with their owner now, for tests. */

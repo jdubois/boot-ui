@@ -162,6 +162,23 @@ class KafkaProducerCaptureBeanPostProcessorTests {
     }
 
     @Test
+    void aReusedRecordForgottenPastTheBoundTakesNoOtherSendsSnapshot() {
+        KafkaProducerCaptureBeanPostProcessor.SenderCorrelations senders =
+                new KafkaProducerCaptureBeanPostProcessor.SenderCorrelations();
+        ProducerRecord<Object, Object> reused = new ProducerRecord<>("orders", "k", "v");
+        senders.put(reused, CorrelationContext.forRequest("aaaaaaaaaaaaaaaa"));
+        senders.put(reused, CorrelationContext.forRequest("bbbbbbbbbbbbbbbb"));
+        for (int i = 0; i < KafkaProducerCaptureBeanPostProcessor.SenderCorrelations.MAX_IN_FLIGHT - 1; i++) {
+            senders.put(new ProducerRecord<>("orders", "k" + i, "v"), CorrelationContext.NONE);
+        }
+
+        assertThat(senders.take(reused))
+                .as("both of its sends were forgotten together")
+                .isEqualTo(KafkaProducerCaptureBeanPostProcessor.Sent.UNKNOWN);
+        assertThat(senders.take(reused)).isEqualTo(KafkaProducerCaptureBeanPostProcessor.Sent.UNKNOWN);
+    }
+
+    @Test
     void capturesFailedSend() {
         KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 16);
         KafkaProducerCaptureBeanPostProcessor postProcessor =

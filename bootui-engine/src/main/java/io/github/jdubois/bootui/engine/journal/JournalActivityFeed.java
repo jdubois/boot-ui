@@ -646,31 +646,17 @@ public final class JournalActivityFeed {
 
     /**
      * Renders one batch of newly recorded events for persistence, newest first ({@code docs/PLAN-v2.md} §5.3). Each row
-     * names its parent by identity, since a request or execution is recorded after its children. {@code pendingSelects}
-     * carries each open request's {@code SELECT} counts from batch to batch, so its N+1 flag is set when it completes;
-     * the caller bounds it.
+     * names its parent by identity, since a request or execution is recorded after its children. An AI call linked
+     * to its request only by trace and time is written on its own, since a request recorded later could change that
+     * inference and a written row is never revised. {@code pendingSelects} carries each open request's {@code SELECT}
+     * counts from batch to batch, so its N+1 flag is set when it completes; the caller bounds it.
      */
     public List<ActivityEntryDto> renderForCapture(
             List<JournalEntry> batch,
             Function<JournalEntry, String> eventId,
             Map<String, Map<String, Integer>> pendingSelects) {
+        // Learns no request, so it infers no parent from a trace.
         AiCallOwners aiCallOwners = new AiCallOwners();
-        for (JournalEntry entry : batch) {
-            aiCallOwners.learn(entry.event());
-        }
-        return renderForCapture(batch, eventId, pendingSelects, aiCallOwners);
-    }
-
-    /**
-     * Renders as {@link #renderForCapture(List, Function, Map)} does, with {@code aiCallOwners} attributing each AI call
-     * linked only by its trace id. The caller has it learn every request recorded so far, this batch's included, and
-     * holds back an AI call whose request may not be recorded yet ({@link AiCallOwners#unresolved}).
-     */
-    public List<ActivityEntryDto> renderForCapture(
-            List<JournalEntry> batch,
-            Function<JournalEntry, String> eventId,
-            Map<String, Map<String, Integer>> pendingSelects,
-            AiCallOwners aiCallOwners) {
         RouteTemplateResolver routes = resolver();
         for (JournalEntry entry : batch) {
             RuntimeEvent event = entry.event();

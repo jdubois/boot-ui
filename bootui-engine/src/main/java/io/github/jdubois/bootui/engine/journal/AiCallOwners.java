@@ -2,11 +2,8 @@ package io.github.jdubois.bootui.engine.journal;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Which request made an AI call ({@code docs/PLAN-v2.md} §5.3) whose span started outside any request BootUI knew of,
@@ -16,25 +13,14 @@ import java.util.Set;
  * request's time span contains, or that the time spans of several requests sharing its trace contain, belongs to none:
  * which request made it is unknown, and it is shown on its own.
  *
- * <p>The live feed, request profiles, and Runtime Insights learn the requests they read, and Live Activity's
- * persistence learns every request as it is recorded, so all of them attribute a call the same way: by its time, never
- * by which requests happen to be retained or the order the journal recorded them in. A request's time span is read
- * from the application's clock and the call's start from the tracer's, so a call within {@value #TOLERANCE_MILLIS} ms
- * of a span counts as inside it; a call farther outside belongs to none.</p>
- *
- * <p>One that reads the journal's retained events learns them all, since the journal bounds them. A {@link #bounded()}
- * one, which learns from batch to batch, remembers at most {@value #MAX_TRACES} traces and at most
- * {@value #MAX_REQUESTS_PER_TRACE} requests per trace. Past either bound it fails closed: the calls of a crowded trace,
- * or of a trace it had to forget, belong to none rather than to whichever request it still remembers. Not
- * thread-safe.</p>
+ * <p>The live feed, request profiles, and Runtime Insights learn every request the journal retains and attribute a
+ * call the same way: by its time, never by which requests happen to be retained or the order the journal recorded
+ * them in. A request's time span is read from the application's clock and the call's start from the tracer's, so a
+ * call within {@value #TOLERANCE_MILLIS} ms of a span counts as inside it; a call farther outside belongs to none.
+ * Live Activity's history learns no request, since a request recorded later could change the inference and a written
+ * row is never revised. Not thread-safe.</p>
  */
 public final class AiCallOwners {
-
-    /** The most traces a {@link #bounded()} one remembers, and the most it remembers having forgotten. */
-    public static final int MAX_TRACES = 4_096;
-
-    /** The most requests per trace a {@link #bounded()} one remembers, past which its AI calls belong to none. */
-    static final int MAX_REQUESTS_PER_TRACE = 16;
 
     /**
      * How far an AI call may start outside its request's time span: both are wall-clock milliseconds, read from the
@@ -42,38 +28,7 @@ public final class AiCallOwners {
      */
     static final long TOLERANCE_MILLIS = 2;
 
-    private final int maxRequestsPerTrace;
-    private final Map<String, Trace> traces;
-
-    /** The traces a bounded one forgot, which it never attributes again: a forgotten request may own their calls. */
-    private final Set<String> forgotten;
-
-    /** One that learns every request it is given, for a reader of the journal's retained events. */
-    public AiCallOwners() {
-        this.maxRequestsPerTrace = Integer.MAX_VALUE;
-        this.traces = new HashMap<>();
-        this.forgotten = new LinkedHashSet<>();
-    }
-
-    private AiCallOwners(int maxTraces, int maxRequestsPerTrace) {
-        this.maxRequestsPerTrace = maxRequestsPerTrace;
-        this.forgotten = new LinkedHashSet<>();
-        this.traces = new LinkedHashMap<>(16, 0.75f, true) {
-            @Override
-            protected boolean removeEldestEntry(Map.Entry<String, Trace> eldest) {
-                if (size() <= maxTraces) {
-                    return false;
-                }
-                forget(eldest.getKey(), maxTraces);
-                return true;
-            }
-        };
-    }
-
-    /** One that remembers at most {@value #MAX_TRACES} traces, for a listener that learns from batch to batch. */
-    public static AiCallOwners bounded() {
-        return new AiCallOwners(MAX_TRACES, MAX_REQUESTS_PER_TRACE);
-    }
+    private final Map<String, List<Window>> windowsByTrace = new HashMap<>();
 
     /** Whether {@code event} is an AI call that only its trace id can link to a request. */
     public static boolean linksByTrace(RuntimeEvent event) {
@@ -88,18 +43,10 @@ public final class AiCallOwners {
         if (event.source() != JournalSource.HTTP || event.requestId() == null || event.traceId() == null) {
             return;
         }
-        Trace trace = traces.get(event.traceId());
-        if (trace == null) {
-            // A trace learned again after it was forgotten may have lost the request that owns its calls.
-            trace = new Trace(forgotten.remove(event.traceId()));
-            traces.put(event.traceId(), trace);
-        }
         // A request records one HTTP event, so each is learned once.
-        if (trace.windows.size() < maxRequestsPerTrace) {
-            trace.windows.add(Window.of(event));
-        } else {
-            trace.saturated = true;
-        }
+        windowsByTrace
+                .computeIfAbsent(event.traceId(), trace -> new ArrayList<>(1))
+                .add(Window.of(event));
     }
 
     /**
@@ -113,12 +60,12 @@ public final class AiCallOwners {
         if (!linksByTrace(event)) {
             return null;
         }
-        Trace trace = traces.get(event.traceId());
-        if (trace == null || trace.saturated) {
+        List<Window> windows = windowsByTrace.get(event.traceId());
+        if (windows == null) {
             return null;
         }
         String owner = null;
-        for (Window window : trace.windows) {
+        for (Window window : windows) {
             if (window.contains(event.epochMillis())) {
                 if (owner != null) {
                     return null;
@@ -127,58 +74,6 @@ public final class AiCallOwners {
             }
         }
         return owner;
-    }
-
-    /**
-     * Whether a request learned later could still claim {@code event}: it is an AI call linked by trace id that no
-     * learned request contains, and its trace is neither ambiguous already, crowded, nor forgotten.
-     */
-    public boolean unresolved(RuntimeEvent event) {
-        if (!linksByTrace(event) || forgotten.contains(event.traceId())) {
-            return false;
-        }
-        Trace trace = traces.get(event.traceId());
-        if (trace == null) {
-            return true;
-        }
-        if (trace.saturated) {
-            return false;
-        }
-        for (Window window : trace.windows) {
-            if (window.contains(event.epochMillis())) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /** Forgets every request, and every forgotten trace, when the recording is cleared. */
-    public void clear() {
-        traces.clear();
-        forgotten.clear();
-    }
-
-    /** The traces remembered now, for tests. */
-    int traces() {
-        return traces.size();
-    }
-
-    private void forget(String traceId, int maxForgotten) {
-        forgotten.add(traceId);
-        if (forgotten.size() > maxForgotten) {
-            forgotten.remove(forgotten.iterator().next());
-        }
-    }
-
-    /** One trace's requests, and whether it had more than it keeps, so that its calls belong to none. */
-    private static final class Trace {
-
-        private final List<Window> windows = new ArrayList<>(1);
-        private boolean saturated;
-
-        Trace(boolean saturated) {
-            this.saturated = saturated;
-        }
     }
 
     /**

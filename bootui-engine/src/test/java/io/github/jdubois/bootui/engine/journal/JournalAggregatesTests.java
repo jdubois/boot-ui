@@ -308,6 +308,25 @@ class JournalAggregatesTests {
         assertThat(snapshot.run().firstEpochMillis()).isNull();
     }
 
+    @Test
+    void aChildRecordedAfterItsRequestCompletedOpensNoPendingRequest() {
+        for (int i = 0; i <= JournalAggregates.MAX_PENDING_REQUESTS; i++) {
+            publish(http("r" + i, "/api/chat", 200, 1_000_000));
+            // An AI call exported in a later batch than its request.
+            publish(event(
+                    "r" + i,
+                    JournalSource.AI,
+                    1_000,
+                    new AiPayload(AiPayload.CHAT, "openai", "gpt-4o", 1L, 1L, "stop", false)));
+        }
+
+        AggregatesSnapshot snapshot = aggregates.snapshot();
+        assertThat(snapshot.run().openRequests()).isZero();
+        assertThat(snapshot.run().unattributedRequests())
+                .as("no completed request is evicted as if its HTTP event never arrived")
+                .isZero();
+    }
+
     private static HttpPayload resourced(ResourceUsage usage) {
         return new HttpPayload("GET", "/api/orders", "/api/orders", null, 200, usage);
     }

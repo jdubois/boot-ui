@@ -55,7 +55,9 @@ public final class BootUiIdentitySpanProcessor implements SpanProcessor {
         }
         if (store != null) {
             try {
-                store.spanStarted(span.getSpanContext().getSpanId());
+                store.spanStarted(
+                        span.getSpanContext().getTraceId(),
+                        span.getSpanContext().getSpanId());
             } catch (RuntimeException ignored) {
                 // Correlation must never disrupt span creation.
             }

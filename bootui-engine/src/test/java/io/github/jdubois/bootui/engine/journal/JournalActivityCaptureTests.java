@@ -85,106 +85,17 @@ class JournalActivityCaptureTests {
     }
 
     @Test
-    void anAiCallRecordedBeforeItsRequestIsHeldBackAndWrittenUnderIt() {
-        JournalActivityCapture capture = start(null);
+    void anAiCallLinkedOnlyByItsTraceIsWrittenOnItsOwnAtOnce() {
+        start(null);
 
+        offerAt("r1", "trace-1", 1_000, 50_000_000, http("/api/chat"));
         offerAt(null, "trace-1", 1_010, 5_000_000, aiPayload());
-        offerAt(null, "trace-9", 1_011, 5_000_000, aiPayload());
-        journal.dispatchPending();
-        assertThat(store.entries()).as("both wait for a request to claim them").isEmpty();
-        assertThat(capture.pendingAiCalls()).isEqualTo(2);
-
-        offerAt("r1", "trace-1", 1_000, 50_000_000, new HttpPayload("POST", "/api/chat", "/api/chat", null, 200));
         journal.dispatchPending();
 
         assertThat(store.entries())
                 .extracting(ActivityEntryDto::type, ActivityEntryDto::parentId)
-                .containsExactlyInAnyOrder(tuple("AI", "r1"), tuple("REQUEST", null));
-        assertThat(capture.pendingAiCalls()).isEqualTo(1);
-
-        capture.close();
-        assertThat(store.entries())
-                .as("closing writes the call no request claimed, on its own")
-                .filteredOn(entry -> entry.parentId() == null && entry.type().equals("AI"))
-                .hasSize(1);
-        assertThat(capture.pendingAiCalls()).isZero();
-    }
-
-    @Test
-    void anAiCallNoRequestClaimsIsWrittenOnItsOwnOnceTheJournalRecordsPastItsWait() {
-        JournalActivityCapture capture = start(null);
-
-        offerAt(null, "trace-1", 1_000, 5_000_000, aiPayload());
-        journal.dispatchPending();
-        offerAt("r1", "trace-2", 1_000 + JournalActivityCapture.AI_CALL_WAIT_MILLIS, 1_000_000, http("/a"));
-        journal.dispatchPending();
-        assertThat(capture.pendingAiCalls()).as("not yet past its wait").isEqualTo(1);
-
-        offerAt("r2", "trace-2", 1_100 + JournalActivityCapture.AI_CALL_WAIT_MILLIS, 1_000_000, http("/b"));
-        journal.dispatchPending();
-
-        assertThat(capture.pendingAiCalls()).isZero();
-        assertThat(store.entries())
-                .filteredOn(entry -> entry.type().equals("AI"))
-                .singleElement()
-                .satisfies(entry -> assertThat(entry.parentId()).isNull());
-    }
-
-    @Test
-    void clearingTheRecordingWritesHeldBackCallsAndForgetsItsRequests() {
-        JournalActivityCapture capture = start(null);
-
-        offerAt("r1", "trace-1", 1_000, 50_000_000, http("/api/chat"));
-        offerAt(null, "trace-2", 1_010, 5_000_000, aiPayload());
-        journal.dispatchPending();
-        assertThat(capture.pendingAiCalls()).isEqualTo(1);
-
-        journal.clear();
-        assertThat(capture.pendingAiCalls()).isZero();
-        assertThat(store.entries())
-                .as("everything recorded before the clear is written")
-                .filteredOn(entry -> entry.type().equals("AI"))
-                .singleElement()
-                .satisfies(entry -> assertThat(entry.parentId()).isNull());
-
-        offerAt(null, "trace-1", 1_010, 5_000_000, aiPayload());
-        journal.dispatchPending();
-        assertThat(capture.pendingAiCalls())
-                .as("the cleared request no longer claims a call")
-                .isEqualTo(1);
-    }
-
-    @Test
-    void anAiCallRecordedLongAfterItEndedIsWrittenAtOnce() {
-        JournalActivityCapture capture = start(null);
-
-        offerAt("r1", "trace-1", 1_000 + 2 * JournalActivityCapture.AI_CALL_WAIT_MILLIS, 1_000_000, http("/a"));
-        journal.dispatchPending();
-        offerAt(null, "trace-2", 1_000, 5_000_000, aiPayload());
-        journal.dispatchPending();
-
-        assertThat(capture.pendingAiCalls())
-                .as("the recorded time only moves forward")
-                .isZero();
-        assertThat(store.entries()).extracting(ActivityEntryDto::type).contains("AI");
-    }
-
-    @Test
-    void anAiCallIsNotWrittenUnderARequestOfADisabledPanel() {
-        start(panel -> !panel.equals(BootUiPanels.HTTP_EXCHANGES));
-
-        offerAt("r1", "trace-1", 1_000, 50_000_000, http("/api/chat"));
-        offerAt(null, "trace-1", 1_010, 5_000_000, aiPayload());
-        journal.dispatchPending();
-        journal.close();
-
-        assertThat(store.entries())
-                .as("as the live feed, which shows no hidden request, leaves it on its own")
-                .singleElement()
-                .satisfies(entry -> {
-                    assertThat(entry.type()).isEqualTo("AI");
-                    assertThat(entry.parentId()).isNull();
-                });
+                .as("a request recorded later could change the inference, and a written row is never revised")
+                .containsExactlyInAnyOrder(tuple("AI", null), tuple("REQUEST", null));
     }
 
     @Test
@@ -205,13 +116,12 @@ class JournalActivityCaptureTests {
                         aiPayload()),
                 100)));
 
-        assertThat(capture.pendingAiCalls()).isZero();
         assertThat(store.entries()).isEmpty();
     }
 
     @Test
     void anAiCallItsSpanTiedToARequestIsWrittenUnderItAtOnce() {
-        JournalActivityCapture capture = start(null);
+        start(null);
 
         journal.offer(RuntimeEvent.of(
                 JournalSource.AI,
@@ -224,21 +134,9 @@ class JournalActivityCaptureTests {
                 aiPayload()));
         journal.dispatchPending();
 
-        assertThat(capture.pendingAiCalls()).isZero();
         assertThat(store.entries())
                 .singleElement()
                 .satisfies(entry -> assertThat(entry.parentId()).isEqualTo("r1"));
-    }
-
-    @Test
-    void theJournalClosingWritesTheCallsStillHeldBack() {
-        start(null);
-
-        offerAt(null, "trace-1", 1_010, 5_000_000, aiPayload());
-        journal.dispatchPending();
-        journal.close();
-
-        assertThat(store.entries()).extracting(ActivityEntryDto::type).containsExactly("AI");
     }
 
     private JournalActivityCapture start(Predicate<String> panelEnabled) {

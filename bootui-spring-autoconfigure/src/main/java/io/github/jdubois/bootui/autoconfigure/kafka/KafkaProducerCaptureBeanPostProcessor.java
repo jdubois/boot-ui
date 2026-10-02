@@ -205,8 +205,9 @@ public final class KafkaProducerCaptureBeanPostProcessor implements BeanPostProc
      * The sender's correlation and the {@link System#nanoTime()} of each in-flight send, by record identity
      * ({@link ProducerRecord} overrides {@code equals}), so its event starts at the send and is timed to its outcome. A
      * record sent again before its first outcome is queued behind it, and each outcome takes the oldest send of its
-     * record. Bounded, so sends whose outcome never arrives cannot grow it: past the bound the oldest are forgotten,
-     * and those messages simply stay top-level and untimed.
+     * record. Bounded, so sends whose outcome never arrives cannot grow it: past the bound every send of the record
+     * first sent longest ago is forgotten at once, so a reused record's later outcomes stay top-level and untimed
+     * rather than taking another send's snapshot.
      */
     static final class SenderCorrelations {
 
@@ -226,12 +227,8 @@ public final class KafkaProducerCaptureBeanPostProcessor implements BeanPostProc
                 size++;
                 Iterator<ArrayDeque<Sent>> oldest = inFlight.values().iterator();
                 while (size > MAX_IN_FLIGHT && oldest.hasNext()) {
-                    ArrayDeque<Sent> sends = oldest.next();
-                    sends.removeFirst();
-                    size--;
-                    if (sends.isEmpty()) {
-                        oldest.remove();
-                    }
+                    size -= oldest.next().size();
+                    oldest.remove();
                 }
             }
         }

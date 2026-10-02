@@ -111,8 +111,8 @@ class SpanEnrichmentTests {
 
         try (BootUiCorrelation.Scope ignored =
                 BootUiCorrelation.open(CorrelationContext.forRequest("0123456789abcdef"))) {
-            off.spanStarted("span-1");
-            notRecording.spanStarted("span-1");
+            off.spanStarted("trace-1", "span-1");
+            notRecording.spanStarted("trace-1", "span-1");
         }
 
         assertThat(off.spanOwners()).isZero();

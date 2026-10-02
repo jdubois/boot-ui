@@ -63,6 +63,13 @@ public final class JournalAggregates implements JournalListener {
             new CappedMap<>(MAX_TRANSACTIONAL_METHODS, TransactionalMethod::new);
     private final CappedMap<ThreadFamily> threadFamilies = new CappedMap<>(MAX_THREAD_FAMILIES, ThreadFamily::new);
     private final LinkedHashMap<String, PendingRequest> pending = new LinkedHashMap<>();
+
+    /**
+     * The most recently completed requests, so a child recorded after its request, such as an AI call exported in a
+     * later batch or a send acknowledged after the response, opens no pending entry that nothing would ever complete.
+     */
+    private final Map<String, Boolean> completed = bounded(MAX_PENDING_REQUESTS);
+
     private final Map<String, Long> recentPauses = bounded(MAX_RECENT_COLLECTIONS);
     private final Map<String, List<String>> awaitedPauses = bounded(MAX_AWAITED_COLLECTIONS);
     private final ResourceTrack resourceTrack = new ResourceTrack();
@@ -145,9 +152,14 @@ public final class JournalAggregates implements JournalListener {
             if (children != null) {
                 route.fold(children, label, this);
             }
+            if (event.requestId() != null) {
+                completed.put(event.requestId(), Boolean.TRUE);
+            }
             return;
         }
-        PendingRequest children = pendingFor(event.requestId());
+        PendingRequest children = event.requestId() == null || completed.containsKey(event.requestId())
+                ? null
+                : pendingFor(event.requestId());
         if (children != null) {
             children.add(event);
         }
@@ -275,6 +287,7 @@ public final class JournalAggregates implements JournalListener {
         transactionalMethods.clear();
         threadFamilies.clear();
         pending.clear();
+        completed.clear();
         recentPauses.clear();
         awaitedPauses.clear();
         Arrays.fill(runCounts, 0);
