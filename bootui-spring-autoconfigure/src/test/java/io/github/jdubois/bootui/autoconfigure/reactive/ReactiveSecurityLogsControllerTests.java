@@ -9,8 +9,11 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -98,6 +101,24 @@ class ReactiveSecurityLogsControllerTests {
         SecurityLogsReport report = controller.logs(null, null, null, null, null);
 
         assertThat(report.events().get(0).traceId()).isEqualTo("trace-xyz");
+    }
+
+    @Test
+    void theJournalRecordsEachEventWithTheTraceIdActiveWhenItWasPublished() {
+        InMemoryAuditEventRepository repository = new InMemoryAuditEventRepository();
+        AuditEvent event = event("alice", "AUTHENTICATION_FAILURE", "2026-06-03T08:00:00Z");
+        ReactiveSecurityLogsController controller =
+                new ReactiveSecurityLogsController(providerOf(repository), new BootUiProperties());
+        List<RuntimeEvent> published = new ArrayList<>();
+        controller.setRuntimeEventSink(published::add);
+        controller.setTraceIdProvider(() -> "trace-xyz");
+
+        controller.onApplicationEvent(new AuditApplicationEvent(event));
+
+        assertThat(published)
+                .as("even without the panel's trace registry")
+                .singleElement()
+                .satisfies(recorded -> assertThat(recorded.traceId()).isEqualTo("trace-xyz"));
     }
 
     @Test

@@ -41,6 +41,15 @@ public record ApplicationFrames(List<String> frames, int unsharedBytes) {
     }
 
     /**
+     * Whether a recorder walks the stack for an operation: only when its call-site setting is on, which is what turns
+     * the walk off for both the panel and the runtime journal, and something keeps the frames, either the panel
+     * capturing now or the journal recording the operation's source.
+     */
+    public static boolean wanted(boolean panelCaptures, boolean callSites, boolean journalRecords) {
+        return callSites && (panelCaptures || journalRecords);
+    }
+
+    /**
      * The application frames of the calling thread's stack, or {@code null} when none is found within
      * {@value #MAX_WALKED_FRAMES} frames or the walk fails. Fully guarded, so it never disrupts the captured work.
      */

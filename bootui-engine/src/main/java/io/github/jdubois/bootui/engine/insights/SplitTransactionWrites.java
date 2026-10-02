@@ -3,7 +3,7 @@ package io.github.jdubois.bootui.engine.insights;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
-import io.github.jdubois.bootui.engine.sqltrace.SqlStatementNormalizer;
+import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import io.github.jdubois.bootui.engine.web.CorrelationTier;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -147,7 +147,7 @@ public final class SplitTransactionWrites implements Observation {
         }
 
         void add(RuntimeEvent write) {
-            fingerprints.add(SqlStatementNormalizer.fingerprintOf(((SqlPayload) write.payload()).sql()));
+            fingerprints.add(SqlShapes.fingerprint(((SqlPayload) write.payload()).sql()));
         }
 
         String describe() {

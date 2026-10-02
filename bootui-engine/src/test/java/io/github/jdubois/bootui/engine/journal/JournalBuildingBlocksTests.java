@@ -169,7 +169,7 @@ class JournalBuildingBlocksTests {
                         null,
                         false,
                         new SqlPayload(
-                                "select 1",
+                                new String("select 1"),
                                 new String("A.a(A.java:1)"),
                                 null,
                                 false,
@@ -183,7 +183,10 @@ class JournalBuildingBlocksTests {
             assertThat(newest.frames().frames().get(0))
                     .isSameAs(oldest.frames().frames().get(0));
             assertThat(newest.callSite()).isSameAs(oldest.frames().frames().get(0));
-            assertThat(journal.status().dictionaryEntries()).isEqualTo(1);
+            assertThat(newest.sql()).isSameAs(oldest.sql());
+            assertThat(journal.status().dictionaryEntries())
+                    .as("the statement and its one frame")
+                    .isEqualTo(2);
         } finally {
             journal.close();
         }

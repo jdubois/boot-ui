@@ -17,8 +17,21 @@ public record SecurityPayload(String type) implements RuntimeEventPayload {
         return upper.contains("FAILURE") || upper.contains("DENIED");
     }
 
+    /** This event with its type replaced by the run's shared copy. */
+    @Override
+    public RuntimeEventPayload interned(JournalDictionary dictionary) {
+        return new SecurityPayload(dictionary.shared(type));
+    }
+
+    /** Its fixed part and its strings, each counted as the payload's own. */
     @Override
     public int estimatedBytes() {
-        return 16 + RuntimeEvent.stringBytes(type);
+        return estimatedBytes(null);
+    }
+
+    /** Its fixed part, with each string {@code dictionary} shares counted as a reference. */
+    @Override
+    public int estimatedBytes(JournalDictionary dictionary) {
+        return 16 + JournalDictionary.retained(dictionary, type);
     }
 }

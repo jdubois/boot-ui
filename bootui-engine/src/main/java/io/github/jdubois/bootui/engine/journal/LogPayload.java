@@ -26,12 +26,29 @@ public record LogPayload(String logger, String level, String template, String ex
                 };
     }
 
+    /** This log event with its logger, level, template, and exception class replaced by the run's shared copies. */
+    @Override
+    public RuntimeEventPayload interned(JournalDictionary dictionary) {
+        return new LogPayload(
+                dictionary.shared(logger),
+                dictionary.shared(level),
+                dictionary.shared(template),
+                dictionary.shared(exceptionClass));
+    }
+
+    /** Its fixed part and its strings, each counted as the payload's own. */
     @Override
     public int estimatedBytes() {
+        return estimatedBytes(null);
+    }
+
+    /** Its fixed part, with each string {@code dictionary} shares counted as a reference. */
+    @Override
+    public int estimatedBytes(JournalDictionary dictionary) {
         return 16
-                + RuntimeEvent.stringBytes(logger)
-                + RuntimeEvent.stringBytes(level)
-                + RuntimeEvent.stringBytes(template)
-                + RuntimeEvent.stringBytes(exceptionClass);
+                + JournalDictionary.retained(dictionary, logger)
+                + JournalDictionary.retained(dictionary, level)
+                + JournalDictionary.retained(dictionary, template)
+                + JournalDictionary.retained(dictionary, exceptionClass);
     }
 }

@@ -1,10 +1,9 @@
 package io.github.jdubois.bootui.engine.security;
 
 import io.github.jdubois.bootui.engine.journal.JournalSource;
-import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
-import io.github.jdubois.bootui.engine.journal.SecurityPayload;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -19,8 +18,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * <p>Writes (from Quarkus CDI security-event observers, often on the Vert.x event loop) and the read
  * snapshot are serialized under a single short lock; masking and DTO assembly happen outside the lock in
  * {@link SecurityLogsService} so the event loop is never blocked. The buffer is {@link IdleReclaimable}:
- * an adapter idle tracker can {@link #suspendForIdle()} to drop retained data and stop recording while
- * the console is unused, then {@link #resumeFromIdle()} to refill from live events.
+ * an adapter idle tracker can {@link #suspendForIdle()} to drop retained data and stop retaining events
+ * while the console is unused (the runtime journal keeps receiving them), then {@link #resumeFromIdle()} to refill
+ * from live events.
  */
 public final class SecurityEventBuffer implements IdleReclaimable, RuntimeEventPublisher {
 
@@ -44,32 +44,40 @@ public final class SecurityEventBuffer implements IdleReclaimable, RuntimeEventP
         this.journal = journal == null ? RuntimeEventSink.NONE : journal;
     }
 
-    /** Records a captured event, evicting the oldest when at capacity. No-op while suspended. */
+    /**
+     * Records a captured event, evicting the oldest when at capacity. While suspended for idleness the buffer retains
+     * nothing, but the runtime journal still receives the event when it records security events ({@code
+     * docs/PLAN-v2.md} §5.2).
+     */
     public void record(CapturedSecurityEvent event) {
-        if (!recording || event == null) {
+        record(event, event == null ? null : CorrelationContext.forRequest(event.requestId()));
+    }
+
+    /**
+     * Records a captured event observed under {@code context}, the correlation current where the adapter observed it,
+     * so its journal event carries the request, execution, and trace that context names.
+     */
+    public void record(CapturedSecurityEvent event, CorrelationContext context) {
+        if (event == null) {
             return;
         }
-        synchronized (entries) {
-            if (entries.size() >= capacity) {
-                entries.pollFirst();
-            }
-            entries.addLast(event);
+        boolean retain = recording;
+        if (!retain && !journal.records(JournalSource.SECURITY)) {
+            return;
         }
-        journal.offer(new RuntimeEvent(
-                JournalSource.SECURITY,
-                event.timestamp() == null
-                        ? System.currentTimeMillis()
-                        : event.timestamp().toEpochMilli(),
-                -1,
-                event.requestId(),
-                null,
-                event.traceId(),
-                null,
-                Thread.currentThread().getName(),
-                null,
-                SecurityPayload.isFailure(event.type()),
-                new SecurityPayload(event.type())));
-        notifyListeners();
+        if (retain) {
+            synchronized (entries) {
+                if (entries.size() >= capacity) {
+                    entries.pollFirst();
+                }
+                entries.addLast(event);
+            }
+        }
+        CorrelationContext correlation = context == null ? CorrelationContext.forRequest(event.requestId()) : context;
+        SecurityJournal.publish(journal, event.type(), event.timestamp(), correlation, event.traceId());
+        if (retain) {
+            notifyListeners();
+        }
     }
 
     /** Newest-first immutable snapshot, matching Actuator's reverse-chronological ordering. */

@@ -55,6 +55,7 @@ const TYPES = [
   'REST_CLIENT',
   'FAULT_TOLERANCE',
   'TRANSACTION',
+  'AI',
   'LOG'
 ]
 const SEVERITIES = ['OK', 'SLOW', 'WARN', 'ERROR']
@@ -417,6 +418,7 @@ function typeIcon(type) {
       MAIL: 'bi-envelope',
       FAULT_TOLERANCE: 'bi-shield-check',
       TRANSACTION: 'bi-arrow-repeat',
+      AI: 'bi-cpu',
       LOG: 'bi-journal-text'
     }[type] || 'bi-dot'
   )

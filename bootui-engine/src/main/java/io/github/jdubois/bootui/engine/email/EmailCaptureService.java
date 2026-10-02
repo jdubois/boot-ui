@@ -105,14 +105,12 @@ public final class EmailCaptureService implements RuntimeEventPublisher {
 
     private void publish(CapturedEmail email, EmailStore.Entry entry, CorrelationContext context) {
         try {
-            journal.offer(new RuntimeEvent(
+            journal.offer(RuntimeEvent.of(
                     JournalSource.MAIL,
                     entry.timestamp(),
                     -1,
-                    entry.requestId(),
-                    context.executionId(),
+                    context,
                     entry.traceId(),
-                    null,
                     entry.thread(),
                     null,
                     !entry.sent(),

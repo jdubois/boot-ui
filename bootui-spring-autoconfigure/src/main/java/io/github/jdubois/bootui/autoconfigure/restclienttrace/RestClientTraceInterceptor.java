@@ -41,10 +41,10 @@ public class RestClientTraceInterceptor implements ClientHttpRequestInterceptor 
         long start = System.nanoTime();
         try {
             ClientHttpResponse response = execution.execute(request, body);
-            recordSafely(request, elapsedMillis(start), statusOf(response), true, null);
+            recordSafely(request, elapsedNanos(start), statusOf(response), true, null);
             return response;
         } catch (IOException | RuntimeException ex) {
-            recordSafely(request, elapsedMillis(start), null, false, ex.getMessage());
+            recordSafely(request, elapsedNanos(start), null, false, ex.getMessage());
             throw ex;
         }
     }
@@ -58,29 +58,32 @@ public class RestClientTraceInterceptor implements ClientHttpRequestInterceptor 
     }
 
     private void recordSafely(
-            HttpRequest request, long durationMillis, Integer status, boolean success, String errorMessage) {
+            HttpRequest request, long durationNanos, Integer status, boolean success, String errorMessage) {
         try {
             URI uri = request.getURI();
-            recorder.record(
+            recorder.recordNanos(
                     request.getMethod() == null ? null : request.getMethod().name(),
                     uri.toString(),
                     uri.getHost(),
                     uri.getPath(),
                     status,
-                    durationMillis,
+                    durationNanos,
                     success,
                     errorMessage,
                     clientType,
                     flattenHeaders(request.getHeaders()),
-                    Thread.currentThread().getName());
+                    Thread.currentThread().getName(),
+                    recorder.currentTraceId(),
+                    recorder.currentCorrelation(),
+                    null);
         } catch (RuntimeException ignored) {
             // The response has already been returned (or the exception already thrown) by the time this
             // runs - a capture failure must never disrupt the outbound call.
         }
     }
 
-    private static long elapsedMillis(long startNanos) {
-        return Math.max(0, (System.nanoTime() - startNanos) / 1_000_000);
+    private static long elapsedNanos(long startNanos) {
+        return Math.max(0, System.nanoTime() - startNanos);
     }
 
     private static Map<String, String> flattenHeaders(HttpHeaders headers) {

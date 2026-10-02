@@ -38,8 +38,8 @@ import org.jboss.logging.Logger;
  * aside for it); and fail-open (any error while inspecting metadata or recording is caught and logged at
  * warn, never disrupting the send).</p>
  *
- * <p>Producer duration is always {@code null} (the ack callback carries no send-start timestamp, exactly
- * like Spring's {@code ProducerListener}).</p>
+ * <p>A send is timed from when its message enters the channel ({@link #onMessage}) to its ack or nack, and starts
+ * then, so a request's timeline places it where the request sent it.</p>
  */
 @ApplicationScoped
 public class QuarkusKafkaProducerCapture implements OutgoingInterceptor {
@@ -84,14 +84,15 @@ public class QuarkusKafkaProducerCapture implements OutgoingInterceptor {
                 // routing metadata): pass through and record nothing.
                 return;
             }
-            recorder.recordProduce(
+            SenderCorrelation sent = sentOf(message);
+            recorder.recordProduceNanos(
                     metadata.getTopic(),
                     normalizePartition(metadata.getPartition()),
                     keyOf(metadata.getKey()),
-                    null, // the ack callback carries no send-start timestamp, so duration is never known here
+                    sent.durationNanos(),
                     success,
                     errorMessage,
-                    senderOf(message));
+                    sent.sender());
         } catch (RuntimeException ex) {
             log.warn("BootUI could not capture an outgoing Kafka message; leaving it untouched", ex);
         }
@@ -107,25 +108,46 @@ public class QuarkusKafkaProducerCapture implements OutgoingInterceptor {
     }
 
     /**
-     * Snapshots the sender's BootUI correlation when the message enters the channel ({@code docs/PLAN-v2.md} §5.1):
-     * the request, scheduled run, or consumed message that sent it. The ack or nack that records the send may run on
-     * another thread, so the snapshot travels in the message's metadata.
+     * Snapshots the sender's BootUI correlation and the send's {@link System#nanoTime()} when the message enters the
+     * channel ({@code docs/PLAN-v2.md} §5.1): the request, scheduled run, or consumed message that sent it, and when.
+     * The ack or nack that records the send may run on another thread, so the snapshot travels in the message's
+     * metadata.
      */
     @Override
     public Message<?> onMessage(Message<?> message) {
+        if (!recorder.isEnabled()) {
+            return message;
+        }
         try {
-            CorrelationContext sender = QuarkusRequestCorrelation.current();
-            return sender.isEmpty() ? message : message.addMetadata(new SenderCorrelation(sender));
+            return message.addMetadata(new SenderCorrelation(QuarkusRequestCorrelation.current(), System.nanoTime()));
         } catch (RuntimeException ex) {
             return message;
         }
     }
 
-    private static CorrelationContext senderOf(Message<?> message) {
-        return message.getMetadata(SenderCorrelation.class)
-                .map(SenderCorrelation::sender)
-                .orElse(CorrelationContext.NONE);
+    private static SenderCorrelation sentOf(Message<?> message) {
+        return message.getMetadata(SenderCorrelation.class).orElse(SenderCorrelation.UNKNOWN);
     }
 
-    record SenderCorrelation(CorrelationContext sender) {}
+    /**
+     * Who sent a message and when, as a {@link System#nanoTime()}; {@link #UNKNOWN} when it was not snapshotted, since
+     * any {@code long}, negative ones included, is a valid reading.
+     */
+    record SenderCorrelation(CorrelationContext sender, long sentNanos, boolean timed) {
+
+        static final SenderCorrelation UNKNOWN = new SenderCorrelation(CorrelationContext.NONE, 0, false);
+
+        SenderCorrelation {
+            sender = sender == null ? CorrelationContext.NONE : sender;
+        }
+
+        SenderCorrelation(CorrelationContext sender, long sentNanos) {
+            this(sender, sentNanos, true);
+        }
+
+        /** The nanoseconds from the send to now, or {@code null} when the send time is unknown. */
+        Long durationNanos() {
+            return timed ? Math.max(0, System.nanoTime() - sentNanos) : null;
+        }
+    }
 }

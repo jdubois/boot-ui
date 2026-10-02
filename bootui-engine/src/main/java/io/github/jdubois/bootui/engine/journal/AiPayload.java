@@ -36,7 +36,7 @@ public record AiPayload(
     @Override
     public RuntimeEventPayload interned(JournalDictionary dictionary) {
         return new AiPayload(
-                operation,
+                dictionary.shared(operation),
                 dictionary.shared(provider),
                 dictionary.shared(model),
                 inputTokens,
@@ -45,11 +45,19 @@ public record AiPayload(
                 failed);
     }
 
+    /** Its fixed part and its strings, each counted as the payload's own. */
     @Override
     public int estimatedBytes() {
+        return estimatedBytes(null);
+    }
+
+    /** Its fixed part, with each string {@code dictionary} shares counted as a reference. */
+    @Override
+    public int estimatedBytes(JournalDictionary dictionary) {
         return 48
-                + RuntimeEvent.stringBytes(provider)
-                + RuntimeEvent.stringBytes(model)
-                + RuntimeEvent.stringBytes(finishReason);
+                + JournalDictionary.retained(dictionary, operation)
+                + JournalDictionary.retained(dictionary, provider)
+                + JournalDictionary.retained(dictionary, model)
+                + JournalDictionary.retained(dictionary, finishReason);
     }
 }

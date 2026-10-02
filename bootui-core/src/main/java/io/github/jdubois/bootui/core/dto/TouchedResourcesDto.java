@@ -13,6 +13,7 @@ import java.util.List;
  * @param messages destinations it sent to, with their broker
  * @param restCalls hosts it called
  * @param logTemplates the templates of the {@code WARN} and {@code ERROR} log events it emitted
+ * @param models the AI models it called, with their provider, joined to it by trace id
  */
 public record TouchedResourcesDto(
         List<String> tables,
@@ -21,11 +22,12 @@ public record TouchedResourcesDto(
         List<String> caches,
         List<String> messages,
         List<String> restCalls,
-        List<String> logTemplates) {
+        List<String> logTemplates,
+        List<String> models) {
 
     /** Nothing touched. */
-    public static final TouchedResourcesDto NONE =
-            new TouchedResourcesDto(List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+    public static final TouchedResourcesDto NONE = new TouchedResourcesDto(
+            List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
 
     public TouchedResourcesDto {
         tables = DtoCollections.immutableCopy(tables);
@@ -35,5 +37,6 @@ public record TouchedResourcesDto(
         messages = DtoCollections.immutableCopy(messages);
         restCalls = DtoCollections.immutableCopy(restCalls);
         logTemplates = DtoCollections.immutableCopy(logTemplates);
+        models = DtoCollections.immutableCopy(models);
     }
 }

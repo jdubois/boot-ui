@@ -6,7 +6,7 @@ import io.github.jdubois.bootui.engine.resources.ResourceTrack;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
-import io.github.jdubois.bootui.engine.sqltrace.SqlStatementNormalizer;
+import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -63,6 +63,13 @@ public final class JournalAggregates implements JournalListener {
             new CappedMap<>(MAX_TRANSACTIONAL_METHODS, TransactionalMethod::new);
     private final CappedMap<ThreadFamily> threadFamilies = new CappedMap<>(MAX_THREAD_FAMILIES, ThreadFamily::new);
     private final LinkedHashMap<String, PendingRequest> pending = new LinkedHashMap<>();
+
+    /**
+     * The most recently completed requests, so a child recorded after its request, such as an AI call exported in a
+     * later batch or a send acknowledged after the response, opens no pending entry that nothing would ever complete.
+     */
+    private final Map<String, Boolean> completed = bounded(MAX_PENDING_REQUESTS);
+
     private final Map<String, Long> recentPauses = bounded(MAX_RECENT_COLLECTIONS);
     private final Map<String, List<String>> awaitedPauses = bounded(MAX_AWAITED_COLLECTIONS);
     private final ResourceTrack resourceTrack = new ResourceTrack();
@@ -125,7 +132,9 @@ public final class JournalAggregates implements JournalListener {
             collected(gc, Math.max(0, event.durationNanos()));
             return;
         }
-        if (event.requestId() == null && event.executionId() == null) {
+        // An event not observed on a thread, such as an AI call joined to its request by trace id or a message sent
+        // from an I/O callback, belongs to no thread family rather than inflating an unknown one.
+        if (event.requestId() == null && event.executionId() == null && event.thread() != null) {
             threadFamilies.get(ThreadFamilies.of(event.thread())).add(event);
         }
         if (event.source() == JournalSource.HTTP && payload instanceof HttpPayload http) {
@@ -143,14 +152,19 @@ public final class JournalAggregates implements JournalListener {
             if (children != null) {
                 route.fold(children, label, this);
             }
+            if (event.requestId() != null) {
+                completed.put(event.requestId(), Boolean.TRUE);
+            }
             return;
         }
-        PendingRequest children = pendingFor(event.requestId());
+        PendingRequest children = event.requestId() == null || completed.containsKey(event.requestId())
+                ? null
+                : pendingFor(event.requestId());
         if (children != null) {
             children.add(event);
         }
         if (payload instanceof SqlPayload sql) {
-            String fingerprint = SqlStatementNormalizer.fingerprintOf(sql.sql());
+            String fingerprint = SqlShapes.fingerprint(sql.sql());
             statements.get(fingerprint).add(event, sql);
             if (children != null) {
                 children.statement(fingerprint);
@@ -255,6 +269,15 @@ public final class JournalAggregates implements JournalListener {
         return resourceTrack;
     }
 
+    /**
+     * Drops every aggregate when the journal clears its recording, in step with it, so no batch processed before the
+     * clear is counted after it.
+     */
+    @Override
+    public void onClear() {
+        clear();
+    }
+
     /** Drops every aggregate, for <b>Clear recording</b>. */
     public synchronized void clear() {
         resourceTrack.clear();
@@ -264,6 +287,7 @@ public final class JournalAggregates implements JournalListener {
         transactionalMethods.clear();
         threadFamilies.clear();
         pending.clear();
+        completed.clear();
         recentPauses.clear();
         awaitedPauses.clear();
         Arrays.fill(runCounts, 0);

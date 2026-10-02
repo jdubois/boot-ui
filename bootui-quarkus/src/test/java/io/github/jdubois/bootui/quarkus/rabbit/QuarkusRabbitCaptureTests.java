@@ -36,6 +36,20 @@ class QuarkusRabbitCaptureTests {
     }
 
     @Test
+    void aPublishIsTimedFromEnteringTheChannelToItsAck() throws InterruptedException {
+        RabbitActivityRecorder recorder = new RabbitActivityRecorder(true, true, 10, 16);
+        QuarkusRabbitProducerCapture capture = new QuarkusRabbitProducerCapture(recorder);
+
+        Message<?> sent = capture.onMessage(outgoingMessage("created", "customer-123"));
+        Thread.sleep(20);
+        capture.onMessageAck(sent);
+
+        assertThat(recorder.recent())
+                .singleElement()
+                .satisfies(message -> assertThat(message.durationMillis()).isGreaterThanOrEqualTo(20L));
+    }
+
+    @Test
     void consumerTimesAckAndPreservesMetadataOnly() {
         RabbitActivityRecorder recorder = new RabbitActivityRecorder(true, true, 10, 16);
         QuarkusRabbitConsumerCapture capture = new QuarkusRabbitConsumerCapture(recorder);

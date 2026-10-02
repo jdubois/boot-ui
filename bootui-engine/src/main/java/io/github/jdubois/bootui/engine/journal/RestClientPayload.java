@@ -37,28 +37,37 @@ public record RestClientPayload(
         this(method, authority, path, status, clientType, failed, null);
     }
 
+    /**
+     * This call with its method, authority, client type, and frames replaced by the run's shared copies; its path,
+     * which may hold ids, stays its own.
+     */
     @Override
     public RuntimeEventPayload interned(JournalDictionary dictionary) {
-        return frames == null
-                ? this
-                : new RestClientPayload(
-                        method,
-                        authority,
-                        path,
-                        status,
-                        clientType,
-                        failed,
-                        frames.interned(dictionary),
-                        completedNanos);
+        return new RestClientPayload(
+                dictionary.shared(method),
+                dictionary.shared(authority),
+                path,
+                status,
+                dictionary.shared(clientType),
+                failed,
+                frames == null ? null : frames.interned(dictionary),
+                completedNanos);
     }
 
+    /** Its fixed part and its strings, each counted as the payload's own. */
     @Override
     public int estimatedBytes() {
+        return estimatedBytes(null);
+    }
+
+    /** Its fixed part, with each string {@code dictionary} shares counted as a reference. */
+    @Override
+    public int estimatedBytes(JournalDictionary dictionary) {
         return 32
-                + RuntimeEvent.stringBytes(method)
-                + RuntimeEvent.stringBytes(authority)
-                + RuntimeEvent.stringBytes(path)
-                + RuntimeEvent.stringBytes(clientType)
+                + JournalDictionary.retained(dictionary, method)
+                + JournalDictionary.retained(dictionary, authority)
+                + JournalDictionary.retained(dictionary, path)
+                + JournalDictionary.retained(dictionary, clientType)
                 + (frames == null ? 0 : frames.estimatedBytes());
     }
 }

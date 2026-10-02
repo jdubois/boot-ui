@@ -136,14 +136,12 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
                 String requestId = correlation.requestId();
                 ResourceUsage resources = SegmentMeter.shared().take(requestId);
                 RequestPhases requestPhases = phases;
-                sink.offer(new RuntimeEvent(
+                sink.offer(RuntimeEvent.of(
                         JournalSource.HTTP,
                         start,
                         durationNanos,
-                        requestId,
-                        null,
+                        correlation,
                         traceId(exchange, correlation),
-                        null,
                         // The thread the request completed on, whose kind the journal records: a reactive request
                         // has no single serving thread.
                         Thread.currentThread().getName(),

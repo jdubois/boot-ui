@@ -17,11 +17,25 @@ public record ExceptionPayload(String groupId, String exceptionClass, String sig
         this(groupId, exceptionClass, null);
     }
 
+    /** This occurrence with its group id, class, and signature replaced by the run's shared copies. */
+    @Override
+    public RuntimeEventPayload interned(JournalDictionary dictionary) {
+        return new ExceptionPayload(
+                dictionary.shared(groupId), dictionary.shared(exceptionClass), dictionary.shared(signature));
+    }
+
+    /** Its fixed part and its strings, each counted as the payload's own. */
     @Override
     public int estimatedBytes() {
+        return estimatedBytes(null);
+    }
+
+    /** Its fixed part, with each string {@code dictionary} shares counted as a reference. */
+    @Override
+    public int estimatedBytes(JournalDictionary dictionary) {
         return 24
-                + RuntimeEvent.stringBytes(groupId)
-                + RuntimeEvent.stringBytes(exceptionClass)
-                + RuntimeEvent.stringBytes(signature);
+                + JournalDictionary.retained(dictionary, groupId)
+                + JournalDictionary.retained(dictionary, exceptionClass)
+                + JournalDictionary.retained(dictionary, signature);
     }
 }

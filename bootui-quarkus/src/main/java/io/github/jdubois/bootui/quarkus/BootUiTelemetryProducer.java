@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.engine.telemetry.AiUsageSettings;
 import io.github.jdubois.bootui.engine.telemetry.SelfTelemetryClassifier;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import io.github.jdubois.bootui.engine.telemetry.TracesService;
+import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
@@ -44,7 +45,11 @@ public class BootUiTelemetryProducer {
     @Produces
     @Singleton
     public TelemetryStore telemetryStore(QuarkusTelemetrySettings settings) {
-        return new TelemetryStore(settings);
+        TelemetryStore store = new TelemetryStore(settings);
+        // A span starts where the request's work runs, which on Quarkus may be a worker thread that only the
+        // request's Vert.x context identifies.
+        store.setCorrelationContextProvider(QuarkusRequestCorrelation::current);
+        return store;
     }
 
     /**

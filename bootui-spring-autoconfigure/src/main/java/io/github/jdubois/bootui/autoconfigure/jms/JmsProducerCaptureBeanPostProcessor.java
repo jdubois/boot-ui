@@ -113,21 +113,21 @@ public final class JmsProducerCaptureBeanPostProcessor implements BeanPostProces
             long start = System.nanoTime();
             try {
                 Object result = invocation.proceed();
-                long durationMillis = (System.nanoTime() - start) / 1_000_000L;
+                long durationNanos = Math.max(0L, System.nanoTime() - start);
                 String messageDestination = JmsCaptureMetadata.destination(sentMessage.get());
                 safeRecord(
                         messageDestination == null ? destination : messageDestination,
                         JmsCaptureMetadata.messageId(sentMessage.get()),
-                        durationMillis,
+                        durationNanos,
                         true,
                         null);
                 return result;
             } catch (Throwable ex) {
-                long durationMillis = (System.nanoTime() - start) / 1_000_000L;
+                long durationNanos = Math.max(0L, System.nanoTime() - start);
                 safeRecord(
                         destination,
                         JmsCaptureMetadata.messageId(sentMessage.get()),
-                        durationMillis,
+                        durationNanos,
                         false,
                         JmsCaptureMetadata.failureType(ex));
                 throw ex;
@@ -166,9 +166,9 @@ public final class JmsProducerCaptureBeanPostProcessor implements BeanPostProces
         }
 
         private void safeRecord(
-                String destination, String messageId, long durationMillis, boolean success, String failureType) {
+                String destination, String messageId, long durationNanos, boolean success, String failureType) {
             try {
-                recorder.recordProduce(destination, messageId, durationMillis, success, failureType);
+                recorder.recordProduceNanos(destination, messageId, durationNanos, success, failureType);
             } catch (RuntimeException ex) {
                 log.warn("BootUI could not capture an outgoing JMS message; leaving it untouched", ex);
             }

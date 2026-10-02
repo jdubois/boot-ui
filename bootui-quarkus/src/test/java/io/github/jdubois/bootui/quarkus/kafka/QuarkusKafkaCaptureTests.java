@@ -163,6 +163,7 @@ class QuarkusKafkaCaptureTests {
                 BootUiCorrelation.open(CorrelationContext.forExecution("00112233aabbccdd"))) {
             sent = producer.onMessage(outgoingKafkaMessage("shipments", 0, "k"));
         }
+        Thread.sleep(20);
         java.util.concurrent.CompletableFuture.runAsync(() -> producer.onMessageAck(sent))
                 .get(10, java.util.concurrent.TimeUnit.SECONDS);
 
@@ -176,8 +177,12 @@ class QuarkusKafkaCaptureTests {
         assertThat(recorder.recent())
                 .filteredOn(message -> message.direction() == Direction.PRODUCE)
                 .singleElement()
-                .extracting(CapturedMessage::executionId)
-                .isEqualTo("00112233aabbccdd");
+                .satisfies(message -> {
+                    assertThat(message.executionId()).isEqualTo("00112233aabbccdd");
+                    assertThat(message.durationMillis())
+                            .as("timed from entering the channel to its ack")
+                            .isGreaterThanOrEqualTo(20L);
+                });
     }
 
     @Test

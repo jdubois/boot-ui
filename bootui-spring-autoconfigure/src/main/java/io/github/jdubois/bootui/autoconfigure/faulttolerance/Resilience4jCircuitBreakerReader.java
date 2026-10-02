@@ -146,7 +146,7 @@ final class Resilience4jCircuitBreakerReader implements Resilience4jRegistryRead
             return;
         }
         breaker.getEventPublisher()
-                .onError(event -> recorder.record(
+                .onError(event -> recorder.recordNanos(
                         event.getCircuitBreakerName(),
                         FaultToleranceVocabulary.TYPE_CIRCUIT_BREAKER,
                         FaultToleranceVocabulary.PROVIDER_RESILIENCE4J,
@@ -155,7 +155,7 @@ final class Resilience4jCircuitBreakerReader implements Resilience4jRegistryRead
                         null,
                         event.getElapsedDuration() == null
                                 ? null
-                                : event.getElapsedDuration().toMillis(),
+                                : event.getElapsedDuration().toNanos(),
                         FaultToleranceVocabulary.failureCategory(event.getThrowable())))
                 .onCallNotPermitted(event -> recorder.record(
                         event.getCircuitBreakerName(),

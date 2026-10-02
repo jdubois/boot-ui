@@ -105,13 +105,13 @@ public class QuarkusRabbitConsumerCapture implements IncomingInterceptor {
                 return;
             }
             CaptureStart start = message.getMetadata(CaptureStart.class).orElse(null);
-            Long durationMillis = start == null ? null : Math.max(0L, (System.nanoTime() - start.nanos()) / 1_000_000L);
+            Long durationNanos = start == null ? null : Math.max(0L, System.nanoTime() - start.nanos());
             CorrelationContext execution = start == null ? CorrelationContext.NONE : start.execution();
-            recorder.recordConsume(
+            recorder.recordConsumeNanos(
                     metadata.getExchange(),
                     metadata.getRoutingKey(),
                     null, // queue name is not exposed on IncomingRabbitMQMetadata; leave it null
-                    durationMillis,
+                    durationNanos,
                     success,
                     errorMessage,
                     metadata.getCorrelationId().orElse(null),

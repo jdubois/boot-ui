@@ -33,13 +33,37 @@ public record HttpPayload(
         this(method, path, routeTemplate, operation, status, null);
     }
 
+    /**
+     * This exchange with its method, route template, and operation replaced by the run's shared copies. Its path is
+     * shared only when it is its own template, since a path with ids would fill the dictionary with one-off strings.
+     */
+    @Override
+    public RuntimeEventPayload interned(JournalDictionary dictionary) {
+        String template = dictionary.shared(routeTemplate);
+        return new HttpPayload(
+                dictionary.shared(method),
+                path != null && path.equals(routeTemplate) ? template : path,
+                template,
+                dictionary.shared(operation),
+                status,
+                resources,
+                timing);
+    }
+
+    /** Its fixed part and its strings, each counted as the payload's own. */
     @Override
     public int estimatedBytes() {
+        return estimatedBytes(null);
+    }
+
+    /** Its fixed part, with each string {@code dictionary} shares counted as a reference. */
+    @Override
+    public int estimatedBytes(JournalDictionary dictionary) {
         return (timing == null ? 16 : 64)
-                + RuntimeEvent.stringBytes(method)
-                + RuntimeEvent.stringBytes(path)
-                + RuntimeEvent.stringBytes(routeTemplate)
-                + RuntimeEvent.stringBytes(operation)
+                + JournalDictionary.retained(dictionary, method)
+                + JournalDictionary.retained(dictionary, path)
+                + JournalDictionary.retained(dictionary, routeTemplate)
+                + JournalDictionary.retained(dictionary, operation)
                 + (resources == null ? 0 : resources.estimatedBytes());
     }
 }

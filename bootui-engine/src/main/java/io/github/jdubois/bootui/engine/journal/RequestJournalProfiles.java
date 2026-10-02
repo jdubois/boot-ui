@@ -12,7 +12,7 @@ import io.github.jdubois.bootui.engine.resources.GcPauseRange;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
-import io.github.jdubois.bootui.engine.sqltrace.SqlTables;
+import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -28,9 +28,9 @@ import java.util.function.Supplier;
  * work on one timeline, the collections that completed while it ran, its measured resources, how it compares with its
  * route, and what it touched.
  *
- * <p>Every child belongs to the request by its request id. The timeline places each event at its start: SQL statements
- * and REST client calls are stamped when they complete, so their start is their stamp minus their duration; every other
- * source is stamped when it starts or happens. Rows of a disabled panel are left out, as Live Activity leaves them out.
+ * <p>Every child belongs to the request by its request id, and an AI call, which carries none, by the request's trace
+ * id when no other retained request shares it. The timeline places each event at its start, which every source stamps
+ * as the event's time ({@link RuntimeEvent}). Rows of a disabled panel are left out, as Live Activity leaves them out.
  * </p>
  */
 public final class RequestJournalProfiles {
@@ -81,9 +81,12 @@ public final class RequestJournalProfiles {
         List<JournalEntry> all = journal.entries();
         JournalEntry request = null;
         List<JournalEntry> children = new ArrayList<>();
+        List<JournalEntry> aiCalls = new ArrayList<>();
         Map<String, JournalEntry> collections = new HashMap<>();
+        AiCallOwners aiCallOwners = new AiCallOwners();
         for (JournalEntry entry : all) {
             RuntimeEvent event = entry.event();
+            aiCallOwners.learn(event);
             if (event.payload() instanceof GcPayload gc) {
                 collections.put(gc.collector() + '#' + gc.gcId(), entry);
             } else if (requestId.equals(event.requestId())) {
@@ -92,6 +95,15 @@ public final class RequestJournalProfiles {
                 } else if (visible(event)) {
                     children.add(entry);
                 }
+            } else if (AiCallOwners.linksByTrace(event) && visible(event)) {
+                aiCalls.add(entry);
+            }
+        }
+        // An AI call carries only its span's trace id, so it joins the request with that trace id whose time span
+        // contains its start, unless another such request shares the trace and which one made the call is unknown.
+        for (JournalEntry call : aiCalls) {
+            if (requestId.equals(aiCallOwners.ownerOf(call.event()))) {
+                children.add(call);
             }
         }
         if (request == null) {
@@ -160,10 +172,8 @@ public final class RequestJournalProfiles {
     private RequestTimelineItemDto item(JournalEntry entry, ActivityEntryDto row, long requestStart) {
         RuntimeEvent event = entry.event();
         Long durationMicros = event.durationNanos() < 0 ? null : event.durationNanos() / 1_000;
+        // Every source stamps when its work started (RuntimeEvent), so the offset needs no per-source correction.
         long startMillis = event.epochMillis();
-        if (event.source() == JournalSource.SQL || event.source() == JournalSource.REST_CLIENT) {
-            startMillis -= durationMicros == null ? 0 : durationMicros / 1_000;
-        }
         String threadKind =
                 event.threadKind() == null ? null : event.threadKind().name();
         if (event.payload() instanceof ConnectionPayload connection) {
@@ -264,10 +274,11 @@ public final class RequestJournalProfiles {
         Set<String> messages = new LinkedHashSet<>();
         Set<String> restCalls = new LinkedHashSet<>();
         Set<String> logTemplates = new LinkedHashSet<>();
+        Set<String> models = new LinkedHashSet<>();
         for (JournalEntry entry : children) {
             RuntimeEventPayload payload = entry.event().payload();
             if (payload instanceof SqlPayload sql) {
-                for (String table : SqlTables.of(sql.sql())) {
+                for (String table : SqlShapes.tables(sql.sql())) {
                     add(tables, table);
                 }
                 add(dataSources, sql.dataSource());
@@ -290,6 +301,12 @@ public final class RequestJournalProfiles {
                 add(restCalls, rest.authority());
             } else if (payload instanceof LogPayload log) {
                 add(logTemplates, log.template());
+            } else if (payload instanceof AiPayload ai) {
+                add(
+                        models,
+                        ai.model() == null || ai.model().isBlank()
+                                ? null
+                                : ai.model() + (ai.provider() == null ? "" : " (" + ai.provider() + ")"));
             }
         }
         return new TouchedResourcesDto(
@@ -299,7 +316,8 @@ public final class RequestJournalProfiles {
                 List.copyOf(caches),
                 List.copyOf(messages),
                 List.copyOf(restCalls),
-                List.copyOf(logTemplates));
+                List.copyOf(logTemplates),
+                List.copyOf(models));
     }
 
     private static void add(Set<String> values, String value) {

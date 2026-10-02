@@ -140,14 +140,16 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
         return connectionHoldThresholdMillis > 0 && durationMillis >= connectionHoldThresholdMillis;
     }
 
-    private boolean isActive() {
+    /** Whether the Transactions panel captures now: capture is enabled, recording is on, and it is not idle. */
+    private boolean capturesForPanel() {
         return enabled && !idleSuspended && recording.get();
     }
 
     /**
      * Records the start of a transaction boundary, resolving its parent from the thread's stack of
      * already-active transactions. Returns {@code -1} (a sentinel completion no-ops on) when capture is
-     * disabled, paused, or idle-suspended, so callers never need a null check.
+     * disabled, or when the panel is paused or idle-suspended and the runtime journal does not record transactions,
+     * so callers never need a null check.
      */
     public long beginTransaction(String methodName, boolean readOnly, String isolation, String thread, String traceId) {
         return beginTransaction(methodName, readOnly, isolation, thread, traceId, false);
@@ -160,7 +162,13 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
      */
     public long beginTransaction(
             String methodName, boolean readOnly, String isolation, String thread, String traceId, boolean savepoint) {
-        if (!isActive()) {
+        if (!enabled) {
+            return -1;
+        }
+        // A paused or idle-suspended panel skips its own buffer, but the runtime journal keeps recording
+        // transactions (docs/PLAN-v2.md §5.2).
+        boolean panel = capturesForPanel();
+        if (!panel && !journal.records(JournalSource.TRANSACTION)) {
             return -1;
         }
         long id = sequence.incrementAndGet();
@@ -178,7 +186,8 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
                 System.currentTimeMillis(),
                 System.nanoTime(),
                 savepoint,
-                correlation.current());
+                correlation.current(),
+                panel);
         active.put(id, transaction);
         stack.addLast(id);
         return id;
@@ -213,52 +222,57 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
     private void record(ActiveTransaction transaction, Status status, String errorMessage) {
         long end = System.currentTimeMillis();
         long duration = Math.max(0, end - transaction.startTimestamp);
-        Correlation correlation = correlate(transaction, end);
-        TransactionEntryDto entry = new TransactionEntryDto(
-                transaction.id,
-                transaction.methodName,
-                transaction.propagation,
-                transaction.isolation,
-                status.name(),
-                transaction.startTimestamp,
-                end,
-                duration,
-                transaction.parentId,
-                transaction.thread,
-                transaction.traceId,
-                correlation.statementCount(),
-                correlation.connectionCount(),
-                transaction.readOnly,
-                isSlow(duration),
-                isConnectionHeld(duration),
-                errorMessage);
-        synchronized (lock) {
-            buffer.addLast(entry);
-            while (buffer.size() > maxEntries) {
-                buffer.removeFirst();
-                evicted.incrementAndGet();
+        if (transaction.panel()) {
+            Correlation correlation = correlate(transaction, end);
+            TransactionEntryDto entry = new TransactionEntryDto(
+                    transaction.id,
+                    transaction.methodName,
+                    transaction.propagation,
+                    transaction.isolation,
+                    status.name(),
+                    transaction.startTimestamp,
+                    end,
+                    duration,
+                    transaction.parentId,
+                    transaction.thread,
+                    transaction.traceId,
+                    correlation.statementCount(),
+                    correlation.connectionCount(),
+                    transaction.readOnly,
+                    isSlow(duration),
+                    isConnectionHeld(duration),
+                    errorMessage);
+            synchronized (lock) {
+                buffer.addLast(entry);
+                while (buffer.size() > maxEntries) {
+                    buffer.removeFirst();
+                    evicted.incrementAndGet();
+                }
             }
+            totalCaptured.incrementAndGet();
         }
-        totalCaptured.incrementAndGet();
-        CorrelationContext context = transaction.context();
-        journal.offer(new RuntimeEvent(
-                JournalSource.TRANSACTION,
-                transaction.startTimestamp(),
-                System.nanoTime() - transaction.startNanos(),
-                context.requestId(),
-                context.executionId(),
-                transaction.traceId() != null ? transaction.traceId() : context.traceId(),
-                context.spanId(),
-                transaction.thread(),
-                null,
-                status != Status.COMMITTED || isSlow(duration),
-                new TransactionPayload(
-                        transaction.methodName(),
-                        status == Status.ROLLED_BACK,
-                        transaction.parentId() != null,
-                        transaction.savepoint(),
-                        transaction.startNanos())));
-        notifyListeners();
+        try {
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.TRANSACTION,
+                    transaction.startTimestamp(),
+                    System.nanoTime() - transaction.startNanos(),
+                    transaction.context(),
+                    transaction.traceId(),
+                    transaction.thread(),
+                    null,
+                    status != Status.COMMITTED || isSlow(duration),
+                    new TransactionPayload(
+                            transaction.methodName(),
+                            status == Status.ROLLED_BACK,
+                            transaction.parentId() != null,
+                            transaction.savepoint(),
+                            transaction.startNanos())));
+        } catch (RuntimeException ex) {
+            // Publishing never disturbs the transaction it observes.
+        }
+        if (transaction.panel()) {
+            notifyListeners();
+        }
     }
 
     /**
@@ -450,5 +464,6 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
             long startTimestamp,
             long startNanos,
             boolean savepoint,
-            CorrelationContext context) {}
+            CorrelationContext context,
+            boolean panel) {}
 }

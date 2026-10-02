@@ -36,10 +36,11 @@ class BootUiOpenTelemetryConfiguration {
     }
 
     /**
-     * Stamps BootUI identity attributes ({@code bootui.enriched}/service/instance) on every span at start.
-     * Spring Boot's OpenTelemetry autoconfiguration collects {@link SpanProcessor} beans into its tracer
-     * provider, so declaring this bean is enough to wire it. Gated identically to the exporter, and the
-     * processor itself re-reads the live enrichment toggle so it stays inert when enrichment is off.
+     * Observes every span at start: it tells the telemetry store which BootUI request or execution started the span,
+     * so an AI call nests under its request by id in the runtime journal, and stamps BootUI identity attributes
+     * ({@code bootui.enriched}/service/instance) when enrichment is on. Spring Boot's OpenTelemetry autoconfiguration
+     * collects {@link SpanProcessor} beans into its tracer provider, so declaring this bean is enough to wire it. Gated
+     * identically to the exporter, and the processor itself re-reads the live capture and enrichment toggles.
      */
     @Bean
     @ConditionalOnProperty(prefix = "bootui.telemetry", name = "enabled", havingValue = "true", matchIfMissing = true)
@@ -48,10 +49,11 @@ class BootUiOpenTelemetryConfiguration {
             name = "enabled",
             havingValue = "true",
             matchIfMissing = true)
-    SpanProcessor bootUiIdentitySpanProcessor(BootUiProperties properties, Environment environment) {
+    SpanProcessor bootUiIdentitySpanProcessor(
+            BootUiProperties properties, Environment environment, TelemetryStore store) {
         String serviceName = environment.getProperty("spring.application.name");
         String instanceId = environment.getProperty("HOSTNAME", System.getenv("HOSTNAME"));
-        return new BootUiIdentitySpanProcessor(new SpringTelemetrySettings(properties), serviceName, instanceId);
+        return new BootUiIdentitySpanProcessor(new SpringTelemetrySettings(properties), serviceName, instanceId, store);
     }
 
     /**

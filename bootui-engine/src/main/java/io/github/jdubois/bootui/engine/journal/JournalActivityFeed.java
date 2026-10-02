@@ -30,8 +30,10 @@ import java.util.function.Supplier;
  *
  * <p>Every child nests by identity, never by thread or time: an event carrying a request id nests under that request's
  * {@code REQUEST} entry, and one carrying only an execution id under the {@code SCHEDULED} or consumed
- * {@code MESSAGING} entry of that execution. A child whose parent is not retained, such as a request still in flight,
- * stays top-level until its parent appears.</p>
+ * {@code MESSAGING} entry of that execution. An {@code AI} call, which carries only the trace id of the span it came
+ * from, nests under the one retained request with that trace id whose time span contains the call's start
+ * ({@link AiCallOwners}). A child whose parent is not retained, such as a request still in flight, stays top-level
+ * until its parent appears.</p>
  *
  * <p>Entries carry only what the journal records: templates, statements as retained, types, and classes, never bind
  * values, principals, or exception and log messages (§8). A {@code REQUEST} entry's id is its request id, which the
@@ -53,6 +55,7 @@ public final class JournalActivityFeed {
     public static final String TYPE_LOG = "LOG";
     public static final String TYPE_MAIL = "MAIL";
     public static final String TYPE_FAULT_TOLERANCE = "FAULT_TOLERANCE";
+    public static final String TYPE_AI = "AI";
 
     static final String SEVERITY_OK = "OK";
     static final String SEVERITY_SLOW = "SLOW";
@@ -111,10 +114,12 @@ public final class JournalActivityFeed {
         Map<String, JournalEntry> requests = new HashMap<>();
         Map<String, String> executions = new HashMap<>();
         Map<String, Map<String, Integer>> selectsByRequest = new HashMap<>();
+        AiCallOwners aiCallOwners = new AiCallOwners();
         for (JournalEntry entry : entries) {
             RuntimeEvent event = entry.event();
             if (event.source() == JournalSource.HTTP && event.requestId() != null) {
                 requests.put(event.requestId(), entry);
+                aiCallOwners.learn(event);
             } else if (opensExecution(event)) {
                 executions.putIfAbsent(event.executionId(), event.executionId());
             }
@@ -127,9 +132,11 @@ public final class JournalActivityFeed {
 
         List<Row> rows = new ArrayList<>(entries.size());
         for (JournalEntry entry : entries) {
-            ActivityEntryDto rendered = render(entry, eventId, requests, executions, selectsByRequest, routes, false);
+            ActivityEntryDto rendered =
+                    render(entry, eventId, requests, executions, aiCallOwners, selectsByRequest, routes, false);
             if (rendered != null) {
-                rows.add(new Row(entry, rowDetails.apply(rendered, entry.event())));
+                rows.add(
+                        new Row(entry, rowDetails.apply(rendered, entry.event()), aiCallOwners.ownerOf(entry.event())));
             }
         }
         rows.sort(Comparator.comparingLong((Row row) -> row.entry().timestamp())
@@ -265,6 +272,7 @@ public final class JournalActivityFeed {
             Function<JournalEntry, String> eventId,
             Map<String, JournalEntry> requests,
             Map<String, String> executions,
+            AiCallOwners aiCallOwners,
             Map<String, Map<String, Integer>> selectsByRequest,
             RouteTemplateResolver routes,
             boolean byIdentity) {
@@ -273,7 +281,7 @@ public final class JournalActivityFeed {
         // A scheduled run or consumed message is identified by its execution id, as a request is by its request id,
         // so its children can name it before it is recorded.
         String id = opensExecution(event) ? event.executionId() : eventId.apply(journal);
-        String parentId = parentOf(event, requests, executions, byIdentity);
+        String parentId = parentOf(event, requests, executions, aiCallOwners, byIdentity);
         Long durationMs = millis(event);
         if (payload instanceof HttpPayload http) {
             Map<String, Integer> selects = selectsByRequest.get(event.requestId());
@@ -512,6 +520,22 @@ public final class JournalActivityFeed {
                     parentId,
                     false);
         }
+        if (payload instanceof AiPayload ai) {
+            return entry(
+                    id,
+                    TYPE_AI,
+                    event,
+                    ai.failed() ? SEVERITY_ERROR : ai.lengthLimited() ? SEVERITY_WARN : SEVERITY_OK,
+                    aiSummary(ai),
+                    aiDetail(ai),
+                    durationMs,
+                    null,
+                    null,
+                    null,
+                    false,
+                    parentId,
+                    false);
+        }
         if (payload instanceof LogPayload log) {
             String level = log.level() == null ? "" : log.level().toUpperCase(Locale.ROOT);
             String detail = log.logger();
@@ -569,15 +593,43 @@ public final class JournalActivityFeed {
                 sqlNPlusOneSuspected);
     }
 
+    /** An AI call's summary: its operation, model, and provider, such as {@code chat gpt-4o (openai)}. */
+    private static String aiSummary(AiPayload ai) {
+        StringBuilder summary = new StringBuilder(ai.operation() == null ? "AI call" : ai.operation());
+        if (ai.model() != null && !ai.model().isBlank()) {
+            summary.append(' ').append(ai.model());
+        }
+        if (ai.provider() != null && !ai.provider().isBlank()) {
+            summary.append(" (").append(ai.provider()).append(')');
+        }
+        return summary.toString();
+    }
+
+    /** An AI call's tokens and finish reason, or {@code null} when it reported neither. */
+    private static String aiDetail(AiPayload ai) {
+        List<String> details = new ArrayList<>(3);
+        if (ai.inputTokens() != null) {
+            details.add(ai.inputTokens() + " input tokens");
+        }
+        if (ai.outputTokens() != null) {
+            details.add(ai.outputTokens() + " output tokens");
+        }
+        if (ai.finishReason() != null && !ai.finishReason().isBlank()) {
+            details.add("finish " + ai.finishReason());
+        }
+        return details.isEmpty() ? null : String.join(" · ", details);
+    }
+
     /**
-     * The id of the entry {@code event} nests under: its request's, else its execution's, else none. The live feed names
-     * only a parent it shows; {@code byIdentity} names it whether or not it was recorded yet, for rows persisted as
-     * they are recorded.
+     * The id of the entry {@code event} nests under: its request's, else its execution's, else, for an AI call, the
+     * request {@code aiCallOwners} attributes it to, else none. The live feed names only a parent it shows;
+     * {@code byIdentity} names it whether or not it was recorded yet, for rows persisted as they are recorded.
      */
     private static String parentOf(
             RuntimeEvent event,
             Map<String, JournalEntry> requests,
             Map<String, String> executions,
+            AiCallOwners aiCallOwners,
             boolean byIdentity) {
         if (event.source() == JournalSource.HTTP || opensExecution(event)) {
             return null;
@@ -588,19 +640,23 @@ public final class JournalActivityFeed {
         if (event.executionId() != null) {
             return byIdentity || executions.containsKey(event.executionId()) ? event.executionId() : null;
         }
-        return null;
+        String owner = aiCallOwners.ownerOf(event);
+        return owner != null && (byIdentity || requests.containsKey(owner)) ? owner : null;
     }
 
     /**
      * Renders one batch of newly recorded events for persistence, newest first ({@code docs/PLAN-v2.md} §5.3). Each row
-     * names its parent by identity, since a request or execution is recorded after its children. {@code pendingSelects}
-     * carries each open request's {@code SELECT} counts from batch to batch, so its N+1 flag is set when it completes;
-     * the caller bounds it.
+     * names its parent by identity, since a request or execution is recorded after its children. An AI call linked
+     * to its request only by trace and time is written on its own, since a request recorded later could change that
+     * inference and a written row is never revised. {@code pendingSelects} carries each open request's {@code SELECT}
+     * counts from batch to batch, so its N+1 flag is set when it completes; the caller bounds it.
      */
     public List<ActivityEntryDto> renderForCapture(
             List<JournalEntry> batch,
             Function<JournalEntry, String> eventId,
             Map<String, Map<String, Integer>> pendingSelects) {
+        // Learns no request, so it infers no parent from a trace.
+        AiCallOwners aiCallOwners = new AiCallOwners();
         RouteTemplateResolver routes = resolver();
         for (JournalEntry entry : batch) {
             RuntimeEvent event = entry.event();
@@ -612,9 +668,10 @@ public final class JournalActivityFeed {
         }
         List<Row> rows = new ArrayList<>(batch.size());
         for (JournalEntry entry : batch) {
-            ActivityEntryDto rendered = render(entry, eventId, Map.of(), Map.of(), pendingSelects, routes, true);
+            ActivityEntryDto rendered =
+                    render(entry, eventId, Map.of(), Map.of(), aiCallOwners, pendingSelects, routes, true);
             if (rendered != null) {
-                rows.add(new Row(entry, rendered));
+                rows.add(new Row(entry, rendered, aiCallOwners.ownerOf(entry.event())));
             }
             if (entry.event().source() == JournalSource.HTTP && entry.event().requestId() != null) {
                 pendingSelects.remove(entry.event().requestId());
@@ -717,7 +774,8 @@ public final class JournalActivityFeed {
         return Math.round(value * 100.0) / 100.0;
     }
 
-    private record Row(JournalEntry journal, ActivityEntryDto entry) {}
+    /** A rendered entry with the request it belongs to, by its own request id or, for an AI call, its time and trace. */
+    private record Row(JournalEntry journal, ActivityEntryDto entry, String requestId) {}
 
     /** The rendered feed and its per-type counts over every rendered entry, before filtering. */
     public record Feed(List<ActivityEntryDto> entries, Map<String, Integer> typeCounts) {
@@ -754,7 +812,7 @@ public final class JournalActivityFeed {
 
         boolean accepts(Row row, Set<String> routeRequests) {
             ActivityEntryDto entry = row.entry();
-            RuntimeEvent event = row.journal().event();
+            String request = row.requestId();
             if (entry.timestamp() <= since) {
                 return false;
             }
@@ -764,13 +822,13 @@ public final class JournalActivityFeed {
             if (severity != null && !entry.severity().equalsIgnoreCase(severity)) {
                 return false;
             }
-            if (requestId != null && !requestId.equals(event.requestId())) {
+            if (requestId != null && !requestId.equals(request)) {
                 return false;
             }
-            if (routeRequests != null && (event.requestId() == null || !routeRequests.contains(event.requestId()))) {
+            if (routeRequests != null && (request == null || !routeRequests.contains(request))) {
                 return false;
             }
-            return !noRequest || event.requestId() == null;
+            return !noRequest || request == null;
         }
     }
 }

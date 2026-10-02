@@ -6,7 +6,9 @@ import java.util.List;
  * Receives each batch of accepted events on the journal's dispatcher thread, after they are retained, such as the
  * incremental aggregates and the Live Activity persistence subscriber ({@code docs/PLAN-v2.md} §5.2, §5.3). It sees
  * every accepted event, including those later evicted, so it must be fast and must not block; a listener that throws
- * is counted and skipped for that batch.
+ * is counted and skipped for that batch. Batches are processed in step with <b>Clear recording</b>, which waits for
+ * the batch in progress, so a listener must not clear or close the journal from a callback, nor while holding a lock
+ * its callbacks take.
  */
 @FunctionalInterface
 public interface JournalListener {
@@ -19,4 +21,10 @@ public interface JournalListener {
      * summary is recorded here ({@code docs/PLAN-v2.md} §5.2).
      */
     default void onClose() {}
+
+    /**
+     * Called when the confirmation-gated <b>Clear recording</b> action drops every retained event, on the clearing
+     * thread, so a listener forgets the state it keeps about the cleared events.
+     */
+    default void onClear() {}
 }

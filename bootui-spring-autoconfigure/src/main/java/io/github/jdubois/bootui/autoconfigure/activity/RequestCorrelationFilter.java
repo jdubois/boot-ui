@@ -175,25 +175,27 @@ public final class RequestCorrelationFilter extends OncePerRequestFilter {
             traceRegistry.record(
                     new HttpExchangeTrace(start, end, method, decodedPath, traceId, routeTemplate, requestId),
                     failedOrSlow);
-            journal.offer(new RuntimeEvent(
-                    JournalSource.HTTP,
-                    start,
-                    System.nanoTime() - startNanos,
-                    requestId,
-                    null,
-                    traceId,
-                    null,
-                    thread,
-                    null,
-                    failedOrSlow,
-                    new HttpPayload(
-                            method,
-                            decodedPath,
-                            routeTemplate,
-                            phases == null ? null : phases.operationOf(requestId),
-                            status,
-                            resources,
-                            RequestTiming.of(startNanos, phases == null ? null : phases.markers(requestId)))));
+            try {
+                journal.offer(RuntimeEvent.of(
+                        JournalSource.HTTP,
+                        start,
+                        System.nanoTime() - startNanos,
+                        correlation,
+                        traceId,
+                        thread,
+                        null,
+                        failedOrSlow,
+                        new HttpPayload(
+                                method,
+                                decodedPath,
+                                routeTemplate,
+                                phases == null ? null : phases.operationOf(requestId),
+                                status,
+                                resources,
+                                RequestTiming.of(startNanos, phases == null ? null : phases.markers(requestId)))));
+            } catch (RuntimeException ex) {
+                // Publishing never disturbs the request it observes.
+            }
         }
     }
 

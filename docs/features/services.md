@@ -56,6 +56,7 @@ unlike SQL Trace there are two failure counters:
 A **Most frequent calls** table groups calls by method, host, and normalized path, and flags high-frequency groups as
 *chatty*. Rows filter by HTTP method, a slow-only toggle, or free text, and each expands for full detail. Local-only
 **Pause**, **Resume**, and **Clear** actions stop recording or empty the buffer without removing instrumentation.
+Pausing stops only this panel's buffer: the [runtime journal](overview.md#runtime-journal) keeps recording calls.
 
 ::: details Breakdowns, grouping, and chatty detection
 A per-method breakdown badges GET/POST/PUT/DELETE/other counts, and an "Instrumented clients" row lists which client

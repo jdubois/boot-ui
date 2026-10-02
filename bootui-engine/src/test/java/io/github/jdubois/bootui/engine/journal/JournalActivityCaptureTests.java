@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.journal;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
@@ -83,6 +84,61 @@ class JournalActivityCaptureTests {
         assertThat(store.entries()).extracting(ActivityEntryDto::type).containsExactly("REQUEST");
     }
 
+    @Test
+    void anAiCallLinkedOnlyByItsTraceIsWrittenOnItsOwnAtOnce() {
+        start(null);
+
+        offerAt("r1", "trace-1", 1_000, 50_000_000, http("/api/chat"));
+        offerAt(null, "trace-1", 1_010, 5_000_000, aiPayload());
+        journal.dispatchPending();
+
+        assertThat(store.entries())
+                .extracting(ActivityEntryDto::type, ActivityEntryDto::parentId)
+                .as("a request recorded later could change the inference, and a written row is never revised")
+                .containsExactlyInAnyOrder(tuple("AI", null), tuple("REQUEST", null));
+    }
+
+    @Test
+    void aBatchDeliveredAfterTheCaptureClosedIsNotWritten() {
+        JournalActivityCapture capture = start(null);
+        capture.close();
+
+        capture.onEntries(List.of(new JournalEntry(
+                1,
+                RuntimeEvent.of(
+                        JournalSource.AI,
+                        1_000,
+                        1,
+                        CorrelationContext.NONE.withTrace("trace-1", null),
+                        null,
+                        null,
+                        false,
+                        aiPayload()),
+                100)));
+
+        assertThat(store.entries()).isEmpty();
+    }
+
+    @Test
+    void anAiCallItsSpanTiedToARequestIsWrittenUnderItAtOnce() {
+        start(null);
+
+        journal.offer(RuntimeEvent.of(
+                JournalSource.AI,
+                1_010,
+                5_000_000,
+                CorrelationContext.forRequest("r1").withTrace("trace-1", null),
+                null,
+                null,
+                false,
+                aiPayload()));
+        journal.dispatchPending();
+
+        assertThat(store.entries())
+                .singleElement()
+                .satisfies(entry -> assertThat(entry.parentId()).isEqualTo("r1"));
+    }
+
     private JournalActivityCapture start(Predicate<String> panelEnabled) {
         ActivityPersistenceSettings settings = new ActivityPersistenceSettings(
                 true,
@@ -106,6 +162,24 @@ class JournalActivityCaptureTests {
                 ? CorrelationContext.forRequest(requestId)
                 : CorrelationContext.forExecution(executionId);
         journal.offer(RuntimeEvent.of(source, 1_000, 1_000_000, context, "t", null, false, payload));
+    }
+
+    /** An event of {@code requestId}, or an AI call when it is {@code null}, with {@code traceId} and its timing. */
+    private void offerAt(String requestId, String traceId, long epochMillis, long nanos, RuntimeEventPayload payload) {
+        CorrelationContext context = (requestId == null
+                        ? CorrelationContext.NONE
+                        : CorrelationContext.forRequest(requestId))
+                .withTrace(traceId, null);
+        JournalSource source = requestId == null ? JournalSource.AI : JournalSource.HTTP;
+        journal.offer(RuntimeEvent.of(source, epochMillis, nanos, context, null, null, false, payload));
+    }
+
+    private static AiPayload aiPayload() {
+        return new AiPayload("chat", "openai", "gpt-4o", 1L, 1L, "stop", false);
+    }
+
+    private static HttpPayload http(String path) {
+        return new HttpPayload("GET", path, path, null, 200);
     }
 
     private static final class RecordingStore implements ActivityStore {

@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.insights;
 
+import io.github.jdubois.bootui.engine.journal.AiCallOwners;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
@@ -114,15 +115,17 @@ public final class InsightsSnapshot {
         Map<String, List<RuntimeEvent>> children = new HashMap<>();
         Map<JournalSource, long[]> coverage = new EnumMap<>(JournalSource.class);
         List<RuntimeEvent> traced = new ArrayList<>();
+        AiCallOwners aiCallOwners = new AiCallOwners();
         for (JournalEntry entry : ordered) {
             RuntimeEvent event = entry.event();
+            aiCallOwners.learn(event);
             long[] counts = coverage.computeIfAbsent(event.source(), source -> new long[4]);
             if (event.requestId() != null) {
                 counts[0]++;
             } else if (event.executionId() != null) {
                 counts[1]++;
-            } else if (event.source() == JournalSource.AI && event.traceId() != null) {
-                // An AI span is exported after its request, so it is linked by its trace id below.
+            } else if (AiCallOwners.linksByTrace(event)) {
+                // An AI span carries only its trace id, so it is linked to its request by its trace and time below.
                 traced.add(event);
             } else {
                 counts[2]++;
@@ -137,15 +140,10 @@ public final class InsightsSnapshot {
                         .add(event);
             }
         }
-        Map<String, String> requestOfTrace = new HashMap<>();
-        http.forEach((requestId, event) -> {
-            if (event.traceId() != null) {
-                requestOfTrace.put(event.traceId(), requestId);
-            }
-        });
+        // Attributed as the feed and request profiles attribute it (AiCallOwners).
         traced.sort(Comparator.comparingLong(RuntimeEvent::epochMillis));
         for (RuntimeEvent event : traced) {
-            String requestId = requestOfTrace.get(event.traceId());
+            String requestId = aiCallOwners.ownerOf(event);
             long[] counts = coverage.get(event.source());
             if (requestId == null) {
                 counts[2]++;

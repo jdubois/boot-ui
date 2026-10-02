@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.journal;
 
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
+import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 
 /**
  * A SQL statement's payload: its text as SQL Trace retained it, never its bind values, the application call site and
@@ -31,31 +32,37 @@ public record SqlPayload(
         this(sql, callSite, dataSource, failed, null);
     }
 
+    /**
+     * This statement with its SQL, call site, data source, and frames replaced by the run's shared copies, so a
+     * statement run many times is stored once ({@code docs/PLAN-v2.md} §5.2). Its SQL is shared only when no literal
+     * sits where a concatenated value would ({@link SqlShapes#shareable}), since such statements would fill the
+     * dictionary with one-off strings; it then keeps, and is counted for, its own copy.
+     */
     @Override
     public RuntimeEventPayload interned(JournalDictionary dictionary) {
-        return frames == null
-                ? this
-                : new SqlPayload(
-                        sql,
-                        sharedCallSite(dictionary),
-                        dataSource,
-                        failed,
-                        frames.interned(dictionary),
-                        phase,
-                        completedNanos);
+        return new SqlPayload(
+                SqlShapes.shareable(sql) ? dictionary.shared(sql) : sql,
+                dictionary.shared(callSite),
+                dictionary.shared(dataSource),
+                failed,
+                frames == null ? null : frames.interned(dictionary),
+                phase,
+                completedNanos);
     }
 
-    private String sharedCallSite(JournalDictionary dictionary) {
-        String shared = callSite == null ? null : dictionary.canonical(callSite);
-        return shared == null ? callSite : shared;
-    }
-
+    /** Its fixed part and its strings, each counted as the payload's own. */
     @Override
     public int estimatedBytes() {
+        return estimatedBytes(null);
+    }
+
+    /** Its fixed part, with each string {@code dictionary} shares counted as a reference. */
+    @Override
+    public int estimatedBytes(JournalDictionary dictionary) {
         return 32
-                + RuntimeEvent.stringBytes(sql)
-                + (frames == null ? RuntimeEvent.stringBytes(callSite) : 8)
-                + RuntimeEvent.stringBytes(dataSource)
+                + JournalDictionary.retained(dictionary, sql)
+                + JournalDictionary.retained(dictionary, callSite)
+                + JournalDictionary.retained(dictionary, dataSource)
                 + (frames == null ? 0 : frames.estimatedBytes());
     }
 }

@@ -71,7 +71,8 @@ function journalProfile(overrides = {}) {
       caches: ['prices (MISS)'],
       messages: [],
       restCalls: [],
-      logTemplates: []
+      logTemplates: [],
+      models: ['gpt-4o (openai)']
     },
     notes: [],
     ...overrides
@@ -95,6 +96,8 @@ describe('RequestJournalProfile', () => {
     expect(text).toContain('no longer retained')
     expect(text).toContain('Tables')
     expect(text).toContain('lines')
+    expect(text).toContain('AI models')
+    expect(text).toContain('gpt-4o (openai)')
     expect(text).not.toContain('Transactions')
     expect(wrapper.findAll('.request-journal__bar--instant')).toHaveLength(1)
     expect(wrapper.findAll('.request-journal__bar--gc')).toHaveLength(1)

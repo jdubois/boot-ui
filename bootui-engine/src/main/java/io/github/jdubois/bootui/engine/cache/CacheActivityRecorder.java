@@ -146,14 +146,12 @@ public final class CacheActivityRecorder implements RuntimeEventPublisher {
             RuntimeEventSink sink = journal;
             // Walk the stack only when the journal records cache accesses, since the cache panel needs no frames.
             ApplicationFrames frames = sink.records(JournalSource.CACHE) ? ApplicationFrames.capture() : null;
-            sink.offer(new RuntimeEvent(
+            sink.offer(RuntimeEvent.of(
                     JournalSource.CACHE,
                     event.timestampMillis(),
                     -1,
-                    context.requestId(),
-                    context.executionId(),
+                    context,
                     event.traceId(),
-                    context.spanId(),
                     event.thread(),
                     null,
                     false,

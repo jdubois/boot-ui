@@ -4,7 +4,7 @@ import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
-import io.github.jdubois.bootui.engine.sqltrace.SqlStatementNormalizer;
+import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import io.github.jdubois.bootui.engine.web.CorrelationTier;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -84,7 +84,7 @@ public final class LazySqlAfterHandler implements Observation {
                     if (transactions && (!windows.canPlace(event) || windows.innermost(event) != null)) {
                         continue;
                     }
-                    String fingerprint = SqlStatementNormalizer.fingerprintOf(sql.sql());
+                    String fingerprint = SqlShapes.fingerprint(sql.sql());
                     perRequest.computeIfAbsent(fingerprint, f -> new int[1])[0]++;
                     sites.putIfAbsent(fingerprint, sql.callSite());
                 }

@@ -158,7 +158,9 @@ public final class RuntimeJournalService {
         }
         int cleared = journal.status().retainedEvents();
         journal.clear();
-        if (aggregates != null) {
+        if (aggregates != null && !journal.notifies(aggregates)) {
+            // A listening aggregate is cleared in step with the journal; clearing it again would drop the batches
+            // the journal records in between.
             aggregates.clear();
         }
         return new Response(

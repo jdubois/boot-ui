@@ -51,6 +51,7 @@ public final class ScheduledTaskRunObservationHandler implements ObservationHand
                 StartMarker.class,
                 new StartMarker(
                         System.currentTimeMillis(),
+                        System.nanoTime(),
                         Thread.currentThread().getName(),
                         CorrelationContext.forExecution(RequestIds.next())));
     }
@@ -84,22 +85,23 @@ public final class ScheduledTaskRunObservationHandler implements ObservationHand
             return;
         }
         long startTimestamp = start == null ? System.currentTimeMillis() : start.startTimestamp();
-        long durationMs = Math.max(0L, System.currentTimeMillis() - startTimestamp);
+        long durationNanos = start == null ? 0L : Math.max(0L, System.nanoTime() - start.startNanos());
         String thread = start == null ? Thread.currentThread().getName() : start.thread();
         String executionId = start == null ? null : start.correlation().executionId();
         Throwable error = context.getError();
         if (error != null) {
-            store.record(
+            store.recordNanos(
                     runnable,
                     startTimestamp,
-                    durationMs,
+                    durationNanos,
                     false,
                     error.getClass().getName(),
                     error.getMessage(),
                     thread,
                     executionId);
         } else {
-            store.record(runnable, startTimestamp, durationMs, context.isComplete(), null, null, thread, executionId);
+            store.recordNanos(
+                    runnable, startTimestamp, durationNanos, context.isComplete(), null, null, thread, executionId);
         }
     }
 
@@ -113,5 +115,5 @@ public final class ScheduledTaskRunObservationHandler implements ObservationHand
         return method.getDeclaringClass().getName() + "." + method.getName();
     }
 
-    private record StartMarker(long startTimestamp, String thread, CorrelationContext correlation) {}
+    private record StartMarker(long startTimestamp, long startNanos, String thread, CorrelationContext correlation) {}
 }

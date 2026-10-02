@@ -193,7 +193,7 @@ public final class RabbitActivityRecorder implements RuntimeEventPublisher {
                 exchange,
                 routingKey,
                 null,
-                durationMillis,
+                RuntimeEvent.millisToNanos(durationMillis),
                 success,
                 errorMessage,
                 correlationId,
@@ -214,7 +214,32 @@ public final class RabbitActivityRecorder implements RuntimeEventPublisher {
                 exchange,
                 routingKey,
                 null,
-                durationMillis,
+                RuntimeEvent.millisToNanos(durationMillis),
+                success,
+                errorMessage,
+                correlationId,
+                context == null ? CorrelationContext.NONE : context);
+    }
+
+    /**
+     * Records a publish timed in nanoseconds from when it entered the channel to its outcome, with the sender's
+     * correlation, captured by the adapter: the panel keeps milliseconds, and the runtime journal the nanoseconds and
+     * the publish's start ({@code docs/PLAN-v2.md} §5.2).
+     */
+    public void recordPublishNanos(
+            String exchange,
+            String routingKey,
+            Long durationNanos,
+            boolean success,
+            String errorMessage,
+            String correlationId,
+            CorrelationContext context) {
+        record(
+                Direction.PUBLISH,
+                exchange,
+                routingKey,
+                null,
+                durationNanos,
                 success,
                 errorMessage,
                 correlationId,
@@ -235,7 +260,7 @@ public final class RabbitActivityRecorder implements RuntimeEventPublisher {
                 exchange,
                 routingKey,
                 queue,
-                durationMillis,
+                RuntimeEvent.millisToNanos(durationMillis),
                 success,
                 errorMessage,
                 correlationId,
@@ -257,11 +282,37 @@ public final class RabbitActivityRecorder implements RuntimeEventPublisher {
                 exchange,
                 routingKey,
                 queue,
-                durationMillis,
+                RuntimeEvent.millisToNanos(durationMillis),
                 success,
                 errorMessage,
                 correlationId,
                 context == null ? CorrelationContext.NONE : context);
+    }
+
+    /**
+     * Records a consumed delivery timed in nanoseconds, with the correlation the adapter captured for it, or the
+     * current one when {@code context} is {@code null}: the panel keeps milliseconds, and the runtime journal the
+     * nanoseconds ({@code docs/PLAN-v2.md} §5.2).
+     */
+    public void recordConsumeNanos(
+            String exchange,
+            String routingKey,
+            String queue,
+            Long durationNanos,
+            boolean success,
+            String errorMessage,
+            String correlationId,
+            CorrelationContext context) {
+        record(
+                Direction.CONSUME,
+                exchange,
+                routingKey,
+                queue,
+                durationNanos,
+                success,
+                errorMessage,
+                correlationId,
+                context == null ? correlation.current() : context);
     }
 
     private void record(
@@ -269,7 +320,7 @@ public final class RabbitActivityRecorder implements RuntimeEventPublisher {
             String exchange,
             String routingKey,
             String queue,
-            Long durationMillis,
+            Long durationNanos,
             boolean success,
             String errorMessage,
             String correlationId,
@@ -277,6 +328,7 @@ public final class RabbitActivityRecorder implements RuntimeEventPublisher {
         if (!enabled) {
             return;
         }
+        long nanos = durationNanos == null || durationNanos < 0 ? -1 : durationNanos;
         CapturedMessage entry = new CapturedMessage(
                 sequence.incrementAndGet(),
                 System.currentTimeMillis(),
@@ -284,7 +336,7 @@ public final class RabbitActivityRecorder implements RuntimeEventPublisher {
                 truncate(exchange),
                 truncate(routingKey),
                 truncate(queue),
-                durationMillis == null ? null : Math.max(0, durationMillis),
+                nanos < 0 ? null : nanos / 1_000_000,
                 success,
                 success ? null : FAILURE_MESSAGE,
                 captureCorrelationId ? hashCorrelationId(correlationId, maxCorrelationIdLength) : null,
@@ -299,23 +351,24 @@ public final class RabbitActivityRecorder implements RuntimeEventPublisher {
             }
         }
         boolean sent = direction == Direction.PUBLISH;
-        journal.offer(new RuntimeEvent(
-                JournalSource.MESSAGING,
-                entry.timestamp(),
-                entry.durationMillis() == null ? -1 : entry.durationMillis() * 1_000_000,
-                context.requestId(),
-                context.executionId(),
-                context.traceId(),
-                context.spanId(),
-                sent ? null : Thread.currentThread().getName(),
-                null,
-                !success,
-                new MessagingPayload(
-                        "rabbitmq",
-                        sent,
-                        sent || entry.queue() == null ? entry.exchange() : entry.queue(),
-                        !success,
-                        sent ? null : context.linkedTraceId())));
+        try {
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.MESSAGING,
+                    RuntimeEvent.startMillis(entry.timestamp(), nanos),
+                    nanos,
+                    context,
+                    sent ? null : Thread.currentThread().getName(),
+                    null,
+                    !success,
+                    new MessagingPayload(
+                            "rabbitmq",
+                            sent,
+                            sent || entry.queue() == null ? entry.exchange() : entry.queue(),
+                            !success,
+                            sent ? null : context.linkedTraceId())));
+        } catch (RuntimeException ex) {
+            // Publishing never disturbs the message it observes.
+        }
         totalCaptured.incrementAndGet();
         notifyListeners();
     }

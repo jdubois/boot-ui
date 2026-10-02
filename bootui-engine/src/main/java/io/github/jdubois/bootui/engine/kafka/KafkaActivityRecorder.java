@@ -193,7 +193,7 @@ public final class KafkaActivityRecorder implements RuntimeEventPublisher {
                 partition,
                 null,
                 key,
-                durationMillis,
+                RuntimeEvent.millisToNanos(durationMillis),
                 success,
                 errorMessage,
                 null,
@@ -219,7 +219,34 @@ public final class KafkaActivityRecorder implements RuntimeEventPublisher {
                 partition,
                 null,
                 key,
-                durationMillis,
+                RuntimeEvent.millisToNanos(durationMillis),
+                success,
+                errorMessage,
+                null,
+                null,
+                sender == null ? CorrelationContext.NONE : sender);
+    }
+
+    /**
+     * Records a completed producer send timed in nanoseconds from when it was handed to the producer to its outcome,
+     * with the correlation of the code that sent it, snapshotted on the sender's thread: the panel keeps milliseconds,
+     * and the runtime journal the nanoseconds and the send's start ({@code docs/PLAN-v2.md} §5.2).
+     */
+    public void recordProduceNanos(
+            String topic,
+            Integer partition,
+            String key,
+            Long durationNanos,
+            boolean success,
+            String errorMessage,
+            CorrelationContext sender) {
+        record(
+                Direction.PRODUCE,
+                topic,
+                partition,
+                null,
+                key,
+                durationNanos,
                 success,
                 errorMessage,
                 null,
@@ -249,7 +276,7 @@ public final class KafkaActivityRecorder implements RuntimeEventPublisher {
                 partition,
                 offset,
                 key,
-                durationMillis,
+                RuntimeEvent.millisToNanos(durationMillis),
                 success,
                 errorMessage,
                 groupId,
@@ -275,12 +302,42 @@ public final class KafkaActivityRecorder implements RuntimeEventPublisher {
                 partition,
                 offset,
                 key,
-                durationMillis,
+                RuntimeEvent.millisToNanos(durationMillis),
                 success,
                 errorMessage,
                 groupId,
                 listenerId,
                 context == null ? CorrelationContext.NONE : context);
+    }
+
+    /**
+     * Records a consumed record timed in nanoseconds, with the correlation the adapter captured for it, or the current
+     * one when {@code context} is {@code null}: the panel keeps milliseconds, and the runtime journal the nanoseconds
+     * ({@code docs/PLAN-v2.md} §5.2).
+     */
+    public void recordConsumeNanos(
+            String topic,
+            Integer partition,
+            Long offset,
+            String key,
+            Long durationNanos,
+            boolean success,
+            String errorMessage,
+            String groupId,
+            String listenerId,
+            CorrelationContext context) {
+        record(
+                Direction.CONSUME,
+                topic,
+                partition,
+                offset,
+                key,
+                durationNanos,
+                success,
+                errorMessage,
+                groupId,
+                listenerId,
+                context == null ? correlation.current() : context);
     }
 
     private void record(
@@ -289,7 +346,7 @@ public final class KafkaActivityRecorder implements RuntimeEventPublisher {
             Integer partition,
             Long offset,
             String key,
-            Long durationMillis,
+            Long durationNanos,
             boolean success,
             String errorMessage,
             String groupId,
@@ -298,6 +355,7 @@ public final class KafkaActivityRecorder implements RuntimeEventPublisher {
         if (!enabled) {
             return;
         }
+        long nanos = durationNanos == null || durationNanos < 0 ? -1 : durationNanos;
         CapturedMessage entry = new CapturedMessage(
                 sequence.incrementAndGet(),
                 System.currentTimeMillis(),
@@ -306,7 +364,7 @@ public final class KafkaActivityRecorder implements RuntimeEventPublisher {
                 partition,
                 offset,
                 captureKey ? hashKey(key, maxKeyLength) : null,
-                durationMillis == null ? null : Math.max(0, durationMillis),
+                nanos < 0 ? null : nanos / 1_000_000,
                 success,
                 success ? null : FAILURE_MESSAGE,
                 groupId,
@@ -322,18 +380,19 @@ public final class KafkaActivityRecorder implements RuntimeEventPublisher {
             }
         }
         boolean sent = direction == Direction.PRODUCE;
-        journal.offer(new RuntimeEvent(
-                JournalSource.MESSAGING,
-                entry.timestamp(),
-                entry.durationMillis() == null ? -1 : entry.durationMillis() * 1_000_000,
-                context.requestId(),
-                context.executionId(),
-                context.traceId(),
-                context.spanId(),
-                sent ? null : Thread.currentThread().getName(),
-                null,
-                !success,
-                new MessagingPayload("kafka", sent, topic, !success, sent ? null : context.linkedTraceId())));
+        try {
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.MESSAGING,
+                    RuntimeEvent.startMillis(entry.timestamp(), nanos),
+                    nanos,
+                    context,
+                    sent ? null : Thread.currentThread().getName(),
+                    null,
+                    !success,
+                    new MessagingPayload("kafka", sent, topic, !success, sent ? null : context.linkedTraceId())));
+        } catch (RuntimeException ex) {
+            // Publishing never disturbs the message it observes.
+        }
         totalCaptured.incrementAndGet();
         notifyListeners();
     }

@@ -21,6 +21,11 @@ import java.util.function.Predicate;
  * never less masked than {@code MASKED} (§8). Each row names its parent request or execution by id, since a parent is
  * recorded after its children. Rows of a disabled panel are not written. It runs on the journal's dispatcher, where
  * the coordinator's append only buffers rows for the store's own flusher.</p>
+ *
+ * <p>An AI call nests under the request that started its span, which it carries by id. One whose span started outside
+ * any request BootUI knew of carries only its trace id: the live feed infers its request from its trace and time
+ * ({@link AiCallOwners}), but a request recorded later could change that inference, so the history, which cannot be
+ * revised, writes the call on its own.</p>
  */
 public final class JournalActivityCapture implements JournalListener, ActivityCapture {
 
@@ -37,6 +42,8 @@ public final class JournalActivityCapture implements JournalListener, ActivityCa
             return size() > MAX_PENDING_REQUESTS;
         }
     };
+
+    private boolean closed;
 
     private JournalActivityCapture(
             RuntimeJournal journal,
@@ -81,6 +88,10 @@ public final class JournalActivityCapture implements JournalListener, ActivityCa
 
     @Override
     public synchronized void onEntries(List<JournalEntry> entries) {
+        if (closed) {
+            // A batch the dispatcher was already delivering when the capture closed.
+            return;
+        }
         List<JournalEntry> visible = new ArrayList<>(entries.size());
         for (JournalEntry entry : entries) {
             if (visible(entry.event())) {
@@ -90,14 +101,25 @@ public final class JournalActivityCapture implements JournalListener, ActivityCa
         if (visible.isEmpty()) {
             return;
         }
-        List<ActivityEntryDto> rows = feed.renderForCapture(visible, journal::eventId, pendingSelects);
-        coordinator.ingest(rows);
+        coordinator.ingest(feed.renderForCapture(visible, journal::eventId, pendingSelects));
     }
 
-    /** Stops capturing; batches the journal records afterwards are not written. */
+    /** Forgets the open {@code SELECT} counts of the cleared recording's requests. */
+    @Override
+    public synchronized void onClear() {
+        pendingSelects.clear();
+    }
+
+    /**
+     * Stops capturing; batches the journal records afterwards, including one it was delivering as the capture closed,
+     * are not written.
+     */
     @Override
     public void close() {
         journal.removeListener(this);
+        synchronized (this) {
+            closed = true;
+        }
     }
 
     private boolean visible(RuntimeEvent event) {

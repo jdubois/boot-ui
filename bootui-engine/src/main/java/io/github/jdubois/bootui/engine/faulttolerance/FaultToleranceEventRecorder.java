@@ -157,7 +157,33 @@ public final class FaultToleranceEventRecorder implements RuntimeEventPublisher 
             Integer attempt,
             Long durationMillis,
             String failureCategory) {
-        record(policyName, policyType, provider, target, outcome, attempt, durationMillis, failureCategory, null);
+        record(
+                policyName,
+                policyType,
+                provider,
+                target,
+                outcome,
+                attempt,
+                durationMillis == null ? null : RuntimeEvent.millisToNanos(durationMillis),
+                failureCategory,
+                null);
+    }
+
+    /**
+     * Captures one fault tolerance event whose duration the library reports at nanosecond precision, such as a
+     * circuit breaker's elapsed call time: the panel keeps milliseconds, and the runtime journal the nanoseconds
+     * ({@code docs/PLAN-v2.md} §5.2).
+     */
+    public void recordNanos(
+            String policyName,
+            String policyType,
+            String provider,
+            String target,
+            String outcome,
+            Integer attempt,
+            Long durationNanos,
+            String failureCategory) {
+        record(policyName, policyType, provider, target, outcome, attempt, durationNanos, failureCategory, null);
     }
 
     /**
@@ -184,7 +210,7 @@ public final class FaultToleranceEventRecorder implements RuntimeEventPublisher 
             String target,
             String outcome,
             Integer attempt,
-            Long durationMillis,
+            Long durationNanos,
             String failureCategory,
             String state) {
         if (!enabled) {
@@ -204,7 +230,7 @@ public final class FaultToleranceEventRecorder implements RuntimeEventPublisher 
                     truncate(target),
                     truncate(outcome),
                     attempt == null ? null : Math.max(1, attempt),
-                    durationMillis == null ? null : Math.max(0L, durationMillis),
+                    durationNanos == null ? null : Math.max(0L, durationNanos) / 1_000_000,
                     truncate(failureCategory),
                     truncate(state),
                     currentTraceId(),
@@ -216,14 +242,16 @@ public final class FaultToleranceEventRecorder implements RuntimeEventPublisher 
                 }
             }
             totalCaptured.incrementAndGet();
-            journal.offer(new RuntimeEvent(
+            long nanos = durationNanos == null ? -1 : Math.max(0L, durationNanos);
+            // A retry's duration is the wait before its next attempt, which starts now; any other duration has
+            // elapsed when the library reports it, so the event started that long ago.
+            boolean elapsed = !FaultToleranceVocabulary.OUTCOME_RETRY.equals(event.outcome());
+            journal.offer(RuntimeEvent.of(
                     JournalSource.FAULT_TOLERANCE,
-                    event.timestamp(),
-                    event.durationMillis() == null ? -1 : event.durationMillis() * 1_000_000,
-                    event.requestId(),
-                    context.executionId(),
+                    elapsed ? RuntimeEvent.startMillis(event.timestamp(), nanos) : event.timestamp(),
+                    nanos,
+                    context,
                     event.traceId(),
-                    context.spanId(),
                     Thread.currentThread().getName(),
                     null,
                     FaultToleranceVocabulary.isFailureOutcome(event.outcome()),

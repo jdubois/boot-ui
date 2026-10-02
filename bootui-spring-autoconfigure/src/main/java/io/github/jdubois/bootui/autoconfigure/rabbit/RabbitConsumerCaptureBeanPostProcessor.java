@@ -142,7 +142,7 @@ public final class RabbitConsumerCaptureBeanPostProcessor implements BeanPostPro
 
         private void recordOutcome(Message message, long startNanos, boolean success, String errorMessage) {
             try {
-                long durationMillis = Math.max(0L, (System.nanoTime() - startNanos) / 1_000_000L);
+                long durationNanos = Math.max(0L, System.nanoTime() - startNanos);
                 MessageProperties props = message == null ? null : message.getMessageProperties();
                 String exchange = props == null ? null : props.getReceivedExchange();
                 String routingKey = props == null ? null : props.getReceivedRoutingKey();
@@ -151,8 +151,8 @@ public final class RabbitConsumerCaptureBeanPostProcessor implements BeanPostPro
                     queue = props.getConsumerQueue();
                 }
                 String correlationId = props == null ? null : props.getCorrelationId();
-                recorder.recordConsume(
-                        exchange, routingKey, queue, durationMillis, success, errorMessage, correlationId);
+                recorder.recordConsumeNanos(
+                        exchange, routingKey, queue, durationNanos, success, errorMessage, correlationId, null);
             } catch (RuntimeException ex) {
                 log.warn("BootUI could not capture an incoming AMQP message; leaving it untouched", ex);
             }

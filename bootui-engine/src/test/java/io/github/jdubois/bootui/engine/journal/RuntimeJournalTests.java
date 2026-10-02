@@ -325,6 +325,34 @@ class RuntimeJournalTests {
     }
 
     @Test
+    void clearingAlsoDropsTheQueuedEventsAndTellsEveryListener() throws InterruptedException {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        List<String> seen = new ArrayList<>();
+        journal.addListener(new JournalListener() {
+            @Override
+            public void onEntries(List<JournalEntry> entries) {
+                seen.add("batch of " + entries.size());
+            }
+
+            @Override
+            public void onClear() {
+                seen.add("cleared");
+            }
+        });
+        journal.offer(sql(1, false));
+        journal.offer(sql(2, false));
+
+        journal.clear();
+        journal.dispatchPending();
+
+        assertThat(journal.entries()).isEmpty();
+        assertThat(seen)
+                .as("no event recorded before the clear is processed after it")
+                .containsExactly("cleared");
+        assertThat(journal.awaitDrained(java.time.Duration.ZERO)).isTrue();
+    }
+
+    @Test
     void theDictionaryCountsAgainstTheByteBound() {
         int eventBytes = sql(0, false).estimatedBytes();
         RuntimeJournal journal = journal(settings(1_000, eventBytes * 40L, 1_000, 10, JournalSource.all()), false);

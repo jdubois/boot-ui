@@ -144,26 +144,28 @@ public class QuarkusHttpExchangeCaptureFilter {
             HttpServerResponse response = rc.response();
             // Ends the request's measurement (docs/PLAN-v2.md §5.11), closing the segment its worker left open.
             ResourceUsage resources = SegmentMeter.shared().take(requestId);
-            journal.offer(new RuntimeEvent(
-                    JournalSource.HTTP,
-                    started.toEpochMilli(),
-                    durationNanos,
-                    requestId,
-                    null,
-                    traceId,
-                    null,
-                    thread,
-                    null,
-                    RequestSlowThreshold.isFailedOrSlow(
-                            response.getStatusCode(), durationMs, buffer.slowThresholdMillis()),
-                    new HttpPayload(
-                            request.method().name(),
-                            path,
-                            null,
-                            null,
-                            response.getStatusCode(),
-                            resources,
-                            RequestTiming.of(startNanos, phases == null ? null : phases.markers(requestId)))));
+            try {
+                journal.offer(RuntimeEvent.of(
+                        JournalSource.HTTP,
+                        started.toEpochMilli(),
+                        durationNanos,
+                        correlation,
+                        traceId,
+                        thread,
+                        null,
+                        RequestSlowThreshold.isFailedOrSlow(
+                                response.getStatusCode(), durationMs, buffer.slowThresholdMillis()),
+                        new HttpPayload(
+                                request.method().name(),
+                                path,
+                                null,
+                                null,
+                                response.getStatusCode(),
+                                resources,
+                                RequestTiming.of(startNanos, phases == null ? null : phases.markers(requestId)))));
+            } catch (RuntimeException ex) {
+                // Publishing never disturbs the request it observes.
+            }
             buffer.record(new CapturedHttpExchange(
                     started,
                     request.method().name(),
