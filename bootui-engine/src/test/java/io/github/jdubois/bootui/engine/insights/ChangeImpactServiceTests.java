@@ -1,0 +1,162 @@
+package io.github.jdubois.bootui.engine.insights;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto;
+import io.github.jdubois.bootui.core.dto.RuntimeImpactRouteDto;
+import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.journal.HttpPayload;
+import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
+import io.github.jdubois.bootui.engine.journal.SqlPayload;
+import io.github.jdubois.bootui.engine.model.RuntimeModelService;
+import io.github.jdubois.bootui.engine.model.StructureSnapshot;
+import io.github.jdubois.bootui.spi.CorrelationContext;
+import java.time.Duration;
+import java.util.List;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+
+class ChangeImpactServiceTests {
+
+    private final RuntimeJournal journal = new RuntimeJournal(
+            new RuntimeJournalSettings(true, 10_000, 50_000_000, 10_000, 10, 10, JournalSource.all()),
+            RunIdentity.start());
+    private final JournalAggregates aggregates = new JournalAggregates();
+    private int requests;
+
+    @AfterEach
+    void close() {
+        journal.close();
+    }
+
+    @Test
+    void changingARepositoryListsItsObservedRoutesItsUnexercisedRouteAndARouteSharingItsTable() throws Exception {
+        journal.addListener(aggregates);
+        request("/api/products", "select * from sample_products");
+        request("/api/products", "select * from sample_products");
+        request("/api/reviews", "select * from sample_products p join sample_reviews r on r.product_id = p.id");
+
+        RuntimeChangeImpactDto impact = service(structure(null)).impact("ProductRepository");
+
+        assertThat(impact.status()).isEqualTo(ChangeImpactService.RESOLVED);
+        assertThat(impact.node()).isEqualTo("REPOSITORY productRepository");
+        assertThat(impact.structuralReach())
+                .as("the service, the controller, and its two routes")
+                .isEqualTo(4);
+        assertThat(impact.observed()).singleElement().satisfies(route -> {
+            assertThat(route.route()).isEqualTo("GET /api/products");
+            assertThat(route.requests()).isEqualTo(2);
+            assertThat(route.exemplarRequestIds()).containsExactly("r2", "r1");
+            assertThat(route.reads()).containsExactly("TABLE sample_products");
+        });
+        assertThat(impact.notExercised())
+                .extracting(RuntimeImpactRouteDto::route, RuntimeImpactRouteDto::check)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(
+                        "GET /api/products/{id}",
+                        "Exercise `GET /api/products/{id}` before relying on this change: no request reached it in"
+                                + " this run."));
+        assertThat(impact.sharedResources()).singleElement().satisfies(route -> {
+            assertThat(route.route()).isEqualTo("GET /api/reviews");
+            assertThat(route.shared()).containsExactly("TABLE sample_products");
+        });
+        assertThat(impact.limitations())
+                .anySatisfy(
+                        limitation -> assertThat(limitation).contains("does not prove that a request went through it"));
+    }
+
+    @Test
+    void aTableResolvesToTheRoutesThatAccessedItAndAmbiguousOrUnknownSymbolsAreNeverGuessed() throws Exception {
+        journal.addListener(aggregates);
+        request("/api/products", "select * from sample_products");
+        request("/api/reviews", "select * from sample_products p join sample_reviews r on r.product_id = p.id");
+
+        RuntimeChangeImpactDto table = service(structure(null)).impact("sample_products");
+        assertThat(table.node()).isEqualTo("TABLE sample_products");
+        assertThat(table.observed())
+                .extracting(RuntimeImpactRouteDto::route)
+                .containsExactly("GET /api/products", "GET /api/reviews");
+        assertThat(table.sharedResources()).isEmpty();
+
+        RuntimeChangeImpactDto ambiguous = service(structure(null)).impact("Mapper");
+        assertThat(ambiguous.status()).isEqualTo(ChangeImpactService.AMBIGUOUS);
+        assertThat(ambiguous.candidates()).containsExactlyInAnyOrder("BEAN orderMapper", "BEAN productMapper");
+        assertThat(ambiguous.observed()).isEmpty();
+
+        assertThat(service(structure(null)).impact("NoSuchBean").status()).isEqualTo(ChangeImpactService.NOT_FOUND);
+        assertThat(service(structure("Beans unreadable.")).impact("NoSuchBean")).satisfies(impact -> {
+            assertThat(impact.status()).isEqualTo(ChangeImpactService.UNAVAILABLE);
+            assertThat(impact.reason()).isEqualTo("Beans unreadable.");
+        });
+        assertThat(new ChangeImpactService(null, null, null, null).impact("x").status())
+                .isEqualTo(ChangeImpactService.UNAVAILABLE);
+    }
+
+    private ChangeImpactService service(StructureSnapshot structure) {
+        RuntimeModelService models = new RuntimeModelService(journal, null, runId -> structure);
+        return new ChangeImpactService(journal, aggregates, models, null);
+    }
+
+    private static StructureSnapshot structure(String beansUnavailable) {
+        return new StructureSnapshot(
+                null,
+                List.of(
+                        new StructureSnapshot.RouteHandler("GET /api/products", "com.example.ProductController"),
+                        new StructureSnapshot.RouteHandler("GET /api/products/{id}", "com.example.ProductController"),
+                        new StructureSnapshot.RouteHandler("GET /api/reviews", "com.example.ReviewController")),
+                beansUnavailable != null
+                        ? List.of()
+                        : List.of(
+                                new StructureSnapshot.Bean(
+                                        "productController",
+                                        "com.example.ProductController",
+                                        false,
+                                        List.of("productService")),
+                                new StructureSnapshot.Bean(
+                                        "productService",
+                                        "com.example.ProductService",
+                                        false,
+                                        List.of("productRepository")),
+                                new StructureSnapshot.Bean(
+                                        "productRepository", "com.example.ProductRepository", true, List.of()),
+                                new StructureSnapshot.Bean(
+                                        "reviewController",
+                                        "com.example.ReviewController",
+                                        false,
+                                        List.of("reviewRepository")),
+                                new StructureSnapshot.Bean(
+                                        "reviewRepository", "com.example.ReviewRepository", true, List.of()),
+                                new StructureSnapshot.Bean(
+                                        "orderMapper", "com.example.orders.Mapper", false, List.of()),
+                                new StructureSnapshot.Bean(
+                                        "productMapper", "com.example.products.Mapper", false, List.of())),
+                beansUnavailable);
+    }
+
+    private void request(String path, String sql) throws InterruptedException {
+        String requestId = "r" + (++requests);
+        CorrelationContext context = CorrelationContext.forRequest(requestId);
+        journal.offer(RuntimeEvent.of(
+                JournalSource.SQL,
+                1_000,
+                1_000,
+                context,
+                "http-1",
+                null,
+                false,
+                new SqlPayload(sql, null, "db", false)));
+        journal.offer(RuntimeEvent.of(
+                JournalSource.HTTP,
+                1_000 + requests,
+                1_000_000,
+                context,
+                "http-1",
+                null,
+                false,
+                new HttpPayload("GET", path, path, null, 200)));
+        assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+    }
+}

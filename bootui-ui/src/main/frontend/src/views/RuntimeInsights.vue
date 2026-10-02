@@ -19,6 +19,7 @@ import {
 import InsightText from './components/InsightText.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import ChangeImpact from './components/ChangeImpact.vue'
 import RunComparison from './components/RunComparison.vue'
 import {comparisonSummary} from '../utils/runComparison.js'
 
@@ -30,11 +31,13 @@ const {manifestAvailable, manifestUnavailableReason} = usePanelState(props)
 const report = ref(null)
 const error = ref(null)
 const lastFetched = ref(null)
-// Live Activity links here with ?q=<route> and, from a request's drawer, ?insight=<id> to open one observation.
+// Live Activity links here with ?q=<route> and, from a request's drawer, ?insight=<id> to open one observation;
+// ?impact=<symbol> opens the change impact of a symbol.
 const route = useRoute()
 const query = ref(typeof route?.query?.q === 'string' ? route.query.q : '')
 const theme = ref('')
 const selectedId = ref(typeof route?.query?.insight === 'string' ? route.query.insight : null)
+const initialImpact = typeof route?.query?.impact === 'string' ? route.query.impact : ''
 const detail = ref(null)
 const detailError = ref(null)
 const detailLoading = ref(false)
@@ -416,6 +419,8 @@ const windowText = computed(() => {
         </template>
 
         <RunComparison class="mb-3" :refresh-key="lastFetched ?? 0" @loaded="comparison = $event" />
+
+        <ChangeImpact class="mb-3" :initial-symbol="initialImpact" />
 
         <div v-if="unrun.length || report.notExercised?.length" class="row g-3 insight-caveats">
           <div v-if="report.notExercised?.length" :class="unrun.length ? 'col-xl-7' : 'col-12'">

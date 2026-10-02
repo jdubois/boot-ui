@@ -1,16 +1,21 @@
 package io.github.jdubois.bootui.quarkus.web;
 
+import io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunComparisonDto;
 import io.github.jdubois.bootui.engine.insights.AiUsageByRoute;
+import io.github.jdubois.bootui.engine.insights.ChangeImpactService;
 import io.github.jdubois.bootui.engine.insights.InsightsStack;
 import io.github.jdubois.bootui.engine.insights.RunComparisonService;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.model.RuntimeModelService;
+import io.github.jdubois.bootui.engine.model.StructureSnapshots;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
+import io.github.jdubois.bootui.spi.BeanProvider;
 import io.github.jdubois.bootui.spi.MappingProvider;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
@@ -34,6 +39,7 @@ public class RuntimeInsightsResource {
 
     private final RuntimeInsightsService insights;
     private final RunComparisonService comparison;
+    private final ChangeImpactService impact;
 
     @Inject
     public RuntimeInsightsResource(
@@ -41,10 +47,23 @@ public class RuntimeInsightsResource {
             Instance<JournalAggregates> aggregates,
             QuarkusPanelAvailability panelAvailability,
             Instance<MappingProvider> mappings,
+            Instance<BeanProvider> beans,
             Config config) {
         JournalAggregates journalAggregates = aggregates.isResolvable() ? aggregates.get() : null;
         this.comparison = new RunComparisonService(
                 journal.isResolvable() ? journal.get() : null, journalAggregates, RunHistory.shared());
+        RuntimeModelService models = new RuntimeModelService(
+                journal.isResolvable() ? journal.get() : null,
+                journalAggregates == null ? null : journalAggregates.declaredRoutes(),
+                runId -> StructureSnapshots.read(
+                        runId,
+                        beans.isResolvable() ? beans.get() : null,
+                        mappings.isResolvable() ? mappings.get() : null));
+        this.impact = new ChangeImpactService(
+                journal.isResolvable() ? journal.get() : null,
+                journalAggregates,
+                models,
+                journalAggregates == null ? null : journalAggregates.declaredRoutes());
         this.insights = new RuntimeInsightsService(
                 journal.isResolvable() ? journal.get() : null,
                 journalAggregates == null ? null : journalAggregates.declaredRoutes(),
@@ -70,6 +89,14 @@ public class RuntimeInsightsResource {
     @Produces(MediaType.APPLICATION_JSON)
     public RuntimeObservationDetailDto insight(@PathParam("id") String id) {
         return insights.insight(id);
+    }
+
+    /** What a change to a bean, class, repository, table, cache, or host reaches in this run ({@code PLAN-v2} §5.7). */
+    @GET
+    @Path("/impact")
+    @Produces(MediaType.APPLICATION_JSON)
+    public RuntimeChangeImpactDto impact(@QueryParam("symbol") String symbol) {
+        return impact.impact(symbol);
     }
 
     /** The current run compared with the newest kept run, or with the kept run {@code run} ({@code PLAN-v2} §5.8). */

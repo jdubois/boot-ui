@@ -453,6 +453,28 @@ public final class BootUiApiContractCatalog {
                     "limitations", JsonType.ARRAY));
 
     /**
+     * What a change to one symbol reaches, a read of the {@code runtime-insights} panel ({@code docs/PLAN-v2.md} §5.7),
+     * kept out of {@link #reads()}: an unknown symbol answers the same shape, not found or unavailable.
+     */
+    private static final ReadContract CHANGE_IMPACT = read(
+            "runtime-insights",
+            "/runtime-insights/impact?symbol=conformanceUnknownSymbol",
+            fields(
+                    "status", JsonType.STRING,
+                    "reason", JsonType.NULLABLE_STRING,
+                    "symbol", JsonType.STRING,
+                    "node", JsonType.NULLABLE_STRING,
+                    "candidates", JsonType.ARRAY,
+                    "structuralReach", JsonType.INTEGER,
+                    "observed", JsonType.ARRAY,
+                    "observedTotal", JsonType.INTEGER,
+                    "notExercised", JsonType.ARRAY,
+                    "notExercisedTotal", JsonType.INTEGER,
+                    "sharedResources", JsonType.ARRAY,
+                    "sharedResourcesTotal", JsonType.INTEGER,
+                    "limitations", JsonType.ARRAY));
+
+    /**
      * One request as the runtime journal recorded it, a detail read of the {@code activity} panel ({@code docs/PLAN-v2.md}
      * §5.3, §5.11), kept out of {@link #reads()} like {@link #requestProfile()}. Its nullable objects and numbers are
      * not listed.
@@ -507,6 +529,11 @@ public final class BootUiApiContractCatalog {
     /** One Runtime Insights observation's evidence, a detail read of its panel ({@code docs/PLAN-v2.md} §5.5). */
     public static ReadContract runtimeInsight() {
         return RUNTIME_INSIGHT;
+    }
+
+    /** The change impact's read contract ({@code docs/PLAN-v2.md} §5.7). */
+    public static ReadContract changeImpact() {
+        return CHANGE_IMPACT;
     }
 
     /** The run comparison's read contract ({@code docs/PLAN-v2.md} §5.8). */

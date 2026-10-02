@@ -10,12 +10,19 @@ import java.util.List;
  * @param runId the run it was read in
  * @param routes each declared route and the class that handles it
  * @param beans each bean, its type, and the beans it depends on
+ * @param beansUnavailable why the beans and their dependencies could not be read, so they are unknown rather than
+ *     absent, or {@code null}
  */
-public record StructureSnapshot(String runId, List<RouteHandler> routes, List<Bean> beans) {
+public record StructureSnapshot(String runId, List<RouteHandler> routes, List<Bean> beans, String beansUnavailable) {
 
     public StructureSnapshot {
         routes = routes == null ? List.of() : List.copyOf(routes);
         beans = beans == null ? List.of() : List.copyOf(beans);
+    }
+
+    /** A structure whose beans could be read. */
+    public StructureSnapshot(String runId, List<RouteHandler> routes, List<Bean> beans) {
+        this(runId, routes, beans, null);
     }
 
     /** No structure, as when no provider is available. */

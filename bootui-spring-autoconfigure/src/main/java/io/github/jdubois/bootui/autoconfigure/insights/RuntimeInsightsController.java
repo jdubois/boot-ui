@@ -2,15 +2,20 @@ package io.github.jdubois.bootui.autoconfigure.insights;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.web.DeclaredRouteTemplates;
+import io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunComparisonDto;
+import io.github.jdubois.bootui.engine.insights.ChangeImpactService;
 import io.github.jdubois.bootui.engine.insights.InsightsStack;
 import io.github.jdubois.bootui.engine.insights.RunComparisonService;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.model.RuntimeModelService;
+import io.github.jdubois.bootui.engine.model.StructureSnapshots;
+import io.github.jdubois.bootui.spi.BeanProvider;
 import io.github.jdubois.bootui.spi.MappingProvider;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.web.context.reactive.ReactiveWebApplicationContext;
@@ -35,15 +40,26 @@ public class RuntimeInsightsController {
 
     private final RuntimeInsightsService insights;
     private final RunComparisonService comparison;
+    private final ChangeImpactService impact;
 
     public RuntimeInsightsController(
             ApplicationContext context,
             BootUiProperties properties,
             ObjectProvider<RuntimeJournal> journal,
             ObjectProvider<JournalAggregates> aggregates,
-            ObjectProvider<MappingProvider> mappings) {
+            ObjectProvider<MappingProvider> mappings,
+            ObjectProvider<BeanProvider> beans) {
         JournalAggregates journalAggregates = aggregates.getIfAvailable();
         this.comparison = new RunComparisonService(journal.getIfAvailable(), journalAggregates, RunHistory.shared());
+        RuntimeModelService models = new RuntimeModelService(
+                journal.getIfAvailable(),
+                journalAggregates == null ? null : journalAggregates.declaredRoutes(),
+                runId -> StructureSnapshots.read(runId, beans.getIfUnique(), mappings.getIfUnique()));
+        this.impact = new ChangeImpactService(
+                journal.getIfAvailable(),
+                journalAggregates,
+                models,
+                journalAggregates == null ? null : journalAggregates.declaredRoutes());
         this.insights = new RuntimeInsightsService(
                 journal.getIfAvailable(),
                 journalAggregates == null ? null : journalAggregates.declaredRoutes(),
@@ -68,6 +84,15 @@ public class RuntimeInsightsController {
     @GetMapping("/insights/{id}")
     public RuntimeObservationDetailDto insight(@PathVariable String id) {
         return insights.insight(id);
+    }
+
+    /**
+     * What a change to a bean, class, repository, table, cache, or host reaches in this run ({@code PLAN-v2} §5.7):
+     * the routes that ran through it, those that did not, and those that share a resource with it.
+     */
+    @GetMapping("/impact")
+    public RuntimeChangeImpactDto impact(@RequestParam(name = "symbol", required = false) String symbol) {
+        return impact.impact(symbol);
     }
 
     /** The current run compared with the newest kept run, or with the kept run {@code run} ({@code PLAN-v2} §5.8). */

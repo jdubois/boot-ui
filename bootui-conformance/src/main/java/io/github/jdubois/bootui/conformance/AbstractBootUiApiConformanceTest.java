@@ -1588,6 +1588,26 @@ public abstract class AbstractBootUiApiConformanceTest {
     }
 
     @Test
+    void changeImpactNeverGuessesAnUnknownSymbol() {
+        assumeTrue(
+                isPanelUsableInLiveManifest("runtime-insights"),
+                "runtime-insights panel is not available in this environment");
+        ReadContract contract = BootUiApiContractCatalog.changeImpact();
+        List<String> failures = new ArrayList<>();
+
+        Response unknown = probe().get(api(contract.relativePath()));
+
+        assertThat(unknown.status())
+                .as("GET %s status", contract.relativePath())
+                .isEqualTo(200);
+        assertJsonContract("change impact, unknown symbol", contract, unknown.json(), failures);
+        assertThat(failures).as("change impact contract").isEmpty();
+        assertThat(unknown.json().path("status").asText()).isIn("NOT_FOUND", "UNAVAILABLE");
+        assertThat(unknown.json().path("reason").asText()).isNotBlank();
+        assertThat(unknown.json().path("observed").size()).isZero();
+    }
+
+    @Test
     void theRunComparisonComparesTheCurrentRunWithAKeptOneOrSaysWhyNot() {
         assumeTrue(
                 isPanelUsableInLiveManifest("runtime-insights"),

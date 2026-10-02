@@ -18,6 +18,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies;
+import io.github.jdubois.bootui.spi.BeanProvider;
 import io.github.jdubois.bootui.spi.MappingProvider;
 import java.util.List;
 import javax.sql.DataSource;
@@ -58,6 +59,11 @@ class RuntimeInsightsControllerTests {
             mvc.perform(get("/bootui/api/runtime-insights/insights/repeated-selects:0000000000"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.available").value(false));
+            mvc.perform(get("/bootui/api/runtime-insights/impact").param("symbol", "orderService"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("UNAVAILABLE"))
+                    .andExpect(jsonPath("$.reason")
+                            .value(org.hamcrest.Matchers.containsString("beans could not be read")));
             assertThat(journal.status().lastSequence())
                     .as("reading the panel records nothing")
                     .isLessThanOrEqualTo(0);
@@ -134,7 +140,8 @@ class RuntimeInsightsControllerTests {
                         new BootUiProperties(),
                         context.getBeanProvider(RuntimeJournal.class),
                         context.getBeanProvider(JournalAggregates.class),
-                        context.getBeanProvider(MappingProvider.class))
+                        context.getBeanProvider(MappingProvider.class),
+                        context.getBeanProvider(BeanProvider.class))
                 .report().checks().stream()
                         .filter(check -> check.kind().equals(EventLoopBlocking.KIND))
                         .findFirst()

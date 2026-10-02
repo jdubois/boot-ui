@@ -73,6 +73,11 @@ public final class RuntimeModelService {
         return cached;
     }
 
+    /** The structure the current model was projected with, or an empty one before the first {@link #model()}. */
+    public synchronized StructureSnapshot structure() {
+        return snapshot == null ? StructureSnapshot.empty(null) : snapshot;
+    }
+
     private StructureSnapshot read(String runId) {
         try {
             StructureSnapshot read = structure.apply(runId);

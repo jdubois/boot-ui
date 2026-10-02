@@ -125,6 +125,25 @@ class SpringRuntimeJournalTest {
     }
 
     @Test
+    void changingTheProductRepositoryListsTheRoutesThatRanThroughIt() throws Exception {
+        BootUiHttpProbe probe = new BootUiHttpProbe("http://localhost:" + port);
+        assertThat(probe.get("/api/sample/products").status()).isEqualTo(200);
+        assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
+
+        com.fasterxml.jackson.databind.JsonNode impact = probe.get(
+                        "/bootui/api/runtime-insights/impact?symbol=ProductRepository")
+                .json();
+
+        assertThat(impact.path("status").asText()).isEqualTo("RESOLVED");
+        assertThat(impact.path("node").asText()).isEqualTo("REPOSITORY productRepository");
+        List<String> observed = new java.util.ArrayList<>();
+        impact.path("observed")
+                .forEach(route -> observed.add(route.path("route").asText()));
+        assertThat(observed).contains("GET /api/sample/products");
+        assertThat(impact.path("structuralReach").asLong()).isPositive();
+    }
+
+    @Test
     void authorizationDecisionsJoinTheirRequestWithHowTheCallerWasAuthenticated() throws Exception {
         BootUiHttpProbe probe = new BootUiHttpProbe("http://localhost:" + port);
         String basic = "Basic " + Base64.getEncoder().encodeToString("admin:admin".getBytes(StandardCharsets.UTF_8));

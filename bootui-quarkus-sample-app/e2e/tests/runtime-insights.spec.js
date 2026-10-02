@@ -36,6 +36,11 @@ test.describe('Runtime Insights view', () => {
     await expect(comparison.getByRole('heading', {name: 'Compared with the previous run'})).toBeVisible()
     await expect(comparison).toContainText(/Compared|Needs more traffic|Not comparable|No previous run/)
 
+    const impact = page.locator('.insight-impact')
+    await impact.getByRole('searchbox').fill('noSuchSymbolAnywhere')
+    await impact.getByRole('button', {name: 'Check impact'}).click()
+    await expect(impact.locator('.insight-impact-reason')).toBeVisible()
+
     await page.locator('.insight-search').fill('no-such-route-xyz')
     await expect(page.getByText('No observation matches this search.')).toBeVisible()
   })
