@@ -16,7 +16,6 @@ import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -84,9 +83,10 @@ public final class RequestJournalProfiles {
         List<JournalEntry> children = new ArrayList<>();
         List<JournalEntry> aiCalls = new ArrayList<>();
         Map<String, JournalEntry> collections = new HashMap<>();
-        Set<String> otherRequestTraces = new HashSet<>();
+        AiCallOwners aiCallOwners = new AiCallOwners();
         for (JournalEntry entry : all) {
             RuntimeEvent event = entry.event();
+            aiCallOwners.learn(event);
             if (event.payload() instanceof GcPayload gc) {
                 collections.put(gc.collector() + '#' + gc.gcId(), entry);
             } else if (requestId.equals(event.requestId())) {
@@ -95,26 +95,15 @@ public final class RequestJournalProfiles {
                 } else if (visible(event)) {
                     children.add(entry);
                 }
-            } else if (event.source() == JournalSource.HTTP && event.traceId() != null) {
-                otherRequestTraces.add(event.traceId());
-            } else if (event.source() == JournalSource.AI
-                    && event.requestId() == null
-                    && event.executionId() == null
-                    && event.traceId() != null
-                    && visible(event)) {
+            } else if (AiCallOwners.linksByTrace(event) && visible(event)) {
                 aiCalls.add(entry);
             }
         }
-        if (request != null) {
-            // An AI call carries only its span's trace id, so it joins the request recorded with that trace id, unless
-            // another retained request shares the trace and which one made the call is unknown.
-            String traceId = request.event().traceId();
-            if (traceId != null && !otherRequestTraces.contains(traceId)) {
-                for (JournalEntry call : aiCalls) {
-                    if (traceId.equals(call.event().traceId())) {
-                        children.add(call);
-                    }
-                }
+        // An AI call carries only its span's trace id, so it joins the request with that trace id whose time span
+        // contains its start, unless another such request shares the trace and which one made the call is unknown.
+        for (JournalEntry call : aiCalls) {
+            if (requestId.equals(aiCallOwners.ownerOf(call.event()))) {
+                children.add(call);
             }
         }
         if (request == null) {

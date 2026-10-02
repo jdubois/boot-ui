@@ -41,11 +41,12 @@ public record ApplicationFrames(List<String> frames, int unsharedBytes) {
     }
 
     /**
-     * Whether a recorder walks the stack for an operation: only when something keeps the frames, either the panel
-     * capturing now with its call-site setting on, or the runtime journal recording the operation's source.
+     * Whether a recorder walks the stack for an operation: only when its call-site setting is on, which is what turns
+     * the walk off for both the panel and the runtime journal, and something keeps the frames, either the panel
+     * capturing now or the journal recording the operation's source.
      */
-    public static boolean wanted(boolean panelCaptures, boolean panelCallSites, boolean journalRecords) {
-        return (panelCaptures && panelCallSites) || journalRecords;
+    public static boolean wanted(boolean panelCaptures, boolean callSites, boolean journalRecords) {
+        return callSites && (panelCaptures || journalRecords);
     }
 
     /**

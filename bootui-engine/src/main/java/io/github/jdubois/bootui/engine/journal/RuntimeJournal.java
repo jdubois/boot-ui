@@ -350,11 +350,20 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
 
     /**
      * Drops every retained event: the confirmation-gated <b>Clear recording</b> action. Counts since startup are kept,
-     * and the listeners' aggregates are theirs to clear.
+     * the statements derived from the dropped events are forgotten, and every listener is told
+     * ({@link JournalListener#onClear}) to forget what it keeps about them; the aggregates are theirs to clear.
      */
     public void clear() {
         ring.clear();
         SqlShapes.clear();
+        for (JournalListener listener : listeners) {
+            try {
+                listener.onClear();
+            } catch (RuntimeException ex) {
+                listenerFailures.increment();
+                log.log(Level.WARNING, "A listener of BootUI's runtime journal failed to clear its state", ex);
+            }
+        }
     }
 
     public JournalStatus status() {
@@ -393,8 +402,6 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
             return;
         }
         running = false;
-        // The next run starts with its own statements (docs/PLAN-v2.md §5.4).
-        SqlShapes.clear();
         synchronized (this) {
             if (gcSource != null) {
                 gcSource.close();
@@ -411,17 +418,23 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
                 Thread.currentThread().interrupt();
             }
         }
-        if (!settings.enabled() || (dispatcher != null && dispatcher.isAlive())) {
-            return;
-        }
-        dispatchPending();
-        for (JournalListener listener : listeners) {
-            try {
-                listener.onClose();
-            } catch (Throwable ex) {
-                listenerFailures.increment();
-                log.log(Level.WARNING, "A listener of BootUI's runtime journal failed when the run ended", ex);
+        try {
+            if (!settings.enabled() || (dispatcher != null && dispatcher.isAlive())) {
+                return;
             }
+            dispatchPending();
+            for (JournalListener listener : listeners) {
+                try {
+                    listener.onClose();
+                } catch (Throwable ex) {
+                    listenerFailures.increment();
+                    log.log(Level.WARNING, "A listener of BootUI's runtime journal failed when the run ended", ex);
+                }
+            }
+        } finally {
+            // After the run's last events are processed, so the next run starts with its own statements
+            // (docs/PLAN-v2.md §5.4).
+            SqlShapes.clear();
         }
     }
 

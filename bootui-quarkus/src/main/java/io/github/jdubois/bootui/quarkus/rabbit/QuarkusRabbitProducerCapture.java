@@ -37,7 +37,8 @@ import org.jboss.logging.Logger;
  * for a channel always wins and BootUI steps aside for it); and fail-open (any error while inspecting
  * metadata or recording is caught and logged at warn, never disrupting the send).</p>
  *
- * <p>Producer duration is always {@code null} (the ack callback carries no send-start timestamp).</p>
+ * <p>A publish is timed from when its message enters the channel ({@link #onMessage}) to its ack or nack, and starts
+ * then, so a request's timeline places it where the request published it.</p>
  */
 @ApplicationScoped
 public class QuarkusRabbitProducerCapture implements OutgoingInterceptor {
@@ -82,39 +83,51 @@ public class QuarkusRabbitProducerCapture implements OutgoingInterceptor {
                 return;
             }
             // Exchange is a channel-level config in SmallRye RabbitMQ, not per-message; record null here.
-            recorder.recordPublish(
+            SenderCorrelation sent = sentOf(message);
+            recorder.recordPublishNanos(
                     null,
                     metadata.getRoutingKey(),
-                    null, // no send-start timestamp in the ack callback, so duration is always unknown
+                    sent.durationNanos(),
                     success,
                     errorMessage,
                     metadata.getCorrelationId(),
-                    senderOf(message));
+                    sent.sender());
         } catch (RuntimeException ex) {
             log.warn("BootUI could not capture an outgoing RabbitMQ message; leaving it untouched", ex);
         }
     }
 
     /**
-     * Snapshots the sender's BootUI correlation when the message enters the channel ({@code docs/PLAN-v2.md} §5.1):
-     * the request, scheduled run, or consumed message that sent it. The ack or nack that records the send may run on
-     * another thread, so the snapshot travels in the message's metadata.
+     * Snapshots the sender's BootUI correlation and the send's {@link System#nanoTime()} when the message enters the
+     * channel ({@code docs/PLAN-v2.md} §5.1): the request, scheduled run, or consumed message that sent it, and when.
+     * The ack or nack that records the send may run on another thread, so the snapshot travels in the message's
+     * metadata.
      */
     @Override
     public Message<?> onMessage(Message<?> message) {
         try {
-            CorrelationContext sender = QuarkusRequestCorrelation.current();
-            return sender.isEmpty() ? message : message.addMetadata(new SenderCorrelation(sender));
+            return message.addMetadata(new SenderCorrelation(QuarkusRequestCorrelation.current(), System.nanoTime()));
         } catch (RuntimeException ex) {
             return message;
         }
     }
 
-    private static CorrelationContext senderOf(Message<?> message) {
-        return message.getMetadata(SenderCorrelation.class)
-                .map(SenderCorrelation::sender)
-                .orElse(CorrelationContext.NONE);
+    private static SenderCorrelation sentOf(Message<?> message) {
+        return message.getMetadata(SenderCorrelation.class).orElse(SenderCorrelation.UNKNOWN);
     }
 
-    record SenderCorrelation(CorrelationContext sender) {}
+    /** Who sent a message and when, as a {@link System#nanoTime()}, or {@code -1} when unknown. */
+    record SenderCorrelation(CorrelationContext sender, long sentNanos) {
+
+        static final SenderCorrelation UNKNOWN = new SenderCorrelation(CorrelationContext.NONE, -1);
+
+        SenderCorrelation {
+            sender = sender == null ? CorrelationContext.NONE : sender;
+        }
+
+        /** The nanoseconds from the send to now, or {@code null} when the send time is unknown. */
+        Long durationNanos() {
+            return sentNanos < 0 ? null : Math.max(0, System.nanoTime() - sentNanos);
+        }
+    }
 }

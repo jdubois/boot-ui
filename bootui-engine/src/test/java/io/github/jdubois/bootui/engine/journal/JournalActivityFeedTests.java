@@ -405,10 +405,10 @@ class JournalActivityFeedTests {
 
     @Test
     void aiCallsAreRowsNestedUnderTheRequestRecordedWithTheirTraceId() {
-        add(ai("trace-1", new AiPayload("chat", "openai", "gpt-4o", 1200L, 300L, "stop", false)), 1_000);
-        add(ai("trace-1", new AiPayload("embeddings", "openai", "text-embedding-3", 40L, null, null, false)), 1_001);
-        add(ai("trace-2", new AiPayload("chat", "openai", "gpt-4o", 900L, 4096L, "length", false)), 1_002);
-        add(ai("trace-3", new AiPayload("chat", null, null, null, null, null, true)), 1_003);
+        add(ai("trace-1", new AiPayload("chat", "openai", "gpt-4o", 1200L, 300L, "stop", false)), 1_020);
+        add(ai("trace-1", new AiPayload("embeddings", "openai", "text-embedding-3", 40L, null, null, false)), 1_021);
+        add(ai("trace-2", new AiPayload("chat", "openai", "gpt-4o", 900L, 4096L, "length", false)), 1_022);
+        add(ai("trace-3", new AiPayload("chat", null, null, null, null, null, true)), 1_023);
         add(traced(http("r1", "POST", "/api/chat", "/api/chat", 200, 50), "trace-1"), 1_010);
 
         List<ActivityEntryDto> rendered =
@@ -438,17 +438,17 @@ class JournalActivityFeedTests {
                 .containsEntry(JournalActivityFeed.TYPE_AI, 4);
         assertThat(ids(new Filter(null, null, 0, null, null, "r1", false)))
                 .as("an AI call joined by trace id belongs to its request")
-                .containsExactly("r1", "run-2", "run-1");
+                .containsExactly("run-2", "run-1", "r1");
         assertThat(ids(new Filter(null, null, 0, "/api/chat", null, null, false)))
-                .containsExactly("r1", "run-2", "run-1");
+                .containsExactly("run-2", "run-1", "r1");
         assertThat(ids(new Filter(null, null, 0, null, null, null, true))).containsExactly("run-4", "run-3");
     }
 
     @Test
-    void anAiCallStaysTopLevelWhenSeveralRequestsShareItsTrace() {
+    void anAiCallStaysTopLevelWhenTheRequestsSharingItsTraceOverlapAtItsStart() {
+        add(traced(http("r1", "GET", "/api/a", "/api/a", 200, 50), "trace-1"), 990);
+        add(traced(http("r2", "GET", "/api/b", "/api/b", 200, 50), "trace-1"), 995);
         add(ai("trace-1", new AiPayload("chat", "openai", "gpt-4o", 1L, 1L, "stop", false)), 1_000);
-        add(traced(http("r1", "GET", "/api/a", "/api/a", 200, 5), "trace-1"), 1_010);
-        add(traced(http("r2", "GET", "/api/b", "/api/b", 200, 50), "trace-1"), 1_020);
 
         assertThat(only(feed.render(entries, EVENT_ID, "run", Filter.NONE, 0).entries(), "AI")
                         .parentId())
@@ -456,16 +456,41 @@ class JournalActivityFeedTests {
     }
 
     @Test
+    void anAiCallNestsUnderTheRequestSharingItsTraceThatWasRunningWhenItStarted() {
+        add(traced(http("r1", "GET", "/api/a", "/api/a", 200, 50), "trace-1"), 1_000);
+        add(traced(http("r2", "GET", "/api/b", "/api/b", 200, 50), "trace-1"), 2_000);
+        add(ai("trace-1", new AiPayload("chat", "openai", "gpt-4o", 1L, 1L, "stop", false)), 2_010);
+        add(ai("trace-1", new AiPayload("chat", "openai", "gpt-4o", 1L, 1L, "stop", false)), 1_010);
+
+        assertThat(feed.render(entries, EVENT_ID, "run", Filter.NONE, 0).entries())
+                .filteredOn(entry -> entry.type().equals(JournalActivityFeed.TYPE_AI))
+                .extracting(ActivityEntryDto::parentId)
+                .containsExactly("r2", "r1");
+    }
+
+    @Test
+    void anAiCallOfAnEvictedRequestIsNotClaimedByALaterRequestSharingItsTrace() {
+        // r1, which made the call, was evicted; r2 shares its trace but started after the call ended.
+        add(ai("trace-1", new AiPayload("chat", "openai", "gpt-4o", 1L, 1L, "stop", true)), 1_010);
+        add(traced(http("r2", "GET", "/api/b", "/api/b", 200, 50), "trace-1"), 2_000);
+
+        assertThat(only(feed.render(entries, EVENT_ID, "run", Filter.NONE, 0).entries(), "AI")
+                        .parentId())
+                .isNull();
+        assertThat(ids(new Filter(null, null, 0, null, null, "r2", false))).containsExactly("r2");
+    }
+
+    @Test
     void capturedAiCallsNestUnderARequestRecordedInAnEarlierBatch() {
-        Map<String, String> requestsByTrace = new java.util.HashMap<>();
+        AiCallOwners owners = new AiCallOwners();
         add(traced(http("r1", "POST", "/api/chat", "/api/chat", 200, 50), "trace-1"), 1_010);
-        feed.renderForCapture(List.copyOf(entries), EVENT_ID, new java.util.HashMap<>(), requestsByTrace);
+        entries.forEach(entry -> owners.learn(entry.event()));
+        feed.renderForCapture(List.copyOf(entries), EVENT_ID, new java.util.HashMap<>(), owners);
         entries.clear();
         add(ai("trace-1", new AiPayload("chat", "openai", "gpt-4o", 1L, 1L, "stop", false)), 1_020);
         add(ai("trace-9", new AiPayload("chat", "openai", "gpt-4o", 1L, 1L, "stop", false)), 1_021);
 
-        List<ActivityEntryDto> captured =
-                feed.renderForCapture(entries, EVENT_ID, new java.util.HashMap<>(), requestsByTrace);
+        List<ActivityEntryDto> captured = feed.renderForCapture(entries, EVENT_ID, new java.util.HashMap<>(), owners);
 
         assertThat(captured).extracting(ActivityEntryDto::parentId).containsExactly(null, "r1");
     }

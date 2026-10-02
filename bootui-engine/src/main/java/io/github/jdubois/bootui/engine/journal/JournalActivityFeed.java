@@ -31,8 +31,9 @@ import java.util.function.Supplier;
  * <p>Every child nests by identity, never by thread or time: an event carrying a request id nests under that request's
  * {@code REQUEST} entry, and one carrying only an execution id under the {@code SCHEDULED} or consumed
  * {@code MESSAGING} entry of that execution. An {@code AI} call, which carries only the trace id of the span it came
- * from, nests under the one retained request recorded with that trace id. A child whose parent is not retained, such
- * as a request still in flight, stays top-level until its parent appears.</p>
+ * from, nests under the one retained request with that trace id whose time span contains the call's start
+ * ({@link AiCallOwners}). A child whose parent is not retained, such as a request still in flight, stays top-level
+ * until its parent appears.</p>
  *
  * <p>Entries carry only what the journal records: templates, statements as retained, types, and classes, never bind
  * values, principals, or exception and log messages (§8). A {@code REQUEST} entry's id is its request id, which the
@@ -113,12 +114,12 @@ public final class JournalActivityFeed {
         Map<String, JournalEntry> requests = new HashMap<>();
         Map<String, String> executions = new HashMap<>();
         Map<String, Map<String, Integer>> selectsByRequest = new HashMap<>();
-        Map<String, String> requestsByTrace = new HashMap<>();
+        AiCallOwners aiCallOwners = new AiCallOwners();
         for (JournalEntry entry : entries) {
             RuntimeEvent event = entry.event();
             if (event.source() == JournalSource.HTTP && event.requestId() != null) {
                 requests.put(event.requestId(), entry);
-                rememberTrace(requestsByTrace, event);
+                aiCallOwners.learn(event);
             } else if (opensExecution(event)) {
                 executions.putIfAbsent(event.executionId(), event.executionId());
             }
@@ -132,10 +133,10 @@ public final class JournalActivityFeed {
         List<Row> rows = new ArrayList<>(entries.size());
         for (JournalEntry entry : entries) {
             ActivityEntryDto rendered =
-                    render(entry, eventId, requests, executions, requestsByTrace, selectsByRequest, routes, false);
+                    render(entry, eventId, requests, executions, aiCallOwners, selectsByRequest, routes, false);
             if (rendered != null) {
-                rows.add(new Row(
-                        entry, rowDetails.apply(rendered, entry.event()), requestOf(entry.event(), requestsByTrace)));
+                rows.add(
+                        new Row(entry, rowDetails.apply(rendered, entry.event()), aiCallOwners.ownerOf(entry.event())));
             }
         }
         rows.sort(Comparator.comparingLong((Row row) -> row.entry().timestamp())
@@ -271,7 +272,7 @@ public final class JournalActivityFeed {
             Function<JournalEntry, String> eventId,
             Map<String, JournalEntry> requests,
             Map<String, String> executions,
-            Map<String, String> requestsByTrace,
+            AiCallOwners aiCallOwners,
             Map<String, Map<String, Integer>> selectsByRequest,
             RouteTemplateResolver routes,
             boolean byIdentity) {
@@ -280,7 +281,7 @@ public final class JournalActivityFeed {
         // A scheduled run or consumed message is identified by its execution id, as a request is by its request id,
         // so its children can name it before it is recorded.
         String id = opensExecution(event) ? event.executionId() : eventId.apply(journal);
-        String parentId = parentOf(event, requests, executions, requestsByTrace, byIdentity);
+        String parentId = parentOf(event, requests, executions, aiCallOwners, byIdentity);
         Long durationMs = millis(event);
         if (payload instanceof HttpPayload http) {
             Map<String, Integer> selects = selectsByRequest.get(event.requestId());
@@ -620,41 +621,15 @@ public final class JournalActivityFeed {
     }
 
     /**
-     * Remembers the request {@code http} recorded for its trace id, so an AI call joined only by trace id can nest
-     * under it. A trace shared by several requests names none of them: which one made the call is unknown.
-     */
-    private static void rememberTrace(Map<String, String> requestsByTrace, RuntimeEvent http) {
-        if (http.traceId() == null || http.requestId() == null) {
-            return;
-        }
-        requestsByTrace.merge(http.traceId(), http.requestId(), (known, added) -> known.equals(added) ? known : "");
-    }
-
-    /**
-     * The request {@code event} belongs to: its own request id, or, for an AI call recorded with none, the one request
-     * retained with its trace id; otherwise {@code null}.
-     */
-    private static String requestOf(RuntimeEvent event, Map<String, String> requestsByTrace) {
-        if (event.requestId() != null) {
-            return event.requestId();
-        }
-        if (event.source() != JournalSource.AI || event.executionId() != null || event.traceId() == null) {
-            return null;
-        }
-        String request = requestsByTrace.get(event.traceId());
-        return request == null || request.isEmpty() ? null : request;
-    }
-
-    /**
      * The id of the entry {@code event} nests under: its request's, else its execution's, else, for an AI call, the
-     * request recorded with its trace id, else none. The live feed names only a parent it shows; {@code byIdentity}
-     * names it whether or not it was recorded yet, for rows persisted as they are recorded.
+     * request {@code aiCallOwners} attributes it to, else none. The live feed names only a parent it shows;
+     * {@code byIdentity} names it whether or not it was recorded yet, for rows persisted as they are recorded.
      */
     private static String parentOf(
             RuntimeEvent event,
             Map<String, JournalEntry> requests,
             Map<String, String> executions,
-            Map<String, String> requestsByTrace,
+            AiCallOwners aiCallOwners,
             boolean byIdentity) {
         if (event.source() == JournalSource.HTTP || opensExecution(event)) {
             return null;
@@ -665,7 +640,8 @@ public final class JournalActivityFeed {
         if (event.executionId() != null) {
             return byIdentity || executions.containsKey(event.executionId()) ? event.executionId() : null;
         }
-        return requestOf(event, requestsByTrace);
+        String owner = aiCallOwners.ownerOf(event);
+        return owner != null && (byIdentity || requests.containsKey(owner)) ? owner : null;
     }
 
     /**
@@ -678,25 +654,26 @@ public final class JournalActivityFeed {
             List<JournalEntry> batch,
             Function<JournalEntry, String> eventId,
             Map<String, Map<String, Integer>> pendingSelects) {
-        return renderForCapture(batch, eventId, pendingSelects, new HashMap<>());
+        AiCallOwners aiCallOwners = new AiCallOwners();
+        for (JournalEntry entry : batch) {
+            aiCallOwners.learn(entry.event());
+        }
+        return renderForCapture(batch, eventId, pendingSelects, aiCallOwners);
     }
 
     /**
-     * Renders as {@link #renderForCapture(List, Function, Map)} does, with {@code requestsByTrace} carrying each
-     * recorded request's trace id from batch to batch, so an AI call recorded after its request nests under it. An AI
-     * call recorded before its request, which only its trace id links, stays top-level. The caller bounds the map.
+     * Renders as {@link #renderForCapture(List, Function, Map)} does, with {@code aiCallOwners} attributing each AI call
+     * linked only by its trace id. The caller has it learn every request recorded so far, this batch's included, and
+     * holds back an AI call whose request may not be recorded yet ({@link AiCallOwners#unresolved}).
      */
     public List<ActivityEntryDto> renderForCapture(
             List<JournalEntry> batch,
             Function<JournalEntry, String> eventId,
             Map<String, Map<String, Integer>> pendingSelects,
-            Map<String, String> requestsByTrace) {
+            AiCallOwners aiCallOwners) {
         RouteTemplateResolver routes = resolver();
         for (JournalEntry entry : batch) {
             RuntimeEvent event = entry.event();
-            if (event.source() == JournalSource.HTTP && event.requestId() != null) {
-                rememberTrace(requestsByTrace, event);
-            }
             if (event.payload() instanceof SqlPayload sql && event.requestId() != null && isSelect(sql.sql())) {
                 pendingSelects
                         .computeIfAbsent(event.requestId(), id -> new HashMap<>())
@@ -706,9 +683,9 @@ public final class JournalActivityFeed {
         List<Row> rows = new ArrayList<>(batch.size());
         for (JournalEntry entry : batch) {
             ActivityEntryDto rendered =
-                    render(entry, eventId, Map.of(), Map.of(), requestsByTrace, pendingSelects, routes, true);
+                    render(entry, eventId, Map.of(), Map.of(), aiCallOwners, pendingSelects, routes, true);
             if (rendered != null) {
-                rows.add(new Row(entry, rendered, requestOf(entry.event(), requestsByTrace)));
+                rows.add(new Row(entry, rendered, aiCallOwners.ownerOf(entry.event())));
             }
             if (entry.event().source() == JournalSource.HTTP && entry.event().requestId() != null) {
                 pendingSelects.remove(entry.event().requestId());
@@ -811,7 +788,7 @@ public final class JournalActivityFeed {
         return Math.round(value * 100.0) / 100.0;
     }
 
-    /** A rendered entry with the request it belongs to, by its own request id or, for an AI call, its trace id. */
+    /** A rendered entry with the request it belongs to, by its own request id or, for an AI call, its time and trace. */
     private record Row(JournalEntry journal, ActivityEntryDto entry, String requestId) {}
 
     /** The rendered feed and its per-type counts over every rendered entry, before filtering. */

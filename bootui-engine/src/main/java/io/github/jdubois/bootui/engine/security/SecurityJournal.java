@@ -22,10 +22,11 @@ public final class SecurityJournal {
      * @param type the event's type, such as {@code AUTHENTICATION_FAILURE}
      * @param timestamp when it happened, or {@code null} for now
      * @param context the correlation where it was observed
-     * @param traceIdFallback the trace id the adapter resolved, used when {@code context} carries none
+     * @param observedTraceId the trace id the adapter read with the event, which wins over {@code context}'s, or
+     *     {@code null}
      */
     public static void publish(
-            RuntimeEventSink sink, String type, Instant timestamp, CorrelationContext context, String traceIdFallback) {
+            RuntimeEventSink sink, String type, Instant timestamp, CorrelationContext context, String observedTraceId) {
         if (sink == null || sink == RuntimeEventSink.NONE) {
             return;
         }
@@ -35,7 +36,7 @@ public final class SecurityJournal {
                     timestamp == null ? System.currentTimeMillis() : timestamp.toEpochMilli(),
                     -1,
                     context,
-                    traceIdFallback,
+                    observedTraceId,
                     Thread.currentThread().getName(),
                     null,
                     SecurityPayload.isFailure(type),

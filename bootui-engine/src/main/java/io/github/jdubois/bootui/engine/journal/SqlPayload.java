@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.journal;
 
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
+import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 
 /**
  * A SQL statement's payload: its text as SQL Trace retained it, never its bind values, the application call site and
@@ -33,12 +34,14 @@ public record SqlPayload(
 
     /**
      * This statement with its SQL, call site, data source, and frames replaced by the run's shared copies, so a
-     * statement run many times is stored once ({@code docs/PLAN-v2.md} §5.2).
+     * statement run many times is stored once ({@code docs/PLAN-v2.md} §5.2). Its SQL is shared only when no literal
+     * sits where a concatenated value would ({@link SqlShapes#shareable}), since such statements would fill the
+     * dictionary with one-off strings; it then keeps, and is counted for, its own copy.
      */
     @Override
     public RuntimeEventPayload interned(JournalDictionary dictionary) {
         return new SqlPayload(
-                dictionary.shared(sql),
+                SqlShapes.shareable(sql) ? dictionary.shared(sql) : sql,
                 dictionary.shared(callSite),
                 dictionary.shared(dataSource),
                 failed,

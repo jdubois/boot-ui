@@ -102,14 +102,15 @@ public final class KafkaProducerCaptureBeanPostProcessor implements BeanPostProc
                 Integer partition = recordMetadata == null
                         ? producerRecord.partition()
                         : Integer.valueOf(recordMetadata.partition());
-                recorder.recordProduce(
+                Sent sent = senders.take(producerRecord);
+                recorder.recordProduceNanos(
                         producerRecord.topic(),
                         partition,
                         keyOf(producerRecord),
-                        null, // ProducerListener carries no send-start timestamp, so duration is never known here
+                        sent.durationNanos(),
                         true,
                         null,
-                        senders.take(producerRecord));
+                        sent.sender());
             } catch (RuntimeException ex) {
                 log.warn("BootUI could not capture an outgoing Kafka message; leaving it untouched", ex);
             }
@@ -122,14 +123,15 @@ public final class KafkaProducerCaptureBeanPostProcessor implements BeanPostProc
         public void onError(
                 ProducerRecord<Object, Object> producerRecord, RecordMetadata recordMetadata, Exception exception) {
             try {
-                recorder.recordProduce(
+                Sent sent = senders.take(producerRecord);
+                recorder.recordProduceNanos(
                         producerRecord.topic(),
                         producerRecord.partition(),
                         keyOf(producerRecord),
-                        null, // see onSuccess: no send-start timestamp is available to compute a duration
+                        sent.durationNanos(),
                         false,
                         exception == null ? null : exception.getMessage(),
-                        senders.take(producerRecord));
+                        sent.sender());
             } catch (RuntimeException ex) {
                 log.warn("BootUI could not capture an outgoing Kafka message; leaving it untouched", ex);
             }
@@ -199,32 +201,45 @@ public final class KafkaProducerCaptureBeanPostProcessor implements BeanPostProc
     }
 
     /**
-     * Sender correlations of in-flight records, by record identity ({@link ProducerRecord} overrides {@code equals}).
+     * The sender's correlation and the {@link System#nanoTime()} of an in-flight record's send, by record identity
+     * ({@link ProducerRecord} overrides {@code equals}), so its event starts at the send and is timed to its outcome.
      * Each entry is taken when its outcome is reported. Bounded, so records whose outcome never arrives cannot grow
-     * it: past the bound it is cleared, and those messages simply stay top-level.
+     * it: past the bound it is cleared, and those messages simply stay top-level and untimed.
      */
     static final class SenderCorrelations {
 
         static final int MAX_IN_FLIGHT = 10_000;
 
-        private final Map<ProducerRecord<?, ?>, CorrelationContext> inFlight =
-                Collections.synchronizedMap(new IdentityHashMap<>());
+        private final Map<ProducerRecord<?, ?>, Sent> inFlight = Collections.synchronizedMap(new IdentityHashMap<>());
 
         void put(ProducerRecord<?, ?> record, CorrelationContext sender) {
-            if (record == null || sender == null || sender.isEmpty()) {
+            if (record == null) {
                 return;
             }
+            Sent sent = new Sent(sender == null ? CorrelationContext.NONE : sender, System.nanoTime());
             synchronized (inFlight) {
                 if (inFlight.size() >= MAX_IN_FLIGHT) {
                     inFlight.clear();
                 }
-                inFlight.put(record, sender);
+                inFlight.put(record, sent);
             }
         }
 
-        CorrelationContext take(ProducerRecord<?, ?> record) {
-            CorrelationContext sender = record == null ? null : inFlight.remove(record);
-            return sender == null ? CorrelationContext.NONE : sender;
+        /** The send of {@code record}, or an untimed one with no sender when it was not snapshotted. */
+        Sent take(ProducerRecord<?, ?> record) {
+            Sent sent = record == null ? null : inFlight.remove(record);
+            return sent == null ? Sent.UNKNOWN : sent;
+        }
+    }
+
+    /** A record's send: who sent it and when, as a {@link System#nanoTime()}, or {@code -1} when unknown. */
+    record Sent(CorrelationContext sender, long sentNanos) {
+
+        static final Sent UNKNOWN = new Sent(CorrelationContext.NONE, -1);
+
+        /** The nanoseconds from the send to now, or {@code null} when the send time is unknown. */
+        Long durationNanos() {
+            return sentNanos < 0 ? null : Math.max(0, System.nanoTime() - sentNanos);
         }
     }
 }

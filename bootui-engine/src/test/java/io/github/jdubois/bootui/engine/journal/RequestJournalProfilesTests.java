@@ -209,6 +209,22 @@ class RequestJournalProfilesTests {
     }
 
     @Test
+    void anAiCallJoinsOnlyTheRequestSharingItsTraceThatWasRunningWhenItStarted() {
+        // r1 made the first call and was then evicted; r2 shares its trace and made the second one.
+        offer(ai("trace-1", 1_010, new AiPayload("chat", "openai", "gpt-4o", 1L, 1L, "stop", false)));
+        offer(traced(http("r2", 2_000, 50_000_000, null), "trace-1"));
+        offer(ai("trace-1", 2_020, new AiPayload("chat", "openai", "gpt-4o-mini", 1L, 1L, "stop", false)));
+        journal.dispatchPending();
+
+        RequestJournalProfileDto profile = profiles(null).profile("r2");
+
+        assertThat(profile.timeline())
+                .extracting(RequestTimelineItemDto::label, RequestTimelineItemDto::offsetMillis)
+                .containsExactly(tuple("chat gpt-4o-mini (openai)", 20L));
+        assertThat(profile.touched().models()).containsExactly("gpt-4o-mini (openai)");
+    }
+
+    @Test
     void anUnknownRequestOrADisabledJournalSaysWhy() {
         assertThat(profiles(null).profile("missing").unavailableReason()).contains("does not retain request missing");
         assertThat(profiles(null).profile(" ").available()).isFalse();

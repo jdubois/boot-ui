@@ -221,6 +221,31 @@ public final class RabbitActivityRecorder implements RuntimeEventPublisher {
                 context == null ? CorrelationContext.NONE : context);
     }
 
+    /**
+     * Records a publish timed in nanoseconds from when it entered the channel to its outcome, with the sender's
+     * correlation, captured by the adapter: the panel keeps milliseconds, and the runtime journal the nanoseconds and
+     * the publish's start ({@code docs/PLAN-v2.md} §5.2).
+     */
+    public void recordPublishNanos(
+            String exchange,
+            String routingKey,
+            Long durationNanos,
+            boolean success,
+            String errorMessage,
+            String correlationId,
+            CorrelationContext context) {
+        record(
+                Direction.PUBLISH,
+                exchange,
+                routingKey,
+                null,
+                durationNanos,
+                success,
+                errorMessage,
+                correlationId,
+                context == null ? CorrelationContext.NONE : context);
+    }
+
     /** Records a completed (successful or failed) {@code @RabbitListener} message delivery. */
     public void recordConsume(
             String exchange,

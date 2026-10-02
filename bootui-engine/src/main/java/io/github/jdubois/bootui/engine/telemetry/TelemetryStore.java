@@ -108,11 +108,12 @@ public class TelemetryStore implements RuntimeEventPublisher {
             }
             return false;
         }
-        boolean stored = store(span, selfSpan);
-        if (stored) {
+        // The store may be suspended while this span waits for the lock, so whether it is published is decided there.
+        Outcome outcome = store(span, selfSpan);
+        if (outcome != Outcome.DROPPED) {
             publish(span);
         }
-        return stored;
+        return outcome == Outcome.STORED;
     }
 
     /**
@@ -164,36 +165,46 @@ public class TelemetryStore implements RuntimeEventPublisher {
      */
     private boolean publishesWhileIdle(NormalizedSpan span, boolean selfSpan) {
         // Only an AI span is published, so any other span costs no lock while idle.
-        if (!journal.records(JournalSource.AI) || (!selfSpan && AiSpanRecognizer.operation(span) == null)) {
+        if (!journalTakesWhileIdle(span, selfSpan)) {
             return false;
         }
-        String traceId = span.traceId();
         lock.writeLock().lock();
         try {
-            if (selfSpan) {
-                selfTraceIds.put(traceId, Boolean.TRUE);
-                return false;
-            }
-            return !selfTraceIds.containsKey(traceId);
+            return publishesWhileIdleLocked(span, selfSpan);
         } finally {
             lock.writeLock().unlock();
         }
     }
 
-    private boolean store(NormalizedSpan span, boolean selfSpan) {
+    private boolean journalTakesWhileIdle(NormalizedSpan span, boolean selfSpan) {
+        return journal.records(JournalSource.AI) && (selfSpan || AiSpanRecognizer.operation(span) != null);
+    }
+
+    /** {@link #publishesWhileIdle}'s decision, with the write lock held. */
+    private boolean publishesWhileIdleLocked(NormalizedSpan span, boolean selfSpan) {
+        if (selfSpan) {
+            selfTraceIds.put(span.traceId(), Boolean.TRUE);
+            return false;
+        }
+        return !selfTraceIds.containsKey(span.traceId());
+    }
+
+    private Outcome store(NormalizedSpan span, boolean selfSpan) {
         lock.writeLock().lock();
         try {
             if (idleSuspended) {
-                return false;
+                return journalTakesWhileIdle(span, selfSpan) && publishesWhileIdleLocked(span, selfSpan)
+                        ? Outcome.PUBLISHED
+                        : Outcome.DROPPED;
             }
             String traceId = span.traceId();
             if (selfSpan) {
                 selfTraceIds.put(traceId, Boolean.TRUE);
                 tracesById.remove(traceId);
-                return false;
+                return Outcome.DROPPED;
             }
             if (selfTraceIds.containsKey(traceId)) {
-                return false;
+                return Outcome.DROPPED;
             }
             MutableTraceBucket bucket = tracesById.remove(traceId);
             if (bucket == null) {
@@ -212,10 +223,17 @@ public class TelemetryStore implements RuntimeEventPublisher {
                 bucket.spans.add(span);
             }
             tracesById.put(traceId, bucket);
-            return true;
+            return Outcome.STORED;
         } finally {
             lock.writeLock().unlock();
         }
+    }
+
+    /** What became of a span: stored and published, only published because the store is suspended, or dropped. */
+    private enum Outcome {
+        STORED,
+        PUBLISHED,
+        DROPPED
     }
 
     /**

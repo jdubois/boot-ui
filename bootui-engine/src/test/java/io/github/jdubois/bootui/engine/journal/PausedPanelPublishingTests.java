@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.journal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.engine.activity.BootUiJdbcCaptureGuard;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.security.CapturedSecurityEvent;
@@ -76,6 +77,31 @@ class PausedPanelPublishingTests {
             assertThat(statement.durationNanos()).isEqualTo(3_000_000L);
             assertThat(((SqlPayload) statement.payload()).sql()).isEqualTo("select * from orders where id = ?");
         }
+    }
+
+    @Test
+    void aDisabledOrSelfSuppressedSqlTraceRecorderPublishesNothingWhilePaused() {
+        SqlTraceRecorder disabled = new SqlTraceRecorder(false, true, true, false, 8, 100, 2000, 200, 5, 50);
+        disabled.setRuntimeEventSink(recording);
+        disabled.setRecording(false);
+        SqlTraceRecorder paused = new SqlTraceRecorder(true, true, true, false, 8, 100, 2000, 200, 5, 50);
+        paused.setRuntimeEventSink(recording);
+        paused.setRecording(false);
+
+        inRequest(() -> {
+            assertThat(disabled.checkoutConnection("primary", 1_000)).isNull();
+            recordSelect(disabled);
+            BootUiJdbcCaptureGuard.runSuppressed(() -> {
+                assertThat(paused.checkoutConnection("primary", 1_000)).isNull();
+                recordSelect(paused);
+            });
+        });
+
+        assertThat(disabled.recent()).isEmpty();
+        assertThat(paused.recent()).isEmpty();
+        assertThat(published)
+                .as("enabled=false and BootUI's own SQL record nothing")
+                .isEmpty();
     }
 
     @Test

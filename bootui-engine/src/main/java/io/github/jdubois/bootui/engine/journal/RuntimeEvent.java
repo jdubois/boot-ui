@@ -80,21 +80,23 @@ public record RuntimeEvent(
     }
 
     /**
-     * An event correlated with {@code context}, whose trace id is {@code traceIdFallback} when the context carries
-     * none, for recorders that also resolve the trace from the adapter's tracer, or from the work they observe.
+     * An event correlated with {@code context}, whose trace id is {@code observedTraceId}, the one the recorder read
+     * with the work it observes, or the context's when the recorder read none. The recorder's is read with the work, so
+     * it wins over a context opened earlier.
      */
     public static RuntimeEvent of(
             JournalSource source,
             long epochMillis,
             long durationNanos,
             CorrelationContext context,
-            String traceIdFallback,
+            String observedTraceId,
             String thread,
             ThreadKind threadKind,
             boolean failedOrSlow,
             RuntimeEventPayload payload) {
         CorrelationContext correlation = context == null ? CorrelationContext.NONE : context;
-        String traceId = correlation.traceId() != null ? correlation.traceId() : blankToNull(traceIdFallback);
+        String observed = blankToNull(observedTraceId);
+        String traceId = observed != null ? observed : correlation.traceId();
         return new RuntimeEvent(
                 source,
                 epochMillis,

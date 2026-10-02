@@ -227,6 +227,33 @@ public final class KafkaActivityRecorder implements RuntimeEventPublisher {
                 sender == null ? CorrelationContext.NONE : sender);
     }
 
+    /**
+     * Records a completed producer send timed in nanoseconds from when it was handed to the producer to its outcome,
+     * with the correlation of the code that sent it, snapshotted on the sender's thread: the panel keeps milliseconds,
+     * and the runtime journal the nanoseconds and the send's start ({@code docs/PLAN-v2.md} §5.2).
+     */
+    public void recordProduceNanos(
+            String topic,
+            Integer partition,
+            String key,
+            Long durationNanos,
+            boolean success,
+            String errorMessage,
+            CorrelationContext sender) {
+        record(
+                Direction.PRODUCE,
+                topic,
+                partition,
+                null,
+                key,
+                durationNanos,
+                success,
+                errorMessage,
+                null,
+                null,
+                sender == null ? CorrelationContext.NONE : sender);
+    }
+
     /** The correlation of the work on this thread, for an adapter to snapshot when a record is sent. */
     public CorrelationContext currentCorrelation() {
         return correlation.current();

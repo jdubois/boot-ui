@@ -6,7 +6,9 @@ import io.github.jdubois.bootui.engine.activity.ActivityCaptureCoordinator;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivitySequencer;
 import io.github.jdubois.bootui.engine.activity.ActivityStore;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +23,14 @@ import java.util.function.Predicate;
  * never less masked than {@code MASKED} (§8). Each row names its parent request or execution by id, since a parent is
  * recorded after its children. Rows of a disabled panel are not written. It runs on the journal's dispatcher, where
  * the coordinator's append only buffers rows for the store's own flusher.</p>
+ *
+ * <p>An AI call carries only its trace id, and its span is often exported before its request completes, so a call no
+ * recorded request can claim yet is held back until one does ({@link AiCallOwners}). It is written on its own once
+ * the journal has recorded {@value #AI_CALL_WAIT_MILLIS} ms past its end without such a request, once more than
+ * {@value #MAX_PENDING_AI_CALLS} calls wait, or when the capture or the journal closes, so the history attributes a call
+ * as the live feed does, whichever the journal recorded first. A request recorded after a call was written, which
+ * overlaps the one it was written under and shares its trace, does not move it, although the live feed then nests the
+ * call under neither.</p>
  */
 public final class JournalActivityCapture implements JournalListener, ActivityCapture {
 
@@ -38,13 +48,17 @@ public final class JournalActivityCapture implements JournalListener, ActivityCa
         }
     };
 
-    /** The most recently recorded requests' trace ids, so an AI call exported after its request nests under it. */
-    private final Map<String, String> requestsByTrace = new LinkedHashMap<>() {
-        @Override
-        protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
-            return size() > MAX_PENDING_REQUESTS;
-        }
-    };
+    /** The most AI calls held back until a request claims them. */
+    static final int MAX_PENDING_AI_CALLS = 1_024;
+
+    /** How long past its end, in the journal's recorded time, an AI call waits for a request to claim it. */
+    static final long AI_CALL_WAIT_MILLIS = 120_000;
+
+    /** Every recorded request's trace id and time span, so each AI call is attributed as the live feed attributes it. */
+    private final AiCallOwners aiCallOwners = AiCallOwners.bounded();
+
+    /** AI calls no recorded request claims yet, in recorded order. */
+    private final ArrayDeque<JournalEntry> pendingAiCalls = new ArrayDeque<>();
 
     private JournalActivityCapture(
             RuntimeJournal journal,
@@ -89,23 +103,94 @@ public final class JournalActivityCapture implements JournalListener, ActivityCa
 
     @Override
     public synchronized void onEntries(List<JournalEntry> entries) {
-        List<JournalEntry> visible = new ArrayList<>(entries.size());
+        long recordedUntil = Long.MIN_VALUE;
         for (JournalEntry entry : entries) {
-            if (visible(entry.event())) {
-                visible.add(entry);
+            aiCallOwners.learn(entry.event());
+            recordedUntil = Math.max(recordedUntil, endMillis(entry.event()));
+        }
+        List<JournalEntry> ready = new ArrayList<>(entries.size());
+        releasePendingAiCalls(ready, recordedUntil, false);
+        for (JournalEntry entry : entries) {
+            if (!visible(entry.event())) {
+                continue;
+            }
+            if (aiCallOwners.unresolved(entry.event())) {
+                pendingAiCalls.addLast(entry);
+            } else {
+                ready.add(entry);
             }
         }
-        if (visible.isEmpty()) {
-            return;
+        while (pendingAiCalls.size() > MAX_PENDING_AI_CALLS) {
+            ready.add(pendingAiCalls.removeFirst());
         }
-        List<ActivityEntryDto> rows = feed.renderForCapture(visible, journal::eventId, pendingSelects, requestsByTrace);
-        coordinator.ingest(rows);
+        write(ready);
     }
 
-    /** Stops capturing; batches the journal records afterwards are not written. */
+    /** Writes the AI calls still held back, each on its own, after the journal's last batch of the run. */
+    @Override
+    public synchronized void onClose() {
+        writePendingAiCalls();
+    }
+
+    /** Forgets what the cleared recording held: its requests, open {@code SELECT} counts, and held-back AI calls. */
+    @Override
+    public synchronized void onClear() {
+        aiCallOwners.clear();
+        pendingSelects.clear();
+        pendingAiCalls.clear();
+    }
+
+    /**
+     * Stops capturing and writes the AI calls still held back, each on its own; batches the journal records afterwards
+     * are not written.
+     */
     @Override
     public void close() {
         journal.removeListener(this);
+        synchronized (this) {
+            writePendingAiCalls();
+        }
+    }
+
+    private void writePendingAiCalls() {
+        List<JournalEntry> ready = new ArrayList<>(pendingAiCalls.size());
+        releasePendingAiCalls(ready, Long.MAX_VALUE, true);
+        write(ready);
+    }
+
+    /** Held-back AI calls, for tests. */
+    synchronized int pendingAiCalls() {
+        return pendingAiCalls.size();
+    }
+
+    /**
+     * Moves to {@code ready} each held-back AI call a request now claims, or whose attribution is now ambiguous, or that
+     * no request claimed within {@link #AI_CALL_WAIT_MILLIS} of its end by {@code recordedUntil}; {@code all} moves
+     * every one.
+     */
+    private void releasePendingAiCalls(List<JournalEntry> ready, long recordedUntil, boolean all) {
+        Iterator<JournalEntry> pending = pendingAiCalls.iterator();
+        while (pending.hasNext()) {
+            JournalEntry call = pending.next();
+            if (all
+                    || !aiCallOwners.unresolved(call.event())
+                    || recordedUntil - endMillis(call.event()) > AI_CALL_WAIT_MILLIS) {
+                ready.add(call);
+                pending.remove();
+            }
+        }
+    }
+
+    private void write(List<JournalEntry> ready) {
+        if (ready.isEmpty()) {
+            return;
+        }
+        coordinator.ingest(feed.renderForCapture(ready, journal::eventId, pendingSelects, aiCallOwners));
+    }
+
+    private static long endMillis(RuntimeEvent event) {
+        long nanos = event.durationNanos();
+        return nanos <= 0 ? event.epochMillis() : event.epochMillis() + nanos / 1_000_000;
     }
 
     private boolean visible(RuntimeEvent event) {

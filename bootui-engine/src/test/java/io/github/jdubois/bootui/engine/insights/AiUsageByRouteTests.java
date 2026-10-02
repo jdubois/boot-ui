@@ -121,7 +121,8 @@ class AiUsageByRouteTests {
     private void offerAi(String traceId, AiPayload payload, int order) {
         journal.offer(new RuntimeEvent(
                 JournalSource.AI,
-                2_000 + order,
+                // Inside its request, which ran from 1,000 ms for 200 ms: a call is linked by its trace and time.
+                1_010 + order,
                 40 * MS,
                 null,
                 null,

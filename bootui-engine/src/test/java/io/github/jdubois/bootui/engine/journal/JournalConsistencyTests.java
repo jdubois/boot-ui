@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.journal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.example.journalapp.ApplicationCode;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
@@ -29,12 +30,12 @@ class JournalConsistencyTests {
     private final List<RuntimeEvent> published = new ArrayList<>();
 
     @Test
-    void anEnvelopeTakesItsIdsFromTheContextAndFallsBackToTheResolvedTrace() {
+    void anEnvelopeTakesItsIdsFromTheContextAndPrefersTheTraceTheRecorderObserved() {
         CorrelationContext request = CorrelationContext.forRequest("r1");
 
-        RuntimeEvent fallback = RuntimeEvent.of(
+        RuntimeEvent observed = RuntimeEvent.of(
                 JournalSource.CACHE, 1, -1, request, TRACE, "main", null, false, new CachePayload("c", "HIT"));
-        RuntimeEvent contextWins = RuntimeEvent.of(
+        RuntimeEvent observedWins = RuntimeEvent.of(
                 JournalSource.CACHE,
                 1,
                 -1,
@@ -44,13 +45,26 @@ class JournalConsistencyTests {
                 null,
                 false,
                 new CachePayload("c", "HIT"));
+        RuntimeEvent contextOnly = RuntimeEvent.of(
+                JournalSource.CACHE,
+                1,
+                -1,
+                CorrelationContext.forExecution("e1").withTrace("ctx-trace", null),
+                " ",
+                "main",
+                null,
+                false,
+                new CachePayload("c", "HIT"));
         RuntimeEvent blank = RuntimeEvent.of(
                 JournalSource.CACHE, 1, -1, null, " ", "main", null, false, new CachePayload("c", "HIT"));
 
-        assertThat(fallback.requestId()).isEqualTo("r1");
-        assertThat(fallback.traceId()).isEqualTo(TRACE);
-        assertThat(contextWins.executionId()).isEqualTo("e1");
-        assertThat(contextWins.traceId()).isEqualTo("ctx-trace");
+        assertThat(observed.requestId()).isEqualTo("r1");
+        assertThat(observed.traceId()).isEqualTo(TRACE);
+        assertThat(observedWins.executionId()).isEqualTo("e1");
+        assertThat(observedWins.traceId())
+                .as("read with the work, so it wins over a context opened earlier")
+                .isEqualTo(TRACE);
+        assertThat(contextOnly.traceId()).isEqualTo("ctx-trace");
         assertThat(blank.traceId()).isNull();
         assertThat(blank.requestId()).isNull();
     }
@@ -159,23 +173,76 @@ class JournalConsistencyTests {
     }
 
     @Test
-    void framesAreWalkedOnlyWhenThePanelsCallSitesOrTheJournalKeepThem() {
+    void framesAreWalkedOnlyWithCallSitesOnAndWhenThePanelOrTheJournalKeepsThem() {
         assertThat(ApplicationFrames.wanted(true, true, false)).isTrue();
-        assertThat(ApplicationFrames.wanted(false, false, true)).isTrue();
-        assertThat(ApplicationFrames.wanted(true, false, true)).isTrue();
-        assertThat(ApplicationFrames.wanted(true, false, false)).isFalse();
+        assertThat(ApplicationFrames.wanted(false, true, true)).isTrue();
+        assertThat(ApplicationFrames.wanted(true, true, true)).isTrue();
         assertThat(ApplicationFrames.wanted(false, true, false))
-                .as("a paused panel keeps no call sites")
+                .as("a paused panel and a journal not recording the source keep no frames")
                 .isFalse();
+        assertThat(ApplicationFrames.wanted(true, false, true))
+                .as("turning call sites off skips the walk for the journal too")
+                .isFalse();
+        assertThat(ApplicationFrames.wanted(false, false, true)).isFalse();
+    }
+
+    @Test
+    void aPausedPanelsRecordersWalkTheStackForTheJournalOnlyWithCallSitesOn() {
+        assertThat(journalSqlFrames(true)).as("the journal keeps the frames").isNotNull();
+        assertThat(journalSqlFrames(true).callSite()).startsWith("com.example.journalapp.ApplicationCode.run(");
+        assertThat(journalSqlFrames(false)).as("call sites off: no walk").isNull();
+        assertThat(journalRestClientFrames(true)).isNotNull();
+        assertThat(journalRestClientFrames(false)).isNull();
     }
 
     @Test
     void repeatedStatementsRetainTheirSqlOnce() {
         String sql = "select o.id, o.total, o.customer_id from orders o where o.customer_id = ? order by o.id";
+        long sqlBytes = RuntimeEvent.stringBytes(sql);
         long repeated = retainedBytes(i -> new String(sql));
-        long distinct = retainedBytes(i -> sql.replace("o.id", "o.id" + i));
+        // As long as the repeated statement, and parameterized, so each one is shared once.
+        long distinct = retainedBytes(i -> sql.replace("o.total", String.format("o.tot%02d", i)));
 
-        assertThat(repeated).isLessThan(distinct);
+        assertThat(repeated)
+                .as("50 runs of one statement retain it once, not 50 times")
+                .isLessThan(distinct - 40 * sqlBytes);
+    }
+
+    @Test
+    void aStatementWithAnInlinedValueKeepsItsOwnCopy() {
+        JournalDictionary dictionary = new JournalDictionary(100, 100_000);
+        SqlPayload inlined = (SqlPayload)
+                new SqlPayload("select * from orders where id = 42", null, null, false).interned(dictionary);
+        SqlPayload parameterized = (SqlPayload)
+                new SqlPayload("select * from orders where id = ?", null, null, false).interned(dictionary);
+
+        assertThat(JournalDictionary.retained(dictionary, inlined.sql()))
+                .as("a value concatenated into it would fill the dictionary with one-off strings")
+                .isEqualTo(RuntimeEvent.stringBytes(inlined.sql()));
+        assertThat(JournalDictionary.retained(dictionary, parameterized.sql()))
+                .isEqualTo(JournalDictionary.REFERENCE_BYTES);
+        assertThat(dictionary.size()).isEqualTo(1);
+    }
+
+    @Test
+    void aTemporaryDestinationKeepsItsOwnCopy() {
+        JournalDictionary dictionary = new JournalDictionary(100, 100_000);
+
+        for (String temporary : List.of(
+                "temp-queue://ID:host-1234-1:1:1",
+                "ID:host-1234-1:1:1",
+                "amq.gen-JzTY20BRgKO-HjmUJj0wLg",
+                "2f1c7d4e-8a1b-4c3d-9e2f-0a1b2c3d4e5f")) {
+            MessagingPayload sent =
+                    (MessagingPayload) new MessagingPayload("jms", true, temporary, false).interned(dictionary);
+            assertThat(JournalDictionary.retained(dictionary, sent.destination()))
+                    .as(temporary)
+                    .isEqualTo(RuntimeEvent.stringBytes(temporary));
+        }
+        MessagingPayload named =
+                (MessagingPayload) new MessagingPayload("kafka", true, "orders", false).interned(dictionary);
+        assertThat(JournalDictionary.retained(dictionary, named.destination()))
+                .isEqualTo(JournalDictionary.REFERENCE_BYTES);
     }
 
     @Test
@@ -195,6 +262,42 @@ class JournalConsistencyTests {
         assertThat(JournalDictionary.retained(dictionary, new String(shared.sql())))
                 .as("an equal copy the dictionary does not hold costs its characters")
                 .isGreaterThan(JournalDictionary.REFERENCE_BYTES);
+    }
+
+    /** The frames of the SQL event a paused SQL Trace panel publishes to a journal recording SQL. */
+    private static ApplicationFrames journalSqlFrames(boolean captureCallSite) {
+        List<RuntimeEvent> events = new ArrayList<>();
+        SqlTraceRecorder recorder = new SqlTraceRecorder(true, false, false, captureCallSite, 10, 500, 2000, 200, 5);
+        recorder.setRuntimeEventSink(events::add);
+        ApplicationCode.run(() -> recorder.recordNanos(
+                StatementType.STATEMENT, Category.SELECT, "select 1", List.of(), 1, true, null, null, 0, "c1", "t"));
+        assertThat(recorder.recent()).as("the panel is paused").isEmpty();
+        return ((SqlPayload) events.get(0).payload()).frames();
+    }
+
+    /** The frames of the call a paused REST Client panel publishes to a journal recording REST client calls. */
+    private static ApplicationFrames journalRestClientFrames(boolean captureCallSite) {
+        List<RuntimeEvent> events = new ArrayList<>();
+        RestClientTraceRecorder recorder =
+                new RestClientTraceRecorder(true, false, false, captureCallSite, 8, 500, 2000, 200, 5);
+        recorder.setRuntimeEventSink(events::add);
+        ApplicationCode.run(() -> recorder.recordNanos(
+                "GET",
+                "http://pricing/p",
+                "pricing",
+                "/p",
+                200,
+                1,
+                true,
+                null,
+                "RestClient",
+                Map.of(),
+                "t",
+                null,
+                CorrelationContext.NONE,
+                null));
+        assertThat(recorder.recent()).as("the panel is paused").isEmpty();
+        return ((RestClientPayload) events.get(0).payload()).frames();
     }
 
     private static long retainedBytes(java.util.function.IntFunction<String> sql) {

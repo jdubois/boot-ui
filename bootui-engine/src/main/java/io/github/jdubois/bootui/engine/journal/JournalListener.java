@@ -19,4 +19,10 @@ public interface JournalListener {
      * summary is recorded here ({@code docs/PLAN-v2.md} §5.2).
      */
     default void onClose() {}
+
+    /**
+     * Called when the confirmation-gated <b>Clear recording</b> action drops every retained event, on the clearing
+     * thread, so a listener forgets the state it keeps about the cleared events.
+     */
+    default void onClear() {}
 }

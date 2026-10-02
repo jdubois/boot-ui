@@ -175,8 +175,8 @@ public class ReactiveSecurityLogsController
     @Override
     public void onApplicationEvent(AuditApplicationEvent event) {
         requestIds.stamp(event.getAuditEvent());
-        recordTraceId(event.getAuditEvent());
-        publish(event.getAuditEvent());
+        String traceId = recordTraceId(event.getAuditEvent());
+        publish(event.getAuditEvent(), traceId);
         changeStream.signal();
     }
 
@@ -186,11 +186,12 @@ public class ReactiveSecurityLogsController
         this.journal = journal == null ? RuntimeEventSink.NONE : journal;
     }
 
-    private void publish(AuditEvent event) {
+    /** Publishes {@code event} with the trace id active when Spring Security published it, or {@code null}. */
+    private void publish(AuditEvent event, String traceId) {
         if (event == null) {
             return;
         }
-        SecurityJournal.publish(journal, event.getType(), event.getTimestamp(), BootUiCorrelation.current(), null);
+        SecurityJournal.publish(journal, event.getType(), event.getTimestamp(), BootUiCorrelation.current(), traceId);
     }
 
     /**
@@ -199,20 +200,26 @@ public class ReactiveSecurityLogsController
      * {@link TraceIdProvider} signal {@code ReactiveHttpExchangeTraceFilter}/{@code SqlTraceRecorder}
      * capture from. Fully guarded so a missing registry/provider, or a misbehaving tracer, never disrupts
      * Spring Security's own event publication.
+     *
+     * @return the trace id, which the runtime journal also records, or {@code null} when none is active
      */
-    private void recordTraceId(AuditEvent event) {
-        if (traceIdProvider == null || traceRegistry == null || event == null || event.getTimestamp() == null) {
-            return;
+    private String recordTraceId(AuditEvent event) {
+        if (traceIdProvider == null || event == null) {
+            return null;
         }
         try {
             String traceId = traceIdProvider.currentTraceId();
             if (traceId == null || traceId.isBlank()) {
-                return;
+                return null;
             }
-            traceRegistry.record(new ReactiveSecurityEventTraceRegistry.SecurityEventTrace(
-                    event.getTimestamp().toEpochMilli(), event.getType(), event.getPrincipal(), traceId));
+            if (traceRegistry != null && event.getTimestamp() != null) {
+                traceRegistry.record(new ReactiveSecurityEventTraceRegistry.SecurityEventTrace(
+                        event.getTimestamp().toEpochMilli(), event.getType(), event.getPrincipal(), traceId));
+            }
+            return traceId;
         } catch (RuntimeException ignored) {
             // Diagnostics capture must never interfere with Spring Security's own event publication.
+            return null;
         }
     }
 
