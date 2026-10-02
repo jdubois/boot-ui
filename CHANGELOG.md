@@ -69,6 +69,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   exchange, hidden BootUI exchanges) is stated inline. The same rankings are available from
   `GET /bootui/api/http-exchanges/routes`, the `get_http_routes` MCP tool, and `bootui http routes`, on Spring MVC,
   Spring WebFlux, and Quarkus.
+- **Lightweight PostgreSQL Docker sample profile.** Run the Spring MVC sample with `docker-postgresql`, or the
+  dedicated `run-local-postgresql.sh` launcher, to start only PostgreSQL and Redis, without Kafka, Ollama, or AI model
+  downloads. PostgreSQL preloads and creates `pg_stat_statements`, so the PostgreSQL panel's Statement ranking is
+  readable; the full `docker` profile is unchanged.
 
 ### Changed
 
