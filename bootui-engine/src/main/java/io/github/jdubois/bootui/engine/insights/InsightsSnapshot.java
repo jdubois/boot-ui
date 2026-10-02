@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.insights;
 
 import io.github.jdubois.bootui.engine.journal.AiCallOwners;
+import io.github.jdubois.bootui.engine.journal.GcPayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
@@ -29,6 +30,7 @@ import java.util.function.Predicate;
 public final class InsightsSnapshot {
 
     private final List<ProjectedRequest> requests;
+    private final List<RuntimeEvent> collections;
     private final Map<String, List<ProjectedRequest>> byRoute;
     private final Map<JournalSource, long[]> coverage;
     private final JournalStatus status;
@@ -40,6 +42,7 @@ public final class InsightsSnapshot {
 
     private InsightsSnapshot(
             List<ProjectedRequest> requests,
+            List<RuntimeEvent> collections,
             Map<JournalSource, long[]> coverage,
             JournalStatus status,
             Predicate<JournalSource> recorded,
@@ -48,6 +51,7 @@ public final class InsightsSnapshot {
             RunSummary previousRun,
             Function<String, Integer> poolSizes) {
         this.requests = Collections.unmodifiableList(requests);
+        this.collections = Collections.unmodifiableList(collections);
         Map<String, List<ProjectedRequest>> routes = new LinkedHashMap<>();
         for (ProjectedRequest request : requests) {
             routes.computeIfAbsent(request.route(), route -> new ArrayList<>()).add(request);
@@ -133,6 +137,7 @@ public final class InsightsSnapshot {
         Map<String, List<RuntimeEvent>> children = new HashMap<>();
         Map<JournalSource, long[]> coverage = new EnumMap<>(JournalSource.class);
         List<RuntimeEvent> traced = new ArrayList<>();
+        List<RuntimeEvent> collections = new ArrayList<>();
         AiCallOwners aiCallOwners = new AiCallOwners(evictedRequestTraces);
         for (JournalEntry entry : ordered) {
             RuntimeEvent event = entry.event();
@@ -149,6 +154,9 @@ public final class InsightsSnapshot {
                 counts[2]++;
             }
             if (event.requestId() == null) {
+                if (event.payload() instanceof GcPayload) {
+                    collections.add(event);
+                }
                 continue;
             }
             if (event.source() == JournalSource.HTTP) {
@@ -194,7 +202,13 @@ public final class InsightsSnapshot {
         }
         requests.sort(
                 Comparator.comparingLong(ProjectedRequest::startMillis).thenComparing(ProjectedRequest::requestId));
-        return new InsightsSnapshot(requests, coverage, status, recorded, visible, stack, previousRun, poolSizes);
+        return new InsightsSnapshot(
+                requests, collections, coverage, status, recorded, visible, stack, previousRun, poolSizes);
+    }
+
+    /** Every garbage collection retained, in the order the journal recorded them, each with a {@link GcPayload}. */
+    public List<RuntimeEvent> collections() {
+        return collections;
     }
 
     /** Every completed request retained, oldest first. */

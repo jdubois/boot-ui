@@ -66,7 +66,9 @@ async function mountWithReport(report) {
     vi.fn(() => Promise.resolve(new Response(JSON.stringify(report), {status: 200})))
   )
 
-  const wrapper = mount(Memory)
+  const wrapper = mount(Memory, {
+    global: {stubs: {RouterLink: {props: ['to'], template: '<a :href="JSON.stringify(to)"><slot /></a>'}}}
+  })
   await flushPromises()
   return wrapper
 }
@@ -126,5 +128,11 @@ describe('Memory', () => {
 
     expect(wrapper.text()).toContain('No Memory Advisor findings')
     expect(wrapper.text()).not.toContain('Passing old gen rule')
+  })
+
+  it('links the snapshot to the run-wide heap trend in Runtime Insights', async () => {
+    const wrapper = await mountWithReport(advisorReport([]))
+    const link = wrapper.findAll('a').find((anchor) => anchor.text() === 'Runtime Insights')
+    expect(JSON.parse(link.attributes('href'))).toEqual({path: '/runtime-insights', query: {theme: 'memory'}})
   })
 })

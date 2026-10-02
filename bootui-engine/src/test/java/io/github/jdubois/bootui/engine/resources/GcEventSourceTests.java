@@ -54,6 +54,24 @@ class GcEventSourceTests {
     }
 
     @Test
+    void theOldGenerationIsRecognizedByItsPoolNameInEveryGenerationalCollector() {
+        assertThat(List.of("G1 Old Gen", "PS Old Gen", "Tenured Gen", "ZGC Old Generation"))
+                .allMatch(GcEventSource::isOldGeneration);
+        assertThat(List.of("G1 Eden Space", "G1 Survivor Space", "ZGC Young Generation", "Shenandoah", "ZHeap"))
+                .noneMatch(GcEventSource::isOldGeneration);
+        GcPayload full = (GcPayload)
+                GcEventSource.event("G1 Old Generation", 1, "end of major GC", "System.gc()", 0, 30, 90, 40, 80, 35)
+                        .payload();
+        assertThat(full.reclaimedOldGeneration()).isTrue();
+        GcPayload young = (GcPayload) GcEventSource.event(
+                        "G1 Young Generation", 2, "end of minor GC", "G1 Evacuation Pause", 0, 3, 90, 50, 35, 38)
+                .payload();
+        assertThat(young.reclaimedOldGeneration())
+                .as("a young collection only promotes")
+                .isFalse();
+    }
+
+    @Test
     void aConcurrentCycleIsNeverAPause() {
         GcPayload cycle =
                 (GcPayload) GcEventSource.event("ZGC Major Cycles", 3, "end of GC cycle", "Proactive", 0, 40, 9, 8)

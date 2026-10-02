@@ -167,6 +167,8 @@ public final class RuntimeInsightsService {
                 new TransactionAcrossRemoteCall(),
                 new LazySqlAfterHandler(),
                 new EventLoopBlocking(),
+                new GcInflatedLatency(),
+                new HeapGrowthAfterGc(),
                 new AiUsageByRoute(aiTokenThreshold),
                 new FrameworkWarningsByRoute());
     }

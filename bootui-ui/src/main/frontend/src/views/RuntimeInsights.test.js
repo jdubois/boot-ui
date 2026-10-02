@@ -244,6 +244,62 @@ describe('Runtime Insights panel', () => {
     )
   })
 
+  it('opens on the theme a deep link names, without a request count for a run-wide observation', async () => {
+    const heap = {
+      ...report.observations[0],
+      id: 'heap-growth-after-gc:heap',
+      kind: 'heap-growth-after-gc',
+      subject: 'Heap',
+      sentence: 'Old-generation occupancy after the 4 collections that reclaimed it rose from 40.0 MiB to 60.0 MiB.',
+      eligible: 0,
+      affected: 0,
+      exemplarRequestIds: []
+    }
+    routeState.query = {theme: 'memory'}
+    const withHeap = {
+      ...report,
+      checks: [...report.checks, {...report.checks[0], kind: 'heap-growth-after-gc', title: 'Heap growth after GC'}],
+      observations: [...report.observations, heap]
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) =>
+        Promise.resolve(jsonResponse(String(url).includes('/insights/') ? {...detail, observation: heap} : withHeap))
+      )
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.findAll('.insight-item')).toHaveLength(1)
+    expect(wrapper.get('.insight-item.active').text()).toContain('Heap')
+    expect(wrapper.get('.insight-detail').text()).not.toContain('of 0 requests')
+  })
+
+  it('draws the shares of a breakdown as bars, the largest phase emphasized and an unshared row left bare', async () => {
+    const breakdown = {
+      ...detail,
+      columns: ['Phase', 'Total (ms)', 'Share', 'Median per request'],
+      rows: [
+        {cells: ['SQL', '75', '60 %', '15']},
+        {cells: ['Response write', '25', '20 %', '5.0']},
+        {cells: ['Overlapping calls, counted once above', '25', '', '']}
+      ],
+      truncated: 0
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => Promise.resolve(jsonResponse(String(url).includes('/insights/') ? breakdown : report)))
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+
+    const bars = wrapper.findAll('.insight-share-bar')
+    expect(bars.map((bar) => bar.attributes('style'))).toEqual(['width: 60%;', 'width: 20%;'])
+    expect(bars[0].classes()).toContain('insight-share-bar-top')
+    expect(wrapper.get('.insight-evidence-top').text()).toContain('SQL')
+    expect(wrapper.findAll('.insight-share-value').map((value) => value.text())).toEqual(['60 %', '20 %'])
+  })
+
   it('exports the report it already has as JSON without another request', async () => {
     const fetchMock = vi.fn((url) =>
       Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : report))

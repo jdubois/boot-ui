@@ -41,7 +41,22 @@ public final class GcEventSource implements AutoCloseable {
     private final NotificationListener listener;
 
     private GcEventSource(RuntimeEventSink sink, long jvmStartEpochMillis, Set<String> heapPools) {
-        this.listener = (notification, handback) -> publish(sink, notification, jvmStartEpochMillis, heapPools);
+        Set<String> oldPools = new HashSet<>();
+        for (String pool : heapPools) {
+            if (isOldGeneration(pool)) {
+                oldPools.add(pool);
+            }
+        }
+        this.listener = (notification, handback) ->
+                publish(sink, notification, jvmStartEpochMillis, heapPools, Set.copyOf(oldPools));
+    }
+
+    /**
+     * Whether a heap pool holds the old generation: {@code G1 Old Gen}, {@code PS Old Gen}, {@code Tenured Gen}, or
+     * generational ZGC's {@code ZGC Old Generation}. A single-generation heap, such as Shenandoah's, has none.
+     */
+    static boolean isOldGeneration(String pool) {
+        return pool != null && (pool.contains("Old Gen") || pool.contains("Tenured"));
     }
 
     /** Starts listening to every collector, publishing to {@code sink}; listens to none when the JVM offers none. */
@@ -92,12 +107,16 @@ public final class GcEventSource implements AutoCloseable {
     }
 
     private static void publish(
-            RuntimeEventSink sink, Notification notification, long jvmStartEpochMillis, Set<String> heapPools) {
+            RuntimeEventSink sink,
+            Notification notification,
+            long jvmStartEpochMillis,
+            Set<String> heapPools,
+            Set<String> oldPools) {
         try {
             if (!Notifications.isGc(notification)) {
                 return;
             }
-            RuntimeEvent event = Notifications.event(notification, jvmStartEpochMillis, heapPools);
+            RuntimeEvent event = Notifications.event(notification, jvmStartEpochMillis, heapPools, oldPools);
             if (event != null) {
                 sink.offer(event);
             }
@@ -116,6 +135,31 @@ public final class GcEventSource implements AutoCloseable {
             long durationMillis,
             long heapBeforeBytes,
             long heapAfterBytes) {
+        return event(
+                collector,
+                gcId,
+                action,
+                cause,
+                startEpochMillis,
+                durationMillis,
+                heapBeforeBytes,
+                heapAfterBytes,
+                -1,
+                -1);
+    }
+
+    /** A GC event with the old generation's occupancy before and after the collection, {@code -1} when unknown. */
+    static RuntimeEvent event(
+            String collector,
+            long gcId,
+            String action,
+            String cause,
+            long startEpochMillis,
+            long durationMillis,
+            long heapBeforeBytes,
+            long heapAfterBytes,
+            long oldGenBeforeBytes,
+            long oldGenAfterBytes) {
         // The JVM reports a collection's start and duration in whole milliseconds, and no request owns it.
         return RuntimeEvent.of(
                 JournalSource.GC,
@@ -132,7 +176,9 @@ public final class GcEventSource implements AutoCloseable {
                         cause,
                         !GcCollectorKinds.isConcurrentCycleBean(collector),
                         heapBeforeBytes,
-                        heapAfterBytes));
+                        heapAfterBytes,
+                        oldGenBeforeBytes,
+                        oldGenAfterBytes));
     }
 
     /** The only class that names {@code com.sun.management}, loaded on the first notification. */
@@ -144,7 +190,8 @@ public final class GcEventSource implements AutoCloseable {
                     && notification.getUserData() instanceof CompositeData;
         }
 
-        static RuntimeEvent event(Notification notification, long jvmStartEpochMillis, Set<String> heapPools) {
+        static RuntimeEvent event(
+                Notification notification, long jvmStartEpochMillis, Set<String> heapPools, Set<String> oldPools) {
             com.sun.management.GarbageCollectionNotificationInfo info =
                     com.sun.management.GarbageCollectionNotificationInfo.from(
                             (CompositeData) notification.getUserData());
@@ -160,7 +207,9 @@ public final class GcEventSource implements AutoCloseable {
                     jvmStartEpochMillis + gc.getStartTime(),
                     gc.getDuration(),
                     heapUsed(gc.getMemoryUsageBeforeGc(), heapPools),
-                    heapUsed(gc.getMemoryUsageAfterGc(), heapPools));
+                    heapUsed(gc.getMemoryUsageAfterGc(), heapPools),
+                    heapUsed(gc.getMemoryUsageBeforeGc(), oldPools),
+                    heapUsed(gc.getMemoryUsageAfterGc(), oldPools));
         }
 
         private static long heapUsed(Map<String, MemoryUsage> pools, Set<String> heapPools) {

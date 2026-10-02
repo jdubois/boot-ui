@@ -13,7 +13,9 @@ import {
   coverageSummary,
   emptyState,
   groupObservations,
+  evidenceShares,
   isMachineColumn,
+  numericColumns,
   textParts
 } from '../utils/runtimeInsights.js'
 import InsightText from './components/InsightText.vue'
@@ -35,7 +37,7 @@ const lastFetched = ref(null)
 // ?impact=<symbol> opens the change impact of a symbol.
 const route = useRoute()
 const query = ref(typeof route?.query?.q === 'string' ? route.query.q : '')
-const theme = ref('')
+const theme = ref(typeof route?.query?.theme === 'string' ? route.query.theme : '')
 const selectedId = ref(typeof route?.query?.insight === 'string' ? route.query.insight : null)
 const initialImpact = typeof route?.query?.impact === 'string' ? route.query.impact : ''
 const detail = ref(null)
@@ -75,6 +77,9 @@ const unrun = computed(() => checksWithReasons(report.value))
 const empty = computed(() => emptyState(report.value))
 const evaluated = computed(() => (report.value?.checks ?? []).filter((check) => check.status !== 'NOT_APPLICABLE'))
 const selected = computed(() => visibleObservations.value.find((observation) => observation.id === selectedId.value))
+// A breakdown's share column becomes bars, so the phase that took the time stands out before any number is read.
+const shares = computed(() => evidenceShares(detail.value))
+const numeric = computed(() => numericColumns(detail.value))
 
 // Keep a selection while it is still listed, so a refresh never loses the developer's place; otherwise open the first.
 watch(
@@ -353,8 +358,11 @@ const windowText = computed(() => {
                 <div class="card-body">
                   <p id="insight-sentence" class="insight-sentence mb-2"><InsightText :text="selected.sentence" /></p>
                   <p class="small text-muted mb-3">
-                    {{ formatNumber(selected.affected) }} of {{ formatNumber(selected.eligible) }} requests · linked by
-                    {{ tierLabel(selected.minimumTier) }} · {{ statusLabel(selected.status) }}
+                    <template v-if="selected.eligible > 0">
+                      {{ formatNumber(selected.affected) }} of {{ formatNumber(selected.eligible) }} requests · linked
+                      by {{ tierLabel(selected.minimumTier) }} ·
+                    </template>
+                    {{ statusLabel(selected.status) }}
                   </p>
 
                   <h3 class="h6">What to check</h3>
@@ -381,16 +389,50 @@ const windowText = computed(() => {
                   </div>
                   <template v-else-if="detail">
                     <div class="table-responsive mb-2">
-                      <table class="table table-sm align-middle insight-evidence mb-0">
+                      <table
+                        class="table table-sm align-middle insight-evidence mb-0"
+                        :class="{'insight-evidence-shares': shares}"
+                      >
                         <thead>
                           <tr>
-                            <th v-for="column in detail.columns" :key="column" scope="col">{{ column }}</th>
+                            <th
+                              v-for="(column, index) in detail.columns"
+                              :key="column"
+                              scope="col"
+                              :class="{'insight-number': numeric.has(index)}"
+                            >
+                              {{ column }}
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
-                          <tr v-for="(row, index) in detail.rows" :key="index">
-                            <td v-for="(cell, column) in row.cells" :key="column">
-                              <code v-if="isMachineColumn(detail.columns[column])" class="bootui-break-anywhere">{{
+                          <tr
+                            v-for="(row, index) in detail.rows"
+                            :key="index"
+                            :class="{'insight-evidence-top': shares && shares.top === index}"
+                          >
+                            <td
+                              v-for="(cell, column) in row.cells"
+                              :key="column"
+                              :class="{
+                                'insight-share-cell': shares && shares.column === column,
+                                'insight-number': numeric.has(column)
+                              }"
+                            >
+                              <span
+                                v-if="shares && shares.column === column && shares.shares[index] != null"
+                                class="insight-share"
+                              >
+                                <span class="insight-share-track" aria-hidden="true">
+                                  <span
+                                    class="insight-share-bar"
+                                    :class="{'insight-share-bar-top': shares.top === index}"
+                                    :style="{width: `${shares.shares[index]}%`}"
+                                  ></span>
+                                </span>
+                                <span class="insight-share-value">{{ cell }}</span>
+                              </span>
+                              <code v-else-if="isMachineColumn(detail.columns[column])" class="bootui-break-anywhere">{{
                                 cell
                               }}</code>
                               <InsightText v-else :text="cell" />
@@ -521,6 +563,73 @@ const windowText = computed(() => {
   font-size: 1.15rem;
   font-weight: 700;
   max-width: 75ch;
+}
+
+.insight-share-cell {
+  min-width: 11rem;
+  width: 40%;
+}
+
+.insight-share {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.insight-share-track {
+  position: relative;
+  flex: 1 1 auto;
+  height: 0.6rem;
+  background: var(--bs-secondary-bg);
+  border-radius: var(--bootui-radius-xs);
+  overflow: hidden;
+}
+
+.insight-share-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  min-width: 2px;
+  background: var(--bootui-text-muted);
+  border-radius: var(--bootui-radius-xs);
+}
+
+.insight-share-bar-top {
+  background: var(--bootui-green-dark);
+}
+
+.insight-share-value {
+  flex: 0 0 3.25rem;
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.insight-evidence-shares td:first-child {
+  white-space: nowrap;
+}
+
+@media (max-width: 575.98px) {
+  .insight-evidence-shares td:first-child {
+    white-space: normal;
+  }
+
+  .insight-share-cell {
+    min-width: 7rem;
+  }
+
+  .insight-share-value {
+    flex-basis: 2.75rem;
+  }
+}
+
+.insight-number {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.insight-evidence-top td:first-child,
+.insight-evidence-top .insight-share-value {
+  font-weight: 700;
 }
 
 .insight-checks {

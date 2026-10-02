@@ -559,7 +559,7 @@ the feed stays visible underneath. The viewport adapts to the graph's content, u
 on a route, never a cause, a severity, or a score. Opening the panel starts no capture, scan, database read, or network
 call; it only re-reads what the journal already recorded, and caches the result until the journal records more.
 
-Twelve observations run over every completed request:
+Seventeen observations run over the completed requests and garbage collections the journal retains:
 
 | Observation | What it counts |
 | --- | --- |
@@ -576,6 +576,8 @@ Twelve observations run over every completed request:
 | `transaction-across-remote-call` | Transactions still open when a REST client call starts, with the connection they held |
 | `lazy-sql-after-handler` | SQL run while the response was written, outside every transaction (open session in view) |
 | `event-loop-blocking` | JDBC statements started on an event-loop thread |
+| `gc-inflated-latency` | The share of a route's slowest tenth of requests, at least five, during which a stop-the-world pause completed, against the share of its other requests, with the pauses' total. Pauses join requests by collector and collection id, never by time, and are worded "a pause completed during", never "caused by" |
+| `heap-growth-after-gc` | Old-generation occupancy after the full or mixed collections that reclaimed it, rising across the run from three such collections; the Memory panel links to it. Never called a leak, since a warming cache rises too before it levels off |
 | `ai-usage-by-route` | AI operations per route, linked by trace id: model calls per request, tokens, input growth, and length-limited answers |
 | `framework-warnings-by-route` | `WARN` and `ERROR` events from framework loggers, grouped by logger, template, and route |
 
@@ -583,7 +585,8 @@ Every observation reports whether it ran. One whose journal source is not record
 does not apply to this stack says so with its reason, so an empty list never reads as healthy. Findings below their
 minimum are shown as **insufficient**, naming what is missing, and a source that dropped events marks its findings
 **partial**. Each finding has a stable id that survives refreshes and restarts, one to three conditional checks, up to
-three exemplar request ids to open in Live Activity, and at most 20 evidence rows.
+three exemplar request ids to open in Live Activity, and at most 20 evidence rows. A breakdown's evidence draws each phase's share
+as a bar, with the largest phase emphasized and every number kept beside it.
 
 The header states the window the journal retains, and a coverage strip shows how each source's events are linked to a
 request: by request id, by execution id, by trace id, or not at all. `bootui.runtime-insights.ai-token-threshold` sets

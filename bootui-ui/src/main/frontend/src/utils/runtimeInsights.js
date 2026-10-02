@@ -3,7 +3,8 @@
 
 /** The theme chips, in display order, and the observation kinds each one gathers. */
 export const THEMES = [
-  {id: 'time', label: 'Time', kinds: ['route-time-breakdown', 'event-loop-blocking']},
+  {id: 'time', label: 'Time', kinds: ['route-time-breakdown', 'event-loop-blocking', 'gc-inflated-latency']},
+  {id: 'memory', label: 'Memory', kinds: ['heap-growth-after-gc']},
   {
     id: 'queries',
     label: 'Queries',
@@ -127,7 +128,8 @@ const MACHINE_COLUMNS = new Set([
   'Logger',
   'Exception group',
   'Call',
-  'Models'
+  'Models',
+  'Collection'
 ])
 
 /** Whether an evidence column holds machine output, shown in monospace. */
@@ -147,4 +149,41 @@ export function emptyState(report) {
   if ((report.window?.requests ?? 0) === 0) return 'no-requests'
   if ((report.observations ?? []).length === 0) return 'nothing-observed'
   return null
+}
+
+const SHARE = /^(\d+(?:\.\d+)?)\s*%$/
+
+/**
+ * The evidence's share column, such as a route time breakdown's "Share", as each row's share in percent and the row
+ * with the largest one, or null when the evidence has none. Rows without a share, such as overlapping calls, get null.
+ */
+export function evidenceShares(detail) {
+  const column = detail?.columns?.indexOf('Share') ?? -1
+  if (column < 0) return null
+  const shares = (detail.rows ?? []).map((row) => {
+    const match = SHARE.exec(String(row?.cells?.[column] ?? '').trim())
+    return match ? Math.min(100, Number(match[1])) : null
+  })
+  let top = -1
+  shares.forEach((share, index) => {
+    if (share != null && share > 0 && (top < 0 || share > shares[top])) top = index
+  })
+  return {column, shares, top}
+}
+
+const NUMBER = /^-?\d[\d,]*(?:\.\d+)?$/
+
+/**
+ * The indexes of the evidence columns that hold only numbers, such as a total in milliseconds, so they align on their
+ * last digit. A share column is drawn as bars instead, and a column with no value at all is not numeric.
+ */
+export function numericColumns(detail) {
+  const numeric = new Set()
+  const rows = detail?.rows ?? []
+  ;(detail?.columns ?? []).forEach((column, index) => {
+    if (column === 'Share') return
+    const values = rows.map((row) => String(row?.cells?.[index] ?? '').trim()).filter((value) => value !== '')
+    if (values.length && values.every((value) => NUMBER.test(value))) numeric.add(index)
+  })
+  return numeric
 }

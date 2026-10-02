@@ -2,6 +2,8 @@ import {describe, expect, it} from 'vitest'
 
 import {
   availableThemes,
+  evidenceShares,
+  numericColumns,
   checksWithReasons,
   coverageSources,
   coverageSummary,
@@ -118,5 +120,44 @@ describe('runtimeInsights helpers', () => {
     expect(emptyState({available: true, window: {requests: 0}, observations: []})).toBe('no-requests')
     expect(emptyState({available: true, window: {requests: 3}, observations: []})).toBe('nothing-observed')
     expect(emptyState(report)).toBeNull()
+  })
+})
+
+describe('evidenceShares', () => {
+  it('reads each share and marks the largest phase', () => {
+    const detail = {
+      columns: ['Phase', 'Total (ms)', 'Share', 'Median per request'],
+      rows: [
+        {cells: ['SQL', '120', '60 %', '12.0']},
+        {cells: ['Response write', '20', '10 %', '2.0']},
+        {cells: ['Handler other work', '60', '30 %', '6.0']},
+        {cells: ['Overlapping calls, counted once above', '5', '', '']}
+      ]
+    }
+    expect(evidenceShares(detail)).toEqual({column: 2, shares: [60, 10, 30, null], top: 0})
+  })
+
+  it('is null when the evidence has no share column', () => {
+    expect(evidenceShares({columns: ['Route', 'Calls'], rows: []})).toBeNull()
+    expect(evidenceShares(null)).toBeNull()
+  })
+
+  it('marks no phase when every share is zero', () => {
+    const detail = {columns: ['Phase', 'Share'], rows: [{cells: ['SQL', '0 %']}]}
+    expect(evidenceShares(detail).top).toBe(-1)
+  })
+})
+
+describe('numericColumns', () => {
+  it('aligns the columns holding only numbers, ignoring blanks, and never the share or text columns', () => {
+    const detail = {
+      columns: ['Phase', 'Total (ms)', 'Share', 'Median per request', 'Request'],
+      rows: [
+        {cells: ['SQL', '1,120', '60 %', '12.0', 'r-1']},
+        {cells: ['Overlapping calls, counted once above', '5', '', '', '42']}
+      ]
+    }
+    expect([...numericColumns(detail)]).toEqual([1, 3])
+    expect(numericColumns(null).size).toBe(0)
   })
 })
