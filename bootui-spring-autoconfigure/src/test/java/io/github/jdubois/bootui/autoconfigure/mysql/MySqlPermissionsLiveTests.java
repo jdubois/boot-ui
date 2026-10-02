@@ -25,7 +25,7 @@ class MySqlPermissionsLiveTests {
     void restrictedAccountKeepsCatalogAndUsesBoundedShowAfterARealPermissionFailure() throws Exception {
         try (HikariDataSource pool = MySqlLiveFixture.pool(mysql, "metadata_reader")) {
             MySqlLiveFixture.ObservedDataSource observed = new MySqlLiveFixture.ObservedDataSource(pool);
-            // MySQL 8.4 permits global_status to this account. Deliberately add a forbidden
+            // MySQL 8.4 and 9.7 permit global_status to this account. Deliberately add a forbidden
             // source in this test hook to provoke a real server permission error on the SELECT
             // path, then prove that the fixed-name SHOW fallback uses the network guard.
             observed.rewrite = query -> query.contains("FROM performance_schema.global_status")

@@ -13,7 +13,15 @@ import org.testcontainers.mysql.MySQLContainer;
  */
 public final class MySqlLiveResource implements QuarkusTestResourceLifecycleManager {
 
-    public static final String IMAGE = "mysql:8.4.6";
+    /** Override with {@code -Dbootui.mysql.image=mysql:9.7.2} to run this contract against another tested line. */
+    public static final String IMAGE = System.getProperty("bootui.mysql.image", "mysql:8.4.6");
+
+    /** The {@code major.minor.} prefix the fixture server must report, for example {@code 8.4.}. */
+    static String expectedVersionLine() {
+        String[] parts = IMAGE.substring(IMAGE.indexOf(':') + 1).split("\\.");
+        return parts[0] + "." + parts[1] + ".";
+    }
+
     private MySQLContainer mysql;
 
     @Override

@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class MySqlInsightServiceTests {
@@ -372,6 +373,68 @@ class MySqlInsightServiceTests {
         when(fixture.connection.getMetaData().getDatabaseProductName()).thenReturn("MariaDB");
         assertThat(service(fixture).read().status()).isEqualTo("DISABLED");
         assertThat(fixture.sql).isEmpty();
+    }
+
+    @ParameterizedTest
+    @CsvSource(
+            delimiter = '|',
+            value = {
+                "8.4.6|MySQL Community Server - GPL|true",
+                "8.4.11|MySQL Enterprise Server - Commercial|true",
+                "9.7.0|MySQL Community Server - GPL|true",
+                "9.7.2|MySQL Community Server - GPL|true",
+                "8.0.46|MySQL Community Server - GPL|false",
+                "8.3.0|MySQL Community Server - GPL|false",
+                "9.6.0|MySQL Community Server - GPL|false",
+                "9.70.0|MySQL Community Server - GPL|false",
+                "10.0.0|MySQL Community Server - GPL|false",
+                "8.4.6-mariadb|MySQL Community Server - GPL|false",
+                "8.4.6-6|Percona Server (GPL), Release 6|false",
+                "9.7.2|Source distribution|false",
+                "|MySQL Community Server - GPL|false",
+                "9.7.2||false"
+            })
+    void onlyTheTestedOracleMySqlLtsLinesAreClaimed(String version, String flavor, boolean tested) {
+        assertThat(MySqlInsightService.testedServer(version, flavor)).isEqualTo(tested);
+    }
+
+    @Test
+    void mySql97LtsIsReadLikeTheOtherTestedLine() throws Exception {
+        MySqlJdbcFixture fixture = withServerVersion("9.7.2");
+        var report = service(fixture).read();
+        assertThat(report.dataSources()).singleElement().satisfies(source -> {
+            assertThat(source.serverVersion()).isEqualTo("9.7.2");
+            assertThat(source.status()).isNotEqualTo("ERROR");
+        });
+        assertThat(fixture.sql).anyMatch(sql -> sql.contains("performance_schema."));
+    }
+
+    @Test
+    void untestedMySqlLinesAreSkippedBeforeAnyStatisticsRead() throws Exception {
+        MySqlJdbcFixture fixture = withServerVersion("8.0.46");
+        var report = service(fixture).read();
+        assertThat(report.status()).isEqualTo("DISABLED");
+        assertThat(report.dataSources()).isEmpty();
+        assertThat(report.diagnostics()).singleElement().satisfies(diagnostic -> {
+            assertThat(diagnostic.level()).isEqualTo("INFO");
+            assertThat(diagnostic.message()).contains("8.4 or 9.7");
+        });
+        assertThat(fixture.sql).noneMatch(sql -> sql.contains("performance_schema."));
+        verify(fixture.connection).rollback();
+    }
+
+    private static MySqlJdbcFixture withServerVersion(String version) throws Exception {
+        MySqlJdbcFixture fixture = new MySqlJdbcFixture();
+        fixture.results = sql -> {
+            List<java.util.Map<String, String>> rows = fixture.defaults(sql);
+            if (!sql.contains("@@version AS version")) {
+                return rows;
+            }
+            java.util.Map<String, String> identity = new java.util.LinkedHashMap<>(rows.get(0));
+            identity.put("version", version);
+            return List.of(identity);
+        };
+        return fixture;
     }
 
     static MySqlInsightService service(MySqlJdbcFixture fixture) {

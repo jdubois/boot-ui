@@ -37,6 +37,8 @@ public final class MySqlInsightService {
                     + " association is not exhaustive schema access. Pool acquisition and network timeouts are separate"
                     + " from the cooperative 15-second read budget. No health score or complete-history claim.";
     private static final int MAX_SOURCES = 32;
+    // Oracle MySQL LTS lines covered by the live fixtures. Innovation releases and EOL lines are not claimed.
+    private static final List<String> TESTED_LINES = List.of("8.4.", "9.7.");
     private final Supplier<DatabaseAdvisorDataSourceDiscovery> discovery;
     private final ExposurePolicy exposure;
     private final Clock clock;
@@ -274,11 +276,7 @@ public final class MySqlInsightService {
                             + " CURRENT_USER() AS account,@@server_uuid AS server_id,CONNECTION_ID() AS"
                             + " connection_id, @@global.performance_schema AS performance_schema,"
                             + " @@lower_case_table_names AS lower_case_table_names LIMIT ?");
-            String version = identity.getOrDefault("version", "").toLowerCase(Locale.ROOT);
-            String flavor = identity.getOrDefault("flavor", "").toLowerCase(Locale.ROOT);
-            if (!version.startsWith("8.4.")
-                    || version.contains("mariadb")
-                    || !(flavor.contains("mysql community") || flavor.contains("mysql enterprise"))) {
+            if (!testedServer(identity.get("version"), identity.get("flavor"))) {
                 throw new SQLException("UNVERIFIED_SERVER", "BUI03");
             }
             String caseMode = identity.get("lower_case_table_names");
@@ -310,7 +308,8 @@ public final class MySqlInsightService {
                                     + " commit or roll back the application's transaction.";
                         case "BUI02" -> "Server-enforced READ ONLY could not be established; collection was refused.";
                         case "BUI03" ->
-                            "This server is not the tested Oracle MySQL 8.4 line; no compatibility is claimed.";
+                            "This server is not a tested Oracle MySQL LTS line (8.4 or 9.7); no compatibility is"
+                                    + " claimed.";
                         default -> MySqlQuery.reason(ex);
                     };
             result = failed(named.name(), reason);
@@ -349,6 +348,14 @@ public final class MySqlInsightService {
             result = withChanges(result, changes);
         }
         return result;
+    }
+
+    static boolean testedServer(String reportedVersion, String reportedFlavor) {
+        String version = reportedVersion == null ? "" : reportedVersion.toLowerCase(Locale.ROOT);
+        String flavor = reportedFlavor == null ? "" : reportedFlavor.toLowerCase(Locale.ROOT);
+        return TESTED_LINES.stream().anyMatch(version::startsWith)
+                && !version.contains("mariadb")
+                && (flavor.contains("mysql community") || flavor.contains("mysql enterprise"));
     }
 
     private MySqlDataSourceDto failed(String name, String message) {

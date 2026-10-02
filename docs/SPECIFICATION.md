@@ -2260,9 +2260,10 @@ Acceptance criteria:
 
 ### 5.17.8 MySQL Panel
 
-MySQL is an operational sibling to PostgreSQL, not another Database advisor. Oracle MySQL 8.4 LTS is the tested
-server line, with live coverage on 8.4.6 using Spring's Connector/J 9.7.0 / HikariCP 7.0.2 and Quarkus'
-Connector/J 9.6.0 / Agroal 3.0.1. MariaDB, MySQL 5.7, other MySQL lines, and compatible/managed flavors are not certified.
+MySQL is an operational sibling to PostgreSQL, not another Database advisor. Oracle MySQL 8.4 LTS and 9.7 LTS are
+the tested server lines, with live coverage on 8.4.6 and 9.7.2 using Spring's Connector/J 9.7.0 / HikariCP 7.0.2 and
+Quarkus' Connector/J 9.6.0 / Agroal 3.0.1. Any other reported version is skipped with an informational diagnostic:
+MariaDB, MySQL 5.7, end-of-life 8.0, Innovation releases, and compatible/managed flavors are not certified.
 
 - Use existing default/named JDBC datasources on Spring MVC, Spring WebFlux, and Quarkus. R2DBC-only and
   reactive-client-only applications are unavailable, not partially supported JDBC applications. Discovery uses

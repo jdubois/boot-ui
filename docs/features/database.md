@@ -204,14 +204,15 @@ Every value carries its scope — server-wide, selected schema, or default-schem
 unknown instead of being shown as zero.
 
 ::: tip Tested compatibility
-**Oracle MySQL 8.4 LTS** is the tested server line, using `mysql:8.4.6` on Java 17:
+**Oracle MySQL 8.4 LTS and 9.7 LTS** are the tested server lines, using `mysql:8.4.6` and `mysql:9.7.2` on Java 17:
 
 | Stack | JDBC driver | Pool |
 | --- | --- | --- |
 | Spring MVC and WebFlux | Connector/J 9.7.0 | HikariCP 7.0.2 |
 | Quarkus | Connector/J 9.6.0 | Agroal 3.0.1 |
 
-MariaDB is a separate, unsupported follow-up. MySQL 5.7, other MySQL lines, compatible/managed flavors, and other
+Any other reported server is skipped with an informational diagnostic rather than read. MariaDB is a separate,
+unsupported follow-up. MySQL 5.7, end-of-life 8.0, Innovation releases such as 9.6, compatible/managed flavors, and other
 driver/pool combinations are not certified by this matrix. JDBC support does not imply R2DBC or reactive-client support.
 :::
 

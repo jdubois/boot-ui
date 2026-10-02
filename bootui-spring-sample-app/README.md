@@ -124,7 +124,7 @@ schema on startup and is for disposable development data.
 
 ## Optional MySQL diagnostics
 
-Keep the default H2 application and migrations while inspecting an existing local MySQL 8.4 database through a
+Keep the default H2 application and migrations while inspecting an existing local MySQL 8.4 or 9.7 database through a
 separate named pool. Set `BOOTUI_SAMPLE_MYSQL_URL`, `BOOTUI_SAMPLE_MYSQL_USERNAME`, and
 `BOOTUI_SAMPLE_MYSQL_PASSWORD` in your local environment, then enable the Spring profile:
 
