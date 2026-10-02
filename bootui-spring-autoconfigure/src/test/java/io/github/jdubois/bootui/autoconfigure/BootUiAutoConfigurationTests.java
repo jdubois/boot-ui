@@ -204,6 +204,39 @@ class BootUiAutoConfigurationTests {
     }
 
     @Test
+    void theAutoConfiguredExecutorRunsEachTaskAsAnExecutionOfTheRequestThatSubmittedIt() {
+        runner.withConfiguration(org.springframework.boot.autoconfigure.AutoConfigurations.of(
+                        org.springframework.boot.autoconfigure.task.TaskExecutionAutoConfiguration.class))
+                .withPropertyValues("bootui.enabled=ON")
+                .run(context -> {
+                    org.springframework.core.task.TaskExecutor executor = context.getBean(
+                            "applicationTaskExecutor", org.springframework.core.task.TaskExecutor.class);
+                    java.util.concurrent.CompletableFuture<io.github.jdubois.bootui.spi.CorrelationContext> seen =
+                            new java.util.concurrent.CompletableFuture<>();
+                    try (io.github.jdubois.bootui.engine.correlation.BootUiCorrelation.Scope ignored =
+                            io.github.jdubois.bootui.engine.correlation.BootUiCorrelation.open(
+                                    io.github.jdubois.bootui.spi.CorrelationContext.forRequest("r1"))) {
+                        executor.execute(() ->
+                                seen.complete(io.github.jdubois.bootui.engine.correlation.BootUiCorrelation.current()));
+                    }
+                    io.github.jdubois.bootui.spi.CorrelationContext task =
+                            seen.get(5, java.util.concurrent.TimeUnit.SECONDS);
+                    assertThat(task.requestId()).isEqualTo("r1");
+                    assertThat(task.executionId()).startsWith("task-");
+                });
+        runner.withConfiguration(org.springframework.boot.autoconfigure.AutoConfigurations.of(
+                        org.springframework.boot.autoconfigure.task.TaskExecutionAutoConfiguration.class))
+                .withPropertyValues("bootui.enabled=ON")
+                .withBean(
+                        "applicationDecorator",
+                        org.springframework.core.task.TaskDecorator.class,
+                        () -> runnable -> runnable)
+                .run(context -> assertThat(context.getBeansOfType(org.springframework.core.task.TaskDecorator.class))
+                        .as("the application's own decorator is never displaced")
+                        .containsOnlyKeys("applicationDecorator"));
+    }
+
+    @Test
     void theRuntimeJournalRecordsTheRunFromTheStartWithItsAggregatesAndBoundProperties() {
         runner.withPropertyValues(
                         "bootui.enabled=ON",

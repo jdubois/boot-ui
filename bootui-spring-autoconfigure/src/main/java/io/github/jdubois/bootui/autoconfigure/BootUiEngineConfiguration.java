@@ -245,6 +245,18 @@ public class BootUiEngineConfiguration {
     }
 
     /**
+     * Carries a request's correlation into the tasks of Spring Boot's auto-configured executor and scheduler
+     * ({@code docs/PLAN-v2.md} D30, M4-15), so {@code @Async} work is owned by its request. Spring Boot applies a task
+     * decorator only when exactly one is defined, so BootUI contributes it only when the application defines none,
+     * rather than displacing the application's own.
+     */
+    @Bean
+    @ConditionalOnMissingBean(org.springframework.core.task.TaskDecorator.class)
+    org.springframework.core.task.TaskDecorator bootUiTaskDecorator() {
+        return new io.github.jdubois.bootui.autoconfigure.activity.BootUiTaskDecorator();
+    }
+
+    /**
      * Publishes the run's start to the runtime journal when the application is ready ({@code docs/PLAN-v2.md} §5.18):
      * its time to ready, its slowest bean instantiations, and its comparability facts, which the run summary keeps.
      */

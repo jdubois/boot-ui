@@ -354,7 +354,11 @@ exceptions, security events, REST client calls, cache accesses, messages, schedu
 database connections, and application `WARN` and `ERROR` log events, each with the request or execution it belongs to. A log event keeps its
 unformatted template, never its arguments. SQL statements, REST client calls, and cache accesses keep up to four
 frames of your own code that issued them, skipping framework classes and generated proxies, and a message consumed
-with a `traceparent` header keeps the trace that sent it. It keeps running aggregates per route, statement, exception group, and thread family, which
+with a `traceparent` header keeps the trace that sent it. A task a request hands to a framework-managed executor, such
+as an `@Async` method on Spring Boot's auto-configured executor or scheduler, or a Quarkus `ManagedExecutor` task, runs
+as an execution of that request, so its work stays with the request; on Spring this applies when the application
+defines no task decorator of its own, which BootUI never displaces. Raw executors and `CompletableFuture` are not
+followed. It keeps running aggregates per route, statement, exception group, and thread family, which
 count every event even after the journal evicts it. Recording never slows a request: when the journal cannot keep up,
 it drops events, counts them per source, and drops routine events before failed or slow ones. BootUI's own requests,
 and the SQL its panels run while serving them, are never recorded. Pausing a panel's recording, or BootUI releasing
