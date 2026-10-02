@@ -21,7 +21,9 @@ const compared = {
       sentence: '`GET /api/orders` ran 2.0 statements per request, up from 1.0 in run 4 (3 and 3 requests).'
     }
   ],
-  edges: [{kind: 'edge', sentence: '`GET /api/orders` reads table `order_line`, 3 times, and not in run 4.'}],
+  edges: [
+    {kind: 'edge', change: 'ADDED', sentence: '`GET /api/orders` reads table `order_line`, 3 times, and not in run 4.'}
+  ],
   restartCost: {
     status: 'COMPARED',
     reason: null,
@@ -53,7 +55,12 @@ describe('RunComparison', () => {
     await flushPromises()
 
     expect(wrapper.find('h2').text()).toBe('Compared with the previous run')
-    expect(wrapper.text()).toContain('Compared · Run 4 · 3 requests')
+    expect(wrapper.find('[data-testid="comparison-status"]').text()).toBe('Compared')
+    expect(wrapper.find('.insight-comparison-against').text()).toContain('Against Run 4 · 3 requests')
+    expect(wrapper.find('[data-section="behavior"] h3').text().replace(/\s+/g, ' ')).toBe('What the routes did · 1')
+    expect(wrapper.find('[data-section="behavior"] .visually-hidden').text()).toBe('Up:')
+    expect(wrapper.find('[data-section="edges"] .insight-comparison-marker i').classes()).toContain('bi-plus-lg')
+    expect(wrapper.emitted('loaded')[0][0].status).toBe('COMPARED')
     expect(wrapper.findAll('[data-section]').map((section) => section.attributes('data-section'))).toEqual([
       'behavior',
       'edges',
@@ -120,5 +127,16 @@ describe('RunComparison', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('No route changed what it ran, called, or raised.')
+  })
+})
+
+describe('comparisonSummary', () => {
+  it('names the changes since the run compared with, or the status otherwise', async () => {
+    const {comparisonSummary} = await import('../../utils/runComparison.js')
+    expect(comparisonSummary(compared)).toBe('2 changes since run 4')
+    expect(comparisonSummary({...compared, behavior: [], edges: []})).toBe('No change in behavior since run 4')
+    expect(comparisonSummary({...compared, status: 'INSUFFICIENT'})).toBe('Compared with run 4: needs more traffic')
+    expect(comparisonSummary({...compared, status: 'NO_PREVIOUS_RUN', previous: null})).toBe('No previous run')
+    expect(comparisonSummary(null)).toBeNull()
   })
 })

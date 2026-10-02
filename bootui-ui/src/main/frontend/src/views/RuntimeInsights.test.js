@@ -121,6 +121,45 @@ describe('Runtime Insights panel', () => {
     )
   })
 
+  it('links the run summary to the comparison, which comes before the routes not exercised', async () => {
+    const comparison = {
+      status: 'COMPARED',
+      reason: null,
+      current: {runId: 'run-5', ordinal: 5, startedAt: 1, endedAt: null, requests: 9, source: 'CURRENT'},
+      previous: {runId: 'run-4', ordinal: 4, startedAt: 1, endedAt: 2, requests: 9, source: 'MEMORY'},
+      runs: [],
+      notComparableReasons: [],
+      behavior: [
+        {kind: 'route-new', change: 'ADDED', sentence: '`GET /api/pets` served 3 requests, and none in run 4.'}
+      ],
+      edges: [],
+      restartCost: {status: 'UNAVAILABLE', reason: 'Quarkus', beans: []},
+      latency: [],
+      limitations: []
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => {
+        const target = String(url)
+        if (target.includes('/comparison')) return Promise.resolve(jsonResponse(comparison))
+        return Promise.resolve(
+          jsonResponse(target.includes('/insights/') ? detail : {...report, notExercised: ['DELETE /api/pets/{id}']})
+        )
+      })
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+
+    const link = wrapper.find('.insight-comparison-link')
+    expect(link.text()).toBe('1 change since run 4')
+    await link.trigger('click')
+    const sections = wrapper.findAll('section.card').map((section) => section.classes())
+    const comparisonIndex = sections.findIndex((classes) => classes.includes('insight-comparison'))
+    const notExercisedIndex = sections.findIndex((classes) => classes.includes('insight-not-exercised'))
+    expect(comparisonIndex).toBeGreaterThan(-1)
+    expect(comparisonIndex).toBeLessThan(notExercisedIndex)
+  })
+
   it('says why nothing is listed rather than reading as healthy', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({...report, observations: []})))
     wrapper = mountPanel()

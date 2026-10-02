@@ -20,6 +20,7 @@ import InsightText from './components/InsightText.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import RunComparison from './components/RunComparison.vue'
+import {comparisonSummary} from '../utils/runComparison.js'
 
 // Runtime Insights (docs/PLAN-v2.md §5.5): the runtime journal's retained events projected into observations. Every
 // read is a GET of what the journal already recorded; opening the panel starts no capture, scan, or network call.
@@ -37,6 +38,15 @@ const selectedId = ref(typeof route?.query?.insight === 'string' ? route.query.i
 const detail = ref(null)
 const detailError = ref(null)
 const detailLoading = ref(false)
+// The comparison loads on its own; the run summary links to it in a few words once it has.
+const comparison = ref(null)
+const comparisonText = computed(() => comparisonSummary(comparison.value))
+
+function showComparison() {
+  const section = document.getElementById('insight-comparison')
+  section?.scrollIntoView?.({block: 'start', behavior: 'smooth'})
+  section?.focus({preventScroll: true})
+}
 
 async function fetchReport() {
   error.value = null
@@ -185,6 +195,16 @@ const windowText = computed(() => {
             <p class="mb-2 small insight-window-text">
               <span class="fw-semibold">This run</span>
               <span class="text-muted"> · {{ windowText }}</span>
+              <template v-if="comparisonText">
+                <span class="text-muted"> · </span>
+                <button
+                  type="button"
+                  class="btn btn-link btn-sm p-0 align-baseline insight-comparison-link"
+                  @click="showComparison"
+                >
+                  {{ comparisonText }}
+                </button>
+              </template>
             </p>
             <div v-if="coverage.events > 0">
               <div
@@ -395,41 +415,46 @@ const windowText = computed(() => {
           </div>
         </template>
 
-        <section v-if="unrun.length" class="card insight-unrun" aria-labelledby="insight-unrun-title">
-          <div class="card-body">
-            <h2 id="insight-unrun-title" class="h6 mb-2">Checks that could not fully run</h2>
-            <ul class="list-unstyled small mb-0">
-              <li v-for="check in unrun" :key="check.kind" class="mb-1">
-                <span class="fw-semibold">{{ check.title }}</span>
-                <span class="text-muted"> · {{ checkStatusLabel(check.status) }}</span>
-                <span v-if="check.reason" class="d-block text-muted">{{ check.reason }}</span>
-              </li>
-            </ul>
-          </div>
-        </section>
+        <RunComparison class="mb-3" :refresh-key="lastFetched ?? 0" @loaded="comparison = $event" />
 
-        <section
-          v-if="report.notExercised?.length"
-          class="card insight-not-exercised mt-3"
-          aria-labelledby="insight-not-exercised-title"
-        >
-          <div class="card-body">
-            <h2 id="insight-not-exercised-title" class="h6 mb-1">Not exercised in this run</h2>
-            <p class="small text-muted mb-2">
-              Declared routes no request of this run reached, so nothing above speaks for them.
-            </p>
-            <ul class="list-unstyled small mb-0 insight-not-exercised-list">
-              <li v-for="declared in report.notExercised" :key="declared">
-                <code class="bootui-break-anywhere">{{ declared }}</code>
-              </li>
-            </ul>
-            <p v-if="report.notExercisedOmitted > 0" class="small text-muted mb-0 mt-2">
-              {{ formatNumber(report.notExercisedOmitted) }} more routes not listed.
-            </p>
+        <div v-if="unrun.length || report.notExercised?.length" class="row g-3 insight-caveats">
+          <div v-if="report.notExercised?.length" :class="unrun.length ? 'col-xl-7' : 'col-12'">
+            <section
+              v-if="report.notExercised?.length"
+              class="card h-100 insight-not-exercised"
+              aria-labelledby="insight-not-exercised-title"
+            >
+              <div class="card-body">
+                <h2 id="insight-not-exercised-title" class="h6 mb-1">Not exercised in this run</h2>
+                <p class="small text-muted mb-2">
+                  Declared routes no request of this run reached, so nothing above speaks for them.
+                </p>
+                <ul class="list-unstyled small mb-0 insight-not-exercised-list">
+                  <li v-for="declared in report.notExercised" :key="declared">
+                    <code class="bootui-break-anywhere">{{ declared }}</code>
+                  </li>
+                </ul>
+                <p v-if="report.notExercisedOmitted > 0" class="small text-muted mb-0 mt-2">
+                  {{ formatNumber(report.notExercisedOmitted) }} more routes not listed.
+                </p>
+              </div>
+            </section>
           </div>
-        </section>
-
-        <RunComparison :refresh-key="lastFetched ?? 0" />
+          <div v-if="unrun.length" :class="report.notExercised?.length ? 'col-xl-5' : 'col-12'">
+            <section v-if="unrun.length" class="card h-100 insight-unrun" aria-labelledby="insight-unrun-title">
+              <div class="card-body">
+                <h2 id="insight-unrun-title" class="h6 mb-2">Checks that could not fully run</h2>
+                <ul class="list-unstyled small mb-0">
+                  <li v-for="check in unrun" :key="check.kind" class="mb-1">
+                    <span class="fw-semibold">{{ check.title }}</span>
+                    <span class="text-muted"> · {{ checkStatusLabel(check.status) }}</span>
+                    <span v-if="check.reason" class="d-block text-muted">{{ check.reason }}</span>
+                  </li>
+                </ul>
+              </div>
+            </section>
+          </div>
+        </div>
       </template>
     </template>
   </div>
