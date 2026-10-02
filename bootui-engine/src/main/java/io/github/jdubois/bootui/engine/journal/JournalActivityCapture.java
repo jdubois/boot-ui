@@ -38,6 +38,14 @@ public final class JournalActivityCapture implements JournalListener, ActivityCa
         }
     };
 
+    /** The most recently recorded requests' trace ids, so an AI call exported after its request nests under it. */
+    private final Map<String, String> requestsByTrace = new LinkedHashMap<>() {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+            return size() > MAX_PENDING_REQUESTS;
+        }
+    };
+
     private JournalActivityCapture(
             RuntimeJournal journal,
             JournalActivityFeed feed,
@@ -90,7 +98,7 @@ public final class JournalActivityCapture implements JournalListener, ActivityCa
         if (visible.isEmpty()) {
             return;
         }
-        List<ActivityEntryDto> rows = feed.renderForCapture(visible, journal::eventId, pendingSelects);
+        List<ActivityEntryDto> rows = feed.renderForCapture(visible, journal::eventId, pendingSelects, requestsByTrace);
         coordinator.ingest(rows);
     }
 

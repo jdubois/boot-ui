@@ -508,58 +508,78 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
             int batchSize,
             String connectionId,
             String thread) {
-        if (!enabled || idleSuspended || !recording.get() || BootUiJdbcCaptureGuard.isSuppressed()) {
+        if (!enabled || BootUiJdbcCaptureGuard.isSuppressed()) {
+            return;
+        }
+        // A paused or idle-suspended panel skips its own buffer, listeners, and span enrichment, but the runtime
+        // journal keeps recording whenever it records SQL (docs/PLAN-v2.md §5.2).
+        boolean panel = capturesForPanel();
+        boolean toJournal = journal.records(JournalSource.SQL);
+        if (!panel && !toJournal) {
             return;
         }
         CorrelationContext context = correlation.current();
         ThreadKind threadKind = threadKinds.current();
         long completedNanos = System.nanoTime();
+        long timestamp = System.currentTimeMillis();
         RequestPhase phase = requestPhase(context.requestId());
         ApplicationFrames frames = captureCallSite ? ApplicationFrames.capture() : null;
-        CapturedStatement entry = new CapturedStatement(
-                sequence.incrementAndGet(),
-                System.currentTimeMillis(),
-                truncate(sql, maxSqlLength),
-                statementType == null ? StatementType.STATEMENT : statementType,
-                category == null ? Category.OTHER : category,
-                Math.max(0, durationMicros),
-                success,
-                errorMessage,
-                affectedRows,
-                Math.max(0, batchSize),
-                connectionId,
-                thread,
-                resolveTraceId(),
-                captureParameters ? List.copyOf(parameters == null ? List.of() : parameters) : List.of(),
-                frames == null ? null : frames.callSite(),
-                context.requestId(),
-                context.executionId(),
-                threadKind.name(),
-                phase == null ? null : phase.name());
-        boolean failedOrSlow = isFailedOrSlow(entry.success(), isSlow(entry.durationMicros()));
-        buffer.add(entry, failedOrSlow);
-        journal.offer(new RuntimeEvent(
-                JournalSource.SQL,
-                entry.timestamp(),
-                entry.durationMicros() * 1_000,
-                entry.requestId(),
-                entry.executionId(),
-                entry.traceId(),
-                context.spanId(),
-                entry.thread(),
-                threadKind,
-                failedOrSlow,
-                new SqlPayload(
-                        entry.sql(),
-                        entry.callSite(),
-                        context.dataSource(),
-                        !entry.success(),
-                        frames,
-                        phase,
-                        completedNanos)));
-        totalCaptured.incrementAndGet();
-        notifyListeners();
-        enrichActiveSpan(entry.traceId());
+        String truncatedSql = truncate(sql, maxSqlLength);
+        long micros = Math.max(0, durationMicros);
+        String traceId = resolveTraceId();
+        String callSite = frames == null ? null : frames.callSite();
+        boolean failedOrSlow = isFailedOrSlow(success, isSlow(micros));
+        if (panel) {
+            CapturedStatement entry = new CapturedStatement(
+                    sequence.incrementAndGet(),
+                    timestamp,
+                    truncatedSql,
+                    statementType == null ? StatementType.STATEMENT : statementType,
+                    category == null ? Category.OTHER : category,
+                    micros,
+                    success,
+                    errorMessage,
+                    affectedRows,
+                    Math.max(0, batchSize),
+                    connectionId,
+                    thread,
+                    traceId,
+                    captureParameters ? List.copyOf(parameters == null ? List.of() : parameters) : List.of(),
+                    callSite,
+                    context.requestId(),
+                    context.executionId(),
+                    threadKind.name(),
+                    phase == null ? null : phase.name());
+            buffer.add(entry, failedOrSlow);
+        }
+        if (toJournal) {
+            journal.offer(new RuntimeEvent(
+                    JournalSource.SQL,
+                    timestamp,
+                    micros * 1_000,
+                    context.requestId(),
+                    context.executionId(),
+                    traceId,
+                    context.spanId(),
+                    thread,
+                    threadKind,
+                    failedOrSlow,
+                    new SqlPayload(
+                            truncatedSql, callSite, context.dataSource(), !success, frames, phase, completedNanos)));
+        }
+        if (panel) {
+            totalCaptured.incrementAndGet();
+            notifyListeners();
+            enrichActiveSpan(traceId);
+        }
+    }
+
+    /**
+     * Whether the SQL Trace panel captures statements now: capture is installed, recording is on, and the panel is not
+     * suspended while idle. The runtime journal may still record statements when this is {@code false}.
+     */
+    public boolean capturesForPanel() {
+        return enabled && !idleSuspended && recording.get();
     }
 
     /**
@@ -570,7 +590,8 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
      * @param waitNanos how long obtaining the connection took
      */
     public ConnectionCheckout checkoutConnection(String dataSource, long waitNanos) {
-        if (!enabled || idleSuspended || !recording.get() || BootUiJdbcCaptureGuard.isSuppressed()) {
+        // Logical connections only feed the journal, so the panel's pause and idle state do not gate them.
+        if (!enabled || BootUiJdbcCaptureGuard.isSuppressed() || !journal.records(JournalSource.CONNECTION)) {
             return null;
         }
         return new ConnectionCheckout(

@@ -16,6 +16,7 @@ import io.github.jdubois.bootui.engine.sqltrace.SqlTables;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -28,7 +29,8 @@ import java.util.function.Supplier;
  * work on one timeline, the collections that completed while it ran, its measured resources, how it compares with its
  * route, and what it touched.
  *
- * <p>Every child belongs to the request by its request id. The timeline places each event at its start: SQL statements
+ * <p>Every child belongs to the request by its request id, and an AI call, which carries none, by the request's trace
+ * id when no other retained request shares it. The timeline places each event at its start: SQL statements
  * and REST client calls are stamped when they complete, so their start is their stamp minus their duration; every other
  * source is stamped when it starts or happens. Rows of a disabled panel are left out, as Live Activity leaves them out.
  * </p>
@@ -81,7 +83,9 @@ public final class RequestJournalProfiles {
         List<JournalEntry> all = journal.entries();
         JournalEntry request = null;
         List<JournalEntry> children = new ArrayList<>();
+        List<JournalEntry> aiCalls = new ArrayList<>();
         Map<String, JournalEntry> collections = new HashMap<>();
+        Set<String> otherRequestTraces = new HashSet<>();
         for (JournalEntry entry : all) {
             RuntimeEvent event = entry.event();
             if (event.payload() instanceof GcPayload gc) {
@@ -91,6 +95,26 @@ public final class RequestJournalProfiles {
                     request = entry;
                 } else if (visible(event)) {
                     children.add(entry);
+                }
+            } else if (event.source() == JournalSource.HTTP && event.traceId() != null) {
+                otherRequestTraces.add(event.traceId());
+            } else if (event.source() == JournalSource.AI
+                    && event.requestId() == null
+                    && event.executionId() == null
+                    && event.traceId() != null
+                    && visible(event)) {
+                aiCalls.add(entry);
+            }
+        }
+        if (request != null) {
+            // An AI call carries only its span's trace id, so it joins the request recorded with that trace id, unless
+            // another retained request shares the trace and which one made the call is unknown.
+            String traceId = request.event().traceId();
+            if (traceId != null && !otherRequestTraces.contains(traceId)) {
+                for (JournalEntry call : aiCalls) {
+                    if (traceId.equals(call.event().traceId())) {
+                        children.add(call);
+                    }
                 }
             }
         }
@@ -264,6 +288,7 @@ public final class RequestJournalProfiles {
         Set<String> messages = new LinkedHashSet<>();
         Set<String> restCalls = new LinkedHashSet<>();
         Set<String> logTemplates = new LinkedHashSet<>();
+        Set<String> models = new LinkedHashSet<>();
         for (JournalEntry entry : children) {
             RuntimeEventPayload payload = entry.event().payload();
             if (payload instanceof SqlPayload sql) {
@@ -290,6 +315,12 @@ public final class RequestJournalProfiles {
                 add(restCalls, rest.authority());
             } else if (payload instanceof LogPayload log) {
                 add(logTemplates, log.template());
+            } else if (payload instanceof AiPayload ai) {
+                add(
+                        models,
+                        ai.model() == null || ai.model().isBlank()
+                                ? null
+                                : ai.model() + (ai.provider() == null ? "" : " (" + ai.provider() + ")"));
             }
         }
         return new TouchedResourcesDto(
@@ -299,7 +330,8 @@ public final class RequestJournalProfiles {
                 List.copyOf(caches),
                 List.copyOf(messages),
                 List.copyOf(restCalls),
-                List.copyOf(logTemplates));
+                List.copyOf(logTemplates),
+                List.copyOf(models));
     }
 
     private static void add(Set<String> values, String value) {

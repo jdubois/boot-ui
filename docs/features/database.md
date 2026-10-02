@@ -448,7 +448,8 @@ third-party database-proxy library.
 Executions are retained in a bounded buffer, most recent first, alongside aggregate stats: total, average, and
 maximum time, slow-query and failure counts, per-category counters, and evictions. A configurable slow-query threshold
 highlights expensive statements, and local-only **Pause**, **Resume**, and **Clear** actions stop recording or empty
-the buffer without unwrapping the data source.
+the buffer without unwrapping the data source. Pausing stops only this panel's buffer: the
+[runtime journal](overview.md#runtime-journal) keeps recording statements and connections.
 
 The buffer keeps failure evidence longer than routine traffic: a share of it, 25% by default
 (`bootui.sql-trace.reserved-share-percent`), is reserved for the most recent failed and slow executions, so a burst of
@@ -661,7 +662,8 @@ nested-transaction count.
 The panel renders a parent and child tree, so a root transaction's nested calls sit directly underneath it, and each
 row expands to its thread, trace id, read-only flag, and any error. Configurable slow-transaction and
 connection-hold-time thresholds flag transactions worth a closer look, and local-only **Pause**, **Resume**, and
-**Clear** actions stop recording or empty the buffer without deregistering the listener.
+**Clear** actions stop recording or empty the buffer without deregistering the listener. Pausing stops only this
+panel's buffer: the [runtime journal](overview.md#runtime-journal) keeps recording transactions.
 
 ::: details What each captured transaction records
 

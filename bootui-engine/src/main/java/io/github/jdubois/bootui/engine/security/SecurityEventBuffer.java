@@ -19,8 +19,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * <p>Writes (from Quarkus CDI security-event observers, often on the Vert.x event loop) and the read
  * snapshot are serialized under a single short lock; masking and DTO assembly happen outside the lock in
  * {@link SecurityLogsService} so the event loop is never blocked. The buffer is {@link IdleReclaimable}:
- * an adapter idle tracker can {@link #suspendForIdle()} to drop retained data and stop recording while
- * the console is unused, then {@link #resumeFromIdle()} to refill from live events.
+ * an adapter idle tracker can {@link #suspendForIdle()} to drop retained data and stop retaining events
+ * while the console is unused (the runtime journal keeps receiving them), then {@link #resumeFromIdle()} to refill
+ * from live events.
  */
 public final class SecurityEventBuffer implements IdleReclaimable, RuntimeEventPublisher {
 
@@ -44,16 +45,26 @@ public final class SecurityEventBuffer implements IdleReclaimable, RuntimeEventP
         this.journal = journal == null ? RuntimeEventSink.NONE : journal;
     }
 
-    /** Records a captured event, evicting the oldest when at capacity. No-op while suspended. */
+    /**
+     * Records a captured event, evicting the oldest when at capacity. While suspended for idleness the buffer retains
+     * nothing, but the runtime journal still receives the event when it records security events ({@code
+     * docs/PLAN-v2.md} §5.2).
+     */
     public void record(CapturedSecurityEvent event) {
-        if (!recording || event == null) {
+        if (event == null) {
             return;
         }
-        synchronized (entries) {
-            if (entries.size() >= capacity) {
-                entries.pollFirst();
+        boolean retain = recording;
+        if (!retain && !journal.records(JournalSource.SECURITY)) {
+            return;
+        }
+        if (retain) {
+            synchronized (entries) {
+                if (entries.size() >= capacity) {
+                    entries.pollFirst();
+                }
+                entries.addLast(event);
             }
-            entries.addLast(event);
         }
         journal.offer(new RuntimeEvent(
                 JournalSource.SECURITY,
@@ -69,7 +80,9 @@ public final class SecurityEventBuffer implements IdleReclaimable, RuntimeEventP
                 null,
                 SecurityPayload.isFailure(event.type()),
                 new SecurityPayload(event.type())));
-        notifyListeners();
+        if (retain) {
+            notifyListeners();
+        }
     }
 
     /** Newest-first immutable snapshot, matching Actuator's reverse-chronological ordering. */

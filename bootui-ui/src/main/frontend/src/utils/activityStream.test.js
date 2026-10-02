@@ -206,6 +206,13 @@ describe('deepLink', () => {
     expect(deepLink({type: 'LOG', summary: 'Order {} failed'})).toEqual({path: '/log-tail', label: 'Open in Log Tail'})
   })
 
+  it('links an AI call row from the runtime journal to the AI Framework panel', () => {
+    expect(deepLink({type: 'AI', summary: 'chat gpt-4o (openai)'})).toEqual({
+      path: '/ai',
+      label: 'Open in AI Framework'
+    })
+  })
+
   it('links a messaging row from the runtime journal by the broker its detail names', () => {
     expect(deepLink({type: 'MESSAGING', id: 'a1b2c3d4-12', summary: '→ orders.queue', detail: 'jms'})).toEqual({
       path: '/jms',

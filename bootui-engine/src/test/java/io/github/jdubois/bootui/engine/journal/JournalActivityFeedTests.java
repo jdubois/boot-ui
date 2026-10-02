@@ -403,6 +403,73 @@ class JournalActivityFeedTests {
         assertThat(feed.kpis(List.of(), null).p50LatencyMs()).isNull();
     }
 
+    @Test
+    void aiCallsAreRowsNestedUnderTheRequestRecordedWithTheirTraceId() {
+        add(ai("trace-1", new AiPayload("chat", "openai", "gpt-4o", 1200L, 300L, "stop", false)), 1_000);
+        add(ai("trace-1", new AiPayload("embeddings", "openai", "text-embedding-3", 40L, null, null, false)), 1_001);
+        add(ai("trace-2", new AiPayload("chat", "openai", "gpt-4o", 900L, 4096L, "length", false)), 1_002);
+        add(ai("trace-3", new AiPayload("chat", null, null, null, null, null, true)), 1_003);
+        add(traced(http("r1", "POST", "/api/chat", "/api/chat", 200, 50), "trace-1"), 1_010);
+
+        List<ActivityEntryDto> rendered =
+                feed.render(entries, EVENT_ID, "run", Filter.NONE, 0).entries();
+
+        assertThat(rendered)
+                .filteredOn(entry -> entry.type().equals(JournalActivityFeed.TYPE_AI))
+                .extracting(
+                        ActivityEntryDto::summary,
+                        ActivityEntryDto::detail,
+                        ActivityEntryDto::severity,
+                        ActivityEntryDto::parentId)
+                .containsExactly(
+                        tuple("chat", null, "ERROR", null),
+                        tuple(
+                                "chat gpt-4o (openai)",
+                                "900 input tokens · 4096 output tokens · finish length",
+                                "WARN",
+                                null),
+                        tuple("embeddings text-embedding-3 (openai)", "40 input tokens", "OK", "r1"),
+                        tuple(
+                                "chat gpt-4o (openai)",
+                                "1200 input tokens · 300 output tokens · finish stop",
+                                "OK",
+                                "r1"));
+        assertThat(feed.render(entries, EVENT_ID, "run", Filter.NONE, 0).typeCounts())
+                .containsEntry(JournalActivityFeed.TYPE_AI, 4);
+        assertThat(ids(new Filter(null, null, 0, null, null, "r1", false)))
+                .as("an AI call joined by trace id belongs to its request")
+                .containsExactly("r1", "run-2", "run-1");
+        assertThat(ids(new Filter(null, null, 0, "/api/chat", null, null, false)))
+                .containsExactly("r1", "run-2", "run-1");
+        assertThat(ids(new Filter(null, null, 0, null, null, null, true))).containsExactly("run-4", "run-3");
+    }
+
+    @Test
+    void anAiCallStaysTopLevelWhenSeveralRequestsShareItsTrace() {
+        add(ai("trace-1", new AiPayload("chat", "openai", "gpt-4o", 1L, 1L, "stop", false)), 1_000);
+        add(traced(http("r1", "GET", "/api/a", "/api/a", 200, 5), "trace-1"), 1_010);
+        add(traced(http("r2", "GET", "/api/b", "/api/b", 200, 50), "trace-1"), 1_020);
+
+        assertThat(only(feed.render(entries, EVENT_ID, "run", Filter.NONE, 0).entries(), "AI")
+                        .parentId())
+                .isNull();
+    }
+
+    @Test
+    void capturedAiCallsNestUnderARequestRecordedInAnEarlierBatch() {
+        Map<String, String> requestsByTrace = new java.util.HashMap<>();
+        add(traced(http("r1", "POST", "/api/chat", "/api/chat", 200, 50), "trace-1"), 1_010);
+        feed.renderForCapture(List.copyOf(entries), EVENT_ID, new java.util.HashMap<>(), requestsByTrace);
+        entries.clear();
+        add(ai("trace-1", new AiPayload("chat", "openai", "gpt-4o", 1L, 1L, "stop", false)), 1_020);
+        add(ai("trace-9", new AiPayload("chat", "openai", "gpt-4o", 1L, 1L, "stop", false)), 1_021);
+
+        List<ActivityEntryDto> captured =
+                feed.renderForCapture(entries, EVENT_ID, new java.util.HashMap<>(), requestsByTrace);
+
+        assertThat(captured).extracting(ActivityEntryDto::parentId).containsExactly(null, "r1");
+    }
+
     private List<String> ids(Filter filter) {
         return feed.render(entries, EVENT_ID, "run", filter, 0).entries().stream()
                 .map(ActivityEntryDto::id)
@@ -432,6 +499,26 @@ class JournalActivityFeedTests {
                 event.failedOrSlow(),
                 event.payload());
         entries.add(new JournalEntry(entries.size() + 1, timed, timed.estimatedBytes()));
+    }
+
+    private static RuntimeEvent ai(String traceId, AiPayload payload) {
+        return new RuntimeEvent(
+                JournalSource.AI, 0, 45_000_000, null, null, traceId, null, null, null, payload.failed(), payload);
+    }
+
+    private static RuntimeEvent traced(RuntimeEvent event, String traceId) {
+        return new RuntimeEvent(
+                event.source(),
+                event.epochMillis(),
+                event.durationNanos(),
+                event.requestId(),
+                event.executionId(),
+                traceId,
+                event.spanId(),
+                event.thread(),
+                event.threadKind(),
+                event.failedOrSlow(),
+                event.payload());
     }
 
     private static RuntimeEvent http(

@@ -30,7 +30,8 @@ const TOUCHED = [
   ['caches', 'Caches'],
   ['messages', 'Messages sent'],
   ['restCalls', 'Hosts called'],
-  ['logTemplates', 'Log events']
+  ['logTemplates', 'Log events'],
+  ['models', 'AI models']
 ]
 
 const timeline = computed(() => props.profile.timeline ?? [])

@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.AggregatesSnapshot;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteResources;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
+import io.github.jdubois.bootui.engine.journal.JournalAggregates.ThreadFamilyStats;
 import io.github.jdubois.bootui.engine.resources.GcPauseRange;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
@@ -115,6 +116,44 @@ class JournalAggregatesTests {
         });
         assertThat(ThreadFamilies.of(null)).isEqualTo(ThreadFamilies.UNKNOWN);
         assertThat(ThreadFamilies.of("reactor-http-nio-12")).isEqualTo("reactor-http-nio-N");
+    }
+
+    @Test
+    void eventsNotObservedOnAThreadBelongToNoThreadFamily() {
+        publish(new RuntimeEvent(
+                JournalSource.AI,
+                1,
+                45_000_000,
+                null,
+                null,
+                "4bf92f3577b34da6a3ce929d0e0e4736",
+                "span-1",
+                null,
+                null,
+                false,
+                new AiPayload("chat", "openai", "gpt-4o", 1200L, 300L, "stop", false)));
+        publish(new RuntimeEvent(
+                JournalSource.MESSAGING,
+                1,
+                -1,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                new MessagingPayload("kafka", true, "orders", false)));
+        publish(onThread(null, "pool-3-thread-7", 1_000));
+
+        AggregatesSnapshot snapshot = aggregates.snapshot();
+
+        assertThat(snapshot.threadFamilies())
+                .extracting(ThreadFamilyStats::family)
+                .containsExactly("pool-N-thread-N");
+        assertThat(snapshot.threadFamilies())
+                .extracting(ThreadFamilyStats::family)
+                .doesNotContain(ThreadFamilies.UNKNOWN);
     }
 
     @Test

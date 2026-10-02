@@ -125,7 +125,9 @@ public final class JournalAggregates implements JournalListener {
             collected(gc, Math.max(0, event.durationNanos()));
             return;
         }
-        if (event.requestId() == null && event.executionId() == null) {
+        // An event not observed on a thread, such as an AI call joined to its request by trace id or a message sent
+        // from an I/O callback, belongs to no thread family rather than inflating an unknown one.
+        if (event.requestId() == null && event.executionId() == null && event.thread() != null) {
             threadFamilies.get(ThreadFamilies.of(event.thread())).add(event);
         }
         if (event.source() == JournalSource.HTTP && payload instanceof HttpPayload http) {

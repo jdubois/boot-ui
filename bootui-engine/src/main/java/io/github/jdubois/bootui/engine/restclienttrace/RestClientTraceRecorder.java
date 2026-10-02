@@ -572,7 +572,16 @@ public final class RestClientTraceRecorder implements IdleReclaimable, RuntimeEv
                 threadKind);
     }
 
+    /**
+     * Whether a call is worth observing: the panel captures now, or, while it is paused or idle-suspended, the runtime
+     * journal still records outbound calls ({@code docs/PLAN-v2.md} §5.2).
+     */
     private boolean shouldRecord() {
+        return enabled && (capturesForPanel() || journal.records(JournalSource.REST_CLIENT));
+    }
+
+    /** Whether the REST Client Trace panel captures calls now: enabled, recording, and not suspended while idle. */
+    private boolean capturesForPanel() {
         return enabled && !idleSuspended && recording.get();
     }
 
@@ -592,49 +601,59 @@ public final class RestClientTraceRecorder implements IdleReclaimable, RuntimeEv
             CorrelationContext caller,
             ThreadKind threadKind) {
         ApplicationFrames frames = captureCallSite ? ApplicationFrames.capture() : null;
-        CapturedCall entry = new CapturedCall(
-                sequence.incrementAndGet(),
-                System.currentTimeMillis(),
-                method,
-                truncate(UriMasking.maskUserInfo(uri), maxUriLength),
-                host,
-                truncate(path, maxUriLength),
-                status,
-                Math.max(0, durationMillis),
-                success,
-                sanitizeErrorMessage(errorMessage),
-                clientType,
-                captureHeaders ? truncateHeaderValues(headers) : Map.of(),
-                thread,
-                traceId,
-                frames == null ? null : frames.callSite(),
-                caller.requestId(),
-                caller.executionId(),
-                (threadKind == null ? threadKinds.current() : threadKind).name());
-        boolean failedOrSlow = isFailedOrSlow(entry.success(), entry.status(), isSlow(entry.durationMillis()));
-        buffer.add(entry, failedOrSlow);
+        long timestamp = System.currentTimeMillis();
+        long duration = Math.max(0, durationMillis);
+        String maskedUri = truncate(UriMasking.maskUserInfo(uri), maxUriLength);
+        String truncatedPath = truncate(path, maxUriLength);
+        ThreadKind kind = threadKind == null ? threadKinds.current() : threadKind;
+        boolean failedOrSlow = isFailedOrSlow(success, status, isSlow(duration));
+        boolean panel = capturesForPanel();
+        if (panel) {
+            CapturedCall entry = new CapturedCall(
+                    sequence.incrementAndGet(),
+                    timestamp,
+                    method,
+                    maskedUri,
+                    host,
+                    truncatedPath,
+                    status,
+                    duration,
+                    success,
+                    sanitizeErrorMessage(errorMessage),
+                    clientType,
+                    captureHeaders ? truncateHeaderValues(headers) : Map.of(),
+                    thread,
+                    traceId,
+                    frames == null ? null : frames.callSite(),
+                    caller.requestId(),
+                    caller.executionId(),
+                    kind.name());
+            buffer.add(entry, failedOrSlow);
+        }
         journal.offer(new RuntimeEvent(
                 JournalSource.REST_CLIENT,
-                entry.timestamp(),
-                entry.durationMillis() * 1_000_000,
+                timestamp,
+                duration * 1_000_000,
                 caller.requestId(),
                 caller.executionId(),
                 traceId,
                 caller.spanId(),
                 thread,
-                ThreadKind.valueOf(entry.threadKind()),
+                kind,
                 failedOrSlow,
                 new RestClientPayload(
                         method,
-                        RestClientAuthority.of(host, entry.uri()),
-                        entry.path(),
+                        RestClientAuthority.of(host, maskedUri),
+                        truncatedPath,
                         status,
                         clientType,
                         !success,
                         frames,
                         System.nanoTime())));
-        totalCaptured.incrementAndGet();
-        notifyListeners();
+        if (panel) {
+            totalCaptured.incrementAndGet();
+            notifyListeners();
+        }
     }
 
     /** Returns the retained calls, most recent first, across both retention tiers. */

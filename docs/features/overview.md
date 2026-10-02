@@ -350,7 +350,9 @@ frames of your own code that issued them, skipping framework classes and generat
 with a `traceparent` header keeps the trace that sent it. It keeps running aggregates per route, statement, exception group, and thread family, which
 count every event even after the journal evicts it. Recording never slows a request: when the journal cannot keep up,
 it drops events, counts them per source, and drops routine events before failed or slow ones. BootUI's own requests,
-and the SQL its panels run while serving them, are never recorded.
+and the SQL its panels run while serving them, are never recorded. Pausing a panel's recording, or BootUI releasing
+its buffers while the console is idle (`bootui.free-on-idle`), stops only what that panel keeps: the journal keeps
+recording SQL statements, connections, transactions, REST client calls, AI calls, and security events.
 
 **Recording** in the panel header opens the journal's status: the events and memory it retains against its bounds,
 when its oldest event happened, how many events each source recorded in this run, and how many were evicted or
@@ -363,7 +365,9 @@ why none can be kept when BootUI itself is reloaded with the application. The jo
 
 **Recorded by** chooses where the feed comes from. **Default** follows `bootui.activity.feed-source`, which is the
 runtime journal unless set to `buffers`. **Runtime journal** renders the feed from the journal: every child nests
-under its request, scheduled run, or consumed message by id, transactions and log events appear as rows, and three
+under its request, scheduled run, or consumed message by id, transactions and log events appear as rows, an AI call
+appears as an **AI** row with its model, provider, tokens, and finish reason, nested under the one request recorded
+with its trace id (an error when it failed, a warning when the model stopped at its length limit), and three
 more filters apply on the server: a **Route** such as `GET /api/orders/{id}`, with its requests' children, a **Request
 id**, and **No request**, which keeps only work outside any request. The journal keeps no exception or log messages,
 principals, or email subjects, so a row shows them only while the panel that captured them still holds them. **Panel
@@ -372,9 +376,9 @@ buffers** merges each panel's own buffer, as BootUI 1.x does. The feed refreshes
 A request's profile drawer also shows **Recorded by the runtime journal**: the route it was grouped under and where it
 stands against that route's median and 95th percentile once the route has 5 requests; the CPU time, memory, and GC
 pauses it used, or why they could not be measured, as on a virtual thread; a timeline of its statements, connections,
-transactions, cache accesses, messages, log events, and REST client calls, each placed at its start, with a GC lane for
-the collections that completed while it ran; and what it touched: the tables its statements name, data sources,
-transactions, caches, destinations, hosts, and log templates.
+transactions, cache accesses, messages, log events, REST client calls, and AI calls, each placed at its start, with a GC
+lane for the collections that completed while it ran; and what it touched: the tables its statements name, data
+sources, transactions, caches, destinations, hosts, log templates, and AI models.
 
 **Resources** in the panel header opens **Work outside requests**: where this run's CPU time went, as the share
 credited to requests, each thread family's work outside them, BootUI's own threads, and the JVM's own work (GC, JIT,

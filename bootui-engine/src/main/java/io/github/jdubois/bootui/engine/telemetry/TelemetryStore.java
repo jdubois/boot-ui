@@ -100,6 +100,11 @@ public class TelemetryStore implements RuntimeEventPublisher {
             return false;
         }
         if (idleSuspended) {
+            // The store is suspended while BootUI is idle, but the runtime journal keeps recording AI calls
+            // (docs/PLAN-v2.md §5.2), so an application span is still recognized and published without being stored.
+            if (publishesWhileIdle(span, selfSpan)) {
+                publish(span);
+            }
             return false;
         }
         boolean stored = store(span, selfSpan);
@@ -110,7 +115,8 @@ public class TelemetryStore implements RuntimeEventPublisher {
     }
 
     /**
-     * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.5), which receives each stored AI span's metadata, linked
+     * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.5), which receives each stored AI span's metadata (and,
+     * while the store is suspended for idleness, each application AI span's metadata without storing it), linked
      * to its request by trace id. {@code null} restores the default, which publishes nothing.
      */
     @Override
@@ -150,6 +156,28 @@ public class TelemetryStore implements RuntimeEventPublisher {
                             span.isError())));
         } catch (RuntimeException ex) {
             // Publishing never disturbs the telemetry store.
+        }
+    }
+
+    /**
+     * Whether a span seen while idle-suspended goes to the journal: it records AI calls and the span is not BootUI's
+     * own traffic, which is still remembered so the rest of its trace stays out once BootUI resumes.
+     */
+    private boolean publishesWhileIdle(NormalizedSpan span, boolean selfSpan) {
+        // Only an AI span is published, so any other span costs no lock while idle.
+        if (!journal.records(JournalSource.AI) || (!selfSpan && AiSpanRecognizer.operation(span) == null)) {
+            return false;
+        }
+        String traceId = span.traceId();
+        lock.writeLock().lock();
+        try {
+            if (selfSpan) {
+                selfTraceIds.put(traceId, Boolean.TRUE);
+                return false;
+            }
+            return !selfTraceIds.containsKey(traceId);
+        } finally {
+            lock.writeLock().unlock();
         }
     }
 

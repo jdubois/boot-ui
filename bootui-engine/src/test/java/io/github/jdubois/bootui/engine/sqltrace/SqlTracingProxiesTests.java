@@ -115,7 +115,7 @@ class SqlTracingProxiesTests {
     }
 
     @Test
-    void followsNoConnectionWhileRecordingIsPaused() throws Exception {
+    void keepsFollowingConnectionsForTheJournalWhileThePanelIsPaused() throws Exception {
         SqlTraceRecorder recorder = recorder();
         List<RuntimeEvent> published = new ArrayList<>();
         recorder.setRuntimeEventSink(published::add);
@@ -125,7 +125,19 @@ class SqlTracingProxiesTests {
 
         SqlTracingProxies.wrap(ds, recorder).getConnection().close();
 
-        assertThat(published).isEmpty();
+        assertThat(recorder.recent()).isEmpty();
+        assertThat(published).singleElement().extracting(RuntimeEvent::source).isEqualTo(JournalSource.CONNECTION);
+    }
+
+    @Test
+    void followsNoConnectionWhenTheJournalDoesNotRecordConnections() throws Exception {
+        SqlTraceRecorder recorder = recorder();
+        DataSource ds = mock(DataSource.class);
+        when(ds.getConnection()).thenReturn(mock(Connection.class));
+
+        SqlTracingProxies.wrap(ds, recorder).getConnection().close();
+
+        assertThat(recorder.checkoutConnection("primary", 0)).isNull();
     }
 
     @Test

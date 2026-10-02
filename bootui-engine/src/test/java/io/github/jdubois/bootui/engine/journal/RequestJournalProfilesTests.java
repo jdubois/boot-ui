@@ -174,6 +174,41 @@ class RequestJournalProfilesTests {
     }
 
     @Test
+    void aiCallsJoinTheRequestRecordedWithTheirTraceIdOnItsTimelineAndTouchedModels() {
+        offer(ai("trace-1", 1_004, new AiPayload("chat", "openai", "gpt-4o", 1200L, 300L, "length", false)));
+        offer(ai("trace-1", 1_006, new AiPayload("embeddings", "openai", "text-embedding-3", 40L, null, null, false)));
+        offer(ai("trace-2", 1_005, new AiPayload("chat", "openai", "gpt-4o-mini", 1L, 1L, "stop", false)));
+        offer(traced(http("r1", 1_000, 50_000_000, null), "trace-1"));
+        offer(traced(http("r2", 1_000, 50_000_000, null), "trace-2"));
+        offer(traced(http("r3", 1_000, 50_000_000, null), "trace-2"));
+        journal.dispatchPending();
+
+        RequestJournalProfileDto profile = profiles(null).profile("r1");
+
+        assertThat(profile.timeline())
+                .extracting(
+                        RequestTimelineItemDto::source,
+                        RequestTimelineItemDto::label,
+                        RequestTimelineItemDto::offsetMillis,
+                        RequestTimelineItemDto::severity)
+                .containsExactly(
+                        tuple("ai", "chat gpt-4o (openai)", 4L, "WARN"),
+                        tuple("ai", "embeddings text-embedding-3 (openai)", 6L, "OK"));
+        assertThat(profile.timeline().get(0).detail())
+                .isEqualTo("1200 input tokens · 300 output tokens · finish length");
+        assertThat(profile.touched().models())
+                .containsExactlyInAnyOrder("gpt-4o (openai)", "text-embedding-3 (openai)");
+        assertThat(profiles(null).profile("r2").timeline())
+                .as("a trace two requests share names neither")
+                .isEmpty();
+        assertThat(profiles(panel -> !panel.equals(BootUiPanels.AI))
+                        .profile("r1")
+                        .timeline())
+                .as("the AI panel's policy holds")
+                .isEmpty();
+    }
+
+    @Test
     void anUnknownRequestOrADisabledJournalSaysWhy() {
         assertThat(profiles(null).profile("missing").unavailableReason()).contains("does not retain request missing");
         assertThat(profiles(null).profile(" ").available()).isFalse();
@@ -201,6 +236,26 @@ class RequestJournalProfilesTests {
                 ThreadKind.WORKER,
                 false,
                 new HttpPayload("GET", "/api/orders/42", "/api/orders/{id}", null, 201, usage));
+    }
+
+    private static RuntimeEvent ai(String traceId, long epochMillis, AiPayload payload) {
+        return new RuntimeEvent(
+                JournalSource.AI, epochMillis, 1_000_000, null, null, traceId, null, null, null, false, payload);
+    }
+
+    private static RuntimeEvent traced(RuntimeEvent event, String traceId) {
+        return new RuntimeEvent(
+                event.source(),
+                event.epochMillis(),
+                event.durationNanos(),
+                event.requestId(),
+                event.executionId(),
+                traceId,
+                event.spanId(),
+                event.thread(),
+                event.threadKind(),
+                event.failedOrSlow(),
+                event.payload());
     }
 
     private static RuntimeEvent child(
