@@ -38,6 +38,13 @@ public final class McpToolDescriptions {
                     "Return a bounded, newest-first correlated activity snapshot across HTTP, SQL, exceptions, security, "
                             + "and other runtime signals. Use first when diagnosing one request or trace."),
             Map.entry(
+                    "get_request_profile",
+                    "Return the per-request profile for one REQUEST entry id from get_live_activity whose profileable "
+                            + "flag is true: the request, its correlated SQL with N+1 groups and call sites, "
+                            + "exceptions with their exceptionGroupId for get_exception_detail, security events, "
+                            + "REST client calls, cache accesses, timing, and correlation notes. Values are masked "
+                            + "like the panel's. An unknown or evicted id returns available=false with a reason."),
+            Map.entry(
                     "get_exceptions",
                     "List recent exception groups, newest first. Use a returned id with get_exception_detail for stack "
                             + "frames, causes, and individual occurrences."),

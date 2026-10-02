@@ -23,6 +23,17 @@ class McpGuidanceTests {
 
     @ParameterizedTest
     @ValueSource(strings = {"Spring Boot", "Quarkus"})
+    void diagnosisFollowsAProfileableRequestToItsProfile(String framework) {
+        assertThat(McpGuidance.instructions(framework)).contains("get_live_activity", "get_request_profile");
+        assertThat(McpGuidance.prompts(framework))
+                .filteredOn(prompt -> prompt.name().equals("diagnose_runtime_issue"))
+                .singleElement()
+                .satisfies(prompt -> assertThat(prompt.text())
+                        .contains("get_request_profile", "profileable", "exceptionGroupId", "get_exception_detail"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Spring Boot", "Quarkus"})
     void assessmentRequiresBoundedCollectionAndSeparateScanApproval(String framework) {
         assertThat(assessment(framework))
                 .contains(

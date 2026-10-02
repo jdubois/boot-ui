@@ -320,6 +320,13 @@ public class QuarkusMcpTools {
         addIfAvailable(
                 registry,
                 availability,
+                tool(
+                        "get_request_profile",
+                        McpToolDescriptions.quarkus("get_request_profile"),
+                        args -> liveActivity.request(args.id())));
+        addIfAvailable(
+                registry,
+                availability,
                 tool("get_exceptions", McpToolDescriptions.quarkus("get_exceptions"), args -> exceptions.list()));
         addIfAvailable(
                 registry,

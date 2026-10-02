@@ -216,6 +216,28 @@ public abstract class AbstractCliConformanceTest {
     }
 
     @Test
+    void testCliRequestProfileReturnsTheSameDtoAsTheRestEndpoint() {
+        // An unknown id is the one profile every instance can produce deterministically: no traffic is
+        // needed, and the tool must answer with the REST endpoint's unavailable profile, not an error.
+        String id = "conformance-unknown-request";
+        assertThat(catalogEntry("get_request_profile").path("panel").asText()).isEqualTo("activity");
+
+        Response cli = invoke("get_request_profile", "{\"id\":\"" + id + "\"}");
+        Response rest = probe().get("/bootui/api/activity/request/" + id);
+
+        assertThat(cli.status()).isEqualTo(200);
+        assertThat(rest.status()).isEqualTo(200);
+        assertThat(cli.json()).isEqualTo(rest.json());
+        assertThat(cli.json().path("available").asBoolean(true)).isFalse();
+        assertThat(cli.json().path("unavailableReason").asText()).contains(id);
+    }
+
+    @Test
+    void testCliRequestProfileRequiresAnId() {
+        assertThat(invoke("get_request_profile", "{}").status()).isEqualTo(400);
+    }
+
+    @Test
     void testCliMissingRequiredIdIsRejected() {
         Response response = invoke("get_exception_detail", "{}");
 

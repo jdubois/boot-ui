@@ -13,6 +13,9 @@ package io.github.jdubois.bootui.core.dto;
  * @param thread the thread that threw, or {@code null}
  * @param handler the handler that was executing, or {@code null}
  * @param source short capture-source label ({@code web} or {@code log})
+ * @param exceptionGroupId the id of the Exceptions panel group this occurrence belongs to, which
+ *     {@code GET /exceptions/{id}} and the {@code get_exception_detail} tool accept, or {@code null} when
+ *     the server did not record it
  */
 public record RequestProfileExceptionDto(
         String exceptionClassName,
@@ -21,4 +24,18 @@ public record RequestProfileExceptionDto(
         long timestamp,
         String thread,
         String handler,
-        String source) {}
+        String source,
+        String exceptionGroupId) {
+
+    /** The original shape, without the exception group id. */
+    public RequestProfileExceptionDto(
+            String exceptionClassName,
+            String message,
+            String location,
+            long timestamp,
+            String thread,
+            String handler,
+            String source) {
+        this(exceptionClassName, message, location, timestamp, thread, handler, source, null);
+    }
+}

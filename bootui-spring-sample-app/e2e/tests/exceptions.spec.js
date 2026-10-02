@@ -27,6 +27,44 @@ test.describe('Exceptions view', () => {
     await expect(drawer).toContainText('Recent occurrences')
   })
 
+  test('Copy for AI previews the exception detail as Markdown and copies it exactly', async ({
+    browserName,
+    context,
+    openView,
+    page
+  }) => {
+    if (browserName === 'chromium') {
+      try {
+        await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+      } catch {
+        /* no-op */
+      }
+    }
+    await page.request.get('/api/sample/boom')
+
+    await openView('exceptions', 'Exceptions')
+    const row = page.locator('tbody tr', {hasText: DEMO_MESSAGE}).first()
+    await expect(row).toBeVisible({timeout: 15_000})
+    await row.getByRole('button', {name: 'Details'}).click()
+
+    const drawer = page.locator('.exception-drawer')
+    await drawer.getByRole('button', {name: 'Copy for AI'}).click()
+
+    const preview = drawer.getByRole('textbox', {name: 'Markdown export preview'})
+    await expect(preview).toHaveValue(/# BootUI exception: `java\.lang\.IllegalStateException`/)
+    await expect(preview).toHaveValue(/→ at .*SampleController/)
+    await expect(preview).toHaveValue(/Caused by: java\.lang\.NumberFormatException/)
+    await expect(preview).toHaveValue(/## Recent occurrences/)
+    await expect(preview).toHaveValue(/request `GET \/api\/sample\/boom`/)
+    await expect(preview).not.toHaveValue(/sample-secret-token/)
+    await expect(drawer.locator('.ai-export-omissions')).toContainText('masked by BootUI')
+
+    await drawer.getByRole('button', {name: 'Copy Markdown'}).click()
+    await expect(drawer.getByRole('button', {name: 'Copied'})).toBeVisible()
+    const copied = await page.evaluate(() => navigator.clipboard.readText())
+    expect(copied).toBe(await preview.inputValue())
+  })
+
   test('filters the captured exceptions by text', async ({openView, page}) => {
     await page.request.get('/api/sample/boom')
 

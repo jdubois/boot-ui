@@ -744,6 +744,19 @@
       "summary": "Return Spring Data repository metadata already computed by the application context."
     },
     {
+      "name": "get_request_profile",
+      "command": "request-profile",
+      "schema": "ID",
+      "panel": "activity",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Return the per-request profile for one REQUEST entry id from get_live_activity whose profileable flag is true: the request, its correlated SQL with N+1 groups and call sites, exceptions with their exceptionGroupId for get_exception_detail, security events, REST client calls, cache accesses, timing, and correlation notes."
+    },
+    {
       "name": "get_rest_api_report",
       "command": "rest-api report",
       "schema": "NONE",

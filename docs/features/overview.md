@@ -235,14 +235,34 @@ every correlated statement and call, and at most 200 statement groups are listed
 looking empty.
 
 The drawer also shows the request's timing breakdown (SQL and outbound REST calls versus everything else), its auth
-context, and the trace span list. **Escape** dismisses it, focus is trapped while it is open, and **Copy profile**
-exports the already-masked correlated timeline — including REST client calls, cache accesses, tiers, and truncation — as
-plain text to paste into a bug report. Opening a profile only reads evidence BootUI already captured: it captures
-nothing new, calls no network service, and changes no state. Opening Live Activity with `?request=<exchange id>`, as
-each HTTP Exchanges row's **Profile** link does, opens that request's profile directly.
+context, and the trace span list. **Escape** dismisses it, and focus is trapped while it is open. Opening a profile only
+reads evidence BootUI already captured: it captures nothing new, calls no network service, and changes no state.
+Opening Live Activity with `?request=<exchange id>`, as each HTTP Exchanges row's **Profile** link does, opens that
+request's profile directly.
 
-Scheduled-task runs nest correctly in the stream but are not part of the profiler's correlated timeline or **Copy
-profile** export. The REST Client panel keeps its own "chatty" badge for now.
+Each correlated exception carries its `exceptionGroupId`, the id of its group in the
+[Exceptions panel](diagnostics.md#exceptions). Agents reach the same profile through the `get_request_profile` MCP tool
+and the `bootui request-profile <id>` command, which return this DTO unchanged; see
+[Investigate one request](../AI-AGENTS.md#investigate-one-request).
+
+#### Copy profile and Copy for AI
+
+**Copy profile** copies the already-masked profile as Markdown, including REST client calls, cache accesses, tiers, and
+truncation, ready for a bug report. **Copy for AI** builds a fuller document for pasting into an agent: the same profile
+plus each correlated exception's stack trace, with application frames marked, and its recent occurrences with their
+request context. It first shows the whole document, together with a list of what the export leaves out: values BootUI
+masked, truncated or unavailable sections, exception messages withheld by `bootui.expose-values=METADATA_ONLY`, and
+details that could no longer be loaded. Preparing that preview reads each referenced exception group through the
+Exceptions panel's existing read endpoint, at most five groups.
+
+The preview is exactly what reaches the clipboard. **Copy Markdown** sends nothing and changes no state, and when the
+browser denies clipboard access the document stays selected in the preview to copy by hand. Both documents come from one
+shared helper that works only on DTOs the browser already holds, so the export never contains anything the panels do
+not show, and identical evidence produces identical text on every stack. Captured messages, paths, and SQL are escaped
+or fenced, so Markdown inside them cannot break the document's structure.
+
+Scheduled-task runs nest correctly in the stream but are not part of the profiler's correlated timeline or its exports.
+The REST Client panel keeps its own "chatty" badge for now.
 
 ### Messaging capture
 

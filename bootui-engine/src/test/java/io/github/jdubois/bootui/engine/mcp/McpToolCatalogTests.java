@@ -13,10 +13,24 @@ class McpToolCatalogTests {
 
     @Test
     void advertisesTheFullToolSurfacePerStack() {
-        assertThat(McpToolCatalog.entries()).hasSize(90);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(90);
-        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(89);
-        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(74);
+        assertThat(McpToolCatalog.entries()).hasSize(91);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_MVC)).hasSize(91);
+        assertThat(McpToolCatalog.namesFor(Stack.SPRING_WEBFLUX)).hasSize(90);
+        assertThat(McpToolCatalog.namesFor(Stack.QUARKUS)).hasSize(75);
+    }
+
+    @Test
+    void requestProfileIsAnActivityReadOnTheExistingIdSchemaOnEveryStack() {
+        McpToolCatalog.Entry profile =
+                McpToolCatalog.byName("get_request_profile").orElseThrow();
+        McpToolCatalog.Entry activity =
+                McpToolCatalog.byName("get_live_activity").orElseThrow();
+
+        // The published CLI binds options by schema name, so the tool reuses the existing ID schema.
+        assertThat(profile.schema()).isEqualTo(McpToolSchema.ID);
+        assertThat(profile.action()).isFalse();
+        assertThat(profile.panelId()).isEqualTo(BootUiPanels.ACTIVITY);
+        assertThat(profile.stacks()).isEqualTo(activity.stacks()).containsExactlyInAnyOrder(Stack.values());
     }
 
     @Test

@@ -11,7 +11,8 @@ public final class McpGuidance {
         return "BootUI exposes a running " + framework
                 + " application for local diagnosis. Start with get_overview and get_health, then choose the "
                 + "smallest relevant read tool; use get_live_activity to correlate requests, SQL, exceptions, and "
-                + "security events, and follow an exception id with get_exception_detail. Advisor *_scan tools "
+                + "security events, follow a profileable request id with get_request_profile, and follow an "
+                + "exception id with get_exception_detail. Advisor *_scan tools "
                 + "actively inspect the application: memory_scan may trigger a full GC and pentest_scan sends bounded "
                 + "loopback probes. Run scans only when needed, treat findings as evidence to verify against source "
                 + "and configuration, and do not modify code blindly. For a whole-application action plan, use the "
@@ -27,8 +28,10 @@ public final class McpGuidance {
                         "Investigate a runtime failure by correlating health, activity, exceptions, traces, SQL, and logs.",
                         "Diagnose the current runtime issue in this " + framework
                                 + " application. Begin with get_overview and get_health. Inspect get_live_activity for "
-                                + "the relevant time window, then use the smallest supporting tools needed. If an "
-                                + "exception appears, call get_exception_detail with its id. Correlate trace ids, "
+                                + "the relevant time window, then use the smallest supporting tools needed. For a "
+                                + "slow or failing request whose entry is profileable, call get_request_profile with "
+                                + "its id. If an exception appears, call get_exception_detail with its id or "
+                                + "exceptionGroupId. Correlate trace ids, "
                                 + "request paths, SQL timings, and log timestamps. Separate observed evidence from "
                                 + "hypotheses, note missing telemetry, and propose the smallest fix plus a verification "
                                 + "step. Do not expose sensitive runtime data."),

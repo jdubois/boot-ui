@@ -375,7 +375,74 @@ describe('LiveActivity', () => {
     }
   })
 
-  it('includes N+1 call sites when copying the plain-text profile report', async () => {
+  it('previews Copy for AI with each correlated exception detail and copies exactly the preview', async () => {
+    const writeText = vi.fn().mockResolvedValue()
+    vi.stubGlobal('navigator', {clipboard: {writeText}})
+    const exceptionDetail = {
+      group: {id: 'g-1', exceptionClassName: 'java.lang.IllegalStateException', message: 'boom'},
+      frames: [
+        {
+          declaringClass: 'com.example.TodoService',
+          methodName: 'load',
+          fileName: 'TodoService.java',
+          lineNumber: 10,
+          applicationFrame: true
+        }
+      ],
+      causes: [],
+      occurrences: []
+    }
+    const profile = requestProfile({
+      exceptions: [
+        {
+          exceptionClassName: 'java.lang.IllegalStateException',
+          message: 'boom',
+          location: null,
+          timestamp: 1700000000010,
+          thread: 'http-nio-1',
+          handler: null,
+          source: 'web',
+          exceptionGroupId: 'g-1'
+        }
+      ]
+    })
+    const fetchMock = vi.fn((url, init) => {
+      if (url === 'api/exceptions/g-1') return Promise.resolve(jsonResponse(exceptionDetail))
+      if (url.startsWith('api/activity/request/')) return Promise.resolve(jsonResponse(profile))
+      if (url.startsWith('api/activity')) return Promise.resolve(jsonResponse(activityReport()))
+      return Promise.reject(new Error(`unexpected ${url} ${init?.method}`))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+    await wrapper.get('tr.activity-row-clickable').trigger('click')
+    await flushPromises()
+    await wrapper.get('.activity-copy-ai').trigger('click')
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledWith('api/exceptions/g-1', {})
+    const preview = wrapper.get('.activity-drawer textarea.ai-export-markdown').element.value
+    expect(preview).toContain('# BootUI request profile: `GET /api/todos`')
+    expect(preview).toContain('### Statement group 1: N+1 suspected')
+    expect(preview).toContain('#### Stack trace')
+    expect(preview).toContain('→ at com.example.TodoService.load(TodoService.java:10)')
+    expect(wrapper.get('.ai-export-omissions').text()).toContain('Nothing was masked, truncated, or left out.')
+    expect(fetchMock.mock.calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(true)
+
+    const reads = fetchMock.mock.calls.length
+    await wrapper.get('.ai-export-copy').trigger('click')
+    await flushPromises()
+
+    expect(writeText).toHaveBeenCalledWith(preview)
+    expect(fetchMock).toHaveBeenCalledTimes(reads)
+
+    await wrapper.get('.ai-export-back').trigger('click')
+    expect(wrapper.find('.ai-export').exists()).toBe(false)
+    expect(wrapper.get('.activity-drawer').text()).toContain('Request profile')
+  })
+
+  it('includes N+1 call sites when copying the Markdown profile report', async () => {
     const writeText = vi.fn().mockResolvedValue()
     vi.stubGlobal('navigator', {clipboard: {writeText}})
     vi.stubGlobal(
@@ -395,8 +462,9 @@ describe('LiveActivity', () => {
 
     expect(writeText).toHaveBeenCalledTimes(1)
     const report = writeText.mock.calls[0][0]
-    expect(report).toContain('[N+1]')
-    expect(report).toContain('at com.example.TodoRepository.findById(TodoRepository.java:42)')
+    expect(report).toContain('### Statement group 1: N+1 suspected')
+    expect(report).toContain('```sql\nselect * from todo where id = ?\n```')
+    expect(report).toContain('- `com.example.TodoRepository.findById(TodoRepository.java:42)`')
   })
 
   function profileWithOutboundEvidence(overrides = {}) {
@@ -617,16 +685,17 @@ describe('LiveActivity', () => {
     await flushPromises()
 
     const report = writeText.mock.calls[0][0]
-    expect(report).toContain('Correlation: approximate (some signals were matched by time window only)')
-    expect(report).toContain('SQL (exact, serving thread):')
-    expect(report).toContain('  LOGOUT_SUCCESS [time window]')
-    expect(report).toContain('  … Showing the first 2 of 205 security events.')
-    expect(report).toContain('REST client calls (serving thread):')
-    expect(report).toContain('  GET inventory.example/items → failed · 42 ms')
-    expect(report).toContain('    Connection refused')
-    expect(report).toContain('  … Showing the first 1 of 3 REST client calls.')
-    expect(report).toContain('Cache accesses (time window):')
-    expect(report).toContain('  HIT todos · key a1b2c3d4e5f60718')
+    expect(report).toContain('- **Correlation:** approximate; some signals were matched by time window only')
+    expect(report).toContain('## SQL (exact, serving thread)')
+    expect(report).toContain('- `LOGOUT_SUCCESS` · time window')
+    expect(report).toContain('Showing the first 2 of 205 security events.')
+    expect(report).toContain('## REST client calls (serving thread)')
+    expect(report).toContain('- `GET inventory.example/items → failed` · 42 ms')
+    expect(report).toContain('  - Error: Connection refused')
+    expect(report).toContain('Showing the first 1 of 3 REST client calls.')
+    expect(report).toContain('## Cache accesses (time window)')
+    expect(report).toContain('- `HIT todos` · key hash `a1b2c3d4e5f60718`')
+    expect(report).toContain('## Omitted from this export')
     expect(report).not.toContain('token=')
   })
 
