@@ -241,7 +241,6 @@ class RequestJournalProfilesTests {
                     "trace-1",
                     null,
                     null,
-                    null,
                     true,
                     new AiPayload("chat", "openai", "gpt-4o", 1L, null, null, true)));
             small.offer(traced(http("r1", 1_000, 50_000_000, null), "trace-1"));
@@ -299,7 +298,7 @@ class RequestJournalProfilesTests {
 
     private static RuntimeEvent ai(String traceId, long epochMillis, AiPayload payload) {
         return new RuntimeEvent(
-                JournalSource.AI, epochMillis, 1_000_000, null, null, traceId, null, null, null, false, payload);
+                JournalSource.AI, epochMillis, 1_000_000, null, null, traceId, null, null, false, payload);
     }
 
     private static RuntimeEvent traced(RuntimeEvent event, String traceId) {
@@ -310,7 +309,6 @@ class RequestJournalProfilesTests {
                 event.requestId(),
                 event.executionId(),
                 traceId,
-                event.spanId(),
                 event.thread(),
                 event.threadKind(),
                 event.failedOrSlow(),
@@ -335,7 +333,6 @@ class RequestJournalProfilesTests {
                 JournalSource.GC,
                 epochMillis,
                 millis * 1_000_000,
-                null,
                 null,
                 null,
                 null,

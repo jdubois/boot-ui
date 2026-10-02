@@ -567,7 +567,7 @@ Seventeen observations run over the completed requests and garbage collections t
 
 | Observation | What it counts |
 | --- | --- |
-| `route-time-breakdown` | Where a route's warm requests spend their time: authentication, authorization (Spring, from the `authorization` source: a request's checks out of the filters, a method's out of the handler), other filters, connection wait, SQL, REST client calls, other handler work, and the response write. Overlapping calls count once, and each route's first request is reported apart as cold |
+| `route-time-breakdown` | Where a route's warm requests spend their time: authentication, authorization (Spring, from the `authorization` source: a request's checks out of the filters, a method's out of the handler), other filters, connection wait, SQL, REST client calls, AI calls, synchronous message sends, other handler work, and the response write. Overlapping calls count once, and each route's first request is reported apart as cold |
 | `exception-hotspots` | Exception groups per route, by a signature that survives line shifts, marked when the previous run served the route without them |
 | `errors-behind-2xx` | 2xx responses whose own request rolled back its transaction, recorded an exception, wrote an `ERROR` log, or received a downstream 5xx; requests a retry or fallback recovered are listed apart |
 | `repeated-selects` | The same SELECT run five or more times in a request after another statement, from three requests |
@@ -584,6 +584,11 @@ Seventeen observations run over the completed requests and garbage collections t
 | `heap-growth-after-gc` | Old-generation occupancy after the full or mixed collections that reclaimed it, rising across the run from three such collections; the Memory panel links to it. Never called a leak, since a warming cache rises too before it levels off |
 | `ai-usage-by-route` | AI operations per route, linked by trace id: model calls per request, tokens, input growth, and length-limited answers |
 | `framework-warnings-by-route` | `WARN` and `ERROR` events from framework loggers, grouped by logger, template, and route |
+
+Scheduled runs and consumed messages are projected like requests, named `@Scheduled OrderJob.run` or
+`consume kafka:orders`, so the observations that read a unit of work's own SQL, transactions, calls, exceptions, and
+logs also cover jobs and listeners, counted in runs or messages. Those that read what only a request has (its status,
+method, phases, authorization, or measured resources) stay on HTTP requests.
 
 Every observation reports whether it ran. One whose journal source is not recorded, whose panel is disabled, or which
 does not apply to this stack says so with its reason, so an empty list never reads as healthy. Findings below their

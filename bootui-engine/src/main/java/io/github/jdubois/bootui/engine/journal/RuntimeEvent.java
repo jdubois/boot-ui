@@ -25,7 +25,8 @@ import java.util.Objects;
  * their own meaning.</p>
  *
  * <p>Recorders build events with {@link #of}, from the {@link CorrelationContext} they captured, so the request,
- * execution, trace, and span ids are filled the same way for every source.</p>
+ * execution, and trace ids are filled the same way for every source. A span id is kept only where a reader needs it,
+ * as an AI call's ({@link AiPayload#spanId()}).</p>
  *
  * @param source the source that recorded it
  * @param epochMillis when it started, used only to order events across sources and to display them
@@ -34,7 +35,6 @@ import java.util.Objects;
  * @param requestId the BootUI request it belongs to, or {@code null}
  * @param executionId the scheduled run or consumed message it belongs to, or {@code null}
  * @param traceId its distributed-trace id, or {@code null}
- * @param spanId its span id, or {@code null}
  * @param thread the name of the thread it ran on, or {@code null}
  * @param threadKind the kind of that thread, or {@code null} when unknown
  * @param failedOrSlow whether it failed or crossed its slow threshold, which the journal retains longer
@@ -47,7 +47,6 @@ public record RuntimeEvent(
         String requestId,
         String executionId,
         String traceId,
-        String spanId,
         String thread,
         ThreadKind threadKind,
         boolean failedOrSlow,
@@ -104,7 +103,6 @@ public record RuntimeEvent(
                 correlation.requestId(),
                 correlation.executionId(),
                 traceId,
-                correlation.spanId(),
                 thread,
                 threadKind,
                 failedOrSlow,
@@ -138,7 +136,6 @@ public record RuntimeEvent(
                 requestId,
                 executionId,
                 traceId,
-                spanId,
                 thread,
                 threadKind,
                 failedOrSlow,
@@ -154,7 +151,6 @@ public record RuntimeEvent(
                 requestId,
                 executionId,
                 traceId,
-                spanId,
                 thread,
                 kind,
                 failedOrSlow,
@@ -189,7 +185,6 @@ public record RuntimeEvent(
                 + stringBytes(requestId)
                 + stringBytes(executionId)
                 + stringBytes(traceId)
-                + stringBytes(spanId)
                 + stringBytes(thread)
                 + Math.max(0, payloadBytes);
         return (int) Math.min(Integer.MAX_VALUE, bytes);

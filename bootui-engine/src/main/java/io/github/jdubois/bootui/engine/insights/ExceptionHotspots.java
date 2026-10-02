@@ -80,7 +80,7 @@ public final class ExceptionHotspots implements Observation {
         String type = InsightText.simpleName(group.exception.exceptionClass());
         Integer servedBefore = previous.newOnRoute(group.exception.signature(), route);
         StringBuilder sentence = new StringBuilder("`" + route + "` recorded `" + type + "` in "
-                + group.rows.size() + " of " + InsightText.counted(eligible, "request") + " ("
+                + group.rows.size() + " of " + InsightText.counted(eligible, InsightText.unit(route)) + " ("
                 + InsightText.counted(group.occurrences, "occurrence") + ")");
         if (servedBefore != null) {
             sentence.append(", not observed in the previous run, which served this route ")

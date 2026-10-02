@@ -1,8 +1,10 @@
 package io.github.jdubois.bootui.engine.insights;
 
+import io.github.jdubois.bootui.engine.journal.AiPayload;
 import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.MessagingPayload;
 import io.github.jdubois.bootui.engine.journal.RequestTiming;
 import io.github.jdubois.bootui.engine.journal.RestClientPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
@@ -41,6 +43,8 @@ public final class RouteTimeBreakdown implements Observation {
         CONNECTION_WAIT("Connection wait"),
         SQL("SQL"),
         REST_CLIENT("REST client"),
+        AI("AI calls"),
+        MESSAGE_SENDS("Message sends"),
         HANDLER("Handler, other work"),
         RESPONSE("Response write"),
         UNATTRIBUTED("Unattributed");
@@ -75,7 +79,12 @@ public final class RouteTimeBreakdown implements Observation {
     @Override
     public Set<JournalSource> optionalReads() {
         return Set.of(
-                JournalSource.SQL, JournalSource.CONNECTION, JournalSource.REST_CLIENT, JournalSource.AUTHORIZATION);
+                JournalSource.SQL,
+                JournalSource.CONNECTION,
+                JournalSource.REST_CLIENT,
+                JournalSource.AUTHORIZATION,
+                JournalSource.AI,
+                JournalSource.MESSAGING);
     }
 
     @Override
@@ -85,7 +94,7 @@ public final class RouteTimeBreakdown implements Observation {
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;
         for (Map.Entry<String, List<ProjectedRequest>> route :
-                snapshot.byRoute().entrySet()) {
+                snapshot.httpByRoute().entrySet()) {
             List<ProjectedRequest> requests = route.getValue();
             ProjectedRequest cold = firstRetainedIsFirst ? requests.get(0) : null;
             List<Breakdown> warm = new ArrayList<>();
@@ -232,6 +241,9 @@ public final class RouteTimeBreakdown implements Observation {
             case CONNECTION_WAIT ->
                 "Most of the time is waiting for a connection: compare the pool size with Connections per request.";
             case REST_CLIENT -> "Most of the time is outgoing calls: check their latency in REST Client.";
+            case AI -> "Most of the time is AI calls: check their tokens and model in AI usage by route.";
+            case MESSAGE_SENDS ->
+                "Most of the time is sending messages synchronously: check whether the send must wait for the broker.";
             case RESPONSE ->
                 "Most of the time is writing the response: check its size and any lazy loading during serialization.";
             case AUTHENTICATION -> "Most of the time is authentication: check how credentials are verified.";
@@ -352,6 +364,7 @@ public final class RouteTimeBreakdown implements Observation {
             }
             if (timing.phased()) {
                 carveAuthorization(request, phases);
+                carveHandlerCalls(request, phases);
             }
             long raw = 0;
             for (long[] call : calls) {
@@ -377,18 +390,40 @@ public final class RouteTimeBreakdown implements Observation {
                     }
                 }
             }
-            carve(phases, Phase.FILTERS, requestChecks);
-            carve(phases, Phase.HANDLER, methodChecks);
+            carve(phases, Phase.FILTERS, Phase.AUTHORIZATION, requestChecks);
+            carve(phases, Phase.HANDLER, Phase.AUTHORIZATION, methodChecks);
         }
 
-        private static void carve(Map<Phase, Long> phases, Phase from, long nanos) {
+        /**
+         * Names the AI calls and synchronous message sends the handler made (M3-8), moving their time out of its other
+         * work. Neither is placed on the request's monotonic clock, so only their totals move, at most what the
+         * handler holds, as with authorization.
+         */
+        private static void carveHandlerCalls(ProjectedRequest request, Map<Phase, Long> phases) {
+            long ai = 0;
+            long sends = 0;
+            for (RuntimeEvent child : request.children()) {
+                if (child.durationNanos() <= 0) {
+                    continue;
+                }
+                if (child.payload() instanceof AiPayload) {
+                    ai += child.durationNanos();
+                } else if (child.payload() instanceof MessagingPayload message && message.sent()) {
+                    sends += child.durationNanos();
+                }
+            }
+            carve(phases, Phase.HANDLER, Phase.AI, ai);
+            carve(phases, Phase.HANDLER, Phase.MESSAGE_SENDS, sends);
+        }
+
+        private static void carve(Map<Phase, Long> phases, Phase from, Phase to, long nanos) {
             Long available = phases.get(from);
             if (nanos <= 0 || available == null) {
                 return;
             }
             long moved = Math.min(available, nanos);
             phases.put(from, available - moved);
-            phases.merge(Phase.AUTHORIZATION, moved, Long::sum);
+            phases.merge(to, moved, Long::sum);
         }
 
         private static Phase phaseAt(RequestTiming timing, long offset) {

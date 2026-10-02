@@ -31,6 +31,8 @@ public final class BootUiTransactionExecutionListener implements TransactionExec
 
     private final TransactionRecorder recorder;
     private final ThreadLocal<Deque<Long>> pending = ThreadLocal.withInitial(ArrayDeque::new);
+    /** Whether the transaction completing on this thread was marked rollback-only, read just before it completes. */
+    private final ThreadLocal<Boolean> rollbackOnly = new ThreadLocal<>();
 
     public BootUiTransactionExecutionListener(TransactionRecorder recorder) {
         this.recorder = recorder;
@@ -57,20 +59,45 @@ public final class BootUiTransactionExecutionListener implements TransactionExec
     }
 
     @Override
+    public void beforeCommit(TransactionExecution transactionExecution) {
+        markRollbackOnly(transactionExecution);
+    }
+
+    @Override
+    public void beforeRollback(TransactionExecution transactionExecution) {
+        markRollbackOnly(transactionExecution);
+    }
+
+    @Override
     public void afterCommit(TransactionExecution transactionExecution, Throwable commitFailure) {
-        complete(commitFailure == null ? Status.COMMITTED : Status.UNKNOWN, message(commitFailure));
+        complete(commitFailure == null ? Status.COMMITTED : Status.UNKNOWN, commitFailure);
     }
 
     @Override
     public void afterRollback(TransactionExecution transactionExecution, Throwable rollbackFailure) {
-        complete(Status.ROLLED_BACK, message(rollbackFailure));
+        complete(Status.ROLLED_BACK, rollbackFailure);
     }
 
-    private void complete(Status status, String errorMessage) {
+    private void markRollbackOnly(TransactionExecution transactionExecution) {
         try {
+            rollbackOnly.set(transactionExecution.isRollbackOnly());
+        } catch (RuntimeException ignored) {
+            rollbackOnly.remove();
+        }
+    }
+
+    private void complete(Status status, Throwable failure) {
+        try {
+            boolean markedRollbackOnly = Boolean.TRUE.equals(rollbackOnly.get());
+            rollbackOnly.remove();
             Long id = popPending();
             if (id != null) {
-                recorder.completeTransaction(id, status, errorMessage);
+                recorder.completeTransaction(
+                        id,
+                        status,
+                        message(failure),
+                        markedRollbackOnly,
+                        failure == null ? null : failure.getClass().getName());
             }
         } catch (RuntimeException ignored) {
             // A recorder failure must never disrupt the application's real transaction.

@@ -46,7 +46,7 @@ public final class AnonymousDataReach implements Observation {
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;
         for (Map.Entry<String, List<ProjectedRequest>> route :
-                snapshot.byRoute().entrySet()) {
+                snapshot.httpByRoute().entrySet()) {
             long anonymous = 0;
             Map<String, List<List<String>>> byTable = new LinkedHashMap<>();
             for (ProjectedRequest request : route.getValue()) {

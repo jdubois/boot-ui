@@ -79,7 +79,8 @@ public final class EventLoopBlocking implements Observation {
 
     private Finding finding(String route, String site, Site found, long eligible, InsightsSnapshot snapshot) {
         String sentence = "`" + route + "` started " + InsightText.counted(found.rows.size(), "JDBC statement")
-                + " on an event-loop thread, in " + found.requests + " of " + InsightText.counted(eligible, "request")
+                + " on an event-loop thread, in " + found.requests + " of "
+                + InsightText.counted(eligible, InsightText.unit(route))
                 + ", at `" + site + "`"
                 + (found.requests >= RECURRING_REQUESTS ? "; it recurs." : ".");
         String move = snapshot.stack() == InsightsStack.QUARKUS

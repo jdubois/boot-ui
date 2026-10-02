@@ -11,6 +11,8 @@ package io.github.jdubois.bootui.engine.journal;
  * @param outputTokens the output tokens it reported, or {@code null} when it reported none
  * @param finishReason why the model stopped, such as {@code stop} or {@code length}, or {@code null}
  * @param failed whether the span ended in error
+ * @param spanId the span id of the call, which tells a GenAI span from the framework's own event for the same call, or
+ *     {@code null} when unknown
  */
 public record AiPayload(
         String operation,
@@ -19,8 +21,21 @@ public record AiPayload(
         Long inputTokens,
         Long outputTokens,
         String finishReason,
-        boolean failed)
+        boolean failed,
+        String spanId)
         implements RuntimeEventPayload {
+
+    /** A call whose span id is unknown. */
+    public AiPayload(
+            String operation,
+            String provider,
+            String model,
+            Long inputTokens,
+            Long outputTokens,
+            String finishReason,
+            boolean failed) {
+        this(operation, provider, model, inputTokens, outputTokens, finishReason, failed, null);
+    }
 
     public static final String CHAT = "chat";
     public static final String EMBEDDINGS = "embeddings";
@@ -42,7 +57,8 @@ public record AiPayload(
                 inputTokens,
                 outputTokens,
                 dictionary.shared(finishReason),
-                failed);
+                failed,
+                spanId);
     }
 
     /** Its fixed part and its strings, each counted as the payload's own. */
@@ -58,6 +74,7 @@ public record AiPayload(
                 + JournalDictionary.retained(dictionary, operation)
                 + JournalDictionary.retained(dictionary, provider)
                 + JournalDictionary.retained(dictionary, model)
-                + JournalDictionary.retained(dictionary, finishReason);
+                + JournalDictionary.retained(dictionary, finishReason)
+                + RuntimeEvent.stringBytes(spanId);
     }
 }

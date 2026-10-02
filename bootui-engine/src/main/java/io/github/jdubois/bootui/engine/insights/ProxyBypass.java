@@ -198,7 +198,8 @@ public final class ProxyBypass implements Observation {
                     route,
                     true,
                     "`" + route + "` ran `" + method + "` without its `" + annotation + "` proxy in " + rows.size()
-                            + " of " + InsightText.counted(eligible, "request") + " that ran an annotated method"
+                            + " of " + InsightText.counted(eligible, InsightText.unit(route))
+                            + " that ran an annotated method"
                             + (caller == null ? "." : ", called from `" + caller + "`."),
                     eligible,
                     rows.size(),

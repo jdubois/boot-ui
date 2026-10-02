@@ -69,7 +69,7 @@ public final class LazySqlAfterHandler implements Observation {
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;
         for (Map.Entry<String, List<ProjectedRequest>> route :
-                snapshot.byRoute().entrySet()) {
+                snapshot.httpByRoute().entrySet()) {
             List<ProjectedRequest> requests = route.getValue();
             eligible += requests.size();
             Map<String, Statement> statements = new LinkedHashMap<>();

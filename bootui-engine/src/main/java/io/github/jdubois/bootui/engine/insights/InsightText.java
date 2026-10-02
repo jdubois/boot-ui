@@ -48,6 +48,17 @@ final class InsightText {
         return dot < 0 ? className : className.substring(dot + 1);
     }
 
+    /**
+     * What one unit of a route's work is called: {@code run} for a scheduled job, {@code message} for a listener, and
+     * {@code request} for a route (M3-8).
+     */
+    static String unit(String route) {
+        if (route != null && route.startsWith("@Scheduled ")) {
+            return "run";
+        }
+        return route != null && route.startsWith("consume ") ? "message" : "request";
+    }
+
     /** Milliseconds from nanoseconds, with one decimal below 10 ms. */
     static String millis(long nanos) {
         double ms = nanos / 1_000_000.0;

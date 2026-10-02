@@ -98,9 +98,10 @@ public final class RepeatedSelects implements Observation {
                 ? "`" + route + "` ran `" + InsightText.quoted(fingerprint) + "` " + MIN_REPEATS
                         + " or more times after"
                         + " another statement in " + repeats.size() + " of "
-                        + InsightText.counted(eligible, "request") + ", up to " + most + " times in one."
-                : "`" + route + "`: " + repeats.size() + " of " + MIN_REQUESTS + " requests needed to report `"
-                        + InsightText.quoted(fingerprint) + "` repeated " + MIN_REPEATS + " or more times.";
+                        + InsightText.counted(eligible, InsightText.unit(route)) + ", up to " + most + " times in one."
+                : "`" + route + "`: " + repeats.size() + " of " + MIN_REQUESTS + " " + InsightText.unit(route)
+                        + "s needed to report `" + InsightText.quoted(fingerprint) + "` repeated " + MIN_REPEATS
+                        + " or more times.";
         List<List<String>> rows = new ArrayList<>();
         for (Repeat repeat : repeats) {
             rows.add(List.of(

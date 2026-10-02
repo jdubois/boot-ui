@@ -108,7 +108,8 @@ public final class SplitTransactionWrites implements Observation {
                 .max()
                 .orElse(2);
         String sentence = "`" + route + "` committed its writes in " + (most == 2 ? "2" : "up to " + most)
-                + " independent units in " + rows.size() + " of " + InsightText.counted(eligible, "request")
+                + " independent units in " + rows.size() + " of "
+                + InsightText.counted(eligible, InsightText.unit(route))
                 + " that wrote: if these writes must succeed together, one may persist while another fails.";
         List<String> limitations = new ArrayList<>();
         limitations.add("A unit is a transaction that began its own physical transaction or a statement run outside"

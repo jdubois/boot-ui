@@ -222,7 +222,8 @@ public class TelemetryStore implements RuntimeEventPublisher {
                             AiSpanRecognizer.inputTokens(span),
                             AiSpanRecognizer.outputTokens(span),
                             AiSpanRecognizer.finishReason(span),
-                            span.isError())));
+                            span.isError(),
+                            span.spanId())));
         } catch (RuntimeException ex) {
             // Publishing never disturbs the telemetry store.
         }

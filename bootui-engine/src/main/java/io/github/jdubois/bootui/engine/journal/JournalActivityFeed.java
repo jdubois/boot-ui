@@ -468,7 +468,7 @@ public final class JournalActivityFeed {
                     event,
                     transaction.rolledBack() ? SEVERITY_WARN : SEVERITY_OK,
                     transaction.method() == null ? "Transaction" : transaction.method(),
-                    transaction.rolledBack() ? "rolled back" : "committed",
+                    transactionDetail(transaction),
                     durationMs,
                     null,
                     null,
@@ -628,6 +628,31 @@ public final class JournalActivityFeed {
     }
 
     /** An AI call's summary: its operation, model, and provider, such as {@code chat gpt-4o (openai)}. */
+    /**
+     * A transaction's outcome and declared attributes, such as {@code rolled back (rollback-only) · read-only ·
+     * REQUIRES_NEW · REPEATABLE_READ · UnexpectedRollbackException}.
+     */
+    static String transactionDetail(TransactionPayload transaction) {
+        StringBuilder detail = new StringBuilder(transaction.rolledBack() ? "rolled back" : "committed");
+        if (transaction.rollbackOnly()) {
+            detail.append(" (rollback-only)");
+        }
+        if (transaction.readOnly()) {
+            detail.append(" · read-only");
+        }
+        if (!"REQUIRED".equals(transaction.propagation())) {
+            detail.append(" · ").append(transaction.propagation());
+        }
+        if (transaction.isolation() != null) {
+            detail.append(" · ").append(transaction.isolation());
+        }
+        if (transaction.failureClass() != null) {
+            int dot = transaction.failureClass().lastIndexOf('.');
+            detail.append(" · ").append(transaction.failureClass().substring(dot + 1));
+        }
+        return detail.toString();
+    }
+
     /** What a marker says on the time axis, such as {@code BootUI action} for a change made from a panel. */
     public static String markerSummary(LifecyclePayload marker) {
         return switch (marker.kind()) {

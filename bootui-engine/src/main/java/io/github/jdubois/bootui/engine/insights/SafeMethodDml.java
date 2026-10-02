@@ -45,7 +45,7 @@ public final class SafeMethodDml implements Observation {
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;
         for (Map.Entry<String, List<ProjectedRequest>> route :
-                snapshot.byRoute().entrySet()) {
+                snapshot.httpByRoute().entrySet()) {
             List<ProjectedRequest> safe = route.getValue().stream()
                     .filter(ProjectedRequest::safeMethod)
                     .toList();

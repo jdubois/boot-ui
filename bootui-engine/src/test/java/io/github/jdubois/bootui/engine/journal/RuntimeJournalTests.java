@@ -151,11 +151,11 @@ class RuntimeJournalTests {
         journal.setThreadKindClassifier(() -> ThreadKind.EVENT_LOOP);
         String here = Thread.currentThread().getName();
 
-        journal.offer(new RuntimeEvent(JournalSource.LOG, 1, -1, null, null, null, null, here, null, false, null));
-        journal.offer(new RuntimeEvent(JournalSource.LOG, 2, -1, null, null, null, null, "other", null, false, null));
-        journal.offer(new RuntimeEvent(
-                JournalSource.LOG, 3, -1, null, null, null, null, here, ThreadKind.WORKER, false, null));
-        journal.offer(new RuntimeEvent(JournalSource.LOG, 4, -1, null, null, null, null, null, null, false, null));
+        journal.offer(new RuntimeEvent(JournalSource.LOG, 1, -1, null, null, null, here, null, false, null));
+        journal.offer(new RuntimeEvent(JournalSource.LOG, 2, -1, null, null, null, "other", null, false, null));
+        journal.offer(
+                new RuntimeEvent(JournalSource.LOG, 3, -1, null, null, null, here, ThreadKind.WORKER, false, null));
+        journal.offer(new RuntimeEvent(JournalSource.LOG, 4, -1, null, null, null, null, null, false, null));
         journal.dispatchPending();
 
         assertThat(journal.entries())
@@ -258,7 +258,7 @@ class RuntimeJournalTests {
             journal.offer(sql(i, false));
         }
         journal.offer(new RuntimeEvent(
-                JournalSource.SQL, 5_000, 1, null, null, null, null, "t", null, false, () -> eventBytes * 10));
+                JournalSource.SQL, 5_000, 1, null, null, null, "t", null, false, () -> eventBytes * 10));
         journal.dispatchPending();
 
         JournalStatus status = journal.status();

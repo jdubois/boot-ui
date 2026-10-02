@@ -153,7 +153,6 @@ class JournalActivityFeedTests {
                         null,
                         null,
                         null,
-                        null,
                         false,
                         new GcPayload("G1 Young Generation", 1, "a", "c", true, 2, 1)),
                 1_003);
@@ -519,7 +518,6 @@ class JournalActivityFeedTests {
                 event.requestId(),
                 event.executionId(),
                 event.traceId(),
-                event.spanId(),
                 event.thread(),
                 event.threadKind(),
                 event.failedOrSlow(),
@@ -529,7 +527,7 @@ class JournalActivityFeedTests {
 
     private static RuntimeEvent ai(String traceId, AiPayload payload) {
         return new RuntimeEvent(
-                JournalSource.AI, 0, 45_000_000, null, null, traceId, null, null, null, payload.failed(), payload);
+                JournalSource.AI, 0, 45_000_000, null, null, traceId, null, null, payload.failed(), payload);
     }
 
     private static RuntimeEvent traced(RuntimeEvent event, String traceId) {
@@ -540,7 +538,6 @@ class JournalActivityFeedTests {
                 event.requestId(),
                 event.executionId(),
                 traceId,
-                event.spanId(),
                 event.thread(),
                 event.threadKind(),
                 event.failedOrSlow(),
@@ -585,5 +582,23 @@ class JournalActivityFeedTests {
                 : executionId != null ? CorrelationContext.forExecution(executionId) : CorrelationContext.NONE;
         boolean failed = payload instanceof SqlPayload sql && sql.failed();
         return RuntimeEvent.of(source, 0, nanos, context, thread, null, failed, payload);
+    }
+
+    @Test
+    void aTransactionRowStatesItsOutcomeAndDeclaredAttributes() {
+        assertThat(JournalActivityFeed.transactionDetail(new TransactionPayload(
+                        "OrderService.place",
+                        true,
+                        true,
+                        false,
+                        -1,
+                        true,
+                        "SERIALIZABLE",
+                        true,
+                        "org.springframework.transaction.UnexpectedRollbackException")))
+                .isEqualTo("rolled back (rollback-only) · read-only · REQUIRES_NEW · SERIALIZABLE"
+                        + " · UnexpectedRollbackException");
+        assertThat(JournalActivityFeed.transactionDetail(new TransactionPayload("OrderService.place", false)))
+                .isEqualTo("committed");
     }
 }

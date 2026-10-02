@@ -355,7 +355,7 @@ public final class RuntimeInsightsService {
                         status.oldestRetainedEpochMillis(),
                         entries.isEmpty() ? null : newest(entries),
                         status.retainedEvents(),
-                        snapshot.requests().size(),
+                        snapshot.httpRequests().size(),
                         evicted,
                         status.droppedTotal()),
                 coverage,
@@ -377,7 +377,7 @@ public final class RuntimeInsightsService {
             return List.of();
         }
         try {
-            Set<String> exercised = new HashSet<>(snapshot.byRoute().keySet());
+            Set<String> exercised = new HashSet<>(snapshot.httpByRoute().keySet());
             Supplier<JournalAggregates.RouteLabels> run = runRoutes;
             JournalAggregates.RouteLabels labels = run == null ? null : run.get();
             if (labels != null) {

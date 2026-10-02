@@ -102,7 +102,7 @@ public final class FrameworkWarningsByRoute implements Observation {
         LogPayload log = group.log;
         String template = log.template() == null ? "" : log.template();
         String sentence = "`" + route + "` logged `" + log.level() + "` from `" + InsightText.simpleName(log.logger())
-                + "` in " + group.rows.size() + " of " + InsightText.counted(eligible, "request") + " ("
+                + "` in " + group.rows.size() + " of " + InsightText.counted(eligible, InsightText.unit(route)) + " ("
                 + InsightText.counted(group.events, "event") + "): \"" + InsightText.quoted(template) + "\".";
         List<String> checks = new ArrayList<>();
         KNOWN.forEach((fragment, check) -> {

@@ -16,6 +16,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
 import org.springframework.transaction.TransactionExecution;
+import org.springframework.transaction.UnexpectedRollbackException;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 class BootUiTransactionExecutionListenerTests {
@@ -133,6 +134,43 @@ class BootUiTransactionExecutionListenerTests {
                         tuple("Audit.log", true, false),
                         tuple("Stock.reserve", true, true),
                         tuple("Outer.method", false, false));
+    }
+
+    @Test
+    void publishesTheDeclaredAttributesARollbackOnlyMarkAndTheExceptionThatFailedTheCommit() {
+        TransactionRecorder recorder = recorder();
+        List<RuntimeEvent> published = new ArrayList<>();
+        recorder.setRuntimeEventSink(published::add);
+        BootUiTransactionExecutionListener listener = new BootUiTransactionExecutionListener(recorder);
+        TransactionSynchronizationManager.setCurrentTransactionIsolationLevel(Connection.TRANSACTION_REPEATABLE_READ);
+
+        TransactionExecution report = execution("ReportService.export", true);
+        listener.afterBegin(report, null);
+        listener.beforeCommit(report);
+        listener.afterCommit(report, null);
+        TransactionSynchronizationManager.setCurrentTransactionIsolationLevel(null);
+        TransactionExecution order = execution("OrderService.place", false);
+        when(order.isRollbackOnly()).thenReturn(true);
+        listener.afterBegin(order, null);
+        listener.beforeCommit(order);
+        listener.afterCommit(order, new UnexpectedRollbackException("marked rollback-only"));
+
+        assertThat(published)
+                .extracting(event -> (TransactionPayload) event.payload())
+                .extracting(
+                        TransactionPayload::readOnly,
+                        TransactionPayload::isolation,
+                        TransactionPayload::propagation,
+                        TransactionPayload::rollbackOnly,
+                        TransactionPayload::failureClass)
+                .containsExactly(
+                        tuple(true, "REPEATABLE_READ", "REQUIRED", false, null),
+                        tuple(
+                                false,
+                                null,
+                                "REQUIRED",
+                                true,
+                                "org.springframework.transaction.UnexpectedRollbackException"));
     }
 
     @Test

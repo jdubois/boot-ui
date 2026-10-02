@@ -200,6 +200,16 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
      * this recorder never saw begin (e.g. capture was toggled on mid-transaction).
      */
     public void completeTransaction(long id, Status status, String errorMessage) {
+        completeTransaction(id, status, errorMessage, false, null);
+    }
+
+    /**
+     * Records the completion of a transaction boundary, as {@link #completeTransaction(long, Status, String)} does, with
+     * whether it was marked rollback-only and the exception class that failed its commit or rollback, if any
+     * ({@code docs/PLAN-v2.md} §5.18).
+     */
+    public void completeTransaction(
+            long id, Status status, String errorMessage, boolean rollbackOnly, String failureClass) {
         if (id < 0) {
             return;
         }
@@ -208,7 +218,7 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
         if (transaction == null) {
             return;
         }
-        record(transaction, status == null ? Status.UNKNOWN : status, errorMessage);
+        record(transaction, status == null ? Status.UNKNOWN : status, errorMessage, rollbackOnly, failureClass);
     }
 
     private void popStack(long id) {
@@ -219,7 +229,12 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
         }
     }
 
-    private void record(ActiveTransaction transaction, Status status, String errorMessage) {
+    private void record(
+            ActiveTransaction transaction,
+            Status status,
+            String errorMessage,
+            boolean rollbackOnly,
+            String failureClass) {
         long end = System.currentTimeMillis();
         long duration = Math.max(0, end - transaction.startTimestamp);
         if (transaction.panel()) {
@@ -266,7 +281,11 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
                             status == Status.ROLLED_BACK,
                             transaction.parentId() != null,
                             transaction.savepoint(),
-                            transaction.startNanos())));
+                            transaction.startNanos(),
+                            transaction.readOnly(),
+                            ISOLATION_UNKNOWN.equals(transaction.isolation()) ? null : transaction.isolation(),
+                            rollbackOnly,
+                            failureClass)));
         } catch (RuntimeException ex) {
             // Publishing never disturbs the transaction it observes.
         }

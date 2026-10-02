@@ -104,8 +104,7 @@ class JournalAggregatesTests {
         publish(onThread(null, "pool-3-thread-7", 1_000));
         publish(onThread(null, "pool-3-thread-12", 2_000));
         publish(onThread("r1", "http-nio-8080-exec-1", 5_000));
-        publish(new RuntimeEvent(
-                JournalSource.SQL, 1, 7_000, null, "job-1", null, null, "scheduling-1", null, false, null));
+        publish(new RuntimeEvent(JournalSource.SQL, 1, 7_000, null, "job-1", null, "scheduling-1", null, false, null));
 
         AggregatesSnapshot snapshot = aggregates.snapshot();
 
@@ -127,7 +126,6 @@ class JournalAggregatesTests {
                 null,
                 null,
                 "4bf92f3577b34da6a3ce929d0e0e4736",
-                "span-1",
                 null,
                 null,
                 false,
@@ -136,7 +134,6 @@ class JournalAggregatesTests {
                 JournalSource.MESSAGING,
                 1,
                 -1,
-                null,
                 null,
                 null,
                 null,
@@ -357,7 +354,6 @@ class JournalAggregatesTests {
                 JournalSource.GC,
                 1_000,
                 millis * 1_000_000,
-                null,
                 null,
                 null,
                 null,

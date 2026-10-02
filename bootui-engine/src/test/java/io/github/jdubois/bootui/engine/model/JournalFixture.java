@@ -25,17 +25,7 @@ final class JournalFixture {
         String requestId = "r" + (++requests);
         for (Child child : children) {
             add(new RuntimeEvent(
-                    child.source(),
-                    child.at(),
-                    1,
-                    requestId,
-                    null,
-                    null,
-                    null,
-                    "http-1",
-                    null,
-                    false,
-                    child.payload()));
+                    child.source(), child.at(), 1, requestId, null, null, "http-1", null, false, child.payload()));
         }
         add(new RuntimeEvent(
                 JournalSource.HTTP,
@@ -44,7 +34,6 @@ final class JournalFixture {
                 requestId,
                 null,
                 traceId,
-                null,
                 "http-1",
                 null,
                 false,
@@ -57,17 +46,7 @@ final class JournalFixture {
         String executionId = "e" + (++requests);
         for (Child child : children) {
             add(new RuntimeEvent(
-                    child.source(),
-                    child.at(),
-                    1,
-                    null,
-                    executionId,
-                    null,
-                    null,
-                    "sched-1",
-                    null,
-                    false,
-                    child.payload()));
+                    child.source(), child.at(), 1, null, executionId, null, "sched-1", null, false, child.payload()));
         }
         add(new RuntimeEvent(
                 JournalSource.SCHEDULED,
@@ -75,7 +54,6 @@ final class JournalFixture {
                 1,
                 null,
                 executionId,
-                null,
                 null,
                 "sched-1",
                 null,
@@ -86,7 +64,7 @@ final class JournalFixture {
     /** An event of {@code source} owned by no request or execution, or by the given ids. */
     void event(
             JournalSource source, String requestId, String executionId, String traceId, RuntimeEventPayload payload) {
-        add(new RuntimeEvent(source, 5_000, 1, requestId, executionId, traceId, null, "t", null, false, payload));
+        add(new RuntimeEvent(source, 5_000, 1, requestId, executionId, traceId, "t", null, false, payload));
     }
 
     List<JournalEntry> entries() {

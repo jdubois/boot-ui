@@ -7,8 +7,10 @@ import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalStatus;
 import io.github.jdubois.bootui.engine.journal.LifecyclePayload;
+import io.github.jdubois.bootui.engine.journal.MessagingPayload;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.ScheduledPayload;
 import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import java.util.ArrayList;
@@ -34,6 +36,8 @@ public final class InsightsSnapshot {
     private final List<RuntimeEvent> collections;
     private final List<RuntimeEvent> markers;
     private final Map<String, List<ProjectedRequest>> byRoute;
+    private final List<ProjectedRequest> httpRequests;
+    private final Map<String, List<ProjectedRequest>> httpByRoute;
     private final Map<JournalSource, long[]> coverage;
     private final JournalStatus status;
     private final Predicate<JournalSource> recorded;
@@ -61,6 +65,18 @@ public final class InsightsSnapshot {
             routes.computeIfAbsent(request.route(), route -> new ArrayList<>()).add(request);
         }
         this.byRoute = Collections.unmodifiableMap(routes);
+        List<ProjectedRequest> http = new ArrayList<>();
+        Map<String, List<ProjectedRequest>> httpRoutes = new LinkedHashMap<>();
+        for (ProjectedRequest request : requests) {
+            if (request.http()) {
+                http.add(request);
+                httpRoutes
+                        .computeIfAbsent(request.route(), route -> new ArrayList<>())
+                        .add(request);
+            }
+        }
+        this.httpRequests = Collections.unmodifiableList(http);
+        this.httpByRoute = Collections.unmodifiableMap(httpRoutes);
         this.coverage = coverage;
         this.status = status;
         this.recorded = recorded;
@@ -139,6 +155,8 @@ public final class InsightsSnapshot {
         ordered.sort(Comparator.comparingLong(JournalEntry::sequence));
         Map<String, RuntimeEvent> http = new HashMap<>();
         Map<String, List<RuntimeEvent>> children = new HashMap<>();
+        Map<String, RuntimeEvent> executions = new HashMap<>();
+        Map<String, List<RuntimeEvent>> executionChildren = new HashMap<>();
         Map<JournalSource, long[]> coverage = new EnumMap<>(JournalSource.class);
         List<RuntimeEvent> traced = new ArrayList<>();
         List<RuntimeEvent> collections = new ArrayList<>();
@@ -157,6 +175,16 @@ public final class InsightsSnapshot {
                 traced.add(event);
             } else {
                 counts[2]++;
+            }
+            if (event.requestId() == null && event.executionId() != null) {
+                if (opensExecution(event)) {
+                    executions.put(event.executionId(), event);
+                } else {
+                    executionChildren
+                            .computeIfAbsent(event.executionId(), id -> new ArrayList<>())
+                            .add(event);
+                }
+                continue;
             }
             if (event.requestId() == null) {
                 if (event.payload() instanceof GcPayload) {
@@ -205,7 +233,31 @@ public final class InsightsSnapshot {
                     payload.timing(),
                     payload.resources(),
                     event.traceId(),
-                    event.thread()));
+                    event.thread(),
+                    ProjectedRequest.Kind.HTTP));
+        }
+        for (Map.Entry<String, RuntimeEvent> execution : executions.entrySet()) {
+            RuntimeEvent event = execution.getValue();
+            String name = executionName(event);
+            if (name == null) {
+                continue;
+            }
+            requests.add(new ProjectedRequest(
+                    execution.getKey(),
+                    name,
+                    null,
+                    null,
+                    0,
+                    event.epochMillis(),
+                    Math.max(0, event.durationNanos()),
+                    executionChildren.getOrDefault(execution.getKey(), List.of()),
+                    null,
+                    null,
+                    event.traceId(),
+                    event.thread(),
+                    event.payload() instanceof ScheduledPayload
+                            ? ProjectedRequest.Kind.SCHEDULED
+                            : ProjectedRequest.Kind.MESSAGE));
         }
         requests.sort(
                 Comparator.comparingLong(ProjectedRequest::startMillis).thenComparing(ProjectedRequest::requestId));
@@ -226,14 +278,47 @@ public final class InsightsSnapshot {
         return markers;
     }
 
-    /** Every completed request retained, oldest first. */
+    /** Every completed request, scheduled run, and consumed message retained, oldest first. */
     public List<ProjectedRequest> requests() {
         return requests;
     }
 
-    /** The completed requests per route label, routes in first-seen order. */
+    /**
+     * The completed requests, scheduled runs, and consumed messages per route label or execution name, in first-seen
+     * order, for the observations that read a unit of work's own children.
+     */
     public Map<String, List<ProjectedRequest>> byRoute() {
         return byRoute;
+    }
+
+    /** Every completed HTTP request retained, oldest first. */
+    public List<ProjectedRequest> httpRequests() {
+        return httpRequests;
+    }
+
+    /**
+     * The completed HTTP requests per route label, for the observations that read what only a request has: its status,
+     * method, phases, authorization, or measured resources.
+     */
+    public Map<String, List<ProjectedRequest>> httpByRoute() {
+        return httpByRoute;
+    }
+
+    /** Whether {@code event} opens an execution: a scheduled run or a consumed message, as the feed renders it. */
+    static boolean opensExecution(RuntimeEvent event) {
+        return event.payload() instanceof ScheduledPayload
+                || (event.payload() instanceof MessagingPayload message && !message.sent());
+    }
+
+    /** An execution's name, like a route's: {@code @Scheduled OrderJob.run} or {@code consume kafka:orders}. */
+    static String executionName(RuntimeEvent event) {
+        if (event.payload() instanceof ScheduledPayload job) {
+            return job.task() == null ? null : "@Scheduled " + job.task();
+        }
+        if (event.payload() instanceof MessagingPayload message && message.destination() != null) {
+            return "consume " + (message.broker() == null ? "" : message.broker() + ":") + message.destination();
+        }
+        return null;
     }
 
     /** The stack serving the application, or {@code null} when unknown. */

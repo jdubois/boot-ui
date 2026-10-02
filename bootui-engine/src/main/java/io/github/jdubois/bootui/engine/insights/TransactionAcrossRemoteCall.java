@@ -103,7 +103,7 @@ public final class TransactionAcrossRemoteCall implements Observation {
         boolean sufficient = found.transactions >= MIN_TRANSACTIONS && callMedian >= MIN_CALL_NANOS;
         StringBuilder sentence = new StringBuilder("`" + route + "`: `" + method
                 + "` kept its transaction open across a call to `" + found.firstCall + "` in "
-                + found.transactions + " of " + InsightText.counted(eligible, "request")
+                + found.transactions + " of " + InsightText.counted(eligible, InsightText.unit(route))
                 + " that both called out and opened a transaction; the call took a median "
                 + InsightText.millis(callMedian)
                 + " ms");

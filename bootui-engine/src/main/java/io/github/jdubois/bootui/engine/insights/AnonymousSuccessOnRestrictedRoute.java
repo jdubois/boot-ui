@@ -42,7 +42,7 @@ public final class AnonymousSuccessOnRestrictedRoute implements Observation {
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;
         for (Map.Entry<String, List<ProjectedRequest>> route :
-                snapshot.byRoute().entrySet()) {
+                snapshot.httpByRoute().entrySet()) {
             List<List<String>> successes = new ArrayList<>();
             List<List<String>> restrictions = new ArrayList<>();
             long anonymous = 0;

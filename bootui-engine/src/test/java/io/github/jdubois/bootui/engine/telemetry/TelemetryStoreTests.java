@@ -77,7 +77,7 @@ class TelemetryStoreTests {
             assertThat(event.epochMillis()).isEqualTo(5);
             assertThat(event.durationNanos()).isEqualTo(40_000_000L);
             AiPayload ai = (AiPayload) event.payload();
-            assertThat(ai).isEqualTo(new AiPayload("chat", "openai", "gpt-4o", 1200L, 300L, "length", false));
+            assertThat(ai).isEqualTo(new AiPayload("chat", "openai", "gpt-4o", 1200L, 300L, "length", false, "span-1"));
             assertThat(ai.lengthLimited()).isTrue();
         });
     }
