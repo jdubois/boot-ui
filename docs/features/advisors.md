@@ -949,7 +949,10 @@ The Spring adapter resolves coordinates from three sources, in decreasing order 
 1. **The application's embedded CycloneDX SBOM** (`META-INF/sbom/application.cdx.json` or `META-INF/sbom/bom.json`, the
    files Spring Boot's `/actuator/sbom` serves). Maven PURLs carry `groupId`, artifact, and version, for example
    `pkg:maven/org.example/sample@1.0` — including the `groupId` no manifest header carries. This can identify artifacts
-   published without a Maven descriptor; PURL decoding limitations remain deferred below.
+   published without a Maven descriptor; PURL decoding limitations remain deferred below. A component the SBOM declares
+   not shipped — CycloneDX `scope: "excluded"`, or the `cdx:maven:package:test=true` property the CycloneDX Gradle
+   plugin sets on the test-classpath libraries it lists by default — is left out, together with the components nested
+   in it, unless the archive census below finds its JAR, so a mislabeled SBOM cannot hide a shipped library.
 2. **`META-INF/maven/*/*/pom.properties`** descriptors on the classpath, which Spring's resolver also sees inside a
    repackaged archive's nested JARs.
 3. **`java.class.path` entries**, read through the Maven repository directory layout or an adjacent Maven POM (including
@@ -1050,8 +1053,8 @@ of them:
 
 - **Discovery can overclaim coverage.** Spring de-duplicates archive basenames and matches filenames without group
   identity; case/classifier ambiguity can overstate identification. PURL literal-plus decoding and namespace rewriting,
-  SBOM runtime-scope attribution, and a traversal cap on resolved coordinates rather than inspected nodes need separate
-  fixes.
+  SBOM runtime-scope attribution beyond test-only and `excluded` components, and a traversal cap on resolved
+  coordinates rather than inspected nodes need separate fixes.
 - **Without an SBOM, some JARs cannot be identified.** No JAR manifest header carries a `groupId` (the
   `spring-boot-jarmode-tools` exception above works only because its group is fixed and known)
   (`Implementation-Title` is a display name as often as an artifact id, and `Implementation-Vendor-Id` is not a group

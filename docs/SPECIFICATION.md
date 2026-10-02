@@ -747,7 +747,9 @@ produce `PARTIAL`; inapplicable checks alone do not make coverage incomplete or 
 Data sources:
 
 - The application's embedded CycloneDX SBOM (`META-INF/sbom/application.cdx.json` or `META-INF/sbom/bom.json`, the
-  files Spring Boot's `/actuator/sbom` serves), whose `purl` values carry the `groupId`.
+  files Spring Boot's `/actuator/sbom` serves), whose `purl` values carry the `groupId`. Components declared not
+  shipped (`scope: "excluded"` or `cdx:maven:package:test=true`), with their nested components, are skipped unless the
+  archive census finds their JAR.
 - Maven metadata (`META-INF/maven/*/*/pom.properties`) discovered from the running application's classpath.
 - The `java.class.path` entries, read through the Maven repository directory layout or an adjacent `.pom`.
 - Quarkus instead reads coordinates captured from its build-time resolved application model. A missing/blank model, a
@@ -917,7 +919,8 @@ Acceptance criteria:
 
 Known limitations: inventory-discovery repairs are explicitly deferred. Spring filename de-duplication and
 case-insensitive attribution without group identity can overstate coverage for same-basename archives or ambiguous
-classifiers. PURL literal-plus decoding/namespace rewriting, SBOM runtime scope, and unreadable container/archive
+classifiers. PURL literal-plus decoding/namespace rewriting, SBOM runtime scope beyond test-only and `excluded`
+components, and unreadable container/archive
 diagnostics need separate fixes. The SBOM traversal limit counts resolved distinct coordinates, not inspected nodes,
 and the whole JSON is parsed first. Quarkus `COMPLETE` reflects its wholly decoded build-time model. Neither a provider
 nor a consumer trusting that flag independently verifies a complete runtime inventory.
