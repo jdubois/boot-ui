@@ -36,6 +36,13 @@ the Spring sample app's "Call the Quarkus sample app" button calls over HTTP —
 [Cross-service trace demo](../bootui-spring-sample-app/README.md#cross-service-trace-demo-with-the-quarkus-sample-app)
 in the Spring sample's README.
 
+`InsightSeedResource` (`/api/insights/*`) seeds the Runtime Insights observations Quarkus records, each beside the
+counterexample it must not report: orders loaded line by line and joined, a GET that writes an audit row, JDBC in a
+`@NonBlocking` route on the event loop, an anonymous debug reset, and a payroll report reachable anonymously as
+`/api/insights/reports/PAYROLL` because its permission path matches case-sensitively. With the app running, send the
+traffic with `cd e2e && node scripts/insights-demo.mjs http://localhost:8082`, then open Runtime Insights. Never copy
+these routes into an application.
+
 ## Running from source
 
 Quarkus Dev Services starts a throwaway PostgreSQL container, so **Docker (or Podman) must be running**.

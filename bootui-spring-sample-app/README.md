@@ -211,6 +211,27 @@ and AI Framework steps note where the `docker` profile adds Postgres/Redis/Ollam
 19. **DevTools, Dev Services, Copilot, Claude Code** — confirm the developer-tool panels show local status, bounded service
     metadata/logs, and sanitized local agent activity.
 
+## Runtime Insights demo
+
+`InsightSeedController` (`/api/insights/*`) seeds one case for each Runtime Insights observation, each beside the
+corrected version it must not report: orders loaded line by line and joined (Repeated SELECTs), a GET that writes an
+audit row (Writes in GET requests), a confirmation that writes its audit in a `REQUIRES_NEW` transaction and a shipment
+that does not (Connections held together, Writes split across transactions), a price check inside and after a
+transaction (Transactions open across remote calls), a self-invoked `@Transactional` method and the same call through
+a bean (Proxy bypass), an import that rolls back yet answers 200 (Errors behind 2xx responses), a report that reads
+during the response write (SQL after the handler returned), an unreadable body (Framework warnings), an anonymous debug
+reset (Anonymous writes), and a payroll report whose exact security matcher misses `/api/insights/reports/PAYROLL`
+(Anonymous success on a restricted route). The WebFlux sample adds blocking JDBC on the event loop and a per-note loop.
+With the app running, send the traffic and open the panel, no tracing needed:
+
+```bash
+cd e2e && node scripts/insights-demo.mjs http://localhost:8080        # Spring MVC
+cd e2e && node scripts/insights-demo.mjs http://localhost:8081 webflux # Spring WebFlux sample
+```
+
+Never copy these routes into an application. `RuntimeInsightsSeedsTest` and the `runtime-insights-demo` browser tests
+check that each seed is reported and each counterexample is not.
+
 ## Stop it
 
 `Ctrl-C` the Spring Boot process. With the `docker` profile, Spring Boot also stops Docker Compose.

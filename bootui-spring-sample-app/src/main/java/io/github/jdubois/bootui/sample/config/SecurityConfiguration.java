@@ -62,8 +62,14 @@ class SecurityConfiguration {
     @Bean
     @Order(3)
     SecurityFilterChain applicationSecurity(HttpSecurity http) throws Exception {
-        return http.authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll())
-                .csrf(csrf -> csrf.ignoringRequestMatchers("/api/chat"))
+        return http.authorizeHttpRequests(authorize -> authorize
+                        // Runtime Insights seed (M3-6): an exact, case-sensitive matcher in front of a handler that
+                        // matches report names case-insensitively, so /api/insights/reports/PAYROLL is anonymous.
+                        .requestMatchers("/api/insights/reports/payroll")
+                        .hasRole("ADMIN")
+                        .anyRequest()
+                        .permitAll())
+                .csrf(csrf -> csrf.ignoringRequestMatchers("/api/chat", "/api/insights/**"))
                 .build();
     }
 
