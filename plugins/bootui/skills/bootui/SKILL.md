@@ -163,8 +163,9 @@ tool of the same behavior.
 
 ### Read MySQL operational evidence
 
-The MySQL operational panel supports Oracle MySQL 8.4 LTS, with live coverage on 8.4.6; check the running catalog
-for the application's actual capability. It uses JDBC on Spring MVC, WebFlux, and Quarkus, including named datasources.
+The MySQL operational panel supports Oracle MySQL 8.4 LTS and 9.7 LTS, with live coverage on 8.4.6 and 9.7.2; check
+the running catalog for the application's actual capability. It uses JDBC on Spring MVC, WebFlux, and Quarkus,
+including named datasources.
 MariaDB, R2DBC-only, and reactive-client-only
 applications are unsupported by this first scope; do not install another pool just to enable diagnostics.
 
