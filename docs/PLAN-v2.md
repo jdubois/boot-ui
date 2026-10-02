@@ -231,11 +231,13 @@ Three design points shape how v2 reuses v1 foundations:
 | **M1 Exact correlation** (§5.1) | One correlation context on every event, with or without tracing, on all three stacks, and the request phase markers | M0; v1 wave 1 (§3.20a ✅, §3.24a ✅) | 45–56 | ✅ Delivered |
 | **M2 Journal and Live Activity** (§5.2, §5.3, §5.11) | The in-memory journal, incremental aggregates, run summaries, resource correlation (scope readings, GC by id, CPU ledger, resource track), and Live Activity served from the journal with its unified timeline | M1; §3.22, §3.27 | 44–56 | ✅ Delivered, except §5.11's opt-in JFR attribution, which D17 places |
 | **M3 Runtime Insights** (§5.4–§5.6) | Projections, the runtime model, the panel, Live Activity entry points, twelve observations, agent tools, and the demo | M2; §3.25 | 52–65 | 🚧 In progress |
-| **M4 Change loop and 2.0 readiness** (§5.7–§5.9, §5.12) | Change impact, run comparison and behavior diff, anonymous access, proxy bypass, external validation, and the release path | M3; §3.18 | 33–45 | 📋 Planned |
+| **M4 Change loop and 2.0 readiness** (§5.7–§5.9, §5.12, §5.18) | Change impact, run comparison and behavior diff, anonymous access, proxy bypass, the journal sources they need, external validation, and the release path | M3; §3.18 | 33–45 | 📋 Planned |
 | **M5 BootUI Java agent** (§5.13–§5.17) | The optional agent, executor propagation, Code Paths, Code Inventory, Side Effects, and agent evidence in observations, comparison, and tools | M3 for observations; M4 for the change-loop upgrades | 90–116 | 📋 Planned |
 
 M0–M4 total about **179–230 engineer-days**, roughly seven to nine months with two developers who also maintain 1.x.
 Opt-in JFR attribution (§5.11, D17) adds 6–9 engineer-days to M4, so M0–M4 come to about 185–239 engineer-days with it.
+§5.18's journal coverage adds about 15–21 engineer-days for the slices §5.8 and §5.9 need (M3-8, M3-9, M4-5, M4-6)
+and 25–35 for the others (M4-7 to M4-10), which D29 places.
 M5 is estimated separately and **does not gate 2.0.0** (D20): its slices land on `v2` as they are ready, what is merged
 when M4 meets its gates ships in 2.0.0, and the rest follows in 2.x.
 The v1 foundations are estimated in their own plan. Before v1 wave 1 lands, `v2` works on M0 and the spikes.
@@ -265,6 +267,8 @@ they come last and everything before them proceeds without it:
 | M3-5 | §5.4's runtime model, in the engine's new `model` package: typed nodes (route, GraphQL operation, scheduled job, listener, bean, repository, table, cache, outbound host, topic or queue, AI model, exception group) and edges (depends on, handled by, reads, writes, calls, publishes, consumes, raises) of interned ids, each edge `DECLARED`, `OBSERVED` with its count and first and last seen, or `INFERRED`, never merged; capped at 5,000 nodes and 30,000 edges. `RuntimeModelProjection` builds it on read from the retained events, where executions own work by request or execution id (AI spans by trace id), so an event no execution owns adds no edge, and from a `StructureSnapshot` of routes, handlers, beans, and dependencies that `RuntimeModelService` reads once per run; it stops at the 250 ms read budget as a partial model. Three algorithms with seeded property tests against brute-force references: `ReverseClosure` (backwards only, allowlisted edge types, depth ≤ 5), `IntervalUnion`, and `EdgeDiff`. The PoC's change-impact evidence is a fixture: one repository reaches 7 beans and 571 requests; two routes sharing only a table never reach each other; 50,000 events project well inside the budget. Tables come from the existing `SqlTables` extraction until v1 §3.18 lands. The adapters' structure suppliers arrive with the model's first consumers, M3-7's agent tools and M4's change impact | M3-1 | ✅ Delivered |
 | M3-6 | Sample-app seeds and counterexamples for every observation, and the scripted demo on each stack | M3-2b, M3-3c, M3-4b | 📋 Planned |
 | M3-7 | §5.6's agent tools, CLI commands, prompts, and Quarkus Dev MCP registration, and the panel's **Copy for AI** | M3-4a, v1 §3.25 | 📋 Planned. Needs v1 §3.25 on `main` |
+| M3-8 | §5.18's fixes to existing sources. `TransactionPayload` gains its read-only flag, isolation, propagation, and the exception class of a rollback. `InsightsSnapshot` projects scheduled runs and consumed messages as executions with their children, named like routes (`@Scheduled OrderJob.run`, `consume orders`), so the request-level observations also cover jobs and listeners. `route-time-breakdown` names AI calls and synchronous message sends in the handler phase. `spanId` is either filled from the current span at capture or removed from the envelope. Lands before M3-6 when possible, so its seeds cover a job and a listener | M3-5, M2-8e4 | 📋 Planned |
+| M3-9 | §5.18's AI calls without tracing: Spring AI's `gen_ai.client.operation` observation and Quarkus LangChain4j's `ChatModelListener` publish `ai` events stamped with the request or execution id at capture, so `ai-usage-by-route` no longer needs tracing and covers jobs. GenAI spans stay the fallback, deduplicated by trace and span id | M3-3c | 📋 Planned |
 
 M4's slices are defined as M3 completes, each one pull request to `v2`. M4-1 and M4-2 make the behavior diff possible:
 today a run summary keeps routes, statements, exception groups, and transactional methods, but not the runtime
@@ -277,6 +281,15 @@ against.
 | M4-2 | §5.8's opt-in `bootui.runtime-journal.baseline-file`: at the end of a run, one run summary written to the build output directory (`target/` or `build/`), and read back at the next start as the previous run when the in-memory history has none, so a comparison survives a full JVM restart. The file holds only route templates, statement fingerprints, outbound hosts, exception-group ids and signatures, the edge set, and counts and histograms: never principals, literals, SQL text, or values. Written atomically, read best-effort, a file from another BootUI version or application ignored with the reason, and nothing written when the property is unset | M4-1 | 📋 Planned |
 | M4-3 | §5.11's two resource observations (D18): `heap-growth-after-gc`, old-generation occupancy after collections rising across the run, from the resource track, with the Memory advisor linking to it; and `gc-inflated-latency`, the share of a route's slowest requests during which a stop-the-world pause completed, worded "a pause completed during", never "caused by". Both join the Runtime Insights checks with their minimums from §5.11 | M3-4b | 📋 Planned |
 | M4-4 | §5.11's opt-in JFR attribution (D17): the `bootui.ExecutionSegment` event, a user-triggered **Profile resources** session bounded by `jfr.max-duration`, CPU and allocation samples joined to request segments, virtual threads included, which lifts `route-time-breakdown`'s virtual-thread limit and adds a route's hot frames. Never started on its own or on page load | M3-3a | 📋 Planned |
+| M4-5 | §5.18's run-start facts. A new `lifecycle` source publishes one `RUN_STARTED` event per run: the time to ready, the slowest startup steps with their bean names from the `BufferingApplicationStartup` BootUI already installs (Spring only), and the comparability facts: active profiles, each data source's URL shape, the cache type, whether tracing is on, and the journal's sources. The run summary header keeps them, with a codec version bump, and the baseline file carries them. The input of §5.8's `NOT_COMPARABLE` and restart cost | M4-1 | 📋 Planned |
+| M4-6 | §5.18's `authorization` source: one decision per request or method check, with its target, rule, authentication class (anonymous, authenticated, none, or unknown), and outcome, from Spring Security's authorization observations on Spring MVC and WebFlux and from Quarkus's authorization security events. Route aggregates count requests by authentication class, and the run summary keeps the counts. The evidence §5.9's two observations read, and an **authorization** phase in `route-time-breakdown` | M2-8e4 | 📋 Planned |
+| M4-7 | §5.18's control and availability markers in the `lifecycle` source: BootUI's own actions (logger level, configuration override, cache clear or evict, migration, capture toggle, **Clear recording**, heap dump) with the name they targeted and never a value, availability changes, configuration refreshes, and shutdown. They are drawn as markers on Live Activity's time axis, and an observation whose window spans a marker that touched its subject names it as a limitation | M4-5 | 📋 Planned |
+| M4-8 | §5.18's `app-event` source. On Spring, a BootUI subclass of `SimpleApplicationEventMulticaster` records application events published and each listener run, deferred transactional listeners included, with `transactional-listener-skipped` and `after-commit-writes`. Quarkus follows with a build-time interceptor binding on application `@Observes` and `@ObservesAsync` methods. The runtime model gains `EVENT` nodes, and change impact follows their edges | M3-5 | 📋 Planned |
+| M4-9 | §5.18's `orm` source, after a two-day spike on Hibernate 7's `SessionEventListener` on Spring and Quarkus: per session, statements, connection acquisitions, flushes, auto-flushes, dirty checks, entities in context, and second-level cache use. On Quarkus, ORM statements gain their execution time and connection. Adds `orm-auto-flush`, `large-persistence-context`, and a Hibernate sub-phase of `route-time-breakdown` | M3-8 | 📋 Planned |
+| M4-10 | §5.18's `websocket` source: each inbound application message opens an execution, so its SQL and exceptions nest under it and request-level observations cover message handlers. Spring MVC first, from its existing STOMP and handler capture; then WebFlux and Quarkus WebSockets Next, which need new hooks | M3-8 | 📋 Planned |
+
+M4-5 and M4-6 are prerequisites of §5.8 and §5.9, which cannot be delivered as written without them. M4-7 to M4-10 do
+not gate 2.0.0 unless D29 says so: what is merged when M4 meets its gates ships, and the rest follows in 2.x.
 
 M5 is split into slices ordered by business value, each one pull request to `v2`. The spike comes first; each later
 slice depends on M5-1, and on the milestone named:
@@ -845,7 +858,7 @@ Scope:
   a new item appears at its first occurrence.
 - **Restart cost**: after a DevTools restart, the context's time to ready and the beans whose initialization moved by
   ≥ 200 ms and ≥ 50 %, compared only with the previous restart, never with the first cold start. Quarkus reports the
-  live-reload total only.
+  live-reload total only. Both come from the run-start facts of §5.18 (M4-5).
 - Latency comes last and is labelled noisy: the warm p50 only, with ≥ 10 warm samples on each side, reported when it
   moved by ≥ 50 % and ≥ 20 ms. A p95 appears only with ≥ 60 warm samples on each side, as sparse tail evidence.
 - Keep run summaries across DevTools restarts and Quarkus live reloads in the engine's static run history (D26),
@@ -858,7 +871,8 @@ Scope:
   loader is the reloadable one, and comparison reports that previous runs are unavailable, with the reason and the
   baseline file as the remedy.
 - Mark a comparison `NOT_COMPARABLE`, with the reason first, when the active profiles, datasource URL shape, or cache
-  enablement differ; list configuration differences as limitations.
+  enablement differ; list configuration differences as limitations. These facts are recorded when the run starts
+  (§5.18, M4-5); a previous run that kept none is compared with that limitation.
 - Count the runtime model's observed edges in the aggregates as events arrive, never from the retained window, and
   keep that edge set in each run summary, so the behavior diff compares whole runs (M4-1).
 - Offer an opt-in `bootui.runtime-journal.baseline-file` (M4-2) that writes one run summary into the build output directory
@@ -882,7 +896,10 @@ the panel. Both observations here report facts, never vulnerability verdicts.
 Scope:
 
 - Authentication is three-valued: anonymous, authenticated, or unknown. A missing principal means anonymous only where
-  the adapter's capture establishes it.
+  the adapter's capture establishes it. The journal's `security` source records only authentication results and
+  authorization failures, so a granted anonymous request leaves no trace there; the `authorization` source of §5.18
+  (M4-6) records each decision with its authentication class and rule, and is what both observations read. Without it,
+  every request is unknown.
 - `anonymous-data-reach` reports anonymous successful requests that executed INSERT, UPDATE, or DELETE on a table,
   joining §3.18's table access with the authentication observed on each request. Anonymous and protected reads of the
   same table stay in §3.18's data access map as exploration, not as an observation.
@@ -921,6 +938,9 @@ Acceptance criteria:
 | Slow-versus-fast cohort comparison | 💤 Deferred | "What distinguishes the slow requests of a route?" over curated attributes (cache miss, statement set, exception, thread kind, principal group), as Honeycomb BubbleUp does. Curated dimensions first; an optional embedded analytics engine only if users ask for ad-hoc slicing |
 | Log and exception text search | 💤 Deferred | An optional in-memory Lucene index over retained, already-masked rows, rebuilt when the exposure policy changes, if users ask for it |
 | `consecutive-outbound-waterfall`, `read-only-transaction-writes`, `scheduled-overlap-drift`, `message-consumer-backpressure` | 💤 Deferred | Useful but narrower; revisit with the external-validation results (§2.2) |
+| Non-JDBC data-store commands | 💤 Deferred, client by client | §5.18's `datastore` source: Redis, MongoDB, and similar commands (system, command, collection or index; never keys, documents, or filters) from native listeners such as MongoDB's `CommandListener`, and R2DBC statements as `sql` events through `r2dbc-proxy`, so `repeated-selects`, `event-loop-blocking`, and the runtime model cover them. One client per slice, by demand |
+| Cache events on Quarkus | 💤 Deferred | `quarkus-cache` exposes no access listener, so the `cache` source stays Spring-only until a spike finds a supported hook |
+| GraphQL field fetches, Spring Batch steps, HTTP sessions, deadlocks | 💤 Deferred | §5.18's lower-priority sources: field-level N+1 from Spring for GraphQL's `graphql.datafetcher` observation, batch steps as executions, sessions created on stateless routes, and deadlocks found by the resource sampler. Each by demand |
 | JDBC event journal | 💤 Deferred | A storage product in its own right (idempotent retries, three dialects, disk bounds); revisit on demand |
 | CI budgets on observations | 💤 Deferred | Once run comparison is proven |
 | Quarkus Dev UI card | 💤 Deferred | Would meet Quarkus developers where they already look; Dev MCP registration joins M3 (§5.6) |
@@ -1414,6 +1434,152 @@ Acceptance criteria:
   and joins the benchmark in §2.2.
 - With the agent detached, every §5.1–§5.12 acceptance criterion still passes unchanged.
 
+### 5.18 Journal event coverage — Cross-cutting 📋 Planned
+
+The journal records fifteen event sources, but an audit of what each one records against what §5.5–§5.9 read found
+two planned features with no evidence to read, and whole kinds of work the journal never sees. This item closes those
+gaps with framework hooks only, as §1.3 requires. The agent's event types (§5.17) are not repeated here. The audit read
+`v2` after M3-5, together with M2-8e3 and M2-8e4, whose fixes it does not repeat.
+
+What the journal records, and who reads it:
+
+| Source | Records | Read by |
+| --- | --- | --- |
+| `http` | Method, path, route, GraphQL operation, status, CPU, allocation, GC ids, phase offsets | Aggregates, feed, profile, model, every observation |
+| `sql` | Statement, call site, data source, failure, frames, phase, completion | Aggregates, feed, profile, model, six observations |
+| `transaction` | Method, rollback, nested, savepoint, start | Aggregates, feed, profile, four observations |
+| `connection` | Data source, wait, statements, checkout | Aggregates, profile, three observations |
+| `exception` | Group, class, cross-run signature | Aggregates, feed, model, two observations |
+| `log` | Logger, level, template, exception class | Feed, profile, two observations |
+| `rest-client` | Method, authority, path, status, client, failure, frames, completion | Feed, profile, model, three observations |
+| `ai` | Operation, provider, model, tokens, finish reason, failure; linked by trace id | Feed, profile, model, `ai-usage-by-route` |
+| `fault-tolerance` | Policy, type, target, outcome, attempt, breaker state, failure category | Feed, `errors-behind-2xx` |
+| `security` | Event type only | Feed only |
+| `cache` | Cache, operation, frames; Spring only | Feed, profile, model |
+| `messaging` | Broker, direction, destination, failure, linked trace | Feed, profile, model |
+| `scheduled` | Task, exception class | Feed, model |
+| `mail` | Recipient and attachment counts, sent or trapped | Feed |
+| `gc` | Collector, id, cause, pause, heap before and after | Aggregates, profile (D18 pending) |
+
+Gaps in the existing sources:
+
+- **Authorization is not recorded.** `security` carries only an event type. Spring audits authentication results and
+  authorization failures; Quarkus's capture drops `AuthorizationSuccessEvent`. A granted anonymous request therefore
+  leaves no trace, and §5.9 has nothing to read.
+- **Runs carry no comparability facts or startup cost.** `RunSummary.Header` holds ids, times, and counts, while §5.8's
+  `NOT_COMPARABLE` and restart cost need profiles, data source shapes, cache type, and startup steps.
+- **Quarkus ORM statements have no duration or connection**: the `StatementInspector` sees them at prepare time, and
+  Hibernate reaches Agroal through its own registry, not BootUI's wrapped pool.
+- **Reactive data access is invisible**: R2DBC on WebFlux, and Vert.x clients and Hibernate Reactive on Quarkus.
+- **Transactions drop facts the recorder already has**: read-only, isolation, and the cause of a rollback.
+- **Insights project only requests.** Scheduled runs and consumed messages have execution ids since M1-6b, but
+  `InsightsSnapshot` never groups them, so `repeated-selects` or `safe-method-dml` stay silent for jobs and listeners.
+- **AI calls need tracing**, because they come from GenAI spans joined by trace id, and jobs are not covered.
+- **`route-time-breakdown` leaves AI calls and synchronous sends in "other handler work"**, although §5.5 names them.
+- **WebSocket messages are not journaled and open no correlation**, so the SQL of a `@MessageMapping` handler is work
+  with no owner on `clientInboundChannel-N`.
+- **`spanId` is always `null`**: nothing that creates a `CorrelationContext` sets it.
+- **Application events, Hibernate's own work, and BootUI's own actions are not recorded**: a listener skipped for lack
+  of a transaction, an auto-flush before every query, or a cache cleared from the Cache panel in the middle of a run.
+
+New sources, each recorded only as metadata and each one a `bootui.runtime-journal.sources` name:
+
+| Source | Value | Hooks | Slice |
+| --- | --- | --- | --- |
+| `lifecycle` | Restart cost and `NOT_COMPARABLE` for §5.8; markers explaining discontinuities in a run; an audit of BootUI's own mutations | `ApplicationReadyEvent` and BootUI's `BufferingApplicationStartup`, `AvailabilityChangeEvent`, Spring Cloud's `EnvironmentChangeEvent` when present, `ContextClosedEvent`; Quarkus `StartupEvent` and `ShutdownEvent`; BootUI's own action endpoints | M4-5, M4-7 |
+| `authorization` | The evidence of §5.9; method-security cost; an authorization phase | `ObservationHandler<AuthorizationObservationContext<?>>` on Spring Security's observed authorization managers, servlet and reactive; Quarkus `AuthorizationSuccessEvent` and `AuthorizationFailureEvent` with `SecurityIdentity.isAnonymous()` | M4-6 |
+| `app-event` | Event coupling in change impact; skipped transactional listeners; writes after commit; listener time | A BootUI `applicationEventMulticaster` subclass overriding `multicastEvent` and `invokeListener`, with `TransactionalApplicationListener` callbacks; on Quarkus, a build-time interceptor binding on application observer methods | M4-8 |
+| `orm` | Hibernate time beside SQL time; persistence-context size; measured ORM statements on Quarkus | Hibernate's `SessionEventListener` through `hibernate.session.events.auto`, added by a `HibernatePropertiesCustomizer` on Spring and a build step on Quarkus | M4-9 |
+| `websocket` | Message handlers become owned executions, so request-level observations cover them | Spring's existing `BootUiStompChannelInterceptor` (as an `ExecutorChannelInterceptor`) and `BootUiWebSocketHandlerDecorator`; WebFlux's session receive flux; a Quarkus interceptor binding on `@OnTextMessage` and `@OnBinaryMessage` | M4-10 |
+| `datastore` | Repeated reads and event-loop blocking for Redis and MongoDB; SQL for R2DBC applications | Native client listeners; `r2dbc-proxy` | Deferred (§5.10) |
+
+Payloads:
+
+```java
+record AuthorizationPayload(String target /* REQUEST or METHOD */, String subject /* route or Class#method */,
+        String rule, String authentication /* ANONYMOUS, AUTHENTICATED, NONE, UNKNOWN */, boolean granted,
+        int authorities /* a count */) {}
+record LifecyclePayload(String kind /* RUN_STARTED, CONTROL, AVAILABILITY, CONFIG_REFRESHED, SHUTDOWN */,
+        String target /* logger, cache, or property name; never a value */, Long readyNanos,
+        List<StartupStep> slowestSteps, ComparabilityFacts facts) {}
+record AppEventPayload(String kind /* PUBLISHED or LISTENER */, String eventType, String listener,
+        String phase /* IMMEDIATE, BEFORE_COMMIT, AFTER_COMMIT, AFTER_ROLLBACK, AFTER_COMPLETION, ASYNC */,
+        String outcome /* RAN, SKIPPED_NO_TRANSACTION, DEFERRED, FAILED */, String exceptionClass, int listeners) {}
+record OrmPayload(String persistenceUnit, int statements, long statementNanos, int connectionAcquisitions,
+        long acquisitionNanos, int flushes, long flushNanos, int partialFlushes, long partialFlushNanos,
+        int dirtyEntities, int entitiesInContext, int l2Hits, int l2Misses, int l2Puts) {}
+record WebSocketPayload(String endpoint, String kind /* OPEN, CLOSE, MESSAGE */, boolean inbound,
+        String destination /* a template such as /app/chat/{room} */, long payloadBytes, String closeStatus,
+        boolean failed) {}
+```
+
+Never recorded: principals, authority names, or the secured method's arguments; an event's fields or `toString()`;
+entity ids or field values; configuration values; credentials or hosts beyond a data source URL's shape
+(`jdbc:postgresql://localhost`); WebSocket payloads or session ids beyond the recorder's opaque hash. Framework events
+(`ServletRequestHandledEvent`, context, audit, and security events) are excluded from `app-event` by package.
+
+How each source joins the rest of v2:
+
+| Source | Aggregates and run summary | Feed and profile | Runtime model | Observations and comparison |
+| --- | --- | --- | --- | --- |
+| `lifecycle` | Header facts and startup steps, codec version bump | Top-level markers on the time axis and resource lane | — | §5.8's `NOT_COMPARABLE` and restart cost; a marker that touched an observation's subject becomes one of its limitations |
+| `authorization` | Per route, requests by authentication class and outcome; anonymous-success counts kept in the summary | A row only when denied; each decision on the profile's timeline | `SECURITY_RULE` node, `GUARDED_BY` edge, beside §3.18's declared rules | §5.9's two observations; `authorization-cost` (≥ 20 % of warm time or ≥ 50 decisions a request); an authorization phase in `route-time-breakdown`; "route newly reachable anonymously" as a behavior row |
+| `app-event` | Per event type, publishes, listeners run, skipped, and failed; per listener, count and time | `APP_EVENT` rows under their request; listener intervals | `EVENT` node, `PUBLISHES` and `CONSUMES` edges, in `ReverseClosure`'s allowlist | `transactional-listener-skipped` (≥ 1 event); `after-commit-writes`: DML inside an `AFTER_COMMIT` or `AFTER_COMPLETION` listener outside every recorded transaction (≥ 1 request, Spring only); a failed listener as evidence of `errors-behind-2xx`; a listeners sub-phase; new event types and edges between runs |
+| `orm` | Per route, median flushes, auto-flushes, entities in context, and ORM time | An **ORM** block in the profile; flush intervals on the timeline | — | Measured Quarkus SQL time in `route-time-breakdown`, plus a Hibernate sub-phase; `orm-auto-flush` (≥ 3 partial flushes a request, or ≥ 20 % of ORM time flushing); `large-persistence-context` (≥ 500 entities in ≥ 3 requests of a route); executions instead of preparations in `safe-method-dml` on Quarkus; entities and flushes per request as behavior rows |
+| `websocket` | Messages per destination; sends pre-aggregated per execution | `WEBSOCKET` rows with their SQL nested | `DESTINATION` nodes of broker `websocket` | Every request-level observation, through executions projected as routes (M3-8) |
+
+Payload enrichments that need no new source, each additive:
+
+| Payload | Gains | Enables | Slice |
+| --- | --- | --- | --- |
+| `TransactionPayload` | Read-only, isolation, propagation, rollback exception class | `read-only-transaction-writes` (§5.10), the cause of a rollback | M3-8 |
+| `HttpPayload` | Request and response sizes; the authentication class from `authorization` | `unbounded-result-ramp` (§5.10), §5.9 | M4-6, then by demand |
+| `SqlPayload` | Rows returned or updated, batch flag and size | `unbounded-result-ramp`, `unbatched-write-loop` (§5.10) | By demand |
+| `CachePayload` | A keyed per-run hash of the key | `cache-effectiveness` (§5.10) | By demand |
+| `ExceptionPayload` | Handled or propagated | `errors-behind-2xx` wording | By demand |
+| `ScheduledPayload` | Skipped or overlapping run, lateness against its trigger | `scheduled-overlap-drift` (§5.10) | By demand |
+| `MessagingPayload` | Redelivery attempt, batch size | `message-consumer-backpressure` (§5.10) | By demand |
+
+Architecture, the same steps for every new source:
+
+1. A `JournalSource` constant and property name, and a payload with `estimatedBytes()` and `interned(...)`, published
+   through `RuntimeEvent.of(...)` (M2-8e4), guarded so publishing never throws into the application, and only while
+   the source is recorded, whatever the panel's capture state.
+2. The recorder is a `RuntimeEventPublisher`, installed by `RuntimeEventPublisherInstaller` on Spring and by the
+   startup observer on Quarkus; optional types stay in gated classes, as messaging's do.
+3. Correlation from `CorrelationSource`; anchors (messages, listeners) open `CorrelationContext.forExecution`.
+4. A capped aggregate dimension with an **Other** bucket, and a run-summary entry only if §5.8 compares it.
+5. A feed row type, its masked detail in `JournalRowDetails`, its persisted form in `JournalActivityCapture`, and its
+   filter and icon in the UI, leaving the 1.x buffers' feed untouched.
+6. Timeline and touched resources in `RequestJournalProfiles`, with additive DTO fields and contract-catalog entries.
+7. Node and edge types in the runtime model, counted in the aggregates once M4-1 lands, with the `ReverseClosure`
+   allowlist decided explicitly.
+8. Source coverage in `InsightsSnapshot`, and each new observation as a pure class with justified, counterexample,
+   and insufficient fixtures, `NOT_APPLICABLE` with a reason on a stack that cannot record it, and its theme chip and
+   command-palette keywords.
+
+Out of scope:
+
+- A catch-all source for every Micrometer observation: unbounded shapes and duplicates of dedicated sources.
+  Observations are used as hooks for specific sources instead.
+- `INFO` and `DEBUG` logs, HTTP headers, and cookies.
+- Health status transitions, which would need polling.
+- Executor propagation, unless D30 brings Spring's and Quarkus's managed executors in before the agent (M5-2).
+
+Acceptance criteria:
+
+- Every new source is in `bootui.runtime-journal.sources`, documented in `PROPERTIES.md`, reported unavailable with a
+  reason where its stack or dependency cannot record it, and counted in the journal status with its drops.
+- A DevTools restart and a Quarkus live reload each record one `RUN_STARTED` with its facts, a profile switch makes a
+  comparison `NOT_COMPARABLE`, and a data source URL with a user and password records neither.
+- A permit-all public route records `ANONYMOUS` and a protected one `AUTHENTICATED` on all three stacks, in the
+  conformance runners, and a missing observation registry records `UNKNOWN`, never `ANONYMOUS`.
+- The sample apps seed a `@TransactionalEventListener` fired outside a transaction (and one inside, which must not be
+  reported), an `AFTER_COMMIT` listener that saves an entity, a route with repeated auto-flushes, and a STOMP handler
+  that queries; 100 requests record no framework event as an `app-event`.
+- The correlation scenario nests 100 % of a STOMP handler's SQL under its message on Spring MVC.
+- The overhead scenario stays within §8's budgets with every new source on.
+
 ## 6. Architecture
 
 ```mermaid
@@ -1469,6 +1635,11 @@ a Spring, Quarkus, or JSON dependency.
 | SQL durations | ✓ | ✓ | ORM statements unknown; JDBC ✓ |
 | Cache events | ✓ | ✓ | Unavailable: no cache capture |
 | WebSocket frames | ✓ | Unavailable | Unavailable |
+| Authorization decisions (§5.18) | Spring Security's authorization observations | Same, reactive | Quarkus authorization security events |
+| Run-start facts (§5.18) | With startup steps | With startup steps | Live-reload total, no steps |
+| Application events (§5.18) | BootUI's event multicaster, unless the application declares its own | Same | CDI observer methods |
+| ORM session facts (§5.18) | Hibernate ORM | Hibernate ORM, blocking | Hibernate ORM, with measured statements |
+| WebSocket messages as executions (§5.18) | STOMP and handlers | Handlers | WebSockets Next |
 | Journal, aggregates, run summaries | ✓ | ✓ | ✓ |
 | `route-time-breakdown` | ✓ | ✓ | ✓, without the authentication phase; ORM SQL time unknown |
 | `repeated-selects`, `exception-hotspots`, `errors-behind-2xx`, `connections-per-request`, `safe-method-dml`, `framework-warnings-by-route` | ✓ | ✓ | ✓ (ORM statements are preparations) |
@@ -1515,6 +1686,7 @@ live exposure policy at read time, and never write to disk anything less masked 
 | Agent activation | The agent installs nothing until BootUI claims it under its existing activation rules; Quarkus `LaunchMode.NORMAL` and a disabled BootUI never claim it. Self-attach is opt-in and never the default |
 | Agent evidence | Operation names, targets as normalized patterns, call sites, and counts only: never payloads, file contents, process arguments, environment values, thread-local values, or the request values `request-input-in-sink` compares |
 | Method probes | Actions, blocked by read-only policy, bounded to 20 invocations or 60 seconds and five at once; argument shapes only under `FULL`, masked, and never returned to MCP or the CLI |
+| Journal sources of §5.18 | Authorization decisions record rule and class names, never principals or authority names; application events record types, never fields; ORM facts record counts, never entity ids; run-start facts record a data source URL's shape and property names, never credentials or values |
 
 | Path | Budget |
 | --- | --- |
@@ -1617,6 +1789,8 @@ lands on `v2` and before 2.0.0:
 | D26 | Does the run history need its own `bootui-run-holder` artifact? | No. The engine jar already stays in the class loader that survives restarts, which `RunIdentity`'s ordinal relies on and the M1-6g live-reload test proves, so a separate artifact would keep nothing more and add a published module. `RunHistory` keeps encoded byte arrays, so it pins no class loader, and reports when BootUI itself is reloadable (M2-5) |
 | D27 | What does a Live Activity row rendered from the journal show? | **Decided, as recommended** (the maintainer asked to finish M2): the journal stays metadata-only. The live feed completes rows by identity with the detail the panels still hold, already masked under the live policy: a request's principal, an exception's message and location, an email's subject and recipients. Persisted rows are never completed, so they stay at least as masked as `MASKED` (§8). `mail` and `fault-tolerance` are journal sources carrying no subject, address, body, or message. Exceptions are shown per occurrence, not per group |
 | D28 | Does the pinned top of the sidebar grow with Runtime Insights? | **Maintainer decision:** it holds only what a developer starts from. It becomes **Home**: the Overview panel is renamed **Scorecard** (route `#/scorecard`, with `#/overview` redirecting; the `overview` id, properties, `GET /overview`, and `get_overview` unchanged), followed by Live Activity and Runtime Insights. GitHub moves to Developer tools. Change impact, run comparison, and anonymous access stay inside Runtime Insights instead of adding panels |
+| D29 | Which §5.18 sources and observations join 2.0? | Open. Recommendation: M4-5 (run-start facts) and M4-6 (authorization decisions) yes, because §5.8 and §5.9 cannot be delivered without them, together with M3-8 and M3-9. Application events (M4-8) and ORM facts (M4-9) in 2.0 if capacity allows, their four observations (`transactional-listener-skipped`, `after-commit-writes`, `orm-auto-flush`, `large-persistence-context`) joining D14's list only once their counterexample fixtures pass; control markers (M4-7) and WebSocket messages (M4-10) by capacity; data-store commands after 2.0 |
+| D30 | Should Spring- and Quarkus-managed executors propagate the request's context before the agent? | Open. §5.1 leaves executors to the agent (M5-2). Recommendation: yes for managed executors only, as a §5.18 slice: a `TaskDecorator` (Micrometer's `ContextPropagatingTaskDecorator` with `BootUiCorrelationThreadLocalAccessor`) on Spring's auto-configured executor and scheduler, and a SmallRye Context Propagation `ThreadContextProvider` on Quarkus, each task an execution linked to its parent request. It owns `@Async` work, the largest correlation gap left on Spring, and brings `work-after-response` forward for those executors; raw executors and `CompletableFuture` stay with M5-2 |
 
 ## Appendix A. Review log
 
@@ -1628,7 +1802,8 @@ Two research reviews then assessed new insights (**Insights research**) and grap
 research**). Three insight audits followed, again one per model: GPT-6.1 Sol (evidence and false positives, **E**),
 Claude Opus 5.5 (developer value, **V**), and Grok 4.7 (agents, security, and a contrarian view, **G**). At the
 maintainer's request, each also challenged the "no graph database" decision. A later survey of Java agents (**Agent
-research**) shaped the optional agent of §5.13–§5.17.
+research**) shaped the optional agent of §5.13–§5.17. An audit of the journal's event types (**Journal audit**)
+shaped §5.18.
 
 | Proposal | By | Outcome |
 | --- | --- | --- |
@@ -1679,6 +1854,7 @@ research**) shaped the optional agent of §5.13–§5.17.
 | Link CPU, allocation, and GC to runtime events by identity: scope readings, GC by id, a CPU ledger, a resource track, and opt-in JFR attribution | Resource-correlation research (user-directed) | Adopted as §5.11 in M2; D16–D19 decided |
 | Store events in a graph database or a search engine for richer insights | Storage research | Rejected for 2.0 (D15): no insight needs a graph database at these volumes; cohort comparison, bounded path templates, and optional Lucene deferred (§5.10) |
 | Add an optional Java agent, after surveying APM agents (OpenTelemetry, Glowroot, SkyWalking, Pinpoint, Elastic, Datadog, New Relic, Dynatrace, Sentry, inspectIT Ocelot, Kieker), diagnostic agents (Arthas, BTrace, Byteman, Lightrun, Rookout, Digma), profilers (async-profiler, JFR, Pyroscope, YourKit, JProfiler), coverage and inventory tools (JaCoCo, Azul Code Inventory and Vulnerability Detection, Contrast), hot-reload agents (JRebel, HotswapAgent), leak and concurrency tools (BlockHound, file-leak-detector), GraalVM's tracing agent, and JEP 451 and JEP 484 | Agent research | Adopted as M5, not gating 2.0.0 (D20): executor propagation, Code Paths with method probes, Code Inventory with changed methods and vulnerable reach, Side Effects, and eight agent observations (§5.13–§5.17). Exception replay, fault injection, test impact, and configuration reads deferred; live patching, full taint tracking, time-tunnel replay, a native profiler, and decompilation cut (§5.10) |
+| Audit the journal's event types against what §5.5–§5.9 read, and add sources from framework hooks: authorization decisions, run lifecycle and BootUI's own actions, application events, Hibernate session facts, WebSocket messages, and non-JDBC data stores; enrich transaction, HTTP, SQL, and cache payloads; project jobs and listeners as executions; record AI calls without tracing | Journal audit (user-directed) | Adopted as §5.18: M3-8, M3-9, and M4-5 to M4-10 planned, data stores and four narrower sources deferred (§5.10), placement in D29, managed-executor propagation in D30 |
 
 ## Appendix B. Proof-of-concept evidence
 
