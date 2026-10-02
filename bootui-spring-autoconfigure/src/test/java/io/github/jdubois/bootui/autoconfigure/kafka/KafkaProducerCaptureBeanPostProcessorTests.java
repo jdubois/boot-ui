@@ -123,6 +123,45 @@ class KafkaProducerCaptureBeanPostProcessorTests {
     }
 
     @Test
+    void aRecordSentTwiceBeforeItsFirstOutcomeKeepsEachSendsOwnSnapshot() throws Exception {
+        KafkaProducerCaptureBeanPostProcessor.SenderCorrelations senders =
+                new KafkaProducerCaptureBeanPostProcessor.SenderCorrelations();
+        ProducerRecord<Object, Object> record = new ProducerRecord<>("orders", "k1", "v1");
+
+        senders.put(record, CorrelationContext.forRequest("aaaaaaaaaaaaaaaa"));
+        Thread.sleep(20);
+        senders.put(record, CorrelationContext.forRequest("bbbbbbbbbbbbbbbb"));
+
+        KafkaProducerCaptureBeanPostProcessor.Sent first = senders.take(record);
+        KafkaProducerCaptureBeanPostProcessor.Sent second = senders.take(record);
+        assertThat(first.sender().requestId()).isEqualTo("aaaaaaaaaaaaaaaa");
+        assertThat(first.durationNanos()).isGreaterThanOrEqualTo(20_000_000L);
+        assertThat(second.sender().requestId()).isEqualTo("bbbbbbbbbbbbbbbb");
+        assertThat(second.durationNanos()).isLessThan(first.durationNanos());
+        assertThat(senders.take(record).durationNanos()).as("no third send").isNull();
+        assertThat(senders.take(new ProducerRecord<>("orders", "k1", "v1")))
+                .as("an equal record is another send")
+                .isEqualTo(KafkaProducerCaptureBeanPostProcessor.Sent.UNKNOWN);
+    }
+
+    @Test
+    void pastItsBoundOnlyTheOldestSendsAreForgotten() {
+        KafkaProducerCaptureBeanPostProcessor.SenderCorrelations senders =
+                new KafkaProducerCaptureBeanPostProcessor.SenderCorrelations();
+        ProducerRecord<Object, Object> oldest = new ProducerRecord<>("orders", "k", "v");
+        senders.put(oldest, CorrelationContext.NONE);
+        ProducerRecord<Object, Object> newest = null;
+        for (int i = 0; i < KafkaProducerCaptureBeanPostProcessor.SenderCorrelations.MAX_IN_FLIGHT; i++) {
+            newest = new ProducerRecord<>("orders", "k" + i, "v");
+            senders.put(newest, CorrelationContext.forRequest("0123456789abcdef"));
+        }
+
+        assertThat(senders.size()).isEqualTo(KafkaProducerCaptureBeanPostProcessor.SenderCorrelations.MAX_IN_FLIGHT);
+        assertThat(senders.take(oldest).durationNanos()).isNull();
+        assertThat(senders.take(newest).sender().requestId()).isEqualTo("0123456789abcdef");
+    }
+
+    @Test
     void capturesFailedSend() {
         KafkaActivityRecorder recorder = new KafkaActivityRecorder(true, true, 10, 16);
         KafkaProducerCaptureBeanPostProcessor postProcessor =

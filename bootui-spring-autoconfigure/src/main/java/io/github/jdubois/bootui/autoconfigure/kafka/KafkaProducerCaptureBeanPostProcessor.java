@@ -2,8 +2,9 @@ package io.github.jdubois.bootui.autoconfigure.kafka;
 
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.spi.CorrelationContext;
-import java.util.Collections;
-import java.util.IdentityHashMap;
+import java.util.ArrayDeque;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.apache.kafka.clients.producer.ProducerInterceptor;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -201,16 +202,18 @@ public final class KafkaProducerCaptureBeanPostProcessor implements BeanPostProc
     }
 
     /**
-     * The sender's correlation and the {@link System#nanoTime()} of an in-flight record's send, by record identity
-     * ({@link ProducerRecord} overrides {@code equals}), so its event starts at the send and is timed to its outcome.
-     * Each entry is taken when its outcome is reported. Bounded, so records whose outcome never arrives cannot grow
-     * it: past the bound it is cleared, and those messages simply stay top-level and untimed.
+     * The sender's correlation and the {@link System#nanoTime()} of each in-flight send, by record identity
+     * ({@link ProducerRecord} overrides {@code equals}), so its event starts at the send and is timed to its outcome. A
+     * record sent again before its first outcome is queued behind it, and each outcome takes the oldest send of its
+     * record. Bounded, so sends whose outcome never arrives cannot grow it: past the bound the oldest are forgotten,
+     * and those messages simply stay top-level and untimed.
      */
     static final class SenderCorrelations {
 
         static final int MAX_IN_FLIGHT = 10_000;
 
-        private final Map<ProducerRecord<?, ?>, Sent> inFlight = Collections.synchronizedMap(new IdentityHashMap<>());
+        private final Map<RecordKey, ArrayDeque<Sent>> inFlight = new LinkedHashMap<>();
+        private int size;
 
         void put(ProducerRecord<?, ?> record, CorrelationContext sender) {
             if (record == null) {
@@ -218,28 +221,78 @@ public final class KafkaProducerCaptureBeanPostProcessor implements BeanPostProc
             }
             Sent sent = new Sent(sender == null ? CorrelationContext.NONE : sender, System.nanoTime());
             synchronized (inFlight) {
-                if (inFlight.size() >= MAX_IN_FLIGHT) {
-                    inFlight.clear();
+                inFlight.computeIfAbsent(new RecordKey(record), key -> new ArrayDeque<>(1))
+                        .addLast(sent);
+                size++;
+                Iterator<ArrayDeque<Sent>> oldest = inFlight.values().iterator();
+                while (size > MAX_IN_FLIGHT && oldest.hasNext()) {
+                    ArrayDeque<Sent> sends = oldest.next();
+                    sends.removeFirst();
+                    size--;
+                    if (sends.isEmpty()) {
+                        oldest.remove();
+                    }
                 }
-                inFlight.put(record, sent);
             }
         }
 
-        /** The send of {@code record}, or an untimed one with no sender when it was not snapshotted. */
+        /** The oldest send of {@code record}, or an untimed one with no sender when it was not snapshotted. */
         Sent take(ProducerRecord<?, ?> record) {
-            Sent sent = record == null ? null : inFlight.remove(record);
-            return sent == null ? Sent.UNKNOWN : sent;
+            if (record == null) {
+                return Sent.UNKNOWN;
+            }
+            synchronized (inFlight) {
+                RecordKey key = new RecordKey(record);
+                ArrayDeque<Sent> sends = inFlight.get(key);
+                if (sends == null) {
+                    return Sent.UNKNOWN;
+                }
+                Sent sent = sends.removeFirst();
+                size--;
+                if (sends.isEmpty()) {
+                    inFlight.remove(key);
+                }
+                return sent;
+            }
+        }
+
+        /** The sends in flight now, for tests. */
+        int size() {
+            synchronized (inFlight) {
+                return size;
+            }
         }
     }
 
-    /** A record's send: who sent it and when, as a {@link System#nanoTime()}, or {@code -1} when unknown. */
-    record Sent(CorrelationContext sender, long sentNanos) {
+    /** A record compared by identity, since equal records sent separately are separate sends. */
+    private record RecordKey(ProducerRecord<?, ?> record) {
 
-        static final Sent UNKNOWN = new Sent(CorrelationContext.NONE, -1);
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof RecordKey key && key.record == record;
+        }
+
+        @Override
+        public int hashCode() {
+            return System.identityHashCode(record);
+        }
+    }
+
+    /**
+     * A record's send: who sent it and when, as a {@link System#nanoTime()}; {@link #UNKNOWN} when it was not
+     * snapshotted, since any {@code long}, negative ones included, is a valid reading.
+     */
+    record Sent(CorrelationContext sender, long sentNanos, boolean timed) {
+
+        static final Sent UNKNOWN = new Sent(CorrelationContext.NONE, 0, false);
+
+        Sent(CorrelationContext sender, long sentNanos) {
+            this(sender, sentNanos, true);
+        }
 
         /** The nanoseconds from the send to now, or {@code null} when the send time is unknown. */
         Long durationNanos() {
-            return sentNanos < 0 ? null : Math.max(0, System.nanoTime() - sentNanos);
+            return timed ? Math.max(0, System.nanoTime() - sentNanos) : null;
         }
     }
 }

@@ -1,11 +1,13 @@
 package io.github.jdubois.bootui.engine.telemetry;
 
+import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
 import io.github.jdubois.bootui.engine.journal.AiPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -38,6 +40,13 @@ public class TelemetryStore implements RuntimeEventPublisher {
      */
     static final int SELF_TRACE_MEMORY = 4_096;
 
+    /**
+     * Upper bound on the spans remembered between their start and their export with the request or execution that
+     * started them. A span is forgotten when it is exported, so only spans in flight or waiting in an exporter's batch
+     * count; past the bound the oldest are forgotten, and their AI calls fall back to their trace and time.
+     */
+    static final int MAX_SPAN_OWNERS = 16_384;
+
     private final TelemetrySettings settings;
     private final LinkedHashMap<String, MutableTraceBucket> tracesById;
 
@@ -52,6 +61,19 @@ public class TelemetryStore implements RuntimeEventPublisher {
     private final LinkedHashMap<String, Boolean> selfTraceIds;
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+
+    /**
+     * The request or execution that started each span still in flight, by span id, read on the thread that started it
+     * ({@link #spanStarted}), since the exporter runs later on its own thread ({@code docs/PLAN-v2.md} §5.3).
+     */
+    private final Map<String, CorrelationContext> spanOwners = Collections.synchronizedMap(new LinkedHashMap<>() {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, CorrelationContext> eldest) {
+            return size() > MAX_SPAN_OWNERS;
+        }
+    });
+
+    private final CorrelationSource correlation = new CorrelationSource();
 
     private volatile boolean idleSuspended = false;
     private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
@@ -97,23 +119,63 @@ public class TelemetryStore implements RuntimeEventPublisher {
      * @return {@code true} when the span was stored, {@code false} when it was dropped
      */
     public boolean add(NormalizedSpan span, boolean selfSpan) {
-        if (span == null || span.traceId() == null || span.traceId().isEmpty()) {
+        if (span == null) {
+            return false;
+        }
+        CorrelationContext owner = span.spanId() == null ? null : spanOwners.remove(span.spanId());
+        if (span.traceId() == null || span.traceId().isEmpty()) {
             return false;
         }
         if (idleSuspended) {
             // The store is suspended while BootUI is idle, but the runtime journal keeps recording AI calls
             // (docs/PLAN-v2.md §5.2), so an application span is still recognized and published without being stored.
             if (publishesWhileIdle(span, selfSpan)) {
-                publish(span);
+                publish(span, owner);
             }
             return false;
         }
         // The store may be suspended while this span waits for the lock, so whether it is published is decided there.
         Outcome outcome = store(span, selfSpan);
         if (outcome != Outcome.DROPPED) {
-            publish(span);
+            publish(span, owner);
         }
         return outcome == Outcome.STORED;
+    }
+
+    /**
+     * Remembers the request or execution doing the work that starts span {@code spanId}, read on the starting thread,
+     * so the AI call it records once exported nests under it by id ({@code docs/PLAN-v2.md} §5.3). Called by the span
+     * processor on every span start; it remembers nothing while capture is off, the journal does not record AI calls,
+     * or no request or execution owns the work, and never throws.
+     */
+    public void spanStarted(String spanId) {
+        try {
+            if (spanId == null || !settings.enabled() || !journal.records(JournalSource.AI)) {
+                return;
+            }
+            CorrelationContext context = correlation.current();
+            if (context.bootUi() || (context.requestId() == null && context.executionId() == null)) {
+                return;
+            }
+            spanOwners.put(
+                    spanId,
+                    CorrelationContext.NONE.withRequestId(context.requestId()).withExecutionId(context.executionId()));
+        } catch (RuntimeException ex) {
+            // Remembering an owner never disturbs the span it observes.
+        }
+    }
+
+    /**
+     * Installs where {@link #spanStarted} reads the correlation of the work starting a span. The default is the
+     * thread's scope; the Quarkus adapter also reads the request's Vert.x context.
+     */
+    public void setCorrelationContextProvider(CorrelationContextProvider provider) {
+        correlation.set(provider);
+    }
+
+    /** The spans remembered with their owner now, for tests. */
+    int spanOwners() {
+        return spanOwners.size();
     }
 
     /**
@@ -126,7 +188,11 @@ public class TelemetryStore implements RuntimeEventPublisher {
         this.journal = journal == null ? RuntimeEventSink.NONE : journal;
     }
 
-    private void publish(NormalizedSpan span) {
+    /**
+     * Publishes {@code span} to the journal when it is an AI call, under the request or execution that started it,
+     * or, when that is unknown, with only its trace id, which links it to its request by trace and time.
+     */
+    private void publish(NormalizedSpan span, CorrelationContext owner) {
         RuntimeEventSink sink = journal;
         if (!sink.records(JournalSource.AI)) {
             return;
@@ -137,12 +203,11 @@ public class TelemetryStore implements RuntimeEventPublisher {
                 return;
             }
             String model = AiSpanRecognizer.responseModel(span);
-            // An AI span belongs to no BootUI request or execution: its trace links it to its request.
             sink.offer(RuntimeEvent.of(
                     JournalSource.AI,
                     span.startEpochNanos() / 1_000_000,
                     span.durationNanos(),
-                    CorrelationContext.NONE.withTrace(span.traceId(), span.spanId()),
+                    (owner == null ? CorrelationContext.NONE : owner).withTrace(span.traceId(), span.spanId()),
                     null,
                     null,
                     span.isError(),

@@ -257,6 +257,15 @@ public final class JournalAggregates implements JournalListener {
         return resourceTrack;
     }
 
+    /**
+     * Drops every aggregate when the journal clears its recording, in step with it, so no batch processed before the
+     * clear is counted after it.
+     */
+    @Override
+    public void onClear() {
+        clear();
+    }
+
     /** Drops every aggregate, for <b>Clear recording</b>. */
     public synchronized void clear() {
         resourceTrack.clear();

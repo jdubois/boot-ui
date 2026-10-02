@@ -24,13 +24,13 @@ import java.util.function.Predicate;
  * recorded after its children. Rows of a disabled panel are not written. It runs on the journal's dispatcher, where
  * the coordinator's append only buffers rows for the store's own flusher.</p>
  *
- * <p>An AI call carries only its trace id, and its span is often exported before its request completes, so a call no
- * recorded request can claim yet is held back until one does ({@link AiCallOwners}). It is written on its own once
- * the journal has recorded {@value #AI_CALL_WAIT_MILLIS} ms past its end without such a request, once more than
- * {@value #MAX_PENDING_AI_CALLS} calls wait, or when the capture or the journal closes, so the history attributes a call
- * as the live feed does, whichever the journal recorded first. A request recorded after a call was written, which
- * overlaps the one it was written under and shares its trace, does not move it, although the live feed then nests the
- * call under neither.</p>
+ * <p>An AI call whose span started outside any known request carries only its trace id, and its span is often exported
+ * before its request completes, so a call no recorded request can claim yet is held back until one does
+ * ({@link AiCallOwners}). It is written on its own once the journal has recorded {@value #AI_CALL_WAIT_MILLIS} ms past
+ * its end without such a request, once more than {@value #MAX_PENDING_AI_CALLS} calls wait, or when the recording is
+ * cleared or the capture or the journal closes, so the history attributes a call as the live feed does, whichever the
+ * journal recorded first. A request recorded after a call was written, which overlaps the one it was written under and
+ * shares its trace, does not move it, although the live feed then nests the call under neither.</p>
  */
 public final class JournalActivityCapture implements JournalListener, ActivityCapture {
 
@@ -59,6 +59,11 @@ public final class JournalActivityCapture implements JournalListener, ActivityCa
 
     /** AI calls no recorded request claims yet, in recorded order. */
     private final ArrayDeque<JournalEntry> pendingAiCalls = new ArrayDeque<>();
+
+    /** The latest end the journal has recorded, which only moves forward: the clock a held-back call waits on. */
+    private long recordedUntil = Long.MIN_VALUE;
+
+    private boolean closed;
 
     private JournalActivityCapture(
             RuntimeJournal journal,
@@ -103,18 +108,23 @@ public final class JournalActivityCapture implements JournalListener, ActivityCa
 
     @Override
     public synchronized void onEntries(List<JournalEntry> entries) {
-        long recordedUntil = Long.MIN_VALUE;
-        for (JournalEntry entry : entries) {
-            aiCallOwners.learn(entry.event());
-            recordedUntil = Math.max(recordedUntil, endMillis(entry.event()));
+        if (closed) {
+            // A batch the dispatcher was already delivering when the capture closed.
+            return;
         }
-        List<JournalEntry> ready = new ArrayList<>(entries.size());
-        releasePendingAiCalls(ready, recordedUntil, false);
+        List<JournalEntry> visible = new ArrayList<>(entries.size());
         for (JournalEntry entry : entries) {
-            if (!visible(entry.event())) {
-                continue;
+            recordedUntil = Math.max(recordedUntil, endMillis(entry.event()));
+            if (visible(entry.event())) {
+                // Learns only the requests it writes, as the live feed nests only under the requests it shows.
+                aiCallOwners.learn(entry.event());
+                visible.add(entry);
             }
-            if (aiCallOwners.unresolved(entry.event())) {
+        }
+        List<JournalEntry> ready = new ArrayList<>(visible.size());
+        releasePendingAiCalls(ready, false);
+        for (JournalEntry entry : visible) {
+            if (aiCallOwners.unresolved(entry.event()) && !waitedTooLong(entry.event())) {
                 pendingAiCalls.addLast(entry);
             } else {
                 ready.add(entry);
@@ -132,29 +142,33 @@ public final class JournalActivityCapture implements JournalListener, ActivityCa
         writePendingAiCalls();
     }
 
-    /** Forgets what the cleared recording held: its requests, open {@code SELECT} counts, and held-back AI calls. */
+    /**
+     * Writes the AI calls still held back, as everything recorded before the clear was written, then forgets what the
+     * cleared recording held: its requests and open {@code SELECT} counts.
+     */
     @Override
     public synchronized void onClear() {
+        writePendingAiCalls();
         aiCallOwners.clear();
         pendingSelects.clear();
-        pendingAiCalls.clear();
     }
 
     /**
-     * Stops capturing and writes the AI calls still held back, each on its own; batches the journal records afterwards
-     * are not written.
+     * Stops capturing and writes the AI calls still held back, each on its own; batches the journal records afterwards,
+     * including one it was delivering as the capture closed, are not written.
      */
     @Override
     public void close() {
         journal.removeListener(this);
         synchronized (this) {
+            closed = true;
             writePendingAiCalls();
         }
     }
 
     private void writePendingAiCalls() {
         List<JournalEntry> ready = new ArrayList<>(pendingAiCalls.size());
-        releasePendingAiCalls(ready, Long.MAX_VALUE, true);
+        releasePendingAiCalls(ready, true);
         write(ready);
     }
 
@@ -165,20 +179,25 @@ public final class JournalActivityCapture implements JournalListener, ActivityCa
 
     /**
      * Moves to {@code ready} each held-back AI call a request now claims, or whose attribution is now ambiguous, or that
-     * no request claimed within {@link #AI_CALL_WAIT_MILLIS} of its end by {@code recordedUntil}; {@code all} moves
-     * every one.
+     * no request claimed within {@link #AI_CALL_WAIT_MILLIS} of its end; {@code all} moves every one. A call whose panel
+     * was disabled while it waited is dropped.
      */
-    private void releasePendingAiCalls(List<JournalEntry> ready, long recordedUntil, boolean all) {
+    private void releasePendingAiCalls(List<JournalEntry> ready, boolean all) {
         Iterator<JournalEntry> pending = pendingAiCalls.iterator();
         while (pending.hasNext()) {
             JournalEntry call = pending.next();
-            if (all
-                    || !aiCallOwners.unresolved(call.event())
-                    || recordedUntil - endMillis(call.event()) > AI_CALL_WAIT_MILLIS) {
-                ready.add(call);
+            if (all || !aiCallOwners.unresolved(call.event()) || waitedTooLong(call.event())) {
                 pending.remove();
+                if (visible(call.event())) {
+                    ready.add(call);
+                }
             }
         }
+    }
+
+    /** Whether the journal has recorded past {@link #AI_CALL_WAIT_MILLIS} after {@code call} ended. */
+    private boolean waitedTooLong(RuntimeEvent call) {
+        return recordedUntil != Long.MIN_VALUE && recordedUntil - endMillis(call) > AI_CALL_WAIT_MILLIS;
     }
 
     private void write(List<JournalEntry> ready) {

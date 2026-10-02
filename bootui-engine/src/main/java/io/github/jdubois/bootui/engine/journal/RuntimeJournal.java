@@ -79,6 +79,13 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
     private final ThreadKinds threadKinds = new ThreadKinds();
     private final Thread dispatcher;
     private final AtomicBoolean closed = new AtomicBoolean();
+
+    /**
+     * Serializes processing a batch with clearing the recording, so a batch is either processed before the clear, and
+     * cleared with everything else, or not at all.
+     */
+    private final Object processing = new Object();
+
     private GcEventSource gcSource;
     private ResourceSampler resourceSampler;
     private volatile boolean running;
@@ -215,9 +222,11 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
                 if (first == null) {
                     continue;
                 }
-                batch.add(first);
-                queue.drainTo(batch, BATCH_SIZE - 1);
-                process(batch);
+                synchronized (processing) {
+                    batch.add(first);
+                    queue.drainTo(batch, BATCH_SIZE - 1);
+                    process(batch);
+                }
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
                 return;
@@ -233,9 +242,11 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
     /** Drains and processes every queued event on the calling thread; for tests without a dispatcher. */
     void dispatchPending() {
         List<RuntimeEvent> batch = new ArrayList<>(BATCH_SIZE);
-        while (queue.drainTo(batch, BATCH_SIZE) > 0) {
-            process(batch);
-            batch.clear();
+        synchronized (processing) {
+            while (queue.drainTo(batch, BATCH_SIZE) > 0) {
+                process(batch);
+                batch.clear();
+            }
         }
     }
 
@@ -349,19 +360,26 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
     }
 
     /**
-     * Drops every retained event: the confirmation-gated <b>Clear recording</b> action. Counts since startup are kept,
-     * the statements derived from the dropped events are forgotten, and every listener is told
-     * ({@link JournalListener#onClear}) to forget what it keeps about them; the aggregates are theirs to clear.
+     * Drops every retained event and every event still queued: the confirmation-gated <b>Clear recording</b> action.
+     * Counts since startup are kept, the statements derived from the dropped events are forgotten, and every listener
+     * is told ({@link JournalListener#onClear}) to forget what it keeps about them; the aggregates are theirs to clear.
+     * It waits for a batch being processed, so no event recorded before the clear is processed after it, but for at
+     * most the one event the dispatcher took as the clear began.
      */
     public void clear() {
-        ring.clear();
-        SqlShapes.clear();
-        for (JournalListener listener : listeners) {
-            try {
-                listener.onClear();
-            } catch (RuntimeException ex) {
-                listenerFailures.increment();
-                log.log(Level.WARNING, "A listener of BootUI's runtime journal failed to clear its state", ex);
+        synchronized (processing) {
+            List<RuntimeEvent> queued = new ArrayList<>();
+            queue.drainTo(queued);
+            processed.addAndGet(queued.size());
+            ring.clear();
+            SqlShapes.clear();
+            for (JournalListener listener : listeners) {
+                try {
+                    listener.onClear();
+                } catch (RuntimeException ex) {
+                    listenerFailures.increment();
+                    log.log(Level.WARNING, "A listener of BootUI's runtime journal failed to clear its state", ex);
+                }
             }
         }
     }
@@ -418,10 +436,11 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
                 Thread.currentThread().interrupt();
             }
         }
-        try {
-            if (!settings.enabled() || (dispatcher != null && dispatcher.isAlive())) {
-                return;
-            }
+        if (dispatcher != null && dispatcher.isAlive()) {
+            // A dispatcher stuck past the join still processes its batch: its listeners are not told the run ended.
+            return;
+        }
+        if (settings.enabled()) {
             dispatchPending();
             for (JournalListener listener : listeners) {
                 try {
@@ -431,11 +450,10 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
                     log.log(Level.WARNING, "A listener of BootUI's runtime journal failed when the run ended", ex);
                 }
             }
-        } finally {
-            // After the run's last events are processed, so the next run starts with its own statements
-            // (docs/PLAN-v2.md §5.4).
-            SqlShapes.clear();
         }
+        // After the run's last events are processed, so the next run starts with its own statements
+        // (docs/PLAN-v2.md §5.4).
+        SqlShapes.clear();
     }
 
     private static LongAdder[] adders() {

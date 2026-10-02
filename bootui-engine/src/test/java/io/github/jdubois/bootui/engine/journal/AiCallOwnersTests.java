@@ -56,11 +56,14 @@ class AiCallOwnersTests {
     }
 
     @Test
-    void aRequestOfUnknownDurationContainsEveryLaterCall() {
+    void aRequestOfUnknownDurationSpansOnlyItsStart() {
         AiCallOwners owners = new AiCallOwners();
         owners.learn(http("r1", "trace-1", 1_000, -1));
 
-        assertThat(owners.ownerOf(ai("trace-1", 9_999_999))).isEqualTo("r1");
+        assertThat(owners.ownerOf(ai("trace-1", 1_001))).isEqualTo("r1");
+        assertThat(owners.ownerOf(ai("trace-1", 1_010)))
+                .as("no evidence that it was still running")
+                .isNull();
     }
 
     @Test
@@ -92,13 +95,18 @@ class AiCallOwnersTests {
     }
 
     @Test
-    void aBoundedOneForgetsTheLeastRecentlyUsedTraceAndGivesUpOnACrowdedTrace() {
+    void aBoundedOneFailsClosedOnATraceItForgotAndOnACrowdedTrace() {
         AiCallOwners owners = AiCallOwners.bounded();
         owners.learn(http("first", "trace-first", 1_000, 50_000_000));
         for (int i = 0; i < AiCallOwners.MAX_TRACES; i++) {
             owners.learn(http("r" + i, "trace-" + i, 1_000, 50_000_000));
         }
         assertThat(owners.traces()).isEqualTo(AiCallOwners.MAX_TRACES);
+        assertThat(owners.ownerOf(ai("trace-first", 1_010))).isNull();
+        assertThat(owners.unresolved(ai("trace-first", 1_010)))
+                .as("the forgotten request may own it, so no later request may claim it")
+                .isFalse();
+        owners.learn(http("later", "trace-first", 1_005, 50_000_000));
         assertThat(owners.ownerOf(ai("trace-first", 1_010))).isNull();
 
         for (int i = 0; i <= AiCallOwners.MAX_REQUESTS_PER_TRACE; i++) {

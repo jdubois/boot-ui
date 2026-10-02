@@ -105,6 +105,9 @@ public class QuarkusRabbitProducerCapture implements OutgoingInterceptor {
      */
     @Override
     public Message<?> onMessage(Message<?> message) {
+        if (!recorder.isEnabled()) {
+            return message;
+        }
         try {
             return message.addMetadata(new SenderCorrelation(QuarkusRequestCorrelation.current(), System.nanoTime()));
         } catch (RuntimeException ex) {
@@ -116,18 +119,25 @@ public class QuarkusRabbitProducerCapture implements OutgoingInterceptor {
         return message.getMetadata(SenderCorrelation.class).orElse(SenderCorrelation.UNKNOWN);
     }
 
-    /** Who sent a message and when, as a {@link System#nanoTime()}, or {@code -1} when unknown. */
-    record SenderCorrelation(CorrelationContext sender, long sentNanos) {
+    /**
+     * Who sent a message and when, as a {@link System#nanoTime()}; {@link #UNKNOWN} when it was not snapshotted, since
+     * any {@code long}, negative ones included, is a valid reading.
+     */
+    record SenderCorrelation(CorrelationContext sender, long sentNanos, boolean timed) {
 
-        static final SenderCorrelation UNKNOWN = new SenderCorrelation(CorrelationContext.NONE, -1);
+        static final SenderCorrelation UNKNOWN = new SenderCorrelation(CorrelationContext.NONE, 0, false);
 
         SenderCorrelation {
             sender = sender == null ? CorrelationContext.NONE : sender;
         }
 
+        SenderCorrelation(CorrelationContext sender, long sentNanos) {
+            this(sender, sentNanos, true);
+        }
+
         /** The nanoseconds from the send to now, or {@code null} when the send time is unknown. */
         Long durationNanos() {
-            return sentNanos < 0 ? null : Math.max(0, System.nanoTime() - sentNanos);
+            return timed ? Math.max(0, System.nanoTime() - sentNanos) : null;
         }
     }
 }

@@ -364,15 +364,14 @@ why none can be kept when BootUI itself is reloaded with the application. The jo
 `bootui.runtime-journal.*` [properties](../PROPERTIES.md#runtime-journal).
 
 **Recorded by** chooses where the feed comes from. **Default** follows `bootui.activity.feed-source`, which is the
-runtime journal unless set to `buffers`. **Runtime journal** renders the feed from the journal: every child nests
-under its request, scheduled run, or consumed message by id, transactions and log events appear as rows, an AI call
-appears as an **AI** row with its model, provider, tokens, and finish reason, nested under the request recorded with
-its trace id that was running when the call started (an error when it failed, a warning when the model stopped at its
-length limit), and three more filters apply on the server: a **Route** such as `GET /api/orders/{id}`, with its
-requests' children, a **Request id**, and **No request**, which keeps only work outside any request. The journal keeps
-no exception or log messages, principals, or email subjects, so a row shows them only while the panel that captured
-them still holds them. **Panel buffers** merges each panel's own buffer, as BootUI 1.x does. The feed refreshes
-whenever the journal records anything.
+runtime journal unless set to `buffers`. **Runtime journal** renders the feed from the journal: every child nests under
+its request, scheduled run, or consumed message by id, transactions and log events appear as rows, an AI call appears as
+an **AI** row with its model, provider, tokens, and finish reason, nested under the request that started it (an error
+when it failed, a warning when the model stopped at its length limit), and three more filters apply on the server: a
+**Route** such as `GET /api/orders/{id}`, with its requests' children, a **Request id**, and **No request**, which keeps
+only work outside any request. The journal keeps no exception or log messages, principals, or email subjects, so a row
+shows them only while the panel that captured them still holds them. **Panel buffers** merges each panel's own buffer,
+as BootUI 1.x does. The feed refreshes whenever the journal records anything.
 
 A request's profile drawer also shows **Recorded by the runtime journal**: the route it was grouped under and where it
 stands against that route's median and 95th percentile once the route has 5 requests; the CPU time, memory, and GC
