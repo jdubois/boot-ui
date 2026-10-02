@@ -209,7 +209,7 @@ public final class JournalAggregates implements JournalListener {
             }
             PendingRequest children = event.requestId() == null ? null : pending.remove(event.requestId());
             if (children != null) {
-                route.fold(children, label, this);
+                route.fold(children, label, http.status(), this);
             }
             if (event.requestId() != null) {
                 completed.put(event.requestId(), Boolean.TRUE);
@@ -241,6 +241,8 @@ public final class JournalAggregates implements JournalListener {
                 && children != null
                 && "MISS".equalsIgnoreCase(cache.operation())) {
             children.cacheMisses++;
+        } else if (payload instanceof AuthorizationPayload decision && children != null) {
+            children.authorization(decision);
         } else if (payload instanceof AiPayload ai && children != null) {
             children.aiTokens += Math.max(0, ai.inputTokens() == null ? 0 : ai.inputTokens())
                     + Math.max(0, ai.outputTokens() == null ? 0 : ai.outputTokens());
@@ -550,10 +552,26 @@ public final class JournalAggregates implements JournalListener {
         private long connectionWaitNanos;
         private long cacheMisses;
         private long aiTokens;
+        private String authentication;
+        private boolean requestDecided;
+        private boolean denied;
 
         void add(RuntimeEvent event) {
             counts[event.source().ordinal()]++;
             nanos[event.source().ordinal()] += Math.max(0, event.durationNanos());
+        }
+
+        /** The request's own decision names its authentication; a method's does only when the request has none. */
+        void authorization(AuthorizationPayload decision) {
+            if (!decision.granted()) {
+                denied = true;
+            }
+            if (decision.request() && !requestDecided) {
+                authentication = decision.authentication();
+                requestDecided = true;
+            } else if (authentication == null) {
+                authentication = decision.authentication();
+            }
         }
 
         void statement(String fingerprint) {
@@ -589,6 +607,9 @@ public final class JournalAggregates implements JournalListener {
         private long gcPauseNanos;
         private long cacheMisses;
         private long aiTokens;
+        private final long[] authentications = new long[4];
+        private long anonymousSuccesses;
+        private long deniedRequests;
 
         void resources(ResourceUsage usage) {
             switch (usage.availability()) {
@@ -617,7 +638,7 @@ public final class JournalAggregates implements JournalListener {
             }
         }
 
-        void fold(PendingRequest children, String label, JournalAggregates aggregates) {
+        void fold(PendingRequest children, String label, int status, JournalAggregates aggregates) {
             for (int i = 0; i < SOURCES; i++) {
                 childCounts[i] += children.counts[i];
                 childNanos[i] += children.nanos[i];
@@ -625,6 +646,16 @@ public final class JournalAggregates implements JournalListener {
             connectionWaitNanos += children.connectionWaitNanos;
             cacheMisses += children.cacheMisses;
             aiTokens += children.aiTokens;
+            if (children.authentication != null) {
+                int index = authenticationIndex(children.authentication);
+                authentications[index]++;
+                if (index == 0 && status >= 200 && status < 300) {
+                    anonymousSuccesses++;
+                }
+            }
+            if (children.denied) {
+                deniedRequests++;
+            }
             children.statements.forEach((fingerprint, count) -> statements.get(fingerprint)[0] += count);
             for (String groupId : children.exceptionGroups) {
                 aggregates.exceptionGroups.get(groupId).routes.get(label)[0]++;
@@ -654,7 +685,14 @@ public final class JournalAggregates implements JournalListener {
                             gcPauseNanos),
                     warmLatency.copy(),
                     cacheMisses,
-                    aiTokens);
+                    aiTokens,
+                    new RouteAuthorization(
+                            authentications[0],
+                            authentications[1],
+                            authentications[2],
+                            authentications[3],
+                            anonymousSuccesses,
+                            deniedRequests));
         }
     }
 
@@ -784,12 +822,40 @@ public final class JournalAggregates implements JournalListener {
             RouteResources resources,
             LatencyHistogram warmLatency,
             long cacheMisses,
-            long aiTokens) {
+            long aiTokens,
+            RouteAuthorization authorization) {
 
         public RouteStats {
             resources = resources == null ? RouteResources.NONE : resources;
             warmLatency = warmLatency == null ? new LatencyHistogram() : warmLatency;
+            authorization = authorization == null ? RouteAuthorization.NONE : authorization;
         }
+    }
+
+    /**
+     * How a route's requests were authorized ({@code docs/PLAN-v2.md} §5.18), from the {@code authorization} source:
+     * its requests by how their caller was authenticated, those answered {@code 2xx} to an anonymous caller, and those
+     * with at least one denied decision. A request with no recorded decision is counted in none of them.
+     */
+    public record RouteAuthorization(
+            long anonymous, long authenticated, long none, long unknown, long anonymousSuccesses, long denied) {
+
+        /** A route with no recorded decision, as when the {@code authorization} source is off. */
+        public static final RouteAuthorization NONE = new RouteAuthorization(0, 0, 0, 0, 0, 0);
+
+        /** The requests with a recorded decision. */
+        public long decided() {
+            return anonymous + authenticated + none + unknown;
+        }
+    }
+
+    private static int authenticationIndex(String authentication) {
+        return switch (authentication) {
+            case AuthorizationPayload.ANONYMOUS -> 0;
+            case AuthorizationPayload.AUTHENTICATED -> 1;
+            case AuthorizationPayload.NONE -> 2;
+            default -> 3;
+        };
     }
 
     /**

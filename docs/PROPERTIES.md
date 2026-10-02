@@ -644,7 +644,9 @@ occurrences, security events, REST client calls, cache accesses, messages, sched
 logical database connections (how long each was waited for and held), application `WARN` and `ERROR` log events,
 outgoing emails (their recipient and attachment counts only), fault-tolerance outcomes, AI operations from recognized
 GenAI spans (`ai`: operation, provider, model, tokens, and finish reason, never prompts or answers, linked to their
-request by trace id), garbage collections (`gc`), and the run's start (`lifecycle`: the time to ready and the slowest
+request by trace id), garbage collections (`gc`), authorization decisions (`authorization`: what was checked, the rule when Spring Security
+names it, whether the caller was anonymous or authenticated, whether access was granted, and a count of authorities,
+from Spring Security's authorization observations or Quarkus's authorization events), and the run's start (`lifecycle`: the time to ready and the slowest
 bean instantiations on Spring, and the facts that decide whether two runs can be compared: active profiles, each data
 source's URL shape such as `jdbc:postgresql://localhost` without credentials, database, or parameters, the cache in
 use, whether tracing is on, and the recorded sources) are recorded. The `resources` source measures each request's CPU time, allocated bytes, and
@@ -662,7 +664,7 @@ Spring and Quarkus.
 | `bootui.runtime-journal.max-events`    | `50000`                                  | Maximum number of events retained as evidence. A tenth of it is kept for failed and slow events. The aggregates count every event, retained or not. |
 | `bootui.runtime-journal.max-bytes`     | The smaller of 32 MB and 5 % of the heap | Maximum memory the retained events may use, estimated per event, such as `16MB`. Whichever bound is reached first evicts the oldest routine events. |
 | `bootui.runtime-journal.queue-capacity` | `10000`                                 | Maximum number of events waiting to be recorded. The last 10 % admits only failed or slow events, so a burst drops routine events first. |
-| `bootui.runtime-journal.sources`       | Every source                             | Comma-separated sources to record: `http`, `sql`, `transaction`, `connection`, `exception`, `security`, `rest-client`, `cache`, `messaging`, `scheduled`, `log`, `mail`, `fault-tolerance`, `ai`, `lifecycle`, `gc`, and `resources`. An unknown name fails startup. |
+| `bootui.runtime-journal.sources`       | Every source                             | Comma-separated sources to record: `http`, `sql`, `transaction`, `connection`, `exception`, `security`, `authorization`, `rest-client`, `cache`, `messaging`, `scheduled`, `log`, `mail`, `fault-tolerance`, `ai`, `lifecycle`, `gc`, and `resources`. An unknown name fails startup. |
 | `bootui.runtime-journal.baseline-file` | Unset                                    | File that keeps the last run's summary across a full JVM restart, such as `target/bootui-baseline.bin` or `build/bootui-baseline.bin`. Written atomically when a run ends, and read back at the next start as the previous run when the JVM keeps none; a file from another BootUI version or application is ignored and the reason logged. Relative to the working directory; its directory must exist, as it is never created. Unset writes and reads nothing. |
 | `bootui.runtime-insights.ai-token-threshold` | `8000`                                | Tokens of one model call above which Runtime Insights' AI usage by route reports the route from that call alone, rather than from three AI operations. Must be positive. |
 

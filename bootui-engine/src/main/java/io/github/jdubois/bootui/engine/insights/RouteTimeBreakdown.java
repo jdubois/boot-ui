@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.insights;
 
+import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RequestTiming;
@@ -35,6 +36,7 @@ public final class RouteTimeBreakdown implements Observation {
     /** Where a request's time went, in the order shown. */
     enum Phase {
         AUTHENTICATION("Authentication"),
+        AUTHORIZATION("Authorization"),
         FILTERS("Other filters"),
         CONNECTION_WAIT("Connection wait"),
         SQL("SQL"),
@@ -72,7 +74,8 @@ public final class RouteTimeBreakdown implements Observation {
 
     @Override
     public Set<JournalSource> optionalReads() {
-        return Set.of(JournalSource.SQL, JournalSource.CONNECTION, JournalSource.REST_CLIENT);
+        return Set.of(
+                JournalSource.SQL, JournalSource.CONNECTION, JournalSource.REST_CLIENT, JournalSource.AUTHORIZATION);
     }
 
     @Override
@@ -224,6 +227,9 @@ public final class RouteTimeBreakdown implements Observation {
             case RESPONSE ->
                 "Most of the time is writing the response: check its size and any lazy loading during serialization.";
             case AUTHENTICATION -> "Most of the time is authentication: check how credentials are verified.";
+            case AUTHORIZATION ->
+                "Most of the time is authorization: check the rules and method-security expressions evaluated per"
+                        + " request.";
             case FILTERS -> "Most of the time is in filters before the handler: check what they do per request.";
             case HANDLER, UNATTRIBUTED ->
                 "Most of the time is in application code outside recorded calls: profile the handler.";
@@ -335,11 +341,45 @@ public final class RouteTimeBreakdown implements Observation {
                 phases.put(Phase.FILTERS, filters - authentication);
                 phases.merge(Phase.AUTHENTICATION, authentication, Long::sum);
             }
+            if (timing.phased()) {
+                carveAuthorization(request, phases);
+            }
             long raw = 0;
             for (long[] call : calls) {
                 raw += call[1] - call[0];
             }
             return new Breakdown(request, duration, phases, Math.max(0, raw - union));
+        }
+
+        /**
+         * Moves the request's authorization time out of the phase it ran in: a request's decision runs in the filters
+         * before the handler, a method's in the handler. Decisions are not placed on the time axis, so only their total
+         * moves, at most what the phase holds.
+         */
+        private static void carveAuthorization(ProjectedRequest request, Map<Phase, Long> phases) {
+            long requestChecks = 0;
+            long methodChecks = 0;
+            for (RuntimeEvent child : request.children()) {
+                if (child.payload() instanceof AuthorizationPayload decision && child.durationNanos() > 0) {
+                    if (decision.request()) {
+                        requestChecks += child.durationNanos();
+                    } else {
+                        methodChecks += child.durationNanos();
+                    }
+                }
+            }
+            carve(phases, Phase.FILTERS, requestChecks);
+            carve(phases, Phase.HANDLER, methodChecks);
+        }
+
+        private static void carve(Map<Phase, Long> phases, Phase from, long nanos) {
+            Long available = phases.get(from);
+            if (nanos <= 0 || available == null) {
+                return;
+            }
+            long moved = Math.min(available, nanos);
+            phases.put(from, available - moved);
+            phases.merge(Phase.AUTHORIZATION, moved, Long::sum);
         }
 
         private static Phase phaseAt(RequestTiming timing, long offset) {

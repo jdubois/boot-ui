@@ -297,6 +297,27 @@ class JournalAggregatesTests {
     }
 
     @Test
+    void aRoutesRequestsAreCountedByHowTheirCallerWasAuthenticatedAndWhetherAnyDecisionDenied() {
+        publish(event("r1", JournalSource.AUTHORIZATION, 1_000, decision("REQUEST", "ANONYMOUS", true)));
+        publish(http("r1", "/api/products", 200, 1_000_000));
+        publish(event("r2", JournalSource.AUTHORIZATION, 1_000, decision("METHOD", "AUTHENTICATED", true)));
+        publish(event("r2", JournalSource.AUTHORIZATION, 1_000, decision("REQUEST", "ANONYMOUS", false)));
+        publish(http("r2", "/api/products", 401, 1_000_000));
+        publish(event("r3", JournalSource.AUTHORIZATION, 1_000, decision("REQUEST", "AUTHENTICATED", true)));
+        publish(http("r3", "/api/products", 200, 1_000_000));
+        publish(http("r4", "/api/products", 200, 1_000_000));
+
+        JournalAggregates.RouteAuthorization authorization =
+                aggregates.snapshot().routes().get(0).authorization();
+        assertThat(authorization).isEqualTo(new JournalAggregates.RouteAuthorization(2, 1, 0, 0, 1, 1));
+        assertThat(authorization.decided()).isEqualTo(3);
+    }
+
+    private static AuthorizationPayload decision(String target, String authentication, boolean granted) {
+        return new AuthorizationPayload(target, null, null, authentication, granted, 0);
+    }
+
+    @Test
     void clearingDropsEveryAggregate() {
         publish(http("r1", "/api/orders", 200, 1_000));
 

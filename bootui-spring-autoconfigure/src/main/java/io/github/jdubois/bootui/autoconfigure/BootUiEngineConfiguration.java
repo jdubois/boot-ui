@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure;
 
 import io.github.jdubois.bootui.autoconfigure.activity.AuthenticationPhaseObservationHandler;
+import io.github.jdubois.bootui.autoconfigure.activity.AuthorizationDecisionObservationHandler;
 import io.github.jdubois.bootui.autoconfigure.architecture.SpringBasePackageProvider;
 import io.github.jdubois.bootui.autoconfigure.beans.SpringBeanProvider;
 import io.github.jdubois.bootui.autoconfigure.cache.CacheActivityCacheManagerBeanPostProcessor;
@@ -318,6 +319,28 @@ public class BootUiEngineConfiguration {
                 bootUiAuthenticationPhaseCustomizer(RequestPhases phases) {
             return registry ->
                     registry.observationConfig().observationHandler(new AuthenticationPhaseObservationHandler(phases));
+        }
+    }
+
+    /**
+     * Records each authorization decision Spring Security observes in the runtime journal's {@code authorization}
+     * source ({@code docs/PLAN-v2.md} §5.18), on Spring MVC and WebFlux. Gated on both types, so an application without
+     * Spring Security or Micrometer observation loads nothing here.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(
+            name = {
+                "org.springframework.security.authorization.AuthorizationObservationContext",
+                "org.springframework.boot.micrometer.observation.autoconfigure.ObservationRegistryCustomizer"
+            })
+    static class AuthorizationDecisionConfiguration {
+
+        @Bean
+        org.springframework.boot.micrometer.observation.autoconfigure.ObservationRegistryCustomizer<
+                        io.micrometer.observation.ObservationRegistry>
+                bootUiAuthorizationDecisionCustomizer(ObjectProvider<RuntimeJournal> journal) {
+            return registry -> registry.observationConfig()
+                    .observationHandler(new AuthorizationDecisionObservationHandler(journal::getIfAvailable));
         }
     }
 

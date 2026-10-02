@@ -3,11 +3,14 @@ package io.github.jdubois.bootui.webfluxsample;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
+import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteResources;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
+import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RunStart;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.StartupStepTiming;
 import io.github.jdubois.bootui.engine.resources.ResourceTrack;
@@ -90,6 +93,27 @@ class WebFluxRuntimeJournalTest {
             }
         });
         assertThat(aggregates.resourceTrack().families()).contains(ResourceTrack.BOOTUI_FAMILY);
+    }
+
+    @Test
+    void eachReactiveAuthorizationDecisionJoinsItsRequestThroughTheExchange() throws Exception {
+        BootUiHttpProbe probe = new BootUiHttpProbe("http://localhost:" + port);
+
+        assertThat(probe.get("/api/greetings/Ada").status()).isEqualTo(200);
+        assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
+
+        List<RuntimeEvent> decisions = journal.entries().stream()
+                .map(JournalEntry::event)
+                .filter(event -> event.source() == JournalSource.AUTHORIZATION)
+                .toList();
+        assertThat(decisions).anySatisfy(event -> {
+            AuthorizationPayload decision = (AuthorizationPayload) event.payload();
+            assertThat(decision.target()).isEqualTo(AuthorizationPayload.REQUEST);
+            assertThat(decision.granted()).isTrue();
+            // permitAll() never asks for the caller, and a reactive context is not readable from a thread.
+            assertThat(decision.authentication()).isEqualTo(AuthorizationPayload.UNKNOWN);
+            assertThat(event.requestId()).isNotBlank();
+        });
     }
 
     @Test

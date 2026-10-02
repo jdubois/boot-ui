@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.engine.security;
 
+import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.spi.CorrelationContext;
@@ -51,6 +53,28 @@ public final class SecurityEventBuffer implements IdleReclaimable, RuntimeEventP
      */
     public void record(CapturedSecurityEvent event) {
         record(event, event == null ? null : CorrelationContext.forRequest(event.requestId()));
+    }
+
+    /**
+     * Publishes an authorization decision to the runtime journal's {@code authorization} source ({@code docs/PLAN-v2.md}
+     * §5.18), observed under {@code context}. Decisions are never retained here: a decision fires per check, and would
+     * evict the failures this buffer keeps for review.
+     */
+    public void recordAuthorization(
+            AuthorizationPayload decision, long epochMillis, CorrelationContext context, String thread) {
+        RuntimeEventSink sink = journal;
+        if (decision == null || !sink.records(JournalSource.AUTHORIZATION)) {
+            return;
+        }
+        sink.offer(RuntimeEvent.of(
+                JournalSource.AUTHORIZATION,
+                epochMillis,
+                0,
+                context == null ? CorrelationContext.NONE : context,
+                thread,
+                null,
+                !decision.granted(),
+                decision));
     }
 
     /**

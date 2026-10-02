@@ -4,11 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
 import io.github.jdubois.bootui.engine.journal.ApplicationFrames;
+import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
+import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RunStart;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.journal.StartupStepTiming;
@@ -119,6 +122,40 @@ class SpringRuntimeJournalTest {
         assertThat(boom.statusClasses().get(4)).isPositive();
         assertThat(aggregates.snapshot().exceptionGroups())
                 .anySatisfy(group -> assertThat(group.routes()).containsKey("GET /api/sample/boom"));
+    }
+
+    @Test
+    void authorizationDecisionsJoinTheirRequestWithHowTheCallerWasAuthenticated() throws Exception {
+        BootUiHttpProbe probe = new BootUiHttpProbe("http://localhost:" + port);
+        String basic = "Basic " + Base64.getEncoder().encodeToString("admin:admin".getBytes(StandardCharsets.UTF_8));
+
+        assertThat(probe.get("/api/secure/products", Map.of("Authorization", basic))
+                        .status())
+                .isEqualTo(200);
+        assertThat(probe.get("/api/secure/products").status()).isEqualTo(401);
+        assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
+
+        List<RuntimeEvent> decisions = journal.entries().stream()
+                .map(JournalEntry::event)
+                .filter(event -> event.source() == JournalSource.AUTHORIZATION)
+                .toList();
+        assertThat(decisions).anySatisfy(event -> {
+            AuthorizationPayload decision = (AuthorizationPayload) event.payload();
+            assertThat(decision.target()).isEqualTo(AuthorizationPayload.REQUEST);
+            assertThat(decision.granted()).isTrue();
+            assertThat(decision.authentication()).isEqualTo(AuthorizationPayload.AUTHENTICATED);
+            assertThat(decision.authorities()).isPositive();
+            assertThat(event.requestId()).isNotBlank();
+            assertThat(event.durationNanos()).isPositive();
+        });
+        assertThat(decisions).anySatisfy(event -> {
+            AuthorizationPayload decision = (AuthorizationPayload) event.payload();
+            assertThat(decision.granted()).isFalse();
+            assertThat(decision.authentication()).isEqualTo(AuthorizationPayload.ANONYMOUS);
+        });
+        RouteStats secure = route("GET /api/secure/products");
+        assertThat(secure.authorization().authenticated()).isPositive();
+        assertThat(secure.authorization().denied()).isPositive();
     }
 
     @Test

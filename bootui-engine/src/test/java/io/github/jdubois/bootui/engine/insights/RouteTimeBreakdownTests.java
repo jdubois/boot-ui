@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationRowDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
@@ -103,6 +104,48 @@ class RouteTimeBreakdownTests {
         assertThat(customers.status()).isEqualTo("INSUFFICIENT");
         assertThat(customers.sentence())
                 .isEqualTo("`GET /api/customers`: 2 of 5 warm requests needed. First request 12 ms (cold).");
+    }
+
+    @Test
+    void authorizationTimeIsTakenFromTheFiltersForARequestAndFromTheHandlerForAMethod() {
+        request("/api/admin", 100 * MS, new RequestTiming(0, -1, -1, -1));
+        for (int i = 0; i < 5; i++) {
+            request(
+                    "/api/admin",
+                    20 * MS,
+                    new RequestTiming(clock, 1 * MS, 10 * MS, 18 * MS),
+                    new Child(
+                            JournalSource.AUTHORIZATION,
+                            4 * MS,
+                            new AuthorizationPayload("REQUEST", null, null, "AUTHENTICATED", true, 1)),
+                    new Child(
+                            JournalSource.AUTHORIZATION,
+                            3 * MS,
+                            new AuthorizationPayload(
+                                    "METHOD",
+                                    "AdminService#purge",
+                                    "hasAnyAuthority(ROLE_ADMIN)",
+                                    "AUTHENTICATED",
+                                    true,
+                                    1)));
+        }
+
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+        RuntimeObservationDto admin = service.report().observations().stream()
+                .filter(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(service.insight(admin.id()).rows())
+                .extracting(RuntimeObservationRowDto::cells)
+                .containsExactly(
+                        List.of("Authentication", "5.0", "5 %", "1.0"),
+                        List.of("Authorization", "35", "35 %", "7.0"),
+                        List.of("Other filters", "25", "25 %", "5.0"),
+                        List.of("Handler, other work", "25", "25 %", "5.0"),
+                        List.of("Response write", "10", "10 %", "2.0"));
+        assertThat(admin.whatToCheck().get(0)).contains("authorization");
     }
 
     @Test

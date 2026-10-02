@@ -20,6 +20,7 @@ public enum JournalSource {
     CONNECTION("connection"),
     EXCEPTION("exception"),
     SECURITY("security"),
+    AUTHORIZATION("authorization"),
     REST_CLIENT("rest-client"),
     CACHE("cache"),
     MESSAGING("messaging"),
