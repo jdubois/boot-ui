@@ -58,6 +58,7 @@ public final class JournalActivityFeed {
     public static final String TYPE_FAULT_TOLERANCE = "FAULT_TOLERANCE";
     public static final String TYPE_AI = "AI";
     public static final String TYPE_MARKER = "MARKER";
+    public static final String TYPE_APP_EVENT = "APP_EVENT";
 
     static final String SEVERITY_OK = "OK";
     static final String SEVERITY_SLOW = "SLOW";
@@ -554,6 +555,29 @@ public final class JournalActivityFeed {
                     parentId,
                     false);
         }
+        if (payload instanceof AppEventPayload appEvent) {
+            boolean published = AppEventPayload.PUBLISHED.equals(appEvent.kind());
+            return entry(
+                    id,
+                    TYPE_APP_EVENT,
+                    event,
+                    AppEventPayload.FAILED.equals(appEvent.outcome())
+                            ? SEVERITY_ERROR
+                            : AppEventPayload.SKIPPED_NO_TRANSACTION.equals(appEvent.outcome())
+                                    ? SEVERITY_WARN
+                                    : SEVERITY_OK,
+                    published
+                            ? simpleName(appEvent.eventType()) + " published"
+                            : (appEvent.listener() == null ? "listener" : appEvent.listener()),
+                    published ? appEvent.listeners() + " listeners" : appEventDetail(appEvent),
+                    durationMs,
+                    null,
+                    null,
+                    null,
+                    false,
+                    parentId,
+                    false);
+        }
         if (payload instanceof LifecyclePayload lifecycle && lifecycle.marker()) {
             return entry(
                     id,
@@ -651,6 +675,28 @@ public final class JournalActivityFeed {
             detail.append(" · ").append(transaction.failureClass().substring(dot + 1));
         }
         return detail.toString();
+    }
+
+    /** A listener row's detail, such as {@code OrderPlaced · AFTER_COMMIT · skipped, no transaction}. */
+    static String appEventDetail(AppEventPayload event) {
+        String outcome =
+                switch (event.outcome() == null ? "" : event.outcome()) {
+                    case AppEventPayload.SKIPPED_NO_TRANSACTION -> "skipped, no transaction";
+                    case AppEventPayload.DEFERRED -> "deferred";
+                    case AppEventPayload.FAILED ->
+                        "failed" + (event.exceptionClass() == null ? "" : ": " + simpleName(event.exceptionClass()));
+                    default -> "ran";
+                };
+        return simpleName(event.eventType()) + " · " + (event.phase() == null ? "IMMEDIATE" : event.phase()) + " · "
+                + outcome;
+    }
+
+    private static String simpleName(String type) {
+        if (type == null) {
+            return "event";
+        }
+        int dot = type.lastIndexOf('.');
+        return dot < 0 ? type : type.substring(dot + 1);
     }
 
     /** What a marker says on the time axis, such as {@code BootUI action} for a change made from a panel. */

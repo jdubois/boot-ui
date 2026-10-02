@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
+import io.github.jdubois.bootui.engine.journal.AppEventPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -67,6 +68,10 @@ class RuntimeInsightsSeedsTest {
         assertThat(probe.request("POST", "/api/insights/orders", JSON, "{not json")
                         .status())
                 .isEqualTo(400);
+        for (String action : List.of("notify", "notify-in-transaction", "archive", "restore")) {
+            assertThat(probe.post("/api/insights/orders/1/" + action, JSON).status())
+                    .isEqualTo(200);
+        }
         assertThat(probe.post("/api/insights/debug/reset-totals", JSON).status())
                 .isEqualTo(200);
         assertThat(probe.get("/api/insights/reports/payroll").status()).isEqualTo(403);
@@ -143,6 +148,30 @@ class RuntimeInsightsSeedsTest {
         assertThat(subjects("anonymous-success-on-restricted-route", "OBSERVED"))
                 .contains("GET /api/insights/reports/{name}")
                 .doesNotContain("GET /api/sample/products");
+    }
+
+    @Test
+    void aListenerSkippedForLackOfATransactionIsFoundButNotTheSameEventPublishedInOne() {
+        assertThat(subjects("transactional-listener-skipped", "OBSERVED"))
+                .contains("POST /api/insights/orders/{id}/notify")
+                .doesNotContain("POST /api/insights/orders/{id}/notify-in-transaction");
+    }
+
+    @Test
+    void anAfterCommitWriteInNoTransactionIsFoundButNotOneInItsOwnTransaction() {
+        assertThat(subjects("after-commit-writes", "OBSERVED"))
+                .contains("POST /api/insights/orders/{id}/archive")
+                .doesNotContain("POST /api/insights/orders/{id}/restore");
+    }
+
+    @Test
+    void frameworkEventsAreNeverRecordedAsApplicationEvents() {
+        assertThat(journal.entries())
+                .extracting(entry -> entry.event().payload())
+                .filteredOn(AppEventPayload.class::isInstance)
+                .map(payload -> ((AppEventPayload) payload).eventType())
+                .isNotEmpty()
+                .allMatch(type -> type.startsWith("io.github.jdubois.bootui.sample."));
     }
 
     private List<String> subjects(String kind, String status) {

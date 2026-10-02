@@ -14,7 +14,13 @@ export const THEMES = [
   {
     id: 'transactions',
     label: 'Transactions',
-    kinds: ['connections-per-request', 'split-transaction-writes', 'transaction-across-remote-call']
+    kinds: [
+      'connections-per-request',
+      'split-transaction-writes',
+      'transaction-across-remote-call',
+      'transactional-listener-skipped',
+      'after-commit-writes'
+    ]
   },
   {id: 'access', label: 'Access', kinds: ['anonymous-data-reach', 'anonymous-success-on-restricted-route']},
   {id: 'framework', label: 'Framework', kinds: ['framework-warnings-by-route', 'proxy-bypass']},

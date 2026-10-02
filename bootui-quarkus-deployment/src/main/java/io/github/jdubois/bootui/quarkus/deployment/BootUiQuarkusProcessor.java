@@ -298,6 +298,16 @@ class BootUiQuarkusProcessor {
     private static final String SCHEDULED_EXECUTION_INTERCEPTOR_CLASS =
             "io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledExecutionInterceptor";
 
+    private static final String OBSERVER_INTERCEPTOR_CLASS =
+            "io.github.jdubois.bootui.quarkus.appevent.QuarkusObserverInterceptor";
+
+    private static final DotName OBSERVED_EVENT_BINDING =
+            DotName.createSimple("io.github.jdubois.bootui.quarkus.appevent.BootUiObservedEvent");
+
+    private static final DotName OBSERVES = DotName.createSimple("jakarta.enterprise.event.Observes");
+
+    private static final DotName OBSERVES_ASYNC = DotName.createSimple("jakarta.enterprise.event.ObservesAsync");
+
     private static final DotName SCHEDULED_EXECUTION_BINDING =
             DotName.createSimple("io.github.jdubois.bootui.quarkus.scheduled.BootUiScheduledExecution");
 
@@ -2358,6 +2368,36 @@ class BootUiQuarkusProcessor {
                 excludedTypes,
                 SCHEDULED_TASK_RUN_RECORDER_CLASS,
                 SCHEDULED_EXECUTION_INTERCEPTOR_CLASS);
+    }
+
+    /**
+     * Records the application's CDI events in the runtime journal's {@code app-event} source ({@code docs/PLAN-v2.md}
+     * §5.18, M4-8): binds {@code QuarkusObserverInterceptor} at build time to every {@code @Observes} and {@code
+     * @ObservesAsync} method of the application's own classes, so its sources are untouched and framework observers are
+     * never bound. Outside normal (production) mode only, like every other capture.
+     */
+    @BuildStep
+    void bindObserverInterceptor(
+            LaunchModeBuildItem launchMode,
+            ApplicationIndexBuildItem applicationIndex,
+            BuildProducer<AnnotationsTransformerBuildItem> transformers,
+            BuildProducer<AdditionalBeanBuildItem> additionalBeans,
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes) {
+        boolean present = launchMode.getLaunchMode() != LaunchMode.NORMAL;
+        registerCapabilityGatedBeans(present, additionalBeans, excludedTypes, OBSERVER_INTERCEPTOR_CLASS);
+        if (!present) {
+            return;
+        }
+        java.util.Set<DotName> applicationClasses = new java.util.HashSet<>();
+        applicationIndex.getIndex().getKnownClasses().forEach(type -> applicationClasses.add(type.name()));
+        transformers.produce(new AnnotationsTransformerBuildItem(AnnotationTransformation.forMethods()
+                .when(context -> {
+                    org.jboss.jandex.MethodInfo method = context.declaration().asMethod();
+                    return applicationClasses.contains(method.declaringClass().name())
+                            && (method.hasAnnotation(OBSERVES) || method.hasAnnotation(OBSERVES_ASYNC));
+                })
+                .transform(context -> context.add(
+                        AnnotationInstance.builder(OBSERVED_EVENT_BINDING).buildWithTarget(context.declaration())))));
     }
 
     /**

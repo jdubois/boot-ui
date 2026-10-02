@@ -31,7 +31,8 @@ public enum JournalSource {
     AI("ai"),
     LIFECYCLE("lifecycle"),
     GC("gc"),
-    RESOURCES("resources");
+    RESOURCES("resources"),
+    APP_EVENT("app-event");
 
     private final String propertyName;
 

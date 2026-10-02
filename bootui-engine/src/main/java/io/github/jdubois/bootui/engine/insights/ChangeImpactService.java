@@ -43,9 +43,11 @@ public final class ChangeImpactService {
     public static final String NOT_FOUND = "NOT_FOUND";
     public static final String UNAVAILABLE = "UNAVAILABLE";
 
-    private static final Set<NodeType> SYMBOLS =
-            EnumSet.of(NodeType.BEAN, NodeType.REPOSITORY, NodeType.TABLE, NodeType.CACHE, NodeType.HOST);
-    private static final Set<NodeType> RESOURCES = EnumSet.of(NodeType.TABLE, NodeType.CACHE, NodeType.HOST);
+    private static final Set<NodeType> SYMBOLS = EnumSet.of(
+            NodeType.BEAN, NodeType.REPOSITORY, NodeType.TABLE, NodeType.CACHE, NodeType.HOST, NodeType.EVENT);
+    // An application event is shared like a table: its publishers and listeners reach it through access edges (M4-8).
+    private static final Set<NodeType> RESOURCES =
+            EnumSet.of(NodeType.TABLE, NodeType.CACHE, NodeType.HOST, NodeType.EVENT);
     private static final Set<EdgeType> CODE = EnumSet.of(EdgeType.DEPENDS_ON, EdgeType.HANDLED_BY);
     private static final Set<EdgeType> ACCESS =
             EnumSet.of(EdgeType.READS, EdgeType.WRITES, EdgeType.CALLS, EdgeType.PUBLISHES, EdgeType.CONSUMES);
@@ -247,7 +249,8 @@ public final class ChangeImpactService {
             }
             String type = types.get(node.key());
             boolean matches = node.key().toLowerCase(Locale.ROOT).equals(wanted)
-                    || (type != null && (type.equals(symbol) || simpleName(type).equals(symbol)));
+                    || (type != null && (type.equals(symbol) || simpleName(type).equals(symbol)))
+                    || (node.type() == NodeType.EVENT && simpleName(node.key()).equals(symbol));
             if (matches) {
                 found.add(node);
             }

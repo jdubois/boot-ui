@@ -1715,7 +1715,7 @@ public abstract class AbstractBootUiApiConformanceTest {
         JsonNode report = probe.get(api("/runtime-insights")).json();
         assertThat(report.path("checks").size())
                 .as("every observation reports whether it ran")
-                .isEqualTo(17);
+                .isEqualTo(19);
         boolean httpCovered = false;
         for (JsonNode coverage : report.path("coverage")) {
             httpCovered |= "http".equals(coverage.path("source").asText())

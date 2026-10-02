@@ -173,6 +173,8 @@ public final class RuntimeInsightsService {
                 new AnonymousDataReach(),
                 new AnonymousSuccessOnRestrictedRoute(),
                 new SplitTransactionWrites(),
+                new TransactionalListenerSkipped(),
+                new AfterCommitWrites(),
                 new TransactionAcrossRemoteCall(),
                 new LazySqlAfterHandler(),
                 new EventLoopBlocking(),

@@ -181,7 +181,11 @@ requests-over-time sparkline above the table makes spikes and error bursts visib
 as its source, dashed lines on it mark what can explain a change in traffic, each also listed as a **MARKER** row: a
 change made from a BootUI panel (a logger level, a configuration override, a cache clear, a migration, **Clear
 recording**, a heap dump), an availability change, a configuration refresh, or shutdown. A marker names what was
-targeted, never a value.
+targeted, never a value. **APP_EVENT** rows list the application events a request published and each listener's run:
+on Spring through BootUI's event multicaster, transactional listeners' deferral, phase, and skips included; on Quarkus
+through an interceptor bound at build time to the application's `@Observes` and `@ObservesAsync` methods. Framework
+events are left out, and an event's fields are never recorded. Change impact accepts an event type, such as
+`OrderPlaced`, and lists the routes that published or consumed it.
 
 Because the feed is genuinely event-driven, it refreshes over **Server-Sent Events** rather than fixed-interval polling.
 The browser subscribes to `/bootui/api/activity/stream` and re-fetches when any source signals a change. The feed can be
@@ -563,7 +567,7 @@ the feed stays visible underneath. The viewport adapts to the graph's content, u
 on a route, never a cause, a severity, or a score. Opening the panel starts no capture, scan, database read, or network
 call; it only re-reads what the journal already recorded, and caches the result until the journal records more.
 
-Seventeen observations run over the completed requests and garbage collections the journal retains:
+Nineteen observations run over the completed requests and garbage collections the journal retains:
 
 | Observation | What it counts |
 | --- | --- |
@@ -581,6 +585,8 @@ Seventeen observations run over the completed requests and garbage collections t
 | `lazy-sql-after-handler` | SQL run while the response was written, outside every transaction (open session in view) |
 | `event-loop-blocking` | JDBC statements started on an event-loop thread |
 | `gc-inflated-latency` | The share of a route's slowest tenth of requests, at least five, during which a stop-the-world pause completed, against the share of its other requests, with the pauses' total. Pauses join requests by collector and collection id, never by time, and are worded "a pause completed during", never "caused by" |
+| `transactional-listener-skipped` | Spring: a `@TransactionalEventListener` that never ran because its event was published with no transaction active, from one event. Not applicable on Quarkus, where CDI notifies a transactional observer at once |
+| `after-commit-writes` | Spring: INSERT, UPDATE, or DELETE statements run by an after-commit, after-rollback, or after-completion listener outside every transaction that began within it; such writes join the finished transaction and are never committed |
 | `heap-growth-after-gc` | Old-generation occupancy after the full or mixed collections that reclaimed it, rising across the run from three such collections; the Memory panel links to it. Never called a leak, since a warming cache rises too before it levels off |
 | `ai-usage-by-route` | AI operations per route, job, or listener: model calls per request, tokens, input growth, and length-limited answers. Spring AI's model observation and Quarkus LangChain4j's chat listener stamp each call with its request when it is made, so no tracing is needed; GenAI spans received over OTLP fill in what they do not report, without counting a call twice |
 | `framework-warnings-by-route` | `WARN` and `ERROR` events from framework loggers, grouped by logger, template, and route |

@@ -1513,7 +1513,7 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
 - `GET /bootui/api/runtime-insights/insights/{id}` returns one observation's evidence: at most 20 rows and the count left
   out. Ids are `kind:hash`, stable across refreshes and restarts.
 - `GET /bootui/api/runtime-insights/impact?symbol=<symbol>` resolves a bean, a class's simple name, a repository, a
-  table, a cache, or a host to exactly one node of the runtime model ([PLAN-v2.md](PLAN-v2.md) §5.7), or answers
+  table, a cache, a host, or an application event type to exactly one node of the runtime model ([PLAN-v2.md](PLAN-v2.md) §5.7), or answers
   `AMBIGUOUS` with up to 8 candidates, `NOT_FOUND`, or `UNAVAILABLE` when the beans cannot be read. A resolved symbol
   lists, 8 rows each with totals, the routes that reach it and ran in this run, the mapped routes that reach it and did
   not, and the routes outside its reach that use a table, cache, or host the routes through it touched, with the

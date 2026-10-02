@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.model;
 
 import io.github.jdubois.bootui.engine.journal.AiPayload;
+import io.github.jdubois.bootui.engine.journal.AppEventPayload;
 import io.github.jdubois.bootui.engine.journal.CachePayload;
 import io.github.jdubois.bootui.engine.journal.ExceptionPayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
@@ -97,6 +98,15 @@ public final class ObservedEdges {
         }
         if (payload instanceof ExceptionPayload exception && exception.groupId() != null) {
             return List.of(new Target(EdgeType.RAISES, NodeType.EXCEPTION_GROUP, exception.groupId()));
+        }
+        if (payload instanceof AppEventPayload appEvent && appEvent.eventType() != null) {
+            // An execution publishes an application event, and an execution that ran a listener consumed it (M4-8).
+            if (AppEventPayload.PUBLISHED.equals(appEvent.kind())) {
+                return List.of(new Target(EdgeType.PUBLISHES, NodeType.EVENT, appEvent.eventType()));
+            }
+            if (AppEventPayload.RAN.equals(appEvent.outcome()) || AppEventPayload.FAILED.equals(appEvent.outcome())) {
+                return List.of(new Target(EdgeType.CONSUMES, NodeType.EVENT, appEvent.eventType()));
+            }
         }
         return List.of();
     }

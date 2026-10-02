@@ -25,7 +25,9 @@ public enum NodeType {
     /** An AI model, by its provider and name. */
     AI_MODEL,
     /** An exception group, by its group id. */
-    EXCEPTION_GROUP;
+    EXCEPTION_GROUP,
+    /** An application event, by its type, which executions publish and listeners consume (M4-8). */
+    EVENT;
 
     /** Whether nodes of this type are executions, which own the work recorded under them. */
     public boolean execution() {

@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.sample.insights;
 
 import io.smallrye.common.annotation.NonBlocking;
+import jakarta.enterprise.event.Event;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
@@ -36,6 +37,12 @@ public class InsightSeedResource {
 
     @Inject
     InsightSeedTables tables;
+
+    @Inject
+    Event<InsightOrderEvents.OrderArchived> archived;
+
+    @Inject
+    InsightOrderEvents events;
 
     /** {@code repeated-selects}: the orders, then each order's lines with one statement per order. */
     @GET
@@ -93,6 +100,14 @@ public class InsightSeedResource {
             }
             return order;
         }
+    }
+
+    /** Fires an application event whose observer BootUI records with this request (M4-8). */
+    @POST
+    @Path("/orders/{id}/archive")
+    public Map<String, Object> archive(@PathParam("id") long id) {
+        archived.fire(new InsightOrderEvents.OrderArchived(id));
+        return Map.of("order", id, "archived", events.lastArchived());
     }
 
     /** {@code anonymous-data-reach}: an anonymous debug endpoint that rewrites every order's total. */

@@ -24,6 +24,8 @@ test.describe('Runtime Insights demo', () => {
       ['Proxy bypass', '/api/insights/orders/{id}/recalculate'],
       ['Errors behind 2xx responses', '/api/insights/orders/{id}/import'],
       ['SQL after the handler returned', '/api/insights/orders/report'],
+      ['Transactional listeners skipped', '/api/insights/orders/{id}/notify'],
+      ['Writes after commit', '/api/insights/orders/{id}/archive'],
       ['Anonymous writes', '/api/insights/debug/reset-totals'],
       ['Anonymous success on a restricted route', '/api/insights/reports/{name}']
     ]) {

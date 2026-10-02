@@ -26,6 +26,12 @@ test.describe('Runtime Insights demo', () => {
       await expect(page.locator('.insight-item', {hasText: subject}).first()).toBeVisible()
     }
 
+    // The archive's CDI observer is recorded with its request, bound at build time (docs/PLAN-v2.md M4-8).
+    const activity = await (await page.request.get('/bootui/api/activity')).json()
+    expect(activity.entries.filter((entry) => entry.type === 'APP_EVENT').map((entry) => entry.summary)).toContain(
+      'InsightOrderEvents#audit'
+    )
+
     await page.locator('.insight-item', {hasText: 'GET /api/secure/products'}).first().click()
     const detail = page.locator('.insight-detail')
     await expect(detail.locator('#insight-sentence')).toContainText('warm median')

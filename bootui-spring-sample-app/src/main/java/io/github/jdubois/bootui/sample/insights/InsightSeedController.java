@@ -26,9 +26,11 @@ public class InsightSeedController {
     private static final Logger log = LoggerFactory.getLogger(InsightSeedController.class);
 
     private final InsightOrderService orders;
+    private final InsightOrderEvents events;
 
-    public InsightSeedController(InsightOrderService orders) {
+    public InsightSeedController(InsightOrderService orders, InsightOrderEvents events) {
         this.orders = orders;
+        this.events = events;
     }
 
     @GetMapping("/orders")
@@ -101,6 +103,30 @@ public class InsightSeedController {
     @GetMapping("/orders/report")
     public List<InsightOrderReport> lazyReport() {
         return orders.lazyReport();
+    }
+
+    @PostMapping("/orders/{id}/notify")
+    public Map<String, Object> notifyCustomer(@PathVariable long id) {
+        events.notifyWithoutTransaction(id);
+        return Map.of("order", id, "status", "notified");
+    }
+
+    @PostMapping("/orders/{id}/notify-in-transaction")
+    public Map<String, Object> notifyCustomerInTransaction(@PathVariable long id) {
+        events.notifyInTransaction(id);
+        return Map.of("order", id, "status", "notified");
+    }
+
+    @PostMapping("/orders/{id}/archive")
+    public Map<String, Object> archive(@PathVariable long id) {
+        events.archive(id);
+        return Map.of("order", id, "status", "archived");
+    }
+
+    @PostMapping("/orders/{id}/restore")
+    public Map<String, Object> restore(@PathVariable long id) {
+        events.restore(id);
+        return Map.of("order", id, "status", "restored");
     }
 
     /** An anonymous debug endpoint that rewrites every order's total. */

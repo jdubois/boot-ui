@@ -423,7 +423,8 @@ function typeIcon(type) {
       TRANSACTION: 'bi-arrow-repeat',
       AI: 'bi-cpu',
       LOG: 'bi-journal-text',
-      MARKER: 'bi-flag'
+      MARKER: 'bi-flag',
+      APP_EVENT: 'bi-broadcast'
     }[type] || 'bi-dot'
   )
 }
