@@ -1,5 +1,5 @@
 ---
-applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scripts/check-release-integrity.sh,.github/scripts/check-action-references.sh,pom.xml,**/pom.xml,README.md,docs/SETUP.md,docs/CLI.md,jbang-catalog.json,package.json,package-lock.json,**/package.json,**/package-lock.json"
+applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scripts/check-release-integrity.sh,.github/scripts/release-version-policy.sh,.github/scripts/check-action-references.sh,pom.xml,**/pom.xml,README.md,docs/SETUP.md,docs/CLI.md,jbang-catalog.json,package.json,package-lock.json,**/package.json,**/package-lock.json"
 ---
 
 # Release and publishing
@@ -23,6 +23,14 @@ applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scri
   atomically push the release commit and tag before any publication. Publish, verify, smoke-test, and deploy documentation
   only from the commit peeled from that signed tag. Never rebase release contents, move or recreate a release tag, or
   publish from an untagged branch state.
+- Versions advance per major, so an older major keeps receiving patches after a newer one ships.
+  `.github/scripts/release-version-policy.sh` accepts only the next patch or minor after the newest stable tag of the
+  release's own major, or `MAJOR.0.0` directly above the highest major, and requires the release's major to match the
+  source branch's project version (one above it only when opening a new major). Never reintroduce a "newest tag
+  overall" computation in `release.yml`; the integrity guard rejects it.
+- The documentation site follows the newest major only. `release.yml` dispatches `pages.yml` only when the release's
+  major is at least the highest major among the stable tags on origin; an older-major patch skips the redeploy.
+  `test_release_version_policy.py` and `test_release_integrity.py` cover both rules and the guard.
 - Maven Central requires the matching public signing key to be available by fingerprint. Never expose signing secrets in
   command arguments or logs. If macOS `gpg --send-keys` fails through dirmngr, use the HTTPS upload APIs for
   `keys.openpgp.org` and `keyserver.ubuntu.com`.

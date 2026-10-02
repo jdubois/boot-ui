@@ -90,28 +90,13 @@ jobs:
             exit 2
           fi
 
-          LATEST_TAG="$(
-            git tag --list 'v*' |
-              grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' |
-              sort -V |
-              tail -n 1 ||
-              true
-          )"
-          if [[ -z "$LATEST_TAG" ]]; then
-            echo "::error::Cannot determine the latest stable release tag"
-            exit 1
-          fi
+          CURRENT_VERSION="$(./mvnw -B -ntp -q -N -DforceStdout help:evaluate -Dexpression=project.version | tail -n 1)"
 
-          LATEST_VERSION="${LATEST_TAG#v}"
-          IFS=. read -r LATEST_MAJOR LATEST_MINOR LATEST_PATCH <<< "$LATEST_VERSION"
-          NEXT_PATCH="$LATEST_MAJOR.$LATEST_MINOR.$((LATEST_PATCH + 1))"
-          NEXT_MINOR="$LATEST_MAJOR.$((LATEST_MINOR + 1)).0"
-          NEXT_MAJOR="$((LATEST_MAJOR + 1)).0.0"
-
-          if [[ "$VERSION" != "$NEXT_PATCH" && "$VERSION" != "$NEXT_MINOR" && "$VERSION" != "$NEXT_MAJOR" ]]; then
-            echo "::error::Invalid release version '$VERSION'. Latest release is $LATEST_TAG; expected $NEXT_PATCH (patch), $NEXT_MINOR (minor), or $NEXT_MAJOR (major)."
-            exit 2
-          fi
+          # Versions advance within the source branch's major, so a maintained older major can
+          # still ship patches after a newer major exists. The policy script owns the arithmetic
+          # and is unit-tested by .github/scripts/test_release_version_policy.py.
+          git tag --list 'v*' |
+            bash .github/scripts/release-version-policy.sh next-version "$VERSION" "$CURRENT_VERSION"
 
           if [[ "$GITHUB_REF_TYPE" != "branch" ]]; then
             echo "::error::Preparing a release requires running this workflow from a branch, not $GITHUB_REF_TYPE"
@@ -133,7 +118,6 @@ jobs:
             exit 1
           fi
 
-          CURRENT_VERSION="$(./mvnw -B -ntp -q -N -DforceStdout help:evaluate -Dexpression=project.version | tail -n 1)"
           echo "Preparing release $TAG from $CURRENT_VERSION"
 
           ./mvnw -B -ntp versions:set \
@@ -671,8 +655,32 @@ jobs:
 
           echo "All BootUI ${VERSION} distribution smoke tests passed (Spring MVC, Spring WebFlux, Quarkus)."
 
-      - name: Redeploy documentation site
+      - name: Decide documentation redeploy
         if: env.CENTRAL_AUTO_PUBLISH == 'true'
+        run: |
+          set -euo pipefail
+
+          # The documentation site follows the newest major only. A patch on an older, maintained
+          # major must not replace the newer major's documentation. The decision reads the tags on
+          # origin, the published world, and counts the release's own tag.
+          NEWEST_MAJOR="$(
+            git ls-remote --tags --refs origin 'refs/tags/v*' |
+              awk '{ sub("^refs/tags/", "", $2); print $2 }' |
+              bash .github/scripts/release-version-policy.sh newest-major "$RELEASE_VERSION"
+          )"
+          if [[ "$NEWEST_MAJOR" == "true" ]]; then
+            echo "REDEPLOY_DOCS=true" >> "$GITHUB_ENV"
+            echo "$RELEASE_TAG is on the newest major; the documentation site will be redeployed from it."
+          elif [[ "$NEWEST_MAJOR" == "false" ]]; then
+            echo "REDEPLOY_DOCS=false" >> "$GITHUB_ENV"
+            echo "::notice::$RELEASE_TAG is on an older major; the documentation site stays on the newest major and is not redeployed."
+          else
+            echo "::error::Unexpected documentation redeploy decision '$NEWEST_MAJOR' for $RELEASE_TAG"
+            exit 1
+          fi
+
+      - name: Redeploy documentation site
+        if: env.CENTRAL_AUTO_PUBLISH == 'true' && env.REDEPLOY_DOCS == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -768,5 +776,6 @@ jobs:
           run this Release workflow at the existing release tag with an empty version,
           auto_publish enabled, and resume_after_publish enabled. That continuation skips a
           duplicate deploy, verifies the public artifacts, runs consumer smoke tests from the
-          tagged SHA, and deploys documentation from the same tag.
+          tagged SHA, and deploys documentation from the same tag when that tag is on the newest
+          major.
           EOF

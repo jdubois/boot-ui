@@ -4,6 +4,7 @@ set -euo pipefail
 
 readonly WORKFLOW="${1:-.github/workflows/release.yml}"
 readonly ROOT_POM="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/pom.xml"
+readonly VERSION_POLICY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/release-version-policy.sh"
 
 if [[ ! -r "$WORKFLOW" ]]; then
   printf 'Cannot read release workflow: %s\n' "$WORKFLOW" >&2
@@ -11,6 +12,10 @@ if [[ ! -r "$WORKFLOW" ]]; then
 fi
 if [[ ! -r "$ROOT_POM" ]]; then
   printf 'Cannot read root POM: %s\n' "$ROOT_POM" >&2
+  exit 2
+fi
+if [[ ! -r "$VERSION_POLICY" ]]; then
+  printf 'Cannot read release version policy: %s\n' "$VERSION_POLICY" >&2
   exit 2
 fi
 
@@ -60,6 +65,14 @@ require_literal 'git verify-tag "$EXPECTED_TAG"' 'existing tag signature verific
 require_literal 'ref: ${{ env.RELEASE_SHA }}' 'immutable release checkout'
 require_literal "if: env.RESUME_AFTER_PUBLISH != 'true'" 'deploy skip for publication continuation'
 require_literal 'gh workflow run pages.yml --ref "$RELEASE_TAG"' 'tag-pinned documentation deployment'
+require_literal 'bash .github/scripts/release-version-policy.sh next-version "$VERSION" "$CURRENT_VERSION"' \
+  'per-major next-version policy'
+require_literal 'bash .github/scripts/release-version-policy.sh newest-major "$RELEASE_VERSION"' \
+  'newest-major documentation redeploy decision'
+require_literal "git ls-remote --tags --refs origin 'refs/tags/v*'" \
+  'documentation redeploy decision from the tags on origin'
+require_literal "if: env.CENTRAL_AUTO_PUBLISH == 'true' && env.REDEPLOY_DOCS == 'true'" \
+  'documentation redeploy restricted to the newest major'
 require_literal '-pl .,bootui-core,bootui-engine,bootui-spring-autoconfigure,bootui-spring-boot-starter,bootui-spring-boot-starter-reactive,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-client,bootui-cli' \
   'publication-only Maven reactor'
 require_literal 'bootui-cli/${VERSION}/bootui-cli-${VERSION}-all.jar' \
@@ -72,7 +85,7 @@ require_literal '-f "$MVC_SMOKE_DIR/pom.xml"' 'external Spring MVC consumer invo
 require_literal '-f "$WEBFLUX_SMOKE_DIR/pom.xml"' 'external Spring WebFlux consumer invocation'
 
 smoke_test_step="$(
-  sed -n '/- name: Smoke test published distributions/,/- name: Redeploy documentation site/p' "$WORKFLOW"
+  sed -n '/- name: Smoke test published distributions/,/- name: Decide documentation redeploy/p' "$WORKFLOW"
 )"
 readonly smoke_test_step
 for sample_module in bootui-spring-sample-app bootui-spring-webflux-sample-app; do
@@ -146,6 +159,31 @@ require_order '- name: Publish to Maven Central' '- name: Wait for Maven Central
   'Maven Central availability polling must follow publication'
 require_order '- name: Wait for Maven Central availability' '- name: Smoke test published distributions' \
   'consumer smoke tests must follow Maven Central availability'
+require_order 'release-version-policy.sh next-version' './mvnw -B -ntp versions:set' \
+  'the release version must be validated against its major before any project file is rewritten'
+require_order '- name: Smoke test published distributions' '- name: Decide documentation redeploy' \
+  'the documentation redeploy decision must follow the consumer smoke tests'
+require_order '- name: Decide documentation redeploy' '- name: Redeploy documentation site' \
+  'the documentation redeploy decision must precede the documentation deployment'
+
+# Version arithmetic lives in the tested policy script. Picking the newest tag across the whole
+# repository would reject every patch to an older major once a newer major is tagged.
+if grep -Eq 'sort[[:space:]]+-V|LATEST_TAG=' "$WORKFLOW"; then
+  report_error 'release versions must be computed per major by release-version-policy.sh, not from the newest tag overall'
+fi
+
+# Only the newest-major gate may decide whether documentation is redeployed.
+if [[ "$(grep -c -- '- name: Redeploy documentation site' "$WORKFLOW" || true)" -ne 1 ]] ||
+  [[ "$(grep -c -- 'gh workflow run pages.yml' "$WORKFLOW" || true)" -ne 1 ]]; then
+  report_error 'the documentation site must be dispatched from exactly one newest-major-gated step'
+fi
+redeploy_condition="$(
+  sed -n '/- name: Redeploy documentation site/,/run:/p' "$WORKFLOW" | grep -E '^[[:space:]]*if:' || true
+)"
+readonly redeploy_condition
+if ! grep -Fq "env.REDEPLOY_DOCS == 'true'" <<<"$redeploy_condition"; then
+  report_error 'the documentation redeploy step must run only when REDEPLOY_DOCS is true'
+fi
 
 if grep -Eq '^[[:space:]]*git[[:space:]]+rebase([[:space:]]|$)' "$WORKFLOW"; then
   report_error 'release contents must never be rebased'
