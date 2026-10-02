@@ -353,6 +353,39 @@ class RuntimeJournalTests {
     }
 
     @Test
+    void anEventTheDispatcherTookAsTheRecordingWasClearedIsNotRecorded() throws Exception {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), true);
+        CountDownLatch blocked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        journal.addListener(entries -> {
+            if (blocked.getCount() > 0) {
+                blocked.countDown();
+                try {
+                    release.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        });
+        journal.offer(sql(1, false));
+        assertThat(blocked.await(5, TimeUnit.SECONDS)).isTrue();
+        // Queued while the first batch is processed; the dispatcher may take it before the clear gets in.
+        journal.offer(sql(2, false));
+        Thread clearing = new Thread(journal::clear);
+        clearing.start();
+        while (clearing.getState() != Thread.State.BLOCKED && clearing.isAlive()) {
+            Thread.onSpinWait();
+        }
+        release.countDown();
+        clearing.join(5_000);
+
+        assertThat(journal.awaitDrained(java.time.Duration.ofSeconds(5))).isTrue();
+        assertThat(journal.entries())
+                .as("offered before the clear, so cleared with it")
+                .isEmpty();
+    }
+
+    @Test
     void theDictionaryCountsAgainstTheByteBound() {
         int eventBytes = sql(0, false).estimatedBytes();
         RuntimeJournal journal = journal(settings(1_000, eventBytes * 40L, 1_000, 10, JournalSource.all()), false);
@@ -368,6 +401,30 @@ class RuntimeJournalTests {
         assertThat(status.dictionaryBytes()).isGreaterThan(eventBytes * 5L);
         assertThat(status.retainedBytes() + status.dictionaryBytes()).isLessThanOrEqualTo(eventBytes * 40L);
         assertThat(status.retainedEvents()).isLessThan(40);
+    }
+
+    @Test
+    void clearingEmptiesTheDictionaryAndARepeatedStatementIsSharedAgain() {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        journal.offer(statement(1, "select * from orders where id = ?"));
+        journal.dispatchPending();
+        assertThat(journal.status().dictionaryEntries()).isPositive();
+
+        journal.clear();
+
+        assertThat(journal.status().dictionaryEntries()).isZero();
+        assertThat(journal.status().dictionaryBytes()).isZero();
+
+        journal.offer(statement(2, "select * from customers where id = ?"));
+        journal.offer(statement(3, "select * from customers where id = ?"));
+        journal.dispatchPending();
+
+        List<JournalEntry> entries = journal.entries();
+        assertThat(entries).hasSize(2);
+        assertThat(((SqlPayload) entries.get(0).event().payload()).sql())
+                .isSameAs(((SqlPayload) entries.get(1).event().payload()).sql());
+        assertThat(journal.status().dictionaryEntries()).isEqualTo(1);
+        assertThat(journal.status().dictionaryBytes()).isPositive();
     }
 
     @Test
@@ -390,6 +447,18 @@ class RuntimeJournalTests {
             int maxEvents, long maxBytes, int queueCapacity, int reservedPercent, Set<JournalSource> sources) {
         return new RuntimeJournalSettings(
                 true, maxEvents, maxBytes, queueCapacity, reservedPercent, reservedPercent, sources);
+    }
+
+    private static RuntimeEvent statement(int index, String sql) {
+        return RuntimeEvent.of(
+                JournalSource.SQL,
+                1_000L + index,
+                1_000,
+                null,
+                null,
+                null,
+                false,
+                new SqlPayload(new String(sql), null, null, false));
     }
 
     private static RuntimeEvent sql(int index, boolean failedOrSlow) {

@@ -64,7 +64,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
 
     private final RuntimeJournalSettings settings;
     private final RunIdentity run;
-    private final ArrayBlockingQueue<RuntimeEvent> queue;
+    private final ArrayBlockingQueue<Queued> queue;
     private final int routineQueueLimit;
     private final JournalDictionary dictionary;
     private final EvidenceRing ring;
@@ -128,7 +128,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
         int source = event.source().ordinal();
         try {
             event = withThreadKind(event);
-            if ((event.failedOrSlow() || queue.size() < routineQueueLimit) && queue.offer(event)) {
+            if ((event.failedOrSlow() || queue.size() < routineQueueLimit) && queue.offer(new Queued(event, clears))) {
                 accepted[source].increment();
                 acceptedTotal.increment();
                 return true;
@@ -218,25 +218,17 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
     }
 
     private void dispatchLoop() {
-        List<RuntimeEvent> batch = new ArrayList<>(BATCH_SIZE);
+        List<Queued> batch = new ArrayList<>(BATCH_SIZE);
         while (running) {
             try {
-                RuntimeEvent first = queue.poll(250, TimeUnit.MILLISECONDS);
+                Queued first = queue.poll(250, TimeUnit.MILLISECONDS);
                 if (first == null) {
                     continue;
                 }
-                long clearsWhenTaken = clears;
                 synchronized (processing) {
-                    if (clears == clearsWhenTaken) {
-                        batch.add(first);
-                    } else {
-                        // Taken from the queue before a clear that ran before this batch: it is cleared with it.
-                        processed.incrementAndGet();
-                    }
+                    batch.add(first);
                     queue.drainTo(batch, BATCH_SIZE - 1);
-                    if (!batch.isEmpty()) {
-                        process(batch);
-                    }
+                    processCurrent(batch);
                 }
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
@@ -252,14 +244,36 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
 
     /** Drains and processes every queued event on the calling thread; for tests without a dispatcher. */
     void dispatchPending() {
-        List<RuntimeEvent> batch = new ArrayList<>(BATCH_SIZE);
+        List<Queued> batch = new ArrayList<>(BATCH_SIZE);
         synchronized (processing) {
             while (queue.drainTo(batch, BATCH_SIZE) > 0) {
-                process(batch);
+                processCurrent(batch);
                 batch.clear();
             }
         }
     }
+
+    /**
+     * Processes the events of {@code batch} offered since the last clear, with {@link #processing} held. One offered
+     * before it, which the dispatcher took from the queue just as the clear ran, is dropped and counted as processed:
+     * it was cleared with the recording.
+     */
+    private void processCurrent(List<Queued> batch) {
+        long generation = clears;
+        List<RuntimeEvent> events = new ArrayList<>(batch.size());
+        for (Queued queued : batch) {
+            if (queued.clears() == generation) {
+                events.add(queued.event());
+            }
+        }
+        processed.addAndGet(batch.size() - events.size());
+        if (!events.isEmpty()) {
+            process(events);
+        }
+    }
+
+    /** An accepted event and how many times the recording had been cleared when it was offered. */
+    private record Queued(RuntimeEvent event, long clears) {}
 
     private void process(List<RuntimeEvent> batch) {
         List<JournalEntry> entries = new ArrayList<>(batch.size());
@@ -370,6 +384,14 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
         return run;
     }
 
+    /**
+     * Whether a request recorded with {@code traceId} was evicted from the retained events, so a reader attributes no
+     * AI call linked only by that trace ({@link AiCallOwners}): the evicted request may have made it.
+     */
+    public boolean evictedARequestOf(String traceId) {
+        return ring.evictedARequestOf(traceId);
+    }
+
     /** Whether {@code listener} is told of each batch and of each clear. */
     boolean notifies(JournalListener listener) {
         return listeners.contains(listener);
@@ -377,17 +399,19 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
 
     /**
      * Drops every retained event and every event still queued: the confirmation-gated <b>Clear recording</b> action.
-     * Counts since startup are kept, the statements derived from the dropped events are forgotten, and every listener
-     * is told ({@link JournalListener#onClear}) to forget what it keeps about them; the aggregates are theirs to clear.
+     * Counts since startup are kept, the run's dictionary is emptied once the ring is, the statements derived from the
+     * dropped events are forgotten, and every listener is told ({@link JournalListener#onClear}) to forget what it keeps
+     * about them; the aggregates are theirs to clear.
      * It waits for a batch being processed, so no event recorded before the clear is processed after it.
      */
     public void clear() {
         synchronized (processing) {
             clears++;
-            List<RuntimeEvent> queued = new ArrayList<>();
+            List<Queued> queued = new ArrayList<>();
             queue.drainTo(queued);
             processed.addAndGet(queued.size());
             ring.clear();
+            dictionary.clear();
             SqlShapes.clear();
             for (JournalListener listener : listeners) {
                 try {

@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 
 /**
  * Which request made an AI call ({@code docs/PLAN-v2.md} §5.3) whose span started outside any request BootUI knew of,
@@ -17,8 +18,9 @@ import java.util.Map;
  * call the same way: by its time, never by which requests happen to be retained or the order the journal recorded
  * them in. A request's time span is read from the application's clock and the call's start from the tracer's, so a
  * call within {@value #TOLERANCE_MILLIS} ms of a span counts as inside it; a call farther outside belongs to none.
- * Live Activity's history learns no request, since a request recorded later could change the inference and a written
- * row is never revised. Not thread-safe.</p>
+ * A call whose trace also belonged to a request the journal evicted belongs to none, since that request may have made
+ * it. Live Activity's history learns no request, since a request recorded later could change the inference and a
+ * written row is never revised. Not thread-safe.</p>
  */
 public final class AiCallOwners {
 
@@ -29,6 +31,22 @@ public final class AiCallOwners {
     static final long TOLERANCE_MILLIS = 2;
 
     private final Map<String, List<Window>> windowsByTrace = new HashMap<>();
+    private final Predicate<String> evictedRequestTraces;
+
+    /** One that knows every request recorded with a trace, as when it reads events nothing evicted. */
+    public AiCallOwners() {
+        this(traceId -> false);
+    }
+
+    /**
+     * One that reads the journal's retained events.
+     *
+     * @param evictedRequestTraces whether a request recorded with a trace was evicted, so the call may be its: a call
+     *     of such a trace belongs to none rather than to another retained request sharing it
+     */
+    public AiCallOwners(Predicate<String> evictedRequestTraces) {
+        this.evictedRequestTraces = evictedRequestTraces == null ? traceId -> false : evictedRequestTraces;
+    }
 
     /** Whether {@code event} is an AI call that only its trace id can link to a request. */
     public static boolean linksByTrace(RuntimeEvent event) {
@@ -61,7 +79,7 @@ public final class AiCallOwners {
             return null;
         }
         List<Window> windows = windowsByTrace.get(event.traceId());
-        if (windows == null) {
+        if (windows == null || evicted(event.traceId())) {
             return null;
         }
         String owner = null;
@@ -74,6 +92,14 @@ public final class AiCallOwners {
             }
         }
         return owner;
+    }
+
+    private boolean evicted(String traceId) {
+        try {
+            return evictedRequestTraces.test(traceId);
+        } catch (RuntimeException ex) {
+            return true;
+        }
     }
 
     /**

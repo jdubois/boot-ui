@@ -52,9 +52,10 @@ public final class SqlShapes {
     }
 
     /**
-     * Whether the journal's dictionary should share {@code sql}: it has no literal in a comparison, {@code IN} list, or
-     * {@code LIKE}, where a value concatenated into the text would make every run of it a one-off string
-     * ({@link SqlStatementNormalizer.Result#predicateLiteralCount()}).
+     * Whether the journal's dictionary should share {@code sql}: it has no literal at all
+     * ({@link SqlStatementNormalizer.Result#literalCount()}). A literal anywhere, in a predicate, an {@code INSERT}'s
+     * values, a {@code LIMIT} or {@code OFFSET}, or a DDL or seed script, may be a value concatenated into the text, which
+     * would make every run of it a one-off string.
      */
     public static boolean shareable(String sql) {
         return sql != null && shape(sql).shareable();
@@ -114,7 +115,7 @@ public final class SqlShapes {
             SqlStatementNormalizer.Result normalized = SqlStatementNormalizer.normalize(sql);
             this.sql = sql;
             this.fingerprint = normalized.fingerprint();
-            this.shareable = normalized.predicateLiteralCount() == 0;
+            this.shareable = normalized.literalCount() == 0;
         }
 
         String fingerprint() {

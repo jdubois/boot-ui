@@ -5,6 +5,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.function.LongSupplier;
 
@@ -38,6 +39,15 @@ final class EvidenceRing {
     private long evictedByBytes;
     private Bound lastBound;
 
+    /** The most trace ids of evicted requests remembered. */
+    static final int MAX_EVICTED_REQUEST_TRACES = 16_384;
+
+    /**
+     * The trace ids of the most recently evicted requests, so a reader never hands an AI call linked only by its trace
+     * to another request sharing it when the request that made the call is gone ({@link AiCallOwners}).
+     */
+    private final LinkedHashSet<String> evictedRequestTraces = new LinkedHashSet<>();
+
     EvidenceRing(int maxEvents, long maxBytes, int reservedSharePercent, LongSupplier externalBytes) {
         this.maxEvents = Math.max(1, maxEvents);
         this.maxBytes = Math.max(1, maxBytes);
@@ -61,6 +71,7 @@ final class EvidenceRing {
             }
             JournalEntry evicted = evictOne();
             retainedBytes -= evicted.estimatedBytes();
+            rememberEvictedRequest(evicted.event());
             lastBound = bound;
             if (bound == Bound.COUNT) {
                 evictedByCount++;
@@ -82,6 +93,22 @@ final class EvidenceRing {
         return routine.isEmpty() ? reserved.pollFirst() : routine.pollFirst();
     }
 
+    private void rememberEvictedRequest(RuntimeEvent event) {
+        if (event.source() != JournalSource.HTTP || event.traceId() == null) {
+            return;
+        }
+        evictedRequestTraces.remove(event.traceId());
+        evictedRequestTraces.add(event.traceId());
+        if (evictedRequestTraces.size() > MAX_EVICTED_REQUEST_TRACES) {
+            evictedRequestTraces.remove(evictedRequestTraces.iterator().next());
+        }
+    }
+
+    /** Whether a request recorded with {@code traceId} was evicted, as far as the ring remembers. */
+    synchronized boolean evictedARequestOf(String traceId) {
+        return traceId != null && evictedRequestTraces.contains(traceId);
+    }
+
     private int size() {
         return routine.size() + reserved.size();
     }
@@ -90,6 +117,7 @@ final class EvidenceRing {
     synchronized void clear() {
         routine.clear();
         reserved.clear();
+        evictedRequestTraces.clear();
         retainedBytes = 0;
     }
 

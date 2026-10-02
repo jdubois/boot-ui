@@ -22,6 +22,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
@@ -109,12 +110,28 @@ public final class JournalActivityFeed {
             Filter filter,
             int limit,
             JournalRowDetails details) {
+        return render(entries, eventId, runId, filter, limit, details, traceId -> false);
+    }
+
+    /**
+     * Renders as {@link #render(List, Function, String, Filter, int, JournalRowDetails)} does, with
+     * {@code evictedRequestTraces} naming the traces of requests the journal evicted, whose AI calls linked only by
+     * trace nest under no request ({@link AiCallOwners}).
+     */
+    public Feed render(
+            List<JournalEntry> entries,
+            Function<JournalEntry, String> eventId,
+            String runId,
+            Filter filter,
+            int limit,
+            JournalRowDetails details,
+            Predicate<String> evictedRequestTraces) {
         RouteTemplateResolver routes = resolver();
         JournalRowDetails rowDetails = details == null ? JournalRowDetails.NONE : details;
         Map<String, JournalEntry> requests = new HashMap<>();
         Map<String, String> executions = new HashMap<>();
         Map<String, Map<String, Integer>> selectsByRequest = new HashMap<>();
-        AiCallOwners aiCallOwners = new AiCallOwners();
+        AiCallOwners aiCallOwners = new AiCallOwners(evictedRequestTraces);
         for (JournalEntry entry : entries) {
             RuntimeEvent event = entry.event();
             if (event.source() == JournalSource.HTTP && event.requestId() != null) {

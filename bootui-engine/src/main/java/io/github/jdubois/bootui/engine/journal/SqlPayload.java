@@ -34,9 +34,10 @@ public record SqlPayload(
 
     /**
      * This statement with its SQL, call site, data source, and frames replaced by the run's shared copies, so a
-     * statement run many times is stored once ({@code docs/PLAN-v2.md} §5.2). Its SQL is shared only when no literal
-     * sits where a concatenated value would ({@link SqlShapes#shareable}), since such statements would fill the
-     * dictionary with one-off strings; it then keeps, and is counted for, its own copy.
+     * statement run many times is stored once ({@code docs/PLAN-v2.md} §5.2). Its SQL is shared only when it has no
+     * literal at all ({@link SqlShapes#shareable}), since a literal may be a concatenated value, an {@code INSERT}'s
+     * values, or a seed script's data, which would fill the dictionary with one-off strings; a statement with a literal
+     * keeps, and is counted for, its own copy.
      */
     @Override
     public RuntimeEventPayload interned(JournalDictionary dictionary) {
