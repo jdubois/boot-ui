@@ -350,7 +350,8 @@ public final class ExecutionProfileAssembler {
                                 occurrence.timestamp(),
                                 occurrence.thread(),
                                 occurrence.handler(),
-                                occurrence.source()));
+                                occurrence.source(),
+                                group.id()));
             }
         }
         return section.sorted(RequestProfileExceptionDto::timestamp);

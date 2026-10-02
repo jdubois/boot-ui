@@ -289,6 +289,28 @@ Exposure-policy changes invalidate the cache without SQL; request approval for a
 refreshing an explained `NOT_READ`.
 See [MySQL](features/database.md#mysql).
 
+### Investigating one request
+
+`bootui activity` lists what happened; `bootui request-profile` explains one request. List recent activity, pick a
+`REQUEST` entry whose `profileable` field is `true`, and pass its `id`:
+
+```bash
+bootui activity --limit 50 --json \
+  | jq -r '.entries[] | select(.type == "REQUEST" and .profileable) | "\(.id) \(.severity) \(.summary)"'
+bootui request-profile <id> --json
+bootui exceptions show <exceptionGroupId> --json
+```
+
+The profile is the same masked document the Live Activity drawer shows and `GET /bootui/api/activity/request/{id}`
+returns: the request, its correlated SQL as normalized statement groups with N+1 flags and the call sites that issued
+them, exceptions with the `exceptionGroupId` that `bootui exceptions show` accepts, security events, REST client calls,
+cache accesses, timing, and notes. An id that is unknown or already evicted still exits `0`, with `available: false`
+and an `unavailableReason`.
+
+The command is `request-profile`, at the top level, because `bootui activity` is itself a command and a command path
+cannot also be the parent of another. It is unavailable, and exits `2`, when the Live Activity panel is disabled. See
+[Investigate one request](AI-AGENTS.md#investigate-one-request) for the same workflow over MCP.
+
 ## The MCP server
 
 The MCP server is a panel like any other, so the CLI can inspect and toggle it — subject to that panel's own
@@ -426,6 +448,7 @@ exposes a tool is still what `bootui tools` says.
 | `bootui profile diff` | `get_profile_diff` | — | read | all |
 | `bootui rabbitmq` | `get_rabbitmq_activity` | — | read | all |
 | `bootui repositories` | `get_spring_data_repositories` | — | read | Spring MVC, WebFlux |
+| `bootui request-profile` | `get_request_profile` | `<id>` | read | all |
 | `bootui rest-api report` | `get_rest_api_report` | — | read | all |
 | `bootui rest-api violations` | `get_rest_api_rule_violations` | `<id> --scan-id <scanId> [--offset N] [--limit N]` | read | all |
 | `bootui rest-api scan` | `rest_api_scan` | — | action | all |

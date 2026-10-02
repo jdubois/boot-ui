@@ -1,10 +1,11 @@
 <script setup>
 import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import {useRoute} from 'vue-router'
-import {apiFetch} from '../api.js'
+import {apiFetch, getJson} from '../api.js'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import UnavailableState from './components/UnavailableState.vue'
+import AiExportPreview from './components/AiExportPreview.vue'
 import FlashBanner from './components/FlashBanner.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
 import {formatBytes, formatClockTime, formatMillis, formatNumber} from '../utils/format.js'
@@ -20,9 +21,9 @@ import {
   childTierLabel,
   profileSections,
   restCallSummary,
-  tierLabel,
   unavailableTiersText
 } from '../utils/requestProfile.js'
+import {loadProfileExceptionDetails, profileMarkdown} from '../utils/markdownExport.js'
 import {
   appendOlderPage,
   bucketEntries,
@@ -85,6 +86,8 @@ const profileError = ref(null)
 const profileRequestId = ref(null)
 const drawerEl = ref(null)
 const profileOpenerEl = ref(null)
+// The "Copy for AI" preview of the open profile, or null while the profile itself is shown.
+const aiExport = ref(null)
 
 // "Load older" pagination state. Only ever populated when the backing store is durable (see
 // `persistent` below); stays empty for the default in-memory mode so nothing here changes its
@@ -457,6 +460,7 @@ async function loadProfile(id, opener) {
   profileLoading.value = true
   profileError.value = null
   profile.value = null
+  aiExport.value = null
   try {
     const response = await apiFetch(`api/activity/request/${encodeURIComponent(id)}`)
     if (!response.ok) {
@@ -477,6 +481,7 @@ function closeProfile() {
   profile.value = null
   profileError.value = null
   profileOpenerEl.value = null
+  aiExport.value = null
   requestAnimationFrame(() => opener?.focus?.())
 }
 
@@ -518,134 +523,34 @@ function trapFocus(event) {
 }
 
 function copyProfile() {
-  const text = renderProfileReport()
-  if (text) {
-    copyToClipboard(text, 'profile')
+  if (!profile.value?.available) return
+  copyToClipboard(profileMarkdown(profile.value).markdown, 'profile')
+}
+
+// "Copy for AI" previews the profile's Markdown with each correlated exception's stack trace and recent
+// occurrences, loaded through the existing Exceptions read endpoint. Copying the preview sends nothing.
+async function openAiExport() {
+  const current = profile.value
+  if (!current?.available) return
+  aiExport.value = {loading: true, error: null, markdown: '', omissions: []}
+  try {
+    const {exceptionDetails, omissions} = await loadProfileExceptionDetails(current, getJson)
+    if (profile.value !== current) return
+    aiExport.value = {loading: false, error: null, ...profileMarkdown(current, {exceptionDetails, omissions})}
+  } catch (err) {
+    if (profile.value !== current) return
+    aiExport.value = {
+      loading: false,
+      error: formatLoadError(err, 'Could not prepare the export'),
+      markdown: '',
+      omissions: []
+    }
   }
 }
 
-// Build a plain-text, already-masked timeline (request + SQL + exceptions) a developer can paste
-// straight into a bug report. All values come from the masked profile payload; nothing new is read.
-function renderProfileReport() {
-  const p = profile.value
-  if (!p || !p.available) return ''
-  const lines = []
-  lines.push('# BootUI request profile')
-  const req = p.request
-  lines.push(`Request: ${req.method} ${req.path} → ${req.status}`)
-  if (req.durationMs != null) lines.push(`Duration: ${formatDurationMs(req.durationMs)}`)
-  if (req.principal) lines.push(`Principal: ${req.principal}`)
-  if (req.traceId) lines.push(`Trace id: ${req.traceId}`)
-  if (p.timing) lines.push(`Timing: ${timingSummary.value}`)
-  if (p.approximate) lines.push('Correlation: approximate (some signals were matched by time window only)')
-  const meta = sections.value
-  lines.push('')
-  lines.push(sqlHeading(p, meta.SQL))
-  if (meta.SQL && !meta.SQL.available) {
-    lines.push(`  (unavailable: ${meta.SQL.unavailableReason})`)
-  } else if (p.sqlGroups && p.sqlGroups.length) {
-    for (const group of p.sqlGroups) {
-      const flag = group.potentialNPlusOne ? ' [N+1]' : ''
-      lines.push(`  ×${group.executions}${flag} ${group.sql}`)
-      if (group.potentialNPlusOne && group.callSites && group.callSites.length) {
-        for (const site of group.callSites) lines.push(`    at ${site}`)
-      }
-    }
-  } else {
-    lines.push('  (none correlated)')
-  }
-  pushTruncation(lines, meta.SQL)
-  if (meta.EXCEPTION && !meta.EXCEPTION.available) {
-    lines.push('')
-    lines.push('Exceptions:')
-    lines.push(`  (unavailable: ${meta.EXCEPTION.unavailableReason})`)
-  } else if (p.exceptions && p.exceptions.length) {
-    lines.push('')
-    lines.push(`Exceptions${tierSuffix(meta.EXCEPTION, true)}:`)
-    for (const [index, ex] of p.exceptions.entries()) {
-      const message = ex.message ? `: ${ex.message}` : ''
-      lines.push(`  ${ex.exceptionClassName}${message}${childTierSuffix(meta.EXCEPTION, index)}`)
-      if (ex.location) lines.push(`    at ${ex.location}`)
-    }
-    pushTruncation(lines, meta.EXCEPTION)
-  }
-  if (meta.SECURITY && !meta.SECURITY.available) {
-    lines.push('')
-    lines.push('Security events:')
-    lines.push(`  (unavailable: ${meta.SECURITY.unavailableReason})`)
-  } else if (p.security && p.security.length) {
-    lines.push('')
-    lines.push(`Security events${tierSuffix(meta.SECURITY, true)}:`)
-    for (const [index, event] of p.security.entries()) {
-      const principal = event.principal ? ` · ${event.principal}` : ''
-      const match = event.threadMatched ? ' (exact)' : ''
-      lines.push(`  ${event.type}${principal}${match}${childTierSuffix(meta.SECURITY, index)}`)
-    }
-    pushTruncation(lines, meta.SECURITY)
-  }
-  if (meta.REST_CLIENT) {
-    lines.push('')
-    lines.push(`REST client calls${tierSuffix(meta.REST_CLIENT, true)}:`)
-    if (!meta.REST_CLIENT.available) {
-      lines.push(`  (unavailable: ${meta.REST_CLIENT.unavailableReason})`)
-    } else if (p.restCalls && p.restCalls.length) {
-      for (const [index, call] of p.restCalls.entries()) {
-        lines.push(
-          `  ${restCallSummary(call)} · ${formatDurationMs(call.durationMillis)}${childTierSuffix(meta.REST_CLIENT, index)}`
-        )
-        if (!call.success && call.errorMessage) lines.push(`    ${call.errorMessage}`)
-        if (call.callSite) lines.push(`    at ${call.callSite}`)
-      }
-      pushTruncation(lines, meta.REST_CLIENT)
-    } else {
-      lines.push('  (none correlated)')
-    }
-  }
-  if (meta.CACHE) {
-    lines.push('')
-    lines.push(`Cache accesses${tierSuffix(meta.CACHE, true)}:`)
-    if (!meta.CACHE.available) {
-      lines.push(`  (unavailable: ${meta.CACHE.unavailableReason})`)
-    } else if (p.cacheAccesses && p.cacheAccesses.length) {
-      for (const [index, access] of p.cacheAccesses.entries()) {
-        const key = access.keyHash ? ` · key ${access.keyHash}` : ''
-        lines.push(`  ${cacheAccessSummary(access)}${key}${childTierSuffix(meta.CACHE, index)}`)
-      }
-      pushTruncation(lines, meta.CACHE)
-    } else {
-      lines.push('  (none correlated)')
-    }
-  }
-  if ((p.notes && p.notes.length) || tiersNote.value) {
-    lines.push('')
-    lines.push('Notes:')
-    for (const note of p.notes ?? []) lines.push(`  - ${note}`)
-    if (tiersNote.value) lines.push(`  - ${tiersNote.value}`)
-  }
-  return lines.join('\n')
-}
-
-function tierSuffix(section, standalone = false) {
-  const label = tierLabel(section?.tier)
-  if (!label) return ''
-  return standalone ? ` (${label})` : `, ${label}`
-}
-
-function childTierSuffix(section, index) {
-  const label = childTierLabel(section, index)
-  return label ? ` [${label}]` : ''
-}
-
-// Older servers send no sections, so keep their original heading; otherwise name the tier that was used.
-function sqlHeading(p, section) {
-  if (!section) return `SQL (${p.sqlCorrelationApproximate ? 'approximate, time-window' : 'exact'}):`
-  if (!section.available) return 'SQL (unavailable):'
-  if (!section.tier) return 'SQL:'
-  return `SQL (${section.tier === 'TIME_WINDOW' ? 'approximate' : 'exact'}${tierSuffix(section)}):`
-}
-
-function pushTruncation(lines, section) {
-  if (section?.truncationText) lines.push(`  … ${section.truncationText}`)
+function closeAiExport() {
+  aiExport.value = null
+  focusDrawer()
 }
 
 function restoreFilters() {
@@ -1216,20 +1121,30 @@ function toggleFlow() {
         <div class="card-header d-flex align-items-center justify-content-between">
           <h2 class="h6 mb-0">Request profile</h2>
           <div class="d-flex align-items-center gap-2">
-            <button
-              v-if="profile && profile.available"
-              class="btn btn-sm btn-outline-secondary"
-              type="button"
-              @click="copyProfile"
-            >
-              <i class="bi bi-clipboard me-1"></i>{{ copiedKey === 'profile' ? 'Copied' : 'Copy profile' }}
-            </button>
+            <template v-if="profile && profile.available && !aiExport">
+              <button class="btn btn-sm btn-outline-secondary activity-copy-ai" type="button" @click="openAiExport">
+                <i class="bi bi-stars me-1" aria-hidden="true"></i>Copy for AI
+              </button>
+              <button class="btn btn-sm btn-outline-secondary" type="button" @click="copyProfile">
+                <i class="bi bi-clipboard me-1" aria-hidden="true"></i
+                >{{ copiedKey === 'profile' ? 'Copied' : 'Copy profile' }}
+              </button>
+            </template>
             <button class="btn-close" type="button" aria-label="Close" @click="closeProfile"></button>
           </div>
         </div>
         <div class="card-body activity-drawer-body">
           <div v-if="profileLoading" class="text-muted">Loading…</div>
           <div v-else-if="profileError" class="alert alert-danger">{{ profileError }}</div>
+          <AiExportPreview
+            v-else-if="aiExport"
+            :error="aiExport.error"
+            :loading="aiExport.loading"
+            :markdown="aiExport.markdown"
+            :omissions="aiExport.omissions"
+            heading="Copy profile for AI"
+            @close="closeAiExport"
+          />
           <div v-else-if="profile && !profile.available" class="alert alert-warning">
             {{ profile.unavailableReason }}
           </div>

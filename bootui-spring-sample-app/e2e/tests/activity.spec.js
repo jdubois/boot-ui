@@ -215,6 +215,53 @@ test.describe('Live Activity view', () => {
     await expect(profileButton).toBeFocused()
   })
 
+  test('Copy for AI previews the profile Markdown with the exception detail and copies it exactly', async ({
+    browserName,
+    context,
+    openView,
+    page
+  }) => {
+    if (browserName === 'chromium') {
+      try {
+        await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+      } catch {
+        /* no-op */
+      }
+    }
+    const boom = await page.request.get('/api/sample/boom')
+    expect(boom.status()).toBe(500)
+
+    await openView('activity', 'Live Activity')
+    const boomRow = page.locator('.activity-table tbody tr', {hasText: '/api/sample/boom'}).first()
+    await expect(boomRow).toBeVisible({timeout: 15_000})
+    await boomRow.getByRole('button', {name: /Profile/}).click()
+    const drawer = page.locator('.activity-drawer')
+    await expect(drawer).toBeVisible()
+
+    // Preparing the preview may only read through existing endpoints.
+    const writes = []
+    page.on('request', (request) => {
+      if (request.method() !== 'GET') writes.push(`${request.method()} ${request.url()}`)
+    })
+    await drawer.getByRole('button', {name: 'Copy for AI'}).click()
+
+    const preview = drawer.getByRole('textbox', {name: 'Markdown export preview'})
+    await expect(preview).toHaveValue(/# BootUI request profile: `GET \/api\/sample\/boom`/)
+    await expect(preview).toHaveValue(/Caused by: java\.lang\.NumberFormatException/)
+    await expect(preview).toHaveValue(/apiToken=\*{6}/)
+    await expect(preview).not.toHaveValue(/sample-secret-token/)
+    await expect(drawer.locator('.ai-export-omissions')).toContainText('masked by BootUI')
+
+    await drawer.getByRole('button', {name: 'Copy Markdown'}).click()
+    await expect(drawer.getByRole('button', {name: 'Copied'})).toBeVisible()
+    const copied = await page.evaluate(() => navigator.clipboard.readText())
+    expect(copied).toBe(await preview.inputValue())
+    expect(writes).toEqual([])
+
+    await drawer.getByRole('button', {name: 'Back'}).click()
+    await expect(drawer.getByRole('button', {name: 'Copy for AI'})).toBeVisible()
+  })
+
   test('links KPI cards to their dedicated panels', async ({openView, page}) => {
     await page.request.get('/api/sample/products')
 

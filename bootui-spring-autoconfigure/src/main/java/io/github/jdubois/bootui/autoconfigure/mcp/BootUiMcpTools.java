@@ -294,6 +294,10 @@ public class BootUiMcpTools {
                     "get_live_activity",
                     McpToolDescriptions.spring("get_live_activity"),
                     args -> liveActivityBean.activity(null, null, 0, args.limit(), null, null, null, 0)));
+            registry.add(tool(
+                    "get_request_profile",
+                    McpToolDescriptions.spring("get_request_profile"),
+                    args -> liveActivityBean.request(args.id())));
         }
         if (exceptionsBean != null) {
             registry.add(tool(

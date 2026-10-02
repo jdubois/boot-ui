@@ -102,6 +102,17 @@ class BootUiCliTests {
     }
 
     @Test
+    void requestProfileIsATopLevelCommandTakingTheActivityEntryId() {
+        // `bootui activity` is already a command, so the profile cannot be `bootui activity profile`.
+        run("request-profile", "req-42");
+
+        assertThat(requests).singleElement().satisfies(request -> {
+            assertThat(request.path).isEqualTo("/bootui/api/cli/tools/get_request_profile");
+            assertThat(request.body).isEqualTo("{\"id\":\"req-42\"}");
+        });
+    }
+
+    @Test
     void jsonModePrintsTheServerBodyVerbatim() {
         responseBody = "{\"a\":1.50,\"b\":[true]}";
 

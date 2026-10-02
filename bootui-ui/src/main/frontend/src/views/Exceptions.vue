@@ -12,6 +12,8 @@ import FlashBanner from './components/FlashBanner.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import ReadOnlyNotice from './components/ReadOnlyNotice.vue'
+import AiExportPreview from './components/AiExportPreview.vue'
+import {exceptionMarkdown, loadExceptionCorrelation} from '../utils/markdownExport.js'
 import SpinnerButton from './components/SpinnerButton.vue'
 
 const props = defineProps(panelProps)
@@ -29,6 +31,8 @@ const appOnly = ref(false)
 const selectedId = ref(null)
 const detailLoading = ref(false)
 const busy = ref(false)
+// The "Copy for AI" preview of the open detail, or null while the detail itself is shown.
+const aiExport = ref(null)
 const lastFetched = ref(null)
 
 const STATUSES = ['OPEN', 'ACKNOWLEDGED', 'RESOLVED']
@@ -46,6 +50,7 @@ async function fetchExceptions() {
 async function openException(id) {
   selectedId.value = id
   detail.value = null
+  aiExport.value = null
   detailLoading.value = true
   try {
     detail.value = await getJson(`api/exceptions/${encodeURIComponent(id)}`)
@@ -67,6 +72,33 @@ function toggleException(id) {
 function closeDrawer() {
   selectedId.value = null
   detail.value = null
+  aiExport.value = null
+}
+
+// "Copy for AI" previews the detail's Markdown, with the SQL of the request its latest occurrence
+// belongs to when Live Activity can still profile it. Preparing reads only existing endpoints; copying
+// sends nothing.
+async function openAiExport() {
+  const current = detail.value
+  if (!current) return
+  aiExport.value = {loading: true, error: null, markdown: '', omissions: []}
+  try {
+    const correlation = await loadExceptionCorrelation(current, getJson)
+    if (detail.value !== current) return
+    aiExport.value = {loading: false, error: null, ...exceptionMarkdown(current, correlation)}
+  } catch (e) {
+    if (detail.value !== current) return
+    aiExport.value = {
+      loading: false,
+      error: formatLoadError(e, 'Could not prepare the export'),
+      markdown: '',
+      omissions: []
+    }
+  }
+}
+
+function closeAiExport() {
+  aiExport.value = null
 }
 
 async function clearAll() {
@@ -384,10 +416,31 @@ onMounted(() => {
                               statusLabel(g.status)
                             }}</span>
                           </div>
-                          <button class="btn btn-sm btn-outline-secondary" @click="closeDrawer">Close</button>
+                          <div class="d-flex align-items-center gap-2 flex-shrink-0">
+                            <button
+                              v-if="detail && !aiExport"
+                              class="btn btn-sm btn-outline-secondary exceptions-copy-ai"
+                              type="button"
+                              @click="openAiExport"
+                            >
+                              <i class="bi bi-stars me-1" aria-hidden="true"></i>Copy for AI
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" type="button" @click="closeDrawer">
+                              Close
+                            </button>
+                          </div>
                         </div>
                         <div class="card-body">
                           <div v-if="detailLoading" class="text-muted small">Loading detail…</div>
+                          <AiExportPreview
+                            v-else-if="detail && aiExport"
+                            :error="aiExport.error"
+                            :loading="aiExport.loading"
+                            :markdown="aiExport.markdown"
+                            :omissions="aiExport.omissions"
+                            heading="Copy exception for AI"
+                            @close="closeAiExport"
+                          />
                           <template v-else-if="detail">
                             <div v-if="detail.group && detail.group.message" class="mb-3">
                               <h4 class="fs-6 text-muted fw-semibold mb-0">Message</h4>

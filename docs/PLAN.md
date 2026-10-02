@@ -11,8 +11,8 @@ command-line interface reach the same diagnostics without a browser.
 BootUI 1.x is in maintenance. Its last workstream deepened diagnostics rather than widening coverage, and shipped the
 shared foundations that later work reuses: the tiered capture buffer, the generalized profile assembler, route
 rankings, the log exposure policy, and advisor violation locations (§2). The rest of that roadmap was dropped on
-2026-09-30. Two items remain, §3.25 and §3.18, because BootUI 2.0 depends on them; they ship on `main` like any 1.x
-item and reach 2.0 when `main` is merged into `v2`. Otherwise 1.x receives bug fixes, security fixes, and dependency
+2026-09-30, except two items BootUI 2.0 depends on. §3.25 has shipped, and §3.18 remains; it ships on `main` like any
+1.x item and reaches 2.0 when `main` is merged into `v2`. Otherwise 1.x receives bug fixes, security fixes, and dependency
 updates only. New capabilities are planned for BootUI 2.0 in `docs/PLAN-v2.md`, on the `v2` branch.
 
 Sampling, quotas, remote ingestion, alerting integrations, and personal-data capture stay out of scope, because BootUI
@@ -43,25 +43,24 @@ delivered table.
 
 ### Order of work
 
-The two remaining items are independent of each other, and everything they depend on has shipped, so they can land in
-either order. Each row is one pull request.
+One item remains, and everything it depends on has shipped. It is one pull request.
 
-| Wave | Item                                            | Panels                    | Depends on | BootUI 2.0 uses it for                                                     |
-| ---- | ----------------------------------------------- | ------------------------- | ---------- | -------------------------------------------------------------------------- |
-| 2    | §3.25 Agent-ready profiles and exception export | Live Activity, Exceptions | §3.20a     | The drill-down behind every Runtime Insights exemplar, and **Copy for AI** |
-| 2    | §3.18 Data access map                           | SQL Trace                 | §3.12      | Table references in the runtime model, and `anonymous-data-reach`          |
+| Wave | Item                  | Panels    | Depends on | BootUI 2.0 uses it for                                            |
+| ---- | --------------------- | --------- | ---------- | ----------------------------------------------------------------- |
+| 2    | §3.18 Data access map | SQL Trace | §3.12      | Table references in the runtime model, and `anonymous-data-reach` |
 
 - **Wave 0**, §3.27 Log exposure policy, has shipped ([delivered](#delivered)). It closed the one gap where captured
   application text bypassed the value-exposure policy, ahead of everything else because safety is the first priority.
 - **Wave 1** built the shared pieces that later work reuses: the tiered capture buffer, the generalized profile
   assembler, one percentile helper and slowest-request KPI, and the violation location model with its source locator.
   All of them have shipped, as §3.24a, §3.20a, §3.22, and §3.19, and BootUI 2.0 builds on them.
-- **Wave 2** keeps only the two items BootUI 2.0 depends on. Their specifications keep their 1.x scope, and
-  `docs/PLAN-v2.md` §3 describes how 2.0 uses them. The rest of wave 2, and waves 3 and 4, were [dropped](#dropped).
+- **Wave 2** keeps only the two items BootUI 2.0 depends on, with their 1.x scope; `docs/PLAN-v2.md` §3 describes how
+  2.0 uses them. §3.25 Agent-ready profiles and exception export has shipped ([delivered](#delivered)), and §3.18 is
+  next. The rest of wave 2, and waves 3 and 4, were [dropped](#dropped).
 
 ```mermaid
 graph LR
-  S20a["3.20a Shared assembler ✅"] --> S25["3.25 Agent export"]
+  S20a["3.20a Shared assembler ✅"] --> S25["3.25 Agent export ✅"]
   S12["3.12 SQL route attribution ✅"] --> S18["3.18 Data access map"]
   S25 --> V2["BootUI 2.0"]
   S18 --> V2
@@ -85,6 +84,7 @@ A ✅ node has shipped. The BootUI 2.0 milestones that use each item are specifi
 | 3.20a | Shared profile assembler with REST client and cache evidence               | Unreleased | [Per-request profiler](features/overview.md#the-per-request-profiler)                |
 | 3.22  | Route performance rankings in HTTP Exchanges                               | Unreleased | [Route rankings](features/diagnostics.md#route-rankings)                             |
 | 3.24a | Failure-preserving retention in HTTP Exchanges, SQL Trace, and REST Client | Unreleased | [Failure-preserving retention](features/diagnostics.md#failure-preserving-retention) |
+| 3.25  | Agent-ready profiles and exception export in Live Activity and Exceptions  | Unreleased | [Copy profile and Copy for AI](features/overview.md#copy-profile-and-copy-for-ai)    |
 | 3.27  | Log exposure policy for Log Tail and Dev Services                          | Unreleased | [Log message exposure](features/diagnostics.md#log-message-exposure)                 |
 
 Earlier deliveries were removed from this plan when they shipped; `CHANGELOG.md` records every release. MariaDB support
@@ -207,61 +207,9 @@ Acceptance criteria:
   `docs/features/database.md`, `docs/CLI.md`, `docs/AI-AGENTS.md`, `docs/SPECIFICATION.md`, `skills/bootui/SKILL.md`,
   frontend unit tests, and the Spring MVC, Spring WebFlux, and Quarkus browser suites cover the new view.
 
-### 3.25 Agent-ready profiles and exception export — Developer tools 📋 Planned
-
-The MCP server and CLI expose `get_live_activity`, `get_exceptions`, and `get_exception_detail`, but no tool returns a
-request profile. An agent can see that a request was slow, but not its SQL, N+1 groups, or call sites. In the browser,
-**Copy profile** exports a plain-text timeline, while the Exceptions panel has no copy action. This enhancement adds the
-missing tool and one consistent, already-masked Markdown export that a developer can paste into an agent.
-
-Scope:
-
-- Add a read-only `get_request_profile` MCP tool that takes an activity entry id and returns the same
-  `RequestProfileDto` as `GET /bootui/api/activity/request/{id}`, exposed as `bootui request-profile <id>`.
-- Keep the command at the top level: `bootui activity` is already the `get_live_activity` command, and a CLI path may
-  not be both a command and the parent of another.
-- Add an additive `exceptionGroupId` to `RequestProfileExceptionDto`, so a profile can reach each exception's detail.
-- Add **Copy for AI** to the Exceptions detail and the profiler drawer. It produces one Markdown document with the
-  summary, exception type and exposure-governed message, the cause chain with application frames marked, recent
-  occurrences with request context, and correlated normalized SQL with N+1 call sites.
-- Render **Copy profile** through the same Markdown helper.
-- Show the full document before copying, as **Copy as cURL** does, and list what was omitted, such as masked values or
-  truncated sections. Preparing the preview loads the referenced exception details through existing read endpoints. The
-  copy itself sends nothing.
-
-Architecture:
-
-- Register the tool in `McpToolCatalog` under the `ACTIVITY` panel with `McpToolSchema.ID`, as a read tool on every
-  stack. Describe it in `McpToolDescriptions`, and regenerate `bootui-cli/src/main/resources/bootui-tools.json`. An
-  unknown or evicted id returns the same unavailable profile, with its reason, that the REST endpoint returns.
-- Build the Markdown in one shared frontend helper from DTOs the browser already holds or loads through existing read
-  endpoints, so the export never contains anything the panels do not show, and identical DTOs produce identical text on
-  every adapter. Fence code and SQL, and escape Markdown in captured strings.
-- Document the investigation workflow — list activity, pick a profileable id, fetch its profile — in
-  `docs/AI-AGENTS.md`, `docs/CLI.md`, and `skills/bootui/SKILL.md`.
-
-Out of scope for the first release:
-
-- Sending anything to an AI provider or other external service. Export is clipboard-only, and the tools are read-only.
-- Issue assignment or comments beyond the existing exception triage status.
-- AI-generated summaries inside BootUI.
-- Markdown rendering in the CLI or on the server.
-
-Acceptance criteria:
-
-- `get_request_profile` returns the same masked DTO as the REST endpoint on all three adapters, including the
-  unavailable profile for an unknown or evicted id, and is unavailable when Live Activity is disabled.
-- The regenerated CLI manifest includes the new command and passes `ToolManifestGeneratorTests`.
-- Preparing a preview uses only existing read endpoints, and the copy itself sends no request and changes no state. The
-  preview matches the clipboard exactly, and the text stays selectable when clipboard access is denied.
-- The export never contains a value the panel masked, and honors `METADATA_ONLY`.
-- Markdown in captured messages, paths, or SQL cannot break the document structure.
-- Tests cover profiles with and without SQL, N+1 groups, truncated sections, unknown ids, masked values, cause chains,
-  and identical output across adapters.
-
 ## 4. Cross-cutting work
 
-Both remaining items extend existing panels, and each adds one MCP tool and CLI command. Consistency tests enforce much
+The remaining item extends an existing panel and adds one MCP tool and CLI command. Consistency tests enforce much
 of the lists below, so a missed step fails the build rather than drifting silently.
 
 ### Every item
@@ -324,7 +272,6 @@ No remaining item adds a panel. The checklist stays as the reference for any pan
 | Scope creep beyond each item's first release                       | all        | High   | Treat each item's out-of-scope list as binding, and move new ideas to a later plan revision.                                                                      |
 | Lexical table extraction misreads SQL and invents or misses access | 3.18       | High   | Per-statement extraction status, an explicit unresolved bucket, no CTE/alias/function ever reported as a table, and a fixture corpus of Hibernate and vendor SQL. |
 | The data access map is read as a complete CRUD matrix              | 3.18       | Medium | Label every view as observed in the retained window, show the window, evictions, and exclusions inline, and add no static inference.                              |
-| Exports leak masked values or secrets                              | 3.25       | High   | §3.27's read-time rule, omission under `METADATA_ONLY`, and exports built only from masked DTOs the panels already show.                                          |
 
 ## 6. Validation checklist
 

@@ -81,6 +81,7 @@ public final class CliCommandPaths {
             Map.entry("get_pentest_report", "pentest report"),
             Map.entry("get_profile_diff", "profile diff"),
             Map.entry("get_rabbitmq_activity", "rabbitmq"),
+            Map.entry("get_request_profile", "request-profile"),
             Map.entry("get_rest_api_report", "rest-api report"),
             Map.entry("get_rest_api_rule_violations", "rest-api violations"),
             Map.entry("get_rest_client_traces", "rest-client traces"),

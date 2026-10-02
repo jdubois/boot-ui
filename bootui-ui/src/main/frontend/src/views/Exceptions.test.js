@@ -224,6 +224,93 @@ describe('Exceptions', () => {
     expect(wrapper.text()).toContain('Recent occurrences')
   })
 
+  it('previews a Copy for AI document with the correlated SQL and copies exactly the preview', async () => {
+    const writeText = vi.fn().mockResolvedValue()
+    vi.stubGlobal('navigator', {clipboard: {writeText}})
+    const activity = {
+      available: true,
+      entries: [
+        {id: 'exc-abc123', type: 'EXCEPTION', parentId: 'req-9'},
+        {id: 'req-9', type: 'REQUEST', profileable: true}
+      ]
+    }
+    const profile = {
+      available: true,
+      request: {id: 'req-9', method: 'POST', path: '/api/orders', status: 500, durationMs: 40},
+      sqlGroups: [
+        {
+          sql: 'select * from orders where id = ?',
+          executions: 4,
+          totalDurationMillis: 8,
+          potentialNPlusOne: true,
+          callSites: ['com.example.OrderRepository.find(OrderRepository.java:7)']
+        }
+      ],
+      sections: [],
+      notes: []
+    }
+    const fetchMock = vi.fn((url, init) => {
+      if (url === 'api/exceptions') return Promise.resolve(jsonResponse(report()))
+      if (url === 'api/exceptions/abc123') return Promise.resolve(jsonResponse(detail()))
+      if (url === 'api/activity') return Promise.resolve(jsonResponse(activity))
+      if (url === 'api/activity/request/req-9') return Promise.resolve(jsonResponse(profile))
+      return Promise.reject(new Error(`unexpected ${url} ${init?.method}`))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wrapper = mount(Exceptions)
+    await flushPromises()
+    await wrapper.find('tbody button.btn-outline-primary').trigger('click')
+    await flushPromises()
+    await wrapper.get('.exceptions-copy-ai').trigger('click')
+    await flushPromises()
+
+    const preview = wrapper.get('textarea.ai-export-markdown').element.value
+    expect(preview).toContain('# BootUI exception: `java.lang.IllegalStateException`')
+    expect(preview).toContain('```text\ntoken=****** rejected\n```')
+    expect(preview).toContain('→ at com.example.OrderService.place(OrderService.java:42)')
+    expect(preview).toContain('  Caused by: java.lang.NumberFormatException: For input string: "x"')
+    expect(preview).toContain('## Correlated request: `POST /api/orders` → 500')
+    expect(preview).toContain('- `com.example.OrderRepository.find(OrderRepository.java:7)`')
+    expect(wrapper.get('.ai-export-omissions').text()).toContain('1 value was masked by BootUI')
+    // Preparing the preview only reads: every call is a GET to an existing endpoint.
+    expect(fetchMock.mock.calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(true)
+
+    const reads = fetchMock.mock.calls.length
+    await wrapper.get('.ai-export-copy').trigger('click')
+    await flushPromises()
+
+    expect(writeText).toHaveBeenCalledWith(preview)
+    expect(fetchMock).toHaveBeenCalledTimes(reads)
+  })
+
+  it('keeps the Copy for AI document selectable when clipboard access is denied', async () => {
+    vi.stubGlobal('navigator', {clipboard: {writeText: vi.fn().mockRejectedValue(new Error('denied'))}})
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) => {
+        if (url === 'api/exceptions') return Promise.resolve(jsonResponse(report()))
+        if (url === 'api/exceptions/abc123') return Promise.resolve(jsonResponse(detail()))
+        return Promise.resolve(jsonResponse({}, false, 404))
+      })
+    )
+
+    const wrapper = mount(Exceptions, {attachTo: document.body})
+    await flushPromises()
+    await wrapper.find('tbody button.btn-outline-primary').trigger('click')
+    await flushPromises()
+    await wrapper.get('.exceptions-copy-ai').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.ai-export-omissions').text()).toContain('Correlated SQL: Live Activity could not be read')
+    await wrapper.get('.ai-export-copy').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('copy it manually')
+    expect(document.activeElement).toBe(wrapper.get('textarea.ai-export-markdown').element)
+    wrapper.unmount()
+  })
+
   it('links a retained failure to its declared handler only when the engine attributed one', async () => {
     vi.stubGlobal(
       'fetch',

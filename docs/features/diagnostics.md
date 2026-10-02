@@ -160,6 +160,20 @@ identically on both stacks.
 
 :::
 
+### Copy for AI
+
+An open group offers **Copy for AI**, which turns the detail into one Markdown document to paste into an agent: a
+summary of the group, its exposure-governed message, the stack trace and cause chain with application frames marked,
+and the most recent occurrences with their request context. When Live Activity can still profile the request the
+latest occurrence belongs to, the document adds that request's timing and correlated SQL, grouped by normalized
+statement with N+1 groups and the call sites that issued them.
+
+The full document is shown before anything is copied, with a list of what it leaves out, such as masked values, a
+message withheld under `METADATA_ONLY`, bounded frames or occurrences, or why no correlated SQL could be added.
+Preparing it reads only the existing Live Activity feed and profile endpoints; the copy itself sends nothing and
+changes no state. It renders through the same helper as the [profile drawer's export](overview.md#copy-profile-and-copy-for-ai),
+so captured text cannot break the Markdown, and identical evidence reads identically on every stack.
+
 ## HTTP Exchanges
 
 ![BootUI HTTP Exchanges panel](../images/bootui-http-exchanges.webp)

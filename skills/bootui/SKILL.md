@@ -135,6 +135,7 @@ bootui tools                                   # what this application actually 
 bootui --url http://127.0.0.1:8080 overview
 bootui hibernate scan --json | jq '.severityCounts'
 bootui exceptions show <id> --json
+bootui request-profile <id> --json             # one request's SQL, N+1 groups, exceptions, and timing
 ```
 
 - `--url` (or `BOOTUI_URL`) defaults to `http://localhost:8080`; pass the application's real port.
@@ -261,6 +262,25 @@ DTOs.
 
 Treat unavailable panels honestly. Their backing library, capability, configuration, or adapter support may be absent.
 Do not install unrelated infrastructure solely to light up a panel unless the user asks.
+
+### Investigate one slow or failing request
+
+1. List recent activity with `bootui activity --limit 50 --json` (`get_live_activity`) and pick the `REQUEST` entry
+   for the request in question. Only an entry with `profileable: true` has a profile; `sqlNPlusOneSuspected` and the
+   `ERROR` or `SLOW` severities point at the requests worth opening.
+2. Fetch its profile with `bootui request-profile <id> --json` (`get_request_profile`), passing that entry's `id`. It
+   returns the same masked profile as the Live Activity drawer: correlated SQL grouped by normalized statement, with N+1
+   groups and the application call sites that issued them, exceptions, security events, REST client calls, cache
+   accesses, timing, and correlation notes. `available: false` with an `unavailableReason` means the request was
+   evicted or cannot be correlated; it is an answer, not an error to retry.
+3. For each exception in the profile, read its stack trace and cause chain with
+   `bootui exceptions show <exceptionGroupId> --json` (`get_exception_detail`).
+4. Check each section's `truncated` count and the `notes` before concluding a statement or call did not happen, and
+   treat a `TIME_WINDOW` tier as approximate.
+
+In the browser, **Copy for AI** in the Live Activity profile drawer and in an Exceptions detail builds the same evidence
+as one Markdown document, previewed with what it leaves out before anything is copied. A user may paste one into the
+conversation instead.
 
 ## Assess an application and propose an action plan
 
@@ -410,8 +430,8 @@ availability-driven, so do not assume every framework exposes every tool.
 When BootUI MCP tools are available:
 
 1. Call core reads such as `get_overview` and `get_health` first.
-2. Use targeted diagnostic reads such as `get_live_activity`, `get_exceptions`, `get_exception_detail`,
-   `get_sql_traces`, `get_traces`, `get_log_tail`, `get_http_exchanges`, and `get_http_routes` (per-route request
+2. Use targeted diagnostic reads such as `get_live_activity`, `get_request_profile` (one profileable request's SQL,
+   N+1 groups, exceptions, and timing), `get_exceptions`, `get_exception_detail`, `get_sql_traces`, `get_traces`, `get_log_tail`, `get_http_exchanges`, and `get_http_routes` (per-route request
    counts, status classes, and p50/p95/p99 latency over the retained window). Their buffers are bounded: before
    concluding that a request, statement, or call never happened, check the `retention` object for evictions.
 3. Run only the advisor relevant to the task, such as `architecture_scan`, `spring_scan`, `hibernate_scan`,
