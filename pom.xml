@@ -98,7 +98,6 @@
         <maven-dependency-plugin.version>3.11.0</maven-dependency-plugin.version>
         <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
         <maven-jar-plugin.version>3.5.1</maven-jar-plugin.version>
-        <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
         <maven-resources-plugin.version>3.5.0</maven-resources-plugin.version>
         <maven-shade-plugin.version>3.6.2</maven-shade-plugin.version>
         <maven-source-plugin.version>3.4.0</maven-source-plugin.version>
@@ -291,26 +290,6 @@
                     <configuration>
                         <forceCreation>true</forceCreation>
                         <includePom>true</includePom>
-                    </configuration>
-                </plugin>
-                <plugin>
-                    <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-javadoc-plugin</artifactId>
-                    <version>${maven-javadoc-plugin.version}</version>
-                    <configuration>
-                        <doclint>none</doclint>
-                        <failOnError>false</failOnError>
-                        <quiet>true</quiet>
-                        <!--
-                            Trim static doclet boilerplate that scales with class count instead of actual
-                            documentation content, to help stay under Maven Central's new monthly publishing
-                            quota (see https://central.sonatype.org/publish/maven-central-publishing-limits/):
-                            noindex/notree/nohelp drop the master index, class-hierarchy tree, and per-page
-                            help link. No loss of per-class Javadoc content, just the generated index chrome.
-                        -->
-                        <noindex>true</noindex>
-                        <notree>true</notree>
-                        <nohelp>true</nohelp>
                     </configuration>
                 </plugin>
                 <plugin>
@@ -614,16 +593,34 @@
                             </execution>
                         </executions>
                     </plugin>
+                    <!--
+                        Maven Central requires a javadoc.jar next to every published jar, but accepts a
+                        placeholder (https://central.sonatype.org/publish/requirements/). BootUI's public
+                        surface is its HTTP/JSON contract, MCP tools, and CLI rather than a Java API, so
+                        generated Javadoc adds upload size and release build time without value; IDEs use the
+                        sources.jar instead. This attaches an empty javadoc.jar (manifest only: the include
+                        pattern deliberately matches nothing). skipIfEmpty keeps POM-packaging modules, which
+                        have no build output directory, from attaching one. The source-less published modules
+                        reuse this execution id with their own always-on empty jar, so it is attached once.
+                    -->
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <artifactId>maven-jar-plugin</artifactId>
                         <executions>
                             <execution>
-                                <id>attach-javadocs</id>
-                                <phase>verify</phase>
+                                <id>attach-empty-javadocs</id>
+                                <phase>package</phase>
                                 <goals>
                                     <goal>jar</goal>
                                 </goals>
+                                <configuration>
+                                    <classifier>javadoc</classifier>
+                                    <classesDirectory>${project.build.outputDirectory}</classesDirectory>
+                                    <includes>
+                                        <include>bootui-no-javadoc-placeholder</include>
+                                    </includes>
+                                    <skipIfEmpty>true</skipIfEmpty>
+                                </configuration>
                             </execution>
                         </executions>
                     </plugin>
