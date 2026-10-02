@@ -4,7 +4,7 @@ BootUI's advisors run explicit, on-demand, rule-based scans and report severity-
 coverage limits. Each advisor is read-only and inspects one facet of the application: compiled architecture, the REST
 layer, the live Spring context, persistence, JVM memory, and security.
 
-A usable assessment shows the same 0–100 **Known-findings score** in its own panel and in Overview: 100 minus the
+A usable assessment shows the same 0–100 **Known-findings score** in its own panel and on the Scorecard: 100 minus the
 weighted finding penalty. That number summarizes retained penalties. It is not a measure of application health or
 safety.
 
@@ -207,24 +207,24 @@ visible.
 
 A `SCANNED` report with `usable: false`, `coverageComplete: true`, and no limitations has no score and reads **Not
 applicable**. A successful Architecture import that found no classes, or complete REST API discovery that found no
-supported controllers, is an empty assessed scope rather than a passing check: Overview counts it as assessed without
-inventing a score. Missing discovery or legacy evidence stays unknown, and a generic lack of score never establishes
-that nothing applies.
+supported controllers, is an empty assessed scope rather than a passing check: the Scorecard counts it as assessed
+without inventing a score. Missing discovery or legacy evidence stays unknown, and a generic lack of score never
+establishes that nothing applies.
 
 #### How results are labelled
 
-Advisor panels show **Results available** for usable scored results, including when coverage is limited. Overview uses
-**Scan complete** for the same reports. Detailed reasons live in a collapsed, keyboard-accessible **Scan notes**
+Advisor panels show **Results available** for usable scored results, including when coverage is limited. The Scorecard
+uses **Scan complete** for the same reports. Detailed reasons live in a collapsed, keyboard-accessible **Scan notes**
 disclosure in each panel, and scores with notes carry **Scan notes available** in their accessible names.
 
-Unscored reasons and whole-scan failures stay visible rather than collapsed inside advisor panels. Overview keeps
+Unscored reasons and whole-scan failures stay visible rather than collapsed inside advisor panels. The Scorecard keeps
 unscored cards compact with **Not scored**, or **Not applicable** for confirmed empty scope, and **Open panel** for the
-full explanation. Request failures stay visible on the card. Overview summarizes how many advisors have scan notes, not
-how many checks could not run, because limitations can be aggregated or capped.
+full explanation. Request failures stay visible on the card. The Scorecard summarizes how many advisors have scan notes,
+not how many checks could not run, because limitations can be aggregated or capped.
 
-Advisor panels use neutral score colors. Overview restores green, amber, and red at the 80 and 50 thresholds to help
-prioritize review, without changing eligibility or implying application safety. See [Overview](overview.md) for its
-own eligibility policy.
+Advisor panels use neutral score colors. The Scorecard restores green, amber, and red at the 80 and 50 thresholds to
+help prioritize review, without changing eligibility or implying application safety. See
+[Scorecard](overview.md#scorecard) for its own eligibility policy.
 
 #### Dependency findings
 
@@ -250,20 +250,20 @@ remove the previous score.
 
 ### Single-flight scans
 
-Expensive advisor actions are single-flight per scanner: a second tab, Overview card, REST caller, or MCP tool cannot
-start a scanner while it is active. Duplicate REST requests fail immediately with the shared `409` busy response, and
-MCP reports the same message as an in-band tool error. The panel keeps the last completed report and Overview score
-visible and shows the conflict as a warning. Different scanners remain independent.
+Expensive advisor actions are single-flight per scanner: a second tab, a Scorecard card, a REST caller, or an MCP tool
+cannot start a scanner while it is active. Duplicate REST requests fail immediately with the shared `409` busy
+response, and MCP reports the same message as an in-band tool error. The panel keeps the last completed report and
+Scorecard score visible and shows the conflict as a warning. Different scanners remain independent.
 
 ### Dismissing findings
 
 Any finding can be dismissed when it does not apply to your project. **Dismiss** moves the rule into a collapsed
 *Dismissed rules* list and removes it from the panel's finding count, severity bars, and known-findings score, in both
-the panel and Overview. You can restore it at any time from that list.
+the panel and the Scorecard. You can restore it at any time from that list.
 
 Dismissal changes penalties. It does not change application safety, observed evidence, or missing coverage.
 
-The panel's score recomputes immediately, and Overview reads cached reports on navigation without rescanning, so a
+The panel's score recomputes immediately, and the Scorecard reads cached reports on navigation without rescanning, so a
 scan, dismissal, or restore started in a panel updates the score and eligibility in both places. A failed dismissal
 leaves the last accepted report visible and shows an error.
 
@@ -273,8 +273,8 @@ or unavailable.
 
 ::: details Where dismissals are stored
 Dismissals are applied server-side and persisted under the `dismissedRules` node of a local `.bootui/boot-ui.yml` file
-(next to the runtime overrides file), so they survive restarts and stay consistent between each panel and the Overview
-dashboard. The file is developer-local and intended to be git-ignored. Rule identifiers are globally unique across
+(next to the runtime overrides file), so they survive restarts and stay consistent between each panel and the Scorecard.
+The file is developer-local and intended to be git-ignored. Rule identifiers are globally unique across
 advisors, so a dismissal always targets exactly one rule.
 Pentesting scan reports themselves are not persisted: after a restart, findings and their dismissal flags appear when you
 explicitly run the first scan, not merely by opening the panel.
@@ -785,7 +785,7 @@ full catalogue, limits, mappings, and retired IDs.
 
 Pentesting supports the shared [dismiss/restore workflow](#dismissing-findings) by exact `PT-*` check ID. Accepted
 findings remain in the JSON with `dismissed: true` and in a collapsed **Dismissed rules** list, but leave the finding
-counts, severity bars, and panel/Overview penalties. Restoring updates the cached report without another scan.
+counts, severity bars, and panel/Scorecard penalties. Restoring updates the cached report without another scan.
 Dismissal preserves observed evidence and coverage limits, and does not automatically dismiss an equivalent Security
 advisor finding.
 
@@ -812,7 +812,7 @@ advisories alphabetized within the same severity.
 
 The [Vulnerabilities checks catalogue](../VULNERABILITIES-CHECKS.md) documents the interpretation rules, official
 sources/version caveats, full audit disposition, and deferred inventory limitations. A completed lookup is not proof
-of application safety or complete runtime discovery. Panel and Overview use the same
+of application safety or complete runtime discovery. Panel and Scorecard use the same
 [evidence-based eligibility](#score-eligibility), including qualification after dismissal and GET-only cached refresh.
 
 ### Severity scoring

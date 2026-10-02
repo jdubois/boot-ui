@@ -267,7 +267,7 @@ Same DTO and UX; the Quarkus adapter implements the relevant SPI against a Quark
 | `Fault Tolerance`     | **Implemented** — → SmallRye Fault Tolerance (Jandex-scanned declarations, MicroProfile config overrides, live named-breaker state). See details below |
 | `Architecture` advisor | Shared ArchUnit registry; generic rules run unchanged, Spring-only annotation rules no-op, and Jakarta-based/platform-sensitive rules use Quarkus semantics |
 | `Beans`               | **Implemented** — → Arc/CDI `BeanManager.getBeans(...)`, with resolved injection edges captured after Arc build-time validation and overlaid on the retained runtime inventory; defining resources and Spring Conditions evidence remain unavailable |
-| `Overview`            | Panel available; the scoring dashboard aggregates the advisor endpoints client-side, and `GET /bootui/api/overview` reports the Quarkus version + shell chrome |
+| `Scorecard`           | Panel available; the scoring dashboard aggregates the advisor endpoints client-side, and `GET /bootui/api/overview` reports the Quarkus version + shell chrome |
 
 ::: details Fault Tolerance fidelity
 
@@ -547,7 +547,7 @@ No equivalent, low value, or superseded by Quarkus's own tooling:
 remaining 10 panels do not ship: 9 are intentionally not applicable (GraalVM, CRaC, Conditions, Startup Timeline, HTTP
 Sessions, Spring Data, Spring Security, Spring DevTools, Transactions), and 1 (`JMS`) is not yet available. By portability
 strategy, the 51 supported entries comprise 23 ported as-is, 12 source-swapped, 13 capture-rebuilt, and 3 replaced with a
-Quarkus-native panel. The Overview dashboard panel is available (its scoring dashboard renders client-side from the
+Quarkus-native panel. The Scorecard panel is available (its scoring dashboard renders client-side from the
 advisor endpoints, and the shell-chrome `GET /bootui/api/overview` endpoint is served on both adapters).
 
 ## 6. Activation & safety on Quarkus
@@ -656,7 +656,7 @@ parallel Playwright suite. Like the Spring sample app it is **demo/integration o
 the reactor.
 
 Its job is the same as the Spring sample app's: give every panel realistic, non-sensitive data and seed intentional
-anti-patterns so the advisors and the Overview score produce demonstrable findings (and so screenshots show populated
+anti-patterns so the advisors and the Scorecard score produce demonstrable findings (and so screenshots show populated
 panels, per the contributor guidance).
 
 ### 8.1 Ingredient mapping
@@ -766,7 +766,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | MCP Server          | as-is       | Port    | BootUI MCP server                | —                                           |
 | Command Line        | as-is       | Port    | BootUI CLI endpoint              | —                                           |
 | Dev Services        | as-is       | Port    | Dev Services model               | Quarkus Dev Services source                 |
-| Overview            | equiv       | Adapt   | Client-side dashboard + `OverviewDto` | `QuarkusApplicationInfo` (chrome; scoring is client-side) |
+| Scorecard           | equiv       | Adapt   | Client-side dashboard + `OverviewDto` | `QuarkusApplicationInfo` (chrome; scoring is client-side) |
 | Health              | equiv       | Adapt   | Health mapper                    | `HealthProvider` → SmallRye Health          |
 | Configuration       | equiv       | Adapt   | Config mapper + masking          | `EnvironmentProvider` → SmallRye Config     |
 | Loggers             | equiv       | Adapt   | Logger mapper                    | `LoggerProvider` → JBoss LogManager         |

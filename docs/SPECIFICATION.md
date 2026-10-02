@@ -160,7 +160,7 @@ Both values are application-relative. Spring's `server.servlet.context-path` or 
 `/host` is served at `/host/dev-console`; the generated shell injects that browser-visible base and API path for the
 shared Vue application.
 
-The generated shell also injects the normalized, same-origin host-application path used by the Overview panel's
+The generated shell also injects the normalized, same-origin host-application path used by the Scorecard panel's
 **Application homepage** link. It is `/` at the default application root and includes exactly one trailing slash for a
 custom root (for example, `/host/`). The link therefore returns to `/` from `/bootui/` and to `/host/` from
 `/host/dev-console/`, independently of `bootui.path` depth and `bootui.api-path`, without carrying BootUI query or hash
@@ -274,16 +274,19 @@ shape:
 ```
 
 Operation ids are stable `<panel>.<action>` values. Passive `GET` requests continue returning the last completed report
-while an action runs; a rejected duplicate does not mutate cached reports, timestamps, Heap Dump state, GraalVM progress,
-or Memory trend samples. Activation, localhost/Host/cross-site-write safety, panel enabled/read-only policy, validation,
-confirmation, and feature configuration are evaluated before single-flight admission. In particular,
+while an action runs; a rejected duplicate does not mutate cached reports, timestamps, Heap Dump state, GraalVM
+progress, or Memory trend samples. Activation, localhost/Host/cross-site-write safety, panel enabled/read-only policy,
+validation, confirmation, and feature configuration are evaluated before single-flight admission. In particular,
 `bootui.vulnerabilities.osv-enabled=false` still returns its existing `DISABLED` report without claiming admission or
-performing network work. The shared UI treats this conflict as a warning, retains the visible report/Overview score, and
-stops only the duplicate caller's spinner.
+performing network work. The shared UI treats this conflict as a warning, retains the visible report/Scorecard score,
+and stops only the duplicate caller's spinner.
 
 ## 5. Functional specification
 
-### 5.1 Overview panel
+### 5.1 Scorecard panel
+
+The Scorecard keeps the `overview` panel id and its `bootui.panels.overview.*` properties. Its route is `#/scorecard`,
+and `#/overview` redirects there.
 
 Purpose: give a fast summary of the running application.
 
@@ -309,8 +312,8 @@ Acceptance criteria:
 
 ### 5.1.1 GitHub
 
-Purpose: summarize the current repository's GitHub project state from the local git origin, directly under the Overview
-panel.
+Purpose: summarize the current repository's GitHub project state from the local git origin, in the Developer tools
+group.
 
 Data sources:
 
@@ -763,7 +766,7 @@ Features:
 - Provide an explicit "Scan with OSV.dev" action that sends Maven package names and versions to OSV.dev.
 - Show scan status, vulnerable dependency count, advisory count, severity breakdown, advisory links, aliases, and fixed
   versions when available.
-- Calculate the same numeric score in the panel and Overview for `SCANNED` or `PARTIAL` reports with valid severity
+- Calculate the same numeric score in the panel and the Scorecard for `SCANNED` or `PARTIAL` reports with valid severity
   and evidence data and `evidence.usable: true`; all-skipped, all-failed, and vacuous passes cannot establish 100.
   ERROR/DISABLED/NOT_SCANNED and malformed reports never score. Missing metadata is unknown, not complete.
   Legacy reports without valid explicit
@@ -780,13 +783,13 @@ Features:
 - Retain findings and diagnostics independently of eligibility. Usable numeric scores lead with findings and a neutral
   **Results available** status. Incomplete inventory, query/detail gaps, unknown severity, or incomplete applicable
   checks remain in an initially collapsed, keyboard-accessible **Scan notes** disclosure in the dedicated panel,
-  even at 100, with **Scan notes available** in score accessible names. Overview counts advisors with notes, not
+  even at 100, with **Scan notes available** in score accessible names. The Scorecard counts advisors with notes, not
   individual checks, and links to each panel. Unscored reasons and whole-scan failures remain prominent.
   Complete assessments need no additional scope paragraph. Raw statuses, evidence, and eligibility are unchanged.
   Intentionally inapplicable checks alone do not make
   coverage incomplete. Penalties stay CRITICAL/HIGH/MEDIUM/LOW/INFO/NONE = 25/10/3/1/0/0 with unchanged clamp,
   and rounding. Numbers are **Known-findings scores**, not app-health grades; advisor panels keep neutral
-  numbers, including for partial 100. Overview restores a prominent **Overall score**:
+  numbers, including for partial 100. The Scorecard restores a prominent **Overall score**:
   the rounded arithmetic mean of eligible available visible advisor scores and eligible GitHub, with **Average of N
   scores**. No eligible scores means **Not scored**, with a prompt to run an available scanner. Invalid, missing,
   unscanned, and confirmed-empty reports are excluded, not replaced with zero or 100. Usable partial scores retain
@@ -795,10 +798,10 @@ Features:
   a horizontal desktop layout that stacks on narrow screens, and a **Points deducted per score** grid of eligible
   contributors. Each deduction is that contributor's score minus 100, not an additive overall-score calculation.
   Overall gauge bands are **Good** (80–100), **Needs attention** (50–79), and **At risk** (0–49), qualified as
-  descriptions of scored results rather than application safety or completeness. Individual Overview scores,
+  descriptions of scored results rather than application safety or completeness. Individual Scorecard scores,
   including GitHub, use the same green/amber/red thresholds with theme-aware text colors, visible numbers,
   and retained severity labels. Keep assessed, failed, retained-severity, and scan-notes counts visible in the compact summary.
-  Overview uses **Scan complete** for scored report badges and **Connected** for GitHub's connected badge; scan
+  The Scorecard uses **Scan complete** for scored report badges and **Connected** for GitHub's connected badge; scan
   completion does not assert complete coverage. Light-theme score numbers use saturated semantic colors.
   Confirmed empty scope (`usable: false`, `coverageComplete: true`, no limitations) counts as assessed, not incomplete;
   unscanned reports and request failures remain distinct.
@@ -1021,7 +1024,7 @@ Features:
   evidence honestly, with detailed limitations in the panel's scan notes.
 - Apply persisted `dismissedRules` by exact `PT-*` check ID on scan responses and cached reads. Retain findings with
   an explicit `dismissed` boolean, but exclude dismissed findings from `findingsFound`, `scan.findingsFound`,
-  `severityCounts`, and panel/Overview penalties. Offer Dismiss and a collapsed Dismissed rules list with Restore,
+  `severityCounts`, and panel/Scorecard penalties. Offer Dismiss and a collapsed Dismissed rules list with Restore,
   disabled under panel read-only policy. Refresh after dismissal with a cached read, never another scan.
 - Preserve scan time/status, check counts, coverage, and evidence when applying dismissals. Equivalent Security and
   Pentesting findings remain independently dismissible; accepting a finding does not imply a completed or passing check.
@@ -1499,7 +1502,7 @@ Acceptance criteria:
 
 ### 5.14.2.2 Runtime Insights Panel
 
-Runtime Insights (`runtime-insights`, Overview group, after Live Activity) projects the runtime journal's retained events
+Runtime Insights (`runtime-insights`, Home group, after Live Activity) projects the runtime journal's retained events
 into observations on read ([PLAN-v2.md](PLAN-v2.md) §5.4, §5.5). It is read-only and has no action: there is no
 analyze button, busy state, or read-only toggle. Opening it starts no capture, scan, database read, or network call.
 
@@ -1514,7 +1517,7 @@ analyze button, busy state, or read-only toggle. Opening it starts no capture, s
   slow** on demand. **Export JSON** saves the report client-side.
 - Each observation carries a status (`OBSERVED`, `INSUFFICIENT`, or `PARTIAL`), one sentence naming what was counted,
   the eligible and affected request counts, the correlation tier it relies on, one to three conditional checks, up to
-  three exemplar request ids, and limitations. No severity, score, or Overview contribution.
+  three exemplar request ids, and limitations. No severity, score, or Scorecard contribution.
 - Available on every stack while `bootui.runtime-journal.enabled` is true, and unavailable otherwise with that property
   named. Stack-specific gaps are reported per observation, never by hiding it.
 
@@ -2270,7 +2273,7 @@ Acceptance criteria:
   the database.
 - Row caps, timeouts, and section failures produce partial/diagnostic reports instead of silent clean reports.
 - The panel reports a runtime observation of one database, not a repeatable assessment of the application, so it carries
-  no findings and no score, and never contributes to the Overview dashboard's advisor scoring or retained-findings
+  no findings and no score, and never contributes to the Scorecard's advisor scoring or retained-findings
   totals.
 - A session, statement, index, relation, autovacuum or settings row that the read retained is rendered in its section's
   table; a section that could not be read shows its reason and hint instead of an empty table.
@@ -2291,7 +2294,7 @@ Connector/J 9.6.0 / Agroal 3.0.1. MariaDB, MySQL 5.7, other MySQL lines, and com
   local declarations without borrowing a connection; the action verifies the connected vendor/server.
 - Cover vital signs, sessions with bounded blocking relationships, normalized statement ranking, index activity,
   table estimates, InnoDB, basic local replication-channel state, and allow-listed settings. There are no grades,
-  advisor rules/recommendations, severity counts, or contributions to Overview scores.
+  advisor rules/recommendations, severity counts, or contributions to Scorecard scores.
 - `GET /bootui/api/mysql` returns the latest sanitized in-memory report, initially `NOT_READ`. Only explicit
   `POST /bootui/api/mysql/read` starts collection; there are no SQL/schema/endpoint arguments or automatic refresh.
   MCP `get_mysql_report` / `mysql_read` and CLI `bootui db mysql report` / `bootui db mysql read` share that cache.
@@ -3067,13 +3070,13 @@ Design rules:
 
 ### 7.1 Navigation
 
-Top-level navigation:
+Top-level navigation. Home is pinned at the top of the sidebar without a group header; every other group is
+collapsible:
 
-- Overview:
-  - Overview.
+- Home:
+  - Scorecard.
   - Live Activity.
   - Runtime Insights.
-  - GitHub.
 - Advisors:
   - Architecture.
   - REST API.
@@ -3139,8 +3142,9 @@ Top-level navigation:
   - Dev Services.
   - Copilot.
   - Claude Code.
+  - GitHub.
 - Disabled / unavailable:
-  - Non-overview panels whose backing infrastructure is unavailable.
+  - Panels outside Home whose backing infrastructure is unavailable.
 
 ### 7.2 UI principles
 

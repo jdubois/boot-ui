@@ -2,10 +2,9 @@
 import {expect, test} from './fixtures.js'
 
 const allPanelLinks = [
-  {id: 'overview', title: 'Overview', heading: /^Overview/},
+  {id: 'overview', path: 'scorecard', title: 'Scorecard', heading: /^Scorecard/},
   {id: 'activity', title: 'Live Activity', heading: /Live Activity/},
   {id: 'runtime-insights', title: 'Runtime Insights', heading: /Runtime Insights/},
-  {id: 'github', title: 'GitHub', heading: /^GitHub/},
   {id: 'health', title: 'Health', heading: /^Health/},
   {id: 'http-sessions', title: 'HTTP Sessions', heading: /^HTTP Sessions/},
   {id: 'metrics', title: 'Metrics', heading: /^Metrics/},
@@ -60,7 +59,8 @@ const allPanelLinks = [
   {id: 'devtools', title: 'Spring DevTools', heading: /^Spring DevTools/},
   {id: 'dev-services', title: 'Dev Services', heading: /^Dev Services/},
   {id: 'copilot', title: 'Copilot', heading: /^Copilot/},
-  {id: 'claude-code', title: 'Claude Code', heading: /^Claude Code/}
+  {id: 'claude-code', title: 'Claude Code', heading: /^Claude Code/},
+  {id: 'github', title: 'GitHub', heading: /^GitHub/}
 ]
 
 async function mockPanelAvailability(page, overrides = {}) {
@@ -316,9 +316,9 @@ test.describe('BootUI app shell', () => {
     await expect(palette.getByRole('combobox', {name: 'Search panels'})).toBeFocused()
     await page.keyboard.press('Escape')
 
-    await page.getByRole('link', {name: 'Go to Overview'}).click()
-    await expect(page).toHaveURL(/\/bootui\/#\/overview$/)
-    await expect(page).toHaveTitle('Overview · bootui-sample · BootUI')
+    await page.getByRole('link', {name: 'Go to Scorecard'}).click()
+    await expect(page).toHaveURL(/\/bootui\/#\/scorecard$/)
+    await expect(page).toHaveTitle('Scorecard · bootui-sample · BootUI')
   })
 
   test('mobile command palette restores shortcut focus on cancel', async ({page}) => {
@@ -425,7 +425,7 @@ test.describe('BootUI app shell', () => {
       {title: 'Security', count: 2},
       {title: 'Services', count: 10},
       {title: 'Diagnostics', count: 5},
-      {title: 'Developer tools', count: 6}
+      {title: 'Developer tools', count: 7}
     ]
 
     for (const group of groups) {
@@ -499,9 +499,9 @@ test.describe('BootUI app shell', () => {
             panels: [
               {
                 id: 'overview',
-                title: 'Overview',
+                title: 'Scorecard',
                 available: false,
-                unavailableReason: 'Overview support is unavailable in this test state'
+                unavailableReason: 'Scorecard support is unavailable in this test state'
               }
             ]
           })
@@ -510,24 +510,24 @@ test.describe('BootUI app shell', () => {
     )
     await page.goto('/bootui/')
 
-    const overviewLink = page.locator('aside .nav-link', {hasText: 'Overview'})
+    const overviewLink = page.locator('aside .nav-link', {hasText: 'Scorecard'})
     await expect(overviewLink).toHaveClass(/bootui-nav-link--unavailable/)
     await expect(overviewLink).toHaveAttribute(
       'aria-label',
-      'Overview - unavailable: Overview support is unavailable in this test state'
+      'Scorecard - unavailable: Scorecard support is unavailable in this test state'
     )
     await expect(overviewLink).toHaveAttribute(
       'title',
-      'Overview - unavailable: Overview support is unavailable in this test state'
+      'Scorecard - unavailable: Scorecard support is unavailable in this test state'
     )
     await expect(overviewLink).not.toContainText('Unavailable')
     await expect(page.locator('.panel-availability-alert')).toContainText('Panel unavailable')
     await expect(page.locator('.panel-availability-alert')).toContainText(
-      'Overview support is unavailable in this test state'
+      'Scorecard support is unavailable in this test state'
     )
   })
 
-  test('sidebar collects unavailable non-overview panels in a collapsed group', async ({page}) => {
+  test('sidebar collects unavailable panels outside Home in a collapsed group', async ({page}) => {
     await mockPanelAvailability(page, {
       ai: {
         available: false,
@@ -558,15 +558,37 @@ test.describe('BootUI app shell', () => {
     await expandAllSidebarGroups(page)
 
     for (const link of allPanelLinks) {
-      const navLink = page.locator(`aside a.bootui-nav-link[href$="#/${link.id}"]`)
+      const navLink = page.locator(`aside a.bootui-nav-link[href$="#/${link.path ?? link.id}"]`)
       await expect(navLink).toHaveCount(1)
       await navLink.click()
       await expect(page.locator('main h2').filter({hasText: link.heading}).first()).toBeVisible({timeout: 15_000})
     }
   })
 
-  test('redirects the root path to /overview', async ({page}) => {
+  test('redirects the root path to /scorecard', async ({page}) => {
     await page.goto('/bootui/')
-    await expect(page).toHaveURL(/\/bootui\/#\/overview$/)
+    await expect(page).toHaveURL(/\/bootui\/#\/scorecard$/)
+  })
+
+  test('redirects the former /overview route to /scorecard', async ({page}) => {
+    await page.goto('/bootui/#/overview')
+    await expect(page).toHaveURL(/\/bootui\/#\/scorecard$/)
+    await expect(page.locator('main h2').filter({hasText: /^Scorecard/})).toBeVisible()
+  })
+
+  test('pins Home at the top of the sidebar without a group header', async ({page}) => {
+    await mockPanelAvailability(page)
+    await page.goto('/bootui/')
+
+    await expect(page.getByRole('group', {name: 'Home panels'}).locator('.bootui-nav-link__label')).toHaveText([
+      'Scorecard',
+      'Live Activity',
+      'Runtime Insights'
+    ])
+    await expect(page.locator('aside .bootui-nav-group__toggle', {hasText: 'Home'})).toHaveCount(0)
+    await page.getByRole('button', {name: /Developer tools\s+7/}).click()
+    await expect(
+      page.getByRole('group', {name: 'Developer tools panels'}).locator('.bootui-nav-link__label')
+    ).toHaveText(['MCP Server', 'Command Line', 'Spring DevTools', 'Dev Services', 'Copilot', 'Claude Code', 'GitHub'])
   })
 })

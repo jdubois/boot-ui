@@ -178,7 +178,7 @@ html[data-bootui-theme='minimal'] .bootui-footer__context > .bi {
 
 /* -------------------------------------------------------------------- navigation */
 
-html[data-bootui-theme='minimal'] .bootui-nav-section:not(.bootui-nav-section--overview) .bootui-nav-group__items {
+html[data-bootui-theme='minimal'] .bootui-nav-section:not(.bootui-nav-section--home) .bootui-nav-group__items {
   border-left: 1px solid var(--bootui-border-subtle);
 }
 

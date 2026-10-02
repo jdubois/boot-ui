@@ -358,7 +358,7 @@ watch(
   <div class="overview-scores">
     <PanelHeader
       icon="bi-speedometer2"
-      title="Overview"
+      title="Scorecard"
       subtitle="Inspect retained findings and assessment coverage, then open an advisor for evidence and next steps."
       :refreshable="false"
     >

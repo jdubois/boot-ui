@@ -603,7 +603,7 @@ describe('App optional browser storage', () => {
     await wrapper.find('.cp-trigger').trigger('click')
     await flushPromises()
     expect(wrapper.find('.cp-section-label').text()).toBe('Recent')
-    expect(wrapper.find('.cp-item-title').text()).toBe('Overview')
+    expect(wrapper.find('.cp-item-title').text()).toBe('Scorecard')
   })
 
   it('keeps current-page controls working when storage methods start throwing', async () => {

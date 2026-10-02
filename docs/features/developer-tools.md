@@ -269,3 +269,44 @@ the panel when no projects directory is found. Data is read-only: BootUI never m
 
 Because Claude Code writes sessions inside per-project subdirectories, this panel refreshes through the shared
 visibility-aware polling used by the other live panels rather than a directory watch.
+
+## GitHub
+
+![BootUI GitHub panel](../images/bootui-github.webp)
+
+Summarizes the current project's GitHub state, read from the local `origin` remote. It auto-refreshes on BootUI's
+standard one-minute interval while the tab is visible; the initial refresh and each interval are bounded and blocked by
+the panel's read-only settings.
+
+`GET /bootui/api/github` never contacts GitHub; it returns the cached report. Only `POST /bootui/api/github/refresh`
+reaches the API, gated by `bootui.github.api-enabled` and the host allow-list.
+
+Opening the panel does issue that refresh, as does each auto-refresh tick, unless the panel is read-only. In read-only
+mode the panel falls back to the cached `GET` and never contacts GitHub.
+
+The panel shows repository metadata and an eight-card summary grid, each card opening a detail drawer:
+
+- **Open pull requests** and **open issues** — the issues drawer summarizes label and staleness buckets, then lists the
+  bounded set of open issues with author, labels, comment count, and last-updated time. Pull requests returned by the
+  issues endpoint are excluded.
+- **GitHub Actions** — rows link to the matching run and show workflow, branch, event, status, and duration. The failure
+  count considers only the latest execution per workflow and branch, so older failures drop out once a later run fixes
+  that workflow on that branch.
+- **Quotas** — the card shows the lowest remaining percentage on a red-to-green palette. The drawer is hidden by
+  default, renders every resource from GitHub's `/rate_limit` response dynamically, and highlights anything at or below
+  10% remaining. Best-effort cards for Actions cache, artifacts, and Actions billing appear when the credential can
+  reach those endpoints.
+- **Copilot usage** — the report window and link count only, from GitHub's organization report metadata endpoint. Signed
+  report URLs are never downloaded or exposed.
+- **Three security signals** — drawers link to the matching alert pages. Dependabot additionally lists open alerts with
+  package, ecosystem, severity, advisory ID, summary, affected range, and fixed version, capped by
+  `bootui.github.max-security-alerts`. Code scanning and secret scanning stay count-only and never inline secret values
+  or vulnerable code snippets.
+
+Credentials are read from the current device only: `GITHUB_TOKEN`, `GH_TOKEN`, or an existing `gh auth token` login. The
+token is never sent to the browser, persisted by BootUI, or included in warnings. Without a token, public repositories
+use GitHub's unauthenticated rate limits. Refreshes are bounded by per-request timeouts, a maximum API-call budget, and
+a quota safety threshold that skips optional sections before exhausting the core API quota.
+
+The panel is identical on Quarkus, over the same engine and the same `/bootui/api/github` contract. The only difference
+is internal: Quarkus supplies a Jackson 2 client implementation where Spring Boot 4 uses Jackson 3.
