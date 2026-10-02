@@ -422,10 +422,10 @@ function navTitle(r) {
 const navigationSections = computed(() => {
   const sections = [
     {
-      key: 'overview',
-      title: 'Overview',
+      key: 'home',
+      title: 'Home',
       collapsible: false,
-      routes: routes.filter((r) => r.meta?.group === 'overview')
+      routes: routes.filter((r) => r.meta?.group === 'home')
     }
   ]
 
@@ -436,7 +436,7 @@ const navigationSections = computed(() => {
     }
   }
 
-  const unavailableRoutes = routes.filter((r) => r.meta?.group !== 'overview' && routeUnavailable(r))
+  const unavailableRoutes = routes.filter((r) => r.meta?.group !== 'home' && routeUnavailable(r))
   if (unavailableRoutes.length) {
     sections.push({...unavailableNavigationGroup, collapsible: true, unavailable: true, routes: unavailableRoutes})
   }
@@ -445,7 +445,7 @@ const navigationSections = computed(() => {
 })
 const activeNavigationGroupKey = computed(() => {
   const currentRoute = activeRoute.value
-  if (!currentRoute || currentRoute.meta?.group === 'overview') return null
+  if (!currentRoute || currentRoute.meta?.group === 'home') return null
   return routeUnavailable(currentRoute) ? unavailableNavigationGroup.key : currentRoute.meta?.group
 })
 
@@ -719,7 +719,7 @@ function onGlobalKeydown(e) {
         @keydown="onMobileNavKeydown"
       >
         <div class="brand-area">
-          <router-link v-slot="{href, navigate}" custom to="/overview">
+          <router-link v-slot="{href, navigate}" custom to="/scorecard">
             <a :href="href" class="brand-card text-decoration-none" @click="onSidebarLinkClick(navigate, $event)">
               <span class="brand-mark"><i class="bi bi-cup-hot-fill"></i></span>
               <span class="brand-text">
@@ -749,7 +749,7 @@ function onGlobalKeydown(e) {
             v-for="section in navigationSections"
             :key="section.key"
             :class="{
-              'bootui-nav-section--overview': !section.collapsible,
+              'bootui-nav-section--home': !section.collapsible,
               'bootui-nav-section--unavailable': section.unavailable
             }"
             class="bootui-nav-section"
@@ -1818,7 +1818,7 @@ function onGlobalKeydown(e) {
   font-size: 1.05rem;
 }
 
-.bootui-sidebar--collapsed .bootui-nav-section:not(.bootui-nav-section--overview) .bootui-nav-group__items {
+.bootui-sidebar--collapsed .bootui-nav-section:not(.bootui-nav-section--home) .bootui-nav-group__items {
   display: none;
 }
 
@@ -1918,7 +1918,7 @@ function onGlobalKeydown(e) {
   gap: 0.25rem;
 }
 
-.bootui-nav-section:not(.bootui-nav-section--overview) .bootui-nav-group__items {
+.bootui-nav-section:not(.bootui-nav-section--home) .bootui-nav-group__items {
   border-left: 1px solid var(--bootui-border-alt);
   display: flex;
   flex-direction: column;

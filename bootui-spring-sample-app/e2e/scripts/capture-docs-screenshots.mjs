@@ -58,7 +58,7 @@ const quarkusUnavailablePanels = new Set([
 ])
 
 const panelOrder = [
-  ['overview', 'Overview'],
+  ['overview', 'Scorecard'],
   ['github', 'GitHub'],
   ['health', 'Health'],
   ['http-sessions', 'HTTP Sessions'],
@@ -5993,8 +5993,8 @@ const postgresql = {
 
 const screenshots = [
   [
-    'overview',
-    'Overview',
+    'scorecard',
+    'Scorecard',
     'bootui-overview.webp',
     async (page) => {
       await page.getByRole('button', {name: /Re-run all scanners/}).click()

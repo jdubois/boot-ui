@@ -187,7 +187,7 @@ the retained rows, and a section that could not be read names its reason, so inc
 server.
 
 Reads are explicit. Opening the panel shows the last in-memory report; MySQL is queried when you choose **Run MySQL
-read**. There are no grades, severities, recommendations, or contributions to Overview scores.
+read**. There are no grades, severities, recommendations, or contributions to Scorecard scores.
 
 | Section | What it shows |
 | --- | --- |

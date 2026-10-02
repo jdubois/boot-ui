@@ -11,7 +11,7 @@ test('loads the SPA and assets only from the configured path', async ({page, req
   const response = await page.goto(`${UI_PATH}/`)
 
   expect(response?.ok()).toBeTruthy()
-  await expect(page).toHaveURL(new RegExp(`${UI_PATH}/#/overview$`))
+  await expect(page).toHaveURL(new RegExp(`${UI_PATH}/#/scorecard$`))
   await expect(page.locator('.brand-name')).toHaveText('BootUI')
   await expect(page.locator('base')).toHaveAttribute('href', `${UI_PATH}/`)
   await expect(page.locator('meta[name="bootui-application-path"]')).toHaveAttribute('content', '/host/')
@@ -41,8 +41,8 @@ test('recovers from an unknown hash without losing the configured mount', async 
   await expect(page.getByRole('heading', {name: 'Page not found'})).toBeVisible()
   await expect(page).toHaveURL(new RegExp(`${UI_PATH}/#/missing-panel$`))
 
-  await page.getByRole('link', {name: 'Go to Overview'}).click()
-  await expect(page).toHaveURL(new RegExp(`${UI_PATH}/#/overview$`))
+  await page.getByRole('link', {name: 'Go to Scorecard'}).click()
+  await expect(page).toHaveURL(new RegExp(`${UI_PATH}/#/scorecard$`))
 })
 
 test('uses the configured API path for queries, SSE, and security', async ({page, request}) => {
