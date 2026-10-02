@@ -197,6 +197,17 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- LangChain4j core, compile-only (provided): needed solely to compile QuarkusAiCallListener, the
+             ChatModelListener that records Quarkus LangChain4j's model calls in the runtime journal (M3-9).
+             provided scope is NOT transitive, and the class-presence-gated build step (registerAiCalls) excludes
+             the listener when an application has no LangChain4j, so its types are never linked (R2). -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-core</artifactId>
+            <version>${langchain4j.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- Quarkus WebSockets Next extension, compile-only (provided): needed solely to compile the optional
              WebSockets panel runtime bindings (QuarkusWebSocketSessionProvider and
              QuarkusWebSocketConnectionCapture), which read io.quarkus.websockets.next OpenConnections /

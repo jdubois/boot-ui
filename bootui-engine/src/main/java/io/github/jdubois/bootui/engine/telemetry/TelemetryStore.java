@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.telemetry;
 
 import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
+import io.github.jdubois.bootui.engine.journal.AiCallEvents;
 import io.github.jdubois.bootui.engine.journal.AiPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
@@ -203,7 +204,8 @@ public class TelemetryStore implements RuntimeEventPublisher {
         }
         try {
             String operation = AiSpanRecognizer.operation(span);
-            if (operation == null) {
+            if (operation == null || AiCallEvents.recordedNatively(span.traceId(), span.spanId(), operation)) {
+                // The AI framework reported this call itself, stamped with its request (M3-9).
                 return;
             }
             String model = AiSpanRecognizer.responseModel(span);

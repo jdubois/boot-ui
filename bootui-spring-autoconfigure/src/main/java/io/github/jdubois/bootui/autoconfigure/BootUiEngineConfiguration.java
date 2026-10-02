@@ -366,6 +366,29 @@ public class BootUiEngineConfiguration {
         }
     }
 
+    /**
+     * Records the model calls Spring AI observes in the runtime journal ({@code docs/PLAN-v2.md} §5.18, M3-9), stamped
+     * with their request or execution, so AI usage needs no tracing. Gated only on Micrometer's observation registry:
+     * the handler reads key values by name and loads without Spring AI.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass(
+            name = {
+                "io.micrometer.observation.ObservationHandler",
+                "org.springframework.boot.micrometer.observation.autoconfigure.ObservationRegistryCustomizer"
+            })
+    static class AiObservationConfiguration {
+
+        @Bean
+        org.springframework.boot.micrometer.observation.autoconfigure.ObservationRegistryCustomizer<
+                        io.micrometer.observation.ObservationRegistry>
+                bootUiAiObservationCustomizer(ObjectProvider<RuntimeJournal> journal) {
+            return registry -> registry.observationConfig()
+                    .observationHandler(new io.github.jdubois.bootui.autoconfigure.activity.AiObservationJournalHandler(
+                            journal::getIfAvailable));
+        }
+    }
+
     @Bean
     @Lazy
     @ConditionalOnMissingBean

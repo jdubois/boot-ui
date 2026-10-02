@@ -582,7 +582,7 @@ Seventeen observations run over the completed requests and garbage collections t
 | `event-loop-blocking` | JDBC statements started on an event-loop thread |
 | `gc-inflated-latency` | The share of a route's slowest tenth of requests, at least five, during which a stop-the-world pause completed, against the share of its other requests, with the pauses' total. Pauses join requests by collector and collection id, never by time, and are worded "a pause completed during", never "caused by" |
 | `heap-growth-after-gc` | Old-generation occupancy after the full or mixed collections that reclaimed it, rising across the run from three such collections; the Memory panel links to it. Never called a leak, since a warming cache rises too before it levels off |
-| `ai-usage-by-route` | AI operations per route, linked by trace id: model calls per request, tokens, input growth, and length-limited answers |
+| `ai-usage-by-route` | AI operations per route, job, or listener: model calls per request, tokens, input growth, and length-limited answers. Spring AI's model observation and Quarkus LangChain4j's chat listener stamp each call with its request when it is made, so no tracing is needed; GenAI spans received over OTLP fill in what they do not report, without counting a call twice |
 | `framework-warnings-by-route` | `WARN` and `ERROR` events from framework loggers, grouped by logger, template, and route |
 
 Scheduled runs and consumed messages are projected like requests, named `@Scheduled OrderJob.run` or

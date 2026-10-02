@@ -272,6 +272,11 @@ class BootUiQuarkusProcessor {
     // the provided scope is not transitive (R2).
     private static final String WEBSOCKET_CONNECTION_CLASS = "io.quarkus.websockets.next.WebSocketConnection";
 
+    /** LangChain4j's listener contract, whose presence gates the AI call listener (M3-9). */
+    private static final String CHAT_MODEL_LISTENER_CLASS = "dev.langchain4j.model.chat.listener.ChatModelListener";
+
+    private static final String AI_CALL_LISTENER_CLASS = "io.github.jdubois.bootui.quarkus.ai.QuarkusAiCallListener";
+
     private static final DotName WEBSOCKET_ANNOTATION = DotName.createSimple("io.quarkus.websockets.next.WebSocket");
 
     /**
@@ -976,6 +981,24 @@ class BootUiQuarkusProcessor {
         // Arc never tries to resolve its SmallRyeHealthReporter parameter. The Health panel still wires via
         // the always-produced HealthService and renders setup guidance.
         registerCapabilityGatedBeans(enableCapture, additionalBeans, excludedTypes, HEALTH_PRODUCER_CLASS);
+    }
+
+    /**
+     * Class-presence-gated registration of the {@code ChatModelListener} that records Quarkus LangChain4j's model calls
+     * in the runtime journal ({@code docs/PLAN-v2.md} §5.18, M3-9). Without LangChain4j, the listener is excluded, so
+     * its types are never linked (R2).
+     */
+    @BuildStep
+    void registerAiCalls(
+            LaunchModeBuildItem launchMode,
+            BuildProducer<AdditionalBeanBuildItem> additionalBeans,
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes) {
+        registerCapabilityGatedBeans(
+                launchMode.getLaunchMode() != LaunchMode.NORMAL
+                        && QuarkusClassLoader.isClassPresentAtRuntime(CHAT_MODEL_LISTENER_CLASS),
+                additionalBeans,
+                excludedTypes,
+                AI_CALL_LISTENER_CLASS);
     }
 
     /**

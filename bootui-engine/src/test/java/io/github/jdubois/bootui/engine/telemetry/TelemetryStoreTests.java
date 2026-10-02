@@ -3,9 +3,11 @@ package io.github.jdubois.bootui.engine.telemetry;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.jdubois.bootui.engine.journal.AiCallEvents;
 import io.github.jdubois.bootui.engine.journal.AiPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -37,6 +39,40 @@ class TelemetryStoreTests {
                 null,
                 Map.of(),
                 List.of());
+    }
+
+    @Test
+    void theGenAiSpanOfACallTheFrameworkAlreadyReportedIsNotPublishedTwice() {
+        TelemetryStore store = new TelemetryStore(TelemetrySettings.of(true, true, 500, 500, 4096));
+        List<RuntimeEvent> published = new ArrayList<>();
+        store.setRuntimeEventSink(published::add);
+        AiCallEvents.publish(
+                published::add,
+                CorrelationContext.forRequest("r1"),
+                "trace-native",
+                "span-native",
+                5,
+                1,
+                null,
+                new AiPayload("chat", "openai", "gpt-4o", null, null, null, false));
+        NormalizedSpan chat = new NormalizedSpan(
+                "trace-native",
+                "span-native",
+                null,
+                "chat gpt-4o",
+                "CLIENT",
+                "sample",
+                "spring-ai",
+                5_000_000L,
+                45_000_000L,
+                "OK",
+                null,
+                Map.of("gen_ai.operation.name", AttributeValue.ofString("chat")),
+                List.of());
+
+        store.add(chat);
+
+        assertThat(published).as("only the framework's own event").hasSize(1);
     }
 
     @Test

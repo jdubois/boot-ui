@@ -59,9 +59,12 @@ public final class AiUsageByRoute implements Observation {
     @Override
     public String notApplicable(InsightsSnapshot snapshot) {
         boolean traced = snapshot.requests().stream().anyMatch(request -> request.traceId() != null);
-        return snapshot.requests().isEmpty() || traced
+        long[] ai = snapshot.coverage().get(JournalSource.AI);
+        // An AI framework BootUI listens to stamps each call with its request or execution, without tracing (M3-9).
+        boolean stamped = ai != null && ai[0] + ai[1] > 0;
+        return snapshot.requests().isEmpty() || traced || stamped
                 ? null
-                : "Without tracing, AI spans are not recorded or linked to requests, so AI usage is unknown.";
+                : "Without tracing, or Spring AI or Quarkus LangChain4j reporting its calls, AI usage is unknown.";
     }
 
     @Override
@@ -89,7 +92,7 @@ public final class AiUsageByRoute implements Observation {
         boolean sufficient = usage.operations >= MIN_OPERATIONS || usage.lengthLimited > 0 || usage.overThreshold > 0;
         StringBuilder sentence = new StringBuilder("`" + route + "` made "
                 + InsightText.counted(usage.operations, "AI operation") + " in " + usage.requests.size() + " of "
-                + InsightText.counted(eligible, "request"));
+                + InsightText.counted(eligible, InsightText.unit(route)));
         if (usage.modelCalls > 0) {
             sentence.append(": ")
                     .append(InsightText.counted(usage.modelCalls, "model call"))

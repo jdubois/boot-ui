@@ -17,6 +17,9 @@
     <description>Shared Quarkus LTS dependency and plugin management for the BootUI Quarkus modules.</description>
 
     <properties>
+        <!-- LangChain4j core that bootui-quarkus compiles its optional ChatModelListener against (provided scope);
+             the version Quarkus LangChain4j's BOM resolves in the Quarkus sample app. -->
+        <langchain4j.version>1.19.3</langchain4j.version>
         <quarkus.test.argLine>-Djava.util.logging.manager=org.jboss.logmanager.LogManager
             --add-opens=java.base/java.lang.invoke=ALL-UNNAMED
             -javaagent:${net.bytebuddy:byte-buddy-agent:jar}</quarkus.test.argLine>

@@ -642,9 +642,9 @@ aggregates per route, statement, exception group, transactional method, and thre
 daemon thread, and an event the queue cannot take is dropped and counted. HTTP requests, SQL statements, exception
 occurrences, security events, REST client calls, cache accesses, messages, scheduled runs, transactions (Spring),
 logical database connections (how long each was waited for and held), application `WARN` and `ERROR` log events,
-outgoing emails (their recipient and attachment counts only), fault-tolerance outcomes, AI operations from recognized
-GenAI spans (`ai`: operation, provider, model, tokens, and finish reason, never prompts or answers, linked to their
-request by trace id), garbage collections (`gc`), authorization decisions (`authorization`: what was checked, the rule when Spring Security
+outgoing emails (their recipient and attachment counts only), fault-tolerance outcomes, AI operations (`ai`: operation, provider, model, tokens, and finish reason, never prompts or answers, from
+Spring AI's model observation or Quarkus LangChain4j's chat listener, stamped with their request, and otherwise from
+recognized GenAI spans linked to their request by trace id), garbage collections (`gc`), authorization decisions (`authorization`: what was checked, the rule when Spring Security
 names it, whether the caller was anonymous or authenticated, whether access was granted, and a count of authorities,
 from Spring Security's authorization observations or Quarkus's authorization events), and the run's start (`lifecycle`: the time to ready and the slowest
 bean instantiations on Spring, and the facts that decide whether two runs can be compared: active profiles, each data
