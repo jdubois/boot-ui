@@ -23,6 +23,7 @@ import java.util.List;
  * @param timing its monotonic start and phases, or {@code null} when unknown
  * @param resources its measured CPU time and allocation, or {@code null} when not measured
  * @param traceId its distributed-trace id, or {@code null} without tracing
+ * @param thread the thread its HTTP event was recorded on, or {@code null}
  */
 public record ProjectedRequest(
         String requestId,
@@ -35,7 +36,8 @@ public record ProjectedRequest(
         List<RuntimeEvent> children,
         RequestTiming timing,
         ResourceUsage resources,
-        String traceId) {
+        String traceId,
+        String thread) {
 
     public ProjectedRequest {
         children = List.copyOf(children);

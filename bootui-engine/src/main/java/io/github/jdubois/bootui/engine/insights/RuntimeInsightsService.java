@@ -106,6 +106,19 @@ public final class RuntimeInsightsService {
     }
 
     /**
+     * Installs the resolver of each application frame's proxy boundaries, which {@code proxy-bypass} reads
+     * ({@code docs/PLAN-v2.md} §5.12); without one, it does not apply.
+     */
+    public synchronized void setProxyBoundaries(ProxyBoundaries boundaries) {
+        for (Observation observation : observations) {
+            if (observation instanceof ProxyBypass bypass) {
+                bypass.setBoundaries(boundaries);
+            }
+        }
+        this.cached = null;
+    }
+
+    /**
      * Installs the maximum size of each connection pool, by the data source name its connections carry, which
      * {@code transaction-across-remote-call} uses for its labelled estimate.
      */
@@ -147,6 +160,7 @@ public final class RuntimeInsightsService {
                 new RepeatedSelects(),
                 new ConnectionsPerRequest(),
                 new SafeMethodDml(),
+                new ProxyBypass(),
                 new AnonymousDataReach(),
                 new AnonymousSuccessOnRestrictedRoute(),
                 new SplitTransactionWrites(),

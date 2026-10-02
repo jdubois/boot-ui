@@ -565,6 +565,7 @@ Twelve observations run over every completed request:
 | `repeated-selects` | The same SELECT run five or more times in a request after another statement, from three requests |
 | `connections-per-request` | Requests that held two or more connections of one data source at the same time |
 | `safe-method-dml` | GET or HEAD requests that wrote to the database, worded as a question |
+| `proxy-bypass` | Spring only: a `@Transactional` method whose statement ran outside every transaction, a `@Cacheable` method whose statement ran before any access to its cache, or an `@Async` method whose statement ran on the request's own thread, named with the frame that called it. The proxy was bypassed, as by a call from inside the bean, a `private` or `final` method, or an instance created with `new`; the Architecture advisor's ARCH-SPRING-004 finds such calls in the code. Not applicable with AspectJ weaving or on Quarkus, whose ArC intercepts self-invocation |
 | `anonymous-data-reach` | Successful requests an authorization decision proved anonymous that wrote a table, per route and table. Anonymous reads, authenticated writes, and requests no rule checked are never counted, and each row says not to add authorization from it alone |
 | `anonymous-success-on-restricted-route` | 2xx answers to proven-anonymous requests on a route whose rules this run saw deny another anonymous caller or require an authority: "a successful anonymous response, not proof that the rule is wrong" |
 | `split-transaction-writes` | Requests whose writes committed in two or more independent transactions or autocommit statements |
@@ -607,4 +608,4 @@ a request's drawer, **Why this route is slow** loads that route's breakdown on d
 
 The panel is available while the runtime journal is enabled (`bootui.runtime-journal.enabled`), on Spring MVC, Spring
 WebFlux, and Quarkus. Where a stack lacks a fact, the observations that need it say so: WebFlux marks no request phases,
-Quarkus records no transactions, and Spring MVC has no event loop.
+Quarkus records no transactions and intercepts self-invocation, and Spring MVC has no event loop.

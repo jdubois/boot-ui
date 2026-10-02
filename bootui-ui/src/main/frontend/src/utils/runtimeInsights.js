@@ -16,7 +16,7 @@ export const THEMES = [
     kinds: ['connections-per-request', 'split-transaction-writes', 'transaction-across-remote-call']
   },
   {id: 'access', label: 'Access', kinds: ['anonymous-data-reach', 'anonymous-success-on-restricted-route']},
-  {id: 'framework', label: 'Framework', kinds: ['framework-warnings-by-route']},
+  {id: 'framework', label: 'Framework', kinds: ['framework-warnings-by-route', 'proxy-bypass']},
   {id: 'ai', label: 'AI', kinds: ['ai-usage-by-route']}
 ]
 

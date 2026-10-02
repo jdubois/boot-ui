@@ -189,7 +189,8 @@ public final class InsightsSnapshot {
                     children.getOrDefault(request.getKey(), List.of()),
                     payload.timing(),
                     payload.resources(),
-                    event.traceId()));
+                    event.traceId(),
+                    event.thread()));
         }
         requests.sort(
                 Comparator.comparingLong(ProjectedRequest::startMillis).thenComparing(ProjectedRequest::requestId));

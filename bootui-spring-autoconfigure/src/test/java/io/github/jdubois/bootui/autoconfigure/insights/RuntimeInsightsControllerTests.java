@@ -54,7 +54,7 @@ class RuntimeInsightsControllerTests {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.available").value(true))
                     .andExpect(jsonPath("$.window.requests").value(0))
-                    .andExpect(jsonPath("$.checks.length()").value(14));
+                    .andExpect(jsonPath("$.checks.length()").value(15));
             mvc.perform(get("/bootui/api/runtime-insights/insights/repeated-selects:0000000000"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.available").value(false));

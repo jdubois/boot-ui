@@ -184,9 +184,15 @@ class RuntimeInsightsServiceTests {
                     assertThat(coverage.unlinked()).isEqualTo(1);
                 });
         assertThat(report.checks())
-                .filteredOn(check -> !check.kind().equals(AiUsageByRoute.KIND))
+                .filteredOn(check -> !check.kind().equals(AiUsageByRoute.KIND)
+                        && !check.kind().equals(ProxyBypass.KIND))
                 .extracting(RuntimeInsightCheckDto::status)
                 .containsOnly("EVALUATED");
+        assertThat(report.checks())
+                .filteredOn(check -> check.kind().equals(ProxyBypass.KIND))
+                .extracting(RuntimeInsightCheckDto::status)
+                .as("without a resolver of proxy boundaries, a bypass cannot be judged")
+                .containsExactly("NOT_APPLICABLE");
         assertThat(report.checks())
                 .filteredOn(check -> check.kind().equals(AiUsageByRoute.KIND))
                 .extracting(RuntimeInsightCheckDto::status)
