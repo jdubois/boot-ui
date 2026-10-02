@@ -232,7 +232,7 @@ Three design points shape how v2 reuses v1 foundations:
 | **M2 Journal and Live Activity** (§5.2, §5.3, §5.11) | The in-memory journal, incremental aggregates, run summaries, resource correlation (scope readings, GC by id, CPU ledger, resource track), and Live Activity served from the journal with its unified timeline | M1; §3.22, §3.27 | 44–56 | ✅ Delivered; §5.11's opt-in JFR attribution followed in M4-4 (D17) |
 | **M3 Runtime Insights** (§5.4–§5.6) | Projections, the runtime model, the panel, Live Activity entry points, twelve observations, agent tools, and the demo | M2; §3.25 | 52–65 | ✅ Delivered |
 | **M4 Change loop and 2.0 readiness** (§5.7–§5.9, §5.12, §5.18) | Change impact, run comparison and behavior diff, anonymous access, proxy bypass, the journal sources they need, external validation, and the release path | M3; §3.18 | 33–45 | ✅ Delivered, except M4-17's maintainer tasks: pin the feedback discussion, record the demo, and fill in the validation report |
-| **M5 BootUI Java agent** (§5.13–§5.17) | The optional agent, executor propagation, Code Paths, Code Inventory, Side Effects, and agent evidence in observations, comparison, and tools | M3 for observations; M4 for the change-loop upgrades | 90–116 | 📋 Planned |
+| **M5 BootUI Java agent** (§5.13–§5.17) | The optional agent, executor propagation, Code Paths, Code Inventory, Side Effects, and agent evidence in observations, comparison, and tools | M3 for observations; M4 for the change-loop upgrades | 90–116 | 🚧 In progress: M5-0's first pass is run and reviewed |
 
 M0–M4 total about **179–230 engineer-days**, roughly seven to nine months with two developers who also maintain 1.x.
 Opt-in JFR attribution (§5.11, D17) adds 6–9 engineer-days to M4, so M0–M4 come to about 185–239 engineer-days with it.
@@ -306,7 +306,7 @@ slice depends on M5-1, and on the milestone named:
 
 | Item | Delivers | Depends on | Effort (engineer-days) | Status |
 | --- | --- | --- | --- | --- |
-| M5-0 | Spike: one bridge class across DevTools restarts and Quarkus live reloads, retransformation cost, coexistence with the OpenTelemetry agent, JaCoCo, IntelliJ's debugger agent, and Mockito, and executor-propagation overhead (§5.13) | M1 | 5–7 | 📋 Planned |
+| M5-0 | Spike: one bridge class across DevTools restarts and Quarkus live reloads, retransformation cost, coexistence with the OpenTelemetry agent, JaCoCo, IntelliJ's debugger agent, and Mockito, and executor-propagation overhead (§5.13) | M1 | 5–7 | 🚧 First pass run and reviewed (see §5.13, **M5-0 spike, first pass**); a second pass of measurements is required before M5-1 |
 | M5-1 | The `bootui-agent` and `bootui-agent-bridge` artifacts, claim and release, the transport ring, the **Java Agent** panel with setup snippets, and opt-in self-attach | M5-0, M2 | 12–15 | 📋 Planned |
 | M5-2 | Executor propagation, the `PROPAGATED` tier, and **after response** work | M5-1 | 6–8 | 📋 Planned |
 | M5-3 | Executed and changed methods, dependency use, and `changed-code-not-executed` (§5.15, §5.17) | M5-1, M3 | 8–10 | 📋 Planned |
@@ -1089,7 +1089,7 @@ Acceptance criteria:
 - The sample app's seeded self-invocation of a `@Transactional` method is found, while calls through the bean are not.
 - Quarkus reports not applicable, because ArC intercepts self-invocation by design.
 
-### 5.13 BootUI Java agent — Developer tools 📋 Planned
+### 5.13 BootUI Java agent — Developer tools 🚧 In progress
 
 Everything in §5.1–§5.12 comes from framework hooks: filters, observations, `DataSource` proxies, listeners, and JDK
 management beans. They see what the framework sees, and stop there. Four questions stay out of reach, and the research
@@ -1121,7 +1121,9 @@ Scope:
   application that does not opt in.
 - A tiny `bootui-agent-bridge` module of JDK-typed classes only, the contract between the agent and the engine. The
   agent appends it to the bootstrap class loader search, so JDK classes, library classes, and application classes all
-  see one copy. The engine depends on it too: without the agent, it loads from the classpath and reports "not attached".
+  see one copy. The engine never links it from its own class path, which would define a second, inert copy under
+  self-attach or Quarkus's class loaders: it looks the bridge up on the bootstrap loader only and reports "not attached"
+  when absent (M5-0).
   Like §5.8's run history, it holds only strings, numbers, arrays, JDK collections, and JDK functional
   interfaces, never an application, framework, or engine class that would pin a discarded class loader.
 - **Dormant until claimed.** `premain` stores the `Instrumentation` instance and installs nothing. Only when BootUI
@@ -1139,8 +1141,9 @@ Scope:
   calls engine code on the application thread, except the correlation reads below.
 - **Correlation.** The engine installs, in the bridge, a `Supplier` that returns the current `CorrelationContext`
   snapshot through the engine's `CorrelationSource` (the thread scope, or the Vert.x context on Quarkus), and a thread
-  kind flag that §5.1's adapters already classify. Advice reads them at most once per flushed record, not per
-  instrumented call.
+  kind flag that §5.1's adapters already classify. Recording advice reads them at most once per flushed record;
+  propagation must capture on every submit, so its capture reads only the raw thread-local or Vert.x context, never
+  filling in trace ids (M5-0).
 - **Context propagation through executors**, the first sensor and the one that closes §5.1's largest gap. Advice on
   `ThreadPoolExecutor.execute`, `ScheduledThreadPoolExecutor.schedule*`, `ForkJoinPool.execute` and `submit`, and
   `Thread.start` for a thread created with a `Runnable` wraps the task with the submitting thread's context snapshot and
@@ -1153,8 +1156,10 @@ Scope:
 - **Self-protection.** Every advice suppresses its own exceptions; a class that fails to transform is skipped, counted,
   and named in the status; BootUI, the agent, Byte Buddy, JDK internals, Spring CGLIB and AOT proxies, ArC's generated
   `_Subclass`, `_ClientProxy`, and `_Bean` classes, and Hibernate's enhanced proxies are never instrumented. Advice only
-  inlines code at method entry, exit, and exception handlers, and never changes a class's shape, so retransformation
-  always succeeds and releasing the claim needs no reverse transformation.
+  inlines code at method entry, exit, and exception handlers, and never changes a class's shape, so releasing the claim
+  needs no reverse transformation. Retransformation still fails for some classes: the agent uses Byte Buddy's `DECORATE`
+  type strategy, splits failing batches down to one class, and names each class still failing, since Byte Buddy's
+  default listener swallows those errors (M5-0).
 - **Adaptive exclusion.** An instrumented method called more than 50,000 times a second with a mean under 2 µs is
   switched off in its advice and listed as excluded, as Glowroot and Kieker do, so a getter loop never dominates.
 - **Activation.** The recommended path is an explicit `-javaagent:` flag, which JEP 451 never restricts. The **Java
@@ -1190,6 +1195,34 @@ Architecture:
 - An M5-0 spike proves, before any sensor is built: one bridge class across Spring DevTools restarts and Quarkus live
   reloads; retransformation cost on the sample apps and Spring PetClinic; coexistence with the OpenTelemetry Java agent,
   JaCoCo, IntelliJ's debugger agent, and Mockito's inline mock maker; and the overhead of executor propagation.
+
+**M5-0 spike, first pass** (2026-10-02, spike code outside the repository, reviewed by a rubber-duck agent on Claude
+Opus 5.5 at the maintainer's request):
+
+- Proven: one bootstrap `AgentBridge` class served a start and ten DevTools restarts, and a start and ten Quarkus live
+  reloads, each run claiming and releasing it; executor propagation put 8 of 8 raw-pool statements of
+  `/api/sample/pool-stress` under their request on Spring MVC and Quarkus, against 0 of 8 without the agent; the agent
+  claimed and propagated beside the OpenTelemetry Java agent 2.31.1, JaCoCo 0.8.15, and IntelliJ's debugger agent, and
+  the Spring autoconfigure suite (2,594 tests, Mockito's inline mock maker) passed with it claimed in 162 contexts,
+  except for the dependency catalog counting the agent jar itself, which M5-1 must recognize.
+- Found: `REDEFINE` silently failed Quarkus's only retransformation batch ("attempted to change the class modifiers"),
+  so `DECORATE`, batch splitting, and a redefinition-error listener are required; the engine's existing `agent` package
+  (Copilot sessions) means M5's engine package needs another name, such as `javaagent`.
+- Not proven, and corrected in its report: no class loader pinned (the Spring sample retains every restart loader by
+  itself, so the comparison could not fail); the overhead (+40 ns a task is a lower bound with a stub scope, not
+  `SegmentMeter`); coexistence beyond starting and propagating BootUI's context; JDK 17 and 21; Spring PetClinic.
+- Design constraints for M5-1 and M5-2, from the review: one jar that appends its embedded bridge from `premain` behind a
+  trampoline, catches `Throwable`, refuses a duplicate or mismatched agent, and suppresses every advice's exceptions; one
+  immutable claim record with a generation and a token-checked release, so two BootUI instances in one JVM (a test-context
+  cache, Quarkus continuous testing) never disable each other; capture and reopen held weakly by the bridge; matchers that
+  match nothing while released; identity-preserving propagation (submit-time snapshots in a weak identity map, applied
+  where the task runs) instead of wrapping, so `remove`, `purge`, `afterExecute`, `shutdownNow`, and `ForkJoinTask`
+  identity keep working; never propagating into executor worker threads, the virtual-thread scheduler, or JDK tasks; and
+  no global counters in advice.
+- Second pass, before M5-1: a heap-walk test on a minimal application with a mutation check and a queued task at restart;
+  JMH with the real scope and `SegmentMeter`, several producers, fan-out, and p99 on JDK 17, 21, and the newest; Spring
+  PetClinic's retransformation cost; OpenTelemetry parent spans inside pool tasks in both agent orders; and
+  `-XX:ActiveProcessorCount=2`.
 
 Out of scope:
 
