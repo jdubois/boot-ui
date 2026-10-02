@@ -87,8 +87,9 @@ A ✅ node has shipped. The BootUI 2.0 milestones that use each item are specifi
 | 3.25  | Agent-ready profiles and exception export in Live Activity and Exceptions  | Unreleased | [Copy profile and Copy for AI](features/overview.md#copy-profile-and-copy-for-ai)    |
 | 3.27  | Log exposure policy for Log Tail and Dev Services                          | Unreleased | [Log message exposure](features/diagnostics.md#log-message-exposure)                 |
 
-Earlier deliveries were removed from this plan when they shipped; `CHANGELOG.md` records every release. MariaDB support
-in the MySQL panel remains an unsupported follow-up outside this roadmap.
+Earlier deliveries were removed from this plan when they shipped; `CHANGELOG.md` records every release. The MySQL panel
+reads MariaDB through MySQL Connector/J on a best-effort basis, labelled unsupported; certified MariaDB support stays
+outside this roadmap.
 
 ### Dropped
 

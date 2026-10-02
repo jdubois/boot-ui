@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.mysql;
 
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -24,11 +25,35 @@ final class MySqlQuery {
 
     static Rows read(Connection connection, MySqlReadBudget budget, String sql, int cap, Object... arguments)
             throws SQLException {
+        return read(MySqlFlavor.ORACLE_MYSQL, connection, budget, sql, cap, arguments);
+    }
+
+    static Rows read(
+            MySqlFlavor flavor, Connection connection, MySqlReadBudget budget, String sql, int cap, Object... arguments)
+            throws SQLException {
+        return read(flavor, true, connection, budget, sql, cap, arguments);
+    }
+
+    private static Rows read(
+            MySqlFlavor flavor,
+            boolean statementBound,
+            Connection connection,
+            MySqlReadBudget budget,
+            String sql,
+            int cap,
+            Object... arguments)
+            throws SQLException {
         int millis = budget.selectMillis();
         if (!sql.startsWith("SELECT ") || !sql.endsWith(" LIMIT ?")) {
             throw new IllegalArgumentException("MySQL collectors require a bounded fixed SELECT.");
         }
-        String bounded = "SELECT /*+ MAX_EXECUTION_TIME(" + millis + ") */ " + sql.substring(7);
+        // MariaDB ignores the MAX_EXECUTION_TIME hint. Its SET STATEMENT prefix is wrapped in an executable comment
+        // because Connector/J refuses executeQuery for a statement that does not start as a result-set query.
+        String bounded = flavor != MySqlFlavor.MARIADB
+                ? "SELECT /*+ MAX_EXECUTION_TIME(" + millis + ") */ " + sql.substring(7)
+                : statementBound
+                        ? "/*M!100102 SET STATEMENT max_statement_time=" + seconds(millis) + " FOR */ " + sql
+                        : sql;
         try (PreparedStatement statement = connection.prepareStatement(bounded)) {
             // Do not use setQueryTimeout: Connector/J implements it through an extra KILL connection.
             statement.setMaxRows(cap + 1);
@@ -43,9 +68,35 @@ final class MySqlQuery {
         }
     }
 
+    /** MariaDB's {@code max_statement_time} is in seconds; millisecond precision keeps the budget exact. */
+    static String seconds(long millis) {
+        return BigDecimal.valueOf(millis, 3).toPlainString();
+    }
+
     static Map<String, String> requiredRow(Connection connection, MySqlReadBudget budget, String sql)
             throws SQLException {
-        Rows rows = read(connection, budget, sql, 1);
+        return requiredRow(MySqlFlavor.ORACLE_MYSQL, connection, budget, sql);
+    }
+
+    static Map<String, String> requiredRow(
+            MySqlFlavor flavor, Connection connection, MySqlReadBudget budget, String sql) throws SQLException {
+        return requiredRow(flavor, true, connection, budget, sql);
+    }
+
+    /**
+     * Captures the session variables BootUI later restores. On MariaDB a SET STATEMENT prefix would report its own
+     * per-statement {@code max_statement_time} instead of the session's, so this variable-only SELECT runs without it,
+     * bounded by the JDBC network guard.
+     */
+    static Map<String, String> sessionVariables(
+            MySqlFlavor flavor, Connection connection, MySqlReadBudget budget, String sql) throws SQLException {
+        return requiredRow(flavor, flavor != MySqlFlavor.MARIADB, connection, budget, sql);
+    }
+
+    private static Map<String, String> requiredRow(
+            MySqlFlavor flavor, boolean statementBound, Connection connection, MySqlReadBudget budget, String sql)
+            throws SQLException {
+        Rows rows = read(flavor, statementBound, connection, budget, sql, 1);
         if (rows.reason() != null) {
             throw new SQLTimeoutException(rows.reason(), "HYT00");
         }
@@ -98,6 +149,7 @@ final class MySqlQuery {
         }
         if (error instanceof SQLTimeoutException
                 || error.getErrorCode() == 3024
+                || error.getErrorCode() == 1969
                 || error.getErrorCode() == 1205
                 || "HYT00".equals(error.getSQLState())) {
             return "Time budget or server SELECT/metadata-lock timeout reached; missing rows are unknown.";

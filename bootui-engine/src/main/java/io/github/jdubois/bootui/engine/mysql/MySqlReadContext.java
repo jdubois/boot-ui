@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.mysql;
 
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -12,8 +13,9 @@ import java.util.Map;
 final class MySqlReadContext {
     private final Connection connection;
     private final MySqlReadBudget budget;
+    private MySqlFlavor flavor = MySqlFlavor.ORACLE_MYSQL;
     private int originalNetworkTimeout;
-    private long originalSelectTimeout;
+    private String originalSelectTimeout;
     private long originalLockTimeout;
     private boolean originalTransactionReadOnly;
     private boolean networkChanged;
@@ -30,7 +32,8 @@ final class MySqlReadContext {
         budget.selectMillis();
     }
 
-    void open() throws SQLException {
+    void open(MySqlFlavor flavor) throws SQLException {
+        this.flavor = flavor;
         originalNetworkTimeout = connection.getNetworkTimeout();
         // The JDBC network guard also bounds control statements, which SELECT timeouts do not cover.
         int networkMillis = originalNetworkTimeout > 0 ? Math.min(originalNetworkTimeout, 7000) : 7000;
@@ -38,27 +41,53 @@ final class MySqlReadContext {
         connection.setNetworkTimeout(Runnable::run, networkMillis);
         // Do not use the JDBC read-only hint: it can reroute a replication connection and need not
         // propagate to the server. Pin the actual selected server using SQL and restore its exact state.
-        Map<String, String> variables = MySqlQuery.requiredRow(
-                connection,
-                budget,
-                "SELECT @@session.max_execution_time AS select_timeout,"
-                        + " @@session.lock_wait_timeout AS lock_timeout,"
-                        + " @@session.transaction_read_only AS transaction_read_only LIMIT ?");
-        originalSelectTimeout = Long.parseLong(variables.get("select_timeout"));
-        originalLockTimeout = Long.parseLong(variables.get("lock_timeout"));
-        originalTransactionReadOnly = "1".equals(variables.get("transaction_read_only"));
-        variablesCaptured = true;
-        execute("SET SESSION max_execution_time=" + budget.selectMillis());
-        execute("SET SESSION lock_wait_timeout=2");
-        execute("SET SESSION transaction_read_only=1");
+        try {
+            Map<String, String> variables = MySqlQuery.sessionVariables(
+                    flavor,
+                    connection,
+                    budget,
+                    "SELECT @@session." + timeoutVariable() + " AS select_timeout,"
+                            + " @@session.lock_wait_timeout AS lock_timeout,"
+                            + " @@session.transaction_read_only AS transaction_read_only LIMIT ?");
+            originalSelectTimeout = selectTimeout(variables.get("select_timeout"));
+            originalLockTimeout = Long.parseLong(variables.get("lock_timeout"));
+            originalTransactionReadOnly = "1".equals(variables.get("transaction_read_only"));
+            variablesCaptured = true;
+            int millis = budget.selectMillis();
+            execute("SET SESSION " + timeoutVariable() + "="
+                    + (flavor == MySqlFlavor.MARIADB ? MySqlQuery.seconds(millis) : String.valueOf(millis)));
+            execute("SET SESSION lock_wait_timeout=2");
+            execute("SET SESSION transaction_read_only=1");
+        } catch (SQLException ex) {
+            // An unknown system variable (for example MariaDB before 11.1) cannot pin the guards: fail closed.
+            if (ex.getErrorCode() == 1193) {
+                throw new SQLException("SESSION_GUARDS_UNAVAILABLE", "BUI05", ex);
+            }
+            throw ex;
+        }
         transactionOwned = true;
         connection.setAutoCommit(false);
         execute("START TRANSACTION READ ONLY");
         Map<String, String> enforced = MySqlQuery.requiredRow(
-                connection, budget, "SELECT @@session.transaction_read_only AS enforced LIMIT ?");
+                flavor, connection, budget, "SELECT @@session.transaction_read_only AS enforced LIMIT ?");
         if (!"1".equals(enforced.get("enforced"))) {
             throw new SQLException("READ_ONLY_NOT_ENFORCED", "BUI02");
         }
+    }
+
+    /** MySQL's {@code max_execution_time} is integer milliseconds; MariaDB's {@code max_statement_time} is seconds. */
+    private String timeoutVariable() {
+        return flavor == MySqlFlavor.MARIADB ? "max_statement_time" : "max_execution_time";
+    }
+
+    private String selectTimeout(String reported) {
+        if (reported == null) {
+            throw new NumberFormatException("Session timeout was not reported.");
+        }
+        // Only a validated number is ever written back into SQL.
+        return flavor == MySqlFlavor.MARIADB
+                ? new BigDecimal(reported).toPlainString()
+                : String.valueOf(Long.parseLong(reported));
     }
 
     private void execute(String sql) throws SQLException {
@@ -82,7 +111,7 @@ final class MySqlReadContext {
                 connection.setAutoCommit(true);
             }
             if (variablesCaptured) {
-                execute("SET SESSION max_execution_time=" + originalSelectTimeout);
+                execute("SET SESSION " + timeoutVariable() + "=" + originalSelectTimeout);
                 execute("SET SESSION lock_wait_timeout=" + originalLockTimeout);
                 execute("SET SESSION transaction_read_only=" + (originalTransactionReadOnly ? 1 : 0));
             }

@@ -352,7 +352,8 @@ public class QuarkusPanelAvailability {
     private static final String MYSQL_ABSENT =
             "Not available: no supported MySQL JDBC datasource is declared. Add quarkus-jdbc-mysql and"
                     + " configure an active JDBC datasource with db-kind=mysql or a recognized MySQL JDBC URL."
-                    + " Unknown declarations are not verified; MariaDB and reactive-only clients are not supported.";
+                    + " Unknown declarations are not verified; MariaDB Connector/J (db-kind=mariadb) and"
+                    + " reactive-only clients are not supported.";
 
     private static final String PROFILE_DIFF_ABSENT =
             "Not available: no profiles are active. Run with a profile (e.g. quarkus.profile=dev) to"

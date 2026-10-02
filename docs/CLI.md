@@ -261,7 +261,8 @@ corresponding library is on the classpath.
 
 The MySQL command pair is the projection of `get_mysql_report` and `mysql_read`, not a SQL console. It supports
 MVC, WebFlux with JDBC, and Quarkus with JDBC. Oracle MySQL 8.4 LTS and 9.7 LTS are the tested server lines, with live
-coverage on 8.4.6 and 9.7.2. MariaDB, R2DBC-only, and reactive-client-only configurations are not supported.
+coverage on 8.4.6 and 9.7.2. MariaDB reached through MySQL Connector/J is read but unsupported (`serverFlavor`
+`MARIADB`); R2DBC-only and reactive-client-only configurations are not supported.
 Check `bootui tools` first: availability depends on the application's version, datasource, and panel policy.
 
 ```bash

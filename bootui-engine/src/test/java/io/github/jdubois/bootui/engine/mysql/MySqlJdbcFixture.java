@@ -30,6 +30,7 @@ final class MySqlJdbcFixture {
     final List<PreparedStatement> prepared = new ArrayList<>();
     Function<String, List<Map<String, String>>> results = this::defaults;
     String deniedSource;
+    String unknownVariableSource;
     String failedRestore;
     boolean abortFails;
     boolean autoCommit = true;
@@ -89,6 +90,9 @@ final class MySqlJdbcFixture {
                 beforeQuery.run();
                 if (deniedSource != null && query.contains(deniedSource)) {
                     throw new SQLException("unsafe credential", "42000", 1142);
+                }
+                if (unknownVariableSource != null && query.contains(unknownVariableSource)) {
+                    throw new SQLException("Unknown system variable", "HY000", 1193);
                 }
                 return rows(results.apply(query), () -> duringMaterialization.accept(query));
             });

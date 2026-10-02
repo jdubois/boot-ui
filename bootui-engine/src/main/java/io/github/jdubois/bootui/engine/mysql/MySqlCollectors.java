@@ -49,6 +49,10 @@ final class MySqlCollectors {
             "information_schema_stats_expiry",
             "tmp_table_size",
             "sql_mode");
+    // MariaDB has neither super_read_only nor information_schema_stats_expiry; one unknown name fails the UNION.
+    static final List<String> MARIADB_SETTINGS = SETTINGS.stream()
+            .filter(setting -> !setting.equals("super_read_only") && !setting.equals("information_schema_stats_expiry"))
+            .toList();
 
     private final Connection connection;
     private final MySqlReadBudget budget;
@@ -58,6 +62,7 @@ final class MySqlCollectors {
     private final String name;
     private final long started;
     private final Map<String, String> identity;
+    private final MySqlFlavor flavor;
     private final Map<String, Section> sections = new LinkedHashMap<>();
     private final List<MySqlCapabilityDto> capabilities = new ArrayList<>();
     private final List<MySqlMetricDto> vitalSigns = new ArrayList<>();
@@ -87,7 +92,8 @@ final class MySqlCollectors {
             MySqlValues.Policy policy,
             Clock clock,
             String name,
-            Map<String, String> identity) {
+            Map<String, String> identity,
+            MySqlFlavor flavor) {
         this.connection = connection;
         this.budget = budget;
         this.limits = limits;
@@ -95,6 +101,7 @@ final class MySqlCollectors {
         this.clock = clock;
         this.name = name;
         this.identity = identity;
+        this.flavor = flavor;
         started = clock.millis();
         section("vital-signs", "Vital signs", SERVER);
         section("sessions", "Sessions and blocking", ASSOCIATED);
@@ -147,7 +154,7 @@ final class MySqlCollectors {
                 name,
                 MySqlValues.text(schema()),
                 MySqlValues.text(identity.get("version")),
-                "ORACLE_MYSQL",
+                flavor.name(),
                 MySqlValues.exposed("mysql.account", identity.get("account"), policy),
                 status,
                 cleanupFailure != null
@@ -202,7 +209,7 @@ final class MySqlCollectors {
             return null;
         }
         try {
-            MySqlQuery.Rows result = MySqlQuery.read(connection, budget, sql, cap, args);
+            MySqlQuery.Rows result = MySqlQuery.read(flavor, connection, budget, sql, cap, args);
             section.success |= result.reason() == null || !result.values().isEmpty();
             section.truncated |= result.truncated();
             if (result.reason() != null) {
@@ -231,7 +238,9 @@ final class MySqlCollectors {
         if ("digest-overflow".equals(source)) {
             return SERVER;
         }
-        return source.startsWith("performance_schema.data_lock") || source.equals("performance_schema.metadata_locks")
+        return source.startsWith("performance_schema.data_lock")
+                        || source.equals("performance_schema.metadata_locks")
+                        || source.equals("information_schema.innodb_lock_waits")
                 ? SCHEMA
                 : section.scope;
     }
@@ -477,27 +486,32 @@ final class MySqlCollectors {
                         counter(tx, "rows_modified")));
             }
         }
-        MySqlQuery.Rows edges = query(
-                section,
-                "performance_schema.data_lock_waits",
-                "SELECT e.REQUESTING_THREAD_ID AS requesting_thread, e.BLOCKING_THREAD_ID AS blocking_thread,"
-                        + " e.OBJECT_SCHEMA AS schema_name, e.OBJECT_NAME AS object_name, e.INDEX_NAME AS index_name,"
-                        + " e.LOCK_MODE AS requested_mode, b.LOCK_MODE AS blocking_mode"
-                        + " FROM (SELECT w.ENGINE,w.REQUESTING_THREAD_ID,w.BLOCKING_THREAD_ID,"
-                        + " w.BLOCKING_ENGINE_LOCK_ID,w.REQUESTING_ENGINE_LOCK_ID,"
-                        + " r.OBJECT_SCHEMA,r.OBJECT_NAME,r.INDEX_NAME,r.LOCK_MODE"
-                        + " FROM performance_schema.data_lock_waits w JOIN performance_schema.data_locks r"
-                        + " ON r.ENGINE=w.ENGINE AND r.ENGINE_LOCK_ID=w.REQUESTING_ENGINE_LOCK_ID"
-                        + " WHERE r.OBJECT_SCHEMA=? ORDER BY w.REQUESTING_THREAD_ID,w.BLOCKING_THREAD_ID,"
-                        + " w.REQUESTING_ENGINE_LOCK_ID LIMIT ?) e"
-                        + " LEFT JOIN performance_schema.data_locks b"
-                        + " ON b.ENGINE=e.ENGINE AND b.ENGINE_LOCK_ID=e.BLOCKING_ENGINE_LOCK_ID"
-                        + " ORDER BY e.REQUESTING_THREAD_ID,e.BLOCKING_THREAD_ID,e.REQUESTING_ENGINE_LOCK_ID LIMIT ?",
-                limits.maxLockWaits(),
-                "ENABLED",
-                "NOT_APPLICABLE",
-                schema(),
-                limits.maxLockWaits() + 1);
+        MySqlQuery.Rows edges;
+        if (flavor == MySqlFlavor.MARIADB) {
+            edges = mariaDbLockWaits(section);
+        } else {
+            edges = query(
+                    section,
+                    "performance_schema.data_lock_waits",
+                    "SELECT e.REQUESTING_THREAD_ID AS requesting_thread, e.BLOCKING_THREAD_ID AS blocking_thread,"
+                            + " e.OBJECT_SCHEMA AS schema_name, e.OBJECT_NAME AS object_name, e.INDEX_NAME AS index_name,"
+                            + " e.LOCK_MODE AS requested_mode, b.LOCK_MODE AS blocking_mode"
+                            + " FROM (SELECT w.ENGINE,w.REQUESTING_THREAD_ID,w.BLOCKING_THREAD_ID,"
+                            + " w.BLOCKING_ENGINE_LOCK_ID,w.REQUESTING_ENGINE_LOCK_ID,"
+                            + " r.OBJECT_SCHEMA,r.OBJECT_NAME,r.INDEX_NAME,r.LOCK_MODE"
+                            + " FROM performance_schema.data_lock_waits w JOIN performance_schema.data_locks r"
+                            + " ON r.ENGINE=w.ENGINE AND r.ENGINE_LOCK_ID=w.REQUESTING_ENGINE_LOCK_ID"
+                            + " WHERE r.OBJECT_SCHEMA=? ORDER BY w.REQUESTING_THREAD_ID,w.BLOCKING_THREAD_ID,"
+                            + " w.REQUESTING_ENGINE_LOCK_ID LIMIT ?) e"
+                            + " LEFT JOIN performance_schema.data_locks b"
+                            + " ON b.ENGINE=e.ENGINE AND b.ENGINE_LOCK_ID=e.BLOCKING_ENGINE_LOCK_ID"
+                            + " ORDER BY e.REQUESTING_THREAD_ID,e.BLOCKING_THREAD_ID,e.REQUESTING_ENGINE_LOCK_ID LIMIT ?",
+                    limits.maxLockWaits(),
+                    "ENABLED",
+                    "NOT_APPLICABLE",
+                    schema(),
+                    limits.maxLockWaits() + 1);
+        }
         if (edges != null) {
             for (Map<String, String> row : edges.values()) {
                 locks.add(new MySqlLockWaitDto(
@@ -547,6 +561,82 @@ final class MySqlCollectors {
                         "PENDING"));
             }
         }
+    }
+
+    /**
+     * MariaDB has no data_locks tables. Its InnoDB lock views name transactions; performance_schema.threads maps
+     * their connection ids to the same THREAD_ID the sessions list uses. LOCK_DATA is never selected.
+     */
+    private MySqlQuery.Rows mariaDbLockWaits(Section section) {
+        String prefix = "`" + instrumentationSchema().replace("`", "``") + "`.";
+        String table = "CONVERT(r.LOCK_TABLE USING utf8mb4) COLLATE " + flavor.binaryCollation();
+        if (!"0".equals(identity.get("lower_case_table_names"))) {
+            table = "LOWER(" + table + ")";
+        }
+        MySqlQuery.Rows rows = query(
+                section,
+                "information_schema.innodb_lock_waits",
+                "SELECT rt.THREAD_ID AS requesting_thread, bt.THREAD_ID AS blocking_thread,"
+                        + " r.LOCK_TABLE AS lock_table, r.LOCK_INDEX AS index_name, r.LOCK_MODE AS requested_mode,"
+                        + " b.LOCK_MODE AS blocking_mode FROM information_schema.innodb_lock_waits w"
+                        + " JOIN information_schema.innodb_locks r ON r.LOCK_ID=w.REQUESTED_LOCK_ID"
+                        + " LEFT JOIN information_schema.innodb_locks b ON b.LOCK_ID=w.BLOCKING_LOCK_ID"
+                        + " LEFT JOIN information_schema.innodb_trx rx ON rx.TRX_ID=w.REQUESTING_TRX_ID"
+                        + " LEFT JOIN information_schema.innodb_trx bx ON bx.TRX_ID=w.BLOCKING_TRX_ID"
+                        + " LEFT JOIN performance_schema.threads rt ON rt.PROCESSLIST_ID=rx.TRX_MYSQL_THREAD_ID"
+                        + " LEFT JOIN performance_schema.threads bt ON bt.PROCESSLIST_ID=bx.TRX_MYSQL_THREAD_ID"
+                        + " WHERE LEFT(" + table + ",?)=? ORDER BY rt.THREAD_ID,bt.THREAD_ID,w.REQUESTED_LOCK_ID"
+                        + " LIMIT ?",
+                limits.maxLockWaits(),
+                "ENABLED",
+                "NOT_APPLICABLE",
+                prefix.codePointCount(0, prefix.length()),
+                prefix);
+        if (rows == null) {
+            return null;
+        }
+        List<Map<String, String>> values = new ArrayList<>();
+        for (Map<String, String> row : rows.values()) {
+            Map<String, String> normalized = new LinkedHashMap<>(row);
+            normalized.put("schema_name", schema());
+            normalized.put("object_name", lockedObject(row.get("lock_table")));
+            values.add(normalized);
+        }
+        return new MySqlQuery.Rows(values, rows.truncated(), rows.reason());
+    }
+
+    /** The table in {@code `schema`.`table`}, ignoring any partition suffix; unknown (null) when malformed. */
+    static String lockedObject(String lockTable) {
+        if (lockTable == null) {
+            return null;
+        }
+        int[] next = {0};
+        String schemaName = quoted(lockTable, next);
+        if (schemaName == null || next[0] >= lockTable.length() || lockTable.charAt(next[0]) != '.') {
+            return null;
+        }
+        next[0]++;
+        return quoted(lockTable, next);
+    }
+
+    private static String quoted(String text, int[] position) {
+        if (position[0] >= text.length() || text.charAt(position[0]) != '`') {
+            return null;
+        }
+        StringBuilder name = new StringBuilder();
+        for (int index = position[0] + 1; index < text.length(); index++) {
+            char current = text.charAt(index);
+            if (current != '`') {
+                name.append(current);
+            } else if (index + 1 < text.length() && text.charAt(index + 1) == '`') {
+                name.append('`');
+                index++;
+            } else {
+                position[0] = index + 1;
+                return name.toString();
+            }
+        }
+        return null;
     }
 
     private void statements() {
@@ -725,7 +815,7 @@ final class MySqlCollectors {
     }
 
     private String objectKey(String column) {
-        String value = "CONVERT(" + column + " USING utf8mb4) COLLATE utf8mb4_0900_bin";
+        String value = "CONVERT(" + column + " USING utf8mb4) COLLATE " + flavor.binaryCollation();
         return "0".equals(identity.get("lower_case_table_names")) ? value : "LOWER(" + value + ")";
     }
 
@@ -812,14 +902,17 @@ final class MySqlCollectors {
         MySqlQuery.Rows rows = query(
                 section,
                 "information_schema.innodb_metrics",
-                "SELECT NAME AS name,COUNT AS value,STATUS AS status FROM information_schema.innodb_metrics"
+                "SELECT NAME AS name,COUNT AS value,"
+                        + (flavor == MySqlFlavor.MARIADB ? "ENABLED" : "STATUS")
+                        + " AS status FROM information_schema.innodb_metrics"
                         + " WHERE NAME IN ('lock_deadlocks','trx_rseg_history_len') ORDER BY NAME LIMIT ?",
                 2,
                 "UNKNOWN",
                 "NOT_APPLICABLE");
         if (rows != null) {
             for (Map<String, String> row : rows.values()) {
-                boolean enabled = "enabled".equalsIgnoreCase(row.get("status"));
+                // MySQL reports STATUS 'enabled'; MariaDB has no STATUS column and reports ENABLED as 1/0.
+                boolean enabled = "enabled".equalsIgnoreCase(row.get("status")) || "1".equals(row.get("status"));
                 innodb.add(new MySqlMetricDto(
                         text(row, "name"),
                         metricLabel(row.get("name")),
@@ -839,14 +932,18 @@ final class MySqlCollectors {
 
     private void replication() {
         Section section = sections.get("replication");
-        MySqlQuery.Rows receivers = query(
-                section,
-                "performance_schema.replication_connection_status",
-                "SELECT CHANNEL_NAME AS channel,SERVICE_STATE AS state,LAST_ERROR_NUMBER AS error"
-                        + " FROM performance_schema.replication_connection_status ORDER BY CHANNEL_NAME LIMIT ?",
-                limits.maxReplicationChannels(),
-                "ENABLED",
-                "NOT_APPLICABLE");
+        // MariaDB has no receiver status table; its receiver state stays unknown rather than being inferred.
+        MySqlQuery.Rows receivers = flavor == MySqlFlavor.MARIADB
+                ? null
+                : query(
+                        section,
+                        "performance_schema.replication_connection_status",
+                        "SELECT CHANNEL_NAME AS channel,SERVICE_STATE AS state,LAST_ERROR_NUMBER AS error"
+                                + " FROM performance_schema.replication_connection_status ORDER BY CHANNEL_NAME"
+                                + " LIMIT ?",
+                        limits.maxReplicationChannels(),
+                        "ENABLED",
+                        "NOT_APPLICABLE");
         MySqlQuery.Rows appliers = query(
                 section,
                 "performance_schema.replication_applier_status",
@@ -883,6 +980,10 @@ final class MySqlCollectors {
         names.addAll(applierMap.keySet());
         names.addAll(coordinatorMap.keySet());
         names.addAll(workerMap.keySet());
+        if (flavor == MySqlFlavor.MARIADB && !names.isEmpty()) {
+            section.reason("MariaDB has no performance_schema.replication_connection_status: receiver (I/O thread)"
+                    + " state and receiver errors are unknown, so no channel error is reported as zero.");
+        }
         for (String channel : names) {
             if (replication.size() == limits.maxReplicationChannels()) {
                 section.truncated = true;
@@ -927,10 +1028,11 @@ final class MySqlCollectors {
         // System-variable SELECTs need no performance_schema SELECT privilege; fixed names only.
         String sql = String.join(
                         " UNION ALL ",
-                        SETTINGS.stream()
-                                .map(setting -> "SELECT '" + setting + "' AS name,CAST(@@global." + setting
-                                        + " AS CHAR) AS value")
-                                .toList())
+                        (flavor == MySqlFlavor.MARIADB ? MARIADB_SETTINGS : SETTINGS)
+                                .stream()
+                                        .map(setting -> "SELECT '" + setting + "' AS name,CAST(@@global." + setting
+                                                + " AS CHAR) AS value")
+                                        .toList())
                 + " LIMIT ?";
         MySqlQuery.Rows rows =
                 query(section, "global-system-variables", sql, limits.maxSettings(), "ENABLED", "NOT_APPLICABLE");
