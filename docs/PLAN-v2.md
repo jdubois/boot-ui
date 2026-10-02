@@ -266,6 +266,16 @@ they come last and everything before them proceeds without it:
 | M3-6 | Sample-app seeds and counterexamples for every observation, and the scripted demo on each stack | M3-2b, M3-3c, M3-4b | 📋 Planned |
 | M3-7 | §5.6's agent tools, CLI commands, prompts, and Quarkus Dev MCP registration, and the panel's **Copy for AI** | M3-4a, v1 §3.25 | 📋 Planned. Needs v1 §3.25 on `main` |
 
+M4's slices are defined as M3 completes, each one pull request to `v2`. The first two make the behavior diff possible:
+today a run summary keeps routes, statements, exception groups, and transactional methods, but not the runtime
+model's edges, and every summary lives in the in-memory run history, so a full JVM restart leaves nothing to compare
+against.
+
+| Item | Delivers | Depends on | Status |
+| --- | --- | --- | --- |
+| M4-1 | §5.8's edge set in the run summary. The aggregates count the runtime model's observed edges as events arrive, by each end's node type and name and the edge type, with a count and first and last seen, so an edge whose events the journal later evicts still counts. The run summary carries that set within its byte bound, the least-used edges left out first and counted, with a codec version bump. `EdgeDiff` compares the current run's edges with the previous summary's, and the comparison says when the previous run kept no edges or left some out | M3-5 | 📋 Planned |
+| M4-2 | §5.8's opt-in `bootui.runtime-journal.baseline-file`: at the end of a run, one run summary written to the build output directory (`target/` or `build/`), and read back at the next start as the previous run when the in-memory history has none, so a comparison survives a full JVM restart. The file holds only route templates, statement fingerprints, outbound hosts, exception-group ids and signatures, the edge set, and counts and histograms: never principals, literals, SQL text, or values. Written atomically, read best-effort, a file from another BootUI version or application ignored with the reason, and nothing written when the property is unset | M4-1 | 📋 Planned |
+
 M5 is split into slices ordered by business value, each one pull request to `v2`. The spike comes first; each later
 slice depends on M5-1, and on the milestone named:
 
@@ -835,10 +845,12 @@ Scope:
   baseline file as the remedy.
 - Mark a comparison `NOT_COMPARABLE`, with the reason first, when the active profiles, datasource URL shape, or cache
   enablement differ; list configuration differences as limitations.
-- Offer an opt-in `bootui.runtime-journal.baseline-file` that writes one run summary into the build output directory
+- Count the runtime model's observed edges in the aggregates as events arrive, never from the retained window, and
+  keep that edge set in each run summary, so the behavior diff compares whole runs (M4-1).
+- Offer an opt-in `bootui.runtime-journal.baseline-file` (M4-2) that writes one run summary into the build output directory
   (`target/` or `build/`), so a comparison survives a full JVM restart. It holds only route templates, statement
   fingerprints, outbound hosts, exception-group ids, status-class and per-route counts, histograms, and the top bean
-  initialization times: never principals, literals, or SQL text.
+  initialization times, and the edge set: never principals, literals, or SQL text.
 
 Acceptance criteria:
 
