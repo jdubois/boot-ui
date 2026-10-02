@@ -554,7 +554,9 @@ Maven Central publication uses the `release` Maven profile:
 ./mvnw -B -ntp -Prelease clean deploy
 ```
 
-The release profile attaches source and Javadoc JARs, signs artifacts with GPG,
+The release profile attaches source JARs and an empty placeholder Javadoc JAR
+(Maven Central requires the file but not its content; BootUI's public surface is
+its HTTP, MCP, and CLI contract rather than a Java API), signs artifacts with GPG,
 and publishes through the Sonatype Central Publishing plugin using the `central`
 server from `~/.m2/settings.xml`. The sample app is not deployed. By default,
 Central uploads are published automatically; set `-Dcentral.autoPublish=false`
