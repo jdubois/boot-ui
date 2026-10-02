@@ -258,6 +258,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   manager, rollback rules, isolation or timeout differ, the callee also carries another proxy annotation, or the call
   is written inside a lambda or a `try` block ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-004---beans-should-not-self-invoke-their-own-proxied-methods),
   [#1176](https://github.com/jdubois/boot-ui/issues/1176)).
+- **DB-HIB-007 no longer reports "enforcement is unknown" for ordinary PostgreSQL foreign keys.** Enforcement was
+  only recorded for `NOT VALID` constraints, so every validated foreign key matching a `@ManyToOne` produced a
+  diagnostic and left the Database advisor scan `PARTIAL`. A foreign key absent from a complete, untruncated
+  `NOT VALID` catalog read is now known to be validated and enforced; a failed or truncated read still leaves it
+  unknown ([#1174](https://github.com/jdubois/boot-ui/issues/1174)).
 - **Vulnerabilities no longer scans test-only libraries listed in a CycloneDX SBOM.** The CycloneDX Gradle plugin
   lists test-classpath libraries by default, marked `cdx:maven:package:test=true`; Spring MVC and WebFlux took them as
   application dependencies, so a test-only `freemarker` or a newer test-only `jackson-databind` was reported vulnerable

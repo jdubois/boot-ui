@@ -415,6 +415,77 @@ class VendorSchemaMergeTests {
     }
 
     @Test
+    void postgresForeignKeyEnforcementIsProvenOnlyByACompleteNotValidRead() {
+        ForeignKeyModel validated =
+                new ForeignKeyModel("fk_valid", List.of("a_id"), null, "public", "a", List.of("id"));
+        ForeignKeyModel notValid =
+                new ForeignKeyModel("fk_not_valid", List.of("b_id"), null, "public", "b", List.of("id"));
+        ForeignKeyModel notValidUnknownEnforcement =
+                new ForeignKeyModel("fk_unknown", List.of("c_id"), null, "public", "c", List.of("id"));
+        ForeignKeyModel unnamed = new ForeignKeyModel(null, List.of("d_id"), null, "public", "d", List.of("id"));
+        TableModel table = TableModel.of(
+                null,
+                "public",
+                "t",
+                List.of(),
+                List.of(),
+                List.of(validated, notValid, notValidUnknownEnforcement, unnamed),
+                List.of());
+        List<PostgresUnvalidatedConstraint> unvalidated = List.of(
+                new PostgresUnvalidatedConstraint("public", "t", "fk_not_valid", "f", "FOREIGN KEY ...", true),
+                new PostgresUnvalidatedConstraint("public", "t", "fk_unknown", "f", "FOREIGN KEY ...", null));
+
+        List<ForeignKeyModel> complete = VendorSchemaMerge.merge(
+                        List.of(table),
+                        Dialect.POSTGRESQL,
+                        VendorFindings.builder()
+                                .add(VendorAugmentation.available(
+                                        VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS, unvalidated, false))
+                                .build())
+                .get(0)
+                .foreignKeys();
+        assertThat(complete.get(0).enforced()).isTrue();
+        assertThat(complete.get(0).validated()).isTrue();
+        assertThat(complete.get(1).enforced()).isTrue();
+        assertThat(complete.get(1).validated()).isFalse();
+        assertThat(complete.get(2).enforced()).isNull();
+        assertThat(complete.get(2).validated()).isFalse();
+        assertThat(complete.get(3).enforced()).isNull();
+        assertThat(complete.get(3).validated()).isNull();
+
+        for (VendorFindings unproven : List.of(
+                VendorFindings.builder()
+                        .add(VendorAugmentation.available(
+                                VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS, unvalidated, true))
+                        .build(),
+                VendorFindings.builder()
+                        .add(VendorAugmentation.failed(
+                                VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS, "permission denied"))
+                        .build(),
+                VendorFindings.EMPTY)) {
+            ForeignKeyModel merged = VendorSchemaMerge.merge(List.of(table), Dialect.POSTGRESQL, unproven)
+                    .get(0)
+                    .foreignKeys()
+                    .get(0);
+            assertThat(merged.enforced()).isNull();
+            assertThat(merged.validated()).isNull();
+        }
+
+        TableModel schemaless = TableModel.of(null, null, "t", List.of(), List.of(), List.of(validated), List.of());
+        ForeignKeyModel unqualified = VendorSchemaMerge.merge(
+                        List.of(schemaless),
+                        Dialect.POSTGRESQL,
+                        VendorFindings.builder()
+                                .add(VendorAugmentation.available(
+                                        VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS, List.of(), false))
+                                .build())
+                .get(0)
+                .foreignKeys()
+                .get(0);
+        assertThat(unqualified.enforced()).isNull();
+    }
+
+    @Test
     void oraclePrimaryKeyAndForeignKeyEnforcementAreSeparateFromIndexVisibility() {
         ForeignKeyModel foreignKey = new ForeignKeyModel(
                 "FK",
