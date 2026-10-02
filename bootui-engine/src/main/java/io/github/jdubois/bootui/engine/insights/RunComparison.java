@@ -142,6 +142,10 @@ public final class RunComparison {
         List<RuntimeRunChangeDto> latency = new ArrayList<>();
         int compared = 0;
         int tooFew = 0;
+        // Hibernate's work is compared only when both runs recorded it, so a run without the orm source never reads as
+        // a route that stopped flushing (M4-9).
+        boolean ormInBoth = then.run().events().getOrDefault(JournalSource.ORM, 0L) > 0
+                && now.run().events().getOrDefault(JournalSource.ORM, 0L) > 0;
         List<RouteStats> routes = new ArrayList<>(now.routes());
         routes.sort(Comparator.comparingLong(RouteStats::requests).reversed().thenComparing(RouteStats::route));
         for (RouteStats route : routes) {
@@ -240,6 +244,19 @@ public final class RunComparison {
                     route,
                     old.cacheMisses(),
                     route.cacheMisses());
+            if (ormInBoth) {
+                perRequest(
+                        behavior,
+                        "flushes-per-request",
+                        "Hibernate flushes",
+                        name,
+                        run,
+                        old,
+                        route,
+                        old.orm().flushes() + old.orm().autoFlushes(),
+                        route.orm().flushes() + route.orm().autoFlushes());
+                entities(behavior, name, run, old, route);
+            }
             tokens(behavior, name, run, old, route);
             statusShare(behavior, name, run, old, route, 3, "4xx");
             statusShare(behavior, name, run, old, route, 4, "5xx");
@@ -335,6 +352,31 @@ public final class RunComparison {
                 "`" + route + "` ran " + decimal(now) + " " + noun + " per request, " + (now > then ? "up" : "down")
                         + " from " + decimal(then) + " in " + run + " (" + current.requests() + " and "
                         + old.requests() + " requests)."));
+    }
+
+    /** Entities in the persistence context per request that flushed, a shift of at least 20 and a fifth (M4-9). */
+    private static void entities(
+            List<RuntimeRunChangeDto> rows, String route, String run, RouteStats old, RouteStats current) {
+        if (old.orm().entityRequests() == 0 || current.orm().entityRequests() == 0) {
+            return;
+        }
+        double then = (double) old.orm().entities() / old.orm().entityRequests();
+        double now = (double) current.orm().entities() / current.orm().entityRequests();
+        double shift = Math.abs(now - then);
+        if (shift < 20 || shift < 0.2 * Math.max(then, now)) {
+            return;
+        }
+        rows.add(change(
+                "entities-per-request",
+                route,
+                null,
+                now > then ? "INCREASED" : "DECREASED",
+                then,
+                now,
+                old.orm().entityRequests(),
+                current.orm().entityRequests(),
+                "`" + route + "` held " + Math.round(now) + " entities in its persistence context per request, "
+                        + (now > then ? "up" : "down") + " from " + Math.round(then) + " in " + run + "."));
     }
 
     private static void tokens(

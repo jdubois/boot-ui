@@ -78,6 +78,11 @@ class OrmObservationsTests {
         assertThat(orm.partialFlushNanos())
                 .as("flush time leaves out the statement it executed")
                 .isLessThan(orm.statementNanos());
+        assertThat(orm.flushTimeline())
+                .as("the auto-flush that wrote and the full flush, never the check that found nothing")
+                .extracting(OrmPayload.Flush::auto, OrmPayload.Flush::entities)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(true, 4), org.assertj.core.groups.Tuple.tuple(false, 4));
         assertThat(OrmSessionEvents.open())
                 .as("nothing is metered once the run's publisher closed")
                 .isNull();
@@ -162,6 +167,57 @@ class OrmObservationsTests {
                 .extracting(RuntimeObservationRowDto::cells)
                 .extracting(cells -> cells.get(0) + "=" + cells.get(3))
                 .contains("Hibernate flushes=30", "SQL=30");
+    }
+
+    @Test
+    void onQuarkusAPreparedWriteInAGetIsLeftOutOnlyWhenItsSessionsExecutedNothing() {
+        for (int i = 0; i < 2; i++) {
+            get("/api/orders/{id}", orm(1, 0, 1, 0, 0, MS, 3));
+            get("/api/catalog", orm(1, 0, 0, 0, 0, MS, 3));
+            get("/api/unmetered", null);
+        }
+
+        assertThat(new RuntimeInsightsService(journal, null, null, InsightsStack.QUARKUS, null)
+                        .report().observations().stream()
+                                .filter(observation -> observation.kind().equals(SafeMethodDml.KIND))
+                                .toList())
+                .as("fewer executions than preparations, as a batch over several tables counts, or no metered session"
+                        + " is no proof; a session that executed nothing is")
+                .extracting(RuntimeObservationDto::subject)
+                .containsExactlyInAnyOrder("GET /api/orders/{id}", "GET /api/unmetered");
+    }
+
+    /** A GET that prepared a SELECT and an audit INSERT, as Quarkus's statement inspector records them. */
+    private void get(String route, OrmPayload orm) {
+        CorrelationContext context = CorrelationContext.forRequest("r" + (++requests));
+        for (String sql : List.of("select * from orders where id = ?", "insert into audit (what) values (?)")) {
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.SQL,
+                    1_000,
+                    0,
+                    context,
+                    "executor-thread-1",
+                    null,
+                    false,
+                    new io.github.jdubois.bootui.engine.journal.SqlPayload(sql, null, "<default>", false)));
+        }
+        journal.offer(
+                RuntimeEvent.of(JournalSource.ORM, 1_000, 10 * MS, context, "executor-thread-1", null, false, orm));
+        journal.offer(RuntimeEvent.of(
+                JournalSource.HTTP,
+                1_000 + requests,
+                20 * MS,
+                context,
+                "executor-thread-1",
+                null,
+                false,
+                new HttpPayload("GET", route.replace("{id}", "7"), route, null, 200)));
+        try {
+            assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(ex);
+        }
     }
 
     private List<RuntimeObservationDto> observations(String kind) {

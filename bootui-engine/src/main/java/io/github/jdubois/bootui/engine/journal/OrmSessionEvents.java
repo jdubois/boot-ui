@@ -3,6 +3,8 @@ package io.github.jdubois.bootui.engine.journal;
 import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * The {@code orm} source ({@code docs/PLAN-v2.md} §5.18, M4-9): each adapter's Hibernate {@code SessionEventListener},
@@ -98,6 +100,7 @@ public final class OrmSessionEvents {
         private int l2Hits;
         private int l2Misses;
         private int l2Puts;
+        private final List<OrmPayload.Flush> timeline = new ArrayList<>();
         private boolean ended;
 
         Session(RuntimeEventSink sink, CorrelationContext owner) {
@@ -130,8 +133,10 @@ public final class OrmSessionEvents {
 
         public void flushEnd(int entities) {
             flushes++;
-            flushNanos += Math.max(0, elapsed(flushStart) - (statementNanos - flushStatementsAtStart));
+            long own = Math.max(0, elapsed(flushStart) - (statementNanos - flushStatementsAtStart));
+            flushNanos += own;
             entitiesInContext = Math.max(entitiesInContext, entities);
+            onTimeline(flushStart, own, false, entities);
         }
 
         public void partialFlushStart() {
@@ -142,12 +147,19 @@ public final class OrmSessionEvents {
 
         /** Counts the auto-flush when it executed a statement; every check still adds its time. */
         public void partialFlushEnd(int entities) {
+            long own = Math.max(0, elapsed(partialFlushStart) - (statementNanos - partialStatementNanosAtStart));
+            partialFlushNanos += own;
+            entitiesInContext = Math.max(entitiesInContext, entities);
             if (statements > partialStatementsAtStart) {
                 partialFlushes++;
+                onTimeline(partialFlushStart, own, true, entities);
             }
-            partialFlushNanos +=
-                    Math.max(0, elapsed(partialFlushStart) - (statementNanos - partialStatementNanosAtStart));
-            entitiesInContext = Math.max(entitiesInContext, entities);
+        }
+
+        private void onTimeline(long startNanos, long ownNanos, boolean auto, int entities) {
+            if (startNanos != 0 && timeline.size() < OrmPayload.MAX_TIMELINE_FLUSHES) {
+                timeline.add(new OrmPayload.Flush(Math.max(0, startNanos - openedNanos), ownNanos, auto, entities));
+            }
         }
 
         public void dirtyCalculationEnd(boolean dirty) {
@@ -204,7 +216,8 @@ public final class OrmSessionEvents {
                                 entitiesInContext,
                                 l2Hits,
                                 l2Misses,
-                                l2Puts)));
+                                l2Puts,
+                                timeline)));
             } catch (RuntimeException ex) {
                 // Metering never throws into Hibernate.
             }

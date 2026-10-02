@@ -14,6 +14,7 @@ import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.AggregatesSnapshot;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.OrmPayload;
 import io.github.jdubois.bootui.engine.journal.RestClientPayload;
 import io.github.jdubois.bootui.engine.journal.RunStart;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
@@ -147,6 +148,33 @@ class RunComparisonTests {
     }
 
     @Test
+    void hibernateFlushesAndEntitiesPerRequestAreBehaviorRowsOnlyWhenBothRunsRecordedSessions() {
+        Run before = new Run();
+        Run after = new Run();
+        Run withoutOrm = new Run();
+        for (int i = 0; i < 4; i++) {
+            before.request("POST", "/api/import", 200, 5, orm(1, 0, 30));
+            after.request("POST", "/api/import", 200, 5, orm(1, 3, 600));
+            withoutOrm.request("POST", "/api/import", 200, 5);
+        }
+
+        RuntimeRunComparisonDto comparison = compare(before, after, H2, H2);
+
+        assertThat(comparison.behavior())
+                .extracting(RuntimeRunChangeDto::kind)
+                .containsExactly("flushes-per-request", "entities-per-request");
+        assertThat(comparison.behavior().get(0).sentence())
+                .isEqualTo("`POST /api/import` ran 4.0 Hibernate flushes per request, up from 1.0 in run 4 (4 and 4"
+                        + " requests).");
+        assertThat(comparison.behavior().get(1).sentence())
+                .isEqualTo("`POST /api/import` held 600 entities in its persistence context per request, up from 30 in"
+                        + " run 4.");
+        assertThat(compare(withoutOrm, after, H2, H2).behavior())
+                .as("a run that recorded no session never reads as a route that stopped flushing")
+                .isEmpty();
+    }
+
+    @Test
     void latencyComesLastOnlyWithEnoughWarmSamplesAndALargeShift() {
         Run before = new Run();
         Run after = new Run();
@@ -266,6 +294,10 @@ class RunComparisonTests {
         return new RestClientPayload("POST", authority, "/pay", 200, "RestClient", false);
     }
 
+    private static OrmPayload orm(int flushes, int autoFlushes, int entities) {
+        return new OrmPayload(null, 3, 1_000_000, 1, 0, flushes, 100_000, autoFlushes, 100_000, 0, entities, 0, 0, 0);
+    }
+
     private static AiPayload ai(long input, long output) {
         return new AiPayload("chat", "openai", "gpt-4o", input, output, "stop", false);
     }
@@ -315,6 +347,9 @@ class RunComparisonTests {
             }
             if (payload instanceof AiPayload) {
                 return JournalSource.AI;
+            }
+            if (payload instanceof OrmPayload) {
+                return JournalSource.ORM;
             }
             return JournalSource.EXCEPTION;
         }

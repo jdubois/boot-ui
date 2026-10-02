@@ -71,6 +71,29 @@ const comparison = computed(() => {
   }
 })
 
+// The request's Hibernate sessions (docs/PLAN-v2.md §5.18, M4-9): statements, flushes, and the persistence context.
+const ormSummary = computed(() => {
+  const o = props.profile.orm
+  if (!o) return null
+  const parts = [
+    `${formatNumber(o.statements)} ${o.statements === 1 ? 'statement' : 'statements'} in ${formatDuration(
+      micros(o.statementMicros)
+    )}`,
+    `${formatNumber(o.flushes)} ${o.flushes === 1 ? 'flush' : 'flushes'}, ${formatNumber(o.autoFlushes)} ${
+      o.autoFlushes === 1 ? 'auto-flush' : 'auto-flushes'
+    } before a query (${formatDuration(micros(o.flushMicros + o.autoFlushMicros))} flushing)`
+  ]
+  if (o.entitiesInContext >= 0) parts.push(`up to ${formatNumber(o.entitiesInContext)} entities in context`)
+  if (o.l2Hits + o.l2Misses + o.l2Puts > 0) {
+    parts.push(`second-level cache ${formatNumber(o.l2Hits)} hits, ${formatNumber(o.l2Misses)} misses`)
+  }
+  return {
+    sessions: `${formatNumber(o.sessions)} ${o.sessions === 1 ? 'session' : 'sessions'}`,
+    details: parts.join(' · '),
+    flushing: o.autoFlushes >= 3
+  }
+})
+
 const touched = computed(() =>
   TOUCHED.map(([key, label]) => ({key, label, values: props.profile.touched?.[key] ?? []})).filter(
     (group) => group.values.length
@@ -109,6 +132,13 @@ function itemTitle(item) {
           <dd class="col-8">
             <span :class="{'request-journal__slow': comparison.slow}">{{ comparison.standing }}</span>
             <span class="text-muted"> · {{ comparison.figures }}</span>
+          </dd>
+        </template>
+        <template v-if="ormSummary">
+          <dt class="col-4">Hibernate</dt>
+          <dd class="col-8">
+            <span :class="{'request-journal__slow': ormSummary.flushing}">{{ ormSummary.sessions }}</span>
+            <span class="text-muted"> · {{ ormSummary.details }}</span>
           </dd>
         </template>
         <template v-if="resourcesSummary">

@@ -420,8 +420,9 @@ as BootUI 1.x does. The feed refreshes whenever the journal records anything.
 A request's profile drawer also shows **Recorded by the runtime journal**: the route it was grouped under and where it
 stands against that route's median and 95th percentile once the route has 5 requests; the CPU time, memory, and GC
 pauses it used, or why they could not be measured, as on a virtual thread; a timeline of its statements, connections,
-transactions, cache accesses, messages, log events, REST client calls, and AI calls, each placed at its start, with a GC
-lane for the collections that completed while it ran; and what it touched: the tables its statements name, data
+transactions, cache accesses, messages, log events, REST client calls, AI calls, and Hibernate flushes, each placed at
+its start, with a GC lane for the collections that completed while it ran; a **Hibernate** row summing its sessions'
+statements, flushes, auto-flushes, and the most entities their persistence context held; and what it touched: the tables its statements name, data
 sources, transactions, caches, destinations, hosts, log templates, and AI models.
 
 **Resources** in the panel header opens **Work outside requests**: where this run's CPU time went, as the share
@@ -671,6 +672,7 @@ temporary recording that is deleted once read. A runtime without JFR, or a journ
 restart, a Quarkus live reload, or, with `bootui.runtime-journal.baseline-file`, a full JVM restart; a picker chooses
 another kept run. On a laptop, warmup and noise dominate latency while the work identical requests do is stable, so the
 comparison leads with behavior: per route, the statements, REST calls, AI calls, cache misses, and tokens per request,
+the Hibernate flushes and entities in the persistence context per request when both runs recorded sessions,
 the share of 4xx and 5xx answers, and the memory allocated per request, each once the route served 3 requests in both
 runs; and, from their first occurrence, the statements and exceptions a route did not have before and the routes newly
 hit. The runtime model's edges come next, such as "`GET /api/orders` calls host `pay.internal:8443`, 15 times, and not in

@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.journal;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.AggregatesSnapshot;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.ExceptionGroupStats;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteAuthorization;
+import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteOrm;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteResources;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RunStats;
@@ -41,7 +42,7 @@ final class RunSummaryCodec {
 
     private static final int MAGIC = 0x42555253;
 
-    private static final int VERSION = 7;
+    private static final int VERSION = 8;
 
     private RunSummaryCodec() {}
 
@@ -105,7 +106,8 @@ final class RunSummaryCodec {
                 in.histogram(),
                 in.number(),
                 in.number(),
-                new RouteAuthorization(in.number(), in.number(), in.number(), in.number(), in.number(), in.number())));
+                new RouteAuthorization(in.number(), in.number(), in.number(), in.number(), in.number(), in.number()),
+                new RouteOrm(in.number(), in.number(), in.number(), in.number(), in.number(), in.histogram())));
         List<StatementStats> statements = in.list(
                 () -> new StatementStats(in.string(), in.number(), in.number(), in.histogram(), in.stringMap()));
         List<ExceptionGroupStats> groups = in.list(
@@ -161,6 +163,13 @@ final class RunSummaryCodec {
             body.number(authorization.unknown());
             body.number(authorization.anonymousSuccesses());
             body.number(authorization.denied());
+            RouteOrm orm = route.orm();
+            body.number(orm.requests());
+            body.number(orm.flushes());
+            body.number(orm.autoFlushes());
+            body.number(orm.entityRequests());
+            body.number(orm.entities());
+            body.histogram(orm.time());
         }
         body.number(aggregates.statements().size());
         for (StatementStats statement : aggregates.statements()) {
@@ -265,7 +274,8 @@ final class RunSummaryCodec {
                         route.warmLatency(),
                         route.cacheMisses(),
                         route.aiTokens(),
-                        route.authorization()));
+                        route.authorization(),
+                        route.orm()));
         List<StatementStats> statements = top(
                 aggregates.statements(),
                 StatementStats::executions,

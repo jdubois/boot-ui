@@ -149,4 +149,43 @@ describe('RequestJournalProfile', () => {
     expect(missing.text()).toContain('does not retain request r1')
     expect(missing.find('ol').exists()).toBe(false)
   })
+
+  it('sums the request Hibernate sessions and flags repeated auto-flushes', () => {
+    const wrapper = mount(RequestJournalProfile, {
+      props: {
+        profile: journalProfile({
+          orm: {
+            sessions: 1,
+            statements: 7,
+            statementMicros: 4500,
+            connectionAcquisitions: 1,
+            flushes: 1,
+            autoFlushes: 3,
+            flushMicros: 300,
+            autoFlushMicros: 600,
+            dirtyEntities: 3,
+            entitiesInContext: 40,
+            l2Hits: 0,
+            l2Misses: 0,
+            l2Puts: 0
+          }
+        })
+      }
+    })
+
+    const text = wrapper.text()
+    expect(text).toContain('Hibernate')
+    expect(text).toContain('1 session')
+    expect(text).toContain('7 statements')
+    expect(text).toContain('1 flush, 3 auto-flushes before a query')
+    expect(text).toContain('up to 40 entities in context')
+    expect(text).not.toContain('second-level cache')
+    expect(wrapper.findAll('.request-journal__slow').map((node) => node.text())).toContain('1 session')
+  })
+
+  it('shows no Hibernate row when the request opened no session', () => {
+    expect(mount(RequestJournalProfile, {props: {profile: journalProfile({orm: null})}}).text()).not.toContain(
+      'Hibernate'
+    )
+  })
 })

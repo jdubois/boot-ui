@@ -22,6 +22,7 @@ import java.util.List;
  * @param routeComparison how it compares with its route's other requests, or {@code null} when it has no route
  * @param touched what it touched
  * @param notes what the profile could not show, such as events already evicted
+ * @param orm its Hibernate sessions' work, or {@code null} when none was recorded (M4-9)
  */
 public record RequestJournalProfileDto(
         boolean available,
@@ -36,7 +37,8 @@ public record RequestJournalProfileDto(
         List<RequestGcPauseDto> gcPauses,
         RouteComparisonDto routeComparison,
         TouchedResourcesDto touched,
-        List<String> notes) {
+        List<String> notes,
+        RequestOrmDto orm) {
 
     public RequestJournalProfileDto {
         timeline = DtoCollections.immutableCopy(timeline);
@@ -59,6 +61,7 @@ public record RequestJournalProfileDto(
                 List.of(),
                 null,
                 TouchedResourcesDto.NONE,
-                List.of());
+                List.of(),
+                null);
     }
 }

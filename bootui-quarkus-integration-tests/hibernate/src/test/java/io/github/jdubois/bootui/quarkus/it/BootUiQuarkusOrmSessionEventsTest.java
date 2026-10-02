@@ -58,5 +58,23 @@ class BootUiQuarkusOrmSessionEventsTest {
         assertThat(orm.path("detail").asText())
                 .as("three inserts, three counts, and the id sequence; each insert auto-flushed before its count")
                 .matches("[6-9] statements · \\d+ flushes \\(3 auto\\) · \\d+ entities");
+
+        JsonNode profile = probe.get(
+                        "/bootui/api/activity/request/" + request.path("id").asText() + "/journal")
+                .json();
+        assertThat(profile.path("orm").path("sessions").asInt()).isEqualTo(1);
+        assertThat(profile.path("orm").path("autoFlushes").asInt()).isEqualTo(3);
+        assertThat(profile.path("orm").path("statementMicros").asLong())
+                .as("Quarkus ORM statements are measured by the session, not timed as preparations")
+                .isPositive();
+        long autoFlushes = 0;
+        for (JsonNode item : profile.path("timeline")) {
+            if ("Auto-flush before a query".equals(item.path("label").asText())) {
+                autoFlushes++;
+            }
+        }
+        assertThat(autoFlushes)
+                .as("each auto-flush is on the request's timeline")
+                .isEqualTo(3);
     }
 }

@@ -118,7 +118,9 @@ export const routes = [
         'open session',
         'connections',
         'n+1',
-        'observations'
+        'observations',
+        'auto-flush',
+        'persistence context'
       ]
     }
   },

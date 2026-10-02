@@ -243,6 +243,8 @@ public final class JournalAggregates implements JournalListener {
             children.cacheMisses++;
         } else if (payload instanceof AuthorizationPayload decision && children != null) {
             children.authorization(decision);
+        } else if (payload instanceof OrmPayload orm && children != null) {
+            children.orm(orm);
         } else if (payload instanceof AiPayload ai && children != null) {
             children.aiTokens += Math.max(0, ai.inputTokens() == null ? 0 : ai.inputTokens())
                     + Math.max(0, ai.outputTokens() == null ? 0 : ai.outputTokens());
@@ -552,6 +554,11 @@ public final class JournalAggregates implements JournalListener {
         private long connectionWaitNanos;
         private long cacheMisses;
         private long aiTokens;
+        private int ormSessions;
+        private long ormFlushes;
+        private long ormAutoFlushes;
+        private long ormNanos;
+        private int ormEntities = -1;
         private String authentication;
         private boolean requestDecided;
         private boolean denied;
@@ -572,6 +579,15 @@ public final class JournalAggregates implements JournalListener {
             } else if (authentication == null) {
                 authentication = decision.authentication();
             }
+        }
+
+        /** One Hibernate session of the request (M4-9). */
+        void orm(OrmPayload orm) {
+            ormSessions++;
+            ormFlushes += orm.flushes();
+            ormAutoFlushes += orm.partialFlushes();
+            ormNanos += orm.hibernateNanos() + Math.max(0, orm.statementNanos());
+            ormEntities = Math.max(ormEntities, orm.entitiesInContext());
         }
 
         void statement(String fingerprint) {
@@ -607,6 +623,12 @@ public final class JournalAggregates implements JournalListener {
         private long gcPauseNanos;
         private long cacheMisses;
         private long aiTokens;
+        private long ormRequests;
+        private long ormFlushes;
+        private long ormAutoFlushes;
+        private long ormEntityRequests;
+        private long ormEntities;
+        private final LatencyHistogram ormTime = new LatencyHistogram();
         private final long[] authentications = new long[4];
         private long anonymousSuccesses;
         private long deniedRequests;
@@ -646,6 +668,16 @@ public final class JournalAggregates implements JournalListener {
             connectionWaitNanos += children.connectionWaitNanos;
             cacheMisses += children.cacheMisses;
             aiTokens += children.aiTokens;
+            if (children.ormSessions > 0) {
+                ormRequests++;
+                ormFlushes += children.ormFlushes;
+                ormAutoFlushes += children.ormAutoFlushes;
+                ormTime.recordNanos(children.ormNanos);
+                if (children.ormEntities >= 0) {
+                    ormEntityRequests++;
+                    ormEntities += children.ormEntities;
+                }
+            }
             if (children.authentication != null) {
                 int index = authenticationIndex(children.authentication);
                 authentications[index]++;
@@ -692,7 +724,9 @@ public final class JournalAggregates implements JournalListener {
                             authentications[2],
                             authentications[3],
                             anonymousSuccesses,
-                            deniedRequests));
+                            deniedRequests),
+                    new RouteOrm(
+                            ormRequests, ormFlushes, ormAutoFlushes, ormEntityRequests, ormEntities, ormTime.copy()));
         }
     }
 
@@ -823,12 +857,65 @@ public final class JournalAggregates implements JournalListener {
             LatencyHistogram warmLatency,
             long cacheMisses,
             long aiTokens,
-            RouteAuthorization authorization) {
+            RouteAuthorization authorization,
+            RouteOrm orm) {
 
         public RouteStats {
             resources = resources == null ? RouteResources.NONE : resources;
             warmLatency = warmLatency == null ? new LatencyHistogram() : warmLatency;
             authorization = authorization == null ? RouteAuthorization.NONE : authorization;
+            orm = orm == null ? RouteOrm.none() : orm;
+        }
+
+        /** A route without Hibernate sessions. */
+        public RouteStats(
+                String route,
+                long requests,
+                List<Long> statusClasses,
+                LatencyHistogram latency,
+                Map<JournalSource, Long> childCounts,
+                Map<JournalSource, Long> childNanos,
+                Map<String, Long> statements,
+                long connectionWaitNanos,
+                RouteResources resources,
+                LatencyHistogram warmLatency,
+                long cacheMisses,
+                long aiTokens,
+                RouteAuthorization authorization) {
+            this(
+                    route,
+                    requests,
+                    statusClasses,
+                    latency,
+                    childCounts,
+                    childNanos,
+                    statements,
+                    connectionWaitNanos,
+                    resources,
+                    warmLatency,
+                    cacheMisses,
+                    aiTokens,
+                    authorization,
+                    null);
+        }
+    }
+
+    /**
+     * A route's Hibernate work ({@code docs/PLAN-v2.md} §5.18, M4-9), from the {@code orm} source: its requests that
+     * opened a session, their full flushes and the auto-flushes that wrote, the most entities each request's context held
+     * at a flush, summed over the requests that flushed, and each request's ORM time (flushes and statements), whose
+     * median the histogram gives.
+     */
+    public record RouteOrm(
+            long requests, long flushes, long autoFlushes, long entityRequests, long entities, LatencyHistogram time) {
+
+        public RouteOrm {
+            time = time == null ? new LatencyHistogram() : time;
+        }
+
+        /** A route with no Hibernate session recorded. */
+        public static RouteOrm none() {
+            return new RouteOrm(0, 0, 0, 0, 0, new LatencyHistogram());
         }
     }
 

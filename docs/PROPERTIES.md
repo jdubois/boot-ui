@@ -659,9 +659,10 @@ handler ran, as an execution of its own, with its endpoint, its destination as t
 (`orm`: per session, its statements and their time, connection acquisitions, full flushes and the auto-flushes that wrote
 before a query, with Hibernate's own flush time, the most entities its persistence context held at a flush, and
 second-level cache hits, misses, and puts, never an entity, a parameter, or a statement) are recorded. On Spring, BootUI
-names its session listener in `spring.jpa.properties.hibernate.session.events.auto`; on Quarkus, in the default persistence
-unit's `quarkus.hibernate-orm.unsupported-properties."hibernate.session.events.auto"`, in dev and test mode only, which
-Quarkus reports at startup as an unsupported property. Either way, an application's own listener wins and the source
+names its session listener in `spring.jpa.properties.hibernate.session.events.auto`; on Quarkus, in each persistence unit's
+`unsupported-properties."hibernate.session.events.auto"`, such as
+`quarkus.hibernate-orm.unsupported-properties."hibernate.session.events.auto"` for the default unit, in dev and test mode
+only, which Quarkus reports at startup as an unsupported property. Either way, an application's own listener wins and the source
 then records nothing. The `resources` source measures each request's CPU time, allocated bytes, and
 the collections that completed while it ran, summed over every thread its work ran on ([PLAN-v2.md](PLAN-v2.md)
 §5.11). The JVM does not measure virtual threads, so a request served on one reports its CPU time and allocated bytes

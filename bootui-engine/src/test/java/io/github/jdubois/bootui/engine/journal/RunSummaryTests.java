@@ -33,6 +33,13 @@ class RunSummaryTests {
                         -1,
                         new ExceptionPayload("g1", "java.lang.IllegalStateException", "s1")));
         publish(aggregates, event("r1", JournalSource.CONNECTION, 9_000_000, new ConnectionPayload("db", 2_000, 1)));
+        publish(
+                aggregates,
+                event(
+                        "r1",
+                        JournalSource.ORM,
+                        8_000_000,
+                        new OrmPayload(null, 2, 3_000_000, 1, 0, 1, 400_000, 2, 600_000, 1, 25, 0, 0, 0)));
         publish(aggregates, http("r1", "/api/orders/{id}", 500, 20_000_000));
         publish(aggregates, http("r2", "/api/orders/{id}", 200, 3_000_000));
         publish(aggregates, event(null, JournalSource.SCHEDULED, 5_000_000, null));
@@ -51,7 +58,7 @@ class RunSummaryTests {
         assertThat(decoded.header().endedAtEpochMillis()).isEqualTo(5_000);
         assertThat(decoded.header().requests()).isEqualTo(2);
         assertThat(decoded.header().failedRequests()).isEqualTo(1);
-        assertThat(decoded.header().events()).isEqualTo(8);
+        assertThat(decoded.header().events()).isEqualTo(9);
         assertThat(decoded.header().omittedEntries()).isZero();
         assertThat(decoded.header().omittedEdges()).isZero();
         assertThat(decoded.header().encodedBytes()).isEqualTo(encoded.length).isLessThan(1_024);
@@ -84,6 +91,12 @@ class RunSummaryTests {
         assertSameHistogram(route.warmLatency(), originalRoute.warmLatency());
         assertThat(route.cacheMisses()).isEqualTo(originalRoute.cacheMisses());
         assertThat(route.aiTokens()).isEqualTo(originalRoute.aiTokens());
+        assertThat(originalRoute.orm().requests()).isEqualTo(1);
+        assertThat(route.orm().flushes()).isEqualTo(1);
+        assertThat(route.orm().autoFlushes()).isEqualTo(2);
+        assertThat(route.orm().entities()).isEqualTo(25);
+        assertSameHistogram(route.orm().time(), originalRoute.orm().time());
+        assertThat(route.orm().time().count()).isEqualTo(1);
         StatementStats statement = copy.statements().get(0);
         assertThat(statement.callSites()).containsEntry("OrderRepository.find:42", 2L);
         assertSameHistogram(statement.latency(), original.statements().get(0).latency());

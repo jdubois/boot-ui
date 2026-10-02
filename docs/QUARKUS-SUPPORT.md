@@ -431,9 +431,12 @@ uses the same rule, and Spring MVC is unaffected.
 **Hibernate sessions in the runtime journal.** The `orm` source (`docs/PLAN-v2.md` §5.18, M4-9) needs Hibernate to
 create BootUI's `SessionEventListener` for every session. Quarkus offers no supported property for that, so in dev and
 test mode the deployment processor defaults `quarkus.hibernate-orm.unsupported-properties."hibernate.session.events.auto"`
-for the default persistence unit, and Quarkus logs at startup that the unit sets that unsupported property. Named
-persistence units are not metered. ORM sessions also give Quarkus what its statement inspector cannot: measured statement
-time, which `route-time-breakdown` uses as its SQL phase.
+for the default persistence unit, and the same key under `quarkus.hibernate-orm."<unit>".` for each named unit the build
+configuration declares with a `datasource` or `packages` property; Quarkus logs at startup that the unit sets that
+unsupported property. ORM sessions also give Quarkus what its statement inspector cannot: measured statement time, which
+`route-time-breakdown` uses as its SQL phase, and, for `safe-method-dml`, which counts a Hibernate write in a GET when it is prepared, the evidence to leave out a
+request whose sessions executed no statement at all; fewer executions than preparations prove nothing, since a JDBC batch
+over several tables counts once.
 
 ::: details The optional durable JDBC persistence backend
 

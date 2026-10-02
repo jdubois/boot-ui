@@ -58,7 +58,10 @@ const TYPES = [
   'FAULT_TOLERANCE',
   'TRANSACTION',
   'AI',
-  'LOG'
+  'LOG',
+  'APP_EVENT',
+  'WEBSOCKET',
+  'ORM'
 ]
 const SEVERITIES = ['OK', 'SLOW', 'WARN', 'ERROR']
 const FILTERS_STORAGE_KEY = 'bootui.activity.filters'

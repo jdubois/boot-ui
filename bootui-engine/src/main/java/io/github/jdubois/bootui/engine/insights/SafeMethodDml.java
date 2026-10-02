@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.insights;
 
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.OrmPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
@@ -41,6 +42,11 @@ public final class SafeMethodDml implements Observation {
     }
 
     @Override
+    public Set<JournalSource> optionalReads() {
+        return Set.of(JournalSource.ORM);
+    }
+
+    @Override
     public Evaluation evaluate(InsightsSnapshot snapshot) {
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;
@@ -54,7 +60,11 @@ public final class SafeMethodDml implements Observation {
             for (ProjectedRequest request : safe) {
                 Map<String, int[]> perRequest = new LinkedHashMap<>();
                 Map<String, String> callSites = new LinkedHashMap<>();
+                boolean preparationsExecuted = preparationsExecuted(snapshot, request);
                 for (RuntimeEvent event : request.children(JournalSource.SQL)) {
+                    if (preparation(snapshot, event) && !preparationsExecuted) {
+                        continue;
+                    }
                     if (event.payload() instanceof SqlPayload sql && !sql.failed() && isDml(sql.sql())) {
                         String fingerprint = SqlShapes.fingerprint(sql.sql());
                         perRequest.computeIfAbsent(fingerprint, f -> new int[1])[0]++;
@@ -70,13 +80,25 @@ public final class SafeMethodDml implements Observation {
                             callSites.get(fingerprint) == null ? "" : callSites.get(fingerprint)
                         }));
             }
-            byFingerprint.forEach(
-                    (fingerprint, rows) -> findings.add(finding(route.getKey(), fingerprint, rows, safe.size())));
+            byFingerprint.forEach((fingerprint, rows) ->
+                    findings.add(finding(route.getKey(), fingerprint, rows, safe.size(), limitation(snapshot))));
         }
         return new Evaluation(eligible, findings);
     }
 
-    private Finding finding(String route, String fingerprint, List<String[]> rows, long eligible) {
+    /** What a Quarkus finding counts: executions proven by Hibernate's sessions, or preparations without them. */
+    private static String limitation(InsightsSnapshot snapshot) {
+        if (snapshot.stack() != InsightsStack.QUARKUS) {
+            return "Counts statements the database executed successfully; a write that failed is not listed.";
+        }
+        return snapshot.records(JournalSource.ORM)
+                ? "Counts Hibernate statements when they are prepared, leaving out a request whose Hibernate sessions"
+                        + " executed no statement at all."
+                : "Counts Hibernate statements when they are prepared: record the orm source to leave out a request"
+                        + " whose sessions executed none.";
+    }
+
+    private Finding finding(String route, String fingerprint, List<String[]> rows, long eligible, String limitation) {
         return new Finding(
                 route + ":" + InsightText.stableHash(fingerprint),
                 route,
@@ -93,7 +115,36 @@ public final class SafeMethodDml implements Observation {
                 rows.stream().limit(3).map(row -> row[0]).toList(),
                 List.of("Request", "Status", "Executions", "Call site"),
                 rows.stream().map(List::of).toList(),
-                List.of("Counts statements the database executed successfully; a write that failed is not listed."));
+                List.of(limitation));
+    }
+
+    /**
+     * Whether {@code event} is a statement Quarkus's Hibernate statement inspector saw when it was prepared, with no
+     * duration because the inspector cannot see it execute.
+     */
+    static boolean preparation(InsightsSnapshot snapshot, RuntimeEvent event) {
+        return snapshot.stack() == InsightsStack.QUARKUS && event.durationNanos() <= 0;
+    }
+
+    /**
+     * Whether the request's prepared statements may have executed (M4-9). On Quarkus, with the {@code orm} source, they
+     * did not only when the request's Hibernate sessions were metered and executed no statement at all. Fewer
+     * executions than preparations prove nothing, since a JDBC batch over several tables counts once, and a request
+     * with no metered session, as when the application names its own session listener, is not evidence either.
+     */
+    static boolean preparationsExecuted(InsightsSnapshot snapshot, ProjectedRequest request) {
+        if (snapshot.stack() != InsightsStack.QUARKUS || !snapshot.records(JournalSource.ORM)) {
+            return true;
+        }
+        boolean metered = false;
+        long executed = 0;
+        for (RuntimeEvent event : request.children(JournalSource.ORM)) {
+            if (event.payload() instanceof OrmPayload orm) {
+                metered = true;
+                executed += orm.statements();
+            }
+        }
+        return !metered || executed > 0;
     }
 
     static boolean isDml(String sql) {

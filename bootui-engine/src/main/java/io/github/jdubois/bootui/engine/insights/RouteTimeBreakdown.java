@@ -146,8 +146,15 @@ public final class RouteTimeBreakdown implements Observation {
                     + " unattributed span around the calls.");
         }
         if (snapshot.stack() == InsightsStack.QUARKUS) {
-            limitations.add("Hibernate ORM statements on Quarkus are timed as preparations, so their SQL time is"
-                    + " unknown and counts as handler work.");
+            boolean sessions = warm.stream()
+                    .anyMatch(breakdown ->
+                            !breakdown.request().children(JournalSource.ORM).isEmpty());
+            limitations.add(
+                    sessions
+                            ? "Hibernate ORM statements on Quarkus are timed by Hibernate's sessions (the orm source),"
+                                    + " not on the request's clock, so their SQL time is a total, not a span."
+                            : "Hibernate ORM statements on Quarkus are timed as preparations, so their SQL time is"
+                                    + " unknown and counts as handler work: record the orm source to measure it.");
         }
         String coldText =
                 cold == null ? "" : " First request " + InsightText.millis(cold.durationNanos()) + " ms (cold).";

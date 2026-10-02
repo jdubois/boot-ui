@@ -2124,7 +2124,8 @@ class BootUiQuarkusProcessor {
     /**
      * Makes Hibernate create BootUI's session listener for every session of the default persistence unit, the {@code
      * orm} journal source ({@code docs/PLAN-v2.md} §5.18, M4-9), through Hibernate's {@code hibernate.session.events.auto}
-     * property passed as a runtime configuration default, so an application's own value wins. Gated on the Hibernate ORM
+     * property passed as a runtime configuration default, for the default unit and each named unit the build configuration
+     * declares, so an application's own value wins. Gated on the Hibernate ORM
      * capability, outside normal (production) mode; the listener class is named, never loaded, here.
      */
     @BuildStep
@@ -2138,6 +2139,32 @@ class BootUiQuarkusProcessor {
         runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
                 "quarkus.hibernate-orm.unsupported-properties.\"hibernate.session.events.auto\"",
                 ORM_SESSION_LISTENER_CLASS));
+        for (String unit : namedPersistenceUnits(
+                org.eclipse.microprofile.config.ConfigProvider.getConfig().getPropertyNames())) {
+            runtimeDefaults.produce(new RunTimeConfigurationDefaultBuildItem(
+                    "quarkus.hibernate-orm.\"" + unit + "\".unsupported-properties.\"hibernate.session.events.auto\"",
+                    ORM_SESSION_LISTENER_CLASS));
+        }
+    }
+
+    /**
+     * The named persistence units the build configuration declares, from their {@code datasource} or {@code packages}
+     * property, such as {@code quarkus.hibernate-orm."users".datasource}; the default unit's own keys have no name segment.
+     */
+    static java.util.Set<String> namedPersistenceUnits(Iterable<String> propertyNames) {
+        java.util.regex.Pattern named = java.util.regex.Pattern.compile(
+                "^quarkus\\.hibernate-orm\\.(?:\"([^\"]+)\"|([^.\"]+))\\.(?:datasource|packages)$");
+        java.util.Set<String> units = new java.util.TreeSet<>();
+        for (String name : propertyNames) {
+            java.util.regex.Matcher matcher = named.matcher(name);
+            if (matcher.matches()) {
+                String unit = matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
+                if (!"<default>".equals(unit)) {
+                    units.add(unit);
+                }
+            }
+        }
+        return units;
     }
 
     private static boolean webSocketsPresent(LaunchModeBuildItem launchMode) {

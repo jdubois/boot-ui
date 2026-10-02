@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
 import io.github.jdubois.bootui.core.dto.RequestJournalProfileDto;
+import io.github.jdubois.bootui.core.dto.RequestOrmDto;
 import io.github.jdubois.bootui.core.dto.RequestTimelineItemDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
@@ -264,6 +265,61 @@ class RequestJournalProfilesTests {
         } finally {
             small.close();
         }
+    }
+
+    @Test
+    void hibernateSessionsAreSummedInAnOrmBlockAndTheirFlushesPlacedOnTheTimeline() {
+        offer(child(
+                "r1",
+                JournalSource.ORM,
+                1_002,
+                30_000_000,
+                new OrmPayload(
+                        null,
+                        5,
+                        4_000_000,
+                        1,
+                        100_000,
+                        1,
+                        300_000,
+                        2,
+                        600_000,
+                        2,
+                        40,
+                        1,
+                        2,
+                        3,
+                        List.of(
+                                new OrmPayload.Flush(3_000_000, 200_000, true, 12),
+                                new OrmPayload.Flush(20_000_000, 300_000, false, 40)))));
+        offer(child(
+                "r1",
+                JournalSource.ORM,
+                1_030,
+                1_000_000,
+                new OrmPayload(null, 1, 500_000, 1, 0, 0, 0, 0, 0, 0, -1, 0, 0, 0)));
+        offer(http("r1", 1_000, 40_000_000, null));
+        journal.dispatchPending();
+
+        RequestJournalProfileDto profile = profiles(null).profile("r1");
+
+        assertThat(profile.orm()).isEqualTo(new RequestOrmDto(2, 6, 4_500, 2, 1, 2, 300, 600, 2, 40, 1, 2, 3));
+        assertThat(profile.timeline())
+                .filteredOn(item -> item.label().contains("lush"))
+                .extracting(
+                        RequestTimelineItemDto::label,
+                        RequestTimelineItemDto::offsetMillis,
+                        RequestTimelineItemDto::durationMicros)
+                .containsExactly(tuple("Auto-flush before a query", 5L, 200L), tuple("Flush", 22L, 300L));
+        assertThat(profiles(null).profile("r1").orm()).isNotNull();
+    }
+
+    @Test
+    void aRequestWithoutHibernateSessionsHasNoOrmBlock() {
+        offer(http("r1", 1_000, 40_000_000, null));
+        journal.dispatchPending();
+
+        assertThat(profiles(null).profile("r1").orm()).isNull();
     }
 
     @Test

@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.journal;
 import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import io.github.jdubois.bootui.core.dto.RequestGcPauseDto;
 import io.github.jdubois.bootui.core.dto.RequestJournalProfileDto;
+import io.github.jdubois.bootui.core.dto.RequestOrmDto;
 import io.github.jdubois.bootui.core.dto.RequestResourcesDto;
 import io.github.jdubois.bootui.core.dto.RequestTimelineItemDto;
 import io.github.jdubois.bootui.core.dto.RouteComparisonDto;
@@ -134,6 +135,11 @@ public final class RequestJournalProfiles {
                 timed.add(new Timed(item, child.sequence()));
             }
         }
+        for (JournalEntry child : children) {
+            for (RequestTimelineItemDto flush : flushes(child.event(), start)) {
+                timed.add(new Timed(flush, child.sequence()));
+            }
+        }
         timed.sort(
                 Comparator.comparingLong((Timed t) -> t.item().offsetMillis()).thenComparingLong(Timed::sequence));
 
@@ -166,7 +172,82 @@ public final class RequestJournalProfiles {
                 gcPauses(usage, collections, start),
                 routeComparison(label.id(), Math.max(0, http.durationNanos()) / 1_000),
                 touched(children),
-                notes);
+                notes,
+                orm(children));
+    }
+
+    /**
+     * Each flush a Hibernate session kept on its timeline (M4-9), placed from the session's start: auto-flushes that
+     * wrote before a query, and full flushes, timed without the statements they executed.
+     */
+    private static List<RequestTimelineItemDto> flushes(RuntimeEvent event, long requestStart) {
+        if (!(event.payload() instanceof OrmPayload orm) || orm.flushTimeline().isEmpty()) {
+            return List.of();
+        }
+        List<RequestTimelineItemDto> items = new ArrayList<>();
+        for (OrmPayload.Flush flush : orm.flushTimeline()) {
+            items.add(new RequestTimelineItemDto(
+                    event.source().propertyName(),
+                    flush.auto() ? "Auto-flush before a query" : "Flush",
+                    flush.entities() + (flush.entities() == 1 ? " entity" : " entities") + " in context",
+                    event.epochMillis() + flush.offsetNanos() / 1_000_000 - requestStart,
+                    flush.durationNanos() / 1_000,
+                    flush.auto() ? JournalActivityFeed.SEVERITY_WARN : JournalActivityFeed.SEVERITY_OK,
+                    event.thread(),
+                    event.threadKind() == null ? null : event.threadKind().name()));
+        }
+        return items;
+    }
+
+    /** The request's Hibernate sessions, summed, or {@code null} when it recorded none (M4-9). */
+    private static RequestOrmDto orm(List<JournalEntry> children) {
+        int sessions = 0;
+        int statements = 0;
+        long statementNanos = 0;
+        int acquisitions = 0;
+        int flushes = 0;
+        int autoFlushes = 0;
+        long flushNanos = 0;
+        long autoFlushNanos = 0;
+        int dirty = 0;
+        int entities = -1;
+        int hits = 0;
+        int misses = 0;
+        int puts = 0;
+        for (JournalEntry entry : children) {
+            if (entry.event().payload() instanceof OrmPayload orm) {
+                sessions++;
+                statements += orm.statements();
+                statementNanos += Math.max(0, orm.statementNanos());
+                acquisitions += orm.connectionAcquisitions();
+                flushes += orm.flushes();
+                autoFlushes += orm.partialFlushes();
+                flushNanos += Math.max(0, orm.flushNanos());
+                autoFlushNanos += Math.max(0, orm.partialFlushNanos());
+                dirty += orm.dirtyEntities();
+                entities = Math.max(entities, orm.entitiesInContext());
+                hits += orm.l2Hits();
+                misses += orm.l2Misses();
+                puts += orm.l2Puts();
+            }
+        }
+        if (sessions == 0) {
+            return null;
+        }
+        return new RequestOrmDto(
+                sessions,
+                statements,
+                statementNanos / 1_000,
+                acquisitions,
+                flushes,
+                autoFlushes,
+                flushNanos / 1_000,
+                autoFlushNanos / 1_000,
+                dirty,
+                entities,
+                hits,
+                misses,
+                puts);
     }
 
     private RequestTimelineItemDto item(JournalEntry entry, ActivityEntryDto row, long requestStart) {
