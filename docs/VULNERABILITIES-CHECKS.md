@@ -256,7 +256,10 @@ Neither provider supplies a verified runtime graph. Spring's filename census de-
 case-insensitive matching without group identity, so ambiguous classifiers/same-basename archives can overstate
 identified coverage. PURL form decoding can turn literal `+` into a space; malformed escapes and namespace rewriting
 need separate fixes. SBOM traversal caps **resolved distinct coordinates**, not inspected nodes, and parses the whole
-JSON first; it is not a whole-document traversal/memory bound. Components are not rigorously filtered to live runtime
+JSON first; it is not a whole-document traversal/memory bound. Components the SBOM declares not shipped (CycloneDX
+`scope: "excluded"`, or the `cdx:maven:package:test=true` property the CycloneDX Gradle plugin sets on test-classpath
+libraries it lists by default), with their nested components, are left out unless the archive census finds their JAR
+([#1177](https://github.com/jdubois/boot-ui/issues/1177)); other components are not rigorously filtered to live runtime
 scope, and conflicting versions can remain.
 
 Quarkus reports `COMPLETE` only for a wholly decoded build-time model. A missing or blank model key (the build step never
@@ -287,7 +290,7 @@ Mixed dispositions intentionally preserve an existing behavior while acknowledgi
 | INV-02 | KEEP / DEFER | Coordinate-only Maven PURL lookup ignores qualifiers/subpath; stricter inventory parsing deferred. |
 | INV-03 | DEFER | Literal-plus form decoding, malformed percent escapes, and slash-namespace rewriting can change identity. |
 | INV-04 | DEFER | SBOM recursion bounds resolved coordinates, not inspected nodes; whole-document parsing remains. |
-| INV-05 | DEFER | SBOM runtime scope/type attribution and conflicting-version precision. |
+| INV-05 | DEFER | SBOM runtime scope/type attribution and conflicting-version precision; only `excluded` and test-only (`cdx:maven:package:test`) components are filtered, unless their JAR is found (#1177). |
 | INV-06 | KEEP / DEFER | Retain readable Maven descriptors when siblings fail; malformed-properties/runtime exceptions and richer diagnostics deferred. |
 | INV-07 | KEEP | Adjacent POM must match artifact/version; parent group/version allowed; external entities, DTDs, and schema access blocked. |
 | INV-08 | KEEP | Infer group only below literal `repository`; filename must match artifact/version with optional classifier. |
@@ -456,7 +459,7 @@ Considered and deliberately not added:
 | --- | --- |
 | CISA KEV flag | A second external source with a feed larger than the 1 MiB body bound, a DTO field, configuration, and UI on every stack. KEV (observed exploitation) is not equivalent to EPSS (predicted exploitation), but the cost outweighs the gain for now. |
 | Alias/duplicate collapsing | No GHSA/CVE duplicate pairs observed for Maven queries; merging would change `advisoryId::packageName` dismissal identities (RPT-02). |
-| CycloneDX `scope: excluded` filtering | `cyclonedx-maven-plugin` emits `excluded` only with the non-default `detectUnusedForOptionalScope`; SBOM scope attribution stays deferred as INV-05. |
+| CycloneDX `scope: excluded` filtering | `cyclonedx-maven-plugin` emits `excluded` only with the non-default `detectUnusedForOptionalScope`; SBOM scope attribution stays deferred as INV-05. Superseded by #1177: the CycloneDX Gradle plugin lists test-classpath libraries by default, so `excluded` and test-only components are now filtered unless their JAR is found. |
 | Version provenance for `score` | Needs a DTO change; the catalog documents that `score` is the selected CVSS version's score instead. |
 
 See the [feature guide](features/advisors.md#vulnerabilities) for the user workflow and

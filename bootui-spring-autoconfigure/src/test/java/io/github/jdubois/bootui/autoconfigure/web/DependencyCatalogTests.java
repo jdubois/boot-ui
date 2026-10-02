@@ -176,6 +176,76 @@ class DependencyCatalogTests {
         assertThat(dependencies).extracting(DependencyDto::packageName).containsExactly("com.acme:widget");
     }
 
+    @Test
+    void leavesOutComponentsTheSbomDeclaresNotShipped() {
+        ResourcePatternResolver resolver = sbomResolver("""
+                {"components": [
+                  {"purl": "pkg:maven/com.example/runtime@1.0"},
+                  {"purl": "pkg:maven/com.example/required@1.0", "scope": "required"},
+                  {"purl": "pkg:maven/com.example/optional@1.0", "scope": "optional"},
+                  {"purl": "pkg:maven/com.example/excluded@1.0", "scope": " Excluded "},
+                  {"purl": "pkg:maven/org.freemarker/freemarker@2.3.34",
+                   "properties": [{"name": "cdx:maven:package:test", "value": "true"}]},
+                  {"purl": "pkg:maven/com.example/not-test@1.0",
+                   "properties": [{"name": "cdx:maven:package:test", "value": "false"}]},
+                  {"purl": "pkg:maven/com.example/test-parent@1.0", "scope": "excluded",
+                   "components": [{"purl": "pkg:maven/com.example/nested-in-test@1.0"}]}
+                ]}
+                """);
+
+        List<DependencyDto> dependencies = withClassPath(resolver, "");
+
+        assertThat(dependencies)
+                .extracting(DependencyDto::packageName)
+                .containsExactly(
+                        "com.example:not-test", "com.example:optional", "com.example:required", "com.example:runtime");
+    }
+
+    @Test
+    void doesNotScanTestOnlySbomComponentsWhoseArchiveIsNotShipped() throws Exception {
+        // The CycloneDX Gradle plugin lists test-classpath libraries by default (#1177): here a newer
+        // jackson-databind and freemarker that only tests resolve, while the image ships 2.21.6 alone.
+        Path fatJar = repackagedJar("app.jar", "BOOT-INF/lib/", List.of("jackson-databind-2.21.6.jar"));
+        ResourcePatternResolver resolver = sbomResolver("""
+                {"components": [
+                  {"purl": "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.21.6"},
+                  {"purl": "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.22.0",
+                   "properties": [{"name": "cdx:maven:package:test", "value": "true"}]},
+                  {"purl": "pkg:maven/org.freemarker/freemarker@2.3.34",
+                   "properties": [{"name": "cdx:maven:package:test", "value": "true"}]}
+                ]}
+                """);
+
+        DependencyInventory inventory = withClassPathInventory(resolver, fatJar.toString());
+
+        assertThat(inventory.dependencies())
+                .extracting(DependencyDto::packageName, DependencyDto::version)
+                .containsExactly(tuple("com.fasterxml.jackson.core:jackson-databind", "2.21.6"));
+        assertThat(inventory.coverage()).isEqualTo(DependencyCoverageDto.of(1, 0, List.of()));
+    }
+
+    @Test
+    void stillScansANotShippedSbomComponentWhenItsArchiveIsOnTheClasspath() throws Exception {
+        // A mislabeled SBOM must not hide a library the application really ships.
+        Path fatJar = repackagedJar("app.jar", "BOOT-INF/lib/", List.of("freemarker-2.3.34.jar", "excluded-1.0.jar"));
+        ResourcePatternResolver resolver = sbomResolver("""
+                {"components": [
+                  {"purl": "pkg:maven/org.freemarker/freemarker@2.3.34",
+                   "properties": [{"name": "cdx:maven:package:test", "value": "true"}]},
+                  {"purl": "pkg:maven/com.example/excluded@1.0", "scope": "excluded"}
+                ]}
+                """);
+
+        DependencyInventory inventory = withClassPathInventory(resolver, fatJar.toString());
+
+        assertThat(inventory.dependencies())
+                .extracting(DependencyDto::packageName, DependencyDto::source)
+                .containsExactly(
+                        tuple("com.example:excluded", "CycloneDX SBOM"),
+                        tuple("org.freemarker:freemarker", "CycloneDX SBOM"));
+        assertThat(inventory.coverage()).isEqualTo(DependencyCoverageDto.of(2, 0, List.of()));
+    }
+
     // -----------------------------------------------------------------------------------------------
     // Coverage
     // -----------------------------------------------------------------------------------------------
