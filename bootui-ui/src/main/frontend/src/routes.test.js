@@ -257,10 +257,9 @@ describe('routes', () => {
 
   it('keeps the sidebar order aligned with the documented feature order', () => {
     expect(namedRoutes.map((route) => route.meta.title)).toEqual([
-      'Overview',
+      'Scorecard',
       'Live Activity',
       'Runtime Insights',
-      'GitHub',
       'Architecture',
       'REST API',
       'Spring',
@@ -317,7 +316,8 @@ describe('routes', () => {
       'Spring DevTools',
       'Dev Services',
       'Copilot',
-      'Claude Code'
+      'Claude Code',
+      'GitHub'
     ])
   })
 
@@ -431,7 +431,7 @@ describe('routes', () => {
   it('keeps documented navigation groups aligned with route metadata', () => {
     const expectedByGroup = new Map(
       Object.entries({
-        Overview: groups.overview,
+        Home: groups.home,
         Advisors: groups.advisors,
         Runtime: groups.runtime,
         Configuration: groups.configuration,
@@ -455,7 +455,7 @@ describe('routes', () => {
 
   it('defines complete and unique sidebar metadata for every navigable route', () => {
     expect(Object.values(groups)).toEqual([
-      'overview',
+      'home',
       'advisors',
       'runtime',
       'configuration',
@@ -477,7 +477,7 @@ describe('routes', () => {
         title: expect.any(String),
         icon: expect.stringMatching(/^bi-/),
         group: expect.stringMatching(
-          /^(overview|advisors|runtime|configuration|database|security|services|diagnostics|developer-tools)$/
+          /^(home|advisors|runtime|configuration|database|security|services|diagnostics|developer-tools)$/
         ),
         shortcut: expect.stringMatching(/^[a-z]{2,3}$/)
       })
@@ -486,10 +486,9 @@ describe('routes', () => {
 
   it('uses navigation group keys understood by the app shell', () => {
     expect(namedRoutes.map((route) => route.meta.group)).toEqual([
-      groups.overview,
-      groups.overview,
-      groups.overview,
-      groups.overview,
+      groups.home,
+      groups.home,
+      groups.home,
       groups.advisors,
       groups.advisors,
       groups.advisors,
@@ -541,6 +540,7 @@ describe('routes', () => {
       groups.diagnostics,
       groups.diagnostics,
       groups.diagnostics,
+      groups.developerTools,
       groups.developerTools,
       groups.developerTools,
       groups.developerTools,
@@ -552,7 +552,8 @@ describe('routes', () => {
 
   it('keeps redirect aliases out of sidebar navigation', () => {
     expect(routes.filter((route) => route.redirect)).toEqual([
-      {path: '/', redirect: '/overview'},
+      {path: '/', redirect: '/scorecard'},
+      {path: '/overview', redirect: '/scorecard'},
       {path: '/tuning-advisor', redirect: '/jvm-tuning'},
       {path: '/pentest', redirect: '/pentesting'},
       {path: '/dependencies', redirect: '/vulnerabilities'},

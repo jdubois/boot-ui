@@ -29,7 +29,7 @@ test.describe('Database view', () => {
     await expect(page.getByText('Tables without a primary key')).toBeVisible()
     await expect(page.getByText(/has no primary key/).first()).toBeVisible()
     await expect(page.getByRole('link', {name: 'Learn more'}).first()).toBeVisible()
-    await page.locator('a[href$="#/overview"]').first().click()
+    await page.locator('a[href$="#/scorecard"]').first().click()
     const card = page.locator('.scanner-card').filter({hasText: 'Database'})
     await expect(card.locator('.scanner-score')).toHaveText(String(expectedAdvisorScore(report)))
     await expect(card.locator('.scanner-status')).toHaveText('Scan complete')

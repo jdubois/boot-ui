@@ -159,10 +159,9 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 
 | Group           | Panel                     | Panel id                    | Enable property                                   | Read-only property                        |
 | --------------- | ------------------------- | --------------------------- | ------------------------------------------------- | ----------------------------------------- |
-| Overview        | Overview                  | `overview`                  | `bootui.panels.overview.enabled`                  | Not applicable; view-only.                |
-| Overview        | Live Activity             | `activity`                  | `bootui.panels.activity.enabled`                  | `bootui.panels.activity.read-only`         |
-| Overview        | Runtime Insights          | `runtime-insights`          | `bootui.panels.runtime-insights.enabled`          | Not applicable; view-only.                |
-| Overview        | GitHub                    | `github`                    | `bootui.panels.github.enabled`                    | `bootui.panels.github.read-only`          |
+| Home            | Scorecard                 | `overview`                  | `bootui.panels.overview.enabled`                  | Not applicable; view-only.                |
+| Home            | Live Activity             | `activity`                  | `bootui.panels.activity.enabled`                  | `bootui.panels.activity.read-only`         |
+| Home            | Runtime Insights          | `runtime-insights`          | `bootui.panels.runtime-insights.enabled`          | Not applicable; view-only.                |
 | Advisors        | Architecture              | `architecture`              | `bootui.panels.architecture.enabled`              | `bootui.panels.architecture.read-only`    |
 | Advisors        | REST API                  | `rest-api`                  | `bootui.panels.rest-api.enabled`                  | `bootui.panels.rest-api.read-only`        |
 | Advisors        | Spring                    | `spring`                    | `bootui.panels.spring.enabled`                    | `bootui.panels.spring.read-only`          |
@@ -220,6 +219,7 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | Developer tools | Dev Services              | `dev-services`              | `bootui.panels.dev-services.enabled`              | `bootui.panels.dev-services.read-only`    |
 | Developer tools | Copilot                   | `copilot`                   | `bootui.panels.copilot.enabled`                   | Not applicable; view-only.                |
 | Developer tools | Claude Code               | `claude-code`               | `bootui.panels.claude-code.enabled`               | Not applicable; view-only.                |
+| Developer tools | GitHub                    | `github`                    | `bootui.panels.github.enabled`                    | `bootui.panels.github.read-only`          |
 
 ## Per-panel action details
 

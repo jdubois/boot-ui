@@ -1818,6 +1818,30 @@ class DatabaseAdvisorHibernateRulesTests {
         assertThat(result.description()).contains("historical row validation is not inferred");
     }
 
+    @Test
+    void validatedPostgresForeignKeyAbsentFromACompleteNotValidReadMatchesAfterTheVendorMerge() {
+        MappedEntityFacts mapped = entity("Order", "orders", List.of(customerAssociation()), List.of(), List.of());
+        TableModel orders = table(
+                "orders",
+                List.of(column("customer_id", "int8", Types.BIGINT)),
+                List.of(),
+                List.of(foreignKey("fk_customer", List.of("customer_id"), "customers", List.of("id"))),
+                List.of());
+        for (boolean truncated : List.of(false, true)) {
+            VendorFindings findings = VendorFindings.builder()
+                    .add(VendorAugmentation.available(
+                            VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS, List.of(), truncated))
+                    .build();
+            List<TableModel> merged =
+                    VendorSchemaMerge.merge(List.of(orders, customers()), Dialect.POSTGRESQL, findings);
+            DatabaseAdvisorContext context =
+                    hibernateContext(schema("ds", Dialect.POSTGRESQL, merged, findings), mapped);
+            DatabaseAdvisorRuleResultDto result = new HibernateMissingForeignKeyConstraintRule().evaluate(context);
+            assertThat(result.status()).isEqualTo(truncated ? SKIPPED : PASS);
+            assertThat(context.evaluationDiagnostics()).hasSize(truncated ? 1 : 0);
+        }
+    }
+
     private static MappedEntityFacts annotationFacts(Class<?> type) {
         List<HibernateAttributeModel> attributes = Arrays.stream(type.getDeclaredFields())
                 .map(field -> new HibernateAttributeModel(

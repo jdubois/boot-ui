@@ -420,6 +420,9 @@ is corroborated as the target table's observed single-column primary key. The `@
 `@Column(name)`, or from a plain lowercase attribute name such as `id`. Composite joins with an omitted referenced
 column, an unestablished or non-primary-key identifier, and constraints that pair the join column with a
 non-primary-key target column remain unknown.
+A matching constraint passes only when it is known to be enforced. On PostgreSQL, a foreign key absent from the
+complete `NOT VALID` catalog read (DB-PG-003's source) is validated and enforced, because PostgreSQL 18 marks every
+`NOT ENFORCED` constraint `NOT VALID`; a failed or truncated read leaves enforcement unknown.
 JPA cascade does **not** imply database ON DELETE CASCADE; FK-generation annotations are not a proof of
 the live database's intended cascade policy. Review whether a database constraint is intended before adding one.
 See [Jakarta Persistence 3.2](https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2.html).

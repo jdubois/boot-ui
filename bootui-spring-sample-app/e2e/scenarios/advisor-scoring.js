@@ -159,7 +159,7 @@ function vulnerabilityReport(dismissed, coverageStatus = 'COMPLETE') {
  * @param {{uiPath?: string, apiPath?: string}} paths
  */
 export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', apiPath = '/bootui/api'} = {}) {
-  test('keeps Overview unscored after only GraalVM and CRaC readiness scans', async ({page}) => {
+  test('keeps the Scorecard unscored after only GraalVM and CRaC readiness scans', async ({page}) => {
     await stubUnscannedAdvisorReports(page, apiPath)
     const readinessScans = []
     await page.route(`**${apiPath}/panels`, async (route) => {
@@ -186,7 +186,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
         })
       })
     }
-    await page.goto(`${uiPath}/#/overview`)
+    await page.goto(`${uiPath}/#/scorecard`)
     await expect(page.locator('.overall-card').getByText('Not scored', {exact: true})).toBeVisible()
     for (const id of ['graalvm', 'crac']) {
       await page.evaluate((panel) => (window.location.hash = `#/${panel}`), id)
@@ -196,7 +196,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
       await page.getByRole('button', {name: 'Run readiness checks', exact: true}).click()
       expect((await completed).ok()).toBe(true)
       await expect(page.getByText('No readiness data yet')).toHaveCount(0)
-      await page.getByRole('link', {name: 'Overview', exact: true}).click()
+      await page.getByRole('link', {name: 'Scorecard', exact: true}).click()
       const summary = page.locator('.overall-card')
       await expect(summary.getByText('Not scored', {exact: true})).toBeVisible()
       await expect(summary.locator('.overall-gauge, .overall-band, .overall-contributions')).toHaveCount(0)
@@ -273,7 +273,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
     })
 
     for (const initialOverview of [false, true]) {
-      test(`discovers a Hibernate panel scan on ${initialOverview ? 'return' : 'first'} Overview navigation`, async ({
+      test(`discovers a Hibernate panel scan on ${initialOverview ? 'return' : 'first'} Scorecard navigation`, async ({
         page
       }) => {
         let scanned = false
@@ -290,7 +290,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
         })
         const card = page.locator('.scanner-card').filter({hasText: 'Hibernate'})
         if (initialOverview) {
-          await page.goto(`${uiPath}/#/overview`)
+          await page.goto(`${uiPath}/#/scorecard`)
           await expect(card).toContainText('Not scanned')
           await expect(card.getByRole('button', {name: 'Run scan', exact: true})).toBeVisible()
           expect(reads).toBe(1)
@@ -303,7 +303,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
         await expect(page.getByText('Retained Hibernate finding', {exact: true})).toBeVisible()
         await expect(page.locator('.advisor-score-card')).toContainText('Results available')
         const readsBeforeReturn = reads
-        await page.locator('a[href$="#/overview"]').first().click()
+        await page.locator('a[href$="#/scorecard"]').first().click()
         await expect(card).toContainText('Scan complete')
         await expect(card).toContainText('1 high')
         await expect(card.locator('.scanner-score')).toHaveText('90')
@@ -326,7 +326,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
         scanned = false
         await card.getByRole('link', {name: 'Open panel'}).click()
         await expect(page.locator('.advisor-score-card')).toContainText('Not scanned')
-        await page.locator('a[href$="#/overview"]').first().click()
+        await page.locator('a[href$="#/scorecard"]').first().click()
         await expect(card).toContainText('Not scanned')
         await expect(card).not.toContainText('1 high')
         await expect(card.getByRole('button', {name: 'Run scan', exact: true})).toBeVisible()
@@ -362,7 +362,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
             return route.fulfill({json: scans.includes(id) ? report : unscannedReport()})
           })
         }
-        await page.goto(`${uiPath}/#/overview`)
+        await page.goto(`${uiPath}/#/scorecard`)
         const cards = page.locator('.scanner-card')
         await expect(cards).toHaveCount(ids.length)
         expect(scans).toEqual([])
@@ -450,7 +450,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
             }
           })
         )
-        await page.goto(`${uiPath}/#/overview`)
+        await page.goto(`${uiPath}/#/scorecard`)
         await expect(page.locator('html')).toHaveAttribute('data-bootui-theme', theme)
         await page
           .locator('.scanner-card')
@@ -523,7 +523,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
           }
         })
       })
-      await page.goto(`${uiPath}/#/overview`)
+      await page.goto(`${uiPath}/#/scorecard`)
       const card = page.locator('.scanner-card').filter({hasText: 'GitHub'})
       await expect(card).toBeVisible()
       expect(refreshes).toBe(0)
@@ -618,7 +618,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
           animations: 'disabled'
         })
         if (Number(width) < 992) await page.getByRole('button', {name: 'Open navigation menu'}).click()
-        await page.locator('a[href$="#/overview"]').first().click()
+        await page.locator('a[href$="#/scorecard"]').first().click()
         const card = page.locator('.scanner-card').filter({hasText: 'Pentesting'})
         await expect(
           card.getByRole('img', {name: /Pentesting known-findings score: 90.*Scan notes available/})
@@ -634,7 +634,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
     }) => {
       let report = unscannedReport()
       await page.route(`**${apiPath}/architecture{,/scan}`, (route) => route.fulfill({json: report}))
-      await page.goto(`${uiPath}/#/overview`)
+      await page.goto(`${uiPath}/#/scorecard`)
       const card = page.locator('.scanner-card').filter({hasText: 'Architecture'})
       await expect(card).toContainText('Not scanned')
       for (const [results, evidence, expected] of [
@@ -687,7 +687,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
       }
       let report = empty
       await page.route(`**${apiPath}/architecture{,/scan}`, (route) => route.fulfill({json: report}))
-      await page.goto(`${uiPath}/#/overview`)
+      await page.goto(`${uiPath}/#/scorecard`)
       const card = page.locator('.scanner-card').filter({hasText: 'Architecture'})
       const expectEmpty = async () => {
         await expect(card).toContainText('Not applicable')
@@ -710,18 +710,18 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
       await expect(page.locator('.advisor-score-card')).toContainText('Not applicable')
       await expect(page.locator('.advisor-score-card')).toContainText('No applicable checks or observed findings')
       report = {...empty, scan: {status: 'PARTIAL'}}
-      await page.locator('a[href$="#/overview"]').first().click()
+      await page.locator('a[href$="#/scorecard"]').first().click()
       await expect(page.locator('.assessment-summary')).toContainText('1 advisor has scan notes')
       await expect(card.locator('.scanner-score')).toHaveCount(0)
       await card.getByRole('link', {name: 'Open panel'}).click()
       report = empty
-      await page.locator('a[href$="#/overview"]').first().click()
+      await page.locator('a[href$="#/scorecard"]').first().click()
       await expectEmpty()
 
       // Failed refresh retains the last accepted complete-empty classification.
       await card.getByRole('link', {name: 'Open panel'}).click()
       await page.route(`**${apiPath}/architecture`, (route) => route.fulfill({status: 503, body: 'Unavailable'}))
-      await page.locator('a[href$="#/overview"]').first().click()
+      await page.locator('a[href$="#/scorecard"]').first().click()
       await expect(card).toContainText('Showing the last report.')
       await expectEmpty()
     })
@@ -757,7 +757,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
       await expect(page.getByText('GHSA-test-unknown', {exact: true})).toBeVisible()
       await expect(page.getByText('Unknown (assessment incomplete)', {exact: true})).toBeVisible()
       await expect(page.locator('main')).not.toContainText('None found')
-      await page.locator('a[href$="#/overview"]').first().click()
+      await page.locator('a[href$="#/scorecard"]').first().click()
       const card = page.locator('.scanner-card').filter({hasText: 'Vulnerabilities'})
       await expect(card.locator('.scanner-score')).toHaveText('90')
       await expect(card).toContainText('1 unknown')
@@ -776,7 +776,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
       report.results[0].severity = 'INFO'
       report.severityCounts = [{severity: 'INFO', count: 1}]
       await page.route(`**${apiPath}/architecture{,/scan}`, (route) => route.fulfill({json: report}))
-      await page.goto(`${uiPath}/#/overview`)
+      await page.goto(`${uiPath}/#/scorecard`)
       const card = page.locator('.scanner-card').filter({hasText: 'Architecture'})
       await expect(card).toContainText('1 info')
       await expect(card.locator('.scanner-score')).toHaveCount(0)
@@ -801,7 +801,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
       await expect(summary.getByRole('img', {name: /Known-findings score: 100.*Scan notes available/})).toHaveCount(1)
       await expect(summary).not.toContainText('Good')
       await expectCollapsedScanNotes(summary, 'Some application metadata')
-      await page.locator('a[href$="#/overview"]').first().click()
+      await page.locator('a[href$="#/scorecard"]').first().click()
       await expect(card.locator('.scanner-score')).toHaveText('100')
       await expect(
         page
@@ -811,7 +811,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
       await expect(card).not.toContainText('1 info')
     })
 
-    test('includes Database partial schema evidence in panel and Overview scores', async ({page}) => {
+    test('includes Database partial schema evidence in panel and Scorecard scores', async ({page}) => {
       await showAdvisors(page, 'database-advisor')
       const report = {
         ...architectureReport('PARTIAL'),
@@ -855,7 +855,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
         'aria-expanded',
         'true'
       )
-      await page.locator('a[href$="#/overview"]').first().click()
+      await page.locator('a[href$="#/scorecard"]').first().click()
       const card = page.locator('.scanner-card').filter({hasText: 'Database'})
       await expect(card.locator('.scanner-score')).toHaveText('14')
       await expect(card).not.toContainText('Index metadata unavailable.')
@@ -867,7 +867,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
       ).toHaveCount(1)
       await expect(page.locator('.overall-card')).toContainText('1 of 1 advisors assessed')
     })
-    test('waits for availability and reads only enabled advisors on a direct Overview load', async ({page}) => {
+    test('waits for availability and reads only enabled advisors on a direct Scorecard load', async ({page}) => {
       let releaseManifest
       const manifestGate = new Promise((resolve) => {
         releaseManifest = resolve
@@ -892,7 +892,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
           advisorRequests.push({path, method: request.method()})
       })
       await page.route(`**${apiPath}/architecture`, (route) => route.fulfill({json: architectureReport('SCANNED')}))
-      await page.goto(`${uiPath}/#/overview`)
+      await page.goto(`${uiPath}/#/scorecard`)
       await expect(page.locator('.panel-header')).toContainText('Inspect retained findings')
       expect(advisorRequests).toEqual([])
       releaseManifest()
@@ -923,7 +923,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
         } else reads++
         await route.fulfill({json: cached})
       })
-      await page.goto(`${uiPath}/#/overview`)
+      await page.goto(`${uiPath}/#/scorecard`)
       const card = page.locator('.scanner-card').filter({hasText: 'Architecture'})
       await expect(card).toContainText('Not scanned')
       await card.getByRole('button', {name: 'Run scan', exact: true}).click()
@@ -931,7 +931,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
       await card.getByRole('link', {name: 'Open panel'}).click()
       await expect(page.locator('.advisor-score-card')).toContainText('Not scanned')
       expect(reads).toBe(2)
-      await page.locator('a[href$="#/overview"]').first().click()
+      await page.locator('a[href$="#/scorecard"]').first().click()
       await expect(card).toContainText('Scanning')
       expect(reads).toBe(2)
       releaseScan()
@@ -954,7 +954,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
         }
         await route.fulfill({json: scans === 0 ? unscannedReport() : architectureReport(status)})
       })
-      await page.goto(`${uiPath}/#/overview`)
+      await page.goto(`${uiPath}/#/scorecard`)
       const overall = page.locator('.overall-card')
       const card = page.locator('.scanner-card').filter({hasText: 'Architecture'})
       await expect(card).toBeVisible()
@@ -1085,7 +1085,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
         await page.goto(`${uiPath}/#/architecture`)
         await expect(page.locator('.advisor-summary__value')).toHaveText('90')
         const card = page.locator('.scanner-card').filter({hasText: 'Architecture'})
-        await page.locator('a[href$="#/overview"]').first().click()
+        await page.locator('a[href$="#/scorecard"]').first().click()
         await expect(card.locator('.scanner-score')).toHaveText('90')
         await card.getByRole('link', {name: 'Open panel'}).click()
         await page.getByRole('button', {name: /Dismiss$/}).click()
@@ -1102,14 +1102,14 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
           await expect(page.getByRole('img', {name: /Known-findings score: 100.*Scan notes available/})).toHaveCount(1)
           await expectCollapsedScanNotes(page.locator('.advisor-score-card'), 'Some application metadata')
         }
-        await page.locator('a[href$="#/overview"]').first().click()
+        await page.locator('a[href$="#/scorecard"]').first().click()
         await expect(card.locator('.scanner-score')).toHaveText('100')
         await card.getByRole('link', {name: 'Open panel'}).click()
         await page.getByRole('button', {name: /Restore$/}).click()
         await expect(page.locator('.list-group-item.opacity-50')).toHaveCount(0)
         await expect(page.locator('.advisor-summary__dismissed')).toHaveCount(0)
         await expect(page.locator('.advisor-summary__value')).toHaveText('90')
-        await page.locator('a[href$="#/overview"]').first().click()
+        await page.locator('a[href$="#/scorecard"]').first().click()
         await expect(card.locator('.scanner-score')).toHaveText('90')
         await expect(
           page
@@ -1132,7 +1132,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
         dismissed = route.request().method() === 'POST'
         await route.fulfill({json: {dismissed: dismissed ? ['GHSA-test-unknown::example:library'] : []}})
       })
-      await page.goto(`${uiPath}/#/overview`)
+      await page.goto(`${uiPath}/#/scorecard`)
       const card = page.locator('.scanner-card').filter({hasText: 'Vulnerabilities'})
       await expect(card).toBeVisible()
       expect(scans).toBe(0)
@@ -1147,13 +1147,13 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
       await page.getByRole('button', {name: /Dismiss$/}).click()
       await expect(page.getByRole('button', {name: /Restore$/})).toBeVisible()
       await expect(page.locator('.advisor-summary__score')).toHaveCount(0)
-      await page.locator('a[href$="#/overview"]').first().click()
+      await page.locator('a[href$="#/scorecard"]').first().click()
       await expect(card.locator('.scanner-score')).toHaveCount(0)
       await expect(page.locator('.overall-card')).toContainText('1 of 2 advisors assessed')
       await card.getByRole('link', {name: 'Open panel'}).click()
       await page.getByRole('button', {name: /Restore$/}).click()
       await expect(page.locator('.advisor-summary__score')).toHaveCount(0)
-      await page.locator('a[href$="#/overview"]').first().click()
+      await page.locator('a[href$="#/scorecard"]').first().click()
       await expect(card.locator('.scanner-score')).toHaveCount(0)
       await expect(card).toContainText('1 unknown')
       await expect(page.locator('.overall-card')).toContainText('1 of 2 advisors assessed')
@@ -1163,7 +1163,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
         await card.getByRole('link', {name: 'Open panel'}).click()
         await expect(page.locator('.advisor-score-card')).toContainText('coverage')
         await expect(page.locator('.advisor-summary__score')).toHaveCount(0)
-        await page.locator('a[href$="#/overview"]').first().click()
+        await page.locator('a[href$="#/scorecard"]').first().click()
         await expect(card.locator('.scanner-score')).toHaveCount(0)
       }
       expect(scans).toBe(0)
@@ -1276,7 +1276,7 @@ export function registerAdvisorScoringTests(test, expect, {uiPath = '/bootui', a
           await expectStableResults()
         }
         if (Number(width) < 992) await page.getByRole('button', {name: 'Open navigation menu'}).click()
-        await page.locator('a[href$="#/overview"]').first().click()
+        await page.locator('a[href$="#/scorecard"]').first().click()
         const card = page.locator('.scanner-card').filter({hasText: 'Architecture'})
         await expect(card.locator('.scanner-status')).toHaveText('Scan complete')
         await expect(card.locator('.scanner-status')).toHaveClass(/\btext-bg-secondary\b/)

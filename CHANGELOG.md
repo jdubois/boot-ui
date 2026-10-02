@@ -72,6 +72,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **The sidebar's pinned top is now Home: Scorecard, Live Activity, and Runtime Insights.** The Overview panel is
+  renamed **Scorecard**, which is what it shows, at `#/scorecard`; `#/overview` and the root still land there. Its
+  `overview` panel id, `bootui.panels.overview.*` properties, `GET /bootui/api/overview`, and the `get_overview` tool
+  are unchanged. GitHub moves to the Developer tools group ([Home](docs/features/overview.md),
+  [GitHub](docs/features/developer-tools.md#github)).
+
 - **REST API advisor audit: three noisy rules retired, two severities recalibrated.** `RAPI-VALID-005`
   (Idempotency-Key), `RAPI-DTO-004` (response DTO setters), and `RAPI-ERR-002` (`throws Exception`) now always return
   `SKIPPED`; their IDs and dismissals are kept. `RAPI-RESP-006` drops from HIGH to MEDIUM because servers already strip
@@ -250,6 +256,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`ARCH-SPRING-004` no longer reports a self-call that only joins the caller's transaction.** A method that already
+  runs in a transaction, declared on the method or the class, can call a `@Transactional` method of the same bean
+  whose `REQUIRED`, `SUPPORTS` or `MANDATORY` propagation would only join that transaction. That call is no longer
+  reported at HIGH. A private helper counts as transactional when every caller in its class is. The call stays
+  reported when the caller may run without a transaction, the callee starts or suspends a transaction, the transaction
+  manager, rollback rules, isolation or timeout differ, the callee also carries another proxy annotation, or the call
+  is written inside a lambda or a `try` block ([Architecture checks](docs/ARCHITECTURE-CHECKS.md#arch-spring-004---beans-should-not-self-invoke-their-own-proxied-methods),
+  [#1176](https://github.com/jdubois/boot-ui/issues/1176)).
+- **DB-HIB-007 no longer reports "enforcement is unknown" for ordinary PostgreSQL foreign keys.** Enforcement was
+  only recorded for `NOT VALID` constraints, so every validated foreign key matching a `@ManyToOne` produced a
+  diagnostic and left the Database advisor scan `PARTIAL`. A foreign key absent from a complete, untruncated
+  `NOT VALID` catalog read is now known to be validated and enforced; a failed or truncated read still leaves it
+  unknown ([#1174](https://github.com/jdubois/boot-ui/issues/1174)).
 - **Vulnerabilities no longer scans test-only libraries listed in a CycloneDX SBOM.** The CycloneDX Gradle plugin
   lists test-classpath libraries by default, marked `cdx:maven:package:test=true`; Spring MVC and WebFlux took them as
   application dependencies, so a test-only `freemarker` or a newer test-only `jackson-databind` was reported vulnerable

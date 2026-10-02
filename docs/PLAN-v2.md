@@ -98,7 +98,7 @@ a polished but simple UI, and testable architecture. In addition:
 - **Instrumentation stays optional.** Every capability in §5.1–§5.12 works from framework hooks alone. The BootUI Java
   agent (§5.13) is a separate artifact the developer attaches on purpose; it deepens the same evidence and never
   becomes a prerequisite.
-- **A runtime view, not an advisor.** Observations carry no severity, no score, and no effect on Overview, like the
+- **A runtime view, not an advisor.** Observations carry no severity, no score, and no effect on the Scorecard, like the
   PostgreSQL and MySQL panels. They do say what to check.
 - **Nothing expensive on page load.** Observations are projections over aggregates the journal maintains as events
   arrive, read the way Live Activity already computes its KPI strip. Opening a panel or calling a read tool never
@@ -235,7 +235,7 @@ Three design points shape how v2 reuses v1 foundations:
 | **M5 BootUI Java agent** (§5.13–§5.17) | The optional agent, executor propagation, Code Paths, Code Inventory, Side Effects, and agent evidence in observations, comparison, and tools | M3 for observations; M4 for the change-loop upgrades | 90–116 | 📋 Planned |
 
 M0–M4 total about **179–230 engineer-days**, roughly seven to nine months with two developers who also maintain 1.x.
-Opt-in JFR attribution (§5.11) is not included; it adds 6–9 engineer-days if D17 brings it into 2.0.
+Opt-in JFR attribution (§5.11, D17) adds 6–9 engineer-days to M4, so M0–M4 come to about 185–239 engineer-days with it.
 M5 is estimated separately and **does not gate 2.0.0** (D20): its slices land on `v2` as they are ready, what is merged
 when M4 meets its gates ships in 2.0.0, and the rest follows in 2.x.
 The v1 foundations are estimated in their own plan. Before v1 wave 1 lands, `v2` works on M0 and the spikes.
@@ -260,11 +260,23 @@ they come last and everything before them proceeds without it:
 | M3-3a | `route-time-breakdown`: each route's warm requests split into authentication, other filters, connection wait, SQL, REST client, other handler work, response write, and unattributed time, by a sweep over their monotonic intervals, so overlapping calls count once and the overlap is shown; the median CPU time and allocation join when measured, and the route's first request is reported apart as cold while the journal has evicted nothing. Insufficient below 5 warm requests. `HttpPayload` gains a `RequestTiming`: the monotonic start, authentication time, and handler and response offsets from the phase markers on Spring MVC and Quarkus; WebFlux marks no phases, so its time around the calls is unattributed. `RestClientPayload` gains its monotonic completion | M3-2b | ✅ Delivered |
 | M3-3b | `transaction-across-remote-call`: a physical transaction open when a REST client call starts, per route and method, with the connection it held and, when the pool size is supplied, the labelled estimate pool size ÷ hold time. From 3 transactions whose calls take a median 20 ms; not applicable on Quarkus | M3-3a | ✅ Delivered |
 | M3-3c | `ai-usage-by-route`: a new `ai` journal source, which the telemetry store publishes for each stored GenAI span it recognizes, as metadata only (operation, provider, model, input and output tokens, finish reason, failure; never prompts or answers), linked to its request by trace id since spans are exported after their request; coverage counts events linked this way apart. Per route: operations, model calls with the most in one request (agent loops), median latency, tokens with how many calls reported them, input growth across a request's successive model calls, length-limited stops, and failures. From 3 operations, one call above 8,000 tokens (`bootui.runtime-insights.ai-token-threshold`, M3-4a), or one length-limited stop; without tracing it is not applicable, never "no usage". Jobs are not covered yet, and prompt growth is not split by principal group | M3-3a | ✅ Delivered |
-| M3-4a | The **Runtime Insights** panel (`runtime-insights`, Overview group, after Live Activity, view-only) on every stack: `GET /runtime-insights` and `GET /runtime-insights/insights/{id}` served by a shared Spring controller (WebFlux runs it off the event loop through BootUI's handler adapter) and a Quarkus resource, wired with the stack, the kept run summaries, Hikari pool sizes read through SQL Trace's proxy, and `bootui.runtime-insights.ai-token-threshold`. Available while the journal is enabled, otherwise unavailable naming `bootui.runtime-journal.enabled`. Finding ids become `kind:hash` so they are safe in a URL path; the projection cache also keys on which panels are enabled. Contracts and a conformance test on all three stacks (report shape, a route's breakdown observed with a stable id, its evidence, an unknown id unavailable). The UI: the window line, a correlation coverage strip with text labels and a per-source table (garbage collections left out, as they belong to no request), search and theme chips, a master-detail list grouped by check, the sentence with backticked names as code, **What to check**, exemplar requests opening Live Activity's drawer, the evidence table, limits, a list of checks that could not fully run, and empty states for a disabled journal, an empty run, and nothing observed. Vitest and browser coverage on Spring MVC, WebFlux, and Quarkus; features, specification, properties, and support docs. MCP tools stay excluded until M3-7 | M3-1 | ✅ Delivered |
+| M3-4a | The **Runtime Insights** panel (`runtime-insights`, Home group, after Live Activity, view-only) on every stack: `GET /runtime-insights` and `GET /runtime-insights/insights/{id}` served by a shared Spring controller (WebFlux runs it off the event loop through BootUI's handler adapter) and a Quarkus resource, wired with the stack, the kept run summaries, Hikari pool sizes read through SQL Trace's proxy, and `bootui.runtime-insights.ai-token-threshold`. Available while the journal is enabled, otherwise unavailable naming `bootui.runtime-journal.enabled`. Finding ids become `kind:hash` so they are safe in a URL path; the projection cache also keys on which panels are enabled. Contracts and a conformance test on all three stacks (report shape, a route's breakdown observed with a stable id, its evidence, an unknown id unavailable). The UI: the window line, a correlation coverage strip with text labels and a per-source table (garbage collections left out, as they belong to no request), search and theme chips, a master-detail list grouped by check, the sentence with backticked names as code, **What to check**, exemplar requests opening Live Activity's drawer, the evidence table, limits, a list of checks that could not fully run, and empty states for a disabled journal, an empty run, and nothing observed. Vitest and browser coverage on Spring MVC, WebFlux, and Quarkus; features, specification, properties, and support docs. MCP tools stay excluded until M3-7 | M3-1 | ✅ Delivered |
 | M3-4b | Entry points and exports. The request drawer's **Why this route is slow** loads the route's `route-time-breakdown` on demand and links to it; Live Activity's KPIs link the slowest route to its breakdown; both only when the panel is enabled and available. The panel takes `?q=` and `?insight=` deep links, exports its report as JSON client-side, and lists **Not exercised in this run**: declared application routes (framework endpoints and catch-alls left out) no request reached, counted from the run's aggregates (a new lightweight `routeLabels()`), so evicted requests still count; at most 100, with the rest counted. Documentation screenshot from a mocked report. **Copy for AI** waits for M3-7 | M3-4a | ✅ Delivered |
 | M3-5 | §5.4's runtime model, in the engine's new `model` package: typed nodes (route, GraphQL operation, scheduled job, listener, bean, repository, table, cache, outbound host, topic or queue, AI model, exception group) and edges (depends on, handled by, reads, writes, calls, publishes, consumes, raises) of interned ids, each edge `DECLARED`, `OBSERVED` with its count and first and last seen, or `INFERRED`, never merged; capped at 5,000 nodes and 30,000 edges. `RuntimeModelProjection` builds it on read from the retained events, where executions own work by request or execution id (AI spans by trace id), so an event no execution owns adds no edge, and from a `StructureSnapshot` of routes, handlers, beans, and dependencies that `RuntimeModelService` reads once per run; it stops at the 250 ms read budget as a partial model. Three algorithms with seeded property tests against brute-force references: `ReverseClosure` (backwards only, allowlisted edge types, depth ≤ 5), `IntervalUnion`, and `EdgeDiff`. The PoC's change-impact evidence is a fixture: one repository reaches 7 beans and 571 requests; two routes sharing only a table never reach each other; 50,000 events project well inside the budget. Tables come from the existing `SqlTables` extraction until v1 §3.18 lands. The adapters' structure suppliers arrive with the model's first consumers, M3-7's agent tools and M4's change impact | M3-1 | ✅ Delivered |
 | M3-6 | Sample-app seeds and counterexamples for every observation, and the scripted demo on each stack | M3-2b, M3-3c, M3-4b | 📋 Planned |
 | M3-7 | §5.6's agent tools, CLI commands, prompts, and Quarkus Dev MCP registration, and the panel's **Copy for AI** | M3-4a, v1 §3.25 | 📋 Planned. Needs v1 §3.25 on `main` |
+
+M4's slices are defined as M3 completes, each one pull request to `v2`. M4-1 and M4-2 make the behavior diff possible:
+today a run summary keeps routes, statements, exception groups, and transactional methods, but not the runtime
+model's edges, and every summary lives in the in-memory run history, so a full JVM restart leaves nothing to compare
+against.
+
+| Item | Delivers | Depends on | Status |
+| --- | --- | --- | --- |
+| M4-1 | §5.8's edge set in the run summary. The aggregates count the runtime model's observed edges as events arrive, by each end's node type and name and the edge type, with a count and first and last seen, so an edge whose events the journal later evicts still counts. The run summary carries that set within its byte bound, the least-used edges left out first and counted, with a codec version bump. `EdgeDiff` compares the current run's edges with the previous summary's, and the comparison says when the previous run kept no edges or left some out | M3-5 | 📋 Planned |
+| M4-2 | §5.8's opt-in `bootui.runtime-journal.baseline-file`: at the end of a run, one run summary written to the build output directory (`target/` or `build/`), and read back at the next start as the previous run when the in-memory history has none, so a comparison survives a full JVM restart. The file holds only route templates, statement fingerprints, outbound hosts, exception-group ids and signatures, the edge set, and counts and histograms: never principals, literals, SQL text, or values. Written atomically, read best-effort, a file from another BootUI version or application ignored with the reason, and nothing written when the property is unset | M4-1 | 📋 Planned |
+| M4-3 | §5.11's two resource observations (D18): `heap-growth-after-gc`, old-generation occupancy after collections rising across the run, from the resource track, with the Memory advisor linking to it; and `gc-inflated-latency`, the share of a route's slowest requests during which a stop-the-world pause completed, worded "a pause completed during", never "caused by". Both join the Runtime Insights checks with their minimums from §5.11 | M3-4b | 📋 Planned |
+| M4-4 | §5.11's opt-in JFR attribution (D17): the `bootui.ExecutionSegment` event, a user-triggered **Profile resources** session bounded by `jfr.max-duration`, CPU and allocation samples joined to request segments, virtual threads included, which lifts `route-time-breakdown`'s virtual-thread limit and adds a route's hot frames. Never started on its own or on page load | M3-3a | 📋 Planned |
 
 M5 is split into slices ordered by business value, each one pull request to `v2`. The spike comes first; each later
 slice depends on M5-1, and on the milestone named:
@@ -557,7 +569,7 @@ track. Each slice is one pull request to `v2` with its own tests and documentati
 | M2-9b | The journal profile in the request drawer, as **Recorded by the runtime journal**, loaded right after the request profile by the request id it names. It shows the route and where the request stands against it, its CPU time, memory, and GC pauses, or why they are unavailable or partial, never zero; the timeline on the request's own axis, with instants as markers and the GC lane's retained pauses at their offsets; and the touched resources. Vitest covers the component and the drawer, and browser tests on Spring MVC, WebFlux, and Quarkus find the section in a real request's drawer | M2-9a | ✅ Delivered |
 | M2-9c | §5.11's **Work outside requests** breakdown, opened on demand from a **Resources** button in Live Activity's header and read from `GET /activity/resources`: the run's process CPU time split into requests, each thread family, BootUI's own threads, and JVM internals, as a stacked bar and an accessible table, and a resource lane of heap used and process CPU over the kept points. Vitest covers the component and its on-demand loading, and browser tests on Spring MVC, WebFlux, and Quarkus find the ledger | M2-7b | ✅ Delivered |
 
-### 5.3 Live Activity on the journal — Overview ✅ Delivered
+### 5.3 Live Activity on the journal — Home ✅ Delivered
 
 Live Activity is where developers already connect events, and where the missing links show. This item serves it from
 the journal and extends its request profile, behind parity tests, before the poller is retired.
@@ -651,9 +663,9 @@ Acceptance criteria:
 - The PoC evidence, converted into a Java fixture builder, reproduces the PoC's findings that 2.0 keeps.
 - A fixture where two routes share only a table never reports a path between their executions.
 
-### 5.5 Runtime Insights panel — Overview 🚧 In progress
+### 5.5 Runtime Insights panel — Home 🚧 In progress
 
-A new panel, `runtime-insights`, titled **Runtime Insights**, in the Overview group directly after Live Activity. It
+A new panel, `runtime-insights`, titled **Runtime Insights**, in the Home group directly after Live Activity. It
 lists the current observations and is reachable from where developers already are.
 
 Scope:
@@ -694,7 +706,7 @@ Scope:
 | `safe-method-dml` | GET or HEAD requests that successfully executed an INSERT, UPDATE, or DELETE, by route, fingerprint, and call site. Worded as a question: an incidental audit write, or a state change the caller asked for? | ≥ 1 request | All three for executed JDBC; Quarkus ORM statements are unverified preparations |
 | `framework-warnings-by-route` | `WARN` and `ERROR` events from framework loggers (Hibernate, Spring, HikariCP, Quarkus, Vert.x, Reactor, Jackson, and Tomcat) carrying a request id, grouped by logger, message template, and route, and marked new in the run. About ten known codes carry a specific check, such as Hibernate's in-memory pagination `HHH90003004`, Hikari's leak detection, and Vert.x's blocked-thread warning | ≥ 1 event | All three |
 
-- `gc-inflated-latency` and `heap-growth-after-gc` (§5.11) join this table if D18 confirms them.
+- `gc-inflated-latency` and `heap-growth-after-gc` (§5.11) join these checks in M4-3 (D18).
 - Entry points where developers already look:
   - the Live Activity request profile's **why this route is slow** section (§5.3);
   - a link from Live Activity's slowest-request KPI to its route's observation;
@@ -746,7 +758,7 @@ Architecture:
 
 Out of scope for 2.0:
 
-- Severities, scores, Overview contributions, rule catalogs, and free-form query languages.
+- Severities, scores, Scorecard contributions, rule catalogs, and free-form query languages.
 
 Acceptance criteria:
 
@@ -847,10 +859,12 @@ Scope:
   baseline file as the remedy.
 - Mark a comparison `NOT_COMPARABLE`, with the reason first, when the active profiles, datasource URL shape, or cache
   enablement differ; list configuration differences as limitations.
-- Offer an opt-in `bootui.runtime-journal.baseline-file` that writes one run summary into the build output directory
+- Count the runtime model's observed edges in the aggregates as events arrive, never from the retained window, and
+  keep that edge set in each run summary, so the behavior diff compares whole runs (M4-1).
+- Offer an opt-in `bootui.runtime-journal.baseline-file` (M4-2) that writes one run summary into the build output directory
   (`target/` or `build/`), so a comparison survives a full JVM restart. It holds only route templates, statement
   fingerprints, outbound hosts, exception-group ids, status-class and per-route counts, histograms, and the top bean
-  initialization times: never principals, literals, or SQL text.
+  initialization times, and the edge set: never principals, literals, or SQL text.
 
 Acceptance criteria:
 
@@ -926,7 +940,7 @@ Acceptance criteria:
 | `messaging-flows` as an observation | ❌ Cut | Exact nesting under the request (§5.1, §5.3) is the feature; the `message-consumer-reach` template follows it |
 | Neo4j CSV and OCEL 2.0 exports | ❌ Cut | Niche audiences, with documentation, conformance, and native-hint costs |
 
-### 5.11 Resource correlation — Diagnostics 🚧 Delivered except opt-in JFR attribution (D17)
+### 5.11 Resource correlation — Diagnostics 🚧 Delivered except opt-in JFR attribution (D17, M4-4)
 
 BootUI shows CPU, heap, and GC in the JVM panels, and requests in Live Activity, but never links them: nothing says
 which request allocated the most, which work outside requests burns CPU, or which collections completed while a slow
@@ -965,7 +979,7 @@ Scope, verified on JDK 27 by the resource-correlation research (Appendix A):
    `route-time-breakdown` and adds the hot frames of a route. `jdk.CPUTimeSample` is used where available (Linux,
    JDK 25 and later), and the report says which sampler ran. Starting JFR costs about 330 ms and 42 MB of process
    memory and writes a repository to the temporary directory, so it never starts on its own or on page load. Its
-   milestone is D17.
+   milestone is M4-4 (D17).
 
 Surfaces:
 
@@ -973,7 +987,7 @@ Surfaces:
   with its availability and reason (§5.3), and a GC lane on the unified timeline.
 - Live Activity gains a resource lane and a **Work outside requests** breakdown: request work, each thread family,
   BootUI's own threads, and JVM internals.
-- Candidate observations for M3, decided with the insight audit and D18:
+- Resource observations, in M4-3 (D18):
 
 | Id | Observation | Minimums |
 | --- | --- | --- |
@@ -1244,7 +1258,7 @@ Scope:
   the run are listed as **not loaded in this run**, never as unused, with the run's traffic as the caveat.
 - **Vulnerable code reach.** The Vulnerabilities panel gains a **Runtime reach** column and filter when the agent is
   active: `NOT_LOADED`, `LOADED` (with the class count and first route), or, where an OSV advisory names affected
-  classes or methods, `AFFECTED_CLASS_LOADED`. Reach never changes a finding's severity, score, or Overview penalty:
+  classes or methods, `AFFECTED_CLASS_LOADED`. Reach never changes a finding's severity, score, or Scorecard penalty:
   a class not loaded in this run may load in another.
 - **Dynamic access recording** (user-triggered, bounded session). While recording, the agent records reflection
   (`Class.forName`, `getDeclared*`, `Method.invoke`, `Constructor.newInstance`, and field access), `Proxy` creation,
@@ -1581,7 +1595,7 @@ lands on `v2` and before 2.0.0:
 | D4 | How does v2 depend on v1 items? | One owner per capability; v1 foundations land on `main` in their wave and merge into `v2` |
 | D5 | Release strategy? | **Maintainer decision:** nothing is published before 2.0.0, released from `main` after `v2` merges |
 | D6 | Which exports? | JSON and **Copy for AI** only; GraphML deferred; Neo4j CSV and OCEL cut |
-| D7 | Open the request profile beside the feed? | Prototype in M3 and decide with screenshots |
+| D7 | Open the request profile beside the feed? | **Decided, as recommended** (2026-10-02, taken on the maintainer's behalf; reversible on review): the drawer stays for 2.0. It now carries the journal profile and **Why this route is slow**, and Runtime Insights already offers the master-detail layout; a split pane beside the feed is a 2.x candidate, decided with screenshots then |
 | D8 | Where do 1.x bugs found by v2 go? | `main`, as 1.x patches |
 | D9 | Persist a baseline across JVM restarts? | Opt-in file in the build output directory; JDBC deferred |
 | D10 | Panel name? | Runtime Insights, the maintainer's term. "Explain" was proposed and rejected |
@@ -1590,18 +1604,19 @@ lands on `v2` and before 2.0.0:
 | D13 | How many previous runs are kept? | The 5 most recent, each ≤ 256 KB (§5.2) |
 | D14 | Which insights are in 2.0? | **Maintainer decision, revised after three insight audits:** twelve M3 observations (§5.5) and, in M4, change impact through shared resources, the behavior diff, the two anonymous-access observations, and `proxy-bypass`. `cpu-or-waiting` became CPU and allocation columns of `route-time-breakdown`; `retry-amplification` and `unowned-work` moved after 2.0 (§5.10) |
 | D15 | Graph database or search engine? | No graph database, search engine, or query language in 2.0. Re-examined at the maintainer's request by three audits, which agreed that the graph **model** has value and a graph **database** adds none at BootUI's volumes. 2.0 builds an in-memory typed runtime model (§5.4) for change impact through shared resources and for new dependencies between runs. Named path templates come first after 2.0; an optional graph module waits for a trigger (§5.10) |
-| D16 | Are the GC source, scope readings, ledger, and resource track on by default? | Open. Recommendation: yes, with the journal (D1), and removable through `sources`. M2-6 ships the GC source and scope readings that way, so reversing it is a default change, not a design change |
-| D17 | Is JFR attribution in 2.0? | Open. Recommendation: yes, as an opt-in M4 item, because it is the only way to measure CPU on virtual threads, which the sample apps and many Spring Boot 4 applications enable |
-| D18 | Is heap growth after GC a Runtime Insights observation, or a Memory advisor rule? | Open. Recommendation: an observation, fed by the resource track, with the Memory advisor linking to it |
-| D19 | Does the resource track survive application-context restarts, like run summaries? | Open. Recommendation: no, only its per-run totals, which join the run summary (§5.8) |
-| D20 | Does the BootUI Java agent gate 2.0.0? | Open. Recommendation: no. M5 starts after M3; slices merged when M4 meets its gates ship in 2.0.0, the rest in 2.x. M5-0 to M5-3 carry most of the value and should come first |
-| D21 | Which agent sensors are on by default once the agent is attached and claimed? | Open. Recommendation: executor propagation, `inventory`, `code-paths`, and every Side Effects sensor; probes and dynamic access recording stay user-triggered sessions |
-| D22 | Byte Buddy or plain ASM for the agent? | Open. Recommendation: Byte Buddy, relocated. Its inlined advice and retransformation support are what the OpenTelemetry, Elastic, Datadog, and BlockHound agents rely on; the jar's size only affects developers who attach it |
-| D23 | How is the agent jar obtained? | Open. Recommendation: published to Maven Central as `bootui-agent`, fetched into `target/` or `build/` by a documented `maven-dependency-plugin` or Gradle snippet, which the Java Agent panel prints with the resolved path. Never a transitive dependency |
-| D24 | May AI agents start method probes? | Open. Recommendation: yes, through `start_method_probe`, blocked by read-only policy, with metadata only in every exposure mode |
-| D25 | Should Quarkus apply the same instrumentation at build time instead of through the agent? | Open. Recommendation: not in M5. Quarkus's bytecode transformer build items could instrument application and dependency classes without an agent, but not JDK classes, so the agent stays the one mechanism; revisit after M5-4 |
+| D16 | Are the GC source, scope readings, ledger, and resource track on by default? | **Decided, as recommended** (2026-10-02, taken on the maintainer's behalf; reversible on review): on by default with the journal (D1), and removable through `bootui.runtime-journal.sources`, as M2-6 and M2-7 ship them |
+| D17 | Is JFR attribution in 2.0? | **Decided, as recommended** (2026-10-02, taken on the maintainer's behalf; reversible on review): yes, as an opt-in, user-triggered M4 slice (M4-4), because it is the only way to measure CPU on virtual threads, which the sample apps and many Spring Boot 4 applications enable. It adds 6–9 engineer-days to M4 |
+| D18 | Is heap growth after GC a Runtime Insights observation, or a Memory advisor rule? | **Decided, as recommended** (2026-10-02, taken on the maintainer's behalf; reversible on review): `heap-growth-after-gc` is a Runtime Insights observation fed by the resource track, with the Memory advisor linking to it; `gc-inflated-latency` joins it. Both are M4-3, after M3's twelve observations |
+| D19 | Does the resource track survive application-context restarts, like run summaries? | **Decided, as recommended** (2026-10-02, taken on the maintainer's behalf; reversible on review): no: the resource track stays per run, and only its per-run totals join the run summary (§5.8) |
+| D20 | Does the BootUI Java agent gate 2.0.0? | **Decided, as recommended** (2026-10-02, taken on the maintainer's behalf; reversible on review): no. M5 starts after M3; slices merged when M4 meets its gates ship in 2.0.0, the rest in 2.x. M5-0 to M5-3 come first |
+| D21 | Which agent sensors are on by default once the agent is attached and claimed? | **Decided, as recommended** (2026-10-02, taken on the maintainer's behalf; reversible on review): executor propagation, `inventory`, `code-paths`, and every Side Effects sensor are on once the agent is attached and claimed; method probes and dynamic access recording stay user-triggered sessions |
+| D22 | Byte Buddy or plain ASM for the agent? | **Decided, as recommended** (2026-10-02, taken on the maintainer's behalf; reversible on review): Byte Buddy, relocated, for its inlined advice and retransformation support, which the OpenTelemetry, Elastic, Datadog, and BlockHound agents rely on; the jar's size only affects developers who attach it |
+| D23 | How is the agent jar obtained? | **Decided, as recommended** (2026-10-02, taken on the maintainer's behalf; reversible on review): published to Maven Central as `bootui-agent` and fetched into `target/` or `build/` by a documented `maven-dependency-plugin` or Gradle snippet, which the Java Agent panel prints with the resolved path. Never a transitive dependency |
+| D24 | May AI agents start method probes? | **Decided, as recommended** (2026-10-02, taken on the maintainer's behalf; reversible on review): yes, through `start_method_probe`, blocked by read-only policy, bounded like a user-started probe, with metadata only in every exposure mode |
+| D25 | Should Quarkus apply the same instrumentation at build time instead of through the agent? | **Decided, as recommended** (2026-10-02, taken on the maintainer's behalf; reversible on review): not in M5: Quarkus's bytecode transformer build items cannot instrument JDK classes, so the agent stays the one mechanism; revisit after M5-4 |
 | D26 | Does the run history need its own `bootui-run-holder` artifact? | No. The engine jar already stays in the class loader that survives restarts, which `RunIdentity`'s ordinal relies on and the M1-6g live-reload test proves, so a separate artifact would keep nothing more and add a published module. `RunHistory` keeps encoded byte arrays, so it pins no class loader, and reports when BootUI itself is reloadable (M2-5) |
 | D27 | What does a Live Activity row rendered from the journal show? | **Decided, as recommended** (the maintainer asked to finish M2): the journal stays metadata-only. The live feed completes rows by identity with the detail the panels still hold, already masked under the live policy: a request's principal, an exception's message and location, an email's subject and recipients. Persisted rows are never completed, so they stay at least as masked as `MASKED` (§8). `mail` and `fault-tolerance` are journal sources carrying no subject, address, body, or message. Exceptions are shown per occurrence, not per group |
+| D28 | Does the pinned top of the sidebar grow with Runtime Insights? | **Maintainer decision:** it holds only what a developer starts from. It becomes **Home**: the Overview panel is renamed **Scorecard** (route `#/scorecard`, with `#/overview` redirecting; the `overview` id, properties, `GET /overview`, and `get_overview` unchanged), followed by Live Activity and Runtime Insights. GitHub moves to Developer tools. Change impact, run comparison, and anonymous access stay inside Runtime Insights instead of adding panels |
 
 ## Appendix A. Review log
 
@@ -1661,7 +1676,7 @@ research**) shaped the optional agent of §5.13–§5.17.
 | Lead run comparison with a behavior diff of stable counts, new hosts, and restart cost; latency last and labelled noisy | V, G, E | Adopted (§5.8) |
 | Compact agent payloads with statuses, a `verify` line, a `verify_after_change` prompt, refusal fixtures, and Quarkus Dev MCP registration | G | Adopted (§5.6) |
 | Challenge "no graph database" | E, V, G | Kept for the database; a typed runtime model and named path templates adopted (D15, §5.4, §5.10) |
-| Link CPU, allocation, and GC to runtime events by identity: scope readings, GC by id, a CPU ledger, a resource track, and opt-in JFR attribution | Resource-correlation research (user-directed) | Adopted as §5.11 in M2, with D16–D19 open |
+| Link CPU, allocation, and GC to runtime events by identity: scope readings, GC by id, a CPU ledger, a resource track, and opt-in JFR attribution | Resource-correlation research (user-directed) | Adopted as §5.11 in M2; D16–D19 decided |
 | Store events in a graph database or a search engine for richer insights | Storage research | Rejected for 2.0 (D15): no insight needs a graph database at these volumes; cohort comparison, bounded path templates, and optional Lucene deferred (§5.10) |
 | Add an optional Java agent, after surveying APM agents (OpenTelemetry, Glowroot, SkyWalking, Pinpoint, Elastic, Datadog, New Relic, Dynatrace, Sentry, inspectIT Ocelot, Kieker), diagnostic agents (Arthas, BTrace, Byteman, Lightrun, Rookout, Digma), profilers (async-profiler, JFR, Pyroscope, YourKit, JProfiler), coverage and inventory tools (JaCoCo, Azul Code Inventory and Vulnerability Detection, Contrast), hot-reload agents (JRebel, HotswapAgent), leak and concurrency tools (BlockHound, file-leak-detector), GraalVM's tracing agent, and JEP 451 and JEP 484 | Agent research | Adopted as M5, not gating 2.0.0 (D20): executor propagation, Code Paths with method probes, Code Inventory with changed methods and vulnerable reach, Side Effects, and eight agent observations (§5.13–§5.17). Exception replay, fault injection, test impact, and configuration reads deferred; live patching, full taint tracking, time-tunnel replay, a native profiler, and decompilation cut (§5.10) |
 

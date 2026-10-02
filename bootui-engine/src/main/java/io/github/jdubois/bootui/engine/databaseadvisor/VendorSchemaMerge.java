@@ -265,6 +265,9 @@ final class VendorSchemaMerge {
     }
 
     private static TableModel enrichForeignKeys(TableModel table, Dialect dialect, VendorFindings findings) {
+        boolean unvalidatedReadComplete = findings.available(VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS)
+                && !findings.augmentation(VendorFindingKinds.POSTGRES_UNVALIDATED_CONSTRAINTS)
+                        .truncated();
         List<ForeignKeyModel> foreignKeys = new ArrayList<>();
         for (ForeignKeyModel foreignKey : table.foreignKeys()) {
             ForeignKeyModel enriched = foreignKey;
@@ -278,6 +281,15 @@ final class VendorSchemaMerge {
                                 .toList();
                 if (matches.size() == 1) {
                     enriched = foreignKey.withEnforcement(matches.get(0).enforced(), false, foreignKey.matchType());
+                } else if (matches.isEmpty()
+                        && unvalidatedReadComplete
+                        && !blank(table.schema())
+                        && !blank(table.name())
+                        && !blank(foreignKey.name())) {
+                    // Absent from a complete convalidated = false read, so validated. Every foreign key is enforced
+                    // before PostgreSQL 18, and from 18 on a NOT ENFORCED constraint is always NOT VALID, so it
+                    // would have been listed.
+                    enriched = foreignKey.withEnforcement(true, true, foreignKey.matchType());
                 }
             } else if (dialect == Dialect.ORACLE) {
                 List<OracleConstraintDetail> matches = findings.findings(VendorFindingKinds.ORACLE_CONSTRAINTS).stream()
@@ -407,5 +419,9 @@ final class VendorSchemaMerge {
     /** Resolved catalog identifiers preserve case and component boundaries on every dialect. */
     private static ObjectKey exactKey(String schema, String table, String index) {
         return key(schema, table, index);
+    }
+
+    private static boolean blank(String value) {
+        return value == null || value.isBlank();
     }
 }

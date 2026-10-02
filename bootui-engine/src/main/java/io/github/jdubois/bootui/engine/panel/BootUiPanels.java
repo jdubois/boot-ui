@@ -82,12 +82,12 @@ public final class BootUiPanels {
     public static final String WEBSOCKETS = "websockets";
 
     private static final List<Panel> PANELS = List.of(
-            // Overview registers no API prefix on purpose: GET /bootui/api/overview is the shell's
-            // framework-neutral chrome data source (it also primes the CSRF cookie), so it must answer
-            // regardless of the Overview dashboard panel's enabled/read-only toggle. The panel id still
-            // gates the MCP get_overview tool and drives the sidebar entry; only PanelAccessFilter's
-            // path-based gating is intentionally bypassed.
-            new Panel(OVERVIEW, "Overview", false, List.of()),
+            // The Scorecard panel keeps its original `overview` id and registers no API prefix on purpose:
+            // GET /bootui/api/overview is the shell's framework-neutral chrome data source (it also primes
+            // the CSRF cookie), so it must answer regardless of the Scorecard panel's enabled/read-only
+            // toggle. The panel id still gates the MCP get_overview tool and drives the sidebar entry; only
+            // PanelAccessFilter's path-based gating is intentionally bypassed.
+            new Panel(OVERVIEW, "Scorecard", false, List.of()),
             new Panel(HEALTH, "Health", false, "/health"),
             new Panel(HTTP_SESSIONS, "HTTP Sessions", true, "/http-sessions"),
             new Panel(METRICS, "Metrics", false, "/metrics"),
@@ -139,7 +139,7 @@ public final class BootUiPanels {
             new Panel(REST_CLIENT_TRACE, "REST Client", true, "/rest-client-trace"),
             new Panel(AI, "AI Framework", false, "/ai"),
             new Panel(MCP_SERVER, "MCP Server", true, "/mcp-server"),
-            // Like Overview, the Command Line panel registers no API prefix on purpose. Its data source,
+            // Like Scorecard, the Command Line panel registers no API prefix on purpose. Its data source,
             // GET /bootui/api/cli, is the command-line client's own transport endpoint, gated by
             // bootui.cli.enabled so the `bootui` CLI keeps a single honest switch. Letting this panel's
             // prefix gate it too would mean turning off a UI panel silently breaks CI jobs, and a read-only
