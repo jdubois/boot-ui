@@ -565,6 +565,8 @@ Twelve observations run over every completed request:
 | `repeated-selects` | The same SELECT run five or more times in a request after another statement, from three requests |
 | `connections-per-request` | Requests that held two or more connections of one data source at the same time |
 | `safe-method-dml` | GET or HEAD requests that wrote to the database, worded as a question |
+| `anonymous-data-reach` | Successful requests an authorization decision proved anonymous that wrote a table, per route and table. Anonymous reads, authenticated writes, and requests no rule checked are never counted, and each row says not to add authorization from it alone |
+| `anonymous-success-on-restricted-route` | 2xx answers to proven-anonymous requests on a route whose rules this run saw deny another anonymous caller or require an authority: "a successful anonymous response, not proof that the rule is wrong" |
 | `split-transaction-writes` | Requests whose writes committed in two or more independent transactions or autocommit statements |
 | `transaction-across-remote-call` | Transactions still open when a REST client call starts, with the connection they held |
 | `lazy-sql-after-handler` | SQL run while the response was written, outside every transaction (open session in view) |

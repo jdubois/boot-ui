@@ -147,6 +147,8 @@ public final class RuntimeInsightsService {
                 new RepeatedSelects(),
                 new ConnectionsPerRequest(),
                 new SafeMethodDml(),
+                new AnonymousDataReach(),
+                new AnonymousSuccessOnRestrictedRoute(),
                 new SplitTransactionWrites(),
                 new TransactionAcrossRemoteCall(),
                 new LazySqlAfterHandler(),
