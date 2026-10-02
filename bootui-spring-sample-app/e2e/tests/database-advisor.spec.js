@@ -2,6 +2,13 @@
 import {expect, test} from './fixtures.js'
 import {expectedAdvisorScore} from '../scenarios/advisor-scoring.js'
 
+// The `docker` profile runs on PostgreSQL, whose catalog reads let the advisor establish every check, including
+// foreign-key enforcement inferred from the complete NOT VALID read, so the scan is complete. The Docker-free H2
+// database only exposes generic JDBC metadata, which cannot establish foreign-key access paths or primary-key index
+// semantics, so its scan keeps scan notes.
+const profiles = (process.env.BOOTUI_SAMPLE_PROFILES || '').split(',').map((profile) => profile.trim())
+const coverageComplete = profiles.includes('docker')
+
 test.describe('Database view', () => {
   test('runs physical-schema checks and shows a real finding', async ({openView, page}) => {
     await openView('database-advisor', 'Database')
@@ -14,11 +21,17 @@ test.describe('Database view', () => {
     )
     await page.getByRole('button', {name: 'Run Database checks'}).click()
     const report = await (await scanResponse).json()
-    expect(report.scan.status).toBe('PARTIAL')
+    expect(report.scan.status).toBe(coverageComplete ? 'SCANNED' : 'PARTIAL')
     expect(report.evidence.usable).toBe(true)
-    expect(report.evidence.coverageComplete).toBe(false)
+    expect(report.evidence.coverageComplete).toBe(coverageComplete)
     await expect(page.locator('.advisor-summary__value')).toHaveText(String(expectedAdvisorScore(report)))
-    await expect(page.getByRole('img', {name: /Known-findings score: .*Scan notes available/})).toHaveCount(1)
+    await expect(
+      page.getByRole('img', {
+        name: coverageComplete
+          ? /^Known-findings score: \d+ out of 100$/
+          : /Known-findings score: .*Scan notes available/
+      })
+    ).toHaveCount(1)
 
     // After the scan the findings render and the empty state disappears.
     await expect(page.getByText('No Database data yet')).toHaveCount(0, {timeout: 30_000})
@@ -33,6 +46,10 @@ test.describe('Database view', () => {
     const card = page.locator('.scanner-card').filter({hasText: 'Database'})
     await expect(card.locator('.scanner-score')).toHaveText(String(expectedAdvisorScore(report)))
     await expect(card.locator('.scanner-status')).toHaveText('Scan complete')
-    await expect(page.locator('.assessment-summary')).toContainText('scan notes')
+    if (coverageComplete) {
+      await expect(card.getByRole('img', {name: /^Database known-findings score: \d+ out of 100$/})).toHaveCount(1)
+    } else {
+      await expect(page.locator('.assessment-summary')).toContainText('scan notes')
+    }
   })
 })
