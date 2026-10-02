@@ -9,6 +9,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Agent-ready request profiles and Copy for AI.** The new read-only `get_request_profile` MCP tool, also the
+  `bootui request-profile <id>` command, returns the same masked per-request profile as
+  `GET /bootui/api/activity/request/{id}` on Spring MVC, Spring WebFlux, and Quarkus, including the unavailable profile
+  for an unknown or evicted id, so an agent can follow a slow or failing Live Activity request to its SQL, N+1 groups,
+  call sites, and exceptions. Each profile exception now carries an additive `exceptionGroupId` for
+  `get_exception_detail`. The Live Activity profile drawer and the Exceptions detail gain **Copy for AI**, which
+  previews one Markdown document, listing what it omits, before anything is copied; **Copy profile** now copies
+  Markdown from the same helper. Exports contain only what the panels show, honor `METADATA_ONLY`, and send nothing
+  ([Investigate one request](docs/AI-AGENTS.md#investigate-one-request), PLAN §3.25).
+
 - **Four REST API rules catch request and response declarations that break at runtime.** `RAPI-VALID-006` (HIGH)
   reports a Spring handler with several `@RequestBody` parameters, which fails every request on Spring MVC.
   `RAPI-VER-007` (HIGH) reports a GET/HEAD/DELETE handler that binds no body but carries a consumes condition, usually
@@ -69,6 +79,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   exchange, hidden BootUI exchanges) is stated inline. The same rankings are available from
   `GET /bootui/api/http-exchanges/routes`, the `get_http_routes` MCP tool, and `bootui http routes`, on Spring MVC,
   Spring WebFlux, and Quarkus.
+- **Lightweight PostgreSQL Docker sample profile.** Run the Spring MVC sample with `docker-postgresql`, or the
+  dedicated `run-local-postgresql.sh` launcher, to start only PostgreSQL and Redis, without Kafka, Ollama, or AI model
+  downloads. PostgreSQL preloads and creates `pg_stat_statements`, so the PostgreSQL panel's Statement ranking is
+  readable; the full `docker` profile is unchanged.
 
 ### Changed
 

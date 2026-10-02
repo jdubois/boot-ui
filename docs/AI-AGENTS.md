@@ -237,16 +237,20 @@ the classpath) are simply not advertised.
   `get_security_rule_violations`, and `get_database_advisor_rule_violations` page the retained details from that
   advisor's latest completed scan. Each takes required `id` (rule ID) and `scanId`, with optional `offset` and
   `limit`. They have the same stack/capability availability as their report, and remain usable in read-only mode.
-- **Diagnostics reads:** `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
+- **Diagnostics reads:** `get_live_activity`, `get_request_profile`, `get_exceptions`, `get_exception_detail`,
+  `get_security_logs`,
   `get_sql_traces`, `get_transactions` (Spring MVC/WebFlux only), `get_traces`, `get_log_tail`, `get_http_exchanges`,
   `get_http_routes`, and `get_rest_client_traces`.
   `get_http_routes` returns the [HTTP Exchanges route rankings](features/diagnostics.md#route-rankings): per method and
   route template, request and status-class counts, p50/p95/p99 and maximum duration, share of request time, and the
   evidence window they cover; its optional `limit` is the number of routes each ranking criterion contributes.
   `get_live_activity` returns the correlated feed the [Live Activity panel](features/overview.md#live-activity) shows (HTTP requests, SQL
-  statements, exceptions, and security events grouped by request/trace); `get_exception_detail` takes a required `id`
-  (from `get_exceptions` or `get_live_activity`) and returns that exception group's full stack trace, causes, and
-  individual occurrences. `get_http_exchanges`, `get_sql_traces`, and `get_rest_client_traces` read bounded buffers
+  statements, exceptions, and security events grouped by request/trace); `get_request_profile` takes the required `id`
+  of a `REQUEST` entry whose `profileable` flag is true and returns the same masked profile as
+  `GET /bootui/api/activity/request/{id}` and the panel's profile drawer — see
+  [Investigate one request](#investigate-one-request); `get_exception_detail` takes a required `id`
+  (from `get_exceptions`, `get_live_activity`, or a profile exception's `exceptionGroupId`) and returns that exception
+  group's full stack trace, causes, and individual occurrences. `get_http_exchanges`, `get_sql_traces`, and `get_rest_client_traces` read bounded buffers
   that keep recent failed and slow records longer than routine ones; each includes a `retention` object with the
   capacity and the retained, reserved, and evicted counts, so an agent can tell a partial window from "it never
   happened". See [Failure-preserving retention](features/diagnostics.md#failure-preserving-retention).
@@ -265,6 +269,28 @@ the classpath) are simply not advertised.
   `postgresql_read`, `mysql_read`, `analyze_heap_dump`, and `trigger_devtools_livereload`. They never capture or download a heap dump,
   execute an HTTP probe, mutate a database, clear a cache, write GitHub state, restart a dev service, or run an agent
   command.
+
+### Investigate one request
+
+`get_live_activity` says which request was slow or failed; `get_request_profile` says why. The workflow is the same
+through MCP and the CLI:
+
+1. **List activity.** Call `get_live_activity` (`bootui activity --limit 50 --json`) and pick the `REQUEST` entry in
+   question. Only entries with `profileable: true` have a profile, and `sqlNPlusOneSuspected` or an `ERROR` or `SLOW`
+   severity marks the ones worth opening.
+2. **Fetch its profile.** Call `get_request_profile` with that entry's `id` (`bootui request-profile <id> --json`). The
+   profile carries the request, its correlated SQL as normalized statement groups with N+1 flags and the application
+   call sites that issued them, exceptions, security events, REST client calls, cache accesses, a timing breakdown,
+   per-section correlation tiers and truncation counts, and notes. It is the same DTO the REST endpoint returns, masked
+   the same way. An unknown or evicted id returns `available: false` with an `unavailableReason`; that is an answer,
+   not a failure to retry.
+3. **Follow each exception.** Every profile exception carries an `exceptionGroupId`; pass it to
+   `get_exception_detail` (`bootui exceptions show <id> --json`) for the stack trace, cause chain, and recent
+   occurrences.
+
+The tool belongs to the Live Activity panel, so it is unavailable when that panel is disabled. In the browser,
+**Copy for AI** in the profile drawer and in an Exceptions detail renders the same evidence as one Markdown document,
+previewed with what it omits before anything reaches the clipboard. It sends nothing to any AI provider.
 
 ### MySQL operational evidence
 

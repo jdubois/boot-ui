@@ -240,8 +240,8 @@ panel and is not claimed beyond the native-image tests that exercise that capabi
 **Command-line endpoint** (`/bootui/api/cli`) is served at full parity with Spring MVC and Spring WebFlux: a CDI
 producer builds the shared engine `CliService` over the same `QuarkusMcpTools` registry and `QuarkusMcpPanelPolicy`, and
 a thin JAX-RS resource maps the outcome onto HTTP status codes. It is enabled by default (`bootui.cli.enabled`), needs
-no MCP toggle, and is pinned to the Spring stacks by the shared CLI conformance suite. The 74 tools in the Quarkus
-catalog are a subset of the 90 Spring MVC declares, and a running application advertises only those whose backing
+no MCP toggle, and is pinned to the Spring stacks by the shared CLI conformance suite. The 75 tools in the Quarkus
+catalog are a subset of the 91 Spring MVC declares, and a running application advertises only those whose backing
 panel is available, so the catalog a client reads at runtime is authoritative.
 
 **Dev Services** is a Quarkus-native concept: a build-time `DevServicesResultBuildItem` snapshot captured via recorder +

@@ -9,7 +9,7 @@ the Playwright suite under `e2e/` exercises.
 - The `bootui-spring-boot-starter` dependency on a real Spring Boot 4 app.
 - BootUI auto-activating in local development (the `dev`/`docker` profiles, or via `spring-boot-devtools`).
 - A relational Spring Data repository so the Spring Data panel has data to show
-  (in-memory H2 by default, PostgreSQL with `docker`, MySQL with `docker-mysql`).
+  (in-memory H2 by default, PostgreSQL with `docker` or `docker-postgresql`, MySQL with `docker-mysql`).
 - Optional PostgreSQL, Redis, Kafka, and Ollama Docker Compose services (`compose.yaml`, enabled by the `docker`
   profile) so the Spring Data, Database Connection Pools, Cache, Kafka, AI Framework, and Dev Services panels have
   realistic infrastructure to show.
@@ -74,6 +74,40 @@ docker compose -f bootui-spring-sample-app/compose.yaml exec -T postgres \
 
 These commands run from the repository root. The extension setup is Docker-only; the default `dev` profile still uses H2.
 
+## Run it with Docker and PostgreSQL
+
+Use PostgreSQL **as the application's primary database**, with Redis for caching and no Kafka or Ollama.
+The dedicated launcher builds the sample and runs the lightweight stack:
+
+```bash
+./bootui-spring-sample-app/run-local-postgresql.sh
+```
+
+Spring Boot starts [`compose-postgresql.yaml`](compose-postgresql.yaml), whose services extend the `postgres` and
+`redis` services of `compose.yaml`. PostgreSQL therefore preloads `pg_stat_statements` and creates the extension
+through [`docker/postgres/init.sql`](docker/postgres/init.sql), as described
+[above](#postgresql-statement-statistics), so the PostgreSQL panel's **Statement ranking** tab works. Kafka and Ollama
+auto-configuration are disabled, so this profile makes no broker connections or AI model downloads; Kafka and chat
+operations report unavailable.
+
+Open <http://localhost:8080/bootui/#/postgresql>, exercise <http://localhost:8080/api/sample/products>, then click
+**Run PostgreSQL read**. Opening the panel alone performs no diagnostic query.
+
+This variant has its own Compose project, so Kafka or Ollama containers left by the full `docker` profile are not
+picked up, and it starts with a fresh database. Both database/cache host ports are dynamic. For parallel worktrees set
+a unique `COMPOSE_PROJECT_NAME` and select a different application port:
+
+```bash
+COMPOSE_PROJECT_NAME=my-postgresql-sample ./bootui-spring-sample-app/run-local-postgresql.sh \
+  -Dspring-boot.run.arguments=--server.port=8085
+```
+
+To stop this variant explicitly, from the repository root:
+
+```bash
+docker compose -f bootui-spring-sample-app/compose-postgresql.yaml down
+```
+
 ## Run it with Docker and MySQL
 
 Use MySQL 8.4.6 **as the application's primary database**, with Redis for caching and no Kafka or Ollama.
@@ -83,14 +117,15 @@ The dedicated launcher builds the sample and runs the lightweight stack:
 ./bootui-spring-sample-app/run-local-mysql.sh
 ```
 
-The original `run-local.sh` continues to run the Docker-free `dev` profile. Both scripts use the isolated `.m2`
+The original `run-local.sh` continues to run the Docker-free `dev` profile. All three scripts use the isolated `.m2`
 repository and forward additional Maven arguments to the application launch.
 
 No Maven profile or externally configured database is needed. Spring Boot starts
 [`compose-mysql.yaml`](compose-mysql.yaml), discovers MySQL's dynamically mapped localhost port and credentials,
 and uses it for JPA, Flyway, and Liquibase. Redis reuses the existing Docker service definition. Kafka and Ollama
 auto-configuration are disabled, so this profile makes no broker connections or AI model downloads; Kafka and chat
-operations report unavailable. The normal `dev` and full PostgreSQL `docker` profiles are unchanged.
+operations report unavailable. The normal `dev`, full PostgreSQL `docker`, and lightweight `docker-postgresql`
+profiles are unchanged.
 
 The container enables statement instrumentation and grants the sample's non-root `bootui` account the diagnostic
 reads needed by the MySQL panel. Its passwords are development-only fixtures, not production credentials.

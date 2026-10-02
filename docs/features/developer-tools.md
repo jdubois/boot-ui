@@ -58,12 +58,15 @@ makes outbound calls to OSV.dev.
 `get_database_advisor_report`, `get_memory_report`, `get_security_report`, `get_pentest_report`, `get_rest_api_report`,
 `get_graalvm_report`, `get_crac_report`, and `get_vulnerabilities_report`.
 
-**Diagnostics reads** — `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
+**Diagnostics reads** — `get_live_activity`, `get_request_profile`, `get_exceptions`, `get_exception_detail`,
+`get_security_logs`,
 `get_sql_traces`, `get_transactions` (Spring MVC and WebFlux only), `get_traces`, `get_log_tail`,
 `get_http_exchanges`, `get_http_routes`, and
 `get_rest_client_traces`. `get_live_activity` returns the correlated feed of HTTP requests, SQL statements, exceptions,
 security events, scheduled-task runs, and, on Spring, cache accesses, grouped by request or trace.
-`get_exception_detail` returns a group's stack trace, causes, and occurrences.
+`get_request_profile` takes a profileable `REQUEST` entry's id and returns its
+[per-request profile](overview.md#the-per-request-profiler), the same masked DTO as the profile drawer, with each
+exception's `exceptionGroupId`. `get_exception_detail` returns a group's stack trace, causes, and occurrences.
 
 **Runtime and integration reads** — `get_overview`, `get_health`, `get_config`, `get_beans`, `get_mappings`,
 `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`, `get_cache_stats`,
@@ -124,7 +127,7 @@ engine. Each adapter supplies only a thin Jackson envelope codec, Jackson 2 on Q
 requests and responses are byte-identical across backends.
 
 **Quarkus** runs the same JSON-RPC bridge at the same endpoint with the same runtime toggle, reading the `bootui.mcp.*`
-keys from MicroProfile Config. Its catalog declares 74 tools against Spring MVC's 90, because the tools behind
+keys from MicroProfile Config. Its catalog declares 75 tools against Spring MVC's 91, because the tools behind
 Spring-only panels are withheld: the GraalVM and CRaC scans and reports, Conditions, Startup Timeline, HTTP Sessions,
 Spring Data, Spring Security, JMS, DevTools, and every transaction tool. `get_overview` is offered, and `spring_scan`
 runs the Quarkus-native idiom advisor.

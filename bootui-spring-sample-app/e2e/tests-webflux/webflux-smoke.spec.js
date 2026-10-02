@@ -152,7 +152,20 @@ test.describe('BootUI on Spring WebFlux', () => {
     await expect(page.locator('.activity-table')).toBeVisible()
   })
 
-  test('profiles a traced request with exact tiers only on the reactive stack', async ({page, request, baseURL}) => {
+  test('profiles a traced request with exact tiers only on the reactive stack', async ({
+    browserName,
+    context,
+    page,
+    request,
+    baseURL
+  }) => {
+    if (browserName === 'chromium') {
+      try {
+        await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+      } catch {
+        /* no-op */
+      }
+    }
     // The reactive sample runs no tracer, so an inbound W3C traceparent is what gives the exchange the
     // trace id the reactive profiler correlates on. The serving-thread and time-window tiers stay
     // unavailable on an event loop, and the drawer says so instead of guessing.
@@ -183,6 +196,16 @@ test.describe('BootUI on Spring WebFlux', () => {
     const journal = drawer.locator('.request-journal')
     await expect(journal.getByRole('heading', {name: 'Recorded by the runtime journal'})).toHaveCount(1)
     await expect(journal).toContainText('GET /api/greetings/{name}')
+
+    // Copy for AI renders the same reactive profile through the shared Markdown helper.
+    await drawer.getByRole('button', {name: 'Copy for AI'}).click()
+    const preview = drawer.getByRole('textbox', {name: 'Markdown export preview'})
+    await expect(preview).toHaveValue(/# BootUI request profile: `GET \/api\/greetings\/Grace`/)
+    await expect(preview).toHaveValue(new RegExp(`- \\*\\*Trace id:\\*\\* \`${traceId}\``))
+    await expect(preview).toHaveValue(/time window correlation are unavailable on this adapter/)
+    await drawer.getByRole('button', {name: 'Copy Markdown'}).click()
+    await expect(drawer.getByRole('button', {name: 'Copied'})).toBeVisible()
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(await preview.inputValue())
 
     await page.keyboard.press('Escape')
     await expect(drawer).toHaveCount(0)

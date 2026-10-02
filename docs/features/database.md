@@ -173,6 +173,17 @@ do not invalidate a successfully read replica list.
 
 :::
 
+::: details Try it with the sample application
+
+The Spring MVC sample has a
+[`docker-postgresql` profile](https://github.com/jdubois/boot-ui/tree/main/bootui-spring-sample-app#run-it-with-docker-and-postgresql).
+It uses PostgreSQL for JPA and both migration tools, preloads `pg_stat_statements`, and creates the extension so
+Statement ranking is readable. Run `bootui-spring-sample-app/run-local-postgresql.sh` for the lightweight
+PostgreSQL-and-Redis stack; Kafka and Ollama are disabled, with no AI model downloads.
+No separate Maven profile is required.
+
+:::
+
 ## MySQL
 
 ![BootUI MySQL panel](../images/bootui-mysql.webp)

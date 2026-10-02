@@ -672,6 +672,22 @@ class ExecutionProfileAssemblerTests {
         }
 
         @Test
+        void carriesEachExceptionsGroupIdSoTheProfileCanReachItsDetail() {
+            HttpExchangeDto request = request("r1", "/orders", "trace-a", null, START, 100L);
+            ProfileEvidence evidence = new Evidence(request)
+                    .exceptions(
+                            exceptionDetail("g-1", "trace-a", START + 10),
+                            exceptionDetail("g-2", "trace-a", START + 20))
+                    .build();
+
+            RequestProfileDto profile = assembler.requestProfile("r1", evidence, capabilities);
+
+            assertThat(profile.exceptions())
+                    .extracting(RequestProfileExceptionDto::exceptionGroupId)
+                    .containsExactly("g-1", "g-2");
+        }
+
+        @Test
         void keepsTheMethodPathAndWindowGateForExceptionsEvenWithAMatchingTraceId() {
             // Spring MVC's exception policy is unchanged: an occurrence outside the request's method, path,
             // and window is not this request's, whatever trace id it carries.

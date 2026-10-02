@@ -1,0 +1,15 @@
+# A distinct project prevents previously started Kafka or Ollama services from the full "docker" stack
+# being picked up by this lightweight variant.
+name: bootui-spring-sample-postgresql
+
+services:
+  # Inherits the pg_stat_statements preload and the init.sql that creates the extension, which the
+  # BootUI PostgreSQL panel's Statement ranking tab requires.
+  postgres:
+    extends:
+      file: compose.yaml
+      service: postgres
+  redis:
+    extends:
+      file: compose.yaml
+      service: redis

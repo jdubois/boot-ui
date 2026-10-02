@@ -1286,7 +1286,19 @@ Features:
   Repeated identical `SELECT`s above
   `bootui.activity.n-plus-one-threshold` are surfaced as a potential N+1, together with the distinct application call
   site(s) that issued them (from SQL Trace's call-site capture, `bootui.sql-trace.capture-call-site`, on by default) so a
-  flagged group names exactly where in the code to look.
+  flagged group names exactly where in the code to look. Each correlated exception carries the `exceptionGroupId` of
+  its Exceptions group, so a profile reaches the group's detail through `GET /bootui/api/exceptions/{id}` or
+  `get_exception_detail`. The same profile is the `get_request_profile` MCP tool and `bootui request-profile <id>` CLI
+  command, which return the endpoint's DTO unchanged, including its unavailable profile for an unknown or evicted id.
+- **Copy profile** and **Copy for AI** in the profile drawer, and **Copy for AI** in an Exceptions detail, render one
+  Markdown document through a single shared frontend helper, built only from DTOs the browser holds or loads through
+  existing read endpoints, so identical DTOs produce identical text on every adapter. Captured strings are escaped, and
+  code, stack traces, and SQL are fenced, so they cannot break the document. **Copy for AI** first shows the full
+  document and lists what it leaves out (masked values, truncated or unavailable sections, withheld messages, details
+  that could not be loaded). Preparing that preview reads each referenced exception group, or, from Exceptions, the
+  Live Activity feed and the profile of the request the latest occurrence belongs to. The copy itself sends nothing and
+  changes no state, the preview matches the clipboard exactly, and the document stays selectable when clipboard access
+  is denied.
 - Optional durable persistence (`bootui.activity.persistence.enabled`, off by default, available on both adapters): in
   addition to today's in-memory-only default, captured entries can also be written to a SQL database over direct JDBC so
   history survives a restart and the dashboard can page back further than fits in memory. The design is a pluggable
@@ -2961,7 +2973,8 @@ Design rules:
   - Cached advisor reports: `get_architecture_report`, `get_spring_report`, `get_hibernate_report`,
     `get_database_advisor_report`, `get_memory_report`, `get_security_report`, `get_pentest_report`,
     `get_rest_api_report`, `get_graalvm_report`, `get_crac_report`, and `get_vulnerabilities_report`.
-  - Diagnostics: `get_live_activity`, `get_exceptions`, `get_exception_detail`, `get_security_logs`,
+  - Diagnostics: `get_live_activity`, `get_request_profile`, `get_exceptions`, `get_exception_detail`,
+    `get_security_logs`,
     `get_sql_traces`, `get_transactions`, `get_traces`, `get_log_tail`, `get_http_exchanges`, `get_http_routes`, and
     `get_rest_client_traces`.
   - Runtime and integration reads: `get_overview`, `get_health`, `get_config`, `get_beans`, `get_mappings`,

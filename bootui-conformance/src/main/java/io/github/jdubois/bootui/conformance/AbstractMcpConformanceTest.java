@@ -430,6 +430,32 @@ public abstract class AbstractMcpConformanceTest {
     }
 
     @Test
+    void testMcpRequestProfileReturnsTheSameDtoAsTheRestEndpoint() throws Exception {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            String id = "conformance-unknown-request";
+            Response response = probe().request(
+                            "POST",
+                            "/bootui/api/mcp",
+                            Map.of("Content-Type", "application/json"),
+                            "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\","
+                                    + "\"params\":{\"name\":\"get_request_profile\","
+                                    + "\"arguments\":{\"id\":\"" + id + "\"}}}");
+            assertThat(response.status()).isEqualTo(200);
+            JsonNode result = response.json().path("result");
+            assertThat(result.path("isError").asBoolean()).as(result.toString()).isFalse();
+            JsonNode profile = new ObjectMapper()
+                    .readTree(result.path("content").get(0).path("text").asText());
+
+            Response rest = probe().get("/bootui/api/activity/request/" + id);
+            assertThat(rest.status()).isEqualTo(200);
+            assertThat(profile).isEqualTo(rest.json());
+            assertThat(profile.path("available").asBoolean(true)).isFalse();
+            assertThat(profile.path("unavailableReason").asText()).contains(id);
+        }
+    }
+
+    @Test
     void testMcpToolClientErrorIsReportedInBandInsteadOfInternalError() {
         assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
         try {

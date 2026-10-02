@@ -266,6 +266,45 @@ test.describe('Live Activity view (Quarkus)', () => {
     await expect(drawer).toHaveCount(0)
   })
 
+  test('Copy for AI previews the profile Markdown with its SQL and copies it exactly', async ({
+    browserName,
+    context,
+    openView,
+    page
+  }) => {
+    if (browserName === 'chromium') {
+      try {
+        await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+      } catch {
+        /* no-op */
+      }
+    }
+    await page.request.get('/api/sample/product-search')
+
+    await openView('activity', 'Live Activity')
+    const searchRow = page.locator('.activity-table tbody tr', {hasText: '/api/sample/product-search'}).first()
+    await expect(searchRow).toBeVisible({timeout: 15_000})
+    await searchRow.getByRole('button', {name: /Profile/}).click()
+    const drawer = page.locator('.activity-drawer')
+    await expect(drawer).toBeVisible()
+
+    const writes = []
+    page.on('request', (request) => {
+      if (request.method() !== 'GET') writes.push(`${request.method()} ${request.url()}`)
+    })
+    await drawer.getByRole('button', {name: 'Copy for AI'}).click()
+
+    const preview = drawer.getByRole('textbox', {name: 'Markdown export preview'})
+    await expect(preview).toHaveValue(/# BootUI request profile: `GET \/api\/sample\/product-search`/)
+    await expect(preview).toHaveValue(/## SQL \(exact, request id\)/)
+    await expect(preview).toHaveValue(/```sql\n/)
+
+    await drawer.getByRole('button', {name: 'Copy Markdown'}).click()
+    await expect(drawer.getByRole('button', {name: 'Copied'})).toBeVisible()
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(await preview.inputValue())
+    expect(writes).toEqual([])
+  })
+
   test('pauses and resumes the live feed', async ({openView, page}) => {
     await openView('activity', 'Live Activity')
 
