@@ -16,6 +16,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.journal.ScheduledPayload;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
+import io.github.jdubois.bootui.engine.journal.WebSocketPayload;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.time.Duration;
 import java.util.List;
@@ -77,6 +78,23 @@ class ExecutionProjectionTests {
     }
 
     @Test
+    void aWebSocketMessageHandlerIsObservedLikeAListener() {
+        for (int i = 0; i < 3; i++) {
+            execution(WebSocketPayload.handled("stomp:/ws", "/app/chat/{room}", 12L, false), repeatedSelects());
+        }
+
+        List<RuntimeObservationDto> repeats = service().report().observations().stream()
+                .filter(observation -> observation.kind().equals(RepeatedSelects.KIND))
+                .toList();
+
+        assertThat(repeats).singleElement().satisfies(observation -> {
+            assertThat(observation.subject()).isEqualTo("consume websocket:/app/chat/{room}");
+            assertThat(observation.status()).isEqualTo("OBSERVED");
+            assertThat(observation.sentence()).endsWith("in 3 of 3 messages, up to 5 times in one.");
+        });
+    }
+
+    @Test
     void theHandlerNamesItsAiCallsAndSynchronousMessageSends() {
         for (int i = 0; i < 6; i++) {
             request(
@@ -124,7 +142,9 @@ class ExecutionProjectionTests {
             journal.offer(RuntimeEvent.of(JournalSource.SQL, 1_000, MS, context, "job-1", null, false, statement));
         }
         journal.offer(RuntimeEvent.of(
-                entry instanceof ScheduledPayload ? JournalSource.SCHEDULED : JournalSource.MESSAGING,
+                entry instanceof ScheduledPayload
+                        ? JournalSource.SCHEDULED
+                        : entry instanceof WebSocketPayload ? JournalSource.WEBSOCKET : JournalSource.MESSAGING,
                 1_000 + executions,
                 20 * MS,
                 context,

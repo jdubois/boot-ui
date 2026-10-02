@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.WebSocketPayload;
+import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -15,6 +17,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient;
+import reactor.core.publisher.Mono;
 
 /**
  * The WebFlux sample's Runtime Insights seeds ({@code docs/PLAN-v2.md} M3-6): JDBC on the event loop and a per-note
@@ -67,6 +71,28 @@ class WebFluxRuntimeInsightsSeedsTest {
         assertThat(subjects("repeated-selects"))
                 .contains("GET /api/insights/notes/one-by-one")
                 .doesNotContain("GET /api/insights/notes/at-once", "GET /api/notes");
+    }
+
+    @Test
+    void eachMessageTheEchoHandlerReceivesIsAnExecutionNamedByItsMapping() throws Exception {
+        new ReactorNettyWebSocketClient()
+                .execute(
+                        URI.create("ws://localhost:" + port + "/echo"),
+                        session -> session.send(Mono.just(session.textMessage("secret note")))
+                                .thenMany(session.receive().take(1))
+                                .then())
+                .block(Duration.ofSeconds(10));
+        assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
+
+        assertThat(journal.entries())
+                .extracting(entry -> entry.event())
+                .filteredOn(event -> event.payload() instanceof WebSocketPayload)
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.executionId()).isNotNull();
+                    assertThat(event.payload())
+                            .isEqualTo(WebSocketPayload.handled("handler:/echo", "/echo", 11L, false));
+                });
     }
 
     private List<String> subjects(String kind) {

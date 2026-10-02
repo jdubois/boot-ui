@@ -20,14 +20,14 @@ import org.springframework.security.web.server.SecurityWebFilterChain;
 public class SecurityConfiguration {
 
     /**
-     * Public access for the demo REST API paths and static resources; everything else (including
-     * the root) requires authentication. This is intentionally kept simple so CI can run without a
+     * Public access for the demo REST API paths, the echo WebSocket, and static resources; everything else
+     * (including the root) requires authentication. This is intentionally kept simple so CI can run without a
      * login step.
      */
     @Bean
     public SecurityWebFilterChain applicationSecurityWebFilterChain(ServerHttpSecurity http) {
         return http.authorizeExchange(exchanges -> exchanges
-                        .pathMatchers("/greeting/**", "/api/**", "/actuator/**")
+                        .pathMatchers("/greeting/**", "/api/**", "/actuator/**", "/echo")
                         .permitAll()
                         .anyExchange()
                         .authenticated())

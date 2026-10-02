@@ -207,6 +207,8 @@ export function deepLink(entry) {
       return {path: '/log-tail', label: 'Open in Log Tail'}
     case 'AI':
       return {path: '/ai', label: 'Open in AI Framework'}
+    case 'WEBSOCKET':
+      return {path: '/websockets', label: 'Open in WebSockets'}
     case 'MESSAGING': {
       // Rows rendered from the runtime journal name their broker in the detail line instead of an id prefix.
       if ((entry.id || '').startsWith('jms-') || entry.detail === 'jms') {

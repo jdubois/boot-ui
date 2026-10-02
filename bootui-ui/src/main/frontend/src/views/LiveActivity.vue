@@ -427,7 +427,8 @@ function typeIcon(type) {
       AI: 'bi-cpu',
       LOG: 'bi-journal-text',
       MARKER: 'bi-flag',
-      APP_EVENT: 'bi-broadcast'
+      APP_EVENT: 'bi-broadcast',
+      WEBSOCKET: 'bi-plug'
     }[type] || 'bi-dot'
   )
 }

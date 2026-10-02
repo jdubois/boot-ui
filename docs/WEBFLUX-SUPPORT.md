@@ -327,7 +327,10 @@ only sees `WebClient` customization on this stack — the correct signal.
 so the reactive report sets `frameCaptureSupported=false` with that reason and the panel shows endpoints only — it never
 fabricates a frame log or an empty capture buffer. There is likewise no reactive session registry, so
 `sessionTrackingSupported=false` and the Sessions table reads *not supported on this stack* rather than implying no
-client is connected.
+client is connected. Each message a `WebSocketHandler` receives is still an execution in the runtime journal: BootUI
+takes the place of WebFlux's own `WebSocketHandlerAdapter` (an application subclass is left alone) and opens a context
+around the synchronous delivery of each data message, so a blocking query in a `map` nests under it, while work moved to
+another scheduler joins the context Reactor restores there ([PLAN-v2.md](PLAN-v2.md) §5.18, M4-10).
 
 :::
 

@@ -1,11 +1,17 @@
 package io.github.jdubois.bootui.autoconfigure.websocket;
 
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.correlation.RequestIds;
 import io.github.jdubois.bootui.engine.websocket.WebSocketActivityRecorder;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
+import org.springframework.messaging.MessageHandler;
+import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessageType;
+import org.springframework.messaging.simp.annotation.support.SimpAnnotationMethodMessageHandler;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
-import org.springframework.messaging.support.ChannelInterceptor;
+import org.springframework.messaging.support.ExecutorChannelInterceptor;
 
 /**
  * Records STOMP-level activity metadata on the client inbound and outbound channels.
@@ -19,8 +25,15 @@ import org.springframework.messaging.support.ChannelInterceptor;
  * developer needs to debug a STOMP application. The message body is never read: only the payload's
  * already-known length is recorded, and nothing else from the payload is retained. Native headers,
  * principals, and session attributes are ignored.</p>
+ *
+ * <p>On the inbound channel it also makes each application message an execution ({@code docs/PLAN-v2.md} §5.18,
+ * M4-10): around the {@code @MessageMapping} or {@code @SubscribeMapping} method that handles it, on the channel's own
+ * executor thread, it opens a correlation scope with a new execution id, so the SQL, exceptions, and calls the handler
+ * makes nest under that message, and it then publishes the message to the runtime journal with its destination as
+ * the mapping's template. The broker's own relay of a message opens nothing, and neither does a message no mapping
+ * handles.</p>
  */
-public class BootUiStompChannelInterceptor implements ChannelInterceptor {
+public class BootUiStompChannelInterceptor implements ExecutorChannelInterceptor {
 
     private final WebSocketActivityRecorder recorder;
     private final BootUiWebSocketSessionRegistry registry;
@@ -36,6 +49,12 @@ public class BootUiStompChannelInterceptor implements ChannelInterceptor {
     }
 
     private final ThreadLocal<Long> startedAt = new ThreadLocal<>();
+    private final ThreadLocal<HandledMessage> handling = new ThreadLocal<>();
+    private final StompDestinationTemplates templates = new StompDestinationTemplates();
+
+    /** The execution a handler is running for: its scope, its destination template, and when it started. */
+    private record HandledMessage(
+            BootUiCorrelation.Scope scope, CorrelationContext context, String template, long startNanos) {}
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -67,6 +86,57 @@ public class BootUiStompChannelInterceptor implements ChannelInterceptor {
                     ex == null ? null : ex.getClass().getSimpleName());
         } catch (RuntimeException ignored) {
             // Observation must never break message delivery.
+        }
+    }
+
+    /**
+     * Opens the execution of an application message, on the thread that runs its {@code @MessageMapping} or
+     * {@code @SubscribeMapping} method.
+     */
+    @Override
+    public Message<?> beforeHandle(Message<?> message, MessageChannel channel, MessageHandler handler) {
+        try {
+            if (direction != WebSocketActivityRecorder.Direction.INBOUND
+                    || !(handler instanceof SimpAnnotationMethodMessageHandler annotated)) {
+                return message;
+            }
+            SimpMessageType type = SimpMessageHeaderAccessor.getMessageType(message.getHeaders());
+            if (type != SimpMessageType.MESSAGE && type != SimpMessageType.SUBSCRIBE) {
+                return message;
+            }
+            String template =
+                    templates.template(annotated, type, SimpMessageHeaderAccessor.getDestination(message.getHeaders()));
+            if (template == null) {
+                return message;
+            }
+            CorrelationContext context = CorrelationContext.forExecution(RequestIds.next());
+            handling.set(new HandledMessage(BootUiCorrelation.open(context), context, template, System.nanoTime()));
+        } catch (RuntimeException ignored) {
+            // Observation must never break message delivery.
+        }
+        return message;
+    }
+
+    /** Closes the execution {@link #beforeHandle} opened and publishes the message it ran for. */
+    @Override
+    public void afterMessageHandled(Message<?> message, MessageChannel channel, MessageHandler handler, Exception ex) {
+        HandledMessage handled = handling.get();
+        if (handled == null) {
+            return;
+        }
+        handling.remove();
+        try {
+            recorder.recordHandledMessage(
+                    registry.endpointIdFor(SimpMessageHeaderAccessor.getSessionId(message.getHeaders())),
+                    handled.template(),
+                    payloadBytes(message),
+                    Math.max(0, System.nanoTime() - handled.startNanos()),
+                    ex != null,
+                    handled.context());
+        } catch (RuntimeException ignored) {
+            // Observation must never break message delivery.
+        } finally {
+            handled.scope().close();
         }
     }
 

@@ -31,6 +31,7 @@ import io.github.jdubois.bootui.autoconfigure.rabbit.RabbitController;
 import io.github.jdubois.bootui.autoconfigure.reactive.BootUiCorrelationThreadLocalAccessor;
 import io.github.jdubois.bootui.autoconfigure.reactive.BootUiHttpExchangesWebFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.BootUiJsonWebFluxConfigurer;
+import io.github.jdubois.bootui.autoconfigure.reactive.BootUiWebSocketHandlerAdapterInstaller;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveActivitySignalFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveAgentSessionController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveApiAuthenticationFilter;
@@ -910,12 +911,25 @@ public class BootUiReactiveAutoConfiguration {
      * The WebFlux WebSockets panel backend. WebFlux has no STOMP broker and no sanctioned frame or session
      * interception seam, so this stack contributes the endpoint topology only and the report states
      * {@code frameCaptureSupported=false} with a reason rather than presenting an always-empty activity
-     * list as if capture were working. The JSON contract and the actions stay identical across stacks.
+     * list as if capture were working. The JSON contract and the actions stay identical across stacks. Each message a
+     * handler receives is still an execution in the runtime journal, through {@link
+     * BootUiWebSocketHandlerAdapterInstaller} (M4-10).
      */
     @Configuration(proxyBeanMethods = false)
     @ConditionalOnClass(name = "org.springframework.web.reactive.socket.WebSocketHandler")
     @ConditionalOnProperty(prefix = "bootui.panels.websockets", name = "enabled", matchIfMissing = true)
     static class ReactiveWebSocketConfiguration {
+
+        /**
+         * Makes each message an application's {@code WebSocketHandler} receives an execution of its own (M4-10), unless
+         * {@code bootui.websockets.enabled=false}.
+         */
+        @Bean
+        @ConditionalOnProperty(prefix = "bootui.websockets", name = "enabled", matchIfMissing = true)
+        static BootUiWebSocketHandlerAdapterInstaller bootUiWebSocketHandlerAdapterInstaller(
+                ObjectProvider<WebSocketActivityRecorder> recorder) {
+            return new BootUiWebSocketHandlerAdapterInstaller(recorder);
+        }
 
         @Bean
         @ConditionalOnMissingBean

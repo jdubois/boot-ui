@@ -59,6 +59,7 @@ public final class JournalActivityFeed {
     public static final String TYPE_AI = "AI";
     public static final String TYPE_MARKER = "MARKER";
     public static final String TYPE_APP_EVENT = "APP_EVENT";
+    public static final String TYPE_WEBSOCKET = "WEBSOCKET";
 
     static final String SEVERITY_OK = "OK";
     static final String SEVERITY_SLOW = "SLOW";
@@ -555,6 +556,28 @@ public final class JournalActivityFeed {
                     parentId,
                     false);
         }
+        if (payload instanceof WebSocketPayload webSocket) {
+            String summary = (webSocket.inbound() ? "← " : "→ ")
+                    + (webSocket.destination() == null ? webSocket.kind() : webSocket.destination());
+            return entry(
+                    id,
+                    TYPE_WEBSOCKET,
+                    event,
+                    webSocket.failed()
+                            ? SEVERITY_ERROR
+                            : RequestSlowThreshold.isSlow(durationMs, requestSlowThresholdMs)
+                                    ? SEVERITY_SLOW
+                                    : SEVERITY_OK,
+                    summary,
+                    webSocket.endpoint() == null ? "websocket" : "websocket " + webSocket.endpoint(),
+                    durationMs,
+                    null,
+                    null,
+                    null,
+                    false,
+                    parentId,
+                    false);
+        }
         if (payload instanceof AppEventPayload appEvent) {
             boolean published = AppEventPayload.PUBLISHED.equals(appEvent.kind());
             return entry(
@@ -805,7 +828,8 @@ public final class JournalActivityFeed {
             return false;
         }
         return event.payload() instanceof ScheduledPayload
-                || (event.payload() instanceof MessagingPayload message && !message.sent());
+                || (event.payload() instanceof MessagingPayload message && !message.sent())
+                || (event.payload() instanceof WebSocketPayload webSocket && webSocket.opensExecution());
     }
 
     private String requestSeverity(int status, Long durationMs) {

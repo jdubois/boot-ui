@@ -292,6 +292,17 @@ class BootUiQuarkusProcessor {
             DotName.createSimple("io.quarkus.websockets.next.OnClose"),
             DotName.createSimple("io.quarkus.websockets.next.OnError"));
 
+    private static final String WEBSOCKET_MESSAGE_INTERCEPTOR_CLASS =
+            "io.github.jdubois.bootui.quarkus.websocket.QuarkusWebSocketMessageInterceptor";
+
+    private static final DotName WEBSOCKET_MESSAGE_BINDING =
+            DotName.createSimple("io.github.jdubois.bootui.quarkus.websocket.BootUiWebSocketMessage");
+
+    /** The WebSockets Next callbacks that receive an application message, each of which becomes an execution. */
+    private static final List<DotName> WEBSOCKET_MESSAGE_ANNOTATIONS = List.of(
+            DotName.createSimple("io.quarkus.websockets.next.OnTextMessage"),
+            DotName.createSimple("io.quarkus.websockets.next.OnBinaryMessage"));
+
     private static final String SCHEDULED_TASK_RUN_RECORDER_CLASS =
             "io.github.jdubois.bootui.quarkus.scheduled.QuarkusScheduledTaskRunRecorder";
 
@@ -2078,6 +2089,33 @@ class BootUiQuarkusProcessor {
             runtimeDefaults.produce(
                     new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.WEBSOCKETS_PRESENT_KEY, "true"));
         }
+    }
+
+    /**
+     * Binds {@code QuarkusWebSocketMessageInterceptor} to every {@code @OnTextMessage} and {@code @OnBinaryMessage}
+     * method of an {@code @WebSocket} endpoint, so each message is an execution ({@code docs/PLAN-v2.md} §5.18, M4-10).
+     * Gated like the rest of the WebSockets panel: WebSockets Next present, outside normal (production) mode. The
+     * binding is added at build time, so the application's sources are untouched.
+     */
+    @BuildStep
+    void bindWebSocketMessageInterceptor(
+            LaunchModeBuildItem launchMode,
+            BuildProducer<AnnotationsTransformerBuildItem> transformers,
+            BuildProducer<AdditionalBeanBuildItem> additionalBeans,
+            BuildProducer<ExcludedTypeBuildItem> excludedTypes) {
+        boolean present = webSocketsPresent(launchMode);
+        registerCapabilityGatedBeans(present, additionalBeans, excludedTypes, WEBSOCKET_MESSAGE_INTERCEPTOR_CLASS);
+        if (!present) {
+            return;
+        }
+        transformers.produce(new AnnotationsTransformerBuildItem(AnnotationTransformation.forMethods()
+                .when(context -> {
+                    MethodInfo method = context.declaration().asMethod();
+                    return method.declaringClass().hasDeclaredAnnotation(WEBSOCKET_ANNOTATION)
+                            && WEBSOCKET_MESSAGE_ANNOTATIONS.stream().anyMatch(method::hasDeclaredAnnotation);
+                })
+                .transform(context -> context.add(AnnotationInstance.builder(WEBSOCKET_MESSAGE_BINDING)
+                        .buildWithTarget(context.declaration())))));
     }
 
     private static boolean webSocketsPresent(LaunchModeBuildItem launchMode) {

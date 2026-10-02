@@ -213,6 +213,13 @@ describe('deepLink', () => {
     })
   })
 
+  it('links a WebSocket message row from the runtime journal to the WebSockets panel', () => {
+    expect(deepLink({type: 'WEBSOCKET', summary: '← /app/chat/{room}', detail: 'websocket stomp:/ws'})).toEqual({
+      path: '/websockets',
+      label: 'Open in WebSockets'
+    })
+  })
+
   it('links a messaging row from the runtime journal by the broker its detail names', () => {
     expect(deepLink({type: 'MESSAGING', id: 'a1b2c3d4-12', summary: '→ orders.queue', detail: 'jms'})).toEqual({
       path: '/jms',

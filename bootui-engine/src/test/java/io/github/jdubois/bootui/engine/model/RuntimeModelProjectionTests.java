@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.MessagingPayload;
 import io.github.jdubois.bootui.engine.journal.RestClientPayload;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
+import io.github.jdubois.bootui.engine.journal.WebSocketPayload;
 import io.github.jdubois.bootui.engine.model.EdgeDiff.EdgeRef;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import java.util.List;
@@ -53,6 +54,13 @@ class RuntimeModelProjectionTests {
                 null,
                 new MessagingPayload("kafka", false, "orders.created", false, null));
         journal.event(JournalSource.SQL, null, "m1", null, sql("update stock set n = n - 1"));
+        journal.event(
+                JournalSource.WEBSOCKET,
+                null,
+                "w1",
+                null,
+                WebSocketPayload.handled("stomp:/ws", "/app/chat/{room}", 12L, false));
+        journal.event(JournalSource.SQL, null, "w1", null, sql("insert into chat_line values (?)"));
         // Owned by nothing: a statement on an executor that lost its context never joins a route.
         journal.event(JournalSource.SQL, null, null, null, sql("delete from audit"));
 
@@ -88,7 +96,19 @@ class RuntimeModelProjectionTests {
                                 EdgeType.CONSUMES,
                                 NodeType.DESTINATION,
                                 "kafka:orders.created"),
-                        ref(NodeType.LISTENER, "kafka:orders.created", EdgeType.WRITES, NodeType.TABLE, "stock"))
+                        ref(NodeType.LISTENER, "kafka:orders.created", EdgeType.WRITES, NodeType.TABLE, "stock"),
+                        ref(
+                                NodeType.LISTENER,
+                                "websocket:/app/chat/{room}",
+                                EdgeType.CONSUMES,
+                                NodeType.DESTINATION,
+                                "websocket:/app/chat/{room}"),
+                        ref(
+                                NodeType.LISTENER,
+                                "websocket:/app/chat/{room}",
+                                EdgeType.WRITES,
+                                NodeType.TABLE,
+                                "chat_line"))
                 .noneMatch(edge -> edge.toKey().equals("audit"));
         ModelEdge reads = model
                 .outgoing(model.node(NodeType.ROUTE, orders).orElseThrow().id())

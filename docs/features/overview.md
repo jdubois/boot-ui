@@ -612,7 +612,9 @@ Nineteen observations run over the completed requests and garbage collections th
 | `framework-warnings-by-route` | `WARN` and `ERROR` events from framework loggers, grouped by logger, template, and route |
 
 Scheduled runs and consumed messages are projected like requests, named `@Scheduled OrderJob.run` or
-`consume kafka:orders`, so the observations that read a unit of work's own SQL, transactions, calls, exceptions, and
+`consume kafka:orders`, and so is each WebSocket message an application handler runs, named by its mapping, such as
+`consume websocket:/app/chat/{room}` for a STOMP `@MessageMapping`, a WebFlux handler's pattern, or a Quarkus
+WebSockets Next endpoint's path. So the observations that read a unit of work's own SQL, transactions, calls, exceptions, and
 logs also cover jobs and listeners, counted in runs or messages. Those that read what only a request has (its status,
 method, phases, authorization, or measured resources) stay on HTTP requests.
 

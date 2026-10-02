@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.engine.journal.MessagingPayload;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.ScheduledPayload;
+import io.github.jdubois.bootui.engine.journal.WebSocketPayload;
 import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import java.util.ArrayList;
@@ -307,7 +308,8 @@ public final class InsightsSnapshot {
     /** Whether {@code event} opens an execution: a scheduled run or a consumed message, as the feed renders it. */
     static boolean opensExecution(RuntimeEvent event) {
         return event.payload() instanceof ScheduledPayload
-                || (event.payload() instanceof MessagingPayload message && !message.sent());
+                || (event.payload() instanceof MessagingPayload message && !message.sent())
+                || (event.payload() instanceof WebSocketPayload webSocket && webSocket.opensExecution());
     }
 
     /** An execution's name, like a route's: {@code @Scheduled OrderJob.run} or {@code consume kafka:orders}. */
@@ -317,6 +319,10 @@ public final class InsightsSnapshot {
         }
         if (event.payload() instanceof MessagingPayload message && message.destination() != null) {
             return "consume " + (message.broker() == null ? "" : message.broker() + ":") + message.destination();
+        }
+        if (event.payload() instanceof WebSocketPayload webSocket && webSocket.destination() != null) {
+            // A WebSocket message handler runs like a listener, so it reads as one (M4-10).
+            return "consume websocket:" + webSocket.destination();
         }
         return null;
     }

@@ -129,6 +129,31 @@ class JournalActivityFeedTests {
     }
 
     @Test
+    void aWebSocketMessageIsAnExecutionRowThatOwnsItsHandlersWork() {
+        add(sql(null, "insert into chat_line values (?)", 1, "clientInboundChannel-1", false, "w1"), 1_000);
+        add(
+                event(
+                        null,
+                        "w1",
+                        JournalSource.WEBSOCKET,
+                        3,
+                        "clientInboundChannel-1",
+                        WebSocketPayload.handled("stomp:/ws", "/app/chat/{room}", 12L, true)),
+                1_001);
+
+        List<ActivityEntryDto> rendered =
+                feed.render(entries, EVENT_ID, "run", Filter.NONE, 0).entries();
+
+        ActivityEntryDto message = only(rendered, "WEBSOCKET");
+        assertThat(message.id()).isEqualTo("w1");
+        assertThat(message.summary()).isEqualTo("← /app/chat/{room}");
+        assertThat(message.detail()).isEqualTo("websocket stomp:/ws");
+        assertThat(message.severity()).isEqualTo("ERROR");
+        assertThat(message.parentId()).isNull();
+        assertThat(only(rendered, "SQL").parentId()).isEqualTo("w1");
+    }
+
+    @Test
     void transactionsAndLogsAreRowsAndConnectionsAndCollectionsAreNot() {
         add(
                 event("r1", null, JournalSource.TRANSACTION, 5, null, new TransactionPayload("OrderService.pay", true)),

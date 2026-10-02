@@ -33,7 +33,7 @@ class WebFluxInactiveShellStaticMappingIntegrationTest {
 
     @Test
     void relocatedStaticHandlingDoesNotExposeTheShell() throws Exception {
-        // The sample app authenticates everything outside /api/**, /greeting/** and /actuator/**, so a
+        // The sample app authenticates everything outside /api/**, /greeting/**, /actuator/** and /echo, so a
         // relocated host resource answers 401. The BootUI mount answers 404 instead: the guard runs
         // ahead of the security chain and rejects the request outright, which is exactly the
         // discriminator that shows the guard — not the security filter — handled it.

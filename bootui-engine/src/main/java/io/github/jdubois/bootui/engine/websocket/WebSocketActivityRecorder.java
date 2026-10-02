@@ -1,5 +1,11 @@
 package io.github.jdubois.bootui.engine.websocket;
 
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
+import io.github.jdubois.bootui.engine.journal.WebSocketPayload;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -26,7 +32,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * report. Every entry point is fail-open: recording is best-effort and must never disrupt, delay, or
  * reorder application frame dispatch.</p>
  */
-public final class WebSocketActivityRecorder implements IdleReclaimable {
+public final class WebSocketActivityRecorder implements IdleReclaimable, RuntimeEventPublisher {
 
     /** Frame direction relative to the application. */
     public enum Direction {
@@ -90,6 +96,7 @@ public final class WebSocketActivityRecorder implements IdleReclaimable {
     private final AtomicBoolean capturing;
     private volatile boolean idleSuspended;
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
+    private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
 
     public WebSocketActivityRecorder(WebSocketSettings settings) {
         this.enabled = settings.enabled();
@@ -102,6 +109,50 @@ public final class WebSocketActivityRecorder implements IdleReclaimable {
                 return size() > WebSocketActivityRecorder.this.maxTrackedSessions;
             }
         };
+    }
+
+    /**
+     * Installs the runtime journal ({@code docs/PLAN-v2.md} §5.2), which receives each application message a handler
+     * ran. {@code null} restores the default, which publishes nothing.
+     */
+    @Override
+    public void setRuntimeEventSink(RuntimeEventSink journal) {
+        this.journal = journal == null ? RuntimeEventSink.NONE : journal;
+    }
+
+    /**
+     * Publishes one inbound application message a handler ran, as the entry of the execution {@code context} names
+     * ({@code docs/PLAN-v2.md} §5.18, M4-10). The adapter opens that execution around the handler, so the SQL,
+     * exceptions, and calls the handler made nest under it. It is published whether or not the panel is capturing
+     * frames, since pausing the panel's frame log does not pause the journal.
+     *
+     * @param destination the destination as a template, such as {@code /app/chat/{room}}, or the endpoint's path
+     * @param payloadBytes the payload's size in bytes, when known without reading it
+     */
+    public void recordHandledMessage(
+            String endpoint,
+            String destination,
+            Long payloadBytes,
+            long durationNanos,
+            boolean failed,
+            CorrelationContext context) {
+        if (!enabled || context == null || context.executionId() == null) {
+            return;
+        }
+        try {
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.WEBSOCKET,
+                    RuntimeEvent.startMillis(System.currentTimeMillis(), durationNanos),
+                    durationNanos,
+                    context,
+                    Thread.currentThread().getName(),
+                    null,
+                    failed,
+                    WebSocketPayload.handled(
+                            endpoint, truncate(destination, MAX_DESTINATION_LENGTH), payloadBytes, failed)));
+        } catch (RuntimeException ex) {
+            // Publishing never disturbs the message it observes.
+        }
     }
 
     public boolean isEnabled() {

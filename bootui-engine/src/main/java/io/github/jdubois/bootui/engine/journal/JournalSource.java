@@ -32,7 +32,8 @@ public enum JournalSource {
     LIFECYCLE("lifecycle"),
     GC("gc"),
     RESOURCES("resources"),
-    APP_EVENT("app-event");
+    APP_EVENT("app-event"),
+    WEBSOCKET("websocket");
 
     private final String propertyName;
 

@@ -6,10 +6,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
 import io.github.jdubois.bootui.engine.journal.AppEventPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.WebSocketPayload;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -17,6 +19,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.messaging.converter.StringMessageConverter;
+import org.springframework.messaging.simp.stomp.StompSession;
+import org.springframework.messaging.simp.stomp.StompSessionHandlerAdapter;
+import org.springframework.web.socket.client.standard.StandardWebSocketClient;
+import org.springframework.web.socket.messaging.WebSocketStompClient;
 
 /**
  * The sample's Runtime Insights seeds ({@code docs/PLAN-v2.md} M3-6): each seeded route is reported by its observation,
@@ -77,6 +84,7 @@ class RuntimeInsightsSeedsTest {
         assertThat(probe.get("/api/insights/reports/payroll").status()).isEqualTo(403);
         assertThat(probe.get("/api/insights/reports/PAYROLL").status()).isEqualTo(200);
         assertThat(probe.get("/api/insights/reports/summary").status()).isEqualTo(200);
+        sendStompMessages();
         assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
 
         observations = new ArrayList<>();
@@ -172,6 +180,46 @@ class RuntimeInsightsSeedsTest {
                 .map(payload -> ((AppEventPayload) payload).eventType())
                 .isNotEmpty()
                 .allMatch(type -> type.startsWith("io.github.jdubois.bootui.sample."));
+    }
+
+    @Test
+    void aStompHandlersRepeatedSelectsAreFoundUnderItsMessageButNotTheJoinedHandler() {
+        assertThat(subjects("repeated-selects", "OBSERVED"))
+                .contains("consume websocket:/app/insights/rooms/{room}/orders")
+                .doesNotContain("consume websocket:/app/insights/rooms/{room}/orders-joined");
+        assertThat(journal.entries())
+                .extracting(entry -> entry.event().payload())
+                .filteredOn(WebSocketPayload.class::isInstance)
+                .extracting(payload -> ((WebSocketPayload) payload).destination())
+                .as("each room is one template, never one destination per room")
+                .containsOnly("/app/insights/rooms/{room}/orders", "/app/insights/rooms/{room}/orders-joined");
+    }
+
+    private long handledMessages() throws InterruptedException {
+        journal.awaitDrained(Duration.ofSeconds(1));
+        return journal.entries().stream()
+                .filter(entry -> entry.event().payload() instanceof WebSocketPayload)
+                .count();
+    }
+
+    /** Sends one message to each STOMP seed in each of three rooms, over a raw WebSocket to the sample's SockJS endpoint. */
+    private void sendStompMessages() throws Exception {
+        WebSocketStompClient client = new WebSocketStompClient(new StandardWebSocketClient());
+        client.setMessageConverter(new StringMessageConverter());
+        StompSession session = client.connectAsync(
+                        "ws://localhost:" + port + "/ws/websocket", new StompSessionHandlerAdapter() {})
+                .get(10, TimeUnit.SECONDS);
+        for (int room = 1; room <= 3; room++) {
+            session.send("/app/insights/rooms/" + room + "/orders", "");
+            session.send("/app/insights/rooms/" + room + "/orders-joined", "");
+        }
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (handledMessages() < 6 && System.nanoTime() < deadline) {
+            Thread.sleep(50);
+        }
+        assertThat(handledMessages()).as("every message ran its handler").isEqualTo(6);
+        session.disconnect();
+        client.stop();
     }
 
     private List<String> subjects(String kind, String status) {

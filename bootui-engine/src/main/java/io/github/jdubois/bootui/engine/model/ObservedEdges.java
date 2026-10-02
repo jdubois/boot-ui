@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.engine.journal.RestClientPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.ScheduledPayload;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
+import io.github.jdubois.bootui.engine.journal.WebSocketPayload;
 import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import java.util.ArrayList;
 import java.util.List;
@@ -48,6 +49,12 @@ public final class ObservedEdges {
         }
         if (payload instanceof ScheduledPayload job && event.executionId() != null && job.task() != null) {
             return new Execution(NodeType.SCHEDULED_JOB, job.task());
+        }
+        if (payload instanceof WebSocketPayload webSocket
+                && webSocket.opensExecution()
+                && event.executionId() != null
+                && webSocket.destination() != null) {
+            return new Execution(NodeType.LISTENER, "websocket:" + webSocket.destination());
         }
         if (payload instanceof MessagingPayload message
                 && !message.sent()
@@ -95,6 +102,15 @@ public final class ObservedEdges {
                     message.sent() ? EdgeType.PUBLISHES : EdgeType.CONSUMES,
                     NodeType.DESTINATION,
                     destination(message)));
+        }
+        if (payload instanceof WebSocketPayload webSocket
+                && WebSocketPayload.MESSAGE.equals(webSocket.kind())
+                && webSocket.destination() != null) {
+            // A message handler consumes its destination, as a listener consumes a queue (M4-10).
+            return List.of(new Target(
+                    webSocket.inbound() ? EdgeType.CONSUMES : EdgeType.PUBLISHES,
+                    NodeType.DESTINATION,
+                    "websocket:" + webSocket.destination()));
         }
         if (payload instanceof ExceptionPayload exception && exception.groupId() != null) {
             return List.of(new Target(EdgeType.RAISES, NodeType.EXCEPTION_GROUP, exception.groupId()));

@@ -238,6 +238,13 @@ connections but no frame capture, with the concrete reason shown.
   `frameCaptureSupported=false` with the concrete reason: `@EnableWebSocketMessageBroker` is servlet-only, and Quarkus
   WebSockets Next exposes no message-interception SPI.
 
+Separately from frame capture, each inbound application message is an execution in the runtime journal on all three
+stacks ([PLAN-v2.md](../PLAN-v2.md) §5.18): the SQL, exceptions, and calls its handler makes nest under a `WEBSOCKET`
+row in Live Activity, and Runtime Insights reads it like a listener. On Spring MVC that is the `@MessageMapping` or
+`@SubscribeMapping` method a STOMP message reaches; on WebFlux, the work a `WebSocketHandler` does synchronously for each
+received message, through BootUI's `WebSocketHandlerAdapter`; on Quarkus, each `@OnTextMessage` or `@OnBinaryMessage`
+call. `bootui.websockets.enabled=false` turns it off with the panel's capture.
+
 Live session tracking is reported with the same honesty through `sessionTrackingSupported` and
 `sessionTrackingUnavailableReason`: Spring MVC and Quarkus observe connection lifecycle, while Spring WebFlux exposes no
 session registry, so its empty Sessions table says *not supported on this stack* instead of implying nothing is
