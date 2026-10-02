@@ -15,7 +15,7 @@ import java.util.Map;
  * the exchange it maps for either stack. This side-buffer supplies the server-created trace id. MVC reads
  * the same SLF4J MDC {@code traceId} used by its SQL/cache/REST capture; WebFlux reads {@code
  * Span.current()}, which survives Reactor Netty event-loop / {@code boundedElastic} hops when automatic
- * context propagation is enabled (see {@code ReactiveOtelTraceIdProvider}).</p>
+ * context propagation is enabled (see {@code ReactiveOtelTraceIdSource}).</p>
  *
  * <p>An exchange whose BootUI request id is known is matched by that id, exactly ({@code docs/PLAN-v2.md} §5.1).
  * Otherwise, as for an application-provided repository, it is matched by method + path + overlapping time window,

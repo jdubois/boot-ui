@@ -151,8 +151,7 @@ class JournalActivityCaptureTests {
                 Duration.ofSeconds(5),
                 200,
                 null,
-                "app-1",
-                Duration.ofSeconds(1));
+                "app-1");
         return JournalActivityCapture.start(
                 store, settings, entry -> false, journal, new JournalActivityFeed(1_000, 3, null), panelEnabled);
     }

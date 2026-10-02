@@ -7,8 +7,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
-import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.smallrye.config.PropertiesConfigSource;
 import io.smallrye.config.SmallRyeConfigBuilder;
 import io.vertx.core.Handler;
@@ -113,7 +113,7 @@ class QuarkusExceptionCaptureFilterTest {
 
     private static QuarkusExceptionCaptureFilter filter(ExceptionStore store, Map<String, String> properties) {
         @SuppressWarnings("unchecked")
-        Instance<TraceIdProvider> traceIdProvider = mock(Instance.class);
+        Instance<TraceIdSource> traceIdProvider = mock(Instance.class);
         when(traceIdProvider.isResolvable()).thenReturn(false);
         Config config = new SmallRyeConfigBuilder()
                 .withSources(new PropertiesConfigSource(properties, "test", 1000))

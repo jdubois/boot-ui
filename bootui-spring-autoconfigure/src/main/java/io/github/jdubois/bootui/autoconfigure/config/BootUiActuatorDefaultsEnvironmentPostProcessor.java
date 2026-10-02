@@ -115,7 +115,7 @@ public class BootUiActuatorDefaultsEnvironmentPostProcessor implements Environme
      * WebFlux has no thread-per-request invariant: a single reactive chain hops between the Netty
      * event loop, {@code boundedElastic} (blocking JDBC calls), and {@code parallel} schedulers.
      * BootUI's reactive request correlation ({@code ReactiveRequestCorrelationFilter}) and its OpenTelemetry
-     * trace-id stamping ({@code ReactiveOtelTraceIdProvider}) both read thread-local state at each capture point,
+     * trace-id stamping ({@code ReactiveOtelTraceIdSource}) both read thread-local state at each capture point,
      * which only resolves correctly across those thread hops when Reactor's automatic context propagation is on
      * ({@code Hooks.enableAutomaticContextPropagation()}). Spring Boot 4.1 only enables that when
      * {@value #REACTOR_CONTEXT_PROPAGATION_PROPERTY} is {@code auto}; its own default is {@code limited},

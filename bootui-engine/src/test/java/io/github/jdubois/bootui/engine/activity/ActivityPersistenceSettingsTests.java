@@ -20,8 +20,7 @@ class ActivityPersistenceSettingsTests {
                 Duration.ofSeconds(5),
                 200,
                 Duration.ofDays(7),
-                "app-1",
-                Duration.ofSeconds(1));
+                "app-1");
 
         ActivityPersistenceSettings switched = dedicatedDisabled.withEnabledSharedMode();
 
@@ -37,7 +36,6 @@ class ActivityPersistenceSettingsTests {
         assertThat(switched.bufferMaxEntries()).isEqualTo(200);
         assertThat(switched.retention()).isEqualTo(Duration.ofDays(7));
         assertThat(switched.instanceId()).isEqualTo("app-1");
-        assertThat(switched.captureInterval()).isEqualTo(Duration.ofSeconds(1));
     }
 
     @Test
@@ -53,8 +51,7 @@ class ActivityPersistenceSettingsTests {
                 Duration.ofSeconds(5),
                 200,
                 null,
-                "app-1",
-                Duration.ofSeconds(1));
+                "app-1");
 
         original.withEnabledSharedMode();
 

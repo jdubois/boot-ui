@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.cache;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
@@ -99,7 +100,7 @@ class CacheActivityRecorderTests {
     @Test
     void stampsTraceIdFromConfiguredProvider() {
         CacheActivityRecorder recorder = new CacheActivityRecorder(true, 10);
-        recorder.setTraceIdProvider(() -> "trace-x");
+        recorder.setCorrelationContextProvider(() -> BootUiCorrelation.current().withTrace("trace-x", null));
         recorder.recordHit("cacheManager", "orders", "1");
         assertThat(recorder.recentEvents().get(0).traceId()).isEqualTo("trace-x");
     }
@@ -114,7 +115,7 @@ class CacheActivityRecorderTests {
     @Test
     void treatsBlankProviderTraceIdAsNone() {
         CacheActivityRecorder recorder = new CacheActivityRecorder(true, 10);
-        recorder.setTraceIdProvider(() -> "   ");
+        recorder.setCorrelationContextProvider(() -> BootUiCorrelation.current().withTrace("   ", null));
         recorder.recordHit("cacheManager", "orders", "1");
         assertThat(recorder.recentEvents().get(0).traceId()).isNull();
     }
@@ -122,7 +123,7 @@ class CacheActivityRecorderTests {
     @Test
     void guardsAgainstThrowingProvider() {
         CacheActivityRecorder recorder = new CacheActivityRecorder(true, 10);
-        recorder.setTraceIdProvider(() -> {
+        recorder.setCorrelationContextProvider(() -> {
             throw new IllegalStateException("tracer broke");
         });
         recorder.recordHit("cacheManager", "orders", "1");
@@ -133,10 +134,10 @@ class CacheActivityRecorderTests {
     @Test
     void nullProviderRestoresDefault() {
         CacheActivityRecorder recorder = new CacheActivityRecorder(true, 10);
-        recorder.setTraceIdProvider(() -> {
+        recorder.setCorrelationContextProvider(() -> {
             throw new IllegalStateException("tracer broke");
         });
-        recorder.setTraceIdProvider(null);
+        recorder.setCorrelationContextProvider(null);
         recorder.recordHit("cacheManager", "orders", "1");
         assertThat(recorder.recentEvents().get(0).traceId()).isNull();
     }

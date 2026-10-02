@@ -25,7 +25,6 @@ import io.github.jdubois.bootui.core.dto.HttpExchangeDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.PageMetadata;
-import io.github.jdubois.bootui.engine.activity.ActivityCapturePoller;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityQuery;
@@ -48,7 +47,6 @@ import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -232,31 +230,6 @@ class LiveActivityControllerTests {
     }
 
     @Test
-    void shutdownStopsCapturePollerThreadWhenPersistenceEnabled() throws Exception {
-        SwitchableActivityStore store = mock(SwitchableActivityStore.class);
-        when(store.persistent()).thenReturn(true);
-        when(store.query(any())).thenReturn(ActivityPage.EMPTY);
-        ActivityPersistenceSettings settings = enabledSettings("instance-b", Duration.ofMillis(50));
-
-        LiveActivityController controller = controllerWith(
-                empty(SqlTraceRecorder.class),
-                empty(ExceptionStore.class),
-                store,
-                settings,
-                empty(DataSource.class),
-                buffersFeed());
-
-        Thread captureThread = awaitThreadNamed("bootui-activity-capture");
-        assertThat(captureThread)
-                .as("capture poller thread should have started")
-                .isNotNull();
-
-        controller.shutdown();
-
-        assertThat(awaitNotAlive(captureThread)).isTrue();
-    }
-
-    @Test
     void useExistingDatasourceReturns404WhenNoDataSourceIsAvailable() {
         LiveActivityController controller = controllerWith(
                 empty(SqlTraceRecorder.class),
@@ -335,35 +308,9 @@ class LiveActivityControllerTests {
             assertThat(afterSwitch.persistenceOption())
                     .isEqualTo(new ActivityPersistenceOptionDto(true, true, "bootui_activity"));
             assertThat(afterSwitch.pageInfo()).isNotNull();
-
-            // The capture poller this switch starts must be the controller's own, closeable on shutdown
-            // exactly like the constructor-time poller.
-            Thread captureThread = awaitThreadNamed("bootui-activity-capture");
-            assertThat(captureThread)
-                    .as("capture poller thread should have started after the switch")
-                    .isNotNull();
         } finally {
             controller.shutdown();
         }
-    }
-
-    @Test
-    void captureRemembersASlowClientErrorThatTheExchangeRepositoryReserves() {
-        // A 404 that took 1.5 s is WARN in the stream, but at the default 1,000 ms threshold the repository keeps it
-        // in its reserved share, so a capped view can show it again long after the first capture window forgot it.
-        assertThat(capturesOfAHiddenSlowClientError(new BootUiProperties())).isEqualTo(1);
-    }
-
-    @Test
-    void captureClassifiesRequestsWithTheConfiguredRequestSlowThreshold() {
-        BootUiProperties raised = new BootUiProperties();
-        raised.getActivity().setRequestSlowThresholdMs(2_000);
-        BootUiProperties disabled = new BootUiProperties();
-        disabled.getActivity().setRequestSlowThresholdMs(0);
-
-        // Neither threshold makes the repository reserve that request, so it is routine and captured again.
-        assertThat(capturesOfAHiddenSlowClientError(raised)).isEqualTo(2);
-        assertThat(capturesOfAHiddenSlowClientError(disabled)).isEqualTo(2);
     }
 
     @Test
@@ -426,7 +373,7 @@ class LiveActivityControllerTests {
     }
 
     @Test
-    void aJournalCaptureTheJournalNeverArrivedForStartsWithThePollerOnRefresh() {
+    void aCaptureTheJournalNeverArrivedForWritesNothingSince2_0RemovedThePoller() {
         List<StoredActivityEntry> captured = new CopyOnWriteArrayList<>();
         SwitchableActivityStore store = new SwitchableActivityStore(new ActivityStore() {
             @Override
@@ -452,52 +399,8 @@ class LiveActivityControllerTests {
         controller.shutdown();
 
         assertThat(captured)
-                .as("the poller started on refresh, and its last pass on shutdown captured the buffered exchange")
-                .extracting(stored -> stored.entry().id())
-                .contains("ok-1");
-    }
-
-    /**
-     * Drives this controller's own capture wiring one poll at a time: the feed shows a slow 404, then 20 newer
-     * exchanges (more than the smallest capture window holds), then the slow 404 again.
-     */
-    private static long capturesOfAHiddenSlowClientError(BootUiProperties properties) {
-        List<StoredActivityEntry> captured = new CopyOnWriteArrayList<>();
-        SwitchableActivityStore store = new SwitchableActivityStore(new ActivityStore() {
-            @Override
-            public void appendBatch(List<StoredActivityEntry> entries) {
-                captured.addAll(entries);
-            }
-
-            @Override
-            public ActivityPage query(ActivityQuery query) {
-                return ActivityPage.EMPTY;
-            }
-        });
-        HttpExchangeDto slowNotFound = exchange("slow-404", 1_000L, 404, 1_500L);
-        List<HttpExchangeDto> newer = new ArrayList<>();
-        for (int i = 0; i < 20; i++) {
-            newer.add(0, exchange("ok-" + i, 2_000L + i, 200, 5L));
-        }
-        HttpExchangesController exchanges = mock(HttpExchangesController.class);
-        when(exchanges.exchanges(null, null, null, null, null))
-                .thenReturn(
-                        exchangesReport(List.of(slowNotFound)),
-                        exchangesReport(newer),
-                        exchangesReport(List.of(slowNotFound)));
-        LiveActivityController controller = controllerWithExchanges(provider(exchanges), store, properties);
-        try {
-            ActivityCapturePoller poller =
-                    controller.startCapture(persistenceSettings(true, "instance-r", Duration.ofHours(1), 1));
-            poller.captureNow();
-            poller.captureNow();
-            poller.captureNow();
-        } finally {
-            controller.shutdown();
-        }
-        return captured.stream()
-                .filter(stored -> "slow-404".equals(stored.entry().id()))
-                .count();
+                .as("the journal is the only source of durable history, so nothing polls the panel buffers")
+                .isEmpty();
     }
 
     private static HttpExchangeDto exchange(String id, long timestamp, int status, long durationMs) {
@@ -569,8 +472,7 @@ class LiveActivityControllerTests {
                 Duration.ofSeconds(5),
                 bufferMaxEntries,
                 Duration.ofDays(7),
-                instanceId,
-                captureInterval);
+                instanceId);
     }
 
     private static LiveActivityReport referenceLiveReport(

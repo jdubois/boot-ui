@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.quarkus.restclienttrace;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import jakarta.ws.rs.client.ClientRequestContext;
 import jakarta.ws.rs.client.ClientResponseContext;
@@ -18,7 +19,7 @@ class QuarkusRestClientTraceFilterTest {
     @Test
     void capturesSanitizedMetadataWithoutReadingHeadersOrEntities() {
         RestClientTraceRecorder recorder = recorder(true);
-        recorder.setTraceIdProvider(() -> "trace-123");
+        recorder.setCorrelationContextProvider(() -> BootUiCorrelation.current().withTrace("trace-123", null));
         QuarkusRestClientTraceFilter filter = new QuarkusRestClientTraceFilter(recorder);
         ClientRequestContext request = request(
                 "POST",
@@ -135,7 +136,7 @@ class QuarkusRestClientTraceFilterTest {
     void retainsTheTraceIdActiveAtRequestTimeWhenResponseContextIsDetached() {
         RestClientTraceRecorder recorder = recorder(false);
         AtomicReference<String> currentTrace = new AtomicReference<>("request-trace");
-        recorder.setTraceIdProvider(currentTrace::get);
+        recorder.setCorrelationContextProvider(() -> BootUiCorrelation.current().withTrace(currentTrace.get(), null));
         QuarkusRestClientTraceFilter filter = new QuarkusRestClientTraceFilter(recorder);
         ClientRequestContext request = request("GET", URI.create("http://localhost/ping"));
 

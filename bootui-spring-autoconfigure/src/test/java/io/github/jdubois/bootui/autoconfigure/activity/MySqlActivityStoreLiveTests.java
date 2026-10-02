@@ -76,8 +76,7 @@ class MySqlActivityStoreLiveTests extends AbstractJdbcActivityStoreLiveTests {
                 Duration.ofMinutes(10),
                 200,
                 Duration.ofDays(7),
-                "app-dedicated",
-                Duration.ofSeconds(1));
+                "app-dedicated");
         SwitchableActivityStore store = ActivityStoreFactory.create(settings, () -> null);
         try {
             store.appendBatch(List.of(

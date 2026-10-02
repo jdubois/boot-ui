@@ -9,7 +9,6 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
-import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -99,8 +98,6 @@ public final class FaultToleranceEventRecorder implements RuntimeEventPublisher 
     private final AtomicLong sequence = new AtomicLong();
     private final AtomicLong totalCaptured = new AtomicLong();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
-
-    private volatile TraceIdProvider traceIdProvider = FaultToleranceEventRecorder::mdcTraceId;
     private final CorrelationSource correlation = new CorrelationSource();
 
     public FaultToleranceEventRecorder(boolean enabled, int maxEntries) {
@@ -123,15 +120,6 @@ public final class FaultToleranceEventRecorder implements RuntimeEventPublisher 
 
     public int getMaxEntries() {
         return maxEntries;
-    }
-
-    /**
-     * Replaces the trace-id source. The Spring adapter keeps the SLF4J MDC default that Micrometer Tracing
-     * publishes; the Quarkus adapter supplies an OpenTelemetry-backed provider because its requests hop
-     * between the event loop and worker threads.
-     */
-    public void setTraceIdProvider(TraceIdProvider traceIdProvider) {
-        this.traceIdProvider = traceIdProvider == null ? FaultToleranceEventRecorder::mdcTraceId : traceIdProvider;
     }
 
     /**
@@ -339,19 +327,9 @@ public final class FaultToleranceEventRecorder implements RuntimeEventPublisher 
 
     private String currentTraceId() {
         try {
-            String traceId = traceIdProvider.currentTraceId();
+            String traceId = correlation.traceId();
             return traceId == null || traceId.isBlank() ? null : truncate(traceId);
         } catch (RuntimeException ex) {
-            return null;
-        }
-    }
-
-    /** Default trace-id source: the SLF4J MDC key Micrometer Tracing publishes on Spring. */
-    private static String mdcTraceId() {
-        try {
-            String traceId = org.slf4j.MDC.get("traceId");
-            return traceId == null || traceId.isBlank() ? null : traceId;
-        } catch (RuntimeException | LinkageError ex) {
             return null;
         }
     }

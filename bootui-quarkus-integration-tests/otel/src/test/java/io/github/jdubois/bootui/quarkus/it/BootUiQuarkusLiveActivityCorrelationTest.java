@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test;
  * produces an HTTP request and a SQL statement on two different threads; the BootUI extension stamps the
  * active server span's trace id at each capture point ({@code QuarkusHttpExchangeCaptureFilter} on the event
  * loop, {@code SqlTracingProxies} → {@code SqlTraceRecorder} on the worker thread via
- * {@code QuarkusOtelTraceIdProvider}). The engine {@code LiveActivityAssembler} then nests the SQL entry
+ * {@code QuarkusOtelTraceIdSource}). The engine {@code LiveActivityAssembler} then nests the SQL entry
  * under the request entry sharing that trace id.
  *
  * <p>This is the OpenTelemetry-<em>present</em> proof that the trace id actually survives the

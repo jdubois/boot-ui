@@ -626,7 +626,7 @@ class SqlTraceRecorderTests {
     @Test
     void stampsTraceIdFromConfiguredProvider() {
         SqlTraceRecorder recorder = recorder(true, false, 10, 100);
-        recorder.setTraceIdProvider(() -> "trace-x");
+        recorder.setCorrelationContextProvider(() -> BootUiCorrelation.current().withTrace("trace-x", null));
         record(recorder, Category.SELECT, "select 1", 0);
         assertThat(recorder.recent().get(0).traceId()).isEqualTo("trace-x");
     }
@@ -641,7 +641,7 @@ class SqlTraceRecorderTests {
     @Test
     void treatsBlankProviderTraceIdAsNone() {
         SqlTraceRecorder recorder = recorder(true, false, 10, 100);
-        recorder.setTraceIdProvider(() -> "   ");
+        recorder.setCorrelationContextProvider(() -> BootUiCorrelation.current().withTrace("   ", null));
         record(recorder, Category.SELECT, "select 1", 0);
         assertThat(recorder.recent().get(0).traceId()).isNull();
     }
@@ -649,10 +649,10 @@ class SqlTraceRecorderTests {
     @Test
     void nullProviderRestoresDefaultAndNeverThrows() {
         SqlTraceRecorder recorder = recorder(true, false, 10, 100);
-        recorder.setTraceIdProvider(() -> {
+        recorder.setCorrelationContextProvider(() -> {
             throw new IllegalStateException("tracer broke");
         });
-        recorder.setTraceIdProvider(null);
+        recorder.setCorrelationContextProvider(null);
         record(recorder, Category.SELECT, "select 1", 0);
         assertThat(recorder.recent().get(0).traceId()).isNull();
     }
@@ -660,7 +660,7 @@ class SqlTraceRecorderTests {
     @Test
     void guardsAgainstThrowingProvider() {
         SqlTraceRecorder recorder = recorder(true, false, 10, 100);
-        recorder.setTraceIdProvider(() -> {
+        recorder.setCorrelationContextProvider(() -> {
             throw new IllegalStateException("tracer broke");
         });
         record(recorder, Category.SELECT, "select 1", 0);
@@ -671,7 +671,7 @@ class SqlTraceRecorderTests {
     @Test
     void enrichesActiveSpanPerStatementAndFlagsNPlusOneForTheTrace() {
         SqlTraceRecorder recorder = recorder(true, false, 100, 100);
-        recorder.setTraceIdProvider(() -> "trace-1");
+        recorder.setCorrelationContextProvider(() -> BootUiCorrelation.current().withTrace("trace-1", null));
         RecordingSpanEnricher enricher = new RecordingSpanEnricher();
         recorder.setSpanEnricher(enricher);
 
@@ -688,7 +688,7 @@ class SqlTraceRecorderTests {
     @Test
     void noOpEnricherSkipsPerTraceGrouping() {
         SqlTraceRecorder recorder = recorder(true, false, 100, 100);
-        recorder.setTraceIdProvider(() -> "trace-1");
+        recorder.setCorrelationContextProvider(() -> BootUiCorrelation.current().withTrace("trace-1", null));
         // Default enricher is NO_OP (disabled): recording still works and nothing throws.
         record(recorder, Category.SELECT, "select 1", 0);
         assertThat(recorder.recent()).hasSize(1);

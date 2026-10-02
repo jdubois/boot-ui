@@ -12,9 +12,9 @@ import javax.sql.DataSource;
  * <p>Unlike Flyway (which acts against an already-configured target), this action's whole point is to
  * move a <em>running</em> instance from the in-memory default to durable persistence without a restart:
  * on success, {@link ActivitySwitchResponse#newSettings()} carries the settings the caller must start a
- * new capture poller with (see {@code ActivityCaptureFactory#start}) — the store itself was already
+ * journal capture with (see {@code JournalActivityCapture#start}) — the store itself was already
  * swapped by this method, but capturing new entries into it is the caller's separate responsibility,
- * since only the caller knows how to reach its own merged-feed supplier.</p>
+ * since only the caller holds the runtime journal.</p>
  */
 public final class ActivitySwitchService {
 

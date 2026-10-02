@@ -356,15 +356,12 @@ never reads or prunes another instance's rows. Reads merge the in-memory buffer 
 entries are visible before they are flushed, and a failed flush returns its entries to the buffer rather than losing
 them.
 
-Every `bootui.activity.persistence.capture-interval` (2 seconds by default), BootUI stores the stream entries it has not
-stored yet, so each entry is saved once. An entry can leave the stream and come back: newer entries push it out of the
-capped stream until they are cleared, for example when `bootui.free-on-idle` releases captured SQL, or an exception
-recurs. Failed and slow entries are therefore remembered longer, in one window per kind of entry. Requests, statements,
-and REST calls are recognized by the rule and threshold of the
-[failure-preserving buffer](diagnostics.md#failure-preserving-retention) that keeps them, which includes a slow `4xx`
-request shown as `WARN`. Each window is `bootui.activity.persistence.buffer-max-entries` wide. A routine entry that
-comes back after more entries than that were stored can be stored again, and one that an extreme burst pushes out
-before the next capture can be missed.
+The runtime journal writes the durable history: each batch it records is rendered as the journal's feed renders it and
+stored once, so a burst is no longer lost between two reads of the panel buffers. Failed and slow entries are still
+remembered longer, in one window per kind of entry, `bootui.activity.persistence.buffer-max-entries` wide, recognized by
+the rule and threshold of the [failure-preserving buffer](diagnostics.md#failure-preserving-retention) that keeps them.
+The journal is the only source of durable history in 2.0: with `bootui.runtime-journal.enabled=false`, persistence logs
+a warning and writes nothing.
 
 You do not have to edit configuration or restart to turn this on. While persistence is inactive, a "Currently saving N
 events in memory" tip appears with a **Use a database** button. If the application already has a `DataSource`, a **Use

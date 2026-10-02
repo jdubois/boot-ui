@@ -14,7 +14,7 @@ import java.util.List;
  * <p>Reactive sibling of {@code SecurityEventCorrelationRegistry}: Spring Security audit events carry no
  * thread, request path, or trace id, so on WebFlux - which has no serving-thread invariant to fall back
  * on - the only correlation signal available is the trace id read from {@link
- * io.github.jdubois.bootui.spi.TraceIdProvider} at the moment of publication, the same signal {@code
+ * io.github.jdubois.bootui.spi.CorrelationContextProvider} at the moment of publication, the same signal {@code
  * ReactiveHttpExchangeTraceFilter} and {@code SqlTraceRecorder} capture from. Matched by type + principal
  * + timestamp window, mirroring {@code SecurityEventCorrelationRegistry}'s matching rule (captures and
  * the displayed event originate from the very same {@code AuditEvent}, so the timestamps are effectively

@@ -151,7 +151,7 @@ public final class ExceptionStore implements RuntimeEventPublisher {
      * overload}, which the Spring <strong>servlet</strong> (MVC) handler-exception capture path always uses
      * (that adapter correlates by serving thread instead — see {@code ExceptionGroupDto.lastTraceId}).
      * Spring <strong>WebFlux</strong>'s handler-exception capture and Quarkus's handler and log-based
-     * capture all supply a real trace id via their own {@code TraceIdProvider}; Spring's Logback-based
+     * capture all supply a real trace id via their adapter's {@code CorrelationContextProvider}; Spring's Logback-based
      * log-appender capture path (shared by both the servlet and WebFlux adapters) always passes
      * {@code null}, since it has no reliable request-scoped context to read from an appender callback.
      */

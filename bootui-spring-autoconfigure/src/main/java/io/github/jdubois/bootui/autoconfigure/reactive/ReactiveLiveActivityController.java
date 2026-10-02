@@ -34,8 +34,6 @@ import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
 import io.github.jdubois.bootui.engine.activity.ActivityCapture;
-import io.github.jdubois.bootui.engine.activity.ActivityCaptureFactory;
-import io.github.jdubois.bootui.engine.activity.ActivityCapturePoller;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityQuery;
@@ -104,7 +102,7 @@ import reactor.core.publisher.Flux;
  * framework-neutral {@link LiveActivityAssembler} the Quarkus adapter already validated for exactly this
  * constraint, and serves the per-request profile through the shared {@link ExecutionProfileAssembler} with
  * {@link ProfileCapabilities#traceIdOnly() trace-id-only capabilities}: correlation is driven purely by exact
- * identities, BootUI's request id and a shared distributed trace id (see {@code TraceIdProvider}), and a request
+ * identities, BootUI's request id and a shared distributed trace id (see {@code CorrelationContextProvider}), and a request
  * with neither simply renders flat/unprofileable rather than guessing.
  *
  * <p>All nine signal sources are read directly from the already-reactive, already-masked/self-filtered
@@ -138,6 +136,8 @@ import reactor.core.publisher.Flux;
 @RestController
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/activity")
 public class ReactiveLiveActivityController implements InitializingBean {
+    private static final org.apache.commons.logging.Log log =
+            org.apache.commons.logging.LogFactory.getLog(ReactiveLiveActivityController.class);
 
     private final ObjectProvider<HttpExchangesController> httpExchanges;
     private final ObjectProvider<SqlTraceRecorder> sqlTraceRecorder;
@@ -262,39 +262,40 @@ public class ReactiveLiveActivityController implements InitializingBean {
 
     /**
      * Starts writing Live Activity's durable history from the same source the feed reads ({@code docs/PLAN-v2.md}
-     * §5.3): the runtime journal's subscriber when {@code bootui.activity.feed-source=journal}, otherwise the poller of
-     * the panel buffers. The journal is installed after this controller is built, so a journal capture asked for
-     * before then starts when it is installed, or with the poller once this controller is initialized without one.
+     * §5.3): the runtime journal's subscriber, whatever source the feed reads; 2.0.0 removed the poller of the panel
+     * buffers. The journal is installed after this controller is built, so a capture asked for before then
+     * starts when it is installed; with no journal, or a disabled one, persistence logs a warning and writes nothing.
      *
      * @return the running capture, or {@code null} when it waits for the journal
      */
     ActivityCapture startPersistence(ActivityPersistenceSettings settings) {
-        if (feedSource == ActivityFeedSource.JOURNAL) {
-            RuntimeJournal current = captureJournal;
-            if (current == null) {
-                deferredCapture = settings;
-                return null;
-            }
-            if (current.settings().enabled()) {
-                JournalActivityCapture capture = JournalActivityCapture.start(
-                        activityStore,
-                        settings,
-                        reservedEntries,
-                        current,
-                        new JournalActivityFeed(
-                                properties.getActivity().getRequestSlowThresholdMs(),
-                                properties.getActivity().getNPlusOneThreshold(),
-                                captureRoutes),
-                        properties::isPanelEnabled);
-                unsubscribers.add(capture::close);
-                return capture;
-            }
+        RuntimeJournal current = captureJournal;
+        if (current == null) {
+            deferredCapture = settings;
+            return null;
         }
-        return startCapture(settings);
+        if (current.settings().enabled()) {
+            JournalActivityCapture capture = JournalActivityCapture.start(
+                    activityStore,
+                    settings,
+                    reservedEntries,
+                    current,
+                    new JournalActivityFeed(
+                            properties.getActivity().getRequestSlowThresholdMs(),
+                            properties.getActivity().getNPlusOneThreshold(),
+                            captureRoutes),
+                    properties::isPanelEnabled);
+            unsubscribers.add(capture::close);
+            return capture;
+        }
+        log.warn("Live Activity persistence is enabled, but the runtime journal is disabled"
+                + " (bootui.runtime-journal.enabled=false), so no durable history is written: the journal is its only"
+                + " source in 2.0.");
+        return null;
     }
 
     /**
-     * Starts a capture the journal never arrived for with the poller, once every setter has run. An initialization
+     * Reports a capture the journal never arrived for, once every setter has run. An initialization
      * callback rather than a context event, so this lazy controller is still created only when first used.
      */
     @Override
@@ -302,20 +303,9 @@ public class ReactiveLiveActivityController implements InitializingBean {
         ActivityPersistenceSettings settings = deferredCapture;
         if (settings != null) {
             deferredCapture = null;
-            startCapture(settings);
+            log.warn("Live Activity persistence is enabled, but no runtime journal was installed, so no durable"
+                    + " history is written: the journal is its only source in 2.0.");
         }
-    }
-
-    /**
-     * Capture side of the persistence option: polls the same merged feed the panel itself reads, stamping and
-     * appending whatever has not already been captured. See {@code LiveActivityController#startCapture} for why this
-     * reuses {@link #mergedReport} rather than re-reading sources. The poller stops with this controller.
-     */
-    ActivityCapturePoller startCapture(ActivityPersistenceSettings settings) {
-        ActivityCapturePoller poller = ActivityCaptureFactory.start(
-                activityStore, settings, reservedEntries, () -> mergedReport(0).entries());
-        unsubscribers.add(poller::close);
-        return poller;
     }
 
     /**

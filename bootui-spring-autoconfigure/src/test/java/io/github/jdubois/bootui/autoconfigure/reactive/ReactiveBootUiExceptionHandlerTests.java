@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.reactive;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.Ordered;
@@ -61,7 +62,7 @@ class ReactiveBootUiExceptionHandlerTests {
     void stampsTraceIdFromProviderWhenInstalled() {
         ExceptionStore store = new ExceptionStore(100, 25, 50);
         ReactiveBootUiExceptionHandler handler = new ReactiveBootUiExceptionHandler(store);
-        handler.setTraceIdProvider(() -> "trace-abc-123");
+        handler.setCorrelationContextProvider(() -> BootUiCorrelation.current().withTrace("trace-abc-123", null));
         MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/bootui/api/beans"));
 
         StepVerifier.create(handler.handle(exchange, new RuntimeException("boom")))
@@ -94,7 +95,7 @@ class ReactiveBootUiExceptionHandlerTests {
     void leavesTraceIdNullWhenProviderThrows() {
         ExceptionStore store = new ExceptionStore(100, 25, 50);
         ReactiveBootUiExceptionHandler handler = new ReactiveBootUiExceptionHandler(store);
-        handler.setTraceIdProvider(() -> {
+        handler.setCorrelationContextProvider(() -> {
             throw new IllegalStateException("no active span");
         });
         MockServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/bootui/api/beans"));

@@ -21,20 +21,17 @@ import jakarta.inject.Inject;
  * no background thread, connection or bean beyond what already exists is created, exactly like the Spring
  * adapter's {@code @ConditionalOnProperty}-gated configuration.
  *
- * <p>When enabled, {@link #onStart} starts a capture poller (via {@link LiveActivityResource#startPersistence}) that
- * polls {@link LiveActivityResource#mergedReport} on {@link ActivityPersistenceSettings#captureInterval()},
- * stamping and appending whatever it has not yet captured into the shared store. Reusing the resource's
- * own merged feed (rather than re-reading the four signal sources independently) means self-filtering,
- * masking and bounds are inherited identically to what the panel itself renders, and the resource remembers
- * reserved records with its exchange buffer's own request slow threshold.
+ * <p>When enabled, {@link #onStart} starts the runtime journal's subscriber (via {@link
+ * LiveActivityResource#startPersistence}), which renders each recorded batch as the journal's feed renders it and
+ * appends it to the shared store; with the journal disabled it logs a warning and writes nothing.
  *
  * <p>Unlike Spring — whose inferred-destroy-method convention auto-closes the {@code ActivityStore} bean
  * at context shutdown — CDI/Arc has no equivalent automatic behavior, so {@link #onStop} explicitly stops
- * the poller (making one last synchronous capture pass first, so entries produced since the last tick
+ * the capture (processing what the journal already recorded first, so entries produced since the last tick
  * aren't dropped) and then closes {@code activityStore} itself (flushing any still-buffered entries,
  * bounded, so shutdown is never blocked indefinitely — see {@code BufferedActivityStore#close()}). This is
- * independent of {@link LiveActivityResource#onStop}, which only ever stops a poller started by the
- * runtime "Use the existing datasource" switch — the two poller fields are never both live at once, since
+ * independent of {@link LiveActivityResource#onStop}, which only ever stops a capture started by the
+ * runtime "Use the existing datasource" switch — the two capture fields are never both live at once, since
  * that switch only succeeds when the store was not already persistent.</p>
  */
 @ApplicationScoped
@@ -43,7 +40,7 @@ public class QuarkusActivityCapture {
     private final SwitchableActivityStore activityStore;
     private final ActivityPersistenceSettings persistenceSettings;
     private final LiveActivityResource liveActivityResource;
-    private ActivityCapture poller;
+    private ActivityCapture capture;
 
     @Inject
     public QuarkusActivityCapture(
@@ -59,13 +56,13 @@ public class QuarkusActivityCapture {
         if (!persistenceSettings.enabled()) {
             return;
         }
-        poller = liveActivityResource.startPersistence(activityStore, persistenceSettings);
+        capture = liveActivityResource.startPersistence(activityStore, persistenceSettings);
     }
 
     void onStop(@Observes ShutdownEvent event) {
-        if (poller != null) {
-            poller.close();
-            poller = null;
+        if (capture != null) {
+            capture.close();
+            capture = null;
         }
         activityStore.close();
     }

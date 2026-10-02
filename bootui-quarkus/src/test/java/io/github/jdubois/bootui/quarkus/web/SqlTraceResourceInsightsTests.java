@@ -6,6 +6,7 @@ import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.core.dto.SqlRouteRankingDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceInsightsReport;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.Category;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.StatementType;
@@ -35,7 +36,7 @@ class SqlTraceResourceInsightsTests {
     }
 
     private void record(SqlTraceRecorder recorder, String sql, String traceId) {
-        recorder.setTraceIdProvider(() -> traceId);
+        recorder.setCorrelationContextProvider(() -> BootUiCorrelation.current().withTrace(traceId, null));
         recorder.record(
                 StatementType.PREPARED,
                 Category.SELECT,

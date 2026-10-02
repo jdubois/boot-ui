@@ -3035,9 +3035,6 @@ public class BootUiProperties {
          */
         private String instanceId;
 
-        /** How often the capture coordinator polls the merged Live Activity feed for new entries. */
-        private Duration captureInterval = Duration.ofSeconds(2);
-
         public boolean isEnabled() {
             return enabled;
         }
@@ -3124,14 +3121,6 @@ public class BootUiProperties {
 
         public void setInstanceId(String instanceId) {
             this.instanceId = instanceId;
-        }
-
-        public Duration getCaptureInterval() {
-            return captureInterval;
-        }
-
-        public void setCaptureInterval(Duration captureInterval) {
-            this.captureInterval = captureInterval;
         }
 
         /** Where the durable store gets its JDBC connections from. */

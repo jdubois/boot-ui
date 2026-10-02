@@ -32,6 +32,7 @@ import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceReport;
 import io.github.jdubois.bootui.core.dto.SqlTraceStatsDto;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
@@ -1051,7 +1052,7 @@ class LiveActivityServiceTests {
     void nestsCacheEventUnderRequestByTraceId() {
         io.github.jdubois.bootui.engine.cache.CacheActivityRecorder recorder =
                 new io.github.jdubois.bootui.engine.cache.CacheActivityRecorder(true, 10);
-        recorder.setTraceIdProvider(() -> "trace-r1");
+        recorder.setCorrelationContextProvider(() -> BootUiCorrelation.current().withTrace("trace-r1", null));
         recorder.recordHit("cacheManager", "orders", "42");
         LiveActivityService service = serviceWithCache(
                 requests(exchange("r1", BASE.plusMillis(1000), "GET", "/a", 200, 30L)),

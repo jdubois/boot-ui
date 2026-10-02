@@ -12,7 +12,6 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
-import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.util.List;
 
 /**
@@ -62,11 +61,6 @@ public final class EmailCaptureService implements RuntimeEventPublisher {
      */
     public boolean isMaskContentEnabled() {
         return maskContent;
-    }
-
-    /** Installs the trace-id provider used when stamping captured messages. */
-    public void setTraceIdProvider(TraceIdProvider traceIdProvider) {
-        this.store.setTraceIdProvider(traceIdProvider);
     }
 
     /** Replaces the source of the request id stamped on each captured email; see {@link EmailStore}. */

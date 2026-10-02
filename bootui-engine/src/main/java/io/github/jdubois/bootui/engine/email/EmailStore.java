@@ -3,7 +3,6 @@ package io.github.jdubois.bootui.engine.email;
 import io.github.jdubois.bootui.engine.correlation.CorrelationSource;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
-import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -54,7 +53,6 @@ public final class EmailStore {
     private final AtomicLong sequence = new AtomicLong();
     private final Object lock = new Object();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
-    private volatile TraceIdProvider traceIdProvider = EmailStore::mdcTraceId;
     private final CorrelationSource correlation = new CorrelationSource();
 
     public EmailStore(int maxEntries) {
@@ -68,15 +66,6 @@ public final class EmailStore {
 
     public int maxEntries() {
         return maxEntries;
-    }
-
-    /**
-     * Replaces the trace-id source used to stamp each captured email. Defaults to the SLF4J MDC
-     * {@code traceId} key that Micrometer Tracing publishes on Spring MVC. Passing {@code null}
-     * restores that default.
-     */
-    public void setTraceIdProvider(TraceIdProvider traceIdProvider) {
-        this.traceIdProvider = traceIdProvider == null ? EmailStore::mdcTraceId : traceIdProvider;
     }
 
     /**
@@ -169,7 +158,7 @@ public final class EmailStore {
 
     private String resolveTraceId() {
         try {
-            String traceId = traceIdProvider.currentTraceId();
+            String traceId = correlation.traceId();
             return traceId == null || traceId.isBlank() ? null : traceId;
         } catch (RuntimeException ex) {
             return null;
@@ -202,14 +191,5 @@ public final class EmailStore {
     private String truncate(String body) {
         return body.substring(0, maxBodyLength) + "\n…[truncated, showing " + maxBodyLength + " of " + body.length()
                 + " characters]";
-    }
-
-    private static String mdcTraceId() {
-        try {
-            String traceId = org.slf4j.MDC.get("traceId");
-            return traceId == null || traceId.isBlank() ? null : traceId;
-        } catch (RuntimeException ex) {
-            return null;
-        }
     }
 }

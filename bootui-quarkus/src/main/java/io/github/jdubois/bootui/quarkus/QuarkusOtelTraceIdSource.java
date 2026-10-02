@@ -1,14 +1,14 @@
 package io.github.jdubois.bootui.quarkus;
 
-import io.github.jdubois.bootui.spi.TraceIdProvider;
+import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanContext;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
 
 /**
- * OpenTelemetry-backed {@link TraceIdProvider} for the Quarkus adapter: the reactive-correct seam the Live
- * Activity correlation needs. It produces a {@link TraceIdProvider} that reads the trace id of the active
+ * OpenTelemetry-backed {@link TraceIdSource} for the Quarkus adapter: the reactive-correct seam the Live
+ * Activity correlation needs. It produces a {@link TraceIdSource} that reads the trace id of the active
  * server span via {@link Span#current()}, whose OpenTelemetry context propagates across the Vert.x
  * event-loop→worker-thread hops a request takes. That is why this works where Spring's serving-thread
  * strategy cannot: blocking SQL runs on a worker thread, but the OpenTelemetry context (unlike a
@@ -22,15 +22,15 @@ import jakarta.inject.Singleton;
  * without {@code quarkus-opentelemetry}, linking the OpenTelemetry API that must stay absent (R2/BF2). The
  * processor therefore actively excludes this class from discovery unless the OpenTelemetry-tracer capability
  * is present (see {@code BootUiQuarkusProcessor#registerOpenTelemetryCorrelation}). When OpenTelemetry is
- * absent no {@code TraceIdProvider} bean exists, the capture points resolve none and stamp {@code null}, and
+ * absent no {@code TraceIdSource} bean exists, the capture points resolve none and stamp {@code null}, and
  * the Live Activity feed renders flat — the honest status quo.</p>
  */
-public class QuarkusOtelTraceIdProvider {
+public class QuarkusOtelTraceIdSource {
 
     @Produces
     @Singleton
-    public TraceIdProvider bootUiOtelTraceIdProvider() {
-        return QuarkusOtelTraceIdProvider::currentSpanTraceId;
+    public TraceIdSource bootUiOtelTraceIdSource() {
+        return QuarkusOtelTraceIdSource::currentSpanTraceId;
     }
 
     /**

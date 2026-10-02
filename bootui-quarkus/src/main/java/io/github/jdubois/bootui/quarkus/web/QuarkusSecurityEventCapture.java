@@ -1,11 +1,11 @@
 package io.github.jdubois.bootui.quarkus.web;
 
+import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
 import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.security.CapturedSecurityEvent;
 import io.github.jdubois.bootui.engine.security.SecurityEventBuffer;
 import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
 import io.github.jdubois.bootui.spi.CorrelationContext;
-import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.quarkus.security.identity.SecurityIdentity;
 import io.quarkus.security.spi.runtime.AuthorizationFailureEvent;
 import io.quarkus.security.spi.runtime.AuthorizationSuccessEvent;
@@ -32,7 +32,7 @@ import java.util.Map;
  * and would evict the failures worth reviewing — and recorded, with every authorization failure, as a decision in the
  * runtime journal's {@code authorization} source.</p>
  *
- * <p>When an OpenTelemetry {@link TraceIdProvider} is present (capability-gated), the active span's trace
+ * <p>When an OpenTelemetry {@link TraceIdSource} is present (capability-gated), the active span's trace
  * id is resolved here too and stamped on the captured event so the Live Activity panel can nest it under
  * the request that produced it — the same correlation mechanism already used for SQL trace and exceptions.
  * {@code Span.current()} still resolves correctly on this observer's request thread because its context
@@ -44,10 +44,10 @@ import java.util.Map;
 public class QuarkusSecurityEventCapture {
 
     private final SecurityEventBuffer buffer;
-    private final TraceIdProvider traceIdProvider;
+    private final TraceIdSource traceIdProvider;
 
     @Inject
-    public QuarkusSecurityEventCapture(SecurityEventBuffer buffer, Instance<TraceIdProvider> traceIdProvider) {
+    public QuarkusSecurityEventCapture(SecurityEventBuffer buffer, Instance<TraceIdSource> traceIdProvider) {
         this.buffer = buffer;
         this.traceIdProvider = traceIdProvider.isResolvable() ? traceIdProvider.get() : null;
     }

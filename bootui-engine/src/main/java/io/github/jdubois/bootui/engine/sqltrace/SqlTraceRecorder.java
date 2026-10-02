@@ -25,7 +25,6 @@ import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
 import io.github.jdubois.bootui.spi.ThreadKind;
 import io.github.jdubois.bootui.spi.ThreadKindClassifier;
-import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -290,7 +289,6 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
     private volatile boolean idleSuspended = false;
     private final Set<String> dataSourceNames = new ConcurrentSkipListSet<>();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
-    private volatile TraceIdProvider traceIdProvider = SqlTraceRecorder::mdcTraceId;
     private final CorrelationSource correlation = new CorrelationSource();
     private final ThreadKinds threadKinds = new ThreadKinds();
     private volatile RequestPhases requestPhases;
@@ -373,18 +371,6 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
 
     public boolean isCaptureCallSite() {
         return captureCallSite;
-    }
-
-    /**
-     * Replaces the trace-id source used to stamp each captured statement. Defaults to the SLF4J MDC
-     * {@code traceId} key that Micrometer Tracing publishes on Spring, which works because Spring MVC
-     * serves a request start-to-finish on one thread. The Quarkus adapter installs an OpenTelemetry-backed
-     * provider instead, because its blocking SQL runs on a worker thread the MDC key never reaches but the
-     * OpenTelemetry context does. Passing {@code null} restores the default MDC lookup, so the Spring
-     * adapter (which never calls this) is unaffected.
-     */
-    public void setTraceIdProvider(TraceIdProvider traceIdProvider) {
-        this.traceIdProvider = traceIdProvider == null ? SqlTraceRecorder::mdcTraceId : traceIdProvider;
     }
 
     /**
@@ -978,27 +964,12 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
 
     /**
      * The trace id to stamp on the next captured statement, taken from the configured
-     * {@link TraceIdProvider} and fully guarded so SQL execution is never disrupted by a missing or
+     * correlation source and fully guarded so SQL execution is never disrupted by a missing or
      * misbehaving provider. Returns {@code null} (no correlation) when blank or on any failure.
      */
     private String resolveTraceId() {
         try {
-            String traceId = traceIdProvider.currentTraceId();
-            return traceId == null || traceId.isBlank() ? null : traceId;
-        } catch (RuntimeException ex) {
-            return null;
-        }
-    }
-
-    /**
-     * Default trace-id source: the SLF4J MDC where Micrometer Tracing publishes it (the {@code traceId}
-     * correlation key). Returns {@code null} when no tracer is active or the key is absent, in which case
-     * downstream correlation falls back to its time-window heuristic. The lookup is fully guarded so SQL
-     * execution is never disrupted by a missing or misbehaving MDC.
-     */
-    private static String mdcTraceId() {
-        try {
-            String traceId = org.slf4j.MDC.get("traceId");
+            String traceId = correlation.traceId();
             return traceId == null || traceId.isBlank() ? null : traceId;
         } catch (RuntimeException ex) {
             return null;

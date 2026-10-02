@@ -41,7 +41,6 @@ class BootUiEngineProducerActivityConfigTest {
         assertThat(settings.flushInterval()).isEqualTo(Duration.ofSeconds(5));
         assertThat(settings.bufferMaxEntries()).isEqualTo(500);
         assertThat(settings.retention()).isEqualTo(Duration.ofDays(7));
-        assertThat(settings.captureInterval()).isEqualTo(Duration.ofSeconds(2));
         // No explicit instance-id and no guaranteed HOSTNAME in a test JVM: only the resolved-or-generated
         // contract is pinned here, not a specific value (see ActivityInstanceIdsTests for that logic).
         assertThat(settings.instanceId()).isNotBlank();
@@ -61,8 +60,7 @@ class BootUiEngineProducerActivityConfigTest {
                         Map.entry("bootui.activity.persistence.flush-interval", "10s"),
                         Map.entry("bootui.activity.persistence.buffer-max-entries", "250"),
                         Map.entry("bootui.activity.persistence.retention", "P1D"),
-                        Map.entry("bootui.activity.persistence.instance-id", "instance-a"),
-                        Map.entry("bootui.activity.persistence.capture-interval", "1s"))));
+                        Map.entry("bootui.activity.persistence.instance-id", "instance-a"))));
 
         assertThat(settings.enabled()).isTrue();
         assertThat(settings.dataSourceMode()).isEqualTo(ActivityPersistenceSettings.DataSourceMode.DEDICATED);
@@ -75,7 +73,6 @@ class BootUiEngineProducerActivityConfigTest {
         assertThat(settings.bufferMaxEntries()).isEqualTo(250);
         assertThat(settings.retention()).isEqualTo(Duration.ofDays(1));
         assertThat(settings.instanceId()).isEqualTo("instance-a");
-        assertThat(settings.captureInterval()).isEqualTo(Duration.ofSeconds(1));
     }
 
     @Test

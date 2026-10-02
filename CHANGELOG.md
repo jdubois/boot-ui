@@ -291,6 +291,26 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   unversioned `Server` header INFO ([#1166](https://github.com/jdubois/boot-ui/pull/1166),
   [Pentesting checks](docs/PENTEST-CHECKS.md#pentesting-advisor-audit-2026)).
 
+### Removed
+
+These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/PLAN-v2.md) §4.3, M4-16).
+
+- **`io.github.jdubois.bootui.spi.TraceIdProvider` is removed; use `CorrelationContextProvider`.** Every recorder and
+  capture point now reads the trace id of the work it records from the adapter's `CorrelationContextProvider`, which
+  also carries BootUI's request and execution ids, so the separate `setTraceIdProvider(...)` setters on
+  `SqlTraceRecorder`, `RestClientTraceRecorder`, `CacheActivityRecorder`, `FaultToleranceEventRecorder`, `EmailStore`,
+  and `EmailCaptureService` are gone too. **Migration:** an application or extension that installed its own trace id
+  source calls `setCorrelationContextProvider(...)` instead, returning, for example,
+  `BootUiCorrelation.current().withTrace(traceId, spanId)`. With no provider installed, recorders keep reading the
+  SLF4J MDC `traceId` key, as before; OpenTelemetry on Spring WebFlux and Quarkus is wired by BootUI itself.
+- **The Live Activity persistence poller is removed, together with `bootui.activity.persistence.capture-interval`.**
+  Durable history (`bootui.activity.persistence.enabled=true`) is now written only by the runtime journal's subscriber,
+  which stores every recorded batch once instead of re-reading the panel buffers every 2 seconds and missing entries
+  above about 100 events per second. It does so whatever `bootui.activity.feed-source` the panel reads. **Migration:**
+  remove `bootui.activity.persistence.capture-interval`, which is now ignored, and keep the runtime journal enabled
+  (the default): with `bootui.runtime-journal.enabled=false`, persistence logs a warning and writes nothing
+  ([Runtime journal](docs/PROPERTIES.md#runtime-journal)).
+
 ### Fixed
 
 - **`ARCH-SPRING-004` no longer reports a self-call that only joins the caller's transaction.** A method that already

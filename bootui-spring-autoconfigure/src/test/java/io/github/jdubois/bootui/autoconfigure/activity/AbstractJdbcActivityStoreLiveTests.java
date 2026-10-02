@@ -200,8 +200,7 @@ abstract class AbstractJdbcActivityStoreLiveTests {
                 Duration.ofMinutes(10),
                 200,
                 Duration.ofDays(7),
-                INSTANCE,
-                Duration.ofSeconds(1));
+                INSTANCE);
         SwitchableActivityStore store = new SwitchableActivityStore(new InMemoryActivityStore(200));
         try {
             ActivitySwitchResponse response = new ActivitySwitchService()

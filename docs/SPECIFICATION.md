@@ -1334,8 +1334,8 @@ Features:
   `pageInfo.nextCursor`. KPIs, type counts, sources, and warnings are always computed from the live in-memory merge
   regardless of persistence — they summarize "right now", not whichever historical page happens to be browsed.
   Entries are masked before they are ever buffered or written, so persisted rows are immutable with respect to later
-  masking-policy changes. A capture coordinator polls the merged feed every `bootui.activity.persistence.capture-interval`
-  and stores each entry once, remembering the ids it stored in a window of `bootui.activity.persistence.buffer-max-entries`
+  masking-policy changes. The runtime journal's subscriber renders each recorded batch as the journal's feed renders it
+  and stores each entry once (2.0.0 removed the 1.x poller of the merged feed and its `capture-interval`), remembering the ids it stored in a window of `bootui.activity.persistence.buffer-max-entries`
   that never forgets an entry still in the feed. Failed and slow entries are also remembered in a second window per
   entry type, which routine entries and other types never displace: records a failure-preserving buffer reserves,
   classified by the buffers' own rule and thresholds (engine `ReservedActivityEntries`: `5xx` and slow requests,
@@ -1345,7 +1345,7 @@ Features:
   meanwhile.
 
   On Quarkus, a dedicated `QuarkusActivityCapture` CDI bean (`@Observes StartupEvent`/`ShutdownEvent`) owns the
-  capture-poller lifecycle that the Spring adapter instead wires inline in its controller constructor/`shutdown()`; the
+  journal capture's lifecycle that the Spring adapter instead wires inline in its controller constructor/`shutdown()`; the
   `ActivityStore`/`BufferedActivityStore`/`JdbcActivityStore`/`ActivityStoreFactory` engine machinery, every
   `bootui.activity.persistence.*` key, and the wire contract are identical on both adapters, and the `ActivityStore` and
   `ActivityPersistenceSettings` beans are always produced (persistence disabled is just `enabled() == false`, matching
@@ -1363,7 +1363,7 @@ Features:
   atomically swaps the running instance's `ActivityStore` — behind a `SwitchableActivityStore` indirection — from
   `InMemoryActivityStore` to a `BufferedActivityStore`/`JdbcActivityStore` pair: it verifies/creates the backing table
   against the current `DataSource`, checks that the store's paged read runs there, and starts the same
-  capture-poller/flush cycle a startup-enabled instance would have, with no restart and no dropped entries. If no
+  journal capture and flush cycle a startup-enabled instance would have, with no restart and no dropped entries. If no
   `DataSource` is present, the disclosure instead links to setup documentation for configuring one (or a dedicated
   one) and enabling persistence at startup. The switch is
   **runtime-only**: it does not write configuration, so a later restart reverts to the in-memory default unless

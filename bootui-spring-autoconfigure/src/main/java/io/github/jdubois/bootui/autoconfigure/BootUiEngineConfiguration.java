@@ -1557,8 +1557,7 @@ public class BootUiEngineConfiguration {
                     persistence.getFlushInterval(),
                     persistence.getBufferMaxEntries(),
                     persistence.getRetention(),
-                    instanceId,
-                    persistence.getCaptureInterval());
+                    instanceId);
         }
 
         @Bean

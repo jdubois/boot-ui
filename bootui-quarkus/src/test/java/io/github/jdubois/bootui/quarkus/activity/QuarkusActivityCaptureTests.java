@@ -33,14 +33,13 @@ import org.junit.jupiter.api.Test;
 /**
  * Pins {@link QuarkusActivityCapture}'s lifecycle: with persistence disabled (the default), {@link
  * QuarkusActivityCapture#onStart} must start no background thread and {@link
- * QuarkusActivityCapture#onStop} must not fail even though no poller was ever created; with persistence
- * enabled, the capture poller thread must start on {@code onStart} and stop on {@code onStop} — mirroring
- * the Spring adapter's {@code shutdownStopsCapturePollerThreadWhenPersistenceEnabled}.
+ * QuarkusActivityCapture#onStop} must not fail even though no capture was ever created; with persistence
+ * enabled but no runtime journal, 2.0's only capture source, nothing polls the panel buffers either.
  */
 class QuarkusActivityCaptureTests {
 
     @Test
-    void onStartDoesNotStartCapturePollerThreadWhenPersistenceDisabled() throws Exception {
+    void onStartDoesNotStartACaptureThreadWhenPersistenceDisabled() throws Exception {
         QuarkusActivityCapture capture = new QuarkusActivityCapture(
                 new SwitchableActivityStore(new InMemoryActivityStore(10)), disabledSettings(), liveActivityResource());
 
@@ -48,26 +47,23 @@ class QuarkusActivityCaptureTests {
 
         assertThat(awaitThreadNamed("bootui-activity-capture")).isNull();
 
-        // Must not throw even though onStart created no poller.
+        // Must not throw even though onStart created no capture.
         capture.onStop(null);
     }
 
     @Test
-    void onStartAndOnStopControlTheCapturePollerThreadWhenPersistenceEnabled() throws Exception {
+    void withoutARuntimeJournalPersistenceStartsNoCaptureThreadAndStopsCleanly() throws Exception {
         QuarkusActivityCapture capture = new QuarkusActivityCapture(
                 new SwitchableActivityStore(new InMemoryActivityStore(10)),
                 enabledSettings(Duration.ofMillis(50)),
                 liveActivityResource());
 
         capture.onStart(null);
-        Thread captureThread = awaitThreadNamed("bootui-activity-capture");
-        assertThat(captureThread)
-                .as("capture poller thread should have started")
-                .isNotNull();
 
+        assertThat(awaitThreadNamed("bootui-activity-capture"))
+                .as("2.0.0 removed the poller of the panel buffers")
+                .isNull();
         capture.onStop(null);
-
-        assertThat(awaitNotAlive(captureThread)).isTrue();
     }
 
     private static ActivityPersistenceSettings disabledSettings() {
@@ -90,8 +86,7 @@ class QuarkusActivityCaptureTests {
                 Duration.ofSeconds(5),
                 500,
                 Duration.ofDays(7),
-                "instance-a",
-                captureInterval);
+                "instance-a");
     }
 
     private static LiveActivityResource liveActivityResource() {

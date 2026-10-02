@@ -9,7 +9,7 @@ import java.time.Duration;
  * path, so a settings record (not an SPI policy interface) is the right shape. The one exception is the
  * "Use the existing datasource" panel action (see {@code ActivitySwitchService}), which does not mutate
  * this record or re-read it live — it builds one fresh, derived copy via {@link #withEnabledSharedMode()}
- * and hands it directly to the new store/poller it starts, leaving every other consumer's already-injected
+ * and hands it directly to the new store and capture it starts, leaving every other consumer's already-injected
  * settings instance untouched.
  *
  * @param enabled whether captured entries are also durably persisted; {@code false} keeps today's
@@ -28,7 +28,6 @@ import java.time.Duration;
  * @param retention how long persisted rows are kept before being pruned; entries older than this are
  *     eligible for deletion on the instance's own next prune pass
  * @param instanceId the multi-tenant partition key this instance writes/reads under
- * @param captureInterval how often the capture coordinator polls the merged feed for new entries
  */
 public record ActivityPersistenceSettings(
         boolean enabled,
@@ -41,8 +40,7 @@ public record ActivityPersistenceSettings(
         Duration flushInterval,
         int bufferMaxEntries,
         Duration retention,
-        String instanceId,
-        Duration captureInterval) {
+        String instanceId) {
 
     /** Where the durable store gets its JDBC connections from. */
     public enum DataSourceMode {
@@ -52,11 +50,11 @@ public record ActivityPersistenceSettings(
 
     /**
      * A copy of these settings with {@code enabled=true} and {@code dataSourceMode=SHARED}; every other
-     * field (table name, flush interval, buffer capacity, retention, instance id, capture interval) is
+     * field (table name, flush interval, buffer capacity, retention, instance id) is
      * carried over unchanged, since those are always correctly resolved by each adapter's config-binding
      * code regardless of whether persistence starts out enabled. Used only by the "Use the existing
      * datasource" runtime switch (see {@code ActivitySwitchService}) to build the settings its new
-     * durable store and capture poller run with.
+     * durable store and journal capture run with.
      */
     public ActivityPersistenceSettings withEnabledSharedMode() {
         return new ActivityPersistenceSettings(
@@ -70,7 +68,6 @@ public record ActivityPersistenceSettings(
                 flushInterval,
                 bufferMaxEntries,
                 retention,
-                instanceId,
-                captureInterval);
+                instanceId);
     }
 }

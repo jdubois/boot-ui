@@ -2,13 +2,14 @@ package io.github.jdubois.bootui.quarkus.sqltrace;
 
 import io.agroal.api.AgroalDataSource;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
+import io.github.jdubois.bootui.engine.correlation.ScopedCorrelationContextProvider;
+import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
 import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTracingProxies;
 import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
 import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
 import io.github.jdubois.bootui.quarkus.correlation.QuarkusThreadKinds;
-import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.quarkus.agroal.runtime.AgroalDataSourceUtil;
 import io.quarkus.datasource.common.runtime.DataSourceUtil;
 import jakarta.annotation.Priority;
@@ -44,7 +45,7 @@ public class BootUiSqlTraceProducer {
     @Singleton
     public SqlTraceRecorder sqlTraceRecorder(
             Config config,
-            Instance<TraceIdProvider> traceIdProvider,
+            Instance<TraceIdSource> traceIdProvider,
             Instance<SpanEnricher> spanEnricher,
             RequestPhases requestPhases) {
         boolean enabled = config.getOptionalValue("bootui.sql-trace.enabled", Boolean.class)
@@ -78,17 +79,12 @@ public class BootUiSqlTraceProducer {
                 maxParamLength,
                 nPlusOne,
                 reservedSharePercent);
-        // When OpenTelemetry is present, stamp each recorded statement with the active span's trace id so the
-        // Live Activity timeline nests it under its owning request. This replaces the engine's default SLF4J
-        // MDC lookup, which Quarkus does not populate on the worker thread blocking SQL runs on; the
-        // OpenTelemetry context, by contrast, propagates onto that thread. Absent OpenTelemetry the provider
-        // is unresolvable and the recorder keeps its default (null trace id → flat feed).
-        if (traceIdProvider.isResolvable()) {
-            recorder.setTraceIdProvider(traceIdProvider.get());
-        }
         // Stamp each statement with BootUI's request id, read from the request's Vert.x context, which reaches the
-        // worker thread blocking SQL runs on, with or without OpenTelemetry (docs/PLAN-v2.md §5.1).
-        recorder.setCorrelationContextProvider(QuarkusRequestCorrelation::current);
+        // worker thread blocking SQL runs on, with or without OpenTelemetry (docs/PLAN-v2.md §5.1). With
+        // OpenTelemetry, its trace id is filled in from the active span, whose context also propagates onto that
+        // thread; without it, the trace id stays null and the feed nests by request id alone.
+        recorder.setCorrelationContextProvider(new ScopedCorrelationContextProvider(
+                QuarkusRequestCorrelation::current, traceIdProvider.isResolvable() ? traceIdProvider.get() : null));
         recorder.setThreadKindClassifier(new QuarkusThreadKinds());
         recorder.setRequestPhases(requestPhases);
         // When OpenTelemetry is present, install the span enricher so each recorded statement stamps

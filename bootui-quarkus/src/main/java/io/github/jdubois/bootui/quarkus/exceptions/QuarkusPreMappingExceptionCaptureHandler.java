@@ -1,8 +1,8 @@
 package io.github.jdubois.bootui.quarkus.exceptions;
 
+import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.quarkus.QuarkusBootUiPaths;
-import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.ArcContainer;
 import io.quarkus.arc.InstanceHandle;
@@ -40,7 +40,7 @@ import org.jboss.resteasy.reactive.server.spi.ServerRestHandler;
  * <p>Built at <strong>build time</strong> as a plain object (no CDI annotations, no constructor
  * dependencies) — mirroring {@code AttachExceptionHandler} exactly — because {@code
  * PreExceptionMapperHandlerBuildItem} embeds the handler instance directly rather than resolving one through
- * CDI. Its CDI-backed dependencies ({@link ExceptionStore}, the optional {@link TraceIdProvider}, and {@code
+ * CDI. Its CDI-backed dependencies ({@link ExceptionStore}, the optional {@link TraceIdSource}, and {@code
  * CurrentVertxRequest}) are therefore resolved lazily, per invocation, via {@link Arc#container()} — cheap for
  * {@code @Singleton}/request-scoped beans and safe even before the container is fully up (guarded to a silent
  * no-op). The live MicroProfile {@code Config} that decides which paths are BootUI's own is read through
@@ -122,12 +122,12 @@ public final class QuarkusPreMappingExceptionCaptureHandler implements ServerRes
     }
 
     /**
-     * The active span's trace id, or {@code null} when OpenTelemetry is absent (no {@link TraceIdProvider}
+     * The active span's trace id, or {@code null} when OpenTelemetry is absent (no {@link TraceIdSource}
      * bean) or no span is in context. Fully guarded so capture never disrupts request handling.
      */
     private static String currentTraceId(ArcContainer container) {
         try {
-            InstanceHandle<TraceIdProvider> handle = container.instance(TraceIdProvider.class);
+            InstanceHandle<TraceIdSource> handle = container.instance(TraceIdSource.class);
             return handle.isAvailable() ? handle.get().currentTraceId() : null;
         } catch (RuntimeException ex) {
             return null;

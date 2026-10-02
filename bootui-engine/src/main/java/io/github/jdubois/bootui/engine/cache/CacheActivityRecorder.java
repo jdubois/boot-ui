@@ -9,7 +9,6 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
-import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -43,8 +42,6 @@ public final class CacheActivityRecorder implements RuntimeEventPublisher {
     private final Object lock = new Object();
     private final AtomicLong sequence = new AtomicLong();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
-
-    private volatile TraceIdProvider traceIdProvider = CacheActivityRecorder::mdcTraceId;
     private final CorrelationSource correlation = new CorrelationSource();
     private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
     private volatile boolean instrumentedManager;
@@ -67,15 +64,6 @@ public final class CacheActivityRecorder implements RuntimeEventPublisher {
     /** Whether this recorder can receive events from at least one instrumented cache manager. */
     public boolean hasInstrumentedManager() {
         return instrumentedManager;
-    }
-
-    /**
-     * Installs the {@link TraceIdProvider} used to stamp the active distributed-trace id on each captured
-     * event. Defaults to the SLF4J MDC {@code traceId} key (the same default {@code SqlTraceRecorder}
-     * uses); each adapter may install its own (e.g. an OpenTelemetry-backed one).
-     */
-    public void setTraceIdProvider(TraceIdProvider traceIdProvider) {
-        this.traceIdProvider = traceIdProvider == null ? CacheActivityRecorder::mdcTraceId : traceIdProvider;
     }
 
     /**
@@ -197,22 +185,9 @@ public final class CacheActivityRecorder implements RuntimeEventPublisher {
 
     private String resolveTraceId() {
         try {
-            String traceId = traceIdProvider.currentTraceId();
+            String traceId = correlation.traceId();
             return traceId == null || traceId.isBlank() ? null : traceId;
         } catch (RuntimeException ex) {
-            return null;
-        }
-    }
-
-    /**
-     * Default trace-id source: the SLF4J MDC where Micrometer Tracing publishes it (mirrors
-     * {@code SqlTraceRecorder}'s default so cache accesses correlate the same way SQL statements do).
-     */
-    private static String mdcTraceId() {
-        try {
-            String traceId = org.slf4j.MDC.get("traceId");
-            return traceId == null || traceId.isBlank() ? null : traceId;
-        } catch (RuntimeException | NoClassDefFoundError ex) {
             return null;
         }
     }

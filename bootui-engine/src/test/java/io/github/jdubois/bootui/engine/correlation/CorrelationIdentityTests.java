@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation.Scope;
 import io.github.jdubois.bootui.spi.CorrelationContext;
-import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.util.HashSet;
 import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
@@ -86,7 +85,7 @@ class CorrelationIdentityTests {
 
     @Test
     void providerIgnoresBlankMissingAndFailingTracers() {
-        TraceIdProvider failing = () -> {
+        TraceIdSource failing = () -> {
             throw new IllegalStateException("tracer down");
         };
 

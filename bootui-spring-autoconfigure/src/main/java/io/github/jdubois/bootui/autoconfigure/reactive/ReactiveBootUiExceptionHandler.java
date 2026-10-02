@@ -1,7 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.reactive;
 
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
-import io.github.jdubois.bootui.spi.TraceIdProvider;
+import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import org.springframework.core.Ordered;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.reactive.HandlerMapping;
@@ -38,7 +38,7 @@ public class ReactiveBootUiExceptionHandler implements WebExceptionHandler, Orde
 
     private final ExceptionStore store;
 
-    private TraceIdProvider traceIdProvider;
+    private CorrelationContextProvider correlation;
 
     public ReactiveBootUiExceptionHandler(ExceptionStore store) {
         this.store = store;
@@ -50,8 +50,8 @@ public class ReactiveBootUiExceptionHandler implements WebExceptionHandler, Orde
      * adapter; left {@code null} otherwise, in which case {@link #currentTraceId()} returns {@code null}
      * and {@code store.record} falls back to its existing six-argument, no-trace-id overload.
      */
-    public void setTraceIdProvider(TraceIdProvider traceIdProvider) {
-        this.traceIdProvider = traceIdProvider;
+    public void setCorrelationContextProvider(CorrelationContextProvider correlation) {
+        this.correlation = correlation;
     }
 
     @Override
@@ -79,11 +79,11 @@ public class ReactiveBootUiExceptionHandler implements WebExceptionHandler, Orde
      * disrupts the application's own error handling.
      */
     private String currentTraceId() {
-        if (traceIdProvider == null) {
+        if (correlation == null) {
             return null;
         }
         try {
-            return traceIdProvider.currentTraceId();
+            return correlation.current().traceId();
         } catch (RuntimeException ex) {
             return null;
         }

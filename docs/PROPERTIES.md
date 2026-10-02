@@ -615,8 +615,9 @@ Off by default: the merged stream stays in-memory-only, exactly as above. Settin
 `bootui.activity.persistence.enabled=true` additionally buffers captured entries and flushes them to a SQL database
 over direct JDBC, so history survives a restart and the dashboard can page back further than fits in memory. Available
 on both adapters with an identical config surface and wire contract; on Quarkus a `QuarkusActivityCapture` CDI bean
-(`@Observes StartupEvent`/`ShutdownEvent`) owns the capture-poller lifecycle instead of Spring's controller-inline
-wiring. See [SPECIFICATION.md §5.14.2](./SPECIFICATION.md) for the full design (the `ActivityStore` abstraction,
+(`@Observes StartupEvent`/`ShutdownEvent`) owns the journal capture's lifecycle instead of Spring's controller-inline
+wiring. Durable history is written by the runtime journal's subscriber, whatever source the feed reads; with the
+journal disabled, persistence logs a warning and writes nothing. See [SPECIFICATION.md §5.14.2](./SPECIFICATION.md) for the full design (the `ActivityStore` abstraction,
 buffering/flush, merge-for-reads, re-queue-on-failure, the flush guard, and multi-tenancy).
 
 | Property                                                | Default            | Description                                                                                                                        |
@@ -632,7 +633,6 @@ buffering/flush, merge-for-reads, re-queue-on-failure, the flush guard, and mult
 | `bootui.activity.persistence.buffer-max-entries`        | `500`               | Capacity of both the in-memory hot read cache (entries visible before their scheduled flush) and the pending-flush queue.         |
 | `bootui.activity.persistence.retention`                 | `7d`                | How long persisted rows are kept before this instance prunes its own rows older than this on a periodic pass.                     |
 | `bootui.activity.persistence.instance-id`               | _(auto)_            | Multi-tenant partition key this instance writes/reads its rows under. Defaults to the `HOSTNAME` environment variable, or else a generated `<app-name>-<random>` id. |
-| `bootui.activity.persistence.capture-interval`          | `2s`                | How often the capture coordinator polls the merged Live Activity feed for new entries to buffer.                                  |
 
 ### Runtime journal
 

@@ -1769,7 +1769,7 @@ class LiveActivityAssemblerTests {
     void nestsFaultToleranceEventUnderRequestSharingTraceIdAndCountsIt() {
         HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
         FaultToleranceEventRecorder recorder = new FaultToleranceEventRecorder(true, 10);
-        recorder.setTraceIdProvider(() -> "trace-a");
+        recorder.setCorrelationContextProvider(() -> BootUiCorrelation.current().withTrace("trace-a", null));
         recorder.record(
                 "paymentGateway",
                 FaultToleranceVocabulary.TYPE_RETRY,
@@ -1794,7 +1794,7 @@ class LiveActivityAssemblerTests {
     void keepsFaultToleranceEventTopLevelWhenNoRequestSharesItsTraceId() {
         HttpExchangesReport requests = requests(request("req-1", "/orders", "trace-a", 1_000L));
         FaultToleranceEventRecorder recorder = new FaultToleranceEventRecorder(true, 10);
-        recorder.setTraceIdProvider(() -> null);
+        recorder.setCorrelationContextProvider(BootUiCorrelation::current);
         recorder.recordStateTransition(
                 "paymentGateway",
                 FaultToleranceVocabulary.PROVIDER_RESILIENCE4J,

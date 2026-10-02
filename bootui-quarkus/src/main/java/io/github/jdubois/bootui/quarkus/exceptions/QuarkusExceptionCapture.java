@@ -1,8 +1,8 @@
 package io.github.jdubois.bootui.quarkus.exceptions;
 
+import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
-import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.quarkus.runtime.ShutdownEvent;
 import io.quarkus.runtime.StartupEvent;
 import io.quarkus.vertx.http.runtime.CurrentVertxRequest;
@@ -28,7 +28,7 @@ import org.eclipse.microprofile.config.Config;
 public class QuarkusExceptionCapture {
 
     private final ExceptionStore store;
-    private final TraceIdProvider traceIdProvider;
+    private final TraceIdSource traceIdProvider;
     private final CurrentVertxRequest currentVertxRequest;
     private final Config config;
     private QuarkusExceptionLogHandler handler;
@@ -43,7 +43,7 @@ public class QuarkusExceptionCapture {
     @Inject
     public QuarkusExceptionCapture(
             ExceptionStore store,
-            Instance<TraceIdProvider> traceIdProvider,
+            Instance<TraceIdSource> traceIdProvider,
             CurrentVertxRequest currentVertxRequest,
             Config config) {
         this.store = store;

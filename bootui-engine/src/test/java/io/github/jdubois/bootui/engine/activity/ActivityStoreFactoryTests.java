@@ -35,8 +35,7 @@ class ActivityStoreFactoryTests {
                 Duration.ofSeconds(5),
                 200,
                 null,
-                "app-1",
-                Duration.ofSeconds(1));
+                "app-1");
     }
 
     @Test
@@ -59,8 +58,7 @@ class ActivityStoreFactoryTests {
                 Duration.ofSeconds(5),
                 200,
                 null,
-                "app-1",
-                Duration.ofSeconds(1));
+                "app-1");
 
         try (SwitchableActivityStore store = ActivityStoreFactory.create(settings, () -> null)) {
             assertThat(store.delegate()).isInstanceOf(BufferedActivityStore.class);
@@ -89,8 +87,7 @@ class ActivityStoreFactoryTests {
                 Duration.ofSeconds(5),
                 200,
                 null,
-                "app-1",
-                Duration.ofSeconds(1));
+                "app-1");
 
         try (SwitchableActivityStore store = ActivityStoreFactory.create(settings, () -> shared)) {
             BufferedActivityStore buffered = (BufferedActivityStore) store.delegate();
@@ -119,8 +116,7 @@ class ActivityStoreFactoryTests {
                 Duration.ofSeconds(5),
                 200,
                 null,
-                "app-1",
-                Duration.ofSeconds(1));
+                "app-1");
 
         assertThatThrownBy(() -> ActivityStoreFactory.create(settings, () -> null))
                 .isInstanceOf(ActivityStoreException.class);

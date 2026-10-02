@@ -60,7 +60,7 @@ public final class JournalActivityCapture implements JournalListener, ActivityCa
      * Starts capturing {@code journal}'s recorded batches into {@code store} as {@code feed} renders them, for adapters
      * whose Live Activity feed comes from the runtime journal. The caller owns closing the returned capture.
      *
-     * @param reserved which rows the store remembers longer, as for the poller
+     * @param reserved which rows the store remembers longer
      * @param panelEnabled whether a panel, by its id, is enabled; a disabled panel's rows are not written
      */
     public static JournalActivityCapture start(

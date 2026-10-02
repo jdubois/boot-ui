@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.email;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -62,7 +63,7 @@ class EmailStoreTests {
     @Test
     void stampsTraceIdAndThreadAtCaptureTime() {
         EmailStore store = new EmailStore(10);
-        store.setTraceIdProvider(() -> "trace-1");
+        store.setCorrelationContextProvider(() -> BootUiCorrelation.current().withTrace("trace-1", null));
 
         EmailStore.Entry entry = store.capture(email("traceable"), true);
 

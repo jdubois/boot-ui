@@ -11,10 +11,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
 import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
 import io.github.jdubois.bootui.spi.CorrelationContext;
-import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.smallrye.config.PropertiesConfigSource;
 import io.smallrye.config.SmallRyeConfigBuilder;
 import io.vertx.core.Handler;
@@ -152,7 +152,7 @@ class QuarkusHttpExchangeCaptureFilterTest {
 
     private static QuarkusHttpExchangeCaptureFilter filter(HttpExchangeBuffer buffer, Map<String, String> properties) {
         @SuppressWarnings("unchecked")
-        Instance<TraceIdProvider> traceIdProvider = mock(Instance.class);
+        Instance<TraceIdSource> traceIdProvider = mock(Instance.class);
         when(traceIdProvider.isResolvable()).thenReturn(false);
         Config config = new SmallRyeConfigBuilder()
                 .withSources(new PropertiesConfigSource(properties, "test", 1000))

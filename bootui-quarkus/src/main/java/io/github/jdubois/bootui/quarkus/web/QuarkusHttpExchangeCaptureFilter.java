@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.quarkus.web;
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RequestIds;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
+import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RequestTiming;
@@ -17,7 +18,6 @@ import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
 import io.github.jdubois.bootui.quarkus.QuarkusBootUiPaths;
 import io.github.jdubois.bootui.quarkus.correlation.QuarkusRequestCorrelation;
 import io.github.jdubois.bootui.spi.CorrelationContext;
-import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.quarkus.security.identity.SecurityIdentity;
 import io.quarkus.vertx.http.runtime.filters.Filters;
 import io.quarkus.vertx.http.runtime.security.QuarkusHttpUser;
@@ -52,7 +52,7 @@ import org.eclipse.microprofile.config.Config;
  * non-default {@code quarkus.http.root-path} and for a custom {@code bootui.path} mount alike. The buffer
  * caps size and masks downstream, so this filter does minimal, non-blocking work on the event loop.</p>
  *
- * <p>When an OpenTelemetry {@link TraceIdProvider} is present (capability-gated), the active server span's
+ * <p>When an OpenTelemetry {@link TraceIdSource} is present (capability-gated), the active server span's
  * trace id is resolved <em>at filter entry</em> — on the event loop, where the span is current — and stamped
  * on the captured exchange so the Live Activity timeline can nest this request's SQL and exceptions under it.
  * The provider is optional: when OpenTelemetry is absent the {@code Instance} is unresolvable and the trace
@@ -79,13 +79,13 @@ public class QuarkusHttpExchangeCaptureFilter {
     private static final int PRIORITY = 900;
 
     private final HttpExchangeBuffer buffer;
-    private final TraceIdProvider traceIdProvider;
+    private final TraceIdSource traceIdProvider;
     private final Config config;
     private final RequestPhases phases;
     private final RuntimeEventSink journal;
 
     public QuarkusHttpExchangeCaptureFilter(
-            HttpExchangeBuffer buffer, Instance<TraceIdProvider> traceIdProvider, Config config) {
+            HttpExchangeBuffer buffer, Instance<TraceIdSource> traceIdProvider, Config config) {
         this(buffer, traceIdProvider, config, null, null);
     }
 
@@ -97,7 +97,7 @@ public class QuarkusHttpExchangeCaptureFilter {
     @Inject
     public QuarkusHttpExchangeCaptureFilter(
             HttpExchangeBuffer buffer,
-            Instance<TraceIdProvider> traceIdProvider,
+            Instance<TraceIdSource> traceIdProvider,
             Config config,
             RequestPhases phases,
             RuntimeJournal journal) {

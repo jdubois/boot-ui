@@ -2,8 +2,8 @@ package io.github.jdubois.bootui.quarkus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
-import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.smallrye.config.PropertiesConfigSource;
 import io.smallrye.config.SmallRyeConfig;
 import io.smallrye.config.SmallRyeConfigBuilder;
@@ -32,7 +32,7 @@ class BootUiEngineProducerRestClientTraceConfigTest {
                 "bootui.rest-client-trace.reserved-share-percent",
                 "50"));
         RestClientTraceRecorder recorder = new BootUiEngineProducer()
-                .restClientTraceRecorder(config, new FixedInstance<>((TraceIdProvider) () -> "trace-from-otel"));
+                .restClientTraceRecorder(config, new FixedInstance<>((TraceIdSource) () -> "trace-from-otel"));
 
         recorder.record(
                 "GET",

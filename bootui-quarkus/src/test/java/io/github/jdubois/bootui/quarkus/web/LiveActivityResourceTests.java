@@ -9,7 +9,6 @@ import io.github.jdubois.bootui.core.dto.ActivitySwitchRequest;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchResult;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.engine.activity.ActivityCapture;
-import io.github.jdubois.bootui.engine.activity.ActivityCapturePoller;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityQuery;
@@ -18,6 +17,7 @@ import io.github.jdubois.bootui.engine.activity.BufferedActivityStore;
 import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
 import io.github.jdubois.bootui.engine.activity.StoredActivityEntry;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.email.CapturedEmail;
 import io.github.jdubois.bootui.engine.email.EmailCaptureService;
@@ -227,7 +227,8 @@ class LiveActivityResourceTests {
                 "trace-a"));
         EmailCaptureService emailService =
                 new EmailCaptureService(new EmailStore(10), new QuarkusExposurePolicy(config(Map.of())), false, false);
-        emailService.setTraceIdProvider(() -> "trace-a");
+        emailService.setCorrelationContextProvider(
+                () -> BootUiCorrelation.current().withTrace("trace-a", null));
         emailService.capture(CapturedEmail.builder()
                 .from("noreply@example.com")
                 .to(List.of("user@example.com"))
@@ -267,80 +268,6 @@ class LiveActivityResourceTests {
     }
 
     @Test
-    void captureRemembersASlowClientErrorThatTheExchangeBufferReserves() {
-        // A 404 that took 1.5 s is WARN in the stream, but at the default 1,000 ms threshold the buffer keeps it in
-        // its reserved share, so the feed can show it again after the first capture window forgot it.
-        assertThat(capturesOfAHiddenSlowClientError(new HttpExchangeBuffer(50))).isEqualTo(1);
-    }
-
-    @Test
-    void captureClassifiesRequestsWithTheExchangeBufferThreshold() {
-        // Neither threshold makes the buffer reserve that request, so it is routine and captured again.
-        assertThat(capturesOfAHiddenSlowClientError(new HttpExchangeBuffer(50, 25, 2_000L)))
-                .isEqualTo(2);
-        assertThat(capturesOfAHiddenSlowClientError(new HttpExchangeBuffer(50, 25, 0L)))
-                .isEqualTo(2);
-    }
-
-    /**
-     * Drives this resource's own capture wiring one poll at a time: the feed shows a slow 404, then only 20 newer
-     * exchanges (more than the smallest capture window holds), then the same slow 404 again, as a feed does when a
-     * source that dropped out of it returns.
-     */
-    private static long capturesOfAHiddenSlowClientError(HttpExchangeBuffer buffer) {
-        List<StoredActivityEntry> captured = new CopyOnWriteArrayList<>();
-        SwitchableActivityStore store = new SwitchableActivityStore(new ActivityStore() {
-            @Override
-            public void appendBatch(List<StoredActivityEntry> entries) {
-                captured.addAll(entries);
-            }
-
-            @Override
-            public ActivityPage query(ActivityQuery query) {
-                return ActivityPage.EMPTY;
-            }
-        });
-        LiveActivityResource resource = resourceWith(
-                store,
-                disabledSettings(),
-                unsatisfiedDataSource(),
-                buffer,
-                unsatisfiedEmailCaptureService(),
-                new KafkaActivityRecorder(true, true, 200, 16),
-                config(Map.of()));
-        CapturedHttpExchange slowNotFound = timedExchange(1_000L, "/api/orders/42", 404, 1_500L);
-        ActivityPersistenceSettings settings = new ActivityPersistenceSettings(
-                true,
-                ActivityPersistenceSettings.DataSourceMode.SHARED,
-                null,
-                null,
-                null,
-                null,
-                "bootui_activity",
-                Duration.ofSeconds(5),
-                1,
-                Duration.ofDays(7),
-                "instance-r",
-                Duration.ofHours(1));
-        try (ActivityCapturePoller poller = resource.startCapture(store, settings)) {
-            buffer.record(slowNotFound);
-            poller.captureNow();
-            clear(buffer);
-            for (int i = 0; i < 20; i++) {
-                buffer.record(timedExchange(2_000L + i, "/api/health", 200, 5L));
-            }
-            poller.captureNow();
-            clear(buffer);
-            buffer.record(slowNotFound);
-            poller.captureNow();
-        }
-        String slowNotFoundId = captured.get(0).entry().id();
-        return captured.stream()
-                .filter(stored -> slowNotFoundId.equals(stored.entry().id()))
-                .count();
-    }
-
-    @Test
     void withTheJournalAsFeedSourcePersistenceIsWrittenByAJournalSubscriber() throws Exception {
         List<StoredActivityEntry> captured = new CopyOnWriteArrayList<>();
         SwitchableActivityStore store = new SwitchableActivityStore(new ActivityStore() {
@@ -377,8 +304,7 @@ class LiveActivityResourceTests {
                 Duration.ofSeconds(5),
                 16,
                 Duration.ofDays(7),
-                "instance-q",
-                Duration.ofHours(1));
+                "instance-q");
         try (ActivityCapture capture = resource.startPersistence(store, settings)) {
             assertThat(capture).isInstanceOf(JournalActivityCapture.class);
             journal.offer(RuntimeEvent.of(
@@ -466,7 +392,7 @@ class LiveActivityResourceTests {
                 "trace-rest"));
         RestClientTraceRecorder recorder = restClientRecorder(true);
         recorder.registerClientCustomization("Quarkus REST Client Reactive");
-        recorder.setTraceIdProvider(() -> "trace-rest");
+        recorder.setCorrelationContextProvider(() -> BootUiCorrelation.current().withTrace("trace-rest", null));
         recorder.record(
                 "GET",
                 "https://api.example.test/inventory",
@@ -739,14 +665,6 @@ class LiveActivityResourceTests {
             assertThat(afterSwitch.persistenceOption())
                     .isEqualTo(new ActivityPersistenceOptionDto(true, true, "bootui_activity"));
             assertThat(afterSwitch.pageInfo()).isNotNull();
-
-            // The capture poller this switch starts must be this resource's own, closeable on shutdown
-            // exactly as QuarkusActivityCapture's own startup poller would have been had persistence been
-            // enabled from the start.
-            Thread captureThread = awaitThreadNamed("bootui-activity-capture");
-            assertThat(captureThread)
-                    .as("capture poller thread should have started after the switch")
-                    .isNotNull();
         } finally {
             cleanup(resource, store);
         }
@@ -764,8 +682,7 @@ class LiveActivityResourceTests {
                 Duration.ofSeconds(5),
                 500,
                 Duration.ofDays(7),
-                "instance-a",
-                Duration.ofSeconds(2));
+                "instance-a");
     }
 
     private static ActivityPersistenceSettings enabledSettings(String instanceId) {
@@ -780,8 +697,7 @@ class LiveActivityResourceTests {
                 Duration.ofSeconds(5),
                 500,
                 Duration.ofDays(7),
-                instanceId,
-                Duration.ofSeconds(2));
+                instanceId);
     }
 
     /**

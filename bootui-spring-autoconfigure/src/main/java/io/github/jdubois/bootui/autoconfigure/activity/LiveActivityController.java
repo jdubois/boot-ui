@@ -23,8 +23,6 @@ import io.github.jdubois.bootui.core.dto.RuntimeJournalClearResult;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalStatusDto;
 import io.github.jdubois.bootui.core.dto.RuntimeResourcesDto;
 import io.github.jdubois.bootui.engine.activity.ActivityCapture;
-import io.github.jdubois.bootui.engine.activity.ActivityCaptureFactory;
-import io.github.jdubois.bootui.engine.activity.ActivityCapturePoller;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityQuery;
@@ -92,8 +90,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  *
  * <p>This controller also always owns the capture side: whenever the injected {@link
  * #persistenceSettings} has persistence enabled (from startup configuration, or later via the "Use the
- * existing datasource" switch — see {@link #useExistingDatasource}), it stamps and periodically appends
- * whatever {@link #service}'s merged feed has not yet captured (see {@link ActivityCaptureFactory}) into
+ * existing datasource" switch — see {@link #useExistingDatasource}), the runtime journal's subscriber renders and
+ * appends each recorded batch (see {@code JournalActivityCapture}) into
  * the shared {@link SwitchableActivityStore} bean, and {@link #activity} then serves entries and
  * pagination from that store — which itself merges its in-memory hot cache with the durable backend —
  * instead of from a fresh live re-merge. The store bean always exists (even with persistence disabled,
@@ -103,6 +101,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RestController
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/activity")
 public class LiveActivityController implements InitializingBean {
+    private static final org.apache.commons.logging.Log log =
+            org.apache.commons.logging.LogFactory.getLog(LiveActivityController.class);
 
     private final LiveActivityService service;
     private final LiveActivityCorrelator correlator;
@@ -235,39 +235,40 @@ public class LiveActivityController implements InitializingBean {
 
     /**
      * Starts writing Live Activity's durable history from the same source the feed reads ({@code docs/PLAN-v2.md}
-     * §5.3): the runtime journal's subscriber when {@code bootui.activity.feed-source=journal}, otherwise the poller of
-     * the panel buffers. The journal is installed after this controller is built, so a journal capture asked for
-     * before then starts when it is installed, or with the poller once this controller is initialized without one.
+     * §5.3): the runtime journal's subscriber, whatever source the feed reads; 2.0.0 removed the poller of the panel
+     * buffers. The journal is installed after this controller is built, so a capture asked for before then
+     * starts when it is installed; with no journal, or a disabled one, persistence logs a warning and writes nothing.
      *
      * @return the running capture, or {@code null} when it waits for the journal
      */
     ActivityCapture startPersistence(ActivityPersistenceSettings settings) {
-        if (feedSource == ActivityFeedSource.JOURNAL) {
-            RuntimeJournal current = captureJournal;
-            if (current == null) {
-                deferredCapture = settings;
-                return null;
-            }
-            if (current.settings().enabled()) {
-                JournalActivityCapture capture = JournalActivityCapture.start(
-                        activityStore,
-                        settings,
-                        reservedEntries,
-                        current,
-                        new JournalActivityFeed(
-                                properties.getActivity().getRequestSlowThresholdMs(),
-                                properties.getActivity().getNPlusOneThreshold(),
-                                captureRoutes),
-                        properties::isPanelEnabled);
-                unsubscribers.add(capture::close);
-                return capture;
-            }
+        RuntimeJournal current = captureJournal;
+        if (current == null) {
+            deferredCapture = settings;
+            return null;
         }
-        return startCapture(settings);
+        if (current.settings().enabled()) {
+            JournalActivityCapture capture = JournalActivityCapture.start(
+                    activityStore,
+                    settings,
+                    reservedEntries,
+                    current,
+                    new JournalActivityFeed(
+                            properties.getActivity().getRequestSlowThresholdMs(),
+                            properties.getActivity().getNPlusOneThreshold(),
+                            captureRoutes),
+                    properties::isPanelEnabled);
+            unsubscribers.add(capture::close);
+            return capture;
+        }
+        log.warn("Live Activity persistence is enabled, but the runtime journal is disabled"
+                + " (bootui.runtime-journal.enabled=false), so no durable history is written: the journal is its only"
+                + " source in 2.0.");
+        return null;
     }
 
     /**
-     * Starts a capture the journal never arrived for with the poller, once every setter has run. An initialization
+     * Reports a capture the journal never arrived for, once every setter has run. An initialization
      * callback rather than a context event, so this lazy controller is still created only when first used.
      */
     @Override
@@ -275,24 +276,9 @@ public class LiveActivityController implements InitializingBean {
         ActivityPersistenceSettings settings = deferredCapture;
         if (settings != null) {
             deferredCapture = null;
-            startCapture(settings);
+            log.warn("Live Activity persistence is enabled, but no runtime journal was installed, so no durable"
+                    + " history is written: the journal is its only source in 2.0.");
         }
-    }
-
-    /**
-     * Capture side of the persistence option: polls the same merged feed the panel itself reads, stamping and
-     * appending whatever has not already been captured. Reusing {@code service::report} (rather than re-reading the
-     * signal sources) means self-filtering/masking/bounds are inherited identically, and no new low-level
-     * instrumentation is needed. The poller stops with this controller.
-     */
-    ActivityCapturePoller startCapture(ActivityPersistenceSettings settings) {
-        ActivityCapturePoller poller = ActivityCaptureFactory.start(
-                activityStore,
-                settings,
-                reservedEntries,
-                () -> service.report(null, null, 0, 0).entries());
-        unsubscribers.add(poller::close);
-        return poller;
     }
 
     /**
@@ -305,7 +291,7 @@ public class LiveActivityController implements InitializingBean {
      * on its own, so cleaning up at destroy time would let graceful shutdown block until its timeout on
      * every stop. Doing it here also keeps a Spring Boot DevTools restart from leaking the
      * {@code bootui-activity-stream} daemon thread (and the discarded context's class loader behind it).
-     * The capture poller (when persistence is enabled) is stopped the same way, for the same reason;
+     * The journal capture (when persistence is enabled) is stopped the same way, for the same reason;
      * the shared {@link SwitchableActivityStore} bean itself is closed separately by Spring's own
      * inferred destroy-method lifecycle since it holds no open request/connection that shutdown must
      * not block on.
@@ -469,7 +455,7 @@ public class LiveActivityController implements InitializingBean {
      * creates a database table and starts writing to it) and by BootUI's global/per-panel read-only
      * filter, like every other mutating panel action. Idempotent: calling this when persistence is
      * already active is a no-op that reports success rather than an error. On success, starts this
-     * controller's own capture poller against the newly durable store, exactly as the constructor would
+     * controller's own journal capture against the newly durable store, exactly as the constructor would
      * have done had persistence been enabled from startup.
      */
     @PostMapping("/use-existing-datasource")

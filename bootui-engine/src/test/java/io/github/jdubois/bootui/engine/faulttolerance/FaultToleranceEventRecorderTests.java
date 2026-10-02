@@ -142,7 +142,7 @@ class FaultToleranceEventRecorderTests {
     @Test
     void flattensToTheStableContractWithTheRequestedCap() {
         FaultToleranceEventRecorder recorder = new FaultToleranceEventRecorder(true, 10);
-        recorder.setTraceIdProvider(() -> "trace-1");
+        recorder.setCorrelationContextProvider(() -> BootUiCorrelation.current().withTrace("trace-1", null));
         recorder.record("a", "RETRY", "resilience4j", "T", "RETRY", 2, 7L, "IOException");
         recorder.record("b", "RETRY", "resilience4j", "T", "RETRY", 2, 7L, "IOException");
 
@@ -183,9 +183,9 @@ class FaultToleranceEventRecorderTests {
     }
 
     @Test
-    void survivesATraceIdProviderThatThrows() {
+    void survivesACorrelationProviderThatThrows() {
         FaultToleranceEventRecorder recorder = new FaultToleranceEventRecorder(true, 10);
-        recorder.setTraceIdProvider(() -> {
+        recorder.setCorrelationContextProvider(() -> {
             throw new IllegalStateException("no context");
         });
 

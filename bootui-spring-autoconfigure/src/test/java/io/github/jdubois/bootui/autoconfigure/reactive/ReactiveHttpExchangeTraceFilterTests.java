@@ -49,7 +49,7 @@ class ReactiveHttpExchangeTraceFilterTests {
     void recordsTheActiveTraceIdWhenTheRequestCompletes() {
         HttpExchangeTraceRegistry registry = new HttpExchangeTraceRegistry(10);
         ReactiveHttpExchangeTraceFilter filter =
-                new ReactiveHttpExchangeTraceFilter(properties, registry, new ReactiveOtelTraceIdProvider());
+                new ReactiveHttpExchangeTraceFilter(properties, registry, new ReactiveOtelTraceIdSource());
         SpanContext context = SpanContext.create(TRACE_ID, SPAN_ID, TraceFlags.getSampled(), TraceState.getDefault());
 
         MockServerWebExchange exchange = exchange("GET", "/api/sample/products");
@@ -67,7 +67,7 @@ class ReactiveHttpExchangeTraceFilterTests {
     void doesNotRecordWhenNoSpanIsActive() {
         HttpExchangeTraceRegistry registry = new HttpExchangeTraceRegistry(10);
         ReactiveHttpExchangeTraceFilter filter =
-                new ReactiveHttpExchangeTraceFilter(properties, registry, new ReactiveOtelTraceIdProvider());
+                new ReactiveHttpExchangeTraceFilter(properties, registry, new ReactiveOtelTraceIdSource());
 
         long before = System.currentTimeMillis();
         filter.filter(exchange("GET", "/api/sample/products"), OK_CHAIN).block(Duration.ofSeconds(5));
@@ -80,7 +80,7 @@ class ReactiveHttpExchangeTraceFilterTests {
     void skipsBootUiOwnTraffic() {
         HttpExchangeTraceRegistry registry = new HttpExchangeTraceRegistry(10);
         ReactiveHttpExchangeTraceFilter filter =
-                new ReactiveHttpExchangeTraceFilter(properties, registry, new ReactiveOtelTraceIdProvider());
+                new ReactiveHttpExchangeTraceFilter(properties, registry, new ReactiveOtelTraceIdSource());
         SpanContext context = SpanContext.create(TRACE_ID, SPAN_ID, TraceFlags.getSampled(), TraceState.getDefault());
 
         long before = System.currentTimeMillis();
@@ -100,7 +100,7 @@ class ReactiveHttpExchangeTraceFilterTests {
     void capturesTheMatchedReactiveRouteTemplateFromTheExchangeAttribute() {
         HttpExchangeTraceRegistry registry = new HttpExchangeTraceRegistry(10);
         ReactiveHttpExchangeTraceFilter filter =
-                new ReactiveHttpExchangeTraceFilter(properties, registry, new ReactiveOtelTraceIdProvider());
+                new ReactiveHttpExchangeTraceFilter(properties, registry, new ReactiveOtelTraceIdSource());
         MockServerWebExchange exchange = exchange("GET", "/api/sample/orders/42");
         exchange.getAttributes()
                 .put(
@@ -117,7 +117,7 @@ class ReactiveHttpExchangeTraceFilterTests {
     void leavesTheRouteTemplateNullWhenNoReactivePatternMatched() {
         HttpExchangeTraceRegistry registry = new HttpExchangeTraceRegistry(10);
         ReactiveHttpExchangeTraceFilter filter =
-                new ReactiveHttpExchangeTraceFilter(properties, registry, new ReactiveOtelTraceIdProvider());
+                new ReactiveHttpExchangeTraceFilter(properties, registry, new ReactiveOtelTraceIdSource());
 
         filter.filter(exchange("GET", "/api/sample/unmapped"), OK_CHAIN).block(Duration.ofSeconds(5));
 
@@ -130,7 +130,7 @@ class ReactiveHttpExchangeTraceFilterTests {
         HttpExchangeTraceRegistry registry = new HttpExchangeTraceRegistry(3, 67);
         properties.getActivity().setRequestSlowThresholdMs(0);
         ReactiveHttpExchangeTraceFilter filter =
-                new ReactiveHttpExchangeTraceFilter(properties, registry, new ReactiveOtelTraceIdProvider());
+                new ReactiveHttpExchangeTraceFilter(properties, registry, new ReactiveOtelTraceIdSource());
 
         filter.filter(exchange("GET", "/api/server-error"), serverExchange -> {
                     serverExchange.getResponse().setStatusCode(HttpStatus.SERVICE_UNAVAILABLE);

@@ -326,7 +326,7 @@ above `bootui.activity.request-slow-threshold-ms` (1,000 ms by default), the sam
 **Signal-to-request correlation is trace-id-based, gated on `quarkus-opentelemetry`.** Spring's thread-per-request anchor
 is unportable on the Vert.x event loop. Instead the adapter stamps the active server span's trace id at each capture
 point (HTTP filter, REST Client recorder, SQL recorder, exception store, and the CDI `SecurityEvent` observer) via a
-capability-gated `QuarkusOtelTraceIdProvider`. The engine `LiveActivityAssembler` then nests REST/SQL/exception/security/
+capability-gated `QuarkusOtelTraceIdSource`. The engine `LiveActivityAssembler` then nests REST/SQL/exception/security/
 email entries under the request sharing that trace id — OTel `Context` propagates across the event-loop→worker hop,
 including into the CDI security-event observer. A security event whose trace id uniquely matches one request also stamps
 that request's `securedPrincipal` (falling back only when the request's own captured principal is null), so the
@@ -431,7 +431,7 @@ uses the same rule, and Spring MVC is unaffected.
 ::: details The optional durable JDBC persistence backend
 
 `bootui.activity.persistence.enabled` is implemented identically to Spring. Every engine class — `ActivityStore`,
-`InMemoryActivityStore`, `JdbcActivityStore`, `BufferedActivityStore`, `ActivityCaptureCoordinator`/`ActivityCapturePoller`,
+`InMemoryActivityStore`, `JdbcActivityStore`, `BufferedActivityStore`, `ActivityCaptureCoordinator`, `JournalActivityCapture`,
 `ActivityInstanceIds`, `ActivityStoreFactory`, `ActivityPersistenceSettings`, `SimpleDriverDataSource`,
 `BootUiJdbcCaptureGuard` — is 100% framework-neutral and reused unchanged; nothing in `bootui-engine` needed to change.
 
@@ -446,10 +446,9 @@ branches its `activity()` method on `persistenceSettings.enabled()` exactly like
 
 Unlike Spring — whose inferred-destroy-method convention auto-closes the `ActivityStore` bean at context shutdown —
 CDI/Arc has no equivalent automatic behavior, so a small dedicated lifecycle bean, `QuarkusActivityCapture`, fills the
-gap. `@Observes StartupEvent` builds the sequencer/coordinator/poller and starts polling
-`LiveActivityResource#mergedReport` on `bootui.activity.persistence.capture-interval` (only when enabled). `@Observes
-ShutdownEvent` stops the poller — making one last synchronous capture pass first, so entries produced since the last tick
-aren't dropped — then unconditionally closes the store, which flushes any still-buffered entries with the same bounded
+gap. `@Observes StartupEvent` starts the runtime journal's subscriber through `LiveActivityResource#startPersistence` (only
+when enabled, and with a warning and nothing written when the journal is disabled). `@Observes ShutdownEvent` stops it —
+processing what the journal already recorded first, so no entry is dropped — then unconditionally closes the store, which flushes any still-buffered entries with the same bounded
 (2-10s), never-blocks-shutdown guarantee `BufferedActivityStore#close()` gives Spring.
 
 One honest, pre-existing divergence: Quarkus's baseline (persistence-disabled) feed has no server-side
@@ -478,7 +477,7 @@ never draws a cache dependency it cannot honestly back with evidence.
 
 **The opaque `ServiceMapInteractionDto.flowId` needed no Quarkus-specific work.** `ServiceMapAssembler` derives it one-way
 from whatever distributed-trace id was already captured on the `HttpExchangeBuffer`/`RestClientTraceRecorder`/
-`SqlTraceRecorder` entries this resource reads — the same capability-gated `QuarkusOtelTraceIdProvider` stamping. So
+`SqlTraceRecorder` entries this resource reads — the same capability-gated `QuarkusOtelTraceIdSource` stamping. So
 wherever `quarkus-opentelemetry` is present, an inbound request, its SQL, and any outbound REST call sharing one trace
 already correlate into one flow with no additional code. Only cache participates on Spring MVC/WebFlux alone, since
 Quarkus captures no cache evidence to correlate.
@@ -495,7 +494,7 @@ buffer; normal delivery and the existing per-resource maximum-open-stream limit 
 **The runtime "Use the existing datasource" hot-switch is also implemented identically to Spring.** The shared engine
 `ActivitySwitchService` — which verifies/creates the backing table over the resolved `DataSource` and atomically swaps
 the live `SwitchableActivityStore`'s delegate from `InMemoryActivityStore` to a newly built durable `BufferedActivityStore`,
-starting its capture poller in the same step — is reused unchanged. `BootUiEngineProducer` `@Produces` a
+starting its journal capture in the same step — is reused unchanged. `BootUiEngineProducer` `@Produces` a
 `SwitchableActivityStore` in front of it, rather than producing `ActivityStore` directly. A thin
 `LiveActivityResource#useExistingDatasource` mirrors Spring's controller method: 404 when no `DataSource` is present, 400
 when the request is not explicitly confirmed, 200-and-no-op when persistence is already active, and 200 with the store

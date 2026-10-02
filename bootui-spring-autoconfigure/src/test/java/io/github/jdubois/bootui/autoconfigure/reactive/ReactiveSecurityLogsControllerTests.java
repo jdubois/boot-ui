@@ -94,7 +94,8 @@ class ReactiveSecurityLogsControllerTests {
         repository.add(event);
         ReactiveSecurityLogsController controller =
                 new ReactiveSecurityLogsController(providerOf(repository), new BootUiProperties());
-        controller.setTraceIdProvider(() -> "trace-xyz");
+        controller.setCorrelationContextProvider(
+                () -> BootUiCorrelation.current().withTrace("trace-xyz", null));
         controller.setTraceRegistry(new ReactiveSecurityEventTraceRegistry(10));
 
         controller.onApplicationEvent(new AuditApplicationEvent(event));
@@ -111,7 +112,8 @@ class ReactiveSecurityLogsControllerTests {
                 new ReactiveSecurityLogsController(providerOf(repository), new BootUiProperties());
         List<RuntimeEvent> published = new ArrayList<>();
         controller.setRuntimeEventSink(published::add);
-        controller.setTraceIdProvider(() -> "trace-xyz");
+        controller.setCorrelationContextProvider(
+                () -> BootUiCorrelation.current().withTrace("trace-xyz", null));
 
         controller.onApplicationEvent(new AuditApplicationEvent(event));
 
@@ -165,7 +167,7 @@ class ReactiveSecurityLogsControllerTests {
         repository.add(event);
         ReactiveSecurityLogsController controller =
                 new ReactiveSecurityLogsController(providerOf(repository), new BootUiProperties());
-        controller.setTraceIdProvider(() -> {
+        controller.setCorrelationContextProvider(() -> {
             throw new IllegalStateException("no context propagated");
         });
         controller.setTraceRegistry(new ReactiveSecurityEventTraceRegistry(10));

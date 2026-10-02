@@ -33,6 +33,29 @@ public final class CorrelationSource {
     }
 
     /** The current execution id, or {@code null} when no scheduled run or consumed message owns the work. */
+    /**
+     * The trace id of the work being recorded: the current context's; with no provider installed, else the SLF4J MDC
+     * {@code traceId} key where Micrometer Tracing publishes it on the serving thread; else {@code null}. An adapter
+     * that installs a provider owns the trace id entirely, so an MDC value left on a thread its work hopped onto is
+     * never adopted. Fully guarded.
+     */
+    public String traceId() {
+        String traceId = current().traceId();
+        if (traceId != null && !traceId.isBlank()) {
+            return traceId;
+        }
+        return provider == DEFAULT ? mdcTraceId() : null;
+    }
+
+    private static String mdcTraceId() {
+        try {
+            String traceId = org.slf4j.MDC.get("traceId");
+            return traceId == null || traceId.isBlank() ? null : traceId;
+        } catch (RuntimeException | LinkageError ex) {
+            return null;
+        }
+    }
+
     public String executionId() {
         return current().executionId();
     }

@@ -42,8 +42,7 @@ class ActivitySwitchServiceTests {
                 Duration.ofSeconds(5),
                 200,
                 Duration.ofDays(7),
-                "app-1",
-                Duration.ofSeconds(1));
+                "app-1");
     }
 
     @Test

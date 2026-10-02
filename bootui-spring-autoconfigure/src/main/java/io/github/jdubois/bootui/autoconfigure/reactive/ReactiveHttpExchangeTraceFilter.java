@@ -3,8 +3,8 @@ package io.github.jdubois.bootui.autoconfigure.reactive;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry.HttpExchangeTrace;
+import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
 import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
-import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.core.Ordered;
 import org.springframework.http.HttpStatusCode;
@@ -20,11 +20,11 @@ import reactor.core.publisher.SignalType;
 /**
  * Reactive (WebFlux) sibling of {@code RequestCorrelationFilter}: instead of the serving thread - which
  * WebFlux has no per-request invariant for - it captures the distributed-trace id active when the
- * request completes, via {@link TraceIdProvider}, feeding {@link HttpExchangeTraceRegistry} so
+ * request completes, via {@link TraceIdSource}, feeding {@link HttpExchangeTraceRegistry} so
  * {@code HttpExchangesController} can stamp it onto the exchange it separately captures through Spring
  * Boot's own {@code HttpExchangesWebFilter}.
  *
- * <p>Reads {@link TraceIdProvider#currentTraceId()} from {@code doFinally}, the same relative point in
+ * <p>Reads {@link TraceIdSource#currentTraceId()} from {@code doFinally}, the same relative point in
  * request processing that {@code SqlTraceRecorder}/{@code ExceptionStore} already read it from for
  * SQL/exception capture, so this has the same reliability characteristics (dependent on the
  * application's OpenTelemetry/Reactor context propagation setup), not a new or weaker guarantee.</p>
@@ -49,11 +49,11 @@ public final class ReactiveHttpExchangeTraceFilter extends AbstractReactiveBootU
     public static final String TRACE_ID_ATTRIBUTE = ReactiveHttpExchangeTraceFilter.class.getName() + ".traceId";
 
     private final HttpExchangeTraceRegistry registry;
-    private final TraceIdProvider traceIdProvider;
+    private final TraceIdSource traceIdProvider;
     private final long requestSlowThresholdMs;
 
     public ReactiveHttpExchangeTraceFilter(
-            BootUiProperties properties, HttpExchangeTraceRegistry registry, TraceIdProvider traceIdProvider) {
+            BootUiProperties properties, HttpExchangeTraceRegistry registry, TraceIdSource traceIdProvider) {
         this(properties, registry, traceIdProvider, properties.getActivity().getRequestSlowThresholdMs());
     }
 
@@ -64,7 +64,7 @@ public final class ReactiveHttpExchangeTraceFilter extends AbstractReactiveBootU
     public ReactiveHttpExchangeTraceFilter(
             BootUiProperties properties,
             HttpExchangeTraceRegistry registry,
-            TraceIdProvider traceIdProvider,
+            TraceIdSource traceIdProvider,
             long requestSlowThresholdMs) {
         super(properties);
         this.registry = registry;

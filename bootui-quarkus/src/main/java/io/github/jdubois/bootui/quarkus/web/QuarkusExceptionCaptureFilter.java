@@ -1,9 +1,9 @@
 package io.github.jdubois.bootui.quarkus.web;
 
+import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.quarkus.QuarkusBootUiPaths;
 import io.github.jdubois.bootui.quarkus.exceptions.QuarkusResourceHandlers;
-import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.quarkus.vertx.http.runtime.filters.Filters;
 import io.vertx.ext.web.RoutingContext;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -31,7 +31,7 @@ import org.eclipse.microprofile.config.Config;
  * failure that is never logged via {@code java.util.logging} (e.g. a custom handler that swallows logging).
  * Either way the wire is identical, so this filter stays a cheap, harmless safety net.</p>
  *
- * <p>When an OpenTelemetry {@link TraceIdProvider} is present (capability-gated), the active server span's
+ * <p>When an OpenTelemetry {@link TraceIdSource} is present (capability-gated), the active server span's
  * trace id is resolved <em>at filter entry</em> — on the event loop, where the span is current — and recorded
  * with the failure so the Live Activity timeline can nest this exception under its owning request. The
  * provider is optional: when OpenTelemetry is absent the {@code Instance} is unresolvable and the trace id
@@ -54,12 +54,11 @@ public class QuarkusExceptionCaptureFilter {
     private static final int PRIORITY = 900;
 
     private final ExceptionStore store;
-    private final TraceIdProvider traceIdProvider;
+    private final TraceIdSource traceIdProvider;
     private final Config config;
 
     @Inject
-    public QuarkusExceptionCaptureFilter(
-            ExceptionStore store, Instance<TraceIdProvider> traceIdProvider, Config config) {
+    public QuarkusExceptionCaptureFilter(ExceptionStore store, Instance<TraceIdSource> traceIdProvider, Config config) {
         this.store = store;
         this.traceIdProvider = traceIdProvider.isResolvable() ? traceIdProvider.get() : null;
         this.config = config;

@@ -25,15 +25,13 @@ import io.github.jdubois.bootui.core.dto.PageMetadata;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogsReport;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
-import io.github.jdubois.bootui.engine.activity.ActivityCapturePoller;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityQuery;
-import io.github.jdubois.bootui.engine.activity.ActivityStore;
 import io.github.jdubois.bootui.engine.activity.InMemoryActivityStore;
-import io.github.jdubois.bootui.engine.activity.StoredActivityEntry;
 import io.github.jdubois.bootui.engine.activity.SwitchableActivityStore;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.email.EmailCaptureService;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder;
@@ -46,10 +44,8 @@ import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
 import org.h2.jdbcx.JdbcDataSource;
@@ -85,32 +81,6 @@ class ReactiveLiveActivityControllerTests {
                 .assertNext(sse -> assertThat(sse.event()).isEqualTo("update"))
                 .thenCancel()
                 .verify(Duration.ofSeconds(3));
-    }
-
-    @Test
-    void shutdownStopsCapturePollerThreadWhenPersistenceEnabled() throws Exception {
-        SwitchableActivityStore store = mock(SwitchableActivityStore.class);
-        when(store.persistent()).thenReturn(true);
-        when(store.query(any())).thenReturn(ActivityPage.EMPTY);
-        ActivityPersistenceSettings settings = enabledSettings("instance-reactive-b", Duration.ofMillis(50));
-
-        ReactiveLiveActivityController controller = controllerWith(
-                empty(SqlTraceRecorder.class),
-                empty(RestClientTraceRecorder.class),
-                empty(ExceptionStore.class),
-                store,
-                settings,
-                empty(DataSource.class),
-                buffersFeed());
-
-        Thread captureThread = awaitThreadNamed("bootui-activity-capture");
-        assertThat(captureThread)
-                .as("capture poller thread should have started")
-                .isNotNull();
-
-        controller.shutdown();
-
-        assertThat(awaitNotAlive(captureThread)).isTrue();
     }
 
     @Test
@@ -260,11 +230,6 @@ class ReactiveLiveActivityControllerTests {
             assertThat(afterSwitch.persistenceOption())
                     .isEqualTo(new ActivityPersistenceOptionDto(true, true, "bootui_activity"));
             assertThat(afterSwitch.pageInfo()).isNotNull();
-
-            Thread captureThread = awaitThreadNamed("bootui-activity-capture");
-            assertThat(captureThread)
-                    .as("capture poller thread should have started after the switch")
-                    .isNotNull();
         } finally {
             controller.shutdown();
         }
@@ -564,7 +529,7 @@ class ReactiveLiveActivityControllerTests {
                         1, 1, 0, List.of(tracedExchange), new PageMetadata(0, 0, 0, 0, 0, false), null));
         RestClientTraceRecorder recorder =
                 new RestClientTraceRecorder(true, true, false, false, 10, 1_000, 2_000, 200, 5);
-        recorder.setTraceIdProvider(() -> "trace-abc");
+        recorder.setCorrelationContextProvider(() -> BootUiCorrelation.current().withTrace("trace-abc", null));
         recorder.record(
                 "GET",
                 "https://api.example.com/orders",
@@ -993,7 +958,8 @@ class ReactiveLiveActivityControllerTests {
             RestClientTraceRecorder restRecorder =
                     new RestClientTraceRecorder(true, true, true, false, 10, 1_000, 2_000, 200, 5);
             restRecorder.registerClientCustomization("WebClient");
-            restRecorder.setTraceIdProvider(() -> "trace-abc");
+            restRecorder.setCorrelationContextProvider(
+                    () -> BootUiCorrelation.current().withTrace("trace-abc", null));
             restRecorder.record(
                     "GET",
                     "https://api.example.com/orders?pass" + "word=" + rawQueryValue,
@@ -1006,7 +972,7 @@ class ReactiveLiveActivityControllerTests {
                     "WebClient",
                     Map.of("Authorization", rawHeaderValue),
                     "reactor-http-nio-1");
-            restRecorder.setTraceIdProvider(() -> null);
+            restRecorder.setCorrelationContextProvider(BootUiCorrelation::current);
             restRecorder.record(
                     "GET",
                     "https://api.example.com/untraced",
@@ -1021,7 +987,8 @@ class ReactiveLiveActivityControllerTests {
                     "reactor-http-nio-1");
             CacheActivityRecorder cacheRecorder = new CacheActivityRecorder(true, 10);
             cacheRecorder.markInstrumentedManager();
-            cacheRecorder.setTraceIdProvider(() -> "trace-abc");
+            cacheRecorder.setCorrelationContextProvider(
+                    () -> BootUiCorrelation.current().withTrace("trace-abc", null));
             cacheRecorder.recordMiss("cacheManager", "products", rawCacheKey);
 
             RequestProfileDto profile =
@@ -1072,88 +1039,6 @@ class ReactiveLiveActivityControllerTests {
                     assertThat(section.available()).isFalse();
                     assertThat(section.unavailableReason()).isNotBlank();
                 });
-    }
-
-    @Test
-    void captureRemembersASlowClientErrorThatTheExchangeRepositoryReserves() {
-        // A 404 that took 1.5 s is WARN in the stream, but at the default 1,000 ms threshold the repository keeps it
-        // in its reserved share, so the feed can show it again after the first capture window forgot it.
-        assertThat(capturesOfAHiddenSlowClientError(new BootUiProperties())).isEqualTo(1);
-    }
-
-    @Test
-    void captureClassifiesRequestsWithTheConfiguredRequestSlowThreshold() {
-        BootUiProperties raised = new BootUiProperties();
-        raised.getActivity().setRequestSlowThresholdMs(2_000);
-        BootUiProperties disabled = new BootUiProperties();
-        disabled.getActivity().setRequestSlowThresholdMs(0);
-
-        // Neither threshold makes the repository reserve that request, so it is routine and captured again.
-        assertThat(capturesOfAHiddenSlowClientError(raised)).isEqualTo(2);
-        assertThat(capturesOfAHiddenSlowClientError(disabled)).isEqualTo(2);
-    }
-
-    /**
-     * Drives this controller's own capture wiring one poll at a time: the feed shows a slow 404, then 20 newer
-     * exchanges (more than the smallest capture window holds), then the slow 404 again.
-     */
-    private static long capturesOfAHiddenSlowClientError(BootUiProperties properties) {
-        List<StoredActivityEntry> captured = new CopyOnWriteArrayList<>();
-        SwitchableActivityStore store = new SwitchableActivityStore(new ActivityStore() {
-            @Override
-            public void appendBatch(List<StoredActivityEntry> entries) {
-                captured.addAll(entries);
-            }
-
-            @Override
-            public ActivityPage query(ActivityQuery query) {
-                return ActivityPage.EMPTY;
-            }
-        });
-        HttpExchangeDto slowNotFound = timedExchange("slow-404", 1_000L, 404, 1_500L);
-        List<HttpExchangeDto> newer = new ArrayList<>();
-        for (int i = 0; i < 20; i++) {
-            newer.add(0, timedExchange("ok-" + i, 2_000L + i, 200, 5L));
-        }
-        HttpExchangesController exchanges = mock(HttpExchangesController.class);
-        when(exchanges.exchanges(null, null, null, null, null))
-                .thenReturn(
-                        exchangesReport(List.of(slowNotFound)),
-                        exchangesReport(newer),
-                        exchangesReport(List.of(slowNotFound)));
-        ReactiveLiveActivityController controller = new ReactiveLiveActivityController(
-                provider(exchanges),
-                empty(SqlTraceRecorder.class),
-                empty(RestClientTraceRecorder.class),
-                empty(DataSource.class),
-                empty(ExceptionStore.class),
-                empty(ScheduledTaskRunStore.class),
-                empty(ReactiveSecurityLogsController.class),
-                empty(TracesController.class),
-                empty(HealthController.class),
-                empty(EmailController.class),
-                empty(EmailCaptureService.class),
-                empty(CacheActivityRecorder.class),
-                empty(KafkaActivityRecorder.class),
-                empty(JmsActivityRecorder.class),
-                empty(FaultToleranceEventRecorder.class),
-                empty(RabbitActivityRecorder.class),
-                store,
-                disabledSettings(),
-                properties,
-                new BootUiExposure(properties));
-        try {
-            ActivityCapturePoller poller =
-                    controller.startCapture(persistenceSettings(true, "instance-r", Duration.ofHours(1), 1));
-            poller.captureNow();
-            poller.captureNow();
-            poller.captureNow();
-        } finally {
-            controller.shutdown();
-        }
-        return captured.stream()
-                .filter(stored -> "slow-404".equals(stored.entry().id()))
-                .count();
     }
 
     private static HttpExchangeDto timedExchange(String id, long timestamp, int status, long durationMs) {
@@ -1275,8 +1160,7 @@ class ReactiveLiveActivityControllerTests {
                 Duration.ofSeconds(5),
                 bufferMaxEntries,
                 Duration.ofDays(7),
-                instanceId,
-                captureInterval);
+                instanceId);
     }
 
     private static Thread awaitThreadNamed(String name) throws InterruptedException {

@@ -3,8 +3,8 @@ package io.github.jdubois.bootui.spi;
 /**
  * Framework-neutral seam for the {@link CorrelationContext} of the work currently being recorded.
  *
- * <p>It supersedes {@link TraceIdProvider}: besides the trace id, it returns BootUI's own request identity, which
- * exists whether or not tracing is active. Recorders call it on the thread that does the work, so an implementation
+ * <p>It replaced 1.x's {@code TraceIdProvider} in 2.0.0: besides the trace id, it returns BootUI's own request
+ * identity, which exists whether or not tracing is active. Recorders call it on the thread that does the work, so an implementation
  * reads thread-bound state and must never block. See {@code docs/PLAN-v2.md} §5.1.</p>
  */
 @FunctionalInterface

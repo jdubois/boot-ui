@@ -20,8 +20,6 @@ import io.github.jdubois.bootui.core.dto.RuntimeResourcesDto;
 import io.github.jdubois.bootui.core.dto.SecurityLogEventDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceEntryDto;
 import io.github.jdubois.bootui.engine.activity.ActivityCapture;
-import io.github.jdubois.bootui.engine.activity.ActivityCaptureFactory;
-import io.github.jdubois.bootui.engine.activity.ActivityCapturePoller;
 import io.github.jdubois.bootui.engine.activity.ActivityPage;
 import io.github.jdubois.bootui.engine.activity.ActivityPersistenceSettings;
 import io.github.jdubois.bootui.engine.activity.ActivityQuery;
@@ -107,7 +105,7 @@ import org.eclipse.microprofile.config.Config;
  * via {@link QuarkusPanelAvailability}); when either is absent the assembler surfaces a warning (SQL) or
  * simply omits the source (security) and its entries are omitted. Signal-to-request correlation is
  * data-driven on the OpenTelemetry trace id when present: each captured signal is stamped with the active
- * span's trace id (see {@code QuarkusOtelTraceIdProvider}), and the engine {@link LiveActivityAssembler}
+ * span's trace id (see {@code QuarkusOtelTraceIdSource}), and the engine {@link LiveActivityAssembler}
  * nests SQL/exception/security/MAIL entries under the request sharing that trace id, also stamping a uniquely
  * correlated security event's principal onto its parent request as {@code securedPrincipal}.
  *
@@ -128,11 +126,11 @@ import org.eclipse.microprofile.config.Config;
  *
  * <p>{@link #useExistingDatasource} hot-switches Live Activity from in-memory to durable JDBC persistence
  * by reusing the host application's own {@code DataSource} — no restart required — mirroring the Spring
- * adapter's identically named controller action. On success it starts its own capture poller against the
- * newly durable store (held in {@link #switchPoller}, independent of {@code QuarkusActivityCapture}'s own
- * poller field: the two poller-creation paths are mutually exclusive, since a switch only succeeds when
+ * adapter's identically named controller action. On success it starts its own journal capture against the
+ * newly durable store (held in {@link #switchCapture}, independent of {@code QuarkusActivityCapture}'s own
+ * capture field: the two capture-creation paths are mutually exclusive, since a switch only succeeds when
  * the store was not already persistent, which is exactly the condition under which
- * {@code QuarkusActivityCapture}'s startup poller would not have been created) and closes it on
+ * {@code QuarkusActivityCapture}'s startup capture would not have been created) and closes it on
  * {@link #onStop}.
  *
  * <p>The per-request <em>profile</em> drill-down ({@code GET /bootui/api/activity/request/{id}}) is served
@@ -151,6 +149,8 @@ import org.eclipse.microprofile.config.Config;
  */
 @Path("/bootui/api/activity")
 public class LiveActivityResource {
+
+    private static final org.jboss.logging.Logger LOG = org.jboss.logging.Logger.getLogger(LiveActivityResource.class);
 
     /** Upper bound on simultaneous activity streams; this is a local dev tool, not a fan-out hub. */
     static final int MAX_CONCURRENT_STREAMS = 20;
@@ -184,7 +184,7 @@ public class LiveActivityResource {
     private final ExecutionProfileAssembler profileAssembler = new ExecutionProfileAssembler();
     private final SecurityLogsService securityLogs = new SecurityLogsService();
     private final AtomicInteger openStreams = new AtomicInteger();
-    private volatile ActivityCapture switchPoller;
+    private volatile ActivityCapture switchCapture;
     private Supplier<RouteTemplateResolver> declaredRoutes = RouteTemplateResolver::empty;
     private ActivityFeedSource feedSource = ActivityFeedSource.DEFAULT;
 
@@ -260,18 +260,18 @@ public class LiveActivityResource {
     }
 
     /**
-     * Stops {@link #switchPoller} (making one last synchronous capture pass first, so entries produced
+     * Stops {@link #switchCapture} (processing what the journal already recorded first, so entries produced
      * since the last tick aren't dropped) when persistence was hot-switched on at runtime. Independent of
-     * {@code QuarkusActivityCapture}'s own {@code ShutdownEvent} observer, which stops its own poller
+     * {@code QuarkusActivityCapture}'s own {@code ShutdownEvent} observer, which stops its own capture
      * (started only when persistence was already enabled at startup) and closes the shared
-     * {@link SwitchableActivityStore} bean itself; the two never both hold a live poller, since a switch
+     * {@link SwitchableActivityStore} bean itself; the two never both hold a live capture, since a switch
      * only succeeds when the store was not already persistent.
      */
     void onStop(@Observes ShutdownEvent event) {
-        ActivityCapture poller = switchPoller;
-        if (poller != null) {
-            poller.close();
-            switchPoller = null;
+        ActivityCapture capture = switchCapture;
+        if (capture != null) {
+            capture.close();
+            switchCapture = null;
         }
     }
 
@@ -432,7 +432,7 @@ public class LiveActivityResource {
      * creates a database table and starts writing to it) and by the shared {@code LocalhostGuard} write
      * floor enforced by {@code BootUiQuarkusSafetyFilter}, like every other mutating panel action.
      * Idempotent: calling this when persistence is already active is a no-op that reports success rather
-     * than an error. On success, starts this resource's own capture poller against the newly durable
+     * than an error. On success, starts the journal subscriber against the newly durable
      * store, exactly as {@code QuarkusActivityCapture}'s {@code onStart} would have done had persistence
      * been enabled from startup.
      */
@@ -445,32 +445,20 @@ public class LiveActivityResource {
         ActivitySwitchResponse response = new ActivitySwitchService()
                 .useExistingDataSource(activityStore, persistenceSettings, dataSource, request);
         if (response.newSettings() != null) {
-            switchPoller = startPersistence(activityStore, response.newSettings());
+            switchCapture = startPersistence(activityStore, response.newSettings());
         }
         return Response.status(response.status()).entity(response.body()).build();
     }
 
     /**
-     * Starts a capture poller that appends this resource's {@link #mergedReport} feed to {@code store}, remembering
-     * the entries the exchange, SQL, and REST client buffers reserve with the exchange buffer's own request slow
-     * threshold. Shared by {@code QuarkusActivityCapture} at startup and by the runtime switch; the caller owns closing
-     * the returned poller.
-     */
-    public ActivityCapturePoller startCapture(ActivityStore store, ActivityPersistenceSettings settings) {
-        return startPoller(store, settings);
-    }
-
-    /**
      * Starts writing Live Activity's durable history from the same source the feed reads ({@code docs/PLAN-v2.md}
-     * §5.3): the runtime journal's subscriber when {@code bootui.activity.feed-source=journal} and the journal records,
-     * otherwise the poller of {@link #mergedReport}. Shared by {@code QuarkusActivityCapture} at startup and by the
+     * §5.3): the runtime journal's subscriber, whatever source the feed reads, or nothing, with a warning, when the
+     * journal is disabled; 2.0.0 removed the poller of {@link #mergedReport}. Shared by {@code QuarkusActivityCapture} at startup and by the
      * runtime switch; the caller owns closing the returned capture.
      */
     public ActivityCapture startPersistence(ActivityStore store, ActivityPersistenceSettings settings) {
         RuntimeJournal current = journal != null && journal.isResolvable() ? journal.get() : null;
-        if (feedSource == ActivityFeedSource.JOURNAL
-                && current != null
-                && current.settings().enabled()) {
+        if (current != null && current.settings().enabled()) {
             return JournalActivityCapture.start(
                     store,
                     settings,
@@ -482,21 +470,15 @@ public class LiveActivityResource {
                             declaredRoutes),
                     panel -> panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel));
         }
-        return startPoller(store, settings);
-    }
-
-    private ActivityCapturePoller startPoller(ActivityStore store, ActivityPersistenceSettings settings) {
-        return ActivityCaptureFactory.start(
-                store, settings, reservedEntries, () -> mergedReport(0).entries());
+        LOG.warn("Live Activity persistence is enabled, but the runtime journal is disabled"
+                + " (bootui.runtime-journal.enabled=false), so no durable history is written: the journal is its only"
+                + " source in 2.0.");
+        return null;
     }
 
     /**
-     * The merged, reverse-chronological Live Activity feed — today's entire {@link #activity} body
-     * before persistence-aware pagination, extracted so {@code QuarkusActivityCapture}'s capture poller
-     * can reuse it as its feed {@link java.util.function.Supplier} without duplicating the
-     * signal-gathering/masking/profileable-stamping logic. Reusing this method (rather than re-reading
-     * the five signal sources independently) means the poller sees the exact same self-filtered, masked
-     * view the panel itself renders.
+     * The merged, reverse-chronological Live Activity feed read from the panel buffers, today's entire {@link
+     * #activity} body before persistence-aware pagination when the feed source is {@code buffers}.
      */
     public LiveActivityReport mergedReport(int limit) {
         HttpExchangesReport requests = requestsReport();

@@ -467,7 +467,6 @@ class BootUiEngineConfigurationTests {
         persistence.setBufferMaxEntries(321);
         persistence.setRetention(Duration.ofDays(3));
         persistence.setInstanceId("pinned-instance");
-        persistence.setCaptureInterval(Duration.ofSeconds(7));
         // instanceId is already configured (non-blank), so the Environment is not consulted for it; the
         // HOSTNAME-env-var / generated-id fallback paths are pinned separately by ActivityInstanceIdsTests.
         MockEnvironment environment = new MockEnvironment();
@@ -486,7 +485,6 @@ class BootUiEngineConfigurationTests {
         assertThat(settings.bufferMaxEntries()).isEqualTo(321);
         assertThat(settings.retention()).isEqualTo(Duration.ofDays(3));
         assertThat(settings.instanceId()).isEqualTo("pinned-instance");
-        assertThat(settings.captureInterval()).isEqualTo(Duration.ofSeconds(7));
     }
 
     @Test

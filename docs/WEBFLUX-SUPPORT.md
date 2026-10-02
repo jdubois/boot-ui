@@ -382,7 +382,7 @@ is reported as an available source only after the shared post-processor successf
 
 The map's opaque `ServiceMapInteractionDto.flowId` — derived one-way from whatever trace id was active when an
 interaction completed — needed no reactive-specific work either. `BootUiReactiveAutoConfiguration` already installs the
-same `ReactiveOtelTraceIdProvider` on the HTTP exchange, SQL, REST-client, and cache recorders. `ServiceMapAssembler`
+same `ReactiveOtelTraceIdSource` on the HTTP exchange, SQL, REST-client, and cache recorders. `ServiceMapAssembler`
 only ever reads whatever trace id those recorders already captured, so causal flow correlation on this adapter is
 byte-identical to Spring MVC and Quarkus wherever OpenTelemetry is configured.
 
@@ -397,11 +397,12 @@ resolves (and creates) the controller bean once the panel is opened.
 
 ::: details Trace-id correlation, stamped identically to Quarkus
 
-A reactive-only `ReactiveOtelTraceIdProvider` reads `Span.current()` unconditionally at every capture point: HTTP
+A reactive-only `ReactiveOtelTraceIdSource` reads `Span.current()` unconditionally at every capture point: HTTP
 exchange (via a new `ReactiveHttpExchangeTraceFilter` feeding a side-buffer `HttpExchangeTraceRegistry`, since
-Actuator's `HttpExchange` model has no trace-id field), SQL (`SqlTraceRecorder.setTraceIdProvider`), exceptions
-(`ReactiveBootUiExceptionHandler.setTraceIdProvider`), and security events (`ReactiveSecurityLogsController.setTraceIdProvider`
-+ `ReactiveSecurityEventTraceRegistry`). This replaces the earlier inbound-header/SLF4J-MDC-only reliance. All four are
+Actuator's `HttpExchange` model has no trace-id field), and, through one `ScopedCorrelationContextProvider` installed with
+`setCorrelationContextProvider`, SQL, REST client, cache, email, fault tolerance, exceptions
+(`ReactiveBootUiExceptionHandler`), and security events (`ReactiveSecurityLogsController` +
+`ReactiveSecurityEventTraceRegistry`). This replaces the earlier inbound-header/SLF4J-MDC-only reliance. All four are
 wired by `BootUiReactiveAutoConfiguration.ReactiveOpenTelemetryCorrelationConfiguration`, gated only on the OpenTelemetry
 SDK being present (matching Quarkus's own `Capability.OPENTELEMETRY_TRACER` gate). It is deliberately *not* also gated on
 `bootui.telemetry.enabled`, which governs BootUI's own span export for the Traces/AI Framework panels — a separate

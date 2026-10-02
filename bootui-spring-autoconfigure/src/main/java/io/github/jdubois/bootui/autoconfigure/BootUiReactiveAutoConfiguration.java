@@ -51,7 +51,7 @@ import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveLegacyBootUiPathF
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveLiveActivityController;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveLocalhostOnlyFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveLogTailController;
-import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveOtelTraceIdProvider;
+import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveOtelTraceIdSource;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactivePanelAccessFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveRequestCorrelationFilter;
 import io.github.jdubois.bootui.autoconfigure.reactive.ReactiveRestClientTraceController;
@@ -73,6 +73,7 @@ import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.cache.CacheActivityRecorder;
 import io.github.jdubois.bootui.engine.cli.CliService;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
+import io.github.jdubois.bootui.engine.correlation.ScopedCorrelationContextProvider;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
@@ -85,8 +86,8 @@ import io.github.jdubois.bootui.engine.transactions.TransactionRecorder;
 import io.github.jdubois.bootui.engine.websocket.WebSocketActivityRecorder;
 import io.github.jdubois.bootui.engine.websocket.WebSocketService;
 import io.github.jdubois.bootui.engine.websocket.WebSocketSettings;
+import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.ThreadKindClassifier;
-import io.github.jdubois.bootui.spi.TraceIdProvider;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Set;
@@ -1078,7 +1079,7 @@ public class BootUiReactiveAutoConfiguration {
 
     /**
      * Reactive sibling of the trace-id correlation Quarkus's adapter supplies natively (see
-     * {@code QuarkusOtelTraceIdProvider}): installs an OpenTelemetry-backed {@link TraceIdProvider} onto
+     * {@code QuarkusOtelTraceIdSource}): installs an OpenTelemetry-backed correlation onto
      * the SQL Trace recorder, the reactive exception handler, the {@link HttpExchangesController} (via the
      * side-buffer {@link HttpExchangeTraceRegistry}), the {@link ReactiveSecurityLogsController} (via
      * {@link ReactiveSecurityEventTraceRegistry}), the email/REST-client/cache recorders and the fault tolerance
@@ -1086,7 +1087,7 @@ public class BootUiReactiveAutoConfiguration {
      * shared engine {@code LiveActivityAssembler} - can actually nest a request's signals under it.
      *
      * <p>WebFlux has no thread-per-request invariant for {@code SqlTraceRecorder}'s default MDC-based
-     * {@link TraceIdProvider} to rely on (Reactor Netty's event-loop / {@code boundedElastic} scheduler
+     * {@code TraceIdSource} to rely on (Reactor Netty's event-loop / {@code boundedElastic} scheduler
      * hops break thread-local propagation), so it must instead read the active OpenTelemetry span, whose
      * context survives those hops - exactly like the Quarkus adapter, and for the same reason. Gated on
      * the OpenTelemetry SDK being present, exactly like {@link BootUiOpenTelemetryConfiguration} and
@@ -1102,8 +1103,8 @@ public class BootUiReactiveAutoConfiguration {
     static class ReactiveOpenTelemetryCorrelationConfiguration {
 
         @Bean
-        ReactiveOtelTraceIdProvider bootUiReactiveOtelTraceIdProvider() {
-            return new ReactiveOtelTraceIdProvider();
+        ReactiveOtelTraceIdSource bootUiReactiveOtelTraceIdSource() {
+            return new ReactiveOtelTraceIdSource();
         }
 
         @Bean
@@ -1122,7 +1123,7 @@ public class BootUiReactiveAutoConfiguration {
         ReactiveHttpExchangeTraceFilter bootUiReactiveHttpExchangeTraceFilter(
                 BootUiProperties properties,
                 HttpExchangeTraceRegistry registry,
-                ReactiveOtelTraceIdProvider traceIdProvider,
+                ReactiveOtelTraceIdSource traceIdProvider,
                 Environment environment) {
             return new ReactiveHttpExchangeTraceFilter(
                     properties, registry, traceIdProvider, ExchangeSlowThreshold.resolve(properties, environment));
@@ -1137,7 +1138,7 @@ public class BootUiReactiveAutoConfiguration {
          */
         @Bean
         SmartInitializingSingleton bootUiReactiveTraceCorrelationInstaller(
-                ReactiveOtelTraceIdProvider traceIdProvider,
+                ReactiveOtelTraceIdSource traceIdProvider,
                 HttpExchangeTraceRegistry httpExchangeTraceRegistry,
                 ReactiveSecurityEventTraceRegistry securityEventTraceRegistry,
                 ObjectProvider<SqlTraceRecorder> sqlTraceRecorders,
@@ -1149,22 +1150,26 @@ public class BootUiReactiveAutoConfiguration {
                 ObjectProvider<io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceEventRecorder>
                         faultToleranceEventRecorders,
                 ObjectProvider<io.github.jdubois.bootui.engine.email.EmailCaptureService> emailCaptureServices) {
+            // One correlation for every capture point: the Reactor-restored scope, with the trace id of the active
+            // OpenTelemetry span filled in when the scope has none (docs/PLAN-v2.md §5.1).
+            CorrelationContextProvider correlation = new ScopedCorrelationContextProvider(traceIdProvider);
             return () -> {
-                sqlTraceRecorders.ifAvailable(recorder -> recorder.setTraceIdProvider(traceIdProvider));
-                restClientTraceRecorders.ifAvailable(recorder -> recorder.setTraceIdProvider(traceIdProvider));
+                sqlTraceRecorders.ifAvailable(recorder -> recorder.setCorrelationContextProvider(correlation));
+                restClientTraceRecorders.ifAvailable(recorder -> recorder.setCorrelationContextProvider(correlation));
                 httpExchangesControllers.ifAvailable(
                         controller -> controller.setTraceRegistry(httpExchangeTraceRegistry));
-                exceptionHandlers.ifAvailable(handler -> handler.setTraceIdProvider(traceIdProvider));
-                emailCaptureServices.ifAvailable(service -> service.setTraceIdProvider(traceIdProvider));
+                exceptionHandlers.ifAvailable(handler -> handler.setCorrelationContextProvider(correlation));
+                emailCaptureServices.ifAvailable(service -> service.setCorrelationContextProvider(correlation));
                 securityLogsControllers.ifAvailable(controller -> {
-                    controller.setTraceIdProvider(traceIdProvider);
+                    controller.setCorrelationContextProvider(correlation);
                     controller.setTraceRegistry(securityEventTraceRegistry);
                 });
-                cacheActivityRecorders.ifAvailable(recorder -> recorder.setTraceIdProvider(traceIdProvider));
+                cacheActivityRecorders.ifAvailable(recorder -> recorder.setCorrelationContextProvider(correlation));
                 // Fault Tolerance outcomes are recorded on whichever Reactor thread the operator ran on, so the
                 // MDC fallback the recorder defaults to cannot see the request's trace: without this the
                 // FAULT_TOLERANCE entries would never nest under their REQUEST in Live Activity on WebFlux.
-                faultToleranceEventRecorders.ifAvailable(recorder -> recorder.setTraceIdProvider(traceIdProvider));
+                faultToleranceEventRecorders.ifAvailable(
+                        recorder -> recorder.setCorrelationContextProvider(correlation));
             };
         }
     }

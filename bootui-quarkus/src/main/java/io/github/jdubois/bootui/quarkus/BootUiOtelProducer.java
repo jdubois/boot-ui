@@ -67,7 +67,7 @@ public class BootUiOtelProducer {
      * The capture-time enricher that stamps {@code bootui.sql.*}/{@code bootui.exception.*} depth on the
      * active span. The SQL Trace recorder and exception store inject it via {@code Instance<SpanEnricher>}
      * and install it when resolvable; absent OpenTelemetry this producer is excluded, so those capture points
-     * resolve no enricher and keep the neutral no-op (mirrors the {@code TraceIdProvider} seam).
+     * resolve no enricher and keep the neutral no-op (mirrors the {@code TraceIdSource} seam).
      */
     @Produces
     @Singleton

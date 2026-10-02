@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceGroupDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
 import io.github.jdubois.bootui.core.dto.RestClientTraceStatsDto;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.support.DetailText;
 import java.util.List;
 import java.util.Map;
@@ -558,7 +559,7 @@ class RestClientTraceRecorderTests {
     @Test
     void stampsTraceIdFromConfiguredProvider() {
         RestClientTraceRecorder recorder = recorder(true, 10, 100);
-        recorder.setTraceIdProvider(() -> "trace-x");
+        recorder.setCorrelationContextProvider(() -> BootUiCorrelation.current().withTrace("trace-x", null));
         record(recorder, "/orders");
         assertThat(recorder.recent().get(0).traceId()).isEqualTo("trace-x");
     }
@@ -566,7 +567,7 @@ class RestClientTraceRecorderTests {
     @Test
     void acceptsTraceIdCapturedEarlierByAReactiveInterceptionBoundary() {
         RestClientTraceRecorder recorder = recorder(true, 10, 100);
-        recorder.setTraceIdProvider(() -> "response-context");
+        recorder.setCorrelationContextProvider(() -> BootUiCorrelation.current().withTrace("response-context", null));
 
         recorder.record(
                 "GET",
@@ -595,7 +596,7 @@ class RestClientTraceRecorderTests {
     @Test
     void treatsBlankProviderTraceIdAsNone() {
         RestClientTraceRecorder recorder = recorder(true, 10, 100);
-        recorder.setTraceIdProvider(() -> "   ");
+        recorder.setCorrelationContextProvider(() -> BootUiCorrelation.current().withTrace("   ", null));
         record(recorder, "/orders");
         assertThat(recorder.recent().get(0).traceId()).isNull();
     }
@@ -603,10 +604,10 @@ class RestClientTraceRecorderTests {
     @Test
     void nullProviderRestoresDefaultAndNeverThrows() {
         RestClientTraceRecorder recorder = recorder(true, 10, 100);
-        recorder.setTraceIdProvider(() -> {
+        recorder.setCorrelationContextProvider(() -> {
             throw new IllegalStateException("tracer broke");
         });
-        recorder.setTraceIdProvider(null);
+        recorder.setCorrelationContextProvider(null);
         record(recorder, "/orders");
         assertThat(recorder.recent().get(0).traceId()).isNull();
     }
@@ -614,7 +615,7 @@ class RestClientTraceRecorderTests {
     @Test
     void guardsAgainstThrowingProvider() {
         RestClientTraceRecorder recorder = recorder(true, 10, 100);
-        recorder.setTraceIdProvider(() -> {
+        recorder.setCorrelationContextProvider(() -> {
             throw new IllegalStateException("tracer broke");
         });
         record(recorder, "/orders");

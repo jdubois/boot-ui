@@ -14,6 +14,7 @@ import io.github.jdubois.bootui.engine.cache.CacheService;
 import io.github.jdubois.bootui.engine.config.ConfigService;
 import io.github.jdubois.bootui.engine.correlation.RequestPhases;
 import io.github.jdubois.bootui.engine.correlation.ScopedCorrelationContextProvider;
+import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
 import io.github.jdubois.bootui.engine.databaseadvisor.DatabaseAdvisorScanner;
 import io.github.jdubois.bootui.engine.datasource.ConnectionPoolService;
 import io.github.jdubois.bootui.engine.devservices.DevServicesReportService;
@@ -105,7 +106,6 @@ import io.github.jdubois.bootui.spi.HibernateStatisticsProvider;
 import io.github.jdubois.bootui.spi.LiquibaseProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
 import io.github.jdubois.bootui.spi.MappingProvider;
-import io.github.jdubois.bootui.spi.TraceIdProvider;
 import io.github.jdubois.bootui.spi.WebSocketSessionProvider;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.quarkus.runtime.LaunchMode;
@@ -394,7 +394,7 @@ public class BootUiEngineProducer {
     @Produces
     @Singleton
     public EmailCaptureService emailCaptureService(
-            QuarkusExposurePolicy exposure, Config config, Instance<TraceIdProvider> traceIdProvider) {
+            QuarkusExposurePolicy exposure, Config config, Instance<TraceIdSource> traceIdProvider) {
         int maxEntries = config.getOptionalValue("bootui.email.max-entries", Integer.class)
                 .orElse(100);
         int maxBodyLength = config.getOptionalValue("bootui.email.max-body-length", Integer.class)
@@ -405,10 +405,8 @@ public class BootUiEngineProducer {
                 .orElse(false);
         EmailCaptureService service =
                 new EmailCaptureService(new EmailStore(maxEntries, maxBodyLength), exposure, mock, maskContent);
-        if (traceIdProvider.isResolvable()) {
-            service.setTraceIdProvider(traceIdProvider.get());
-        }
-        service.setCorrelationContextProvider(QuarkusRequestCorrelation::current);
+        service.setCorrelationContextProvider(new ScopedCorrelationContextProvider(
+                QuarkusRequestCorrelation::current, traceIdProvider.isResolvable() ? traceIdProvider.get() : null));
         return service;
     }
 
@@ -426,7 +424,7 @@ public class BootUiEngineProducer {
      */
     @Produces
     @Singleton
-    public CorrelationContextProvider correlationContextProvider(Instance<TraceIdProvider> traceIdProvider) {
+    public CorrelationContextProvider correlationContextProvider(Instance<TraceIdSource> traceIdProvider) {
         return new ScopedCorrelationContextProvider(
                 QuarkusRequestCorrelation::current, traceIdProvider.isResolvable() ? traceIdProvider.get() : null);
     }
@@ -477,9 +475,7 @@ public class BootUiEngineProducer {
                         .orElse(500),
                 config.getOptionalValue("bootui.activity.persistence.retention", Duration.class)
                         .orElse(Duration.ofDays(7)),
-                instanceId,
-                config.getOptionalValue("bootui.activity.persistence.capture-interval", Duration.class)
-                        .orElse(Duration.ofSeconds(2)));
+                instanceId);
     }
 
     /**
@@ -1269,7 +1265,7 @@ public class BootUiEngineProducer {
     @Produces
     @Singleton
     public FaultToleranceEventRecorder faultToleranceEventRecorder(
-            Config config, Instance<TraceIdProvider> traceIdProvider) {
+            Config config, Instance<TraceIdSource> traceIdProvider) {
         boolean enabled = config.getOptionalValue("bootui.fault-tolerance.enabled", Boolean.class)
                         .orElse(true)
                 && config.getOptionalValue("bootui.panels.fault-tolerance.enabled", Boolean.class)
@@ -1277,10 +1273,8 @@ public class BootUiEngineProducer {
         int maxEvents = config.getOptionalValue("bootui.fault-tolerance.max-events", Integer.class)
                 .orElse(200);
         FaultToleranceEventRecorder recorder = new FaultToleranceEventRecorder(enabled, maxEvents);
-        if (traceIdProvider.isResolvable()) {
-            recorder.setTraceIdProvider(traceIdProvider.get());
-        }
-        recorder.setCorrelationContextProvider(QuarkusRequestCorrelation::current);
+        recorder.setCorrelationContextProvider(new ScopedCorrelationContextProvider(
+                QuarkusRequestCorrelation::current, traceIdProvider.isResolvable() ? traceIdProvider.get() : null));
         return recorder;
     }
 
@@ -1385,7 +1379,7 @@ public class BootUiEngineProducer {
      */
     @Produces
     @Singleton
-    public RestClientTraceRecorder restClientTraceRecorder(Config config, Instance<TraceIdProvider> traceIdProvider) {
+    public RestClientTraceRecorder restClientTraceRecorder(Config config, Instance<TraceIdSource> traceIdProvider) {
         boolean enabled = config.getOptionalValue("bootui.rest-client-trace.enabled", Boolean.class)
                 .orElse(true);
         boolean recording = config.getOptionalValue("bootui.rest-client-trace.recording", Boolean.class)
@@ -1421,11 +1415,9 @@ public class BootUiEngineProducer {
                 maxHeaderValueLength,
                 chattyCallThreshold,
                 reservedSharePercent);
-        if (traceIdProvider.isResolvable()) {
-            recorder.setTraceIdProvider(traceIdProvider.get());
-        }
         recorder.setThreadKindClassifier(new QuarkusThreadKinds());
-        recorder.setCorrelationContextProvider(QuarkusRequestCorrelation::current);
+        recorder.setCorrelationContextProvider(new ScopedCorrelationContextProvider(
+                QuarkusRequestCorrelation::current, traceIdProvider.isResolvable() ? traceIdProvider.get() : null));
         return recorder;
     }
 }

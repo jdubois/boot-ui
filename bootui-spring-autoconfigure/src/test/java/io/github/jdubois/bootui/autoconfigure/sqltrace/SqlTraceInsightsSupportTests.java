@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.autoconfigure.web.HttpExchangeTraceRegistry.Http
 import io.github.jdubois.bootui.core.dto.MappingDto;
 import io.github.jdubois.bootui.core.dto.SqlRouteRankingDto;
 import io.github.jdubois.bootui.core.dto.SqlTraceInsightsReport;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.Category;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder.StatementType;
@@ -33,7 +34,7 @@ class SqlTraceInsightsSupportTests {
     }
 
     private void record(SqlTraceRecorder recorder, String sql, String thread, String traceId) {
-        recorder.setTraceIdProvider(() -> traceId);
+        recorder.setCorrelationContextProvider(() -> BootUiCorrelation.current().withTrace(traceId, null));
         recorder.record(
                 StatementType.PREPARED, Category.SELECT, sql, List.of(), 10, true, null, null, 0, "conn-1", thread);
     }
