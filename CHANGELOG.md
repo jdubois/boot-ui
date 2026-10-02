@@ -255,6 +255,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   diagnostic and left the Database advisor scan `PARTIAL`. A foreign key absent from a complete, untruncated
   `NOT VALID` catalog read is now known to be validated and enforced; a failed or truncated read still leaves it
   unknown ([#1174](https://github.com/jdubois/boot-ui/issues/1174)).
+- **Vulnerabilities no longer scans test-only libraries listed in a CycloneDX SBOM.** The CycloneDX Gradle plugin
+  lists test-classpath libraries by default, marked `cdx:maven:package:test=true`; Spring MVC and WebFlux took them as
+  application dependencies, so a test-only `freemarker` or a newer test-only `jackson-databind` was reported vulnerable
+  although no such JAR shipped. Components marked that way, or with CycloneDX `scope: "excluded"`, and the components
+  nested in them, are now left out of the inventory unless the archive census finds their JAR on the classpath, so a
+  mislabeled SBOM still cannot hide a shipped library ([#1177](https://github.com/jdubois/boot-ui/issues/1177)).
 - **ARCH-SPRING-001 no longer reports Kotlin constructor injection as field injection.** Kotlin copies an annotation
   such as `@Value` or `@Autowired` written on a primary-constructor property onto the backing field as well, so
   `class Foo(@Value("\${key}") private val key: String)` was reported as field injection. A field in a Kotlin class
