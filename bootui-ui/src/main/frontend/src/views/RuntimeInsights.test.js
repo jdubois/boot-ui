@@ -300,6 +300,25 @@ describe('Runtime Insights panel', () => {
     expect(wrapper.findAll('.insight-share-value').map((value) => value.text())).toEqual(['60 %', '20 %'])
   })
 
+  it('previews the open observation as Markdown for an AI without another request', async () => {
+    const fetchMock = vi.fn((url) =>
+      Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : report))
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPanel()
+    await flushPromises()
+    const calls = fetchMock.mock.calls.length
+
+    await wrapper.get('.insight-copy-ai').trigger('click')
+
+    const preview = wrapper.get('textarea').element.value
+    expect(preview).toContain('# BootUI runtime insight: Repeated SELECTs')
+    expect(preview).toContain('`GET /api/owners/{id}` repeated `select * from pets where owner_id = ?`')
+    expect(preview).toContain('| r-1 | 6 |')
+    expect(preview).toContain('4 evidence rows beyond the first 1.')
+    expect(fetchMock.mock.calls.length).toBe(calls)
+  })
+
   it('exports the report it already has as JSON without another request', async () => {
     const fetchMock = vi.fn((url) =>
       Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : report))

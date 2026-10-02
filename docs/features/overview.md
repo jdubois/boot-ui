@@ -632,6 +632,11 @@ the tokens of one model call above which AI usage reports its route from that ca
 The sample apps seed one case for each observation beside the counterexample it must not report, and
 `e2e/scripts/insights-demo.mjs` sends that traffic to a running sample, so the panel can be explored without tracing.
 
+**Copy for AI** on an open observation previews it as one Markdown document, its sentence, the checks to run, the
+requests to open, and its evidence, built from what the panel already shows; copying sends nothing. Agents read the
+same facts through the `get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`, and
+`get_runtime_run_comparison` MCP tools and the `bootui insights` CLI commands ([AI agents](../AI-AGENTS.md#runtime-insights-for-agents)).
+
 **Not exercised in this run** lists the application's declared routes that no request of this run reached, so nothing
 in the panel is mistaken for a verdict on a route that never ran. Framework endpoints, such as the error controller and
 Actuator, and catch-all patterns are left out. **Export JSON** saves the report as the panel received it, with no new

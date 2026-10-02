@@ -58,6 +58,10 @@ makes outbound calls to OSV.dev.
 `get_database_advisor_report`, `get_memory_report`, `get_security_report`, `get_pentest_report`, `get_rest_api_report`,
 `get_graalvm_report`, `get_crac_report`, and `get_vulnerabilities_report`.
 
+**Runtime Insights reads** — `get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`, and
+`get_runtime_run_comparison`: the [Runtime Insights](overview.md#runtime-insights) report, one observation, change
+impact, and the run comparison, compacted for agents, with `INSUFFICIENT` and `NOT_COMPARABLE` never read as success.
+
 **Diagnostics reads** — `get_live_activity`, `get_request_profile`, `get_exceptions`, `get_exception_detail`,
 `get_security_logs`,
 `get_sql_traces`, `get_transactions` (Spring MVC and WebFlux only), `get_traces`, `get_log_tail`,
@@ -127,7 +131,7 @@ engine. Each adapter supplies only a thin Jackson envelope codec, Jackson 2 on Q
 requests and responses are byte-identical across backends.
 
 **Quarkus** runs the same JSON-RPC bridge at the same endpoint with the same runtime toggle, reading the `bootui.mcp.*`
-keys from MicroProfile Config. Its catalog declares 75 tools against Spring MVC's 91, because the tools behind
+keys from MicroProfile Config. Its catalog declares 79 tools against Spring MVC's 95, because the tools behind
 Spring-only panels are withheld: the GraalVM and CRaC scans and reports, Conditions, Startup Timeline, HTTP Sessions,
 Spring Data, Spring Security, JMS, DevTools, and every transaction tool. `get_overview` is offered, and `spring_scan`
 runs the Quarkus-native idiom advisor.

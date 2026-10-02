@@ -456,6 +456,49 @@ public abstract class AbstractMcpConformanceTest {
     }
 
     @Test
+    void testMcpRuntimeInsightsToolsAnswerCompactFactsThatSayWhyInsteadOfEmptySuccesses() throws Exception {
+        assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            JsonNode list = callTool("get_runtime_insights", "{\"limit\":3}");
+            assertThat(list.has("coverage")).isTrue();
+            assertThat(list.has("checksNotRun")).isTrue();
+            assertThat(list.path("observations").size()).isLessThanOrEqualTo(3);
+            if (!list.path("available").asBoolean()) {
+                assertThat(list.path("unavailableReason").asText()).isNotBlank();
+            }
+
+            JsonNode unknown = callTool("get_runtime_insight", "{\"id\":\"conformance-unknown-observation\"}");
+            assertThat(unknown.path("available").asBoolean(true)).isFalse();
+            assertThat(unknown.path("unavailableReason").asText()).isNotBlank();
+
+            JsonNode impact = callTool("get_runtime_impact", "{\"id\":\"conformanceUnknownSymbol\"}");
+            assertThat(impact.path("status").asText()).isIn("NOT_FOUND", "UNAVAILABLE");
+
+            JsonNode comparison = callTool("get_runtime_run_comparison", "{\"id\":\"previous\"}");
+            assertThat(comparison.path("status").asText())
+                    .isIn("COMPARED", "INSUFFICIENT", "NOT_COMPARABLE", "NO_PREVIOUS_RUN", "UNAVAILABLE");
+            assertThat(comparison.path("behavior").size()).isLessThanOrEqualTo(8);
+            assertThat(comparison.has("latency"))
+                    .as("latency is left out for agents")
+                    .isFalse();
+        }
+    }
+
+    private JsonNode callTool(String name, String arguments) throws Exception {
+        Response response = probe().request(
+                        "POST",
+                        "/bootui/api/mcp",
+                        Map.of("Content-Type", "application/json"),
+                        "{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"tools/call\",\"params\":{\"name\":\"" + name
+                                + "\",\"arguments\":" + arguments + "}}");
+        assertThat(response.status()).isEqualTo(200);
+        JsonNode result = response.json().path("result");
+        assertThat(result.path("isError").asBoolean()).as(name + ": " + result).isFalse();
+        return new ObjectMapper()
+                .readTree(result.path("content").get(0).path("text").asText());
+    }
+
+    @Test
     void testMcpToolClientErrorIsReportedInBandInsteadOfInternalError() {
         assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
         try {
@@ -512,7 +555,11 @@ public abstract class AbstractMcpConformanceTest {
             assertThat(prompts.isArray()).isTrue();
             assertThat(prompts)
                     .extracting(prompt -> prompt.path("name").asText())
-                    .containsExactly("diagnose_runtime_issue", "review_application", "assess_application");
+                    .containsExactly(
+                            "diagnose_runtime_issue",
+                            "verify_after_change",
+                            "review_application",
+                            "assess_application");
 
             for (JsonNode prompt : prompts) {
                 String name = prompt.path("name").asText();

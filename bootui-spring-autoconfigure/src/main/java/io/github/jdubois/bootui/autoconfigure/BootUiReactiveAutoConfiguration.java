@@ -434,7 +434,8 @@ public class BootUiReactiveAutoConfiguration {
                 ObjectProvider<ScheduledController> scheduled,
                 ObjectProvider<FaultToleranceController> faultTolerance,
                 ObjectProvider<SpringCacheController> cache,
-                ObjectProvider<DatabaseConnectionPoolsController> connectionPools) {
+                ObjectProvider<DatabaseConnectionPoolsController> connectionPools,
+                ObjectProvider<RuntimeInsightsController> runtimeInsights) {
             return new ReactiveBootUiMcpTools(
                     overview,
                     health,
@@ -467,7 +468,8 @@ public class BootUiReactiveAutoConfiguration {
                     scheduled,
                     faultTolerance,
                     cache,
-                    connectionPools);
+                    connectionPools,
+                    runtimeInsights);
         }
 
         @Bean

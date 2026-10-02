@@ -1,6 +1,7 @@
 import {describe, expect, it, vi} from 'vitest'
 import {ApiError} from '../api.js'
 import {
+  insightMarkdown,
   MAX_EXCEPTION_DETAILS,
   MAX_FRAMES,
   MAX_OCCURRENCES,
@@ -470,5 +471,44 @@ describe('loading an export', () => {
     expect(correlation.correlationUnavailableReason).toBe(
       'Live Activity could not be read: the Live Activity panel is disabled or not permitted.'
     )
+  })
+})
+
+describe('insightMarkdown', () => {
+  const detail = {
+    available: true,
+    observation: {
+      id: 'repeated-selects:abc',
+      kind: 'repeated-selects',
+      subject: 'GET /api/orders',
+      status: 'OBSERVED',
+      sentence: '`GET /api/orders` ran `select * from lines where order_id = ?` 5 or more times in 3 of 9 requests.',
+      eligible: 9,
+      affected: 3,
+      minimumTier: 'REQUEST_ID',
+      whatToCheck: ['Load them with one statement, such as a join.'],
+      exemplarRequestIds: ['r-1'],
+      limitations: ['Counts statements the request ran.']
+    },
+    columns: ['Request', 'Statement'],
+    rows: [{cells: ['r-1', 'select a | b from t']}],
+    truncated: 2
+  }
+
+  it('keeps the engine code marks as code, escapes the rest, and lists what it left out', () => {
+    const {markdown, omissions} = insightMarkdown(detail, {title: 'Repeated SELECTs'})
+    expect(markdown).toContain('# BootUI runtime insight: Repeated SELECTs')
+    expect(markdown).toContain('`GET /api/orders` ran `select * from lines where order_id = ?` 5 or more times')
+    expect(markdown).toContain('- **Counted:** 3 of 9 requests')
+    expect(markdown).toContain('1. Load them with one statement, such as a join.')
+    expect(markdown).toContain('`bootui request-profile r-1`')
+    expect(markdown).toContain('| r-1 | select a \\| b from t |')
+    expect(markdown).toContain('not a verdict')
+    expect(omissions).toEqual(['2 evidence rows beyond the first 1.'])
+  })
+
+  it('says why an observation is unavailable instead of exporting nothing', () => {
+    const {markdown} = insightMarkdown({available: false, unavailableReason: 'No observation x.'})
+    expect(markdown).toContain('No observation x.')
   })
 })

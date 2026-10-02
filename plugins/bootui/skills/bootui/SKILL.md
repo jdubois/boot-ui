@@ -263,6 +263,15 @@ DTOs.
 Treat unavailable panels honestly. Their backing library, capability, configuration, or adapter support may be absent.
 Do not install unrelated infrastructure solely to light up a panel unless the user asks.
 
+### Analyze what a run did
+
+1. Run the application's integration or browser tests against it, so it serves realistic traffic.
+2. Read `bootui insights list --json` (`get_runtime_insights`): coverage and the checks that did not run first, then
+   each observation's sentence, `verify` line, and exemplar request. Open one with `bootui insights show <id> --json`.
+3. After a change, rerun the tests and read `bootui insights compare previous --json` (`get_runtime_run_comparison`).
+   `INSUFFICIENT` and `NOT_COMPARABLE` are not passes, never edit from a latency row, and a missing observation is not
+   proof that a behavior is gone.
+
 ### Investigate one slow or failing request
 
 1. List recent activity with `bootui activity --limit 50 --json` (`get_live_activity`) and pick the `REQUEST` entry

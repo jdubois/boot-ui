@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.autoconfigure.databaseadvisor.DatabaseAdvisorCon
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
+import io.github.jdubois.bootui.autoconfigure.insights.RuntimeInsightsController;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsController;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaController;
 import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
@@ -59,6 +60,7 @@ import io.github.jdubois.bootui.autoconfigure.web.VulnerabilitiesController;
 import io.github.jdubois.bootui.core.dto.RestClientTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.SqlTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.TransactionRecordingRequest;
+import io.github.jdubois.bootui.engine.insights.RuntimeInsightsAgentView;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolCatalog;
@@ -121,7 +123,8 @@ public class BootUiMcpTools {
             ObjectProvider<ScheduledController> scheduled,
             ObjectProvider<FaultToleranceController> faultTolerance,
             ObjectProvider<SpringCacheController> cache,
-            ObjectProvider<DatabaseConnectionPoolsController> connectionPools) {
+            ObjectProvider<DatabaseConnectionPoolsController> connectionPools,
+            ObjectProvider<RuntimeInsightsController> runtimeInsights) {
         // Resolve each (lazy) controller bean; conditionally-registered controllers (e.g. Hibernate,
         // Spring Security) may be absent depending on the host app's classpath, so the matching tool is
         // simply not advertised rather than failing the whole server.
@@ -157,6 +160,7 @@ public class BootUiMcpTools {
         FaultToleranceController faultToleranceBean = faultTolerance.getIfAvailable();
         SpringCacheController cacheBean = cache.getIfAvailable();
         DatabaseConnectionPoolsController connectionPoolsBean = connectionPools.getIfAvailable();
+        RuntimeInsightsController runtimeInsightsBean = runtimeInsights.getIfAvailable();
 
         List<McpTool> registry = new ArrayList<>();
 
@@ -298,6 +302,26 @@ public class BootUiMcpTools {
                     "get_request_profile",
                     McpToolDescriptions.spring("get_request_profile"),
                     args -> liveActivityBean.request(args.id())));
+        }
+        // --- Runtime Insights for agents (docs/PLAN-v2.md §5.6) ---
+        if (runtimeInsightsBean != null) {
+            registry.add(tool(
+                    "get_runtime_insights",
+                    McpToolDescriptions.spring("get_runtime_insights"),
+                    args -> RuntimeInsightsAgentView.list(runtimeInsightsBean.report(), args.query(), args.limit())));
+            registry.add(tool(
+                    "get_runtime_insight",
+                    McpToolDescriptions.spring("get_runtime_insight"),
+                    args -> RuntimeInsightsAgentView.detail(runtimeInsightsBean.insight(args.id()))));
+            registry.add(tool(
+                    "get_runtime_impact",
+                    McpToolDescriptions.spring("get_runtime_impact"),
+                    args -> runtimeInsightsBean.impact(args.id())));
+            registry.add(tool(
+                    "get_runtime_run_comparison",
+                    McpToolDescriptions.spring("get_runtime_run_comparison"),
+                    args -> RuntimeInsightsAgentView.comparison(
+                            runtimeInsightsBean.comparison(RuntimeInsightsAgentView.runId(args.id())))));
         }
         if (exceptionsBean != null) {
             registry.add(tool(

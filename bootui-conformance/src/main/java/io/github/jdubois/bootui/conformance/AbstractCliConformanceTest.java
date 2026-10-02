@@ -233,6 +233,20 @@ public abstract class AbstractCliConformanceTest {
     }
 
     @Test
+    void testCliRuntimeInsightsCommandsAnswerOnEveryStack() {
+        assertThat(catalogEntry("get_runtime_insights").path("command").asText())
+                .isEqualTo("insights list");
+        Response list = invoke("get_runtime_insights", "{\"query\":\"\",\"limit\":2}");
+        assertThat(list.status()).isEqualTo(200);
+        assertThat(list.json().has("coverage")).isTrue();
+        assertThat(list.json().path("observations").size()).isLessThanOrEqualTo(2);
+        Response comparison = invoke("get_runtime_run_comparison", "{\"id\":\"previous\"}");
+        assertThat(comparison.status()).isEqualTo(200);
+        assertThat(comparison.json().path("status").asText()).isNotBlank();
+        assertThat(invoke("get_runtime_insight", "{}").status()).isEqualTo(400);
+    }
+
+    @Test
     void testCliRequestProfileRequiresAnId() {
         assertThat(invoke("get_request_profile", "{}").status()).isEqualTo(400);
     }

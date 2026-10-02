@@ -428,6 +428,10 @@ exposes a tool is still what `bootui tools` says.
 | `bootui http exchanges` | `get_http_exchanges` | `--limit` | read | all |
 | `bootui http routes` | `get_http_routes` | `--limit` | read | all |
 | `bootui http sessions` | `get_http_sessions` | — | read | Spring MVC |
+| `bootui insights compare` | `get_runtime_run_comparison` | `<id>` (`previous` or a run id) | read | all |
+| `bootui insights impact` | `get_runtime_impact` | `<id>` | read | all |
+| `bootui insights list` | `get_runtime_insights` | `--query`, `--limit` | read | all |
+| `bootui insights show` | `get_runtime_insight` | `<id>` | read | all |
 | `bootui jms` | `get_jms_activity` | — | read | Spring MVC, WebFlux |
 | `bootui jvm tuning` | `get_jvm_tuning` | — | read | all |
 | `bootui kafka` | `get_kafka_activity` | — | read | all |

@@ -35,8 +35,32 @@ public final class McpToolDescriptions {
                             + "findings. Run only with permission and verify findings before remediation."),
             Map.entry(
                     "get_live_activity",
-                    "Return a bounded, newest-first correlated activity snapshot across HTTP, SQL, exceptions, security, "
-                            + "and other runtime signals. Use first when diagnosing one request or trace."),
+                    "Newest events and entry ids only. For why a route is slow, what a reload changed, or what a test "
+                            + "run did not exercise, call get_runtime_insights or get_runtime_run_comparison first."),
+            Map.entry(
+                    "get_runtime_insights",
+                    "Return what this run did that no single panel shows, compacted: coverage first, the checks that "
+                            + "did not fully run, then at most limit (8) observations with an id, status, one "
+                            + "sentence, counts, an exemplar request id for get_request_profile, and a verify line. "
+                            + "query is empty, new, security, diff, latency, or a route, table, bean, or class. "
+                            + "INSUFFICIENT, PARTIAL, and NOT_APPLICABLE are not successes, and an empty list never "
+                            + "means healthy."),
+            Map.entry(
+                    "get_runtime_insight",
+                    "Return one Runtime Insights observation by its id from get_runtime_insights, with every check "
+                            + "to verify and at most 20 evidence rows. Drill down with get_request_profile on its "
+                            + "exemplar request. An unknown or evicted id returns available=false with a reason."),
+            Map.entry(
+                    "get_runtime_impact",
+                    "For a bean, class, repository, table, cache, host, or event type id: the routes this run "
+                            + "exercised through it, those it did not, and those sharing a resource with it, at most 8 "
+                            + "each, or AMBIGUOUS with candidates. A checklist of what was and was not exercised, never "
+                            + "a verdict that a change is safe."),
+            Map.entry(
+                    "get_runtime_run_comparison",
+                    "Compare this run with a kept one: id is previous or a run id. Comparability first, then at most "
+                            + "8 behavior rows and edges; latency is left out. INSUFFICIENT and NOT_COMPARABLE never "
+                            + "mean no change. Call after tests to verify a change."),
             Map.entry(
                     "get_request_profile",
                     "Return the per-request profile for one REQUEST entry id from get_live_activity whose profileable "

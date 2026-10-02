@@ -21,6 +21,8 @@ import {
 import InsightText from './components/InsightText.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
+import {insightMarkdown} from '../utils/markdownExport.js'
+import AiExportPreview from './components/AiExportPreview.vue'
 import ChangeImpact from './components/ChangeImpact.vue'
 import ResourceProfile from './components/ResourceProfile.vue'
 import RunComparison from './components/RunComparison.vue'
@@ -42,6 +44,8 @@ const theme = ref(typeof route?.query?.theme === 'string' ? route.query.theme : 
 const selectedId = ref(typeof route?.query?.insight === 'string' ? route.query.insight : null)
 const initialImpact = typeof route?.query?.impact === 'string' ? route.query.impact : ''
 const detail = ref(null)
+// The "Copy for AI" preview of the open observation, built from the detail already loaded; copying sends nothing.
+const aiExport = ref(null)
 const detailError = ref(null)
 const detailLoading = ref(false)
 // The comparison loads on its own; the run summary links to it in a few words once it has.
@@ -78,6 +82,15 @@ const unrun = computed(() => checksWithReasons(report.value))
 const empty = computed(() => emptyState(report.value))
 const evaluated = computed(() => (report.value?.checks ?? []).filter((check) => check.status !== 'NOT_APPLICABLE'))
 const selected = computed(() => visibleObservations.value.find((observation) => observation.id === selectedId.value))
+watch(selectedId, () => (aiExport.value = null))
+
+function openAiExport() {
+  const check = report.value?.checks?.find((candidate) => candidate.kind === selected.value?.kind)
+  aiExport.value = insightMarkdown(detail.value, {
+    title: check?.title,
+    checkReason: check?.status !== 'EVALUATED' ? check?.reason : null
+  })
+}
 // A breakdown's share column becomes bars, so the phase that took the time stands out before any number is read.
 const shares = computed(() => evidenceShares(detail.value))
 const numeric = computed(() => numericColumns(detail.value))
@@ -357,7 +370,26 @@ const windowText = computed(() => {
                 aria-labelledby="insight-sentence"
               >
                 <div class="card-body">
-                  <p id="insight-sentence" class="insight-sentence mb-2"><InsightText :text="selected.sentence" /></p>
+                  <AiExportPreview
+                    v-if="aiExport"
+                    class="mb-3"
+                    heading="Copy observation for AI"
+                    :markdown="aiExport.markdown"
+                    :omissions="aiExport.omissions"
+                    @close="aiExport = null"
+                  />
+                  <div class="d-flex justify-content-between align-items-start gap-2">
+                    <p id="insight-sentence" class="insight-sentence mb-2"><InsightText :text="selected.sentence" /></p>
+                    <button
+                      v-if="!aiExport"
+                      type="button"
+                      class="btn btn-sm btn-outline-secondary text-nowrap insight-copy-ai"
+                      :disabled="!detail || detail.observation?.id !== selected.id"
+                      @click="openAiExport"
+                    >
+                      <i class="bi bi-robot me-1" aria-hidden="true"></i>Copy for AI
+                    </button>
+                  </div>
                   <p class="small text-muted mb-3">
                     <template v-if="selected.eligible > 0">
                       {{ formatNumber(selected.affected) }} of {{ formatNumber(selected.eligible) }} requests · linked

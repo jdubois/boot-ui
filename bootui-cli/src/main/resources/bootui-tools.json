@@ -11,7 +11,7 @@
         "SPRING_MVC",
         "SPRING_WEBFLUX"
       ],
-      "summary": "Return a bounded, newest-first correlated activity snapshot across HTTP, SQL, exceptions, security, and other runtime signals."
+      "summary": "Newest events and entry ids only."
     },
     {
       "name": "get_ai_overview",
@@ -484,6 +484,58 @@
         "SPRING_MVC"
       ],
       "summary": "Return the bounded active embedded-Tomcat HTTP-session inventory without creating, clearing, or invalidating a session."
+    },
+    {
+      "name": "get_runtime_run_comparison",
+      "command": "insights compare",
+      "schema": "ID",
+      "panel": "runtime-insights",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Compare this run with a kept one: id is previous or a run id."
+    },
+    {
+      "name": "get_runtime_impact",
+      "command": "insights impact",
+      "schema": "ID",
+      "panel": "runtime-insights",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "For a bean, class, repository, table, cache, host, or event type id: the routes this run exercised through it, those it did not, and those sharing a resource with it, at most 8 each, or AMBIGUOUS with candidates."
+    },
+    {
+      "name": "get_runtime_insights",
+      "command": "insights list",
+      "schema": "QUERY_LIMIT",
+      "panel": "runtime-insights",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Return what this run did that no single panel shows, compacted: coverage first, the checks that did not fully run, then at most limit (8) observations with an id, status, one sentence, counts, an exemplar request id for get_request_profile, and a verify line."
+    },
+    {
+      "name": "get_runtime_insight",
+      "command": "insights show",
+      "schema": "ID",
+      "panel": "runtime-insights",
+      "action": false,
+      "stacks": [
+        "QUARKUS",
+        "SPRING_MVC",
+        "SPRING_WEBFLUX"
+      ],
+      "summary": "Return one Runtime Insights observation by its id from get_runtime_insights, with every check to verify and at most 20 evidence rows."
     },
     {
       "name": "get_jms_activity",

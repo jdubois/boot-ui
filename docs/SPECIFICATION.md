@@ -1545,6 +1545,10 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   joining a running one, and `POST /bootui/api/runtime-insights/resource-profile/stop` ends it early. The results count
   CPU samples and JFR's estimate of allocated bytes per route, virtual threads included, with each route's five hottest
   frames, at most 20 routes.
+- **Copy for AI** on the open observation previews one Markdown document from the detail already loaded (sentence,
+  checks, requests to open, evidence, and what it cannot see) and sends nothing. The `get_runtime_insights`,
+  `get_runtime_insight`, `get_runtime_impact`, and `get_runtime_run_comparison` MCP tools (`bootui insights list`,
+  `show`, `impact`, and `compare`) return the same facts compacted for agents ([PLAN-v2.md](PLAN-v2.md) §5.6).
 - `notExercised` lists, up to 100, the declared application routes no request of this run reached, counted from the
   run's aggregates so an evicted request still counts; framework endpoints and catch-all patterns are left out.
 - Live Activity links to the slowest route's breakdown under its KPIs, and a request's drawer loads **Why this route is
@@ -2973,6 +2977,8 @@ Design rules:
   - Cached advisor reports: `get_architecture_report`, `get_spring_report`, `get_hibernate_report`,
     `get_database_advisor_report`, `get_memory_report`, `get_security_report`, `get_pentest_report`,
     `get_rest_api_report`, `get_graalvm_report`, `get_crac_report`, and `get_vulnerabilities_report`.
+  - Runtime Insights: `get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`, and
+    `get_runtime_run_comparison`.
   - Diagnostics: `get_live_activity`, `get_request_profile`, `get_exceptions`, `get_exception_detail`,
     `get_security_logs`,
     `get_sql_traces`, `get_transactions`, `get_traces`, `get_log_tail`, `get_http_exchanges`, `get_http_routes`, and

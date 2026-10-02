@@ -209,10 +209,11 @@ class BootUiMcpServiceTests {
         JsonNode list = service.handle(request("prompts/list", 3, null));
 
         JsonNode prompts = list.path("result").path("prompts");
-        assertThat(prompts).hasSize(3);
+        assertThat(prompts).hasSize(4);
         assertThat(prompts.get(0).path("name").asString()).isEqualTo("diagnose_runtime_issue");
-        assertThat(prompts.get(1).path("name").asString()).isEqualTo("review_application");
-        assertThat(prompts.get(2).path("name").asString()).isEqualTo("assess_application");
+        assertThat(prompts.get(1).path("name").asString()).isEqualTo("verify_after_change");
+        assertThat(prompts.get(2).path("name").asString()).isEqualTo("review_application");
+        assertThat(prompts.get(3).path("name").asString()).isEqualTo("assess_application");
         assertThat(prompts.get(0).path("arguments").isArray()).isTrue();
         assertThat(prompts.get(0).path("arguments")).hasSize(0);
 

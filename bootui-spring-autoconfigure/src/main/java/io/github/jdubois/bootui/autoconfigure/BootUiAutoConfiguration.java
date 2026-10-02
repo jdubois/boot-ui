@@ -547,7 +547,8 @@ public class BootUiAutoConfiguration {
                 ObjectProvider<ScheduledController> scheduled,
                 ObjectProvider<FaultToleranceController> faultTolerance,
                 ObjectProvider<SpringCacheController> cache,
-                ObjectProvider<DatabaseConnectionPoolsController> connectionPools) {
+                ObjectProvider<DatabaseConnectionPoolsController> connectionPools,
+                ObjectProvider<RuntimeInsightsController> runtimeInsights) {
             return new BootUiMcpTools(
                     overview,
                     health,
@@ -580,7 +581,8 @@ public class BootUiAutoConfiguration {
                     scheduled,
                     faultTolerance,
                     cache,
-                    connectionPools);
+                    connectionPools,
+                    runtimeInsights);
         }
 
         @Bean

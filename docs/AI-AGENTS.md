@@ -254,6 +254,9 @@ the classpath) are simply not advertised.
   that keep recent failed and slow records longer than routine ones; each includes a `retention` object with the
   capacity and the retained, reserved, and evicted counts, so an agent can tell a partial window from "it never
   happened". See [Failure-preserving retention](features/diagnostics.md#failure-preserving-retention).
+- **Runtime Insights reads:** `get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`, and
+  `get_runtime_run_comparison`, compact facts an agent can refuse to act on; see
+  [Runtime Insights for agents](#runtime-insights-for-agents).
 - **Core context and integration reads:** `get_overview`, `get_health`, `get_config` (masked), `get_beans`,
   `get_mappings`, `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`,
   `get_cache_stats`,
@@ -291,6 +294,27 @@ through MCP and the CLI:
 The tool belongs to the Live Activity panel, so it is unavailable when that panel is disabled. In the browser,
 **Copy for AI** in the profile drawer and in an Exceptions detail renders the same evidence as one Markdown document,
 previewed with what it omits before anything reaches the clipboard. It sends nothing to any AI provider.
+
+### Runtime Insights for agents
+
+[Runtime Insights](features/overview.md#runtime-insights) answers what this run did that no single panel shows. Its four
+read tools return short, stable facts rather than a dashboard:
+
+| Tool | CLI | Returns |
+| --- | --- | --- |
+| `get_runtime_insights` | `bootui insights list [--query Q] [--limit N]` | Coverage first, the checks that did not fully run, then at most `limit` (8) observations: id, status, one sentence, eligible and affected counts, tier, one exemplar request id, and a `verify` line. `query` is empty (every observation but latency-only ones), `latency`, `new`, `security`, `diff`, or a route, table, bean, or class |
+| `get_runtime_insight` | `bootui insights show <id>` | One observation with every check and at most 20 evidence rows; open its exemplar with `get_request_profile` |
+| `get_runtime_impact` | `bootui insights impact <id>` | For a bean, class, repository, table, cache, host, or event type: the routes that ran through it, those that did not, and those sharing a resource, at most 8 each, or `AMBIGUOUS` with candidates |
+| `get_runtime_run_comparison` | `bootui insights compare <id>` | With `previous` or a run id: comparability first, then at most 8 behavior rows and edges; latency is left out |
+
+`INSUFFICIENT`, `PARTIAL`, `NOT_APPLICABLE`, and `NOT_COMPARABLE` are not successes, and an empty list never means
+healthy: read `checksNotRun` and `limitations` first. The `diagnose_runtime_issue` prompt starts with
+`get_runtime_insights`, then one `get_request_profile`; the `verify_after_change` prompt runs the tests, calls
+`get_runtime_run_comparison` with `previous`, and stops.
+
+**Analyze after tests.** Tests are where realistic traffic comes from: run the application's integration or browser
+tests against the running application, then `bootui insights list --json`. In the browser, **Copy for AI** on an
+observation renders the same evidence as one Markdown document, previewed before anything reaches the clipboard.
 
 ### MySQL operational evidence
 

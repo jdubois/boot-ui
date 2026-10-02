@@ -10,7 +10,8 @@ public final class McpGuidance {
     public static String instructions(String framework) {
         return "BootUI exposes a running " + framework
                 + " application for local diagnosis. Start with get_overview and get_health, then choose the "
-                + "smallest relevant read tool; use get_live_activity to correlate requests, SQL, exceptions, and "
+                + "smallest relevant read tool; for why a route is slow or what a change did, start with "
+                + "get_runtime_insights and get_runtime_run_comparison; use get_live_activity to correlate requests, SQL, exceptions, and "
                 + "security events, follow a profileable request id with get_request_profile, and follow an "
                 + "exception id with get_exception_detail. Advisor *_scan tools "
                 + "actively inspect the application: memory_scan may trigger a full GC and pentest_scan sends bounded "
@@ -27,14 +28,25 @@ public final class McpGuidance {
                         "diagnose_runtime_issue",
                         "Investigate a runtime failure by correlating health, activity, exceptions, traces, SQL, and logs.",
                         "Diagnose the current runtime issue in this " + framework
-                                + " application. Begin with get_overview and get_health. Inspect get_live_activity for "
-                                + "the relevant time window, then use the smallest supporting tools needed. For a "
+                                + " application. Begin with get_runtime_insights: read its coverage and the checks that"
+                                + " did not run before its observations, and treat INSUFFICIENT as unknown. Then call"
+                                + " get_request_profile once on an observation's exemplar request. Inspect "
+                                + "get_live_activity for the relevant time window only when needed. For a "
                                 + "slow or failing request whose entry is profileable, call get_request_profile with "
                                 + "its id. If an exception appears, call get_exception_detail with its id or "
                                 + "exceptionGroupId. Correlate trace ids, "
                                 + "request paths, SQL timings, and log timestamps. Separate observed evidence from "
                                 + "hypotheses, note missing telemetry, and propose the smallest fix plus a verification "
                                 + "step. Do not expose sensitive runtime data."),
+                new McpPrompt(
+                        "verify_after_change",
+                        "Verify a change by comparing the run after the tests with the previous one, then stop.",
+                        "Verify the change just made to this " + framework
+                                + " application. Run its tests so the application serves realistic traffic, then"
+                                + " call get_runtime_run_comparison with the id previous, and stop. Report"
+                                + " comparability first: NOT_COMPARABLE or INSUFFICIENT is not a pass. Do not edit"
+                                + " code from a latency row, and do not treat a missing observation as proof that a"
+                                + " behavior is gone."),
                 new McpPrompt(
                         "review_application",
                         "Review application structure and configuration with BootUI advisors before proposing changes.",

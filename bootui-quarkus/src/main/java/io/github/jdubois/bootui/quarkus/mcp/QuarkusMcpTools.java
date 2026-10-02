@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.quarkus.mcp;
 
 import io.github.jdubois.bootui.core.dto.RestClientTraceRecordingRequest;
 import io.github.jdubois.bootui.core.dto.SqlTraceRecordingRequest;
+import io.github.jdubois.bootui.engine.insights.RuntimeInsightsAgentView;
 import io.github.jdubois.bootui.engine.mcp.McpArguments;
 import io.github.jdubois.bootui.engine.mcp.McpTool;
 import io.github.jdubois.bootui.engine.mcp.McpToolCatalog;
@@ -44,6 +45,7 @@ import io.github.jdubois.bootui.quarkus.web.ProfileDiffResource;
 import io.github.jdubois.bootui.quarkus.web.RabbitResource;
 import io.github.jdubois.bootui.quarkus.web.RestApiResource;
 import io.github.jdubois.bootui.quarkus.web.RestClientTraceResource;
+import io.github.jdubois.bootui.quarkus.web.RuntimeInsightsResource;
 import io.github.jdubois.bootui.quarkus.web.ScheduledResource;
 import io.github.jdubois.bootui.quarkus.web.SecurityLogsResource;
 import io.github.jdubois.bootui.quarkus.web.SecurityResource;
@@ -134,7 +136,8 @@ public class QuarkusMcpTools {
             DevServicesResource devServices,
             GitHubResource github,
             CopilotResource copilot,
-            ClaudeCodeResource claudeCode) {
+            ClaudeCodeResource claudeCode,
+            RuntimeInsightsResource runtimeInsights) {
         List<McpTool> registry = new ArrayList<>();
 
         // --- Advisor tools (panel actions; behind the LocalhostGuard write floor) ---
@@ -324,6 +327,36 @@ public class QuarkusMcpTools {
                         "get_request_profile",
                         McpToolDescriptions.quarkus("get_request_profile"),
                         args -> liveActivity.request(args.id())));
+        // --- Runtime Insights for agents (docs/PLAN-v2.md §5.6) ---
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_runtime_insights",
+                        McpToolDescriptions.quarkus("get_runtime_insights"),
+                        args -> RuntimeInsightsAgentView.list(runtimeInsights.report(), args.query(), args.limit())));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_runtime_insight",
+                        McpToolDescriptions.quarkus("get_runtime_insight"),
+                        args -> RuntimeInsightsAgentView.detail(runtimeInsights.insight(args.id()))));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_runtime_impact",
+                        McpToolDescriptions.quarkus("get_runtime_impact"),
+                        args -> runtimeInsights.impact(args.id())));
+        addIfAvailable(
+                registry,
+                availability,
+                tool(
+                        "get_runtime_run_comparison",
+                        McpToolDescriptions.quarkus("get_runtime_run_comparison"),
+                        args -> RuntimeInsightsAgentView.comparison(
+                                runtimeInsights.comparison(RuntimeInsightsAgentView.runId(args.id())))));
         addIfAvailable(
                 registry,
                 availability,
