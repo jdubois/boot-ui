@@ -33,8 +33,8 @@ or a Quarkus app with only a reactive MySQL client, cannot use this panel.
 
 Oracle MySQL 8.4 LTS and 9.7 LTS are the tested server lines, with live coverage on 8.4.6 and 9.7.2. MariaDB is a
 separate unsupported follow-up; the Database advisor's existing MySQL/MariaDB checks do not establish operational-panel
-support. No other MySQL line or compatible flavor is certified by this test target; the feature guide lists the tested
-driver/pool combinations.
+support. Other Oracle MySQL versions are read with an "untested server line" note, and compatible flavors are
+skipped; the feature guide lists the tested driver/pool combinations.
 
 ## Spring WebFlux
 
