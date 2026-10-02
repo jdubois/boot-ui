@@ -1,9 +1,11 @@
 package io.github.jdubois.bootui.quarkus;
 
+import io.github.jdubois.bootui.engine.journal.ControlMarkers;
 import io.github.jdubois.bootui.engine.journal.RunStartEvents;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.spi.ConnectionPoolInfo;
 import io.github.jdubois.bootui.spi.ConnectionPoolProvider;
+import io.quarkus.runtime.ShutdownEvent;
 import io.quarkus.runtime.StartupEvent;
 import io.smallrye.config.SmallRyeConfig;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -54,6 +56,15 @@ public class QuarkusRunStart {
                     tracing());
         } catch (RuntimeException ex) {
             LOG.debugf(ex, "BootUI could not record the run's start.");
+        }
+    }
+
+    /** Marks the application's shutdown, including before a live reload ({@code docs/PLAN-v2.md} §5.18, M4-7). */
+    void onStop(@Observes ShutdownEvent event) {
+        try {
+            ControlMarkers.shutdown(journal);
+        } catch (RuntimeException ex) {
+            LOG.debugf(ex, "BootUI could not mark the run's shutdown.");
         }
     }
 

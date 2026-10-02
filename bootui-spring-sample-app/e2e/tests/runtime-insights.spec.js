@@ -66,5 +66,16 @@ test.describe('Runtime Insights view', () => {
 
     await expect(profile.locator('.insight-profile-summary')).toContainText('CPU samples', {timeout: 30_000})
     await expect(profile.locator('.insight-profile-table')).toContainText('/api/sample/product-search')
+
+    // Starting the session was a BootUI action, so Live Activity explains it with a marker (docs/PLAN-v2.md M4-7).
+    await expect
+      .poll(async () => {
+        const activity = await (await page.request.get('/bootui/api/activity')).json()
+        return activity.entries
+          .filter((entry) => entry.type === 'MARKER')
+          .map((entry) => entry.detail)
+          .join(' | ')
+      })
+      .toContain('runtime-insights: POST /runtime-insights/resource-profile')
   })
 })

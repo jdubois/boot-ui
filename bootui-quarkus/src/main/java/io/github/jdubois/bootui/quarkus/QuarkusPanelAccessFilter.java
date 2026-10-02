@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.quarkus;
 
+import io.github.jdubois.bootui.engine.journal.ControlMarkers;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.panel.BootUiGlobalWritePolicy;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels.Panel;
@@ -8,6 +10,7 @@ import io.vertx.core.http.HttpServerResponse;
 import io.vertx.ext.web.RoutingContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.util.Set;
 import org.eclipse.microprofile.config.Config;
@@ -49,6 +52,10 @@ public class QuarkusPanelAccessFilter {
 
     private final Config config;
     private final QuarkusPanelAccessConfig accessConfig;
+
+    /** The journal a successful action is marked in ({@code docs/PLAN-v2.md} §5.18, M4-7). */
+    @Inject
+    Instance<RuntimeJournal> journal;
 
     @Inject
     public QuarkusPanelAccessFilter(Config config) {
@@ -92,7 +99,23 @@ public class QuarkusPanelAccessFilter {
             return;
         }
 
+        if (panel.actionCapable() && !SAFE_METHODS.contains(method)) {
+            String panelId = panel.id();
+            rc.addEndHandler(ended -> {
+                if (rc.response().getStatusCode() < 400) {
+                    ControlMarkers.action(journal(), panelId, method, apiRelativePath);
+                }
+            });
+        }
         rc.next();
+    }
+
+    private RuntimeJournal journal() {
+        try {
+            return journal != null && journal.isResolvable() ? journal.get() : null;
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 
     /**

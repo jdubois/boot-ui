@@ -25,6 +25,7 @@ import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateStatistic
 import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsListenerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsProducerCaptureBeanPostProcessor;
+import io.github.jdubois.bootui.autoconfigure.journal.ControlMarkerPublisher;
 import io.github.jdubois.bootui.autoconfigure.journal.RunStartPublisher;
 import io.github.jdubois.bootui.autoconfigure.journal.RuntimeEventPublisherInstaller;
 import io.github.jdubois.bootui.autoconfigure.journal.RuntimeJournalLogAppender;
@@ -264,6 +265,15 @@ public class BootUiEngineConfiguration {
     RunStartPublisher bootUiRunStartPublisher(
             RuntimeJournal journal, ApplicationContext context, ObjectProvider<BootUiSelfDataFilter> selfData) {
         return new RunStartPublisher(journal, context, selfData.getIfAvailable());
+    }
+
+    /**
+     * Marks the run's availability changes, configuration refreshes, and shutdown in the runtime journal ({@code
+     * docs/PLAN-v2.md} §5.18, M4-7); BootUI's own actions are marked by its panel access filter.
+     */
+    @Bean
+    ControlMarkerPublisher bootUiControlMarkerPublisher(RuntimeJournal journal, ApplicationContext context) {
+        return new ControlMarkerPublisher(journal, context);
     }
 
     /**

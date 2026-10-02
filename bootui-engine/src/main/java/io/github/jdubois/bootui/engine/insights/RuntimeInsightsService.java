@@ -8,14 +8,20 @@ import io.github.jdubois.bootui.core.dto.RuntimeInsightsWindowDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationRowDto;
+import io.github.jdubois.bootui.engine.journal.ControlMarkers;
+import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalStatus;
+import io.github.jdubois.bootui.engine.journal.LifecyclePayload;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -41,6 +47,9 @@ public final class RuntimeInsightsService {
 
     /** The exemplar request ids an observation names at most. */
     public static final int MAX_EXEMPLARS = 3;
+
+    /** The markers a report's limitation names at most. */
+    static final int MAX_NAMED_MARKERS = 3;
 
     /** Why Runtime Insights is unavailable without the journal, naming the property to set. */
     public static final String DISABLED = "Runtime Insights reads the runtime journal, which is disabled:"
@@ -287,6 +296,7 @@ public final class RuntimeInsightsService {
                 String findingStatus =
                         !finding.sufficient() ? "INSUFFICIENT" : partial == null ? "OBSERVED" : "PARTIAL";
                 List<String> limitations = new ArrayList<>(finding.limitations());
+                limitations.addAll(touchedBy(snapshot.markers(), finding));
                 limitations.addAll(unseen);
                 if (partial != null) {
                     limitations.add(partial);
@@ -328,6 +338,10 @@ public final class RuntimeInsightsService {
                         counts[2],
                         snapshot.dropped(source))));
         List<String> limitations = new ArrayList<>();
+        String markers = markersDuring(snapshot.markers());
+        if (markers != null) {
+            limitations.add(markers);
+        }
         if (evicted > 0) {
             limitations.add("The journal evicted " + evicted + " older events, so requests before "
                     + "the oldest retained event are not projected.");
@@ -385,6 +399,56 @@ public final class RuntimeInsightsService {
             newest = Math.max(newest, entry.event().epochMillis());
         }
         return newest;
+    }
+
+    /**
+     * The BootUI actions, availability changes, configuration refreshes, and shutdowns of the window, which explain a
+     * discontinuity in what it counted (M4-7), or {@code null} when none happened.
+     */
+    static String markersDuring(List<RuntimeEvent> markers) {
+        if (markers.isEmpty()) {
+            return null;
+        }
+        List<String> named = new ArrayList<>();
+        for (RuntimeEvent event : markers.subList(0, Math.min(MAX_NAMED_MARKERS, markers.size()))) {
+            LifecyclePayload marker = (LifecyclePayload) event.payload();
+            named.add(JournalActivityFeed.markerSummary(marker)
+                    + (marker.target() == null ? "" : " (" + marker.target() + ")")
+                    + " at " + Instant.ofEpochMilli(event.epochMillis()).truncatedTo(ChronoUnit.SECONDS));
+        }
+        return "During this window: " + String.join("; ", named)
+                + (markers.size() > MAX_NAMED_MARKERS ? "; and " + (markers.size() - MAX_NAMED_MARKERS) + " more" : "")
+                + ". What ran before and after such a change may differ.";
+    }
+
+    /** The BootUI actions that targeted a name this finding counts, such as the logger or cache it names. */
+    static List<String> touchedBy(List<RuntimeEvent> markers, Finding finding) {
+        List<String> touched = new ArrayList<>();
+        for (RuntimeEvent event : markers) {
+            LifecyclePayload marker = (LifecyclePayload) event.payload();
+            String name = ControlMarkers.targetName(marker);
+            if (name == null || !mentions(finding, name)) {
+                continue;
+            }
+            touched.add("BootUI's action " + marker.target() + " at "
+                    + Instant.ofEpochMilli(event.epochMillis()).truncatedTo(ChronoUnit.SECONDS)
+                    + " targeted `" + name + "` during this window.");
+        }
+        return touched;
+    }
+
+    private static boolean mentions(Finding finding, String name) {
+        if (finding.sentence().contains(name) || finding.subject().contains(name)) {
+            return true;
+        }
+        for (List<String> row : finding.rows()) {
+            for (String cell : row) {
+                if (cell != null && cell.contains(name)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private String missingSource(Observation observation, InsightsSnapshot snapshot) {

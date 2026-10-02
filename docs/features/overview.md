@@ -177,7 +177,11 @@ top-level, and any filter or search flattens the feed so the query spans every s
 
 Adjacent identical entries collapse with an occurrence count. The feed filters by type, severity, free text (path,
 status, SQL, or exception class), and an **errors-only** toggle; the chosen filters persist across reloads. A
-requests-over-time sparkline above the table makes spikes and error bursts visible at a glance.
+requests-over-time sparkline above the table makes spikes and error bursts visible at a glance. With the runtime journal
+as its source, dashed lines on it mark what can explain a change in traffic, each also listed as a **MARKER** row: a
+change made from a BootUI panel (a logger level, a configuration override, a cache clear, a migration, **Clear
+recording**, a heap dump), an availability change, a configuration refresh, or shutdown. A marker names what was
+targeted, never a value.
 
 Because the feed is genuinely event-driven, it refreshes over **Server-Sent Events** rather than fixed-interval polling.
 The browser subscribes to `/bootui/api/activity/stream` and re-fetches when any source signals a change. The feed can be
@@ -585,7 +589,9 @@ Every observation reports whether it ran. One whose journal source is not record
 does not apply to this stack says so with its reason, so an empty list never reads as healthy. Findings below their
 minimum are shown as **insufficient**, naming what is missing, and a source that dropped events marks its findings
 **partial**. Each finding has a stable id that survives refreshes and restarts, one to three conditional checks, up to
-three exemplar request ids to open in Live Activity, and at most 20 evidence rows. A breakdown's evidence draws each phase's share
+three exemplar request ids to open in Live Activity, and at most 20 evidence rows. When BootUI changed something during the
+window, the report names it among its limitations, and a finding whose evidence names the logger, cache, or key that a
+change targeted says so. A breakdown's evidence draws each phase's share
 as a bar, with the largest phase emphasized and every number kept beside it.
 
 The header states the window the journal retains, and a coverage strip shows how each source's events are linked to a

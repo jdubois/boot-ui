@@ -133,6 +133,28 @@ export function bucketEntries(entries, bucketCount = 24) {
 }
 
 /**
+ * Where each control or availability marker (a MARKER entry: a BootUI action, an availability change, a configuration
+ * refresh, or shutdown) falls on the same time axis as {@link bucketEntries}, in percent of its width.
+ */
+export function markerPositions(entries) {
+  const list = (entries || []).filter((entry) => typeof entry.timestamp === 'number')
+  const markers = list.filter((entry) => entry.type === 'MARKER')
+  if (!markers.length) return []
+  let min = Infinity
+  let max = -Infinity
+  for (const entry of list) {
+    if (entry.timestamp < min) min = entry.timestamp
+    if (entry.timestamp > max) max = entry.timestamp
+  }
+  const span = max - min
+  return markers.map((entry) => ({
+    key: entry.id,
+    x: span <= 0 ? 100 : ((entry.timestamp - min) / span) * 100,
+    label: entry.detail ? `${entry.summary}: ${entry.detail}` : entry.summary
+  }))
+}
+
+/**
  * Build a deep link from a merged stream entry to the dedicated panel that owns that signal, so the
  * Live Activity view is a launchpad rather than a dead end. Most link types prefill the target panel's
  * free-text filter (read from {@code ?q=}) to surface the originating record; {@code MAIL} instead links

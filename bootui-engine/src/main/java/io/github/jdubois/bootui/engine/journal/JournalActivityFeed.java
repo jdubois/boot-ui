@@ -57,6 +57,7 @@ public final class JournalActivityFeed {
     public static final String TYPE_MAIL = "MAIL";
     public static final String TYPE_FAULT_TOLERANCE = "FAULT_TOLERANCE";
     public static final String TYPE_AI = "AI";
+    public static final String TYPE_MARKER = "MARKER";
 
     static final String SEVERITY_OK = "OK";
     static final String SEVERITY_SLOW = "SLOW";
@@ -553,6 +554,22 @@ public final class JournalActivityFeed {
                     parentId,
                     false);
         }
+        if (payload instanceof LifecyclePayload lifecycle && lifecycle.marker()) {
+            return entry(
+                    id,
+                    TYPE_MARKER,
+                    event,
+                    SEVERITY_OK,
+                    markerSummary(lifecycle),
+                    lifecycle.target(),
+                    null,
+                    null,
+                    null,
+                    null,
+                    false,
+                    null,
+                    false);
+        }
         if (payload instanceof LogPayload log) {
             String level = log.level() == null ? "" : log.level().toUpperCase(Locale.ROOT);
             String detail = log.logger();
@@ -611,6 +628,17 @@ public final class JournalActivityFeed {
     }
 
     /** An AI call's summary: its operation, model, and provider, such as {@code chat gpt-4o (openai)}. */
+    /** What a marker says on the time axis, such as {@code BootUI action} for a change made from a panel. */
+    public static String markerSummary(LifecyclePayload marker) {
+        return switch (marker.kind()) {
+            case LifecyclePayload.ACTION -> "BootUI action";
+            case LifecyclePayload.AVAILABILITY -> "Availability changed";
+            case LifecyclePayload.CONFIG_REFRESH -> "Configuration refreshed";
+            case LifecyclePayload.SHUTDOWN -> "Application shutting down";
+            default -> marker.kind();
+        };
+    }
+
     private static String aiSummary(AiPayload ai) {
         StringBuilder summary = new StringBuilder(ai.operation() == null ? "AI call" : ai.operation());
         if (ai.model() != null && !ai.model().isBlank()) {

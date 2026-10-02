@@ -2,6 +2,8 @@ package io.github.jdubois.bootui.autoconfigure.safety;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.web.AbstractBootUiFilter;
+import io.github.jdubois.bootui.engine.journal.ControlMarkers;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.panel.BootUiGlobalWritePolicy;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels.Panel;
@@ -11,6 +13,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Applies per-panel enabled and read-only settings to BootUI API routes.
@@ -19,8 +22,15 @@ public class PanelAccessFilter extends AbstractBootUiFilter {
 
     private static final Set<String> SAFE_METHODS = Set.of("GET", "HEAD", "OPTIONS");
 
+    private Supplier<RuntimeJournal> journal = () -> null;
+
     public PanelAccessFilter(BootUiProperties properties) {
         super(properties);
+    }
+
+    /** The journal a successful action is marked in ({@code docs/PLAN-v2.md} §5.18, M4-7). */
+    public void setJournal(Supplier<RuntimeJournal> journal) {
+        this.journal = journal == null ? () -> null : journal;
     }
 
     @Override
@@ -64,6 +74,9 @@ public class PanelAccessFilter extends AbstractBootUiFilter {
         }
 
         chain.doFilter(request, response);
+        if (panel.actionCapable() && !SAFE_METHODS.contains(method) && response.getStatus() < 400) {
+            ControlMarkers.action(journal.get(), panel.id(), method, apiRelativePath);
+        }
     }
 
     private String apiRelativePath(HttpServletRequest request) {

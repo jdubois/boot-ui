@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalStatus;
+import io.github.jdubois.bootui.engine.journal.LifecyclePayload;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
@@ -31,6 +32,7 @@ public final class InsightsSnapshot {
 
     private final List<ProjectedRequest> requests;
     private final List<RuntimeEvent> collections;
+    private final List<RuntimeEvent> markers;
     private final Map<String, List<ProjectedRequest>> byRoute;
     private final Map<JournalSource, long[]> coverage;
     private final JournalStatus status;
@@ -43,6 +45,7 @@ public final class InsightsSnapshot {
     private InsightsSnapshot(
             List<ProjectedRequest> requests,
             List<RuntimeEvent> collections,
+            List<RuntimeEvent> markers,
             Map<JournalSource, long[]> coverage,
             JournalStatus status,
             Predicate<JournalSource> recorded,
@@ -52,6 +55,7 @@ public final class InsightsSnapshot {
             Function<String, Integer> poolSizes) {
         this.requests = Collections.unmodifiableList(requests);
         this.collections = Collections.unmodifiableList(collections);
+        this.markers = Collections.unmodifiableList(markers);
         Map<String, List<ProjectedRequest>> routes = new LinkedHashMap<>();
         for (ProjectedRequest request : requests) {
             routes.computeIfAbsent(request.route(), route -> new ArrayList<>()).add(request);
@@ -138,6 +142,7 @@ public final class InsightsSnapshot {
         Map<JournalSource, long[]> coverage = new EnumMap<>(JournalSource.class);
         List<RuntimeEvent> traced = new ArrayList<>();
         List<RuntimeEvent> collections = new ArrayList<>();
+        List<RuntimeEvent> markers = new ArrayList<>();
         AiCallOwners aiCallOwners = new AiCallOwners(evictedRequestTraces);
         for (JournalEntry entry : ordered) {
             RuntimeEvent event = entry.event();
@@ -156,6 +161,8 @@ public final class InsightsSnapshot {
             if (event.requestId() == null) {
                 if (event.payload() instanceof GcPayload) {
                     collections.add(event);
+                } else if (event.payload() instanceof LifecyclePayload lifecycle && lifecycle.marker()) {
+                    markers.add(event);
                 }
                 continue;
             }
@@ -203,12 +210,20 @@ public final class InsightsSnapshot {
         requests.sort(
                 Comparator.comparingLong(ProjectedRequest::startMillis).thenComparing(ProjectedRequest::requestId));
         return new InsightsSnapshot(
-                requests, collections, coverage, status, recorded, visible, stack, previousRun, poolSizes);
+                requests, collections, markers, coverage, status, recorded, visible, stack, previousRun, poolSizes);
     }
 
     /** Every garbage collection retained, in the order the journal recorded them, each with a {@link GcPayload}. */
     public List<RuntimeEvent> collections() {
         return collections;
+    }
+
+    /**
+     * The control and availability markers retained, in the order the journal recorded them, each with a {@link
+     * LifecyclePayload} (M4-7).
+     */
+    public List<RuntimeEvent> markers() {
+        return markers;
     }
 
     /** Every completed request retained, oldest first. */

@@ -125,6 +125,21 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
         if (event == null || !settings.records(event.source()) || isBootUiWork()) {
             return false;
         }
+        return enqueue(event);
+    }
+
+    /**
+     * Offers a {@code lifecycle} marker that BootUI publishes about its own action ({@link ControlMarkers}), which runs
+     * in BootUI's own request and would otherwise be dropped as BootUI's work.
+     */
+    boolean offerMarker(RuntimeEvent event) {
+        if (event == null || event.source() != JournalSource.LIFECYCLE || !settings.records(event.source())) {
+            return false;
+        }
+        return enqueue(event);
+    }
+
+    private boolean enqueue(RuntimeEvent event) {
         int source = event.source().ordinal();
         try {
             event = withThreadKind(event);

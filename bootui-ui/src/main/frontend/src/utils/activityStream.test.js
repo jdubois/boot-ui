@@ -398,3 +398,16 @@ describe('buildActivityQueryParams', () => {
     expect(buildActivityQueryParams({type: '', severity: '', text: '   ', errorsOnly: false})).toEqual({})
   })
 })
+
+describe('markerPositions', () => {
+  it('places each control marker on the events axis and names it', async () => {
+    const {markerPositions} = await import('./activityStream.js')
+    const entries = [
+      {id: 'a', type: 'REQUEST', timestamp: 1_000},
+      {id: 'm', type: 'MARKER', timestamp: 1_500, summary: 'BootUI action', detail: 'cache: POST /cache/clear'},
+      {id: 'b', type: 'REQUEST', timestamp: 2_000}
+    ]
+    expect(markerPositions(entries)).toEqual([{key: 'm', x: 50, label: 'BootUI action: cache: POST /cache/clear'}])
+    expect(markerPositions([{id: 'a', type: 'REQUEST', timestamp: 1}])).toEqual([])
+  })
+})

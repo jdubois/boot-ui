@@ -700,8 +700,11 @@ public class BootUiAutoConfiguration {
     }
 
     @Bean
-    public PanelAccessFilter bootUiPanelAccessFilter(BootUiProperties properties) {
-        return new PanelAccessFilter(properties);
+    public PanelAccessFilter bootUiPanelAccessFilter(
+            BootUiProperties properties, ObjectProvider<RuntimeJournal> journal) {
+        PanelAccessFilter filter = new PanelAccessFilter(properties);
+        filter.setJournal(journal::getIfAvailable);
+        return filter;
     }
 
     @Bean

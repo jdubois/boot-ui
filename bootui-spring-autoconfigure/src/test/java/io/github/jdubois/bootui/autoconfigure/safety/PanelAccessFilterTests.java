@@ -6,7 +6,13 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.ActionContract;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.Runtime;
+import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.LifecyclePayload;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,6 +30,34 @@ class PanelAccessFilterTests {
     void setUp() {
         properties = new BootUiProperties();
         filter = new PanelAccessFilter(properties);
+    }
+
+    @Test
+    void marksASuccessfulActionButNeitherAReadNorARefusedAction() throws Exception {
+        RuntimeJournal journal = new RuntimeJournal(
+                new RuntimeJournalSettings(true, 1_000, 10_000_000, 1_000, 10, 10, JournalSource.all()),
+                RunIdentity.start());
+        try {
+            filter.setJournal(() -> journal);
+            filter.doFilter(
+                    request("POST", "/bootui/api/loggers/com.example.orders"),
+                    new MockHttpServletResponse(),
+                    new MockFilterChain());
+            filter.doFilter(
+                    request("GET", "/bootui/api/loggers"), new MockHttpServletResponse(), new MockFilterChain());
+            properties.panel("cache").setReadOnly(true);
+            filter.doFilter(
+                    request("POST", "/bootui/api/cache/clear"), new MockHttpServletResponse(), new MockFilterChain());
+            assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+
+            assertThat(journal.entries())
+                    .extracting(entry -> entry.event().payload())
+                    .singleElement()
+                    .isEqualTo(new LifecyclePayload(
+                            LifecyclePayload.ACTION, "loggers: POST /loggers/com.example.orders", null));
+        } finally {
+            journal.close();
+        }
     }
 
     @Test

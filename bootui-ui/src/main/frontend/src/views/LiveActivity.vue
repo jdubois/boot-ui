@@ -31,6 +31,7 @@ import {
 import {
   appendOlderPage,
   bucketEntries,
+  markerPositions,
   buildActivityQueryParams,
   deepLink,
   filterEntries,
@@ -353,6 +354,8 @@ const SPARKLINE_BUCKETS = 32
 const SPARKLINE_HEIGHT = 36
 const sparkline = computed(() => bucketEntries(report.value?.entries ?? [], SPARKLINE_BUCKETS))
 const sparklineMax = computed(() => sparkline.value.reduce((max, bucket) => Math.max(max, bucket.count), 0))
+// BootUI actions, availability changes, refreshes, and shutdown, drawn on the same axis to explain a change in traffic.
+const sparkMarkers = computed(() => markerPositions(report.value?.entries ?? []))
 const sparkBars = computed(() => {
   const data = sparkline.value
   const max = sparklineMax.value
@@ -419,7 +422,8 @@ function typeIcon(type) {
       FAULT_TOLERANCE: 'bi-shield-check',
       TRANSACTION: 'bi-arrow-repeat',
       AI: 'bi-cpu',
-      LOG: 'bi-journal-text'
+      LOG: 'bi-journal-text',
+      MARKER: 'bi-flag'
     }[type] || 'bi-dot'
   )
 }
@@ -1190,7 +1194,11 @@ function toggleFlow() {
         </div>
 
         <figure v-if="sparkBars.length" class="activity-sparkline mb-3" aria-hidden="true">
-          <figcaption class="text-muted small mb-1">Events over time (red = errors)</figcaption>
+          <figcaption class="text-muted small mb-1">
+            Events over time (red = errors<template v-if="sparkMarkers.length"
+              >, lines = BootUI actions and lifecycle changes</template
+            >)
+          </figcaption>
           <svg viewBox="0 0 100 36" preserveAspectRatio="none" class="w-100 activity-sparkline-svg">
             <g v-for="bar in sparkBars" :key="bar.key">
               <rect :x="bar.x" :y="bar.y" :width="bar.width" :height="bar.height" class="activity-spark-bar">
@@ -1205,6 +1213,18 @@ function toggleFlow() {
                 class="activity-spark-error"
               />
             </g>
+            <line
+              v-for="marker in sparkMarkers"
+              :key="marker.key"
+              :x1="marker.x"
+              :x2="marker.x"
+              y1="0"
+              y2="36"
+              class="activity-spark-marker"
+              vector-effect="non-scaling-stroke"
+            >
+              <title>{{ marker.label }}</title>
+            </line>
           </svg>
         </figure>
 
@@ -1801,6 +1821,11 @@ function toggleFlow() {
 
 .activity-spark-error {
   fill: var(--bs-danger, #dc3545);
+}
+.activity-spark-marker {
+  stroke: var(--bootui-text-muted);
+  stroke-width: 1px;
+  stroke-dasharray: 3 2;
 }
 @media (prefers-reduced-motion: reduce) {
   .activity-kpi-link {

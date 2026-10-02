@@ -609,8 +609,11 @@ public class BootUiReactiveAutoConfiguration {
     }
 
     @Bean
-    public ReactivePanelAccessFilter bootUiReactivePanelAccessFilter(BootUiProperties properties) {
-        return new ReactivePanelAccessFilter(properties);
+    public ReactivePanelAccessFilter bootUiReactivePanelAccessFilter(
+            BootUiProperties properties, ObjectProvider<RuntimeJournal> journal) {
+        ReactivePanelAccessFilter filter = new ReactivePanelAccessFilter(properties);
+        filter.setJournal(journal::getIfAvailable);
+        return filter;
     }
 
     @Bean

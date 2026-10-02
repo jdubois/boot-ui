@@ -649,7 +649,9 @@ names it, whether the caller was anonymous or authenticated, whether access was 
 from Spring Security's authorization observations or Quarkus's authorization events), and the run's start (`lifecycle`: the time to ready and the slowest
 bean instantiations on Spring, and the facts that decide whether two runs can be compared: active profiles, each data
 source's URL shape such as `jdbc:postgresql://localhost` without credentials, database, or parameters, the cache in
-use, whether tracing is on, and the recorded sources) are recorded. The `resources` source measures each request's CPU time, allocated bytes, and
+use, whether tracing is on, and the recorded sources; then markers for BootUI's own successful actions, naming the panel, method, and path
+without query or body, availability changes once the application is ready, Spring Cloud configuration refreshes with the
+changed key names, and shutdown) are recorded. The `resources` source measures each request's CPU time, allocated bytes, and
 the collections that completed while it ran, summed over every thread its work ran on ([PLAN-v2.md](PLAN-v2.md)
 §5.11). The JVM does not measure virtual threads, so a request served on one reports its CPU time and allocated bytes
 as unavailable or partial, never as zero. Payloads hold no bind values, keys, message bodies, exception or log messages, or principals: a log event keeps its unformatted
