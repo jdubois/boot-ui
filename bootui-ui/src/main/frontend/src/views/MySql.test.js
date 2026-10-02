@@ -78,7 +78,24 @@ describe('MySQL report lifecycle', () => {
     expect(fetchMock).toHaveBeenCalledExactlyOnceWith('api/mysql', {})
     expect(wrapper.text()).toContain('No MySQL data yet')
     expect(wrapper.text()).toContain('MySQL 8.4 LTS and 9.7 LTS')
-    expect(wrapper.text()).toContain('MariaDB is not supported')
+    expect(wrapper.text()).toContain('MariaDB reached through MySQL Connector/J is read on a best-effort basis')
+    expect(wrapper.text()).toContain('is not supported')
+  })
+
+  it('labels a MariaDB datasource as unsupported, and only that flavor', async () => {
+    const {wrapper} = await mountReport(
+      report({
+        dataSources: [
+          source({name: 'maria', serverVersion: '11.4.13-MariaDB', serverFlavor: 'MARIADB'}),
+          source({name: 'oracle', serverVersion: '8.4.6', serverFlavor: 'ORACLE_MYSQL'})
+        ],
+        dataSourcesRead: 2
+      })
+    )
+    const maria = wrapper.get('[aria-label="maria datasource"]')
+    expect(maria.text()).toContain('MARIADB')
+    expect(maria.get('.badge.text-bg-warning').text()).toBe('Unsupported')
+    expect(wrapper.get('[aria-label="oracle datasource"]').text()).not.toContain('Unsupported')
   })
 
   it('shows manifest absence without calling an unwired endpoint', async () => {

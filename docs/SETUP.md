@@ -129,6 +129,6 @@ Everything below is optional.
 ::: tip Using the MySQL panel
 The [MySQL panel](features/database.md#mysql) reuses a configured application JDBC datasource and MySQL Connector/J. It
 creates no monitoring pool, requires no Hibernate, and starts no database or workload. Keep credentials in the
-application's existing secure configuration. Oracle MySQL 8.4 LTS and 9.7 LTS are the tested server lines; MariaDB
-and R2DBC-only access are not covered.
+application's existing secure configuration. Oracle MySQL 8.4 LTS and 9.7 LTS are the tested server lines. MariaDB
+reached through MySQL Connector/J is read but unsupported, and R2DBC-only access is not covered.
 :::

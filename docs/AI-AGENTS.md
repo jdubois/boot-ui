@@ -301,8 +301,10 @@ MySQL exposes two argument-free tools on MVC, WebFlux with JDBC, and Quarkus wit
 | `get_mysql_report` | Read the latest sanitized in-memory report without opening a connection or executing SQL. |
 | `mysql_read` | Explicitly collect bounded operational evidence through the application's existing JDBC datasources. |
 
-Oracle MySQL 8.4 LTS and 9.7 LTS are the tested server lines, with live coverage on 8.4.6 and 9.7.2. MariaDB and reactive-client-only
-or R2DBC-only applications are outside this scope. Check the running catalog for the application's actual capability.
+Oracle MySQL 8.4 LTS and 9.7 LTS are the tested server lines, with live coverage on 8.4.6 and 9.7.2. MariaDB reached
+through MySQL Connector/J is read but unsupported (`serverFlavor` is `MARIADB`, with an INFO diagnostic naming the
+gaps); reactive-client-only or R2DBC-only applications are outside this scope.
+Check the running catalog for the application's actual capability.
 
 Read the cache first. Ask for approval before `mysql_read`, naming the database collection even though it is
 read-only: it performs external work and is blocked by global/panel read-only policy. Do not automatically repeat

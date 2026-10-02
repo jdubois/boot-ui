@@ -19,6 +19,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Markdown from the same helper. Exports contain only what the panels show, honor `METADATA_ONLY`, and send nothing
   ([Investigate one request](docs/AI-AGENTS.md#investigate-one-request), PLAN §3.25).
 
+- **The MySQL panel reads MariaDB reached through MySQL Connector/J, labelled unsupported.** A MariaDB server behind a
+  `jdbc:mysql:` datasource is now read on a best-effort basis on Spring MVC, WebFlux, and Quarkus instead of being
+  skipped. The report names the flavor `MARIADB`, the datasource carries an Unsupported badge, and an informational
+  diagnostic names the gaps. The panel uses MariaDB's `max_statement_time` guards and its `information_schema` InnoDB
+  lock views for row-lock waits. It reports no replication receiver state and computes no counter changes between reads, and
+  `super_read_only` and `information_schema_stats_expiry` are omitted. MariaDB 11.4 LTS and 11.8 LTS were checked
+  manually; there is no automated MariaDB coverage. MariaDB Connector/J (`jdbc:mariadb:`) is still not offered the
+  panel ([MySQL](docs/features/database.md#mysql)).
 - **Four REST API rules catch request and response declarations that break at runtime.** `RAPI-VALID-006` (HIGH)
   reports a Spring handler with several `@RequestBody` parameters, which fails every request on Spring MVC.
   `RAPI-VER-007` (HIGH) reports a GET/HEAD/DELETE handler that binds no body but carries a consumes condition, usually
@@ -90,8 +98,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the 8.4 line, so a MySQL 9.7 database showed "No supported MySQL JDBC datasource was found". Oracle MySQL 8.4 LTS and
   9.7 LTS are now the tested lines, and CI runs the Spring and Quarkus MySQL live suites against both `mysql:8.4.6` and
   `mysql:9.7.2`. Other Oracle MySQL versions, such as 8.0 or Innovation releases, are read with an informational
-  "not a tested server line" diagnostic, and any section the server cannot answer reports its own reason. MariaDB,
-  including MariaDB reached through MySQL Connector/J, is now skipped before any SQL instead of failing the read
+  "not a tested server line" diagnostic, and any section the server cannot answer reports its own reason. Other
+  compatible flavors are skipped before any statistics query instead of failing the read
   ([MySQL](docs/features/database.md#mysql)).
 - **Maven Central releases ship an empty placeholder `-javadoc.jar` instead of generated Javadoc.** Central requires
   the file but not its content, and BootUI's public surface is its HTTP, MCP, and CLI contract rather than a Java API;

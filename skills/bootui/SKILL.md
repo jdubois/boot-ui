@@ -167,8 +167,9 @@ tool of the same behavior.
 The MySQL operational panel supports Oracle MySQL 8.4 LTS and 9.7 LTS, with live coverage on 8.4.6 and 9.7.2; check
 the running catalog for the application's actual capability. It uses JDBC on Spring MVC, WebFlux, and Quarkus,
 including named datasources.
-MariaDB, R2DBC-only, and reactive-client-only
-applications are unsupported by this first scope; do not install another pool just to enable diagnostics.
+MariaDB reached through MySQL Connector/J is read but unsupported: its report has `serverFlavor` `MARIADB`, an INFO
+diagnostic, no replication receiver state, and no counter changes. R2DBC-only and reactive-client-only
+applications are unsupported; do not install another pool just to enable diagnostics.
 
 1. Prefer `bootui db mysql report --json` / `get_mysql_report`. This reads the sanitized cache, never MySQL.
 2. Only after an explicit request or approval, use `bootui db mysql read --json` / `mysql_read`. It is an action

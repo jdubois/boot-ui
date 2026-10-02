@@ -71,7 +71,8 @@ The `mysql-diagnostics` Maven profile adds Connector/J through `quarkus-jdbc-mys
 **named** `mysql` datasource. The default PostgreSQL datasource, Hibernate model, and migration demos are unchanged.
 Neither profile is active by default, and MySQL Dev Services is explicitly disabled.
 
-Use Oracle MySQL 8.4 LTS (the live fixture pins `mysql:8.4.6`), not MariaDB. Set connection details for an existing
+Use Oracle MySQL 8.4 LTS (the live fixture pins `mysql:8.4.6`); MariaDB is read but unsupported. Set connection
+details for an existing
 local synthetic database and its restricted account outside source control:
 
 ```bash

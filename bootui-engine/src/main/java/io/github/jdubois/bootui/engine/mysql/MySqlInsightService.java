@@ -264,32 +264,52 @@ public final class MySqlInsightService {
             connection = named.dataSource().getConnection();
             context = new MySqlReadContext(connection, budget);
             // Only product metadata is used here; JDBC URLs and vendor exception messages never escape.
-            // MariaDB answers MySQL Connector/J as "MySQL"; its version string is checked before any SQL runs.
+            // MariaDB answers MySQL Connector/J as "MySQL"; only its version string tells it apart before any SQL.
             var metadata = connection.getMetaData();
             String product = metadata.getDatabaseProductName();
-            if (product == null
-                    || !product.equalsIgnoreCase("MySQL")
-                    || mariaDb(metadata.getDatabaseProductVersion(), null)) {
+            if (product == null || !product.equalsIgnoreCase("MySQL")) {
                 throw new SQLException("UNSUPPORTED_VENDOR", "BUI03");
             }
-            context.open();
+            MySqlFlavor flavor = MySqlFlavor.mariaDb(metadata.getDatabaseProductVersion())
+                    ? MySqlFlavor.MARIADB
+                    : MySqlFlavor.ORACLE_MYSQL;
+            context.open(flavor);
+            // MariaDB has no @@server_uuid; a null identity disables counter comparisons rather than guessing one.
             identity = MySqlQuery.requiredRow(
+                    flavor,
                     connection,
                     budget,
                     "SELECT @@version AS version,@@version_comment AS flavor,DATABASE() AS schema_name,"
-                            + " CURRENT_USER() AS account,@@server_uuid AS server_id,CONNECTION_ID() AS"
-                            + " connection_id, @@global.performance_schema AS performance_schema,"
+                            + " CURRENT_USER() AS account,"
+                            + (flavor == MySqlFlavor.MARIADB ? "NULL" : "@@server_uuid")
+                            + " AS server_id,CONNECTION_ID() AS connection_id,"
+                            + " @@global.performance_schema AS performance_schema,"
                             + " @@lower_case_table_names AS lower_case_table_names LIMIT ?");
-            if (!oracleMySql(identity.get("version"), identity.get("flavor"))) {
-                throw new SQLException("UNSUPPORTED_VENDOR", "BUI03");
-            }
-            if (!testedLine(identity.get("version"))) {
+            String version = identity.get("version");
+            if (flavor == MySqlFlavor.MARIADB) {
+                // The session variables agreed with the driver; the server must confirm it is MariaDB too.
+                if (!MySqlFlavor.mariaDb(version)) {
+                    throw new SQLException("UNSUPPORTED_VENDOR", "BUI03");
+                }
                 diagnostics.add(new MySqlDiagnosticDto(
                         MySqlValues.text(named.name()),
                         "INFO",
-                        "MySQL " + MySqlValues.text(identity.get("version"))
-                                + " is not a tested server line (Oracle MySQL 8.4 LTS and 9.7 LTS are tested). It was"
-                                + " read anyway; any section the server cannot answer reports its own reason."));
+                        "MariaDB " + MySqlValues.text(version) + " is not supported. It was read on a best-effort"
+                                + " basis through MySQL Connector/J: replication receiver state and counter changes"
+                                + " between reads are unavailable, and two MySQL-only settings are not reported."));
+            } else {
+                if (!oracleMySql(version, identity.get("flavor"))) {
+                    throw new SQLException("UNSUPPORTED_VENDOR", "BUI03");
+                }
+                if (!testedLine(version)) {
+                    diagnostics.add(new MySqlDiagnosticDto(
+                            MySqlValues.text(named.name()),
+                            "INFO",
+                            "MySQL " + MySqlValues.text(version)
+                                    + " is not a tested server line (Oracle MySQL 8.4 LTS and 9.7 LTS are tested). It"
+                                    + " was read anyway; any section the server cannot answer reports its own"
+                                    + " reason."));
+                }
             }
             String caseMode = identity.get("lower_case_table_names");
             if (!"0".equals(caseMode) && !"1".equals(caseMode) && !"2".equals(caseMode)) {
@@ -299,17 +319,18 @@ public final class MySqlInsightService {
             String instrumentationSchema = "0".equals(caseMode)
                     ? identity.get("schema_name")
                     : MySqlQuery.requiredRow(
+                                    flavor,
                                     connection,
                                     budget,
-                                    "SELECT LOWER(CONVERT(DATABASE() USING utf8mb4) COLLATE utf8mb4_0900_bin)"
-                                            + " AS instrumentation_schema LIMIT ?")
+                                    "SELECT LOWER(CONVERT(DATABASE() USING utf8mb4) COLLATE " + flavor.binaryCollation()
+                                            + ") AS instrumentation_schema LIMIT ?")
                             .get("instrumentation_schema");
             if (identity.get("schema_name") != null && instrumentationSchema == null) {
                 throw new SQLException("Normalized schema identity was not reported.", "BUI04");
             }
             identity.put("instrumentation_schema", instrumentationSchema);
             collector = new MySqlCollectors(
-                    connection, budget, limits, policy, clock, MySqlValues.text(named.name()), identity);
+                    connection, budget, limits, policy, clock, MySqlValues.text(named.name()), identity, flavor);
             result = collector.collect();
         } catch (SQLException ex) {
             unsupported = "BUI03".equals(ex.getSQLState());
@@ -320,8 +341,12 @@ public final class MySqlInsightService {
                                     + " commit or roll back the application's transaction.";
                         case "BUI02" -> "Server-enforced READ ONLY could not be established; collection was refused.";
                         case "BUI03" ->
-                            "This datasource is not an Oracle MySQL Community or Enterprise server (for example"
-                                    + " MariaDB); it was not read.";
+                            "This datasource is neither an Oracle MySQL Community or Enterprise server nor MariaDB"
+                                    + " reached through MySQL Connector/J; it was not read.";
+                        case "BUI05" ->
+                            "The server has no session timeout or transaction_read_only variable (MariaDB before"
+                                    + " 11.1, for example), so the read-only guards could not be established;"
+                                    + " collection was refused.";
                         default -> MySqlQuery.reason(ex);
                     };
             result = failed(named.name(), reason);
@@ -364,20 +389,14 @@ public final class MySqlInsightService {
 
     static boolean oracleMySql(String reportedVersion, String reportedFlavor) {
         String flavor = reportedFlavor == null ? "" : reportedFlavor.toLowerCase(Locale.ROOT);
-        return !mariaDb(reportedVersion, reportedFlavor)
+        return !MySqlFlavor.mariaDb(reportedVersion)
+                && !MySqlFlavor.mariaDb(reportedFlavor)
                 && (flavor.contains("mysql community") || flavor.contains("mysql enterprise"));
     }
 
     static boolean testedLine(String reportedVersion) {
         String version = reportedVersion == null ? "" : reportedVersion.toLowerCase(Locale.ROOT);
         return TESTED_LINES.stream().anyMatch(version::startsWith);
-    }
-
-    private static boolean mariaDb(String reportedVersion, String reportedFlavor) {
-        return (reportedVersion != null
-                        && reportedVersion.toLowerCase(Locale.ROOT).contains("mariadb"))
-                || (reportedFlavor != null
-                        && reportedFlavor.toLowerCase(Locale.ROOT).contains("mariadb"));
     }
 
     private MySqlDataSourceDto failed(String name, String message) {
