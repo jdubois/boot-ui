@@ -87,6 +87,8 @@ public final class TaskPropagation {
     private static final LongAdder SKIPPED_THREADS = new LongAdder();
     private static final LongAdder FAILURES = new LongAdder();
     private static final ThreadLocal<Active> ACTIVE = new ThreadLocal<>();
+    private static final StackWalker WALKER = StackWalker.getInstance();
+    private static final BodyCaller BODY_CALLER = new BodyCaller();
 
     private TaskPropagation() {}
 
@@ -404,21 +406,29 @@ public final class TaskPropagation {
     }
 
     private static boolean jdkBodyReturned() {
-        return StackWalker.getInstance()
-                .walk(frames -> frames.skip(2)
-                        .filter(frame -> !publicationMethod(frame.getClassName(), frame.getMethodName()))
-                        .findFirst()
-                        .map(frame -> {
-                            String type = frame.getClassName();
-                            String method = frame.getMethodName();
-                            return ("java.util.concurrent.FutureTask".equals(type) && "run".equals(method))
-                                    || ("java.util.concurrent.ForkJoinTask".equals(type) && "doExec".equals(method))
-                                    || ("java.util.concurrent.ForkJoinTask$InterruptibleTask".equals(type)
-                                            && "exec".equals(method))
-                                    || (type.startsWith("java.util.concurrent.CompletableFuture$Async")
-                                            && "run".equals(method));
-                        })
-                        .orElse(false));
+        return WALKER.walk(BODY_CALLER).booleanValue();
+    }
+
+    private static final class BodyCaller
+            implements Function<java.util.stream.Stream<StackWalker.StackFrame>, Boolean> {
+
+        @Override
+        public Boolean apply(java.util.stream.Stream<StackWalker.StackFrame> frames) {
+            java.util.Iterator<StackWalker.StackFrame> iterator = frames.iterator();
+            for (int i = 0; i < 16 && iterator.hasNext(); i++) {
+                StackWalker.StackFrame frame = iterator.next();
+                String type = frame.getClassName();
+                String method = frame.getMethodName();
+                if (i < 2 || publicationMethod(type, method)) {
+                    continue;
+                }
+                return Boolean.valueOf(("java.util.concurrent.FutureTask".equals(type) && "run".equals(method))
+                        || ("java.util.concurrent.ForkJoinTask".equals(type) && "doExec".equals(method))
+                        || ("java.util.concurrent.ForkJoinTask$InterruptibleTask".equals(type) && "exec".equals(method))
+                        || (type.startsWith("java.util.concurrent.CompletableFuture$Async") && "run".equals(method)));
+            }
+            return Boolean.FALSE;
+        }
     }
 
     private static boolean publicationMethod(String type, String method) {
