@@ -75,6 +75,23 @@ import org.springframework.web.context.support.GenericWebApplicationContext;
 class BootUiEngineConfigurationTests {
 
     @Test
+    void memoryOffloadOnlyReachesSingletonsThatAlreadyExist() {
+        DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        JmsActivityRecorder created = new JmsActivityRecorder(true, false, 10, 64);
+        beanFactory.registerSingleton("createdRecorder", created);
+        beanFactory.registerSingleton("unrelated", "not offloadable");
+        beanFactory.registerBeanDefinition(
+                "lazyRecorder",
+                org.springframework.beans.factory.support.BeanDefinitionBuilder.genericBeanDefinition(
+                                JmsActivityRecorder.class, () -> new JmsActivityRecorder(true, false, 10, 64))
+                        .setLazyInit(true)
+                        .getBeanDefinition());
+
+        assertThat(BootUiEngineConfiguration.createdOffloadables(beanFactory)).containsExactly(created);
+        assertThat(beanFactory.containsSingleton("lazyRecorder")).isFalse();
+    }
+
+    @Test
     void postgresFactoryMapsEveryBoundWithoutReadingTheDatabase() {
         BootUiProperties properties = Binder.get(new MockEnvironment()
                         .withProperty("bootui.postgresql.max-sessions", "11")

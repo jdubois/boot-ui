@@ -175,7 +175,7 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | Runtime         | Health                    | `health`                    | `bootui.panels.health.enabled`                    | Not applicable; view-only.                |
 | Runtime         | HTTP Sessions             | `http-sessions`             | `bootui.panels.http-sessions.enabled`             | `bootui.panels.http-sessions.read-only`   |
 | Runtime         | Metrics                   | `metrics`                   | `bootui.panels.metrics.enabled`                   | Not applicable; view-only.                |
-| Runtime         | Live Memory               | `live-memory`               | `bootui.panels.live-memory.enabled`               | Not applicable; view-only.                |
+| Runtime         | Live Memory               | `live-memory`               | `bootui.panels.live-memory.enabled`               | `bootui.panels.live-memory.read-only`     |
 | Runtime         | JVM Tuning                | `jvm-tuning`                | `bootui.panels.jvm-tuning.enabled`                | Not applicable; view-only.                |
 | Runtime         | Heap Dump                 | `heap-dump`                 | `bootui.panels.heap-dump.enabled`                 | `bootui.panels.heap-dump.read-only`       |
 | Runtime         | Threads                   | `threads`                   | `bootui.panels.threads.enabled`                   | `bootui.panels.threads.read-only`         |

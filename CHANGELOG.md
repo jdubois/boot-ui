@@ -9,6 +9,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Free BootUI memory.** Live Memory, JVM Tuning, Heap Dump, and the Memory advisor share a header action, with an
+  expandable explanation, that empties BootUI's in-memory capture buffers (runtime journal, Live Activity, HTTP
+  exchanges, traces, SQL, REST client, transaction, messaging, WebSocket, cache, scheduler, fault-tolerance, exception,
+  security-event, and email captures) and then requests a garbage collection, so memory analysis reflects the
+  application rather than BootUI. `POST /bootui/api/live-memory/offload` reports heap used before and after, the
+  reclaimed estimate, per-store outcomes, and whether `-XX:+DisableExplicitGC` ignores the request, on Spring MVC,
+  Spring WebFlux, and Quarkus. Live Memory is now action-capable, so `bootui.read-only=true` and the new
+  `bootui.panels.live-memory.read-only` refuse the action.
+
 - **Java Agent panel.** A view-only Java Agent panel in Developer tools, `GET /bootui/api/java-agent`, the read-only
   `get_agent_status` MCP tool, and `bootui agent status` report whether the optional, development-time BootUI agent is
   attached, who holds its claim, and how to attach it, with copyable setup snippets for the Spring Boot Maven plugin,

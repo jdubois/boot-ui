@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
+import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -46,7 +47,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * heuristic {@code SqlTraceRecorder} itself falls back to when no trace id is available, applied here
  * rather than duplicated.</p>
  */
-public final class TransactionRecorder implements IdleReclaimable, RuntimeEventPublisher {
+public final class TransactionRecorder implements IdleReclaimable, RuntimeEventPublisher, MemoryOffloadable {
 
     /** Outcome of a completed transaction boundary. */
     public enum Status {
@@ -349,6 +350,24 @@ public final class TransactionRecorder implements IdleReclaimable, RuntimeEventP
 
     public long evicted() {
         return evicted.get();
+    }
+
+    @Override
+    public String offloadId() {
+        return "transactions";
+    }
+
+    @Override
+    public String offloadLabel() {
+        return "Transactions";
+    }
+
+    /** Drops what {@link #clear()} drops, for <b>Free BootUI memory</b>; recording settings are kept. */
+    @Override
+    public long offloadRetainedData() {
+        long retained = recent().size();
+        clear();
+        return retained;
     }
 
     public void clear() {

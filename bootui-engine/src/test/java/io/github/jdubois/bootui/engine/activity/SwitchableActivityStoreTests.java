@@ -24,6 +24,43 @@ class SwitchableActivityStoreTests {
     }
 
     @Test
+    void offloadEmptiesAnInMemoryDelegateOnly() {
+        SwitchableActivityStore store = new SwitchableActivityStore(new InMemoryActivityStore(10));
+        store.appendBatch(List.of(
+                new StoredActivityEntry("app-1", 1, entry("1", "REQUEST", 1, "OK", "one")),
+                new StoredActivityEntry("app-1", 2, entry("2", "REQUEST", 2, "OK", "two"))));
+
+        assertThat(store.offloadId()).isEqualTo("live-activity");
+        assertThat(store.offloadRetainedData()).isEqualTo(2);
+        assertThat(store.query(ActivityQuery.firstPage("app-1")).entryDtos()).isEmpty();
+
+        store.appendBatch(List.of(new StoredActivityEntry("app-1", 3, entry("3", "REQUEST", 3, "OK", "three"))));
+        assertThat(store.query(ActivityQuery.firstPage("app-1")).entryDtos())
+                .extracting(ActivityEntryDto::id)
+                .containsExactly("3");
+    }
+
+    @Test
+    void offloadLeavesADurableDelegateUntouched() {
+        AtomicBoolean touched = new AtomicBoolean();
+        ActivityStore durable = new ActivityStore() {
+            @Override
+            public void appendBatch(List<StoredActivityEntry> entries) {
+                touched.set(true);
+            }
+
+            @Override
+            public ActivityPage query(ActivityQuery query) {
+                touched.set(true);
+                return ActivityPage.EMPTY;
+            }
+        };
+
+        assertThat(new SwitchableActivityStore(durable).offloadRetainedData()).isZero();
+        assertThat(touched).isFalse();
+    }
+
+    @Test
     void pruneAndCloseReachTheDelegateRatherThanTheInterfaceDefaultNoOp() {
         AtomicBoolean pruned = new AtomicBoolean();
         AtomicBoolean closed = new AtomicBoolean();

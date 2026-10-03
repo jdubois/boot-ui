@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
+import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
@@ -24,7 +25,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * while the console is unused (the runtime journal keeps receiving them), then {@link #resumeFromIdle()} to refill
  * from live events.
  */
-public final class SecurityEventBuffer implements IdleReclaimable, RuntimeEventPublisher {
+public final class SecurityEventBuffer implements IdleReclaimable, RuntimeEventPublisher, MemoryOffloadable {
 
     private final int capacity;
     private final ArrayDeque<CapturedSecurityEvent> entries;
@@ -115,6 +116,26 @@ public final class SecurityEventBuffer implements IdleReclaimable, RuntimeEventP
             reversed.add(copy.get(i));
         }
         return List.copyOf(reversed);
+    }
+
+    @Override
+    public String offloadId() {
+        return "security-events";
+    }
+
+    @Override
+    public String offloadLabel() {
+        return "Security events";
+    }
+
+    /** Drops the retained events for <b>Free BootUI memory</b>; recording, unlike {@link #suspendForIdle()}, goes on. */
+    @Override
+    public long offloadRetainedData() {
+        synchronized (entries) {
+            long retained = entries.size();
+            entries.clear();
+            return retained;
+        }
     }
 
     @Override

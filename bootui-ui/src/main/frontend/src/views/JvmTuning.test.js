@@ -2,6 +2,8 @@ import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import JvmTuning from './JvmTuning.vue'
+import MemoryOffloadButton from './components/MemoryOffloadButton.vue'
+import PanelHeader from './components/PanelHeader.vue'
 
 const MB = 1024 * 1024
 
@@ -257,5 +259,19 @@ describe('JvmTuning', () => {
     expect(fetchMock).toHaveBeenLastCalledWith(
       'api/jvm-tuning?kubernetesBurstableEnabled=true&kubernetesActuatorEnabled=false&totalMemoryMb=1024&threadCount=250&headRoomPercent=10'
     )
+  })
+
+  it('offers the shared BootUI memory offload in the header and recalculates after it ran', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(memoryReport()))
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mount(JvmTuning)
+    await flushPromises()
+    const calls = fetchMock.mock.calls.length
+
+    wrapper.getComponent(PanelHeader).getComponent(MemoryOffloadButton).vm.$emit('offloaded', {reclaimedBytes: 0})
+    await flushPromises()
+
+    expect(fetchMock.mock.calls.length).toBe(calls + 1)
   })
 })

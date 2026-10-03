@@ -6,7 +6,7 @@
     { "id": "health", "title": "Health", "actionCapable": false },
     { "id": "http-sessions", "title": "HTTP Sessions", "actionCapable": true },
     { "id": "metrics", "title": "Metrics", "actionCapable": false },
-    { "id": "live-memory", "title": "Live Memory", "actionCapable": false },
+    { "id": "live-memory", "title": "Live Memory", "actionCapable": true },
     { "id": "jvm-tuning", "title": "JVM Tuning", "actionCapable": false },
     { "id": "heap-dump", "title": "Heap Dump", "actionCapable": true },
     { "id": "threads", "title": "Threads", "actionCapable": true },

@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.engine.resources.ResourceTrack;
 import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
+import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import io.github.jdubois.bootui.spi.ThreadKindClassifier;
 import java.lang.System.Logger.Level;
 import java.time.Duration;
@@ -43,7 +44,7 @@ import java.util.concurrent.atomic.LongAdder;
  * <p>Sequence numbers are unique within the run, and each event's id joins the run id and its sequence, so a restart
  * never collides with an earlier run.</p>
  */
-public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
+public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, MemoryOffloadable {
 
     /** The dispatcher thread's name. */
     public static final String DISPATCHER_THREAD = "bootui-journal-dispatch";
@@ -410,6 +411,24 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
     /** Whether {@code listener} is told of each batch and of each clear. */
     boolean notifies(JournalListener listener) {
         return listeners.contains(listener);
+    }
+
+    @Override
+    public String offloadId() {
+        return "runtime-journal";
+    }
+
+    @Override
+    public String offloadLabel() {
+        return "Runtime journal events";
+    }
+
+    /** Drops what {@link #clear()} drops, for <b>Free BootUI memory</b>; recording settings are kept. */
+    @Override
+    public long offloadRetainedData() {
+        long retained = status().retainedEvents();
+        clear();
+        return retained;
     }
 
     /**

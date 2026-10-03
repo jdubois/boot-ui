@@ -23,6 +23,7 @@ import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
+import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import io.github.jdubois.bootui.spi.ThreadKind;
 import io.github.jdubois.bootui.spi.ThreadKindClassifier;
 import java.util.ArrayList;
@@ -56,7 +57,7 @@ import java.util.stream.Stream;
  * beans were actually wrapped, so the panel can distinguish "no data source"
  * from "tracing disabled".</p>
  */
-public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPublisher {
+public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPublisher, MemoryOffloadable {
 
     static final int TOP_STATEMENTS_LIMIT = 20;
 
@@ -731,6 +732,24 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
     /** The buffer's retention counts: capacity, reserved share, retained and reserved executions, and evictions. */
     public CaptureRetentionDto retention() {
         return buffer.snapshot().retention(slowQueryThresholdMillis);
+    }
+
+    @Override
+    public String offloadId() {
+        return "sql-trace";
+    }
+
+    @Override
+    public String offloadLabel() {
+        return "SQL Trace statements";
+    }
+
+    /** Drops what {@link #clear()} drops, for <b>Free BootUI memory</b>; recording settings are kept. */
+    @Override
+    public long offloadRetainedData() {
+        long retained = recent().size();
+        clear();
+        return retained;
     }
 
     public void clear() {

@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.engine.web;
 import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
+import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -21,7 +22,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * {@link #suspendForIdle()} to drop retained data and stop recording while the console is unused, then
  * {@link #resumeFromIdle()} to refill from live traffic.</p>
  */
-public final class HttpExchangeBuffer implements IdleReclaimable {
+public final class HttpExchangeBuffer implements IdleReclaimable, MemoryOffloadable {
 
     private final TieredCaptureBuffer<CapturedHttpExchange> entries;
     private final long slowThresholdMillis;
@@ -77,6 +78,24 @@ public final class HttpExchangeBuffer implements IdleReclaimable {
     /** Current retention counts, computed from the same instant as a {@link #retainedSnapshot()}. */
     public CaptureRetentionDto retention() {
         return entries.snapshot().retention(slowThresholdMillis);
+    }
+
+    @Override
+    public String offloadId() {
+        return "http-exchanges";
+    }
+
+    @Override
+    public String offloadLabel() {
+        return "HTTP exchanges";
+    }
+
+    /** Drops the retained exchanges for <b>Free BootUI memory</b>; recording, unlike {@link #suspendForIdle()}, goes on. */
+    @Override
+    public long offloadRetainedData() {
+        long retained = entries.size();
+        entries.clear();
+        return retained;
     }
 
     @Override

@@ -2,6 +2,8 @@ import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import HeapDump from './HeapDump.vue'
+import MemoryOffloadButton from './components/MemoryOffloadButton.vue'
+import PanelHeader from './components/PanelHeader.vue'
 
 function heapReport(overrides = {}) {
   return {
@@ -127,5 +129,22 @@ describe('HeapDump', () => {
     expect(wrapper.text()).toContain(busy.message)
     expect(wrapper.find('[role="status"]').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('Unable to run heap dump action')
+  })
+
+  it('offers the shared BootUI memory offload in the header and reloads the report after it ran', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(heapReport()))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wrapper = mount(HeapDump)
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    const offload = wrapper.getComponent(PanelHeader).getComponent(MemoryOffloadButton)
+    expect(offload.props('followUp')).toContain('Analyze the live heap')
+    offload.vm.$emit('offloaded', {reclaimedBytes: 0})
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(String(fetchMock.mock.calls[1][0])).toContain('api/heap-dump')
   })
 })

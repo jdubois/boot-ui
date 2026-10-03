@@ -717,7 +717,9 @@ collection, threads, loaded classes, and an optional class histogram. It turns t
 heap pressure, metaspace saturation, native-footprint risk inside a container, lifetime GC overhead, thread deadlocks,
 and collection bloat. It complements the raw Live Memory and Threads panels by diagnosing the data they expose. The scan
 is on demand and caches the last report; new rules are added as small, focused classes in the `memory` package. See
-[MEMORY-CHECKS.md](../MEMORY-CHECKS.md) for the full catalogue and remediation links.
+[MEMORY-CHECKS.md](../MEMORY-CHECKS.md) for the full catalogue and remediation links. The shared
+[Free BootUI memory](runtime.md#free-bootui-memory) header action drops BootUI's own buffers and requests a GC before
+you re-run the checks.
 
 ## Security
 
