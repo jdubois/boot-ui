@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Test;
 class RuntimeInsightsAgentViewTests {
 
     @Test
-    void theDefaultListPutsCoverageAndUnrunChecksFirstAndLeavesOutLatencyOnlyRows() {
+    void theDefaultListPutsCoverageAndUnrunChecksFirstAndIncludesLatencyRows() {
         RuntimeInsightsAgentReportDto list = RuntimeInsightsAgentView.list(report(), null, null);
 
         assertThat(list.available()).isTrue();
@@ -31,12 +31,15 @@ class RuntimeInsightsAgentViewTests {
                 .containsExactly("event-loop-blocking: NOT_APPLICABLE, Spring MVC serves requests on worker threads.");
         assertThat(list.observations())
                 .extracting(observation -> observation.kind())
-                .doesNotContain(RouteTimeBreakdown.KIND)
+                .contains(RouteTimeBreakdown.KIND)
                 .hasSize(8);
-        assertThat(list.omitted()).isEqualTo(2);
+        assertThat(list.omitted()).isEqualTo(3);
         assertThat(list.observations().get(0).exemplarRequestId()).isEqualTo("r-0");
         assertThat(list.observations().get(0).verify()).isEqualTo("Check the call site.");
-        assertThat(list.limitations()).anyMatch(limitation -> limitation.contains("query latency"));
+        assertThat(list.limitations())
+                .anyMatch(limitation -> limitation.contains("query repeated-selects"))
+                .anyMatch(limitation -> limitation.contains("Latency rows are included"))
+                .noneMatch(limitation -> limitation.contains("Latency-only observations are left out"));
         assertThat(list.requests()).isEqualTo(12);
         assertThat(list.notExercised()).hasSize(8).first().isEqualTo("GET /api/unused/0");
         assertThat(list.notExercisedOmitted()).isEqualTo(2 + 5);
@@ -50,9 +53,9 @@ class RuntimeInsightsAgentViewTests {
                 .extracting(observation -> observation.kind())
                 .contains(AnonymousDataReach.KIND, ExceptionHotspots.KIND)
                 .filteredOn(RepeatedSelects.KIND::equals)
-                .hasSize(6);
+                .hasSize(5);
         assertThat(list.limitations())
-                .contains("Left out by limit: repeated-selects 2. List one kind by passing its name as the query, or"
+                .contains("Left out by limit: repeated-selects 3. List one kind by passing its name as the query, or"
                         + " raise limit.");
         assertThat(RuntimeInsightsAgentView.list(report(), "Repeated-Selects", 20)
                         .observations())
@@ -79,6 +82,66 @@ class RuntimeInsightsAgentViewTests {
         assertThat(list.requests()).isZero();
         assertThat(list.observations()).isEmpty();
         assertThat(list.limitations().get(0)).contains("not exercised, not healthy");
+    }
+
+    @Test
+    void requestsZeroIsNotIdleWhenObservationsEvictionOrNonHttpExecutionsSayOtherwise() {
+        RuntimeInsightsReportDto observed = idleReport(List.of(observation(1, RepeatedSelects.KIND, "job", "ran")), 0);
+        assertThat(RuntimeInsightsAgentView.list(observed, null, null)
+                        .limitations()
+                        .get(0))
+                .contains("requests counts completed HTTP exchanges only")
+                .doesNotContain("not exercised, not healthy")
+                .doesNotContain("nothing was exercised");
+
+        RuntimeInsightsReportDto evicted = idleReport(List.of(), 4);
+        assertThat(RuntimeInsightsAgentView.list(evicted, null, null)
+                        .limitations()
+                        .get(0))
+                .contains("not proof the run was idle")
+                .doesNotContain("not exercised, not healthy");
+
+        RuntimeInsightsReportDto jobs = new RuntimeInsightsReportDto(
+                true,
+                null,
+                new RuntimeInsightsWindowDto("run-1", null, null, 40, 0, 0, 0),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(RuntimeInsightsService.NON_HTTP_PREFIX + " 1 scheduled run and 0 consumed messages."),
+                List.of(),
+                0);
+        assertThat(RuntimeInsightsAgentView.list(jobs, null, null).limitations().get(0))
+                .contains(RuntimeInsightsService.NON_HTTP_PREFIX)
+                .doesNotContain("not exercised, not healthy");
+    }
+
+    @Test
+    void theEmptyQueryOmitsRepeatedSelectsUnderTheFloorAndANamedQueryDoesNot() {
+        RuntimeObservationDto cheap = observation(
+                1,
+                RepeatedSelects.KIND,
+                "GET /api/cheap",
+                "a cheap repeat",
+                List.of(RepeatedSelects.UNDER_DEFAULT_FLOOR));
+        RuntimeObservationDto kept = observation(2, RepeatedSelects.KIND, "GET /api/kept", "a measured repeat");
+        RuntimeInsightsReportDto report = new RuntimeInsightsReportDto(
+                true,
+                null,
+                new RuntimeInsightsWindowDto("run-1", 1L, 2L, 10, 3, 0, 0),
+                List.of(),
+                List.of(),
+                List.of(cheap, kept),
+                List.of(),
+                List.of(),
+                0);
+
+        assertThat(RuntimeInsightsAgentView.list(report, null, null).observations())
+                .extracting(observation -> observation.id())
+                .containsExactly("repeated-selects:2");
+        assertThat(RuntimeInsightsAgentView.list(report, "repeated-selects", 20).observations())
+                .extracting(observation -> observation.id())
+                .containsExactly("repeated-selects:1", "repeated-selects:2");
     }
 
     @Test
@@ -184,7 +247,25 @@ class RuntimeInsightsAgentViewTests {
                 5);
     }
 
+    private static RuntimeInsightsReportDto idleReport(List<RuntimeObservationDto> observations, long evicted) {
+        return new RuntimeInsightsReportDto(
+                true,
+                null,
+                new RuntimeInsightsWindowDto("run-1", null, null, 40, 0, evicted, 0),
+                List.of(),
+                List.of(),
+                observations,
+                List.of(),
+                List.of(),
+                0);
+    }
+
     private static RuntimeObservationDto observation(int i, String kind, String subject, String sentence) {
+        return observation(i, kind, subject, sentence, List.of());
+    }
+
+    private static RuntimeObservationDto observation(
+            int i, String kind, String subject, String sentence, List<String> limitations) {
         return new RuntimeObservationDto(
                 kind + ":" + i,
                 kind,
@@ -197,6 +278,6 @@ class RuntimeInsightsAgentViewTests {
                 List.of("Check the call site.", "Then the join."),
                 List.of("r-" + i, "r-x"),
                 1,
-                List.of());
+                limitations);
     }
 }

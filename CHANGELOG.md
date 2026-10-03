@@ -9,6 +9,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Runtime Insights agent list.** `requests` counts completed HTTP exchanges only: zero is not proof the run was idle
+  when observations, retained scheduled runs or consumed messages, or evicted events say otherwise. The default agent
+  list includes latency rows and omits repeated SELECTs under 50 ms of summed measured time; `query=repeated-selects`
+  returns them. Repeated-selects evidence names the phase and whether the repeats ran in a transaction, and says when
+  the total is unmeasured or a parent result size was not recorded.
+
 - **Retained request and execution profiles.** Live Activity displays the runtime-journal timeline even after an
   HTTP exchange leaves the shorter buffer. `get_request_profile` and `bootui request-profile` open journal requests,
   scheduled runs, and consumed-message executions first; their result names the selected source and falls back to the

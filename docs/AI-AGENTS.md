@@ -310,16 +310,18 @@ read tools return short, stable facts rather than a dashboard:
 
 | Tool | CLI | Returns |
 | --- | --- | --- |
-| `get_runtime_insights` | `bootui insights list [--query Q] [--limit N]` | The HTTP `requests` the run served, coverage, the checks that did not fully run, then at most `limit` (8) observations: id, status, one sentence, eligible and affected counts, tier, one exemplar request id, and a `verify` line. Past the limit every kind is listed once before any kind twice, and a limitation names what was left out. Then at most 8 `notExercised` routes. `query` is empty (every observation but latency-only ones), `latency`, `new`, `security`, `diff`, an observation kind such as `proxy-bypass`, or a route, table, bean, or class |
+| `get_runtime_insights` | `bootui insights list [--query Q] [--limit N]` | The completed HTTP exchanges in `requests`, coverage, the checks that did not fully run, then at most `limit` (8) observations: id, status, one sentence, eligible and affected counts, tier, one exemplar request id, and a `verify` line. Past the limit every kind is listed once before any kind twice, and a limitation names what was left out. Then at most 8 `notExercised` routes. `query` is empty (every observation, including latency rows, except repeated-selects under 50 ms of summed measured time), `latency`, `repeated-selects`, `new`, `security`, `diff`, an observation kind such as `proxy-bypass`, or a route, table, bean, or class |
 | `get_runtime_insight` | `bootui insights show <id>` | One observation with every check and at most 20 evidence rows; open its exemplar with `get_request_profile` |
 | `get_runtime_impact` | `bootui insights impact <id>` | For a route, bean, class, repository, table, cache, host, or event type: the routes that ran through it, those that did not, and those sharing a resource, at most 8 each, or `AMBIGUOUS` with candidates |
 | `get_runtime_run_comparison` | `bootui insights compare <id>` | With `previous` (the newest kept run that served requests) or a run id from `runs`: comparability first, then at most 8 behavior rows and edges; latency is left out |
 
 `INSUFFICIENT`, `PARTIAL`, `NOT_APPLICABLE`, `UNAVAILABLE`, and `NOT_COMPARABLE` are not successes, and an empty list
-never means healthy: read `requests`, `checksNotRun`, and `limitations` first. `requests: 0` means nothing was
-exercised. The `diagnose_runtime_issue` prompt starts with `get_runtime_insights`, then one `get_request_profile`; the
+never means healthy: read `requests`, `checksNotRun`, and `limitations` first. `requests` counts completed HTTP
+exchanges only. `requests: 0` means not exercised only when the limitations say so: observations, a limitation naming
+retained scheduled runs or consumed messages, or evicted events mean work ran that `requests` does not count. The
+`diagnose_runtime_issue` prompt starts with `get_runtime_insights`, then one `get_request_profile`; the
 `verify_after_change` prompt calls `get_runtime_impact` on the changed symbol when it is known, runs the tests, calls
-`get_runtime_run_comparison` with `previous`, and stops.
+`get_runtime_insights` with `query=repeated-selects`, then `get_runtime_run_comparison` with `previous`, and stops.
 
 **Change, then verify.** An agent editing code uses the four tools as one loop:
 
@@ -327,11 +329,12 @@ exercised. The `diagnose_runtime_issue` prompt starts with `get_runtime_insights
    through it, the mapped routes it reaches that no request did, and the routes sharing its tables. Those are what the
    tests must reach.
 2. After the edit and a DevTools restart or Quarkus live reload, run the tests, then
-   `bootui insights compare previous --json`. A new statement fingerprint or a higher statement count per request on a
-   route is a behavior change the agent caused; `INSUFFICIENT` means the tests did not reach the route 3 times in
-   both runs, not that nothing changed.
-3. `bootui insights list --json` shows whether the observation the edit addressed still appears and whether a new kind
-   did. Its absence is evidence only when the route it named ran again: check `requests` and `notExercised`.
+   `bootui insights list --query repeated-selects --json`. The default list omits repeated SELECTs under 50 ms of
+   summed measured time, so only that query shows whether a cheap repeat is gone. Absence is evidence only when the
+   route it named ran again: check `requests` and `notExercised`.
+3. Then `bootui insights compare previous --json`, and stop. A new statement fingerprint or a higher statement count
+   per request on a route is a behavior change the agent caused; `INSUFFICIENT` means the tests did not reach the
+   route 3 times in both runs, not that nothing changed. Do not edit from a latency row.
 
 **Analyze after tests.** Tests are where realistic traffic comes from: run the application's integration or browser
 tests against the running application, then `bootui insights list --json`. In the browser, **Copy for AI** on an

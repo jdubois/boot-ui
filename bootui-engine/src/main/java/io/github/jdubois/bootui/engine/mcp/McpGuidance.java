@@ -32,7 +32,9 @@ public final class McpGuidance {
                         "Investigate a runtime failure by correlating health, activity, exceptions, traces, SQL, and logs.",
                         "Diagnose the current runtime issue in this " + framework
                                 + " application. Begin with get_runtime_insights: read its coverage and the checks that"
-                                + " did not run before its observations, and treat INSUFFICIENT as unknown. Then call"
+                                + " did not run before its observations, and treat INSUFFICIENT as unknown. Do not read"
+                                + " requests 0 as idle when observations, the non-HTTP limitation, or eviction say"
+                                + " otherwise. Then call"
                                 + " get_request_profile once on an observation's exemplar id. Check source: journal "
                                 + "returns recorded work; buffers returns the older HTTP-exchange detail, including "
                                 + "exceptionGroupId for get_exception_detail. Source none means neither retains it. Inspect "
@@ -50,7 +52,10 @@ public final class McpGuidance {
                                 + " application. If you know the changed bean, class, repository, or table, first call"
                                 + " get_runtime_impact with its name: its observed and not-exercised routes are what the"
                                 + " tests must reach. Run the tests so the application serves realistic traffic, then"
-                                + " call get_runtime_run_comparison with the id previous, and stop. Report"
+                                + " call get_runtime_insights with the query repeated-selects, then call"
+                                + " get_runtime_run_comparison with the id previous, and stop. The default list omits"
+                                + " repeated SELECTs under 50 ms of summed measured time, so only that query shows"
+                                + " whether a cheap repeat is gone. Report"
                                 + " comparability first: NOT_COMPARABLE or INSUFFICIENT is not a pass. Do not edit"
                                 + " code from a latency row, and do not treat a missing observation as proof that a"
                                 + " behavior is gone."),

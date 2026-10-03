@@ -5,9 +5,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCoverageDto;
+import io.github.jdubois.bootui.core.dto.RuntimeInsightsAgentReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
+import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
@@ -20,6 +22,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
+import io.github.jdubois.bootui.engine.journal.TransactionPayload;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.spi.CorrelationContext;
@@ -109,12 +112,106 @@ class RuntimeInsightsServiceTests {
 
         assertThat(again).isEqualTo(id).matches("repeated-selects:[0-9a-f]{10}");
         assertThat(detail.available()).isTrue();
-        assertThat(detail.columns()).containsExactly("Request", "Executions", "Time (ms)", "Call site");
-        assertThat(detail.rows())
-                .hasSize(3)
-                .allSatisfy(row -> assertThat(row.cells().get(1)).isEqualTo("5"));
+        assertThat(detail.columns())
+                .containsExactly("Request", "Executions", "Time (ms)", "Call site", "Phase", "In transaction");
+        assertThat(detail.rows()).hasSize(3).allSatisfy(row -> {
+            assertThat(row.cells().get(1)).isEqualTo("5");
+            assertThat(row.cells().get(4)).isEqualTo("unknown");
+            assertThat(row.cells().get(5)).isEqualTo("unknown");
+        });
         assertThat(detail.truncated()).isZero();
         assertThat(service.insight("repeated-selects:nothing").available()).isFalse();
+    }
+
+    @Test
+    void repeatedSelectsNamePhaseAndTransactionAndTheDefaultListAppliesTheFiftyMillisecondFloor() {
+        for (int i = 0; i < 3; i++) {
+            request(
+                    "GET",
+                    "/api/orders/{id}",
+                    new Child(
+                            JournalSource.TRANSACTION,
+                            200,
+                            new TransactionPayload("OrderService.find", false, false, false, 100)),
+                    sql("select * from orders where id = ?", RequestPhase.HANDLER, 50, 1_000_000),
+                    sql("select * from lines where order_id = ?", RequestPhase.HANDLER, 150, 1_000_000),
+                    sql("select * from lines where order_id = ?", RequestPhase.HANDLER, 160, 1_000_000),
+                    sql("select * from lines where order_id = ?", RequestPhase.HANDLER, 170, 1_000_000),
+                    sql("select * from lines where order_id = ?", RequestPhase.HANDLER, 180, 1_000_000),
+                    sql("select * from lines where order_id = ?", RequestPhase.HANDLER, 190, 1_000_000));
+        }
+        request(
+                "GET",
+                "/api/outside",
+                sql("select * from orders where id = ?", RequestPhase.FILTERS, 40, 10_000_000),
+                sql("select * from lines where order_id = ?", RequestPhase.RESPONSE, 80, 10_000_000),
+                sql("select * from lines where order_id = ?", RequestPhase.RESPONSE, 90, 10_000_000),
+                sql("select * from lines where order_id = ?", RequestPhase.RESPONSE, 100, 10_000_000),
+                sql("select * from lines where order_id = ?", RequestPhase.RESPONSE, 110, 10_000_000),
+                sql("select * from lines where order_id = ?", RequestPhase.RESPONSE, 120, 10_000_000));
+        request(
+                "GET",
+                "/api/unmeasured",
+                sql("select 1 from parents", null, -1, 0),
+                sql("select * from children where id = ?", null, -1, 0),
+                sql("select * from children where id = ?", null, -1, 0),
+                sql("select * from children where id = ?", null, -1, 0),
+                sql("select * from children where id = ?", null, -1, 0),
+                sql("select * from children where id = ?", null, -1, 0));
+        request(
+                "GET",
+                "/api/unknown",
+                sql("select 1 from parents", RequestPhase.HANDLER, -1, -1),
+                sql("select * from children where id = ?", RequestPhase.HANDLER, -1, -1),
+                sql("select * from children where id = ?", RequestPhase.HANDLER, -1, -1),
+                sql("select * from children where id = ?", RequestPhase.HANDLER, -1, -1),
+                sql("select * from children where id = ?", RequestPhase.HANDLER, -1, -1),
+                sql("select * from children where id = ?", RequestPhase.HANDLER, -1, -1));
+
+        RuntimeInsightsService service = service();
+        RuntimeInsightsReportDto report = service.report();
+        Map<String, RuntimeObservationDto> byRoute = observations(report, RepeatedSelects.KIND);
+        RuntimeObservationDto inside = byRoute.get("GET /api/orders/{id}");
+        RuntimeObservationDetailDto insideDetail = service.insight(inside.id());
+        assertThat(insideDetail.rows()).allSatisfy(row -> {
+            assertThat(row.cells().get(4)).isEqualTo("handler");
+            assertThat(row.cells().get(5)).isEqualTo("yes");
+        });
+        assertThat(inside.limitations())
+                .contains(RepeatedSelects.UNDER_DEFAULT_FLOOR, RepeatedSelects.RESULT_SIZE_UNRECORDED);
+
+        RuntimeObservationDetailDto outside =
+                service.insight(byRoute.get("GET /api/outside").id());
+        assertThat(outside.rows()).singleElement().satisfies(row -> {
+            assertThat(row.cells().get(4)).isEqualTo("response write");
+            assertThat(row.cells().get(5)).isEqualTo("no");
+            assertThat(row.cells().get(2)).isEqualTo("50");
+        });
+        assertThat(byRoute.get("GET /api/outside").limitations())
+                .doesNotContain(RepeatedSelects.UNDER_DEFAULT_FLOOR)
+                .anyMatch(limitation -> limitation.contains("summed across affected requests"));
+
+        assertThat(byRoute.get("GET /api/unmeasured").limitations())
+                .contains(RepeatedSelects.UNMEASURED_REPEAT_TIME)
+                .doesNotContain(RepeatedSelects.UNDER_DEFAULT_FLOOR);
+        RuntimeObservationDetailDto unknown =
+                service.insight(byRoute.get("GET /api/unknown").id());
+        assertThat(unknown.rows())
+                .singleElement()
+                .satisfies(row -> assertThat(row.cells().get(2)).isEqualTo("unknown"));
+        assertThat(byRoute.get("GET /api/unknown").limitations())
+                .contains(RepeatedSelects.UNKNOWN_REPEAT_TIME)
+                .doesNotContain(RepeatedSelects.UNDER_DEFAULT_FLOOR);
+
+        RuntimeInsightsAgentReportDto list = RuntimeInsightsAgentView.list(report, "", 20);
+        assertThat(list.observations())
+                .filteredOn(observation -> RepeatedSelects.KIND.equals(observation.kind()))
+                .extracting(observation -> observation.subject())
+                .contains("GET /api/outside", "GET /api/unmeasured", "GET /api/unknown")
+                .doesNotContain("GET /api/orders/{id}");
+        assertThat(RuntimeInsightsAgentView.list(report, "repeated-selects", 20).observations())
+                .extracting(observation -> observation.subject())
+                .contains("GET /api/orders/{id}");
     }
 
     @Test
@@ -519,6 +616,13 @@ class RuntimeInsightsServiceTests {
 
     private static OrmPayload orm() {
         return new OrmPayload("default", 1, 1_000, 1, 1_000, 1, 1_000, 0, 0, 1, 1, 0, 0, 0, List.of());
+    }
+
+    private static Child sql(String sql, RequestPhase phase, long completedNanos, long durationNanos) {
+        return new Child(
+                JournalSource.SQL,
+                durationNanos,
+                new SqlPayload(sql, "Repo.run:1", "db", false, null, phase, completedNanos));
     }
 
     private record Child(JournalSource source, long nanos, RuntimeEventPayload payload) {}
