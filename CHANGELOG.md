@@ -504,6 +504,22 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Security
 
+- **Every runtime-journal source now follows its panel's policy.** The sources 2.0 added — `authorization`, `orm`,
+  `websocket`, and `agent.executors` — and `connection` were owned by no panel, so their evidence was still recorded
+  and served through Live Activity, request profiles, Runtime Insights, and the MCP tools and CLI commands over them
+  while the panel that publishes it (Security Logs, Hibernate, WebSockets, Java Agent, SQL Trace) was disabled. Runtime
+  Insights additionally ignored `security`, `cache`, `messaging`, `scheduled`, and `mail`. One mapping,
+  `JournalSourcePanels`, now names the owning panel of every source for all three surfaces on Spring MVC, Spring
+  WebFlux, and Quarkus, exhaustively, so a new source cannot be added without declaring its panel. A disabled panel's
+  events are left out of the Runtime Insights projection, every observation reading that source is `NOT_APPLICABLE`
+  with the panel named, and one reading it as optional evidence says the evidence is not counted — including when only
+  one broker's panel (`kafka`, `rabbitmq`, `jms`) is disabled. A unit of work is left out whole when the panel owning
+  the event that opens it is disabled, since that event names the route, destination, and status the panel publishes.
+  One projection reads each panel's state once, so a panel toggled while it runs cannot make a recorded source read as
+  absent. The running agent handoffs Live Activity synthesizes now require the Java Agent panel, and an observation
+  that treats a source as optional evidence reads "recorded **and** visible", so a disabled panel can no longer read as
+  proof that nothing happened and produce a false finding.
+
 - **Trace data now follows the value-exposure policy.** `GET /bootui/api/traces/{id}`, the trace embedded in the
   per-request profile (`GET /bootui/api/activity/request/{id}`), and their `get_request_profile` MCP tool and
   `bootui request-profile` projections returned span status messages, `exception.message` and `exception.stacktrace`

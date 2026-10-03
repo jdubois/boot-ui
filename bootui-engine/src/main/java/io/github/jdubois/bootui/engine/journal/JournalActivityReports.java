@@ -89,7 +89,7 @@ public final class JournalActivityReports {
                 cap,
                 details,
                 journal::evictedARequestOf,
-                journal.settings().records(JournalSource.AGENT_EXECUTORS)
+                journal.settings().records(JournalSource.AGENT_EXECUTORS) && panelEnabled(BootUiPanels.JAVA_AGENT)
                         ? RunningHandoffs.shared().snapshot()
                         : List.of());
         return new LiveActivityReport(
@@ -127,30 +127,8 @@ public final class JournalActivityReports {
         }
     }
 
-    /** The panel that owns an event's rows, whose policy the feed honors. */
+    /** The panel that owns an event's rows, whose policy the feed honors ({@link JournalSourcePanels}). */
     static String panelOf(RuntimeEvent event) {
-        return switch (event.source()) {
-            case HTTP -> BootUiPanels.HTTP_EXCHANGES;
-            case SQL -> BootUiPanels.SQL_TRACE;
-            case REST_CLIENT -> BootUiPanels.REST_CLIENT_TRACE;
-            case EXCEPTION -> BootUiPanels.EXCEPTIONS;
-            case SECURITY -> BootUiPanels.SECURITY_LOGS;
-            case CACHE -> BootUiPanels.CACHE;
-            case SCHEDULED -> BootUiPanels.SCHEDULED;
-            case TRANSACTION -> BootUiPanels.TRANSACTIONS;
-            case LOG -> BootUiPanels.LOG_TAIL;
-            case MAIL -> BootUiPanels.EMAIL;
-            case FAULT_TOLERANCE -> BootUiPanels.FAULT_TOLERANCE;
-            case AI -> BootUiPanels.AI;
-            case MESSAGING ->
-                event.payload() instanceof MessagingPayload message
-                        ? switch (String.valueOf(message.broker())) {
-                            case "jms" -> BootUiPanels.JMS;
-                            case "rabbitmq" -> BootUiPanels.RABBITMQ;
-                            default -> BootUiPanels.KAFKA;
-                        }
-                        : BootUiPanels.KAFKA;
-            default -> null;
-        };
+        return JournalSourcePanels.panelOf(event);
     }
 }
