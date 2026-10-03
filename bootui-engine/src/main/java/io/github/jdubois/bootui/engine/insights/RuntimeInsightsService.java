@@ -667,10 +667,7 @@ public final class RuntimeInsightsService {
     }
 
     private String missingSource(
-            Observation observation,
-            InsightsSnapshot snapshot,
-            PanelVisibility visibility,
-            List<String> hiddenPanels) {
+            Observation observation, InsightsSnapshot snapshot, PanelVisibility visibility, List<String> hiddenPanels) {
         for (JournalSource source : observation.reads()) {
             if (!snapshot.records(source)) {
                 return "The runtime journal does not record the " + source.propertyName()
