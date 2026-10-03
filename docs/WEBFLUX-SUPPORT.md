@@ -176,10 +176,12 @@ were already framework-neutral in practice, not just in the engine underneath th
     functional predicates are listed whole.
 
 [^runtime-insights-reactive]: The shared `RuntimeInsightsController` reads the same runtime journal. WebFlux marks no
-    request phases, so `route-time-breakdown` reports the time around a request's calls as unattributed, and a route
-    whose requests made no recorded call is insufficient rather than one unattributed span; `lazy-sql-after-handler`
-    is not applicable. BootUI records JDBC, not R2DBC, so in an application without a traced `DataSource` the checks
-    that read SQL report `UNAVAILABLE` with that reason; only blocking transactions are placed. With the BootUI agent attached,
+    handler or response phase, so `route-time-breakdown` names the authentication time Spring Security observed and
+    reports the rest of the time around a request's calls as unattributed, and a route whose requests named nothing at
+    all, neither a recorded call nor authentication time, is insufficient rather than one unattributed span;
+    `lazy-sql-after-handler` is not applicable. BootUI records
+    JDBC, not R2DBC, so in an application without a traced `DataSource` the checks that read SQL report `UNAVAILABLE`
+    with that reason; only blocking transactions are placed. With the BootUI agent attached,
     `work-after-response` applies as on Spring MVC. Reactor's own schedulers already carry BootUI's context when
     `spring.reactor.context-propagation=auto`, so the agent's executors sensor then skips their `parallel-`,
     `boundedElastic-`, and `single-` threads; raw executors and `CompletableFuture` are propagated by the agent.
