@@ -64,13 +64,15 @@ public final class AiObservationJournalHandler implements ObservationHandler<Obs
         String responseModel = value(context, "gen_ai.response.model");
         boolean failed = context.getError() != null;
         String[] span = Tracing.span(context);
+        long completed = System.nanoTime();
         AiCallEvents.publish(
                 target,
                 started.correlation(),
                 span[0],
                 span[1],
                 started.epochMillis(),
-                System.nanoTime() - started.nanos(),
+                completed - started.nanos(),
+                completed,
                 started.thread(),
                 new AiPayload(
                         operation,

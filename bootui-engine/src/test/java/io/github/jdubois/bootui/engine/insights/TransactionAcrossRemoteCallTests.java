@@ -84,6 +84,25 @@ class TransactionAcrossRemoteCallTests {
                 .isEqualTo("NOT_APPLICABLE");
     }
 
+    @Test
+    void enoughTransactionsWhoseCallsAreFastAreNotReportedAsNeedingMoreTraffic() {
+        for (int i = 0; i < 4; i++) {
+            request("PUT", "/api/stock", transaction("StockService.update", 0, 100), call("/sync", 80, 5));
+        }
+
+        RuntimeInsightsReportDto report =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null).report();
+
+        assertThat(report.observations())
+                .noneMatch(observation -> observation.kind().equals(TransactionAcrossRemoteCall.KIND));
+        assertThat(report.checks().stream()
+                        .filter(check -> check.kind().equals(TransactionAcrossRemoteCall.KIND))
+                        .findFirst()
+                        .orElseThrow()
+                        .status())
+                .isEqualTo("EVALUATED");
+    }
+
     private static Child transaction(String method, long startMs, long endMs) {
         return new Child(
                 JournalSource.TRANSACTION,

@@ -135,6 +135,37 @@ class TransactionPlacementObservationsTests {
     }
 
     @Test
+    void requestsWhoseResponseSqlCannotBePlacedAgainstTheirTransactionsAreCountedApart() {
+        for (int i = 0; i < 3; i++) {
+            request(
+                    "GET",
+                    "/api/orders/{id}",
+                    transaction("OrderService.find", false, false, false, 100, 200),
+                    sql("select * from lines where order_id = 1", RequestPhase.RESPONSE, 300));
+        }
+        // The transaction has no monotonic start, so whether the statement ran inside it cannot be told.
+        request(
+                "GET",
+                "/api/orders/{id}",
+                new Child(
+                        JournalSource.TRANSACTION,
+                        100,
+                        new TransactionPayload("OrderService.find", false, false, false, -1),
+                        null),
+                sql("select * from lines where order_id = 1", RequestPhase.RESPONSE, 300));
+
+        RuntimeInsightsReportDto report = service(InsightsStack.SPRING_MVC).report();
+        RuntimeObservationDto lazy =
+                byKind(report, LazySqlAfterHandler.KIND).stream().findFirst().orElseThrow();
+
+        assertThat(lazy.sentence()).contains("in 3 of 3 requests");
+        assertThat(lazy.limitations())
+                .contains("1 request could not be placed, since a transaction or statement had no monotonic time.");
+        assertThat(check(report, LazySqlAfterHandler.KIND).reason())
+                .contains("1 request ran SQL after the handler that could not be placed against its transactions");
+    }
+
+    @Test
     void sqlAViewRanWhileRenderingIsNamedAsViewRenderingNotLazyLoading() {
         ApplicationFrames formatter = ApplicationFrames.of(List.of(
                 "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)",

@@ -71,6 +71,8 @@ class QuarkusAiCallListenerTest {
         });
         assertThat(events)
                 .extracting(event -> (AiPayload) event.payload())
+                .allSatisfy(payload -> assertThat(payload.completedNanos()).isNotEqualTo(-1))
+                .usingRecursiveFieldByFieldElementComparatorIgnoringFields("completedNanos")
                 .containsExactlyInAnyOrder(
                         new AiPayload("chat", "ollama", "llama3:8b", 14L, 3L, "length", false),
                         new AiPayload("chat", "openai", "llama3", null, null, null, true));
