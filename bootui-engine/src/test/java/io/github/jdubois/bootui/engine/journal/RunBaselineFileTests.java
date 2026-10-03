@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.model.ObservedEdge;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
@@ -87,6 +88,24 @@ class RunBaselineFileTests {
 
         assertThatThrownBy(() -> file.write(summary())).isInstanceOf(NoSuchFileException.class);
         assertThat(path.getParent()).doesNotExist();
+    }
+
+    @Test
+    void aBaselineExcludesTruncatedSqlLiteralValues() throws IOException {
+        String secret = "sëcrét-baseline";
+        JournalAggregates aggregates = new JournalAggregates();
+        aggregates.onEntries(java.util.List.of(
+                entry(1, sql("r1", "select * from orders where note = $body$" + secret)),
+                entry(2, http("r1", "/api/orders", 200))));
+        RunBaselineFile file = new RunBaselineFile(directory.resolve("bootui-baseline.bin"), "shop", "2.0.0");
+
+        file.write(RunSummary.of(RunIdentity.start(), aggregates.snapshot(), 3_000));
+
+        assertThat(new String(Files.readAllBytes(file.path()), StandardCharsets.UTF_8))
+                .doesNotContain(secret);
+        assertThat(file.read().summary().aggregates().statements())
+                .extracting(JournalAggregates.StatementStats::fingerprint)
+                .containsExactly("select * from orders where note = ?");
     }
 
     @Test
