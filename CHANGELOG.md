@@ -7,6 +7,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Retained request and execution profiles.** Live Activity displays the runtime-journal timeline even after an
+  HTTP exchange leaves the shorter buffer. `get_request_profile` and `bootui request-profile` open journal requests,
+  scheduled runs, and consumed-message executions first; their result names the selected source and falls back to the
+  HTTP-exchange profile when necessary. Missing ids identify both retention windows (PLAN-v2 M2-9b, M3-7).
+
 ### Added
 
 - **Executor propagation with the BootUI agent.** With the agent attached, its `executors` sensor carries a request's

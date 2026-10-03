@@ -136,7 +136,7 @@ bootui --url http://127.0.0.1:8080 overview
 bootui agent status --json                      # optional BootUI Java agent attachment/claim state
 bootui hibernate scan --json | jq '.severityCounts'
 bootui exceptions show <id> --json
-bootui request-profile <id> --json             # one request's SQL, N+1 groups, exceptions, and timing
+bootui request-profile <id> --json # retained journal profile, or HTTP-exchange fallback
 ```
 
 - `--url` (or `BOOTUI_URL`) defaults to `http://localhost:8080`; pass the application's real port.
@@ -287,7 +287,9 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
    sentence, `verify` line, and exemplar request. Past the limit, every kind appears once before any kind twice; list
    one kind with `--query <kind>` such as `--query proxy-bypass`. `notExercised` lists routes no request reached.
 3. Open one observation with `bootui insights show <id> --json` for its evidence rows, then its exemplar with
-   `bootui request-profile <exemplarRequestId> --json`.
+   `bootui request-profile <exemplarRequestId> --json`. Check `source`: `journal` holds the timeline and touched
+   resources (including scheduled/message executions), `buffers` holds the HTTP-exchange details (also included
+   alongside a journal HTTP profile when retained), and `none` says neither window retains the id.
 
 ### Change code and verify it with runtime evidence
 
@@ -307,11 +309,12 @@ behind 2xx answers, anonymous writes — each as one sentence with an exemplar r
    for the request in question. Only an entry with `profileable: true` has a profile; `sqlNPlusOneSuspected` and the
    `ERROR` or `SLOW` severities point at the requests worth opening.
 2. Fetch its profile with `bootui request-profile <id> --json` (`get_request_profile`), passing that entry's `id`. It
-   returns the same masked profile as the Live Activity drawer: correlated SQL grouped by normalized statement, with N+1
-   groups and the application call sites that issued them, exceptions, security events, REST client calls, cache
-   accesses, timing, and correlation notes. `available: false` with an `unavailableReason` means the request was
-   evicted or cannot be correlated; it is an answer, not an error to retry.
-3. For each exception in the profile, read its stack trace and cause chain with
+   returns `source: journal` with a recorded timeline, resources and touched metadata when retained. When that is
+   unavailable, `source: buffers` returns the older HTTP-exchange profile; when both are retained, it accompanies
+   `source: journal`: SQL groups with N+1 flags and call sites,
+   exceptions, security events, REST calls, cache accesses, timing, and correlation notes. `source: none` with
+   `available: false` means neither retains the id; it is an answer, not an error to retry.
+3. For each exception in a present `buffers` profile, read its stack trace and cause chain with
    `bootui exceptions show <exceptionGroupId> --json` (`get_exception_detail`).
 4. Check each section's `truncated` count and the `notes` before concluding a statement or call did not happen, and
    treat a `TIME_WINDOW` tier as approximate.

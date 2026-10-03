@@ -1346,8 +1346,9 @@ Features:
   site(s) that issued them (from SQL Trace's call-site capture, `bootui.sql-trace.capture-call-site`, on by default) so a
   flagged group names exactly where in the code to look. Each correlated exception carries the `exceptionGroupId` of
   its Exceptions group, so a profile reaches the group's detail through `GET /bootui/api/exceptions/{id}` or
-  `get_exception_detail`. The same profile is the `get_request_profile` MCP tool and `bootui request-profile <id>` CLI
-  command, which return the endpoint's DTO unchanged, including its unavailable profile for an unknown or evicted id.
+  `get_exception_detail`. The `get_request_profile` MCP tool and `bootui request-profile <id>` CLI command instead
+  select the journal's retained request or scheduled/message execution profile first, and this HTTP-exchange DTO as
+  fallback; `source: "none"` reports when neither retains the id.
 - **Copy profile** and **Copy for AI** in the profile drawer, and **Copy for AI** in an Exceptions detail, render one
   Markdown document through a single shared frontend helper, built only from DTOs the browser holds or loads through
   existing read endpoints, so identical DTOs produce identical text on every adapter. Captured strings are escaped, and

@@ -173,6 +173,7 @@ test.describe('BootUI on Spring WebFlux', () => {
     const traced = await request.get(`${baseURL}/api/greetings/Grace`, {
       headers: {traceparent: `00-${traceId}-00f067aa0ba902b7-01`}
     })
+
     expect(traced.ok()).toBeTruthy()
 
     const activity = await request.get(`${baseURL}/bootui/api/activity`)
@@ -209,6 +210,36 @@ test.describe('BootUI on Spring WebFlux', () => {
 
     await page.keyboard.press('Escape')
     await expect(drawer).toHaveCount(0)
+  })
+
+  test('opens the reactive journal profile when its HTTP exchange has left the buffer', async ({
+    page,
+    request,
+    baseURL
+  }) => {
+    const traffic = await request.get(`${baseURL}/api/greetings/Grace`)
+    expect(traffic.ok()).toBeTruthy()
+    const activity = await request.get(`${baseURL}/bootui/api/activity?source=journal`)
+    const exemplar = (await activity.json()).entries.find(
+      (entry) => entry.type === 'REQUEST' && entry.path === '/api/greetings/Grace'
+    )
+    expect(exemplar?.id).toBeTruthy()
+
+    await page.route('**/api/activity/request/*', async (route) => {
+      if (route.request().url().endsWith('/journal')) return route.continue()
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          available: false,
+          unavailableReason: `Request ${exemplar.id} is no longer in the buffer.`
+        })
+      })
+    })
+    await page.goto(`/bootui/#/activity?request=${encodeURIComponent(exemplar.id)}`)
+    const drawer = page.locator('.activity-drawer')
+    await expect(drawer.locator('.request-journal')).toContainText('GET /api/greetings/{name}')
+    await expect(drawer).toContainText('HTTP-exchange details unavailable')
   })
 
   test('opens the runtime journal status, which records the reactive requests', async ({page, request, baseURL}) => {

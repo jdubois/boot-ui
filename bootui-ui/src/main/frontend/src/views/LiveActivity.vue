@@ -528,10 +528,10 @@ async function openProfile(
   opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
 ) {
   if (!entry.profileable) return
-  await loadProfile(entry.id, opener)
+  await loadProfile(entry.id, opener, entry.type === 'SCHEDULED' || (entry.type === 'MESSAGING' && fromJournal.value))
 }
 
-async function loadProfile(id, opener) {
+async function loadProfile(id, opener, execution = false) {
   profileOpenerEl.value =
     opener?.matches?.('button, a, input, select, textarea, [tabindex]:not([tabindex="-1"])') === true
       ? opener
@@ -543,14 +543,17 @@ async function loadProfile(id, opener) {
   journalProfile.value = null
   aiExport.value = null
   try {
-    const response = await apiFetch(`api/activity/request/${encodeURIComponent(id)}`)
-    if (!response.ok) {
-      throw new Error(`Request failed with status ${response.status}`)
+    if (!execution) {
+      const response = await apiFetch(`api/activity/request/${encodeURIComponent(id)}`)
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`)
+      }
+      profile.value = await response.json()
     }
-    profile.value = await response.json()
     await loadJournalProfile(profile.value?.request?.requestId || id)
   } catch (err) {
-    profileError.value = err.message || 'Could not load request profile'
+    await loadJournalProfile(id)
+    if (!journalProfile.value?.available) profileError.value = err.message || 'Could not load request profile'
   } finally {
     profileLoading.value = false
     focusDrawer()
@@ -1364,8 +1367,35 @@ function toggleFlow() {
             heading="Copy profile for AI"
             @close="closeAiExport"
           />
-          <div v-else-if="profile && !profile.available" class="alert alert-warning">
-            {{ profile.unavailableReason }}
+          <div v-else-if="!profile?.available">
+            <section v-if="journalProfile?.available" class="mb-3">
+              <h3 class="h6">
+                {{
+                  journalProfile.route?.startsWith('Scheduled:') || journalProfile.route?.startsWith('Message:')
+                    ? 'Execution'
+                    : 'Request'
+                }}
+              </h3>
+              <dl class="row small mb-0">
+                <dt class="col-4">Route</dt>
+                <dd class="col-8">
+                  <code>{{ journalProfile.route }}</code>
+                </dd>
+                <template v-if="journalProfile.status != null">
+                  <dt class="col-4">Status</dt>
+                  <dd class="col-8">{{ journalProfile.status }}</dd>
+                </template>
+                <dt class="col-4">Duration</dt>
+                <dd class="col-8">{{ formatDurationMs(journalProfile.durationMicros / 1000) }}</dd>
+              </dl>
+            </section>
+            <p v-if="profile?.unavailableReason && journalProfile?.status != null" class="small text-muted">
+              HTTP-exchange details unavailable: {{ profile.unavailableReason }}
+            </p>
+            <div v-if="profile?.unavailableReason && !journalProfile?.available" class="alert alert-warning">
+              {{ profile.unavailableReason }}
+            </div>
+            <RequestJournalProfile v-if="journalProfile" :profile="journalProfile" />
           </div>
           <div v-else-if="profile">
             <section class="mb-3">
