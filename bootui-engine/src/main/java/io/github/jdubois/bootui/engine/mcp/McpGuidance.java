@@ -11,7 +11,9 @@ public final class McpGuidance {
         return "BootUI exposes a running " + framework
                 + " application for local diagnosis. Start with get_overview and get_health, then choose the "
                 + "smallest relevant read tool; for why a route is slow or what a change did, start with "
-                + "get_runtime_insights and get_runtime_run_comparison; use get_live_activity to correlate requests, SQL, exceptions, and "
+                + "get_runtime_insights and get_runtime_run_comparison; before editing a bean, class, repository, or "
+                + "table, call get_runtime_impact with its name to learn which routes exercise it and which this run "
+                + "never reached; use get_live_activity to correlate requests, SQL, exceptions, and "
                 + "security events, follow a profileable request id with get_request_profile, and follow an "
                 + "exception id with get_exception_detail. Advisor *_scan tools "
                 + "actively inspect the application: memory_scan may trigger a full GC and pentest_scan sends bounded "
@@ -42,7 +44,9 @@ public final class McpGuidance {
                         "verify_after_change",
                         "Verify a change by comparing the run after the tests with the previous one, then stop.",
                         "Verify the change just made to this " + framework
-                                + " application. Run its tests so the application serves realistic traffic, then"
+                                + " application. If you know the changed bean, class, repository, or table, first call"
+                                + " get_runtime_impact with its name: its observed and not-exercised routes are what the"
+                                + " tests must reach. Run the tests so the application serves realistic traffic, then"
                                 + " call get_runtime_run_comparison with the id previous, and stop. Report"
                                 + " comparability first: NOT_COMPARABLE or INSUFFICIENT is not a pass. Do not edit"
                                 + " code from a latency row, and do not treat a missing observation as proof that a"

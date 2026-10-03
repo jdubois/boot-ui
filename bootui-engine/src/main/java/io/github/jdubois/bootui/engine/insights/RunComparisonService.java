@@ -36,8 +36,8 @@ public final class RunComparisonService {
     }
 
     /**
-     * Compares the current run with the kept run {@code runId}, or with the newest kept run when it is {@code null} or
-     * blank.
+     * Compares the current run with the kept run {@code runId}, or, when it is {@code null} or blank, with the newest
+     * kept run that served HTTP requests (the newest kept run when none did).
      */
     public RuntimeRunComparisonDto compare(String runId) {
         if (journal == null || aggregates == null || !journal.settings().enabled()) {
@@ -77,8 +77,20 @@ public final class RunComparisonService {
             }
         }
         RunSummary previous = null;
+        List<String> skipped = new ArrayList<>();
         if (runId == null || runId.isBlank()) {
-            previous = kept.isEmpty() ? null : kept.get(0);
+            // DevTools may restart twice for one change, leaving a run that served nothing between the two that did.
+            for (RunSummary summary : kept) {
+                if (summary.header().requests() > 0) {
+                    previous = summary;
+                    break;
+                }
+                skipped.add(summary.header().runId());
+            }
+            if (previous == null) {
+                previous = kept.isEmpty() ? null : kept.get(0);
+                skipped.clear();
+            }
         } else {
             for (RunSummary summary : kept) {
                 if (summary.header().runId().equals(runId)) {
@@ -91,7 +103,7 @@ public final class RunComparisonService {
                         + RunHistory.MAX_RUNS + " most recent runs are kept.";
             }
         }
-        return RunComparison.compare(
+        RuntimeRunComparisonDto comparison = RunComparison.compare(
                 journal.run(),
                 aggregates.snapshot(),
                 aggregates.runStart(),
@@ -99,5 +111,26 @@ public final class RunComparisonService {
                 headers,
                 reason,
                 history == null ? null : history.baselineRunId());
+        if (skipped.isEmpty()) {
+            return comparison;
+        }
+        List<String> limitations = new ArrayList<>();
+        limitations.add("Compared with run " + previous.header().runId() + ", the newest kept run that served HTTP"
+                + " requests: the newer " + (skipped.size() == 1 ? "run " : "runs ") + String.join(", ", skipped)
+                + " served none, as when DevTools restarts twice for one change. Pass a run id to compare with"
+                + " another.");
+        limitations.addAll(comparison.limitations());
+        return new RuntimeRunComparisonDto(
+                comparison.status(),
+                comparison.reason(),
+                comparison.current(),
+                comparison.previous(),
+                comparison.runs(),
+                comparison.notComparableReasons(),
+                comparison.behavior(),
+                comparison.edges(),
+                comparison.restartCost(),
+                comparison.latency(),
+                limitations);
     }
 }

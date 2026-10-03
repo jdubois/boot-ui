@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.core.dto.RuntimeInsightAgentDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsAgentReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
+import io.github.jdubois.bootui.core.dto.RuntimeInsightsWindowDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationRowDto;
@@ -36,6 +37,48 @@ class RuntimeInsightsAgentViewTests {
         assertThat(list.observations().get(0).exemplarRequestId()).isEqualTo("r-0");
         assertThat(list.observations().get(0).verify()).isEqualTo("Check the call site.");
         assertThat(list.limitations()).anyMatch(limitation -> limitation.contains("query latency"));
+        assertThat(list.requests()).isEqualTo(12);
+        assertThat(list.notExercised()).hasSize(8).first().isEqualTo("GET /api/unused/0");
+        assertThat(list.notExercisedOmitted()).isEqualTo(2 + 5);
+    }
+
+    @Test
+    void aProlificKindCannotHideTheOthersAndWhatIsLeftOutSaysHowToListIt() {
+        RuntimeInsightsAgentReportDto list = RuntimeInsightsAgentView.list(report(), null, null);
+
+        assertThat(list.observations())
+                .extracting(observation -> observation.kind())
+                .contains(AnonymousDataReach.KIND, ExceptionHotspots.KIND)
+                .filteredOn(RepeatedSelects.KIND::equals)
+                .hasSize(6);
+        assertThat(list.limitations())
+                .contains("Left out by limit: repeated-selects 2. List one kind by passing its name as the query, or"
+                        + " raise limit.");
+        assertThat(RuntimeInsightsAgentView.list(report(), "Repeated-Selects", 20)
+                        .observations())
+                .hasSize(8)
+                .extracting(observation -> observation.kind())
+                .containsOnly(RepeatedSelects.KIND);
+    }
+
+    @Test
+    void aRunWithoutRequestsSaysItsEmptyListMeansNotExercised() {
+        RuntimeInsightsReportDto idle = new RuntimeInsightsReportDto(
+                true,
+                null,
+                new RuntimeInsightsWindowDto("run-1", null, null, 40, 0, 0, 0),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                0);
+
+        RuntimeInsightsAgentReportDto list = RuntimeInsightsAgentView.list(idle, null, null);
+
+        assertThat(list.requests()).isZero();
+        assertThat(list.observations()).isEmpty();
+        assertThat(list.limitations().get(0)).contains("not exercised, not healthy");
     }
 
     @Test
@@ -88,9 +131,9 @@ class RuntimeInsightsAgentViewTests {
         RuntimeRunComparisonAgentDto compact = RuntimeInsightsAgentView.comparison(new RuntimeRunComparisonDto(
                 "NOT_COMPARABLE",
                 "The data source changed.",
-                null,
+                new RuntimeRunRefDto("run-5", 5, 3, null, 12, "CURRENT"),
                 new RuntimeRunRefDto("run-4", 4, 1, 2L, 10, "KEPT"),
-                List.of(),
+                List.of(new RuntimeRunRefDto("run-4", 4, 1, 2L, 10, "KEPT")),
                 List.of("jdbc:h2 then jdbc:postgresql"),
                 behavior,
                 List.of(),
@@ -101,6 +144,8 @@ class RuntimeInsightsAgentViewTests {
         assertThat(compact.status()).isEqualTo("NOT_COMPARABLE");
         assertThat(compact.notComparableReasons()).containsExactly("jdbc:h2 then jdbc:postgresql");
         assertThat(compact.previousRunId()).isEqualTo("run-4");
+        assertThat(compact.currentRunId()).isEqualTo("run-5");
+        assertThat(compact.runs()).extracting(run -> run.runId()).containsExactly("run-4");
         assertThat(compact.behavior()).hasSize(8);
         assertThat(compact.behaviorOmitted()).isEqualTo(3);
         assertThat(compact.limitations()).anyMatch(limitation -> limitation.contains("Latency rows are left out"));
@@ -117,10 +162,12 @@ class RuntimeInsightsAgentViewTests {
         observations.add(observation(9, AnonymousDataReach.KIND, "POST /api/debug", "an anonymous write"));
         observations.add(observation(
                 10, ExceptionHotspots.KIND, "GET /api/boom", "recorded `X`, not observed in the previous run"));
+        List<String> notExercised =
+                IntStream.range(0, 10).mapToObj(i -> "GET /api/unused/" + i).toList();
         return new RuntimeInsightsReportDto(
                 true,
                 null,
-                null,
+                new RuntimeInsightsWindowDto("run-1", 1L, 2L, 100, 12, 0, 0),
                 List.of(),
                 List.of(
                         new RuntimeInsightCheckDto(RepeatedSelects.KIND, "Repeated SELECTs", "EVALUATED", 9, 8, null),
@@ -133,8 +180,8 @@ class RuntimeInsightsAgentViewTests {
                                 "Spring MVC serves requests on worker threads.")),
                 observations,
                 List.of(),
-                List.of(),
-                0);
+                notExercised,
+                5);
     }
 
     private static RuntimeObservationDto observation(int i, String kind, String subject, String sentence) {

@@ -668,9 +668,11 @@ temporary recording that is deleted once read. A runtime without JFR, or a journ
 `resources` source, reports why no session can run, and `bootui.panels.runtime-insights.read-only` or
 `bootui.read-only` blocks starting one.
 
-**Compared with the previous run** compares this run with the newest run whose summary is kept, after a DevTools
-restart, a Quarkus live reload, or, with `bootui.runtime-journal.baseline-file`, a full JVM restart; a picker chooses
-another kept run. On a laptop, warmup and noise dominate latency while the work identical requests do is stable, so the
+**Compared with the previous run** compares this run with the newest run whose summary is kept and that served HTTP
+requests, after a DevTools restart, a Quarkus live reload, or, with `bootui.runtime-journal.baseline-file`, a full JVM
+restart. DevTools can restart twice for one change, so a newer kept run that served nothing is skipped, and a limitation
+names it; when no kept run served a request, the newest is used. A picker chooses another kept run. On a laptop,
+warmup and noise dominate latency while the work identical requests do is stable, so the
 comparison leads with behavior: per route, the statements, REST calls, AI calls, cache misses, and tokens per request,
 the Hibernate flushes and entities in the persistence context per request when both runs recorded sessions,
 the share of 4xx and 5xx answers, and the memory allocated per request, each once the route served 3 requests in both

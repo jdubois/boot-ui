@@ -256,6 +256,28 @@ class McpDispatcherTests {
     }
 
     @Test
+    void toolsCallWithoutLimitGetsACompactedToolsShortDefaultPage() {
+        McpTool insights = new McpTool(
+                "get_runtime_insights",
+                "Runtime Insights for agents.",
+                McpToolSchema.QUERY_LIMIT,
+                "runtime-insights",
+                false,
+                args -> Map.of("limit", args.limit()));
+        McpDispatcher dispatcher = new McpDispatcher(
+                List.of(insights), List.of(), policy, "1.2.3", "instructions text", 50, 20, diagnostics);
+
+        assertThat(((ToolCallResult) dispatcher.dispatch(new McpRequest(
+                                JSONRPC, "tools/call", false, null, "get_runtime_insights", null, null, null)))
+                        .payload())
+                .isEqualTo(Map.of("limit", 8));
+        assertThat(((ToolCallResult) dispatcher.dispatch(new McpRequest(
+                                JSONRPC, "tools/call", false, null, "get_runtime_insights", null, 20, null)))
+                        .payload())
+                .isEqualTo(Map.of("limit", 20));
+    }
+
+    @Test
     void toolsCallWithIdSchemaPassesTrimmedIdToHandler() {
         McpDispatchOutcome outcome = dispatcher()
                 .dispatch(new McpRequest(

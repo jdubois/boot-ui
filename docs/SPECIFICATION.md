@@ -1570,8 +1570,8 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   not, and the routes outside its reach that use a table, cache, or host the routes through it touched, with the
   structural reach as a count. It is worded as what was and was not exercised, never as safe, and reads only what the
   journal, the aggregates, and the bean and mapping providers already hold.
-- `GET /bootui/api/runtime-insights/comparison[?run=<runId>]` compares the current run with the newest kept run, or the
-  chosen one ([PLAN-v2.md](PLAN-v2.md) §5.8). Its status is `COMPARED`, `INSUFFICIENT` when no route served 3 requests
+- `GET /bootui/api/runtime-insights/comparison[?run=<runId>]` compares the current run with the newest kept run that
+  served HTTP requests (the newest kept run when none did), or the chosen one ([PLAN-v2.md](PLAN-v2.md) §5.8). Its status is `COMPARED`, `INSUFFICIENT` when no route served 3 requests
   in both runs, `NOT_COMPARABLE` with the database, profile, or cache difference first, `NO_PREVIOUS_RUN` with the
   reason, or `UNAVAILABLE`. Behavior rows come first (statements, REST and AI calls, cache misses, and tokens per
   request; new statements, exceptions, and routes; status-class shares; allocation), then the runtime model's added and
@@ -2834,7 +2834,7 @@ Initial endpoints:
 | `/bootui/api/runtime-insights`               | GET    | Runtime Insights: the journal's retained events projected into observations, with the window, per-source correlation coverage, each check's status, limitations, and the declared routes not exercised in this run |
 | `/bootui/api/runtime-insights/insights/{id}` | GET    | One observation by its stable id, with up to 20 evidence rows and how many were left out; an unknown id answers unavailable |
 | `/bootui/api/runtime-insights/impact`        | GET    | `?symbol=<symbol>`: the routes that ran through a bean, class, repository, table, cache, or host in this run, those that did not, and those sharing a resource with it; `AMBIGUOUS`, `NOT_FOUND`, or `UNAVAILABLE` with the reason |
-| `/bootui/api/runtime-insights/comparison`    | GET    | The current run compared with the newest kept run, or `?run=<runId>`: behavior rows, new and gone edges, restart cost, and warm latency last; `INSUFFICIENT`, `NOT_COMPARABLE`, or `NO_PREVIOUS_RUN` with the reason |
+| `/bootui/api/runtime-insights/comparison`    | GET    | The current run compared with the newest kept run that served requests, or `?run=<runId>`: behavior rows, new and gone edges, restart cost, and warm latency last; `INSUFFICIENT`, `NOT_COMPARABLE`, or `NO_PREVIOUS_RUN` with the reason |
 | `/bootui/api/runtime-insights/resource-profile` | GET | The **Profile resources** session's state and the last session's CPU samples, allocation, and hot frames by route; starts nothing |
 | `/bootui/api/runtime-insights/resource-profile` | POST | Start a JFR session bounded by `bootui.resources.jfr.max-duration` |
 | `/bootui/api/runtime-insights/resource-profile/stop` | POST | End the running session now and return its results |
