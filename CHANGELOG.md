@@ -9,6 +9,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Work after the response.** Follow-up to [#1218](https://github.com/jdubois/boot-ui/pull/1218):
+  confirmed JDK task-body completion restores fast late-starting tasks and earlier SQL followed by long-running
+  computation, without counting a waited-for task's delayed handoff close. Result-publication tails remain visible
+  and I/O uses the actual response boundary (PLAN-v2 M5-2b, D32).
+
 - **Retained request and execution profiles.** Live Activity displays the runtime-journal timeline even after an
   HTTP exchange leaves the shorter buffer. `get_request_profile` and `bootui request-profile` open journal requests,
   scheduled runs, and consumed-message executions first; their result names the selected source and falls back to the

@@ -24,11 +24,14 @@ public class Behaviors {
     static final List<String> SHARED_RUNS = java.util.Collections.synchronizedList(new ArrayList<>());
     static final Runnable SHARED = () -> SHARED_RUNS.add(String.valueOf(CONTEXT.get()));
     static final List<String> FAILURES = java.util.Collections.synchronizedList(new ArrayList<>());
+    static final Map<String, Long> BODY_ENDS = new ConcurrentHashMap<>();
+    static final Map<String, Future<?>> BODY_TARGETS = new ConcurrentHashMap<>();
+    static final Map<String, Boolean> BODY_BEFORE_PUBLICATION = new ConcurrentHashMap<>();
     static Supplier<Object> capture;
     static Function<Object, AutoCloseable> reopen;
 
     /** The harness engine's handle: restores the previous context, and records the task's failure. */
-    static final class Handle implements AutoCloseable, java.util.function.Consumer<Throwable> {
+    static final class Handle implements AutoCloseable, java.util.function.Consumer<Throwable>, Runnable {
         private final String previous;
 
         Handle(String previous) {
@@ -43,6 +46,15 @@ public class Behaviors {
         @Override
         public void close() {
             CONTEXT.set(previous);
+        }
+
+        @Override
+        public void run() {
+            BODY_ENDS.putIfAbsent(CONTEXT.get(), System.nanoTime());
+            Future<?> target = BODY_TARGETS.get(CONTEXT.get());
+            if (target != null) {
+                BODY_BEFORE_PUBLICATION.putIfAbsent(CONTEXT.get(), !target.isDone());
+            }
         }
     }
 
@@ -126,6 +138,7 @@ public class Behaviors {
         CONTEXT.set("request-42");
 
         ThreadPoolExecutor pool = new ThreadPoolExecutor(1, 1, 1, TimeUnit.MINUTES, new LinkedBlockingQueue<>());
+        completionBoundaries(pool);
         check("TPE execute propagates", "request-42".equals(seen(pool, true)));
         check(
                 "TPE submit propagates",
@@ -498,6 +511,71 @@ public class Behaviors {
         results.forEach(System.out::println);
         System.out.println(status);
         System.exit(0);
+    }
+
+    private static void completionBoundaries(ThreadPoolExecutor pool) throws Exception {
+        for (boolean exceptional : List.of(false, true)) {
+            for (String kind : List.of("future", "supply", "run", "forkjoin")) {
+                String owner = "body-" + kind + "-" + exceptional;
+                CONTEXT.set(owner);
+                CountDownLatch targetKnown = new CountDownLatch(1);
+                Callable<String> body = () -> {
+                    await(targetKnown);
+                    if (exceptional) {
+                        throw new IllegalStateException("body failed");
+                    }
+                    return CONTEXT.get();
+                };
+                Future<?> future;
+                if (kind.equals("future")) {
+                    future = pool.submit(body);
+                } else if (kind.equals("forkjoin")) {
+                    future = ForkJoinPool.commonPool().submit(body);
+                } else if (kind.equals("supply")) {
+                    future = CompletableFuture.supplyAsync(() -> call(body), pool);
+                } else {
+                    future = CompletableFuture.runAsync(() -> call(body), pool);
+                }
+                BODY_TARGETS.put(owner, future);
+                targetKnown.countDown();
+                try {
+                    future.get(5, TimeUnit.SECONDS);
+                } catch (ExecutionException expected) {
+                    if (!exceptional) {
+                        throw expected;
+                    }
+                }
+                check(
+                        "body before publication: " + kind + (exceptional ? " failure" : " success"),
+                        Boolean.TRUE.equals(BODY_BEFORE_PUBLICATION.get(owner)));
+            }
+        }
+        CONTEXT.set("body-early-complete");
+        CountDownLatch inBody = new CountDownLatch(1);
+        CountDownLatch finishBody = new CountDownLatch(1);
+        ForkJoinTask<Void> early = new RecursiveAction() {
+            @Override
+            protected void compute() {
+                complete(null);
+                inBody.countDown();
+                await(finishBody);
+            }
+        };
+        ForkJoinPool.commonPool().execute(early);
+        if (!inBody.await(5, TimeUnit.SECONDS)) {
+            throw new AssertionError("early-completion body never ran");
+        }
+        check("manual publication is not body completion", !BODY_ENDS.containsKey("body-early-complete"));
+        finishBody.countDown();
+        CONTEXT.set("request-42");
+    }
+
+    private static String call(Callable<String> body) {
+        try {
+            return body.call();
+        } catch (Exception failure) {
+            throw new CompletionException(failure);
+        }
     }
 
     /** Two submissions of one task object queued, the first run, then a third submission; returns the three runs' contexts. */

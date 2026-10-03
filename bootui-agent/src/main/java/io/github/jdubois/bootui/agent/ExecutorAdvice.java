@@ -121,12 +121,20 @@ final class ExecutorAdvice {
                 @Advice.FieldValue("dep") Object dependent,
                 @Advice.Local("dependent") Object local) {
             local = dependent;
-            return TaskPropagation.enter(task, TaskPropagation.APPLY_ASYNC);
+            return TaskPropagation.enter(task, TaskPropagation.APPLY_ASYNC, dependent);
         }
 
         @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
         static void exit(@Advice.Enter Object handle, @Advice.Local("dependent") Object local) {
             TaskPropagation.exitAsync(handle, local);
+        }
+    }
+
+    static final class BodyCompleted {
+
+        @Advice.OnMethodEnter(suppress = Throwable.class)
+        static void enter(@Advice.This Object target) {
+            TaskPropagation.bodyCompleted(target);
         }
     }
 }

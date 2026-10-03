@@ -274,6 +274,62 @@ class AgentHandoffsTests {
     }
 
     @Test
+    void bodyCompletionBeforeResultPublicationWinsOverDelayedClose() {
+        RequestPhases phases = new RequestPhases();
+        phases.begin("r1");
+        phases.mark("r1", RequestPhase.HANDLER);
+        AgentHandoffs handoffs = handoffs(phases, null);
+        AutoCloseable handle = handoffs.reopen(new Object[] {snapshot(handoffs), "FutureTask", "hook"});
+        nanos.addAndGet(5_000_000);
+        ((Runnable) handle).run();
+        phases.mark("r1", RequestPhase.RESPONSE);
+        nanos.addAndGet(500_000_000);
+        ((Runnable) handle).run();
+        close(handle);
+
+        AsyncHandoffPayload payload = (AsyncHandoffPayload) sink.single().payload();
+        assertThat(payload.bodyAfterResponse()).isFalse();
+        assertThat(payload.bodyAfterResponseMicros()).isZero();
+        assertThat(payload.responseAtMicros()).isEqualTo(phases.markers("r1").responseAt());
+        assertThat(sink.single().durationNanos()).isEqualTo(505_000_000);
+    }
+
+    @Test
+    void aBodyEndingAfterTheResponseIncludesALateTaskAndNotItsClosureDelay() {
+        RequestPhases phases = new RequestPhases();
+        phases.begin("r1");
+        phases.mark("r1", RequestPhase.RESPONSE);
+        long responseAt = phases.markers("r1").responseAt();
+        now = Instant.ofEpochSecond(responseAt / 1_000_000L, responseAt % 1_000_000L * 1_000L)
+                .plusMillis(170);
+        AgentHandoffs handoffs = handoffs(phases, null);
+        AutoCloseable handle = handoffs.reopen(new Object[] {snapshot(handoffs), "FutureTask", "hook"});
+        nanos.addAndGet(1_500_000);
+        ((Runnable) handle).run();
+        nanos.addAndGet(500_000_000);
+        close(handle);
+
+        AsyncHandoffPayload payload = (AsyncHandoffPayload) sink.single().payload();
+        assertThat(payload.bodyAfterResponse()).isTrue();
+        assertThat(payload.bodyAfterResponseMicros()).isEqualTo(1_500);
+        assertThat(payload.afterResponseMicros()).isEqualTo(501_500);
+    }
+
+    @Test
+    void bodyCompletionUsesTheUnphasedRequestsEnd() {
+        RequestPhases phases = new RequestPhases();
+        phases.beginUnphased("r1");
+        phases.end("r1");
+        AgentHandoffs handoffs = handoffs(phases, null);
+        AutoCloseable handle = handoffs.reopen(new Object[] {snapshot(handoffs), "FutureTask", "hook"});
+        ((Runnable) handle).run();
+        close(handle);
+
+        assertThat(((AsyncHandoffPayload) sink.single().payload()).bodyAfterResponse())
+                .isTrue();
+    }
+
+    @Test
     void aHandoffEndingAfterARequestThatMarkedNoResponseIsComparedWithItsEnd() {
         // A failed handler marks no response phase, but its request ended before this task did.
         RequestPhases phases = new RequestPhases();

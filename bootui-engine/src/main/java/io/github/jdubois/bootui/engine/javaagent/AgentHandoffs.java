@@ -228,7 +228,7 @@ public final class AgentHandoffs implements RuntimeEventPublisher {
      * One task running in its request's context. The bridge tells it the task's failure, if any, then closes it, which
      * restores the worker's previous context and then publishes the handoff.
      */
-    final class Handoff implements AutoCloseable, Consumer<Throwable> {
+    final class Handoff implements AutoCloseable, Consumer<Throwable>, Runnable {
 
         private final CorrelationContext context;
         private final String parentExecutionId;
@@ -245,6 +245,9 @@ public final class AgentHandoffs implements RuntimeEventPublisher {
         private volatile long key = RunningHandoffs.NONE;
         private volatile String exceptionClass;
         private volatile boolean failed;
+        private Boolean bodyAfterResponse;
+        private Long bodyAfterResponseMicros;
+        private boolean bodyEnded;
 
         private Handoff(
                 CorrelationContext context,
@@ -276,6 +279,34 @@ public final class AgentHandoffs implements RuntimeEventPublisher {
                 failed = true;
                 exceptionClass = failure.getClass().getName();
             }
+        }
+
+        /** Called before the JDK publishes the task's result and releases its waiters. */
+        @Override
+        public void run() {
+            if (bodyEnded) {
+                return;
+            }
+            bodyEnded = true;
+            RequestPhases.Markers markers =
+                    context.requestId() == null || phases == null ? null : phases.markers(context.requestId());
+            if (markers == null) {
+                return;
+            }
+            Long responseAt = markers.responseAt() != null ? markers.responseAt() : markers.endedAt();
+            // No marker yet is an ordering fact, not a comparison between clocks on different threads.
+            bodyAfterResponse = responseAt != null;
+            bodyAfterResponseMicros = responseAt == null
+                    ? 0L
+                    : Math.max(
+                            0,
+                            startMicros()
+                                    + Math.max(0, nanoTime.getAsLong() - startNanos) / 1_000L
+                                    - Math.max(startMicros(), responseAt));
+        }
+
+        private long startMicros() {
+            return start.getEpochSecond() * 1_000_000L + start.getNano() / 1_000L;
         }
 
         @Override
@@ -336,15 +367,16 @@ public final class AgentHandoffs implements RuntimeEventPublisher {
                     : null;
             Boolean afterResponse = null;
             Long afterResponseMicros = null;
+            Long responseAt = null;
             if (context.requestId() != null && phases != null) {
                 RequestPhases.Markers markers = phases.markers(context.requestId());
                 // The response's start, else the request's end when its adapter marked no response, as for a failed
                 // handler.
-                Long responseAt = markers == null
+                responseAt = markers == null
                         ? null
                         : markers.responseAt() != null ? markers.responseAt() : markers.endedAt();
                 if (responseAt != null) {
-                    long startMicros = start.getEpochSecond() * 1_000_000L + start.getNano() / 1_000L;
+                    long startMicros = startMicros();
                     long endMicros = startMicros + durationNanos / 1_000L;
                     afterResponse = endMicros > responseAt;
                     afterResponseMicros = afterResponse ? endMicros - Math.max(startMicros, responseAt) : 0L;
@@ -367,7 +399,10 @@ public final class AgentHandoffs implements RuntimeEventPublisher {
                     exceptionClass,
                     afterResponse,
                     afterResponseMicros,
-                    HandoffWindow.capped(durationNanos, maxHandoffNanos));
+                    HandoffWindow.capped(durationNanos, maxHandoffNanos),
+                    bodyAfterResponse,
+                    bodyAfterResponseMicros,
+                    responseAt);
             journal.offer(RuntimeEvent.of(
                     JournalSource.AGENT_EXECUTORS,
                     start.toEpochMilli(),
