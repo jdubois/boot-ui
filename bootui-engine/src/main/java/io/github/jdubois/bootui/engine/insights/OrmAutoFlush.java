@@ -13,14 +13,14 @@ import java.util.Set;
 /**
  * {@code orm-auto-flush} ({@code docs/PLAN-v2.md} §5.18, M4-9): Hibernate writing pending changes before the queries of
  * one request, three times or more, or for at least a fifth of the request's ORM time. Each such auto-flush means the
- * request modified entities and then queried again in the same transaction. Two requests of a route are needed.
+ * request modified entities and then queried again in the same transaction. The threshold is per request, as §5.18
+ * sets it, so one flagged request of a route is enough to report it.
  */
 public final class OrmAutoFlush implements Observation {
 
     public static final String KIND = "orm-auto-flush";
     static final int MIN_AUTO_FLUSHES = 3;
     static final double MIN_SHARE = 0.2;
-    static final int MIN_REQUESTS = 2;
 
     @Override
     public String kind() {
@@ -69,15 +69,13 @@ public final class OrmAutoFlush implements Observation {
             flagged.sort(Comparator.comparingInt((Totals t) -> t.autoFlushes).reversed());
             int most = flagged.get(0).autoFlushes;
             String unit = InsightText.unit(route.getKey());
-            boolean sufficient = flagged.size() >= MIN_REQUESTS;
             findings.add(new Finding(
                     route.getKey(),
                     route.getKey(),
-                    sufficient,
+                    true,
                     "`" + route.getKey() + "` made Hibernate write pending changes before a query up to " + most
                             + (most == 1 ? " time" : " times") + " in one " + unit + ", in " + flagged.size() + " of "
-                            + InsightText.counted(withOrm, unit) + "."
-                            + (sufficient ? "" : " One " + unit + " is not enough to call it a pattern."),
+                            + InsightText.counted(withOrm, unit) + ".",
                     withOrm,
                     flagged.size(),
                     List.of(

@@ -266,6 +266,63 @@ describe('LiveActivity', () => {
     ).toEqual(['Default', 'Runtime journal', 'Panel buffers'])
   })
 
+  it('says no activity is recorded yet when the feed is empty and nothing narrows it', async () => {
+    safeLocalStorage.removeItem('bootui.activity.filters')
+    vi.stubGlobal('fetch', stubFetch(activityReport({entries: [], typeCounts: {}}), requestProfile()))
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    const text = wrapper.get('table tbody').text()
+    expect(text).toContain('No activity recorded yet. Send a request to the application')
+    expect(text).not.toContain('No activity matches the current filters.')
+  })
+
+  it('says no activity matches the filters only while a filter, search, or toggle narrows the feed', async () => {
+    safeLocalStorage.removeItem('bootui.activity.filters')
+    vi.stubGlobal('fetch', stubFetch(activityReport({sources: ['Runtime journal']}), requestProfile()))
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+    const emptyText = () => wrapper.get('table tbody').text()
+
+    await wrapper.get('#activity-severity-filter').setValue('ERROR')
+    expect(emptyText()).toContain('No activity matches the current filters.')
+    expect(emptyText()).not.toContain('No activity recorded yet.')
+
+    await wrapper.get('#activity-severity-filter').setValue('')
+    await wrapper.get('#activity-text-filter').setValue('no-such-path')
+    expect(emptyText()).toContain('No activity matches the current filters.')
+
+    await wrapper.get('#activity-text-filter').setValue('')
+    await wrapper.get('#activity-errors-only').setValue(true)
+    expect(emptyText()).toContain('No activity matches the current filters.')
+
+    await wrapper.get('#activity-errors-only').setValue(false)
+    expect(wrapper.text()).toContain('GET /api/todos → 200')
+  })
+
+  it('says no activity matches the filters when a journal filter narrows an empty feed', async () => {
+    vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
+    try {
+      safeLocalStorage.removeItem('bootui.activity.filters')
+      vi.stubGlobal(
+        'fetch',
+        stubFetch(activityReport({entries: [], typeCounts: {}, sources: ['Runtime journal']}), requestProfile())
+      )
+
+      wrapper = mountLiveActivity()
+      await flushPromises()
+      expect(wrapper.get('table tbody').text()).toContain('No activity recorded yet.')
+
+      await wrapper.get('#activity-no-request').setValue(true)
+      expect(wrapper.get('table tbody').text()).toContain('No activity matches the current filters.')
+      expect(wrapper.get('table tbody').text()).not.toContain('No activity recorded yet.')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('opens the resource track only on demand', async () => {
     const fetchMock = stubFetch(activityReport(), requestProfile())
     vi.stubGlobal('fetch', fetchMock)

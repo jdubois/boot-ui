@@ -35,9 +35,26 @@ public final class RequestPhases {
 
     /** Starts tracking a request in its {@link RequestPhase#FILTERS} phase. */
     public void begin(String requestId) {
+        begin(requestId, RequestPhase.FILTERS, true);
+    }
+
+    /**
+     * Starts tracking a request whose adapter marks no phase, as Spring WebFlux does: its operation, authentication
+     * time, start, and end are recorded, while {@link #phaseOf(String)} stays unknown rather than reporting a phase
+     * the adapter never observed. A request already tracked keeps the timeline it has, so a reactive chain
+     * subscribed again, by a retry around it, keeps what was recorded on its earlier attempt rather than starting over.
+     */
+    public void beginUnphased(String requestId) {
+        begin(requestId, null, false);
+    }
+
+    private void begin(String requestId, RequestPhase current, boolean replace) {
         if (requestId != null) {
             synchronized (timelines) {
-                timelines.put(requestId, new Timeline(epochMicros()));
+                if (!replace && timelines.containsKey(requestId)) {
+                    return;
+                }
+                timelines.put(requestId, new Timeline(epochMicros(), current));
             }
         }
     }
@@ -114,7 +131,7 @@ public final class RequestPhases {
         }
     }
 
-    /** The phase the request is in, or {@code null} when it is not tracked. */
+    /** The phase the request is in, or {@code null} when it is not tracked or its adapter marks no phase. */
     public RequestPhase phaseOf(String requestId) {
         if (requestId == null) {
             return null;
@@ -152,7 +169,7 @@ public final class RequestPhases {
     /**
      * When a request first entered each phase, in epoch microseconds, {@code null} for a phase it has not entered.
      *
-     * @param current the phase it is in now
+     * @param current the phase it is in now, {@code null} when its adapter marks no phase
      * @param authenticationMicros time spent authenticating it, summed over its authentication intervals
      * @param endedAt when it ended, or {@code null} while it runs or when its adapter does not say
      */
@@ -173,7 +190,7 @@ public final class RequestPhases {
 
     private static final class Timeline {
 
-        private RequestPhase current = RequestPhase.FILTERS;
+        private RequestPhase current;
         private final Long filtersAt;
         private Long handlerAt;
         private Long responseAt;
@@ -181,8 +198,9 @@ public final class RequestPhases {
         private String operation;
         private Long endedAt;
 
-        private Timeline(long startedAt) {
+        private Timeline(long startedAt, RequestPhase current) {
             this.filtersAt = startedAt;
+            this.current = current;
         }
 
         private void enter(RequestPhase phase, long at) {
