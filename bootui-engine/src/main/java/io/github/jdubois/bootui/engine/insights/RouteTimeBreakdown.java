@@ -30,8 +30,9 @@ import java.util.TreeSet;
  * <p>Time is never called the application's unless BootUI saw the handler run. On Spring MVC and Quarkus, which mark
  * when a handler begins, a request without that mark never reached a handler BootUI marks (an Actuator or {@code /q/}
  * endpoint, a request the security filters answered): it is left out of its route's phases, and a route made mostly of
- * such requests is reported insufficient with its recorded calls. On Spring WebFlux, which marks no phases, a route
- * whose requests made no recorded call is insufficient, since its breakdown would be one unattributed span.</p>
+ * such requests is reported insufficient with its recorded calls. On Spring WebFlux, which marks no handler or
+ * response phase, a route whose requests named nothing at all, neither a recorded call nor authentication time, is
+ * insufficient, since its breakdown would be one unattributed span.</p>
  */
 public final class RouteTimeBreakdown implements Observation {
 
@@ -170,7 +171,7 @@ public final class RouteTimeBreakdown implements Observation {
         }
         if (snapshot.stack() == InsightsStack.SPRING_WEBFLUX) {
             limitations.add("Spring WebFlux marks no phases, so filters, handler, and response write are one"
-                    + " unattributed span around the calls.");
+                    + " unattributed span around the calls, out of which only authentication time is named.");
         }
         if (snapshot.stack() == InsightsStack.QUARKUS) {
             boolean sessions = warm.stream()
@@ -309,7 +310,12 @@ public final class RouteTimeBreakdown implements Observation {
         Totals totals = Totals.of(unmarked);
         List<String> calls = new ArrayList<>();
         for (Map.Entry<Phase, long[]> phase : totals.ranked()) {
-            if (phase.getKey() != Phase.UNATTRIBUTED && phase.getValue()[0] > 0 && calls.size() < 3) {
+            // Authentication is an observed phase, not a call the request made, so it stays out of this sentence; the
+            // evidence rows still name it.
+            if (phase.getKey() != Phase.UNATTRIBUTED
+                    && phase.getKey() != Phase.AUTHENTICATION
+                    && phase.getValue()[0] > 0
+                    && calls.size() < 3) {
                 calls.add(phase.getKey().label + " " + percent(phase.getValue()[0], totals.sum()));
             }
         }
@@ -571,11 +577,14 @@ public final class RouteTimeBreakdown implements Observation {
                 }
                 previous = bound;
             }
-            if (timing.authenticationNanos() > 0 && phases.containsKey(Phase.FILTERS)) {
-                long filters = phases.get(Phase.FILTERS);
-                long authentication = Math.min(filters, timing.authenticationNanos());
-                phases.put(Phase.FILTERS, filters - authentication);
-                phases.merge(Phase.AUTHENTICATION, authentication, Long::sum);
+            if (timing.authenticationNanos() > 0) {
+                // Authentication runs in the filters where the adapter marks them, and inside the request's single
+                // unattributed span where it marks none, as on WebFlux.
+                carve(
+                        phases,
+                        phases.containsKey(Phase.FILTERS) ? Phase.FILTERS : Phase.UNATTRIBUTED,
+                        Phase.AUTHENTICATION,
+                        timing.authenticationNanos());
             }
             if (timing.phased()) {
                 carveAuthorization(request, phases);

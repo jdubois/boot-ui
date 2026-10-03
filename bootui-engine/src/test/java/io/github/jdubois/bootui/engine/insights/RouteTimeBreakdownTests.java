@@ -185,6 +185,118 @@ class RouteTimeBreakdownTests {
     }
 
     @Test
+    void authenticationIsNamedOutOfTheUnattributedTimeOfARequestWithoutPhases() {
+        for (int i = 0; i < 6; i++) {
+            long start = clock;
+            request(
+                    "/api/orders",
+                    10 * MS,
+                    new RequestTiming(start, 2 * MS, -1, -1),
+                    new Child(
+                            JournalSource.SQL,
+                            4 * MS,
+                            new SqlPayload("select 1", null, "db", false, null, null, start + 6 * MS)));
+        }
+
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_WEBFLUX, null);
+        RuntimeObservationDto breakdown = service.report().observations().stream()
+                .filter(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(service.insight(breakdown.id()).rows())
+                .extracting(RuntimeObservationRowDto::cells)
+                .containsExactly(
+                        List.of("Authentication", "10", "20 %", "2.0"),
+                        List.of("SQL", "20", "40 %", "4.0"),
+                        List.of("Unattributed", "20", "40 %", "4.0"));
+    }
+
+    @Test
+    void authenticationNeverTakesMoreThanTheUnattributedTimeItIsNamedOutOf() {
+        for (int i = 0; i < 6; i++) {
+            long start = clock;
+            request(
+                    "/api/orders",
+                    10 * MS,
+                    new RequestTiming(start, 9 * MS, -1, -1),
+                    new Child(
+                            JournalSource.SQL,
+                            4 * MS,
+                            new SqlPayload("select 1", null, "db", false, null, null, start + 6 * MS)));
+        }
+
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_WEBFLUX, null);
+        RuntimeObservationDto breakdown = service.report().observations().stream()
+                .filter(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(service.insight(breakdown.id()).rows())
+                .extracting(RuntimeObservationRowDto::cells)
+                .as("the authentication reported is capped at the time left around the recorded calls")
+                .containsExactly(List.of("Authentication", "30", "60 %", "6.0"), List.of("SQL", "20", "40 %", "4.0"));
+    }
+
+    @Test
+    void authenticationTimeAloneIsEnoughToBreakDownAWebFluxRouteWithoutARecordedCall() {
+        for (int i = 0; i < 6; i++) {
+            request("/api/orders", 10 * MS, new RequestTiming(clock, 4 * MS, -1, -1));
+        }
+
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_WEBFLUX, null);
+        RuntimeObservationDto breakdown = service.report().observations().stream()
+                .filter(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(breakdown.status())
+                .as("authentication names part of the time, so the breakdown is no longer one unattributed span")
+                .isEqualTo("OBSERVED");
+        assertThat(service.insight(breakdown.id()).rows())
+                .extracting(RuntimeObservationRowDto::cells)
+                .containsExactly(
+                        List.of("Authentication", "20", "40 %", "4.0"), List.of("Unattributed", "30", "60 %", "6.0"));
+    }
+
+    @Test
+    void authenticationOfARequestThatReachedNoMarkedHandlerIsEvidenceRatherThanARecordedCall() {
+        for (int i = 0; i < 6; i++) {
+            long start = clock;
+            request(
+                    "/api/admin",
+                    403,
+                    20 * MS,
+                    new RequestTiming(start, 5 * MS, -1, -1),
+                    new Child(
+                            JournalSource.SQL,
+                            4 * MS,
+                            new SqlPayload("select 1", null, "db", false, null, null, start + 6 * MS)));
+        }
+
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+        RuntimeObservationDto breakdown = service.report().observations().stream()
+                .filter(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(breakdown.status()).isEqualTo("INSUFFICIENT");
+        assertThat(breakdown.sentence())
+                .as("authentication is an observed phase, not a call the request made")
+                .contains("Recorded calls: SQL")
+                .doesNotContain("Recorded calls: Authentication")
+                .doesNotContain("application code");
+        assertThat(service.insight(breakdown.id()).rows())
+                .extracting(RuntimeObservationRowDto::cells)
+                .as("the authentication time is still named in the evidence")
+                .anySatisfy(cells -> assertThat(cells).first().isEqualTo("Authentication"));
+    }
+
+    @Test
     void securityRejectedRequestsWithoutHandlerMarksAreNotCalledApplicationCode() {
         for (int i = 0; i < 6; i++) {
             request("/api/secure", 12 * MS, RequestTiming.startedAt(clock));
