@@ -141,7 +141,9 @@ public final class TracesService {
                 bucket.traceId(),
                 rule.apply(rootSpanName),
                 rule.apply(resolveHttpPath(bucket.spans(), earliest)),
-                rule.omitsText() ? List.of() : firstServices(services).stream().map(rule::apply).toList(),
+                rule.omitsText()
+                        ? List.of()
+                        : firstServices(services).stream().map(rule::apply).toList(),
                 minStart,
                 maxEnd,
                 Math.max(0L, maxEnd - minStart),

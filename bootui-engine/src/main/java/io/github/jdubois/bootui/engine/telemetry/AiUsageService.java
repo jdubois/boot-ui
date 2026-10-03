@@ -45,10 +45,7 @@ public final class AiUsageService {
     private final ExposurePolicy exposure;
 
     public AiUsageService(
-            TelemetryStore store,
-            Supplier<AiUsageSettings> settings,
-            LongSupplier nowMillis,
-            ExposurePolicy exposure) {
+            TelemetryStore store, Supplier<AiUsageSettings> settings, LongSupplier nowMillis, ExposurePolicy exposure) {
         this.store = store;
         this.settings = settings;
         this.nowMillis = nowMillis;
@@ -75,9 +72,11 @@ public final class AiUsageService {
                 errorCount++;
             }
             String model = rule.apply(preferredModel(chat));
-            long modelTokens = (in == null ? 0 : in) + (out == null ? 0 : out);
-            tokensByModel.merge(model, modelTokens, Long::sum);
-            callsByModel.merge(model, 1, Integer::sum);
+            if (model != null) {
+                long modelTokens = (in == null ? 0 : in) + (out == null ? 0 : out);
+                tokensByModel.merge(model, modelTokens, Long::sum);
+                callsByModel.merge(model, 1, Integer::sum);
+            }
         }
         int toolCount = 0;
         int vectorCount = 0;

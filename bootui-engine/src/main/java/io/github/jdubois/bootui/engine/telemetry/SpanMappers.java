@@ -26,18 +26,20 @@ public final class SpanMappers {
         for (Map.Entry<String, AttributeValue> entry : attrs.entrySet()) {
             AttributeValue v = entry.getValue();
             if (exposure.masksText() && MASKER.shouldMask(entry.getKey(), v.value())) {
-                out.add(new SpanAttributeDto(entry.getKey(), "string", SecretMasker.MASKED_VALUE));
+                out.add(new SpanAttributeDto(exposure.apply(entry.getKey()), "string", SecretMasker.MASKED_VALUE));
             } else if (v.value() instanceof String text) {
-                out.add(new SpanAttributeDto(entry.getKey(), v.type(), exposure.apply(text)));
+                out.add(new SpanAttributeDto(exposure.apply(entry.getKey()), v.type(), exposure.apply(text)));
             } else if (v.value() instanceof List<?> values) {
                 out.add(new SpanAttributeDto(
-                        entry.getKey(),
+                        exposure.apply(entry.getKey()),
                         v.type(),
                         values.stream()
-                                .map(value -> value instanceof String text ? exposure.apply(text) : value)
+                                .map(value -> exposure.masksText() && MASKER.shouldMask(null, value)
+                                        ? SecretMasker.MASKED_VALUE
+                                        : value instanceof String text ? exposure.apply(text) : value)
                                 .toList()));
             } else {
-                out.add(new SpanAttributeDto(entry.getKey(), v.type(), v.value()));
+                out.add(new SpanAttributeDto(exposure.apply(entry.getKey()), v.type(), v.value()));
             }
         }
         return out;
