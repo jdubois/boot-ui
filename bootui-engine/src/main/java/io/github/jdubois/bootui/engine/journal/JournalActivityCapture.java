@@ -30,7 +30,7 @@ import java.util.function.Predicate;
 public final class JournalActivityCapture implements JournalListener, ActivityCapture {
 
     /** The most open requests whose {@code SELECT} counts are kept until they complete. */
-    static final int MAX_PENDING_REQUESTS = 4_096;
+    static final int MAX_PENDING_REQUESTS = 1_024;
 
     private final RuntimeJournal journal;
     private final JournalActivityFeed feed;
@@ -44,6 +44,7 @@ public final class JournalActivityCapture implements JournalListener, ActivityCa
     };
 
     private boolean closed;
+    private long overflowedSelects;
 
     private JournalActivityCapture(
             RuntimeJournal journal,
@@ -101,13 +102,23 @@ public final class JournalActivityCapture implements JournalListener, ActivityCa
         if (visible.isEmpty()) {
             return;
         }
-        coordinator.ingest(feed.renderForCapture(visible, journal::eventId, pendingSelects));
+        coordinator.ingest(
+                feed.renderForCapture(visible, journal::eventId, pendingSelects, count -> overflowedSelects += count));
     }
 
     /** Forgets the open {@code SELECT} counts of the cleared recording's requests. */
     @Override
     public synchronized void onClear() {
         pendingSelects.clear();
+        overflowedSelects = 0;
+    }
+
+    synchronized int pendingSelectCount() {
+        return pendingSelects.values().stream().mapToInt(Map::size).sum();
+    }
+
+    synchronized long overflowedSelects() {
+        return overflowedSelects;
     }
 
     /**

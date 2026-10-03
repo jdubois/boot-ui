@@ -389,6 +389,9 @@ or email subjects. This is a 2.0 change from the former buffer-polling persisten
 those details must read the bounded live panel evidence instead.
 The journal is the only source of durable history in 2.0: with `bootui.runtime-journal.enabled=false`, persistence logs
 a warning and writes nothing.
+When a source panel is disabled, its older rows are also hidden. A history page scans past hidden rows within a
+bounded read budget and keeps a continuation cursor when older rows remain; a page can be empty while **Load older**
+is still available.
 
 You do not have to edit configuration or restart to turn this on. While persistence is inactive, a "Currently saving N
 events in memory" tip appears with a **Use a database** button. If the application already has a `DataSource`, a **Use
@@ -406,7 +409,8 @@ exceptions, security events, REST client calls, cache accesses, messages, schedu
 database connections, and application `WARN` and `ERROR` log events, each with the request or execution it belongs to. A log event keeps its
 unformatted template, never its arguments. SQL statements, REST client calls, and cache accesses keep up to four
 frames of your own code that issued them, skipping framework classes and generated proxies, and a message consumed
-with a `traceparent` header keeps the trace that sent it. A task a request hands to a framework-managed executor, such
+with a `traceparent` header keeps the trace that sent it. SQL events from named JDBC pools retain the pool name even
+when connection recording is disabled. A task a request hands to a framework-managed executor, such
 as an `@Async` method on Spring Boot's auto-configured executor or scheduler, or a Quarkus `ManagedExecutor` task, runs
 as an execution of that request, so its work stays with the request; on Spring this applies when the application
 defines no task decorator of its own, which BootUI never displaces. Raw executors and `CompletableFuture` are not

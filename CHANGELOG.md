@@ -17,6 +17,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Runtime journal and persisted Live Activity bounds.** Oversized evidence no longer exceeds the configured
+  byte budget; SQL events identify their named data source even with connection recording
+  off; per-request SELECT tracking is capped; and persisted activity pages scan past rows hidden by a disabled panel
+  while keeping a continuation cursor (PLAN-v2 §5.2, §8; [Live Activity](docs/features/overview.md#durable-history);
+  follow-up to #1216).
+
 - **Runtime Insights after Clear recording.** Clearing the journal or freeing BootUI memory now refreshes the
   report and its evidence at once instead of serving the cleared events until a new one arrives, and no route's first
   post-clear request is labeled cold. The evidence table follows each auto-refresh of the open observation, and

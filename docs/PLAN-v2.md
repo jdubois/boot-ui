@@ -634,7 +634,7 @@ graph LR
 
 ### 5.1 Exact correlation — Cross-cutting ✅ Delivered
 
-Every runtime event should know, when it happens, which request, trace, span, transaction, and run it belongs to, with
+Every runtime event should know, when it happens, which request, trace, span, and run it belongs to, with
 or without tracing. Before M1, the Spring MVC exchange's trace id was re-derived by `HttpExchangeTraceRegistry.match`
 (method and path, ±50 ms, unique candidate only), exceptions and security events on Spring MVC carried no trace id,
 and no stack had a request identity that worked without tracing. M1 delivered it (§1.1 has the measurements). Adding
@@ -644,7 +644,8 @@ engineering problem**.
 Scope:
 
 - Add `CorrelationContext` to the engine: a BootUI-generated `requestId`, `traceId`, `spanId`, `routeTemplate`,
-  `handler`, the innermost BootUI `transactionId`, the current statement's `dataSource`, an `executionId` for scheduled
+  `handler`, an optional `transactionId` context slot (not populated by the current transaction listener), an optional
+  `dataSource` context slot (the JDBC proxy instead stamps its named pool directly on SQL), an `executionId` for scheduled
   and consumed-message anchors.
 - Add a `CorrelationContextProvider` SPI that replaces `TraceIdProvider`, and a scope-based holder that always restores
   the previous context. 1.x adapters keep `TraceIdProvider` as a fallback until 2.0.0 removes it.
@@ -690,9 +691,11 @@ Architecture:
   Spring-managed execution stays unowned, never guessed.
 - **Quarkus.** `QuarkusHttpExchangeCaptureFilter` owns exchange capture, so it stamps the exchange directly, stores the
   context on the Vert.x `RoutingContext`, and restores it around worker dispatch and Mutiny hops it controls.
-- **Transactions.** `BootUiTransactionExecutionListener` pushes and pops the transaction id for blocking
-  `PlatformTransactionManager` transactions, including those run by WebFlux applications. R2DBC and Quarkus
-  transactions stay unavailable.
+- **Transactions.** `BootUiTransactionExecutionListener` tracks nested blocking `PlatformTransactionManager`
+  transactions on the invoking thread, including those run by WebFlux applications. It records each completed
+  transaction with its request or execution id; SQL events do not carry a transaction id, so statement membership
+  is inferred from recorded transaction intervals on that thread, not captured as an exact identity. R2DBC and
+  Quarkus transactions stay unavailable.
 - Every adapter keeps optional types (OpenTelemetry, messaging, security) in gated classes.
 
 Out of scope:
@@ -1895,9 +1898,9 @@ How each source joins the rest of v2:
 | --- | --- | --- | --- | --- |
 | `lifecycle` | Header facts and startup steps, codec version bump | Top-level markers on the time axis and resource lane | — | §5.8's `NOT_COMPARABLE` and restart cost; a marker that touched an observation's subject becomes one of its limitations |
 | `authorization` | Per route, requests by authentication class and outcome; anonymous-success counts kept in the summary | A row only when denied; each decision on the profile's timeline | `SECURITY_RULE` node, `GUARDED_BY` edge, beside §3.18's declared rules | §5.9's two observations; `authorization-cost` (≥ 20 % of warm time or ≥ 50 decisions a request); an authorization phase in `route-time-breakdown`; "route newly reachable anonymously" as a behavior row |
-| `app-event` | Per event type, publishes, listeners run, skipped, and failed; per listener, count and time | `APP_EVENT` rows under their request; listener intervals | `EVENT` node, `PUBLISHES` (Spring only) and `CONSUMES` edges, in `ReverseClosure`'s allowlist | `transactional-listener-skipped` (≥ 1 event); `after-commit-writes`: DML inside an `AFTER_COMMIT` or `AFTER_COMPLETION` listener outside every recorded transaction (≥ 1 request, Spring only); a failed listener as evidence of `errors-behind-2xx`; a listeners sub-phase; new event types and edges between runs |
+| `app-event` | No per-event-type or per-listener counters; event types and edges are kept in the run's observed edge set | `APP_EVENT` rows under their request; listener intervals | `EVENT` node, `PUBLISHES` (Spring only) and `CONSUMES` edges, in `ReverseClosure`'s allowlist | `transactional-listener-skipped` (≥ 1 event); `after-commit-writes`: DML inside an `AFTER_COMMIT` or `AFTER_COMPLETION` listener outside every inferred transaction interval (≥ 1 request, Spring only); a failed listener as evidence of `errors-behind-2xx`; a listeners sub-phase; new event types and edges between runs |
 | `orm` | Per route, median flushes, auto-flushes, entities in context, and ORM time | An **ORM** block in the profile; flush intervals on the timeline | — | Measured Quarkus SQL time in `route-time-breakdown`, plus a Hibernate sub-phase; `orm-auto-flush` (≥ 3 partial flushes a request, or ≥ 20 % of ORM time flushing); `large-persistence-context` (≥ 500 entities in ≥ 3 requests of a route); executions instead of preparations in `safe-method-dml` on Quarkus; entities and flushes per request as behavior rows |
-| `websocket` | Messages per destination; sends pre-aggregated per execution | `WEBSOCKET` rows with their SQL nested | `DESTINATION` nodes of broker `websocket` | Every request-level observation, through executions projected as routes (M3-8) |
+| `websocket` | No per-destination message counts; sends pre-aggregated per execution; destination edges kept in the run's observed edge set | `WEBSOCKET` rows with their SQL nested | `DESTINATION` nodes of broker `websocket` | Every request-level observation, through executions projected as routes (M3-8) |
 
 Payload enrichments that need no new source, each additive:
 
@@ -1919,7 +1922,9 @@ Architecture, the same steps for every new source:
 2. The recorder is a `RuntimeEventPublisher`, installed by `RuntimeEventPublisherInstaller` on Spring and by the
    startup observer on Quarkus; optional types stay in gated classes, as messaging's do.
 3. Correlation from `CorrelationSource`; anchors (messages, listeners) open `CorrelationContext.forExecution`.
-4. A capped aggregate dimension with an **Other** bucket, and a run-summary entry only if §5.8 compares it.
+4. Add a capped aggregate dimension with an **Other** bucket when the source needs a dedicated roll-up.
+   `app-event` and `websocket` currently contribute observed edges to run summaries but no dedicated
+   per-type or per-destination count dimension.
 5. A feed row type, its masked detail in `JournalRowDetails`, its persisted form in `JournalActivityCapture`, and its
    filter and icon in the UI, leaving the 1.x buffers' feed untouched.
 6. Timeline and touched resources in `RequestJournalProfiles`, with additive DTO fields and contract-catalog entries.
@@ -2002,7 +2007,7 @@ a Spring, Quarkus, or JSON dependency.
 | --- | --- | --- | --- |
 | Request id without tracing | Filter and scoped holder | Reactor context and a `ThreadLocalAccessor`, with automatic context propagation | Vert.x context |
 | Exact exchange → request | BootUI-owned repository; registry match for application repositories | Same, stamped at `beforeCommit` | Direct |
-| SQL transaction id | ✓ | Blocking transactions only; no R2DBC | Unavailable: no transaction capture |
+| SQL transaction id | Not captured; blocking transactions inferred by thread and interval | Same; no R2DBC | Unavailable: no transaction capture |
 | SQL durations | ✓ | ✓ | ORM statements unknown; JDBC ✓ |
 | Cache events | ✓ | ✓ | Unavailable: no cache capture |
 | WebSocket frames | ✓ | Unavailable | Unavailable |
@@ -2065,6 +2070,7 @@ live exposure policy at read time, and never write to disk anything less masked 
 | Application thread: snapshot, envelope, and `offer` | < 2 µs p99 on a reference machine; never blocks |
 | Sample-app throughput, journal on versus off | Within 5 % |
 | Retained rows | ≤ the smaller of 32 MB and 5 % of the maximum heap, evictions counted |
+| Persisted Live Activity SELECT bookkeeping | At most 1,024 open requests with 16 distinct fingerprints each; overlong fingerprints use SHA-256, and overflowed shapes are counted. Repeated shapes already kept continue counting |
 | Scope readings (§5.11) | About 0.85 µs per scope segment, included in the overhead scenario; removing `resources` from `sources` turns them off |
 | Resource sampler (§5.11) | About 0.4 ms per second at 300 threads, on a BootUI daemon thread, with a thread cap |
 | JFR attribution (§5.11) | About 330 ms and 42 MB to start; opt-in, user-triggered, and bounded by `jfr.max-duration` |

@@ -85,6 +85,50 @@ class JournalActivityCaptureTests {
     }
 
     @Test
+    void aNeverCompletingRequestKeepsOnlyBoundedLiteralFreeSelectFingerprints() {
+        JournalActivityCapture capture = start(null);
+        for (int i = 0; i < JournalActivityFeed.MAX_SELECTS_PER_REQUEST + 30; i++) {
+            offer(
+                    "r1",
+                    null,
+                    JournalSource.SQL,
+                    new SqlPayload("select * from table_" + i + " where id = " + i, null, null, false));
+            journal.dispatchPending();
+        }
+        assertThat(capture.pendingSelectCount()).isEqualTo(JournalActivityFeed.MAX_SELECTS_PER_REQUEST);
+        assertThat(capture.overflowedSelects()).isEqualTo(30);
+        offer(
+                "r1",
+                null,
+                JournalSource.SQL,
+                new SqlPayload("select * from table_45 where id = 999", null, null, false));
+        journal.dispatchPending();
+        assertThat(capture.pendingSelectCount()).isEqualTo(JournalActivityFeed.MAX_SELECTS_PER_REQUEST);
+        assertThat(capture.overflowedSelects()).isEqualTo(30);
+        capture.onClear();
+        assertThat(capture.pendingSelectCount()).isZero();
+    }
+
+    @Test
+    void aWideOrLateSelectStillRaisesThePersistedRequestNPlusOneFlag() {
+        start(null);
+        for (int i = 0; i < JournalActivityFeed.MAX_SELECTS_PER_REQUEST; i++) {
+            offer("r1", null, JournalSource.SQL, new SqlPayload("select * from table_" + i, null, null, false));
+        }
+        String wide = "select " + "column_name_".repeat(60) + " from orders where id = ";
+        for (int i = 0; i < 3; i++) {
+            offer("r1", null, JournalSource.SQL, new SqlPayload(wide + i, null, null, false));
+        }
+        offer("r1", null, JournalSource.HTTP, http("/orders"));
+        journal.dispatchPending();
+
+        assertThat(store.entries())
+                .filteredOn(row -> row.type().equals("REQUEST"))
+                .singleElement()
+                .satisfies(row -> assertThat(row.sqlNPlusOneSuspected()).isTrue());
+    }
+
+    @Test
     void anAiCallLinkedOnlyByItsTraceIsWrittenOnItsOwnAtOnce() {
         start(null);
 

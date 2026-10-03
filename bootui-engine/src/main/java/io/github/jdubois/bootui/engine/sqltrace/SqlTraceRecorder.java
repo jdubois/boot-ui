@@ -528,6 +528,34 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
             int batchSize,
             String connectionId,
             String thread) {
+        recordNanos(
+                statementType,
+                category,
+                sql,
+                parameters,
+                durationNanos,
+                success,
+                errorMessage,
+                affectedRows,
+                batchSize,
+                connectionId,
+                thread,
+                null);
+    }
+
+    public void recordNanos(
+            StatementType statementType,
+            Category category,
+            String sql,
+            List<String> parameters,
+            long durationNanos,
+            boolean success,
+            String errorMessage,
+            Long affectedRows,
+            int batchSize,
+            String connectionId,
+            String thread,
+            String dataSource) {
         if (!enabled || BootUiJdbcCaptureGuard.isSuppressed()) {
             return;
         }
@@ -588,7 +616,8 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                     success,
                     frames,
                     phase,
-                    completedNanos);
+                    completedNanos,
+                    dataSource);
         }
         if (panel) {
             totalCaptured.incrementAndGet();
@@ -610,7 +639,8 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
             boolean success,
             ApplicationFrames frames,
             RequestPhase phase,
-            long completedNanos) {
+            long completedNanos,
+            String dataSource) {
         try {
             journal.offer(RuntimeEvent.of(
                     JournalSource.SQL,
@@ -624,7 +654,7 @@ public final class SqlTraceRecorder implements IdleReclaimable, RuntimeEventPubl
                     new SqlPayload(
                             sql,
                             frames == null ? null : frames.callSite(),
-                            context.dataSource(),
+                            dataSource == null ? context.dataSource() : dataSource,
                             !success,
                             frames,
                             phase,

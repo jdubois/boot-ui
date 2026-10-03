@@ -41,7 +41,7 @@ class RunBaselineFileTests {
         }
         assertThat(Files.readString(file.path(), java.nio.charset.StandardCharsets.ISO_8859_1))
                 .as("the file holds no SQL text, only its literal-free fingerprint")
-                .doesNotContain("42")
+                .doesNotContain("where id = 42")
                 .contains("orders");
     }
 

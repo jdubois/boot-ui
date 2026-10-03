@@ -371,13 +371,13 @@ public class LiveActivityController implements InitializingBean {
         // glance, right now" summary, not scoped to whichever historical page happens to be browsed.
         ActivityQuery query = new ActivityQuery(
                 persistenceSettings.instanceId(), type, severity, q, since > 0 ? since : null, until, cursor, pageSize);
-        ActivityPage page = activityStore.query(query);
+        ActivityPage page = io.github.jdubois.bootui.engine.activity.ReadableActivityPages.query(
+                activityStore, query, row -> JournalSourcePanels.isReadable(row, properties::isPanelEnabled));
         return new LiveActivityReport(
                 live.available(),
                 // Stored rows were written under MASKED (or raw, by an older build) while their panel was enabled;
                 // the live panel gate and exposure policy apply on read.
                 page.entryDtos().stream()
-                        .filter(row -> JournalSourcePanels.isReadable(row, properties::isPanelEnabled))
                         .map(JournalTextExposure.of(liveExposure)::reapply)
                         .toList(),
                 live.typeCounts(),
