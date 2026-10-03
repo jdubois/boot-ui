@@ -7,13 +7,13 @@ import io.github.jdubois.bootui.core.dto.AiTokenBucketDto;
 import io.github.jdubois.bootui.core.dto.AiTokenSeriesDto;
 import io.github.jdubois.bootui.core.dto.AiToolCallDto;
 import io.github.jdubois.bootui.core.dto.AiVectorOpDto;
-import io.github.jdubois.bootui.engine.support.MessageExposure;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.function.LongSupplier;
@@ -25,6 +25,11 @@ import java.util.function.Supplier;
  *
  * <p>Live configuration is read through a {@code Supplier<AiUsageSettings>} and the wall clock
  * through a {@link LongSupplier}, so the same engine logic serves both adapters and stays testable.</p>
+ *
+ * <p>Spans are stored raw. The chat detail applies the live value-exposure policy through {@link SpanValueExposure}
+ * on every read, exactly as the Traces panel does, so prompts, completions, exception events, and other attribute
+ * values follow {@code bootui.expose-values} and {@code bootui.mask-secrets}, and a runtime change applies to the next
+ * read.</p>
  */
 public final class AiUsageService {
 
@@ -49,12 +54,11 @@ public final class AiUsageService {
         this.store = store;
         this.settings = settings;
         this.nowMillis = nowMillis;
-        this.exposure = exposure;
+        this.exposure = Objects.requireNonNull(exposure, "exposure");
     }
 
     public AiOverviewDto overview() {
         AiUsageSettings config = settings.get();
-        MessageExposure rule = MessageExposure.current(exposure);
         List<NormalizedSpan> chats = chatSpansSorted();
         long totalIn = 0;
         long totalOut = 0;
@@ -71,12 +75,10 @@ public final class AiUsageService {
             if (chat.isError()) {
                 errorCount++;
             }
-            String model = rule.apply(preferredModel(chat));
-            if (model != null) {
-                long modelTokens = (in == null ? 0 : in) + (out == null ? 0 : out);
-                tokensByModel.merge(model, modelTokens, Long::sum);
-                callsByModel.merge(model, 1, Integer::sum);
-            }
+            String model = preferredModel(chat);
+            long modelTokens = (in == null ? 0 : in) + (out == null ? 0 : out);
+            tokensByModel.merge(model, modelTokens, Long::sum);
+            callsByModel.merge(model, 1, Integer::sum);
         }
         int toolCount = 0;
         int vectorCount = 0;
@@ -95,7 +97,7 @@ public final class AiUsageService {
         int recentLimit = Math.min(clamp(config.maxRecentChats(), 0, MAX_RECENT_CHATS), chats.size());
         List<AiChatSummaryDto> recent = new ArrayList<>(recentLimit);
         for (int i = 0; i < recentLimit; i++) {
-            recent.add(toSummary(chats.get(i), rule));
+            recent.add(toSummary(chats.get(i)));
         }
         boolean telemetryEnabled = config.telemetryEnabled();
         boolean springAi = AiFrameworkDetector.isSpringAiPresent();
@@ -124,20 +126,18 @@ public final class AiUsageService {
 
     public List<AiChatSummaryDto> chats(int limit) {
         int safeLimit = Math.max(1, Math.min(500, limit));
-        MessageExposure rule = MessageExposure.current(exposure);
         List<NormalizedSpan> chats = chatSpansSorted();
         List<AiChatSummaryDto> out = new ArrayList<>(Math.min(safeLimit, chats.size()));
         for (int i = 0; i < chats.size() && i < safeLimit; i++) {
-            out.add(toSummary(chats.get(i), rule));
+            out.add(toSummary(chats.get(i)));
         }
         return out;
     }
 
     public Optional<AiChatDetailDto> chatDetail(String spanId) {
-        MessageExposure rule = MessageExposure.current(exposure);
         for (NormalizedSpan span : store.allSpansSnapshot()) {
             if (AiSpanRecognizer.isChat(span) && spanId.equals(span.spanId())) {
-                return Optional.of(buildDetail(span, rule));
+                return Optional.of(buildDetail(span));
             }
         }
         return Optional.empty();
@@ -232,7 +232,7 @@ public final class AiUsageService {
         return chats;
     }
 
-    private AiChatSummaryDto toSummary(NormalizedSpan chat, MessageExposure rule) {
+    private AiChatSummaryDto toSummary(NormalizedSpan chat) {
         int toolCalls = 0;
         int vectorOps = 0;
         TelemetryStore.TraceBucket bucket = store.findTrace(chat.traceId());
@@ -254,20 +254,20 @@ public final class AiUsageService {
                 chat.spanId(),
                 chat.startEpochNanos(),
                 chat.durationNanos(),
-                rule.apply(AiSpanRecognizer.provider(chat)),
-                rule.apply(AiSpanRecognizer.requestModel(chat)),
-                rule.apply(AiSpanRecognizer.responseModel(chat)),
+                AiSpanRecognizer.provider(chat),
+                AiSpanRecognizer.requestModel(chat),
+                AiSpanRecognizer.responseModel(chat),
                 in,
                 out,
                 total,
-                rule.apply(AiSpanRecognizer.finishReason(chat)),
+                AiSpanRecognizer.finishReason(chat),
                 chat.statusCode(),
                 "chat",
                 toolCalls,
                 vectorOps);
     }
 
-    private AiChatDetailDto buildDetail(NormalizedSpan chat, MessageExposure rule) {
+    private AiChatDetailDto buildDetail(NormalizedSpan chat) {
         TelemetryStore.TraceBucket bucket = store.findTrace(chat.traceId());
         List<AiToolCallDto> tools = new ArrayList<>();
         List<AiVectorOpDto> vectors = new ArrayList<>();
@@ -276,7 +276,7 @@ public final class AiUsageService {
                 if (AiSpanRecognizer.isToolCall(sibling)) {
                     tools.add(new AiToolCallDto(
                             sibling.spanId(),
-                            rule.apply(AiSpanRecognizer.toolName(sibling)),
+                            AiSpanRecognizer.toolName(sibling),
                             sibling.startEpochNanos(),
                             sibling.durationNanos(),
                             sibling.statusCode()));
@@ -284,8 +284,8 @@ public final class AiUsageService {
                 if (AiSpanRecognizer.isVectorOperation(sibling)) {
                     vectors.add(new AiVectorOpDto(
                             sibling.spanId(),
-                            rule.apply(AiSpanRecognizer.vectorOperation(sibling)),
-                            rule.apply(AiSpanRecognizer.vectorCollection(sibling)),
+                            AiSpanRecognizer.vectorOperation(sibling),
+                            AiSpanRecognizer.vectorCollection(sibling),
                             sibling.startEpochNanos(),
                             sibling.durationNanos(),
                             sibling.statusCode()));
@@ -305,12 +305,13 @@ public final class AiUsageService {
                         + "GenAI message-content capture on the OpenTelemetry instrumentation) to capture prompt "
                         + "and completion text."
                 : null;
+        SpanValueExposure values = SpanValueExposure.current(exposure);
         return new AiChatDetailDto(
-                toSummary(chat, rule),
+                toSummary(chat),
                 tools,
                 vectors,
-                SpanMappers.toAttributeList(chat.attributes(), rule),
-                SpanMappers.toEventList(chat.events(), rule),
+                values.attributes(chat.attributes()),
+                values.events(chat.events()),
                 contentCaptured,
                 banner);
     }

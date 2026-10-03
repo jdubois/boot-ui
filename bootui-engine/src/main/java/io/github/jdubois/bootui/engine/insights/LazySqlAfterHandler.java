@@ -80,20 +80,20 @@ public final class LazySqlAfterHandler implements Observation {
 
     @Override
     public Evaluation evaluate(InsightsSnapshot snapshot) {
-        boolean transactions =
-                snapshot.records(JournalSource.TRANSACTION) && snapshot.visible(JournalSource.TRANSACTION);
+        boolean transactions = snapshot.available(JournalSource.TRANSACTION);
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;
+        long unplaced = 0;
         for (Map.Entry<String, List<ProjectedRequest>> route :
                 snapshot.httpByRoute().entrySet()) {
             List<ProjectedRequest> requests = route.getValue();
-            eligible += requests.size();
+            long routeEligible = 0;
+            long routeUnplaced = 0;
             Map<String, Statement> statements = new LinkedHashMap<>();
             for (ProjectedRequest request : requests) {
                 TransactionWindows windows = new TransactionWindows(request);
-                Map<String, int[]> perRequest = new LinkedHashMap<>();
-                Map<String, String> sites = new LinkedHashMap<>();
-                Set<String> rendering = new HashSet<>();
+                List<SqlPayload> afterHandler = new ArrayList<>();
+                boolean placeable = true;
                 for (RuntimeEvent event : request.children(JournalSource.SQL)) {
                     // Work a propagated task did is work-after-response's, not lazy loading in the response.
                     if (!(event.payload() instanceof SqlPayload sql)
@@ -101,9 +101,24 @@ public final class LazySqlAfterHandler implements Observation {
                             || ExecutionIds.isAsync(event.executionId())) {
                         continue;
                     }
-                    if (transactions && (!windows.canPlace(event) || windows.innermost(event) != null)) {
-                        continue;
+                    if (transactions && !windows.canPlace(event)) {
+                        placeable = false;
+                        break;
                     }
+                    if (!transactions || windows.innermost(event) == null) {
+                        afterHandler.add(sql);
+                    }
+                }
+                if (!placeable) {
+                    // Counted apart: whether its statements ran outside a transaction is unknown (M3-2b).
+                    routeUnplaced++;
+                    continue;
+                }
+                routeEligible++;
+                Map<String, int[]> perRequest = new LinkedHashMap<>();
+                Map<String, String> sites = new LinkedHashMap<>();
+                Set<String> rendering = new HashSet<>();
+                for (SqlPayload sql : afterHandler) {
                     String fingerprint = SqlShapes.fingerprint(sql.sql());
                     perRequest.computeIfAbsent(fingerprint, f -> new int[1])[0]++;
                     sites.putIfAbsent(fingerprint, callSite(sql));
@@ -115,14 +130,27 @@ public final class LazySqlAfterHandler implements Observation {
                         .computeIfAbsent(fingerprint, f -> new Statement())
                         .add(request, count[0], sites.get(fingerprint), rendering.contains(fingerprint)));
             }
+            eligible += routeEligible;
+            unplaced += routeUnplaced;
+            long examined = routeEligible;
+            long apart = routeUnplaced;
             statements.forEach((fingerprint, statement) ->
-                    findings.add(finding(route.getKey(), fingerprint, statement, requests.size(), transactions)));
+                    findings.add(finding(route.getKey(), fingerprint, statement, examined, apart, transactions)));
         }
-        return new Evaluation(eligible, findings);
+        return new Evaluation(
+                eligible,
+                findings,
+                unplaced == 0
+                        ? null
+                        : InsightText.counted(unplaced, "request") + " ran SQL after the handler that could not be"
+                                + " placed against " + (unplaced == 1 ? "its" : "their") + " transactions, since a"
+                                + " transaction or statement had no monotonic time, so "
+                                + (unplaced == 1 ? "it is" : "they are")
+                                + " not counted.");
     }
 
     private Finding finding(
-            String route, String fingerprint, Statement statement, long eligible, boolean transactions) {
+            String route, String fingerprint, Statement statement, long eligible, long unplaced, boolean transactions) {
         boolean sufficient =
                 statement.rows.size() >= MIN_REQUESTS || statement.mostInOneRequest >= MIN_STATEMENTS_IN_ONE_REQUEST;
         String counted = "`" + route + "` ran `" + InsightText.quoted(fingerprint) + "` after its handler returned, "
@@ -136,6 +164,10 @@ public final class LazySqlAfterHandler implements Observation {
         List<String> limitations = new ArrayList<>();
         if (!transactions) {
             limitations.add("Without recorded transactions, statements are not checked to run outside one.");
+        }
+        if (unplaced > 0) {
+            limitations.add(InsightText.counted(unplaced, "request") + " could not be placed, since a transaction or"
+                    + " statement had no monotonic time.");
         }
         return new Finding(
                 route + ":" + InsightText.stableHash(fingerprint),

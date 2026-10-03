@@ -72,8 +72,8 @@ public final class ProxyBypass implements Observation {
     @Override
     public Evaluation evaluate(InsightsSnapshot snapshot) {
         ProxyBoundaries resolver = boundaries;
-        boolean transactions = snapshot.records(JournalSource.TRANSACTION);
-        boolean caches = snapshot.records(JournalSource.CACHE);
+        boolean transactions = snapshot.available(JournalSource.TRANSACTION);
+        boolean caches = snapshot.available(JournalSource.CACHE);
         Map<String, ProxyBoundaries.Boundary> resolved = new HashMap<>();
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;

@@ -3,13 +3,16 @@ package io.github.jdubois.bootui.engine.insights;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
+import io.github.jdubois.bootui.core.dto.RuntimeInsightCoverageDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.OrmPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
@@ -20,6 +23,8 @@ import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.time.Duration;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
@@ -330,6 +335,100 @@ class RuntimeInsightsServiceTests {
     private static RuntimeJournal journal(Set<JournalSource> sources) {
         return new RuntimeJournal(
                 new RuntimeJournalSettings(true, 10_000, 50_000_000, 10_000, 10, 10, sources), RunIdentity.start());
+    }
+
+    @Test
+    void aCheckReadingASourceV2AddedIsNotApplicableWhenTheOwningPanelIsDisabled() {
+        request(
+                "GET",
+                "/api/orders/{id}",
+                new Child(
+                        JournalSource.AUTHORIZATION,
+                        1_000,
+                        new AuthorizationPayload("/api/orders/42", "alice", "hasRole", "USER", true, 1)),
+                new Child(JournalSource.ORM, 1_000, orm()));
+
+        Map<String, RuntimeInsightCheckDto> checks = checks(new RuntimeInsightsService(
+                        journal,
+                        null,
+                        panel -> !panel.equals(BootUiPanels.SECURITY_LOGS) && !panel.equals(BootUiPanels.HIBERNATE),
+                        null,
+                        null)
+                .report());
+
+        assertThat(checks.get(AnonymousSuccessOnRestrictedRoute.KIND).status()).isEqualTo("NOT_APPLICABLE");
+        assertThat(checks.get(AnonymousSuccessOnRestrictedRoute.KIND).reason())
+                .isEqualTo("The security-logs panel, whose evidence this reads, is disabled.");
+        assertThat(checks.get(OrmAutoFlush.KIND).status()).isEqualTo("NOT_APPLICABLE");
+        assertThat(checks.get(OrmAutoFlush.KIND).reason())
+                .isEqualTo("The hibernate panel, whose evidence this reads, is disabled.");
+        assertThat(checks.get(RouteTimeBreakdown.KIND).reason())
+                .as("a check that only reads the source as optional evidence says it is not counted")
+                .contains("The security-logs panel is disabled, so its evidence is not counted.")
+                .contains("The hibernate panel is disabled, so its evidence is not counted.");
+    }
+
+    @Test
+    void disablingOneBrokersPanelLeavesTheOthersCountedAndIsStillReported() {
+        request("GET", "/api/orders/{id}", sqls("select 1", 0, null));
+
+        Map<String, RuntimeInsightCheckDto> checks =
+                checks(new RuntimeInsightsService(journal, null, panel -> !panel.equals(BootUiPanels.KAFKA), null, null)
+                        .report());
+
+        assertThat(checks.get(RouteTimeBreakdown.KIND).status())
+                .as("the rabbitmq and jms panels still serve their evidence")
+                .isNotEqualTo("NOT_APPLICABLE");
+        assertThat(checks.get(RouteTimeBreakdown.KIND).reason())
+                .contains("The kafka panel is disabled, so its evidence is not counted.");
+    }
+
+    @Test
+    void aUnitOfWorkIsLeftOutWholeWhenThePanelThatOpensItIsDisabled() {
+        request("GET", "/api/orders/{id}", sqls("select * from orders where id = 1", 0, null));
+
+        RuntimeInsightsReportDto report = new RuntimeInsightsService(
+                        journal, null, panel -> !panel.equals(BootUiPanels.HTTP_EXCHANGES), null, null)
+                .report();
+
+        Map<String, Long> events = report.coverage().stream()
+                .collect(Collectors.toMap(RuntimeInsightCoverageDto::source, RuntimeInsightCoverageDto::events));
+        assertThat(events.getOrDefault("http", 0L))
+                .as("the disabled panel's own evidence, including the route and its status, is left out")
+                .isZero();
+        assertThat(events.getOrDefault("sql", 0L))
+                .as("and so is the rest of the request it opened, which names that route too")
+                .isZero();
+        assertThat(report.observations())
+                .as("nothing reports a route the http-exchanges panel no longer publishes")
+                .noneMatch(observation -> String.valueOf(observation.subject()).contains("/api/orders"));
+    }
+
+    @Test
+    void onePanelReadStandsForAWholeProjectionSoAToggleCannotMakeEvidenceLookAbsent() {
+        request("GET", "/api/orders/{id}", sqls("select * from orders where id = 1", 0, null));
+        Map<String, Integer> reads = new LinkedHashMap<>();
+
+        RuntimeInsightsReportDto report = new RuntimeInsightsService(
+                        journal,
+                        null,
+                        // A panel toggled between two reads of the same projection would let it drop a source's
+                        // events and then evaluate as though the source were visible, which reads as absence.
+                        panel -> reads.merge(panel, 1, Integer::sum) == 1,
+                        null,
+                        null)
+                .report();
+
+        assertThat(reads.values()).as("every owning panel is read exactly once").containsOnly(1);
+        assertThat(report.checks()).isNotEmpty();
+    }
+
+    private static Map<String, RuntimeInsightCheckDto> checks(RuntimeInsightsReportDto report) {
+        return report.checks().stream().collect(Collectors.toMap(RuntimeInsightCheckDto::kind, Function.identity()));
+    }
+
+    private static OrmPayload orm() {
+        return new OrmPayload("default", 1, 1_000, 1, 1_000, 1, 1_000, 0, 0, 1, 1, 0, 0, 0, List.of());
     }
 
     private record Child(JournalSource source, long nanos, RuntimeEventPayload payload) {}

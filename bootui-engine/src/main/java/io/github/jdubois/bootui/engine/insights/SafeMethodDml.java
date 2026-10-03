@@ -91,7 +91,7 @@ public final class SafeMethodDml implements Observation {
         if (snapshot.stack() != InsightsStack.QUARKUS) {
             return "Counts statements the database executed successfully; a write that failed is not listed.";
         }
-        return snapshot.records(JournalSource.ORM)
+        return snapshot.available(JournalSource.ORM)
                 ? "Counts Hibernate statements when they are prepared, leaving out a request whose Hibernate sessions"
                         + " executed no statement at all."
                 : "Counts Hibernate statements when they are prepared: record the orm source to leave out a request"
@@ -133,7 +133,7 @@ public final class SafeMethodDml implements Observation {
      * with no metered session, as when the application names its own session listener, is not evidence either.
      */
     static boolean preparationsExecuted(InsightsSnapshot snapshot, ProjectedRequest request) {
-        if (snapshot.stack() != InsightsStack.QUARKUS || !snapshot.records(JournalSource.ORM)) {
+        if (snapshot.stack() != InsightsStack.QUARKUS || !snapshot.available(JournalSource.ORM)) {
             return true;
         }
         boolean metered = false;

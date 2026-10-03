@@ -310,6 +310,19 @@ using `quarkus-langchain4j` plus `quarkus-opentelemetry` and BootUI's in-process
 receiver — instead of the Spring AI / LangChain4j side-by-side guides.
 :::
 
+### AI Framework value exposure
+
+Content capture only decides what the AI framework records; BootUI decides what it shows. Spans are stored as captured,
+and the chat detail (`GET /bootui/api/ai/chats/{spanId}`) applies the live `bootui.expose-values` and
+`bootui.mask-secrets` policy to the chat span's attributes and events on every read, using the
+[trace value exposure](diagnostics.md#trace-value-exposure) rule on Spring MVC, Spring WebFlux, and Quarkus. Under the
+default `MASKED`, captured prompts, completions, input and output messages, and exception messages and stack traces keep
+their text with secret-like assignments and authorization credentials masked, and an attribute whose key looks
+sensitive is masked. Under `METADATA_ONLY`, that text is omitted as `null` while the attribute keeps its key and type.
+Only `FULL` shows it verbatim. Token counts, models, providers, finish reasons, tool and vector operation names, and
+timings are metadata and are never masked, and the drawer still reports content capture as on when its text is
+withheld. A runtime change of the mode applies to the next read.
+
 ## Cache
 
 ![BootUI Cache panel](../images/bootui-cache.webp)
