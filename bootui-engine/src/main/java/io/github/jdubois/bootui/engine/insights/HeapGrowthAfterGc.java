@@ -56,6 +56,11 @@ public final class HeapGrowthAfterGc implements Observation {
     }
 
     @Override
+    public Set<ProjectedRequest.Kind> unitKinds() {
+        return Set.of();
+    }
+
+    @Override
     public String notApplicable(InsightsSnapshot snapshot) {
         boolean any = false;
         for (RuntimeEvent event : snapshot.collections()) {

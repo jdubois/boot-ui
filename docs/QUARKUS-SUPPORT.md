@@ -440,7 +440,8 @@ configuration declares with a `datasource` or `packages` property; Quarkus logs 
 unsupported property. ORM sessions also give Quarkus what its statement inspector cannot: measured statement time, which
 `route-time-breakdown` uses as its SQL phase, and, for `safe-method-dml`, which counts a Hibernate write in a GET when it is prepared, the evidence to leave out a
 request whose sessions executed no statement at all; fewer executions than preparations prove nothing, since a JDBC batch
-over several tables counts once.
+over several tables counts once. If the journal records ORM but the Hibernate panel is disabled, `safe-method-dml`
+leaves out unverified preparations and names the limitation; timed JDBC executions are still counted.
 
 ::: details The optional durable JDBC persistence backend
 

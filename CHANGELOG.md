@@ -25,6 +25,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `query=repeated-selects` returns them. A sufficient finding, including a local-database N+1, stays. Repeated-selects
   evidence names the phase and whether the repeats ran in a transaction, and says when the total is unmeasured or a
   parent result size was not recorded.
+- **Runtime Insights source-panel follow-ups.** Checks no longer report an empty evaluation after a unit they
+  examine is hidden; only its disabled opening panel is named, and HTTP-only checks do not blame hidden jobs.
+  Dropped HTTP events count once even when HTTP is a required source. Quarkus does not claim that an
+  unverified prepared write executed when Hibernate evidence is hidden, and trace-only AI calls owned by hidden
+  requests no longer survive as uncorrelated coverage ([#1217](https://github.com/jdubois/boot-ui/pull/1217)).
 - **Runtime Insights after Clear recording.** Clearing the journal or freeing BootUI memory now refreshes the
   report and its evidence at once instead of serving the cleared events until a new one arrives, and no route's first
   post-clear request is labeled cold. The evidence table follows each auto-refresh of the open observation, and
