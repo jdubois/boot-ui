@@ -122,6 +122,9 @@ class JournalTextExposureTests {
             assertThat(rule.sql("SELECT 'C:\\', 'sk_live_EXAMPLE'")).doesNotContain("sk_live_EXAMPLE");
             assertThat(rule.sql("select * from t where a = 'it\\'s sk_live_EXAMPLE' and b = 1"))
                     .doesNotContain("sk_live_EXAMPLE");
+            assertThat(rule.sql("select * from t where a = E'password=x\\' trailing sk_live_EXAMPLE' and b = 1"))
+                    .doesNotContain("sk_live_EXAMPLE")
+                    .doesNotContain("trailing");
         }
         assertThat(JournalTextExposure.masked().sql("select * from t where a = 'x' and b = 'y'"))
                 .isEqualTo("select * from t where a = ? and b = ?");

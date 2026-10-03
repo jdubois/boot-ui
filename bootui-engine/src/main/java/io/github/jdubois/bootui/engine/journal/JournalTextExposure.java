@@ -101,22 +101,25 @@ public record JournalTextExposure(ValueExposure exposure, boolean maskSecrets) {
         if (verbatim()) {
             return whitespaceNormalized(sql);
         }
-        // Secret-like assignments are masked before the shape is taken, so a quoted secret becomes a plain placeholder.
-        String secretsMasked = MessageExposure.maskSecretAssignments(sql);
-        String shape = SqlStatementNormalizer.normalize(secretsMasked).sql();
-        int firstQuote = secretsMasked.indexOf('\'');
-        if (firstQuote >= 0 && secretsMasked.indexOf('\\') >= 0) {
+        int firstQuote = sql.indexOf('\'');
+        if (firstQuote >= 0 && sql.indexOf('\\') >= 0) {
             // A backslash escapes a quote in MySQL but not in standard SQL ('C:\'), and the recorded text does not
-            // say which dialect wrote it. When the two readings give different shapes, nothing after the first quote
-            // is shown, so neither reading can turn a literal into visible text.
-            String standard = SqlStatementNormalizer.normalize(secretsMasked.replace("\\", ""))
-                    .sql();
-            if (!standard.equals(shape)) {
-                shape = SqlStatementNormalizer.normalize(secretsMasked.substring(0, firstQuote))
+            // say which dialect wrote it. The two readings are compared on the recorded text, before any masking can
+            // consume a backslash; when they differ, nothing after the first quote is shown, so neither reading can
+            // turn a literal into visible text.
+            String mysql = SqlStatementNormalizer.normalize(sql).sql();
+            String standard =
+                    SqlStatementNormalizer.normalize(sql.replace("\\", "")).sql();
+            if (!standard.equals(mysql)) {
+                return SqlStatementNormalizer.normalize(
+                                        MessageExposure.maskSecretAssignments(sql.substring(0, firstQuote)))
                                 .sql()
                         + " ?";
             }
         }
+        // Secret-like assignments are masked before the shape is taken, so a quoted secret becomes a plain placeholder.
+        String shape = SqlStatementNormalizer.normalize(MessageExposure.maskSecretAssignments(sql))
+                .sql();
         // The normalizer keeps identifier-like "..." runs, which MySQL reads as string literals, and an unterminated
         // dollar quote of a truncated statement; neither can be told apart from a value, so neither is shown.
         shape = DOUBLE_QUOTED.matcher(shape).replaceAll("?");
