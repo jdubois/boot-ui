@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.VisibleJournalEntries;
+import io.github.jdubois.bootui.engine.model.AppEventPublications;
 import io.github.jdubois.bootui.engine.model.EdgeType;
 import io.github.jdubois.bootui.engine.model.ModelEdge;
 import io.github.jdubois.bootui.engine.model.ModelNode;
@@ -77,6 +78,8 @@ public final class ChangeImpactService {
     private final Supplier<RouteTemplateResolver> routes;
     private final Predicate<String> panelEnabled;
 
+    private volatile InsightsStack stack;
+
     /**
      * @param journal the journal, or {@code null} when the adapter created none
      * @param aggregates its aggregates, or {@code null}
@@ -95,6 +98,14 @@ public final class ChangeImpactService {
         this.models = models;
         this.routes = routes == null ? RouteTemplateResolver::empty : routes;
         this.panelEnabled = Objects.requireNonNull(panelEnabled, "panelEnabled");
+    }
+
+    /**
+     * Names the stack serving this application, so an impact it cannot fully trace says so. Without it, nothing is
+     * claimed beyond what the model holds.
+     */
+    public void setStack(InsightsStack stack) {
+        this.stack = stack;
     }
 
     /** What a change to {@code symbol} reaches in this run. */
@@ -294,6 +305,10 @@ public final class ChangeImpactService {
         }
         if (structure.beansUnavailable() != null) {
             limitations.add(structure.beansUnavailable());
+        }
+        String unrecordedPublications = AppEventPublications.unrecordedReason(stack);
+        if (unrecordedPublications != null) {
+            limitations.add(unrecordedPublications);
         }
         return new RuntimeChangeImpactDto(
                 RESOLVED,

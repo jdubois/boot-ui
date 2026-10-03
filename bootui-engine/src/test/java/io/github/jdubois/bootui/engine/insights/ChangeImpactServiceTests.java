@@ -329,6 +329,27 @@ class ChangeImpactServiceTests {
         assertThat(noHttp.symbols("sample_products").available()).isFalse();
     }
 
+    @Test
+    void quarkusSaysItDoesNotRecordWhoPublishesAnApplicationEventAndSpringDoesNot() throws Exception {
+        journal.addListener(aggregates);
+        request("/api/products", "select * from sample_products");
+
+        ChangeImpactService quarkus = service(structure(null));
+        quarkus.setStack(InsightsStack.QUARKUS);
+        ChangeImpactService spring = service(structure(null));
+        spring.setStack(InsightsStack.SPRING_MVC);
+
+        assertThat(quarkus.impact("productService").limitations())
+                .as("a reach that exists only through an event is not counted on Quarkus, and the report says so"
+                        + " rather than implying the publication was recorded")
+                .anySatisfy(limitation ->
+                        assertThat(limitation).contains("Quarkus does not record who publishes an application event"));
+        assertThat(spring.impact("productService").limitations())
+                .as("Spring wraps the multicaster, so it records the publication and claims nothing")
+                .noneSatisfy(limitation ->
+                        assertThat(limitation).contains("does not record who publishes an application event"));
+    }
+
     private ChangeImpactService service(StructureSnapshot structure) {
         return service(structure, panel -> true);
     }

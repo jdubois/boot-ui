@@ -126,7 +126,7 @@ public class QuarkusHttpExchangeCaptureFilter {
     void handle(RoutingContext rc) {
         CorrelationContext correlation = null;
         try {
-            correlation = observe(rc);
+            correlation = correlate(rc);
         } catch (RuntimeException failure) {
             logCaptureFailure(failure);
         }
@@ -134,13 +134,26 @@ public class QuarkusHttpExchangeCaptureFilter {
             rc.next();
             return;
         }
+        // The request's measurement starts inside its correlation scope, not before it: a scope hands back the request
+        // its thread was metered for when it opened, so a meter begun outside would follow this event loop on to the
+        // next request it serves once routing returns with the response still pending.
         try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(correlation)) {
+            if (correlation != CorrelationContext.BOOTUI) {
+                try {
+                    observe(rc, correlation);
+                } catch (RuntimeException failure) {
+                    logCaptureFailure(failure);
+                }
+            }
             rc.next();
         }
     }
 
-    /** Starts observing the request and returns the correlation to run the rest of its routing under. */
-    private CorrelationContext observe(RoutingContext rc) {
+    /**
+     * Correlates the request on its Vert.x duplicated context and returns the correlation to run the rest of its
+     * routing under, without yet measuring anything.
+     */
+    private CorrelationContext correlate(RoutingContext rc) {
         String path = rc.normalizedPath();
         if (QuarkusBootUiPaths.isBootUiRequest(config, path)) {
             // BootUI's own request: never recorded, and the work it does, on the event loop or a worker, stays out of
@@ -148,11 +161,17 @@ public class QuarkusHttpExchangeCaptureFilter {
             QuarkusRequestCorrelation.attach(CorrelationContext.BOOTUI);
             return CorrelationContext.BOOTUI;
         }
+        CorrelationContext correlation = CorrelationContext.forRequest(RequestIds.next());
+        QuarkusRequestCorrelation.attach(correlation);
+        return correlation;
+    }
+
+    /** Starts observing the correlated request, from inside its correlation scope. */
+    private void observe(RoutingContext rc, CorrelationContext correlation) {
+        String path = rc.normalizedPath();
+        String requestId = correlation.requestId();
         long startNanos = System.nanoTime();
         Instant started = Instant.now();
-        String requestId = RequestIds.next();
-        CorrelationContext correlation = CorrelationContext.forRequest(requestId);
-        QuarkusRequestCorrelation.attach(correlation);
         if (phases != null) {
             phases.begin(requestId);
         }
@@ -221,7 +240,6 @@ public class QuarkusHttpExchangeCaptureFilter {
                 logCaptureFailure(failure);
             }
         });
-        return correlation;
     }
 
     /**
