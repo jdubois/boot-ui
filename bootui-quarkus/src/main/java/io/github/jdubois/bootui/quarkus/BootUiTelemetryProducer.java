@@ -34,8 +34,8 @@ import org.eclipse.microprofile.config.Config;
  *       {@link BootUiEngineProducer} (Metrics, Cache) and the OTel-gated {@link BootUiOtelProducer}
  *       (capture) inject this same instance rather than building their own, so capture and every
  *       transform/display panel can never disagree on which paths are BootUI's own.</li>
- *   <li>The traces transform reads the live {@link QuarkusExposurePolicy} on every call, so span values follow
- *       {@code bootui.expose-values} / {@code bootui.mask-secrets} without a restart.</li>
+ *   <li>The traces transform and the AI chat detail read the live {@link QuarkusExposurePolicy} on every call, so
+ *       span values follow {@code bootui.expose-values} / {@code bootui.mask-secrets} without a restart.</li>
  *   <li>The AI usage settings are supplied fresh per request so {@code bootui.ai.*} and
  *       {@code bootui.telemetry.enabled} overrides are honored live.</li>
  * </ul>
@@ -77,7 +77,8 @@ public class BootUiTelemetryProducer {
 
     @Produces
     @Singleton
-    public AiUsageService aiUsageService(TelemetryStore store, QuarkusTelemetrySettings settings, Config config) {
+    public AiUsageService aiUsageService(
+            TelemetryStore store, QuarkusTelemetrySettings settings, QuarkusExposurePolicy exposure, Config config) {
         Supplier<AiUsageSettings> aiSettings = () -> new AiUsageSettings(
                 settings.enabled(),
                 config.getOptionalValue("bootui.ai.max-recent-chats", Integer.class)
@@ -86,6 +87,6 @@ public class BootUiTelemetryProducer {
                         .orElse(60),
                 config.getOptionalValue("bootui.ai.show-content-capture-banner", Boolean.class)
                         .orElse(Boolean.TRUE));
-        return new AiUsageService(store, aiSettings, System::currentTimeMillis);
+        return new AiUsageService(store, aiSettings, System::currentTimeMillis, exposure);
     }
 }

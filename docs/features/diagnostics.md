@@ -28,9 +28,11 @@ the trace embedded in the [per-request profile](overview.md#the-per-request-prof
 tool and `bootui request-profile` command on Spring MVC, Spring WebFlux, and Quarkus:
 
 - **Status messages and exception events.** A span's status message and its `exception.message` and
-  `exception.stacktrace` event attributes, like `error.message` and captured generative-AI prompt and completion text,
-  follow the [exception message](#exposure-and-bounds) rule: secret-like assignments and authorization credentials are
-  masked under the default `MASKED`, the text is omitted under `METADATA_ONLY`, and it is verbatim only under `FULL`.
+  `exception.stacktrace` event attributes, like `error.message` and captured generative-AI content (prompts,
+  completions, input and output messages, system instructions, tool call arguments and results, and vector query
+  content and returned documents), follow the [exception message](#exposure-and-bounds) rule: secret-like assignments
+  and authorization credentials are masked under the default `MASKED`, the text is omitted under `METADATA_ONLY`, and
+  it is verbatim only under `FULL`.
 - **URLs.** `url.full`, `http.url`, `http.target`, `url.query`, and `url.path` are masked like the HTTP Exchanges URI:
   user-info is always removed, sensitive query and matrix parameter values are masked under `MASKED`, and query values
   are dropped under `METADATA_ONLY`.
@@ -43,7 +45,8 @@ tool and `bootui request-profile` command on Spring MVC, Spring WebFlux, and Qua
 
 Keys, types, span and event names, ids, kinds, and timings are never changed. An omitted value is `null`, so the span
 keeps its shape. Masked text is safer to show, not guaranteed secret-free: like log messages, only secrets with a
-recognizable shape are detected.
+recognizable shape are detected. The [AI Framework](services.md#ai-framework-value-exposure) chat detail applies the
+same rule to the chat span it returns.
 
 ::: details Sampling defaults and log-level pins
 
