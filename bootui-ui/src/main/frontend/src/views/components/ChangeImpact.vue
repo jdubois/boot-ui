@@ -3,7 +3,7 @@ import {computed, onBeforeUnmount, ref} from 'vue'
 import {getJson} from '../../api.js'
 import {impactLists, isImpact, isSymbols, nodeParts, routeTraffic, symbolOption} from '../../utils/changeImpact.js'
 import {formatNumber} from '../../utils/format.js'
-import {describeLoadError} from '../../utils/loadError.js'
+import {formatLoadError} from '../../utils/loadError.js'
 import InsightText from './InsightText.vue'
 
 // An agent or a link can open the panel on a symbol; nothing is read until a symbol is asked for or typed.
@@ -54,7 +54,7 @@ async function check(value = symbol.value, shown = value) {
     impact.value = isImpact(result) ? result : null
   } catch (e) {
     impact.value = null
-    error.value = describeLoadError(e, 'Unable to read the change impact')
+    error.value = formatLoadError(e, 'Unable to read the change impact')
   } finally {
     loading.value = false
   }
@@ -80,7 +80,7 @@ async function suggest(query) {
   } catch (e) {
     if (sequence !== suggestSequence) return
     suggestions.value = null
-    suggestionError.value = describeLoadError(e, 'Unable to read the suggestions')
+    suggestionError.value = formatLoadError(e, 'Unable to read the suggestions')
   }
   activeIndex.value = -1
   suggestionsOpen.value = true

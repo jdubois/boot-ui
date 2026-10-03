@@ -436,8 +436,8 @@ scoped by the `bootui.runtime-journal.*` [properties](../PROPERTIES.md#runtime-j
 runtime journal unless set to `buffers`. **Runtime journal** renders the feed from the journal: every child nests under
 its request, scheduled run, or consumed message by id, transactions and log events appear as rows, an AI call appears as
 an **AI** row with its model, provider, tokens, and finish reason, nested under the request that started it (an error
-when it failed, a warning when the model stopped at its length limit), and three more filters apply on the server: a
-**Route** such as `GET /api/orders/{id}`, with its requests' children, a **Request id**, and **No request**, which keeps
+when it failed, a warning when the model stopped at its length limit), and four more filters apply on the server (not while durable activity storage serves the feed, which keeps no run or request grouping, so the panel hides them then): a
+**Route** such as `GET /api/orders/{id}`, with its requests' children, a **Request id**, a **Run id** (the run named in the **Recording** status, so a restart or live reload can be isolated), and **No request**, which keeps
 only work outside any request. The journal keeps no exception or log messages, principals, or email subjects, so a row
 shows them only while the panel that captured them still holds them. **Panel buffers** merges each panel's own buffer,
 as BootUI 1.x does. The feed refreshes whenever the journal records anything.

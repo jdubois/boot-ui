@@ -1,7 +1,7 @@
 <script setup>
 import {computed, ref, watch} from 'vue'
 import {getJson} from '../../api.js'
-import {describeLoadError} from '../../utils/loadError.js'
+import {formatLoadError} from '../../utils/loadError.js'
 import {formatNumber} from '../../utils/format.js'
 import {
   changeMarker,
@@ -41,7 +41,7 @@ async function load() {
     emit('loaded', comparison.value)
   } catch (e) {
     if (token !== requestToken) return
-    error.value = describeLoadError(e, 'Unable to load the run comparison')
+    error.value = formatLoadError(e, 'Unable to load the run comparison')
     comparison.value = null
     emit('loaded', null)
   } finally {
