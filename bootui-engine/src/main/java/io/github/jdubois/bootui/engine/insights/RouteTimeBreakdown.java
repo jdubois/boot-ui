@@ -193,6 +193,14 @@ public final class RouteTimeBreakdown implements Observation {
                     + " until the broker acknowledges it asynchronously, which the handler does not wait for, so its"
                     + " time is not counted as Message sends.");
         }
+        long wallClockAi = warm.stream()
+                .filter(breakdown -> Breakdown.placesAiByWallClock(breakdown.request()))
+                .count();
+        if (wallClockAi > 0) {
+            limitations.add(InsightText.counted(wallClockAi, "request") + " made AI calls known only from GenAI spans,"
+                    + " which are placed by their wall-clock start to the millisecond rather than on the request's"
+                    + " clock, so their AI time beside the calls they made can be off by about a millisecond.");
+        }
         return limitations;
     }
 
@@ -589,7 +597,7 @@ public final class RouteTimeBreakdown implements Observation {
             }
             if (timing.phased()) {
                 carveAuthorization(request, phases);
-                carveHandlerCalls(request, phases);
+                carveHandlerCalls(request, duration, calls, phases);
             }
             long raw = 0;
             for (long[] call : calls) {
@@ -651,13 +659,19 @@ public final class RouteTimeBreakdown implements Observation {
          * their totals move, at most what the handler holds, as with authorization.
          *
          * <p>An AI call the framework reported with its monotonic completion is placed by the sweep instead, over the
-         * REST client call that carried it. One known only from a GenAI span is not, and its HTTP call, or a placed
-         * call nested in it, may already be counted, so only its model and embedding time, unioned by its wall-clock
-         * start, beyond every call the
-         * request already placed moves, which can under-count but never counts the same time twice. A tool or
-         * retrieval operation runs application code whose SQL and calls are placed already, so it never moves.</p>
+         * REST client call that carried it. One known only from a GenAI span is not: its window is placed from its
+         * wall-clock start relative to the request's, to the millisecond, and only its model and embedding time inside
+         * the handler that no placed call covers moves, since its HTTP call, or a placed call nested in it, is counted
+         * already. Calls the request made outside that window stay their own. Statement time measured only in total,
+         * without a place, is deducted in full, so it under-counts rather than over-counts. A tool or retrieval
+         * operation runs application code whose SQL and calls are placed already, so it never moves.</p>
          */
-        private static void carveHandlerCalls(ProjectedRequest request, Map<Phase, Long> phases) {
+        private static void carveHandlerCalls(
+                ProjectedRequest request, long duration, List<long[]> placed, Map<Phase, Long> phases) {
+            RequestTiming timing = request.timing();
+            long handlerFrom = Math.min(duration, timing.handlerOffsetNanos());
+            long handlerTo =
+                    timing.responseOffsetNanos() >= 0 ? Math.min(duration, timing.responseOffsetNanos()) : duration;
             List<long[]> unplacedAi = new ArrayList<>();
             long sends = 0;
             long hibernate = 0;
@@ -668,11 +682,14 @@ public final class RouteTimeBreakdown implements Observation {
                     continue;
                 }
                 if (child.payload() instanceof AiPayload call) {
-                    if (call.completedNanos() < 0
-                            && (AiPayload.CHAT.equals(call.operation())
-                                    || AiPayload.EMBEDDINGS.equals(call.operation()))) {
-                        long start = child.epochMillis() * 1_000_000L;
-                        unplacedAi.add(new long[] {start, start + child.durationNanos()});
+                    if (placedByWallClock(call)) {
+                        // Only the part inside the handler moves out of it.
+                        long from = (child.epochMillis() - request.startMillis()) * 1_000_000L;
+                        long to = Math.min(handlerTo, from + child.durationNanos());
+                        from = Math.max(handlerFrom, from);
+                        if (to > from) {
+                            unplacedAi.add(new long[] {from, to});
+                        }
                     }
                 } else if (child.payload() instanceof MessagingPayload message && synchronousSend(message)) {
                     sends += child.durationNanos();
@@ -685,41 +702,77 @@ public final class RouteTimeBreakdown implements Observation {
             }
             // Where SQL events carry no duration, as Quarkus's statement inspector records them, the ORM session's
             // measured statement time names the SQL phase instead (M4-9).
+            long unplacedSql = 0;
             if (!measuredSql) {
-                carve(phases, Phase.HANDLER, Phase.SQL, ormStatements);
+                unplacedSql = carve(phases, Phase.HANDLER, Phase.SQL, ormStatements);
             }
             carve(phases, Phase.HANDLER, Phase.HIBERNATE, hibernate);
-            long placedCalls = phases.getOrDefault(Phase.CONNECTION_WAIT, 0L)
-                    + phases.getOrDefault(Phase.SQL, 0L)
-                    + phases.getOrDefault(Phase.REST_CLIENT, 0L)
-                    + phases.getOrDefault(Phase.AI, 0L);
-            carve(phases, Phase.HANDLER, Phase.AI, union(unplacedAi) - placedCalls);
+            carve(phases, Phase.HANDLER, Phase.AI, uncovered(unplacedAi, placed) - unplacedSql);
             carve(phases, Phase.HANDLER, Phase.MESSAGE_SENDS, sends);
         }
 
-        /** The time {@code intervals} cover, counting their overlaps once, as a nested call inside its caller. */
-        private static long union(List<long[]> intervals) {
-            intervals.sort(Comparator.comparingLong(interval -> interval[0]));
-            long covered = 0;
-            long end = Long.MIN_VALUE;
-            for (long[] interval : intervals) {
-                long from = Math.max(interval[0], end);
-                if (interval[1] > from) {
-                    covered += interval[1] - from;
-                    end = interval[1];
-                }
-            }
-            return covered;
+        /** Whether {@code call} is a model or embedding call with no monotonic time, placed by its wall-clock start. */
+        static boolean placedByWallClock(AiPayload call) {
+            return call.completedNanos() < 0
+                    && (AiPayload.CHAT.equals(call.operation()) || AiPayload.EMBEDDINGS.equals(call.operation()));
         }
 
-        private static void carve(Map<Phase, Long> phases, Phase from, Phase to, long nanos) {
+        /** Whether {@code request}'s handler made an AI call placed by its wall-clock start. */
+        static boolean placesAiByWallClock(ProjectedRequest request) {
+            if (request.timing() == null || !request.timing().phased()) {
+                return false;
+            }
+            for (RuntimeEvent child : request.children(JournalSource.AI)) {
+                if (child.durationNanos() > 0 && child.payload() instanceof AiPayload call && placedByWallClock(call)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /**
+         * The time {@code intervals} cover that no interval of {@code covered} does, counting overlaps once, as a
+         * nested call inside its caller.
+         */
+        static long uncovered(List<long[]> intervals, List<long[]> covered) {
+            List<long[]> merged = merge(covered);
+            long remaining = 0;
+            for (long[] interval : merge(intervals)) {
+                long length = interval[1] - interval[0];
+                for (long[] other : merged) {
+                    length -= Math.max(0, Math.min(interval[1], other[1]) - Math.max(interval[0], other[0]));
+                }
+                remaining += length;
+            }
+            return remaining;
+        }
+
+        /** {@code intervals} sorted and merged where they overlap or touch. */
+        private static List<long[]> merge(List<long[]> intervals) {
+            List<long[]> sorted = new ArrayList<>(intervals);
+            sorted.sort(Comparator.comparingLong(interval -> interval[0]));
+            List<long[]> merged = new ArrayList<>();
+            for (long[] interval : sorted) {
+                long[] last = merged.isEmpty() ? null : merged.get(merged.size() - 1);
+                if (last != null && interval[0] <= last[1]) {
+                    last[1] = Math.max(last[1], interval[1]);
+                } else {
+                    merged.add(new long[] {interval[0], interval[1]});
+                }
+            }
+            return merged;
+        }
+
+        /** Moves up to {@code nanos} from {@code from} to {@code to}, and returns what it moved. */
+        private static long carve(Map<Phase, Long> phases, Phase from, Phase to, long nanos) {
             Long available = phases.get(from);
             if (nanos <= 0 || available == null) {
-                return;
+                return 0;
             }
             long moved = Math.min(available, nanos);
             phases.put(from, available - moved);
             phases.merge(to, moved, Long::sum);
+            return moved;
         }
 
         private static Phase phaseAt(RequestTiming timing, long offset) {
