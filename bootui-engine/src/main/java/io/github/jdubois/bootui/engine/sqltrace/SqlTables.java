@@ -1,6 +1,8 @@
 package io.github.jdubois.bootui.engine.sqltrace;
 
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -19,6 +21,9 @@ public final class SqlTables {
     private static final String IDENTIFIER = "(?:[\\w$]+|\"[^\"]+\"|`[^`]+`|\\[[^\\]]+\\])"
             + "(?:\\s*\\.\\s*(?:[\\w$]+|\"[^\"]+\"|`[^`]+`|\\[[^\\]]+\\]))*";
 
+    private static final Pattern IDENTIFIERS = Pattern.compile(IDENTIFIER);
+    private static final String DELETE_IDENTIFIER = IDENTIFIER + "(?:\\s*\\.\\s*\\*)?";
+
     private static final Pattern TABLE =
             Pattern.compile("\\b(?:from|join|into|update)\\s+(" + IDENTIFIER + ")", Pattern.CASE_INSENSITIVE);
 
@@ -31,8 +36,25 @@ public final class SqlTables {
 
     private static final Pattern FROM = Pattern.compile("\\bfrom\\b", Pattern.CASE_INSENSITIVE);
 
+    private static final Pattern DML_HEAD =
+            Pattern.compile("^\\s*(?:insert|update|delete|merge|replace)\\b", Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern DIALECT_TARGET = Pattern.compile(
+            "^\\s*(?:insert|update|delete|merge|replace)\\s+"
+                    + "(?:(?:into|from|ignore|low_priority|high_priority|delayed|quick|only)\\s+"
+                    + "|top\\s*\\([^)]*\\)\\s+)*(" + IDENTIFIER + ")",
+            Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern TABLE_LIST = Pattern.compile(
+            "\\b(?:from|into|update)\\s+(" + DELETE_IDENTIFIER + "(?:\\s*,\\s*" + DELETE_IDENTIFIER + ")*)",
+            Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern DELETE_LIST = Pattern.compile(
+            "^\\s*delete\\s+(" + DELETE_IDENTIFIER + "(?:\\s*,\\s*" + DELETE_IDENTIFIER + ")*)\\s+from\\b",
+            Pattern.CASE_INSENSITIVE);
+
     private static final Set<String> TARGET_MODIFIERS =
-            Set.of("ignore", "low_priority", "delayed", "top", "all", "first");
+            Set.of("ignore", "low_priority", "high_priority", "delayed", "quick", "top", "all", "first");
 
     private static final Set<String> NOT_TABLES = Set.of("select", "lateral", "unnest", "values", "only", "dual");
 
@@ -63,7 +85,7 @@ public final class SqlTables {
         if (sql == null || sql.isBlank()) {
             return null;
         }
-        String text = withoutLiteralsAndComments(sql);
+        String text = withoutLiteralsAndComments(sql, true);
         Matcher matcher = WRITE_TARGET.matcher(text);
         if (!matcher.find()) {
             return null;
@@ -75,6 +97,10 @@ public final class SqlTables {
         boolean update = matcher.group(1).equalsIgnoreCase("update");
         boolean delete = matcher.group(1).toLowerCase(Locale.ROOT).startsWith("delete");
         String rest = text.substring(matcher.end());
+        if (delete
+                && (rest.stripLeading().startsWith(",") || rest.stripLeading().startsWith(".*"))) {
+            return null;
+        }
         if (update && !UPDATE_SET.matcher(rest).find()) {
             return null;
         }
@@ -96,6 +122,73 @@ public final class SqlTables {
         return target;
     }
 
+    /** Each captured DML statement's targets, including every statement of a JDBC batch preview. */
+    public static List<WriteTargets> writes(String sql) {
+        if (sql == null || sql.isBlank()) {
+            return List.of();
+        }
+        String text = withoutLiteralsAndComments(sql, true);
+        List<WriteTargets> writes = new ArrayList<>();
+        int start = 0;
+        int index = 0;
+        while (index < text.length()) {
+            char c = text.charAt(index);
+            if (c == '"' || c == '`' || c == '[') {
+                index = skipQuoted(text, index, c == '[' ? ']' : c);
+                continue;
+            }
+            if (c == ';') {
+                addWrite(writes, text.substring(start, index));
+                start = index + 1;
+            }
+            index++;
+        }
+        addWrite(writes, text.substring(start));
+        return List.copyOf(writes);
+    }
+
+    /**
+     * An exact lexical target for a simple DML head, or candidate names for ambiguous dialect forms. Candidates may
+     * include read-side tables or aliases and must never be presented as proven writes.
+     */
+    public record WriteTargets(Set<String> tables, boolean exact) {
+        public WriteTargets {
+            tables = Set.copyOf(tables);
+        }
+    }
+
+    private static void addWrite(List<WriteTargets> writes, String statement) {
+        if (!DML_HEAD.matcher(statement).find()) {
+            return;
+        }
+        String target = writeTarget(statement);
+        if (target != null) {
+            writes.add(new WriteTargets(Set.of(target), true));
+            return;
+        }
+        Set<String> candidates = new LinkedHashSet<>(of(statement));
+        candidates.removeAll(TARGET_MODIFIERS);
+        addLists(candidates, DIALECT_TARGET.matcher(statement));
+        addLists(candidates, TABLE_LIST.matcher(statement));
+        addLists(candidates, DELETE_LIST.matcher(statement));
+        candidates.remove("set");
+        if (!candidates.isEmpty()) {
+            writes.add(new WriteTargets(candidates, false));
+        }
+    }
+
+    private static void addLists(Set<String> candidates, Matcher lists) {
+        while (lists.find()) {
+            Matcher names = IDENTIFIERS.matcher(lists.group(1));
+            while (names.find() && candidates.size() < MAX_TABLES) {
+                String name = tableName(names.group());
+                if (!NOT_TABLES.contains(name) && !TARGET_MODIFIERS.contains(name)) {
+                    candidates.add(name);
+                }
+            }
+        }
+    }
+
     private static String tableName(String identifier) {
         return identifier.replaceAll("[\"`\\[\\]\\s]", "").toLowerCase(Locale.ROOT);
     }
@@ -106,6 +199,10 @@ public final class SqlTables {
      * identifiers that contain punctuation or non-ASCII characters.
      */
     private static String withoutLiteralsAndComments(String sql) {
+        return withoutLiteralsAndComments(sql, false);
+    }
+
+    private static String withoutLiteralsAndComments(String sql, boolean targetLists) {
         StringBuilder out = new StringBuilder(sql.length());
         int index = 0;
         boolean tableIdentifierExpected = false;
@@ -164,7 +261,12 @@ public final class SqlTables {
                 }
                 String word = sql.substring(index, end);
                 out.append(word);
-                if (isTableKeyword(word)) {
+                if (isTableKeyword(word)
+                        || (targetLists && "delete".equalsIgnoreCase(word))
+                        || (targetLists
+                                && tableIdentifierExpected
+                                && (TARGET_MODIFIERS.contains(word.toLowerCase(Locale.ROOT))
+                                        || "only".equalsIgnoreCase(word)))) {
                     tableIdentifierExpected = true;
                     tableIdentifierContinues = false;
                 } else {
@@ -175,6 +277,12 @@ public final class SqlTables {
                 continue;
             }
             out.append(c);
+            if (targetLists && c == ',' && tableIdentifierContinues) {
+                tableIdentifierExpected = true;
+                tableIdentifierContinues = false;
+                index++;
+                continue;
+            }
             if (!Character.isWhitespace(c) && c != '.') {
                 tableIdentifierExpected = false;
                 tableIdentifierContinues = false;
