@@ -405,7 +405,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   attribute values are masked, and bound parameter and header values are omitted under `METADATA_ONLY`. Keys, types,
   names, ids, and timings are unchanged, and `FULL` shows values verbatim, except URL user-info, which BootUI never
   shows. Applies on Spring MVC, Spring WebFlux, and Quarkus, including after a runtime change of the mode
-  ([Trace value exposure](docs/features/diagnostics.md#trace-value-exposure)).
+  ([Trace value exposure](docs/features/diagnostics.md#trace-value-exposure),
+  [#1205](https://github.com/jdubois/boot-ui/pull/1205)).
 - **Log, exception, and container-log masking now covers the credential after an authorization scheme.** Under the
   default `bootui.expose-values=MASKED`, the shared rule masked only the first word after a secret-like key, so
   `Authorization: Bearer <token>` hid the word `Bearer` and showed the token. The credential is now masked and the
