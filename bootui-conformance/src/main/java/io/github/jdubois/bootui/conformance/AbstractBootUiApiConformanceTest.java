@@ -1546,6 +1546,38 @@ public abstract class AbstractBootUiApiConformanceTest {
         trace.assertMasked(traceDetail(trace), "GET /traces/{id} (restored default)");
     }
 
+    @Test
+    void aiChatDetailFollowsTheLiveValueExposurePolicy() {
+        // The AI Framework chat detail returns the chat span's attributes and events. They are stored raw and must
+        // follow the same live exposure policy as the Traces detail. The endpoint is served whether or not an AI
+        // framework is on the classpath, so only a disabled panel skips the contract.
+        JsonNode panel = panelFromLiveManifest("ai");
+        assumeTrue(panel != null && panel.path("enabled").asBoolean(true), "ai panel is disabled");
+        AiChatExposureContract chat = new AiChatExposureContract();
+        assertThat(telemetryStore().add(chat.span(), false))
+                .as("the seeded chat span is retained")
+                .isTrue();
+
+        LogTailExposureContract.withExposure(
+                "FULL", null, () -> chat.assertVerbatim(aiChatDetail(chat), "GET /ai/chats/{id} (FULL)"));
+        LogTailExposureContract.withExposure("MASKED", null, () -> {
+            chat.assertMasked(aiChatDetail(chat), "GET /ai/chats/{id} (MASKED)");
+            chat.assertNoSecret(probe().get(api("/ai/overview")).json(), "GET /ai/overview (MASKED)");
+            chat.assertNoSecret(probe().get(api("/ai/chats")).json(), "GET /ai/chats (MASKED)");
+        });
+        LogTailExposureContract.withExposure("METADATA_ONLY", null, () -> {
+            chat.assertOmitted(aiChatDetail(chat), "GET /ai/chats/{id} (METADATA_ONLY)");
+            chat.assertNoSecret(probe().get(api("/ai/overview")).json(), "GET /ai/overview (METADATA_ONLY)");
+        });
+        chat.assertMasked(aiChatDetail(chat), "GET /ai/chats/{id} (restored default)");
+    }
+
+    private JsonNode aiChatDetail(AiChatExposureContract chat) {
+        Response response = probe().get(api("/ai/chats/" + chat.spanId));
+        assertThat(response.status()).as("GET /ai/chats/{id} status").isEqualTo(200);
+        return response.json();
+    }
+
     private JsonNode traceDetail(TraceExposureContract trace) {
         Response response = probe().get(api("/traces/" + trace.traceId));
         assertThat(response.status()).as("GET /traces/{id} status").isEqualTo(200);

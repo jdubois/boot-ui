@@ -7,11 +7,13 @@ import io.github.jdubois.bootui.core.dto.AiTokenBucketDto;
 import io.github.jdubois.bootui.core.dto.AiTokenSeriesDto;
 import io.github.jdubois.bootui.core.dto.AiToolCallDto;
 import io.github.jdubois.bootui.core.dto.AiVectorOpDto;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.function.LongSupplier;
@@ -23,6 +25,11 @@ import java.util.function.Supplier;
  *
  * <p>Live configuration is read through a {@code Supplier<AiUsageSettings>} and the wall clock
  * through a {@link LongSupplier}, so the same engine logic serves both adapters and stays testable.</p>
+ *
+ * <p>Spans are stored raw. The chat detail applies the live value-exposure policy through {@link SpanValueExposure}
+ * on every read, exactly as the Traces panel does, so prompts, completions, exception events, and other attribute
+ * values follow {@code bootui.expose-values} and {@code bootui.mask-secrets}, and a runtime change applies to the next
+ * read.</p>
  */
 public final class AiUsageService {
 
@@ -40,10 +47,14 @@ public final class AiUsageService {
 
     private final LongSupplier nowMillis;
 
-    public AiUsageService(TelemetryStore store, Supplier<AiUsageSettings> settings, LongSupplier nowMillis) {
+    private final ExposurePolicy exposure;
+
+    public AiUsageService(
+            TelemetryStore store, Supplier<AiUsageSettings> settings, LongSupplier nowMillis, ExposurePolicy exposure) {
         this.store = store;
         this.settings = settings;
         this.nowMillis = nowMillis;
+        this.exposure = Objects.requireNonNull(exposure, "exposure");
     }
 
     public AiOverviewDto overview() {
@@ -294,12 +305,13 @@ public final class AiUsageService {
                         + "GenAI message-content capture on the OpenTelemetry instrumentation) to capture prompt "
                         + "and completion text."
                 : null;
+        SpanValueExposure values = SpanValueExposure.current(exposure);
         return new AiChatDetailDto(
                 toSummary(chat),
                 tools,
                 vectors,
-                SpanMappers.toAttributeList(chat.attributes()),
-                SpanMappers.toEventList(chat.events()),
+                values.attributes(chat.attributes()),
+                values.events(chat.events()),
                 contentCaptured,
                 banner);
     }
