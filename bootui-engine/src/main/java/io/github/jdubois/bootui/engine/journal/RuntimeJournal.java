@@ -89,7 +89,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
 
     /** How many times the recording was cleared, so the dispatcher drops an event it took before a clear. */
     private volatile long clears;
-    // Counted once a clear is done, so a reader that sees it also sees the emptied ring.
+    // Counted when a clear is wholly done, listeners included, and read first by status().
     private volatile long clearsCompleted;
 
     private GcEventSource gcSource;
@@ -454,7 +454,6 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
             processed.addAndGet(queued.size());
             long dropped = ring.counts().retained() + queued.size();
             ring.clear();
-            clearsCompleted++;
             dictionary.clear();
             SqlShapes.clear();
             for (JournalListener listener : listeners) {
@@ -465,11 +464,13 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
                     log.log(Level.WARNING, "A listener of BootUI's runtime journal failed to clear its state", ex);
                 }
             }
+            clearsCompleted++;
             return dropped;
         }
     }
 
     public JournalStatus status() {
+        long clearsDone = clearsCompleted;
         EvidenceRing.Counts counts = ring.counts();
         return new JournalStatus(
                 settings.enabled(),
@@ -493,7 +494,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
                 perSource(accepted),
                 perSource(dropped),
                 listenerFailures.sum(),
-                clearsCompleted);
+                clearsDone);
     }
 
     /**
