@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.engine.faulttolerance.FaultToleranceVocabulary;
 import io.github.jdubois.bootui.engine.journal.ExceptionPayload;
 import io.github.jdubois.bootui.engine.journal.FaultTolerancePayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
 import io.github.jdubois.bootui.engine.journal.LogPayload;
 import io.github.jdubois.bootui.engine.journal.RestClientPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
@@ -99,7 +100,7 @@ public final class ErrorsBehind2xx implements Observation {
             List<Behind> unrecovered = new ArrayList<>();
             List<Behind> recovered = new ArrayList<>();
             for (ProjectedRequest request : successes) {
-                Behind behind = behind(request, readable);
+                Behind behind = behind(request, readable, snapshot.exposure());
                 if (behind == null) {
                     continue;
                 }
@@ -131,6 +132,10 @@ public final class ErrorsBehind2xx implements Observation {
     }
 
     static Behind behind(ProjectedRequest request, Set<JournalSource> readable) {
+        return behind(request, readable, JournalTextExposure.masked());
+    }
+
+    static Behind behind(ProjectedRequest request, Set<JournalSource> readable, JournalTextExposure text) {
         Map<Evidence, List<String>> evidence = new EnumMap<>(Evidence.class);
         boolean retried = false;
         boolean recoveredByPolicy = false;
@@ -154,7 +159,7 @@ public final class ErrorsBehind2xx implements Observation {
                 }
             } else if (payload instanceof RestClientPayload call) {
                 if (call.status() != null ? call.status() >= 500 : call.failed()) {
-                    add(evidence, Evidence.DOWNSTREAM, downstream(call));
+                    add(evidence, Evidence.DOWNSTREAM, downstream(call, text));
                 }
             } else if (payload instanceof FaultTolerancePayload policy) {
                 if (FaultToleranceVocabulary.OUTCOME_FALLBACK.equals(policy.outcome())) {
@@ -177,19 +182,19 @@ public final class ErrorsBehind2xx implements Observation {
         evidence.computeIfAbsent(kind, k -> new ArrayList<>()).add(what);
     }
 
-    private static String downstream(RestClientPayload call) {
-        StringBuilder text = new StringBuilder(call.status() == null ? "failed" : String.valueOf(call.status()));
+    private static String downstream(RestClientPayload call, JournalTextExposure text) {
+        StringBuilder described = new StringBuilder(call.status() == null ? "failed" : String.valueOf(call.status()));
         if (call.method() != null) {
-            text.append(' ').append(call.method());
+            described.append(' ').append(call.method());
         }
-        text.append(' ');
+        described.append(' ');
         if (call.authority() != null) {
-            text.append(call.authority());
+            described.append(call.authority());
         }
         if (call.path() != null) {
-            text.append(call.path());
+            described.append(text.path(call.path()));
         }
-        return text.toString().trim();
+        return described.toString().trim();
     }
 
     private Finding finding(String route, List<Behind> requests, long eligible, boolean recovered) {

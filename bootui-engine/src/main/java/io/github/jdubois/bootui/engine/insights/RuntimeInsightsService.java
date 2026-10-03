@@ -15,11 +15,13 @@ import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
 import io.github.jdubois.bootui.engine.journal.JournalStatus;
+import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
 import io.github.jdubois.bootui.engine.journal.LifecyclePayload;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -69,9 +71,11 @@ public final class RuntimeInsightsService {
     private final Supplier<List<RunSummary>> runs;
     private Cached cached;
     private volatile Function<String, Integer> poolSizes;
+    private volatile ExposurePolicy exposure;
     private volatile Supplier<List<MappingDto>> declaredMappings;
     private volatile Supplier<JournalAggregates.RouteLabels> runRoutes;
     private volatile Supplier<SqlCapture> sqlCapture;
+    private volatile Function<String, String> panelUnavailable;
     private String previousRunOf;
     private RunSummary previousRun;
 
@@ -159,6 +163,21 @@ public final class RuntimeInsightsService {
     }
 
     /**
+     * Installs why a panel is off in this application, by its id, {@code null} when the user simply disabled it or it
+     * is on. An observation whose evidence belongs to an unavailable panel is then reported as such, naming what would
+     * make it available — Quarkus security events, say — rather than as a panel someone switched off. The panel's
+     * evidence stays out of the projection either way, so an application firing an event a panel cannot serve never
+     * sees it leak into a report.
+     *
+     * <p>A stack whose panel predicate already means "the user enabled it", as the Spring adapter's does, installs
+     * nothing and every panel that is off reads as disabled.</p>
+     */
+    public synchronized void setPanelUnavailable(Function<String, String> panelUnavailable) {
+        this.panelUnavailable = panelUnavailable;
+        this.cached = null;
+    }
+
+    /**
      * Installs whether this application's SQL can be recorded at all ({@link SqlCapture}): without it, an observation
      * that reads the {@code sql} or {@code connection} source reports {@code UNAVAILABLE} with the reason, rather than
      * running over nothing, and one that only optionally reads them names what it cannot count. Without a supplier,
@@ -166,6 +185,16 @@ public final class RuntimeInsightsService {
      */
     public synchronized void setSqlCapture(Supplier<SqlCapture> sqlCapture) {
         this.sqlCapture = sqlCapture;
+        this.cached = null;
+    }
+
+    /**
+     * Installs the live exposure policy that insight sentences and evidence quote recorded log text and request paths
+     * under ({@code PLAN-v2} §8). Without one they are quoted as {@link JournalTextExposure#masked()}. The cached
+     * projection is keyed by the rule the policy prescribes, so a live change applies to the next read.
+     */
+    public synchronized void setExposure(ExposurePolicy exposure) {
+        this.exposure = exposure;
         this.cached = null;
     }
 
@@ -261,8 +290,9 @@ public final class RuntimeInsightsService {
             return new Cached(
                     -1,
                     -1,
-                    0,
+                    new PanelVisibility(Map.of(), Map.of()),
                     SqlCapture.capturing(),
+                    null,
                     new RuntimeInsightsReportDto(
                             false, DISABLED, null, List.of(), List.of(), List.of(), List.of(), List.of(), 0),
                     Map.of(),
@@ -274,15 +304,18 @@ public final class RuntimeInsightsService {
         // A panel disabled or re-enabled since the last read changes what may be shown, so it invalidates the cache.
         PanelVisibility visibility = panelVisibility();
         SqlCapture capture = sqlCapture();
+        // So is a live change of the exposure policy, which changes what recorded text may be quoted (§8).
+        JournalTextExposure text = JournalTextExposure.of(exposure);
         if (cached != null
                 && cached.watermark() == watermark
                 && cached.evicted() == evicted
-                && cached.visibility() == visibility.mask()
+                && cached.visibility().equals(visibility)
+                && cached.sqlCapture().equals(capture)
                 && cached.clears() == status.clears()
-                && cached.sqlCapture().equals(capture)) {
+                && text.equals(cached.exposure())) {
             return cached;
         }
-        cached = project(status, journal.entries(), watermark, evicted, visibility, capture);
+        cached = project(status, journal.entries(), watermark, evicted, visibility, capture, text);
         return cached;
     }
 
@@ -308,8 +341,8 @@ public final class RuntimeInsightsService {
      */
     private PanelVisibility panelVisibility() {
         Map<String, Boolean> enabled = new LinkedHashMap<>();
-        long mask = 0;
-        int bit = 0;
+        Map<String, String> unavailable = new LinkedHashMap<>();
+        Function<String, String> reasons = panelUnavailable;
         for (String panel : JournalSourcePanels.owningPanels()) {
             boolean on;
             try {
@@ -318,12 +351,19 @@ public final class RuntimeInsightsService {
                 on = false;
             }
             enabled.put(panel, on);
-            if (on) {
-                mask |= 1L << bit;
+            if (!on && reasons != null) {
+                String reason;
+                try {
+                    reason = reasons.apply(panel);
+                } catch (RuntimeException ex) {
+                    reason = null;
+                }
+                if (reason != null && !reason.isBlank()) {
+                    unavailable.put(panel, reason.trim());
+                }
             }
-            bit++;
         }
-        return new PanelVisibility(Map.copyOf(enabled), mask);
+        return new PanelVisibility(Map.copyOf(enabled), Map.copyOf(unavailable));
     }
 
     /**
@@ -377,7 +417,8 @@ public final class RuntimeInsightsService {
             long watermark,
             long evicted,
             PanelVisibility visibility,
-            SqlCapture capture) {
+            SqlCapture capture,
+            JournalTextExposure text) {
         RouteTemplateResolver resolver;
         try {
             resolver = routes.get();
@@ -385,20 +426,21 @@ public final class RuntimeInsightsService {
             resolver = RouteTemplateResolver.empty();
         }
         InsightsSnapshot snapshot = InsightsSnapshot.of(
-                visibleEntries(entries, visibility),
-                status,
-                resolver == null ? RouteTemplateResolver.empty() : resolver,
-                journal::records,
-                visibility::visible,
-                stack,
-                previousRun(status.runId()),
-                poolSizes,
-                journal::evictedARequestOf);
+                        visibleEntries(entries, visibility),
+                        status,
+                        resolver == null ? RouteTemplateResolver.empty() : resolver,
+                        journal::records,
+                        visibility::visible,
+                        stack,
+                        previousRun(status.runId()),
+                        poolSizes,
+                        journal::evictedARequestOf)
+                .withExposure(text);
         List<RuntimeInsightCheckDto> checks = new ArrayList<>();
         List<RuntimeObservationDto> rows = new ArrayList<>();
         Map<String, Detail> details = new LinkedHashMap<>();
         for (Observation observation : observations) {
-            String missing = missingSource(observation, snapshot);
+            String missing = missingSource(observation, snapshot, visibility);
             if (missing == null) {
                 missing = observation.notApplicable(snapshot);
             }
@@ -507,7 +549,7 @@ public final class RuntimeInsightsService {
                 limitations,
                 notExercised.subList(0, Math.min(notExercised.size(), RuntimeInsightsReportDto.MAX_NOT_EXERCISED)),
                 Math.max(0, notExercised.size() - RuntimeInsightsReportDto.MAX_NOT_EXERCISED));
-        return new Cached(watermark, evicted, visibility.mask(), capture, report, details, status.clears());
+        return new Cached(watermark, evicted, visibility, capture, text, report, details, status.clears());
     }
 
     /**
@@ -600,7 +642,7 @@ public final class RuntimeInsightsService {
         return false;
     }
 
-    private String missingSource(Observation observation, InsightsSnapshot snapshot) {
+    private String missingSource(Observation observation, InsightsSnapshot snapshot, PanelVisibility visibility) {
         for (JournalSource source : observation.reads()) {
             if (!snapshot.records(source)) {
                 return "The runtime journal does not record the " + source.propertyName()
@@ -608,6 +650,13 @@ public final class RuntimeInsightsService {
             }
             if (!snapshot.visible(source)) {
                 List<String> panels = JournalSourcePanels.panelsOf(source);
+                List<String> disabled = visibility.disabled(source);
+                if (disabled.isEmpty()) {
+                    // Every panel owning this source is off because the application cannot serve it, which is not the
+                    // same as the user having switched it off: say so, and name what would make it available.
+                    return panelsLabel(panels) + ", whose evidence this reads, " + (panels.size() == 1 ? "is" : "are")
+                            + " not available in this application: " + visibility.reasonsFor(panels);
+                }
                 return panelsLabel(panels) + ", whose evidence this reads, " + (panels.size() == 1 ? "is" : "are")
                         + " disabled.";
             }
@@ -628,6 +677,12 @@ public final class RuntimeInsightsService {
                 if (!disabled.isEmpty()) {
                     unseen.add(panelsLabel(disabled) + (disabled.size() == 1 ? " is" : " are")
                             + " disabled, so its evidence is not counted.");
+                }
+                List<String> unavailable = visibility.unavailable(source);
+                if (!unavailable.isEmpty()) {
+                    unseen.add(panelsLabel(unavailable) + (unavailable.size() == 1 ? " is" : " are")
+                            + " not available in this application, so its evidence is not counted: "
+                            + visibility.reasonsFor(unavailable));
                 }
             }
         }
@@ -693,7 +748,7 @@ public final class RuntimeInsightsService {
      * Every owning panel's state as one projection read it, so the cache key, the events kept, and the reason given
      * for a source left out all answer from the same read. A panel this does not name is treated as disabled.
      */
-    private record PanelVisibility(Map<String, Boolean> enabled, long mask) {
+    private record PanelVisibility(Map<String, Boolean> enabled, Map<String, String> unavailable) {
 
         /** Whether the panel publishing {@code event} is enabled, so its evidence may be projected. */
         boolean visible(RuntimeEvent event) {
@@ -715,23 +770,57 @@ public final class RuntimeInsightsService {
             return false;
         }
 
-        /** The panels owning {@code source} that are disabled, so their evidence is left out of this projection. */
+        /** The panels owning {@code source} that are off because the user disabled them. */
         List<String> disabled(JournalSource source) {
             List<String> disabled = new ArrayList<>();
-            for (String panel : JournalSourcePanels.panelsOf(source)) {
-                if (!enabled.getOrDefault(panel, Boolean.FALSE)) {
+            for (String panel : off(source)) {
+                if (!unavailable.containsKey(panel)) {
                     disabled.add(panel);
                 }
             }
             return disabled;
+        }
+
+        /** The panels owning {@code source} that are off because this application cannot serve them. */
+        List<String> unavailable(JournalSource source) {
+            List<String> missing = new ArrayList<>();
+            for (String panel : off(source)) {
+                if (unavailable.containsKey(panel)) {
+                    missing.add(panel);
+                }
+            }
+            return missing;
+        }
+
+        /** Why {@code panels} are unavailable, each reason once, in the panels' order. */
+        String reasonsFor(List<String> panels) {
+            List<String> reasons = new ArrayList<>();
+            for (String panel : panels) {
+                String reason = unavailable.get(panel);
+                if (reason != null && !reasons.contains(reason)) {
+                    reasons.add(reason);
+                }
+            }
+            return String.join(" ", reasons);
+        }
+
+        private List<String> off(JournalSource source) {
+            List<String> off = new ArrayList<>();
+            for (String panel : JournalSourcePanels.panelsOf(source)) {
+                if (!enabled.getOrDefault(panel, Boolean.FALSE)) {
+                    off.add(panel);
+                }
+            }
+            return off;
         }
     }
 
     private record Cached(
             long watermark,
             long evicted,
-            long visibility,
+            PanelVisibility visibility,
             SqlCapture sqlCapture,
+            JournalTextExposure exposure,
             RuntimeInsightsReportDto report,
             Map<String, Detail> details,
             long clears) {}

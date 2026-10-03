@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.insights;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCoverageDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
@@ -12,6 +13,7 @@ import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.LogPayload;
 import io.github.jdubois.bootui.engine.journal.OrmPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPayload;
@@ -21,6 +23,7 @@ import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.time.Duration;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
@@ -185,6 +188,34 @@ class RuntimeInsightsServiceTests {
     }
 
     @Test
+    void aSentenceAndItsEvidenceQuoteAStatementsShapeNeverAValueItsFingerprintKeeps() {
+        // A fingerprint keeps identifier-like "..." runs, which MySQL reads as string literals, and a truncated dollar
+        // quote verbatim: it groups statements but is never shown.
+        request("GET", "/api/products/{id}", sqls("insert into users(pw) values(\"hunter2\")", 0, null));
+        for (int i = 0; i < 3; i++) {
+            request(
+                    "GET",
+                    "/api/notes/{id}",
+                    sqls("select 1 from notes", 5, "select * from t where body = $$sk_live_EXAMPLE"));
+        }
+        RuntimeInsightsService service = service();
+        RuntimeInsightsReportDto report = service.report();
+
+        RuntimeObservationDto write = observations(report, SafeMethodDml.KIND).get("GET /api/products/{id}");
+        RuntimeObservationDto repeat =
+                observations(report, RepeatedSelects.KIND).get("GET /api/notes/{id}");
+        assertThat(write.sentence()).contains("executed `insert into users(pw) values(?)`");
+        assertThat(repeat.sentence()).contains("ran `select * from t where body = ?`");
+        for (RuntimeObservationDto observation : report.observations()) {
+            assertThat(observation.sentence()).doesNotContain("hunter2", "sk_live_EXAMPLE");
+            RuntimeObservationDetailDto detail = service.insight(observation.id());
+            assertThat(detail.rows())
+                    .allSatisfy(row ->
+                            assertThat(String.join(" ", row.cells())).doesNotContain("hunter2", "sk_live_EXAMPLE"));
+        }
+    }
+
+    @Test
     void connectionsHeldTogetherAreFoundAndBackToBackConnectionsAreNot() {
         // Nested: an inner connection checked out and released while the outer one is held.
         request("POST", "/api/orders", connection("db", 1_000, 50_000_000), connection("db", 10_000_000, 5_000_000));
@@ -325,6 +356,65 @@ class RuntimeInsightsServiceTests {
                 .isEqualTo(SqlCapture.recordedExcept(SqlCapture.R2DBC_NOT_RECORDED));
     }
 
+    @Test
+    void aLiveExposureSwitchReProjectsTheQuotedTemplateAtAnUnchangedWatermark() {
+        request(
+                "GET",
+                "/api/login",
+                new Child(
+                        JournalSource.LOG,
+                        -1,
+                        new LogPayload(
+                                "org.springframework.web.Login", "WARN", "Login password=hunter2 refused", null)));
+        ValueExposure[] exposure = {ValueExposure.FULL};
+        RuntimeInsightsService service = service();
+        service.setExposure(new ExposurePolicy() {
+            @Override
+            public ValueExposure valueExposure() {
+                return exposure[0];
+            }
+
+            @Override
+            public boolean maskSecrets() {
+                return true;
+            }
+        });
+
+        RuntimeObservationDto full =
+                observations(service.report(), FrameworkWarningsByRoute.KIND).get("GET /api/login");
+        exposure[0] = ValueExposure.MASKED;
+        RuntimeObservationDto masked =
+                observations(service.report(), FrameworkWarningsByRoute.KIND).get("GET /api/login");
+        exposure[0] = ValueExposure.METADATA_ONLY;
+        RuntimeObservationDto metadata =
+                observations(service.report(), FrameworkWarningsByRoute.KIND).get("GET /api/login");
+
+        assertThat(full.sentence()).contains("password=hunter2");
+        assertThat(masked.sentence()).contains("password=").doesNotContain("hunter2");
+        assertThat(metadata.sentence()).doesNotContain("password", "hunter2", "refused");
+        assertThat(metadata.id()).isEqualTo(full.id());
+        assertThat(service.insight(metadata.id()).toString()).doesNotContain("hunter2");
+    }
+
+    @Test
+    void aNullExposurePolicyFailsClosedToMasked() {
+        request(
+                "GET",
+                "/api/login",
+                new Child(
+                        JournalSource.LOG,
+                        -1,
+                        new LogPayload(
+                                "org.springframework.web.Login", "WARN", "Login password=hunter2 refused", null)));
+        RuntimeInsightsService service = service();
+        service.setExposure(null);
+
+        assertThat(observations(service.report(), FrameworkWarningsByRoute.KIND)
+                        .get("GET /api/login")
+                        .sentence())
+                .doesNotContain("hunter2");
+    }
+
     private RuntimeInsightsService service() {
         return new RuntimeInsightsService(journal, null, null, null, null);
     }
@@ -420,6 +510,66 @@ class RuntimeInsightsServiceTests {
                 .as("a check that only reads the source as optional evidence says it is not counted")
                 .contains("The security-logs panel is disabled, so its evidence is not counted.")
                 .contains("The hibernate panel is disabled, so its evidence is not counted.");
+    }
+
+    @Test
+    void aPanelTheApplicationCannotServeIsReportedUnavailableRatherThanDisabled() {
+        request(
+                "GET",
+                "/api/orders/{id}",
+                new Child(
+                        JournalSource.AUTHORIZATION,
+                        1_000,
+                        new AuthorizationPayload("/api/orders/42", "alice", "hasRole", "USER", true, 1)),
+                new Child(JournalSource.ORM, 1_000, orm()));
+
+        RuntimeInsightsService insights = new RuntimeInsightsService(
+                journal,
+                null,
+                panel -> !panel.equals(BootUiPanels.SECURITY_LOGS) && !panel.equals(BootUiPanels.HIBERNATE),
+                null,
+                null);
+        insights.setPanelUnavailable(panel -> panel.equals(BootUiPanels.SECURITY_LOGS)
+                ? "Quarkus security events are disabled. Set quarkus.security.events.enabled=true."
+                : null);
+        Map<String, RuntimeInsightCheckDto> checks = checks(insights.report());
+
+        assertThat(checks.get(AnonymousSuccessOnRestrictedRoute.KIND).reason())
+                .as("an unavailable panel names what would make it available instead of implying someone switched"
+                        + " it off")
+                .isEqualTo("The security-logs panel, whose evidence this reads, is not available in this"
+                        + " application: Quarkus security events are disabled. Set"
+                        + " quarkus.security.events.enabled=true.");
+        assertThat(checks.get(OrmAutoFlush.KIND).reason())
+                .as("a panel off with no reason is still simply disabled")
+                .isEqualTo("The hibernate panel, whose evidence this reads, is disabled.");
+        assertThat(checks.get(RouteTimeBreakdown.KIND).reason())
+                .as("optional evidence makes the same distinction rather than reporting it as insufficient")
+                .contains("The security-logs panel is not available in this application, so its evidence is not"
+                        + " counted: Quarkus security events are disabled. Set"
+                        + " quarkus.security.events.enabled=true.")
+                .contains("The hibernate panel is disabled, so its evidence is not counted.");
+    }
+
+    @Test
+    void anUnavailablePanelsEvidenceStaysOutOfTheProjection() {
+        request(
+                "GET",
+                "/api/orders/{id}",
+                new Child(
+                        JournalSource.AUTHORIZATION,
+                        1_000,
+                        new AuthorizationPayload("/api/orders/42", null, "authenticated", null, true, 1)));
+
+        RuntimeInsightsService insights = new RuntimeInsightsService(
+                journal, null, panel -> !panel.equals(BootUiPanels.SECURITY_LOGS), null, null);
+        insights.setPanelUnavailable(panel -> panel.equals(BootUiPanels.SECURITY_LOGS) ? "the reason" : null);
+
+        assertThat(checks(insights.report())
+                        .get(AnonymousSuccessOnRestrictedRoute.KIND)
+                        .status())
+                .as("naming why a panel is off never makes evidence it cannot serve visible")
+                .isEqualTo("NOT_APPLICABLE");
     }
 
     @Test

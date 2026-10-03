@@ -6,7 +6,6 @@ import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeResourceProfileDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunComparisonDto;
-import io.github.jdubois.bootui.engine.insights.AiUsageByRoute;
 import io.github.jdubois.bootui.engine.insights.ChangeImpactService;
 import io.github.jdubois.bootui.engine.insights.InsightsStack;
 import io.github.jdubois.bootui.engine.insights.ResourceProfileService;
@@ -23,6 +22,8 @@ import io.github.jdubois.bootui.engine.model.StructureSnapshots;
 import io.github.jdubois.bootui.engine.resources.ResourceSettings;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.web.ProfileCapabilities;
+import io.github.jdubois.bootui.quarkus.BootUiEngineProducer;
+import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.github.jdubois.bootui.spi.BeanProvider;
 import io.github.jdubois.bootui.spi.MappingProvider;
@@ -63,6 +64,7 @@ public class RuntimeInsightsResource {
             Instance<BeanProvider> beans,
             Instance<JavaAgentService> javaAgent,
             Instance<SqlTraceRecorder> sqlTraceRecorder,
+            QuarkusExposurePolicy exposure,
             Config config) {
         JournalAggregates journalAggregates = aggregates.isResolvable() ? aggregates.get() : null;
         this.comparison = new RunComparisonService(
@@ -79,6 +81,7 @@ public class RuntimeInsightsResource {
                 journalAggregates,
                 models,
                 journalAggregates == null ? null : journalAggregates.declaredRoutes());
+        this.impact.setStack(InsightsStack.QUARKUS);
         this.profile = new ResourceProfileService(
                 journal.isResolvable() ? journal.get() : null,
                 journalAggregates == null ? null : journalAggregates.declaredRoutes(),
@@ -90,13 +93,15 @@ public class RuntimeInsightsResource {
                 panel -> panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel),
                 InsightsStack.QUARKUS,
                 RunHistory.shared()::summaries,
-                config.getOptionalValue("bootui.runtime-insights.ai-token-threshold", Long.class)
-                        .filter(threshold -> threshold > 0)
-                        .orElse(AiUsageByRoute.DEFAULT_TOKEN_THRESHOLD));
+                BootUiEngineProducer.runtimeInsightsTokenThreshold(config));
+        this.insights.setExposure(exposure);
         if (journalAggregates != null) {
             this.insights.setDeclaredRoutes(DeclaredRouteTemplates.declared(mappings), journalAggregates::routeLabels);
         }
         this.insights.setSqlCapture(() -> sqlCapture(sqlTraceRecorder));
+        // A panel this application cannot serve is not a panel its developer switched off, and Runtime Insights must
+        // say which it is: the authorization evidence of an application without Quarkus security events, say.
+        this.insights.setPanelUnavailable(panel -> insightsUnavailableReason(panelAvailability, panel));
         JavaAgentService agent = javaAgent.isResolvable() ? javaAgent.get() : null;
         this.insights.setAgent(
                 () -> agent == null ? ProfileCapabilities.PROPAGATION_REASON : agent.propagationUnavailableReason(),
@@ -111,6 +116,25 @@ public class RuntimeInsightsResource {
      */
     static SqlCapture sqlCapture(Instance<SqlTraceRecorder> recorder) {
         return SqlCapture.of(recorder != null && recorder.isResolvable() ? recorder.get() : null, false, false);
+    }
+
+    /**
+     * Why {@code panel} is unavailable in this application, as a sentence Runtime Insights can append to its own, or
+     * {@code null} when the panel is available. The panel catalogue's reasons open with "Not available:" or "Not
+     * applicable on Quarkus:" because they stand alone in the panel shell; Runtime Insights already says which of the
+     * two it means, so the opening is dropped rather than repeated.
+     */
+    static String insightsUnavailableReason(QuarkusPanelAvailability availability, String panel) {
+        String reason = availability.panelUnavailableReason(panel);
+        if (reason == null) {
+            return null;
+        }
+        for (String opening : new String[] {"Not available:", "Not applicable on Quarkus:", "Not applicable:"}) {
+            if (reason.startsWith(opening)) {
+                return reason.substring(opening.length()).trim();
+            }
+        }
+        return reason;
     }
 
     @GET

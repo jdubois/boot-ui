@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.insights;
 
+import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
 import java.util.Locale;
 
 /** Small helpers observations share to word their sentences and keep their ids stable. */
@@ -23,6 +24,15 @@ final class InsightText {
     static String quoted(String sql) {
         String flat = sql == null ? "" : sql.replaceAll("\\s+", " ").trim();
         return flat.length() <= MAX_QUOTED_SQL ? flat : flat.substring(0, MAX_QUOTED_SQL - 1) + "…";
+    }
+
+    /**
+     * A recorded statement as a sentence or its evidence quotes it: its literal-free shape whatever the live mode
+     * ({@link JournalTextExposure#displayShape}), short enough to quote. A fingerprint groups statements but is no
+     * display form, since it keeps identifier-like {@code "..."} runs and unterminated dollar quotes verbatim.
+     */
+    static String statement(String recordedSql) {
+        return quoted(JournalTextExposure.displayShape(recordedSql));
     }
 
     /**

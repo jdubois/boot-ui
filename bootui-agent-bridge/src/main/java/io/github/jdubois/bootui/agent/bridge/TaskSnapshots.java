@@ -43,11 +43,11 @@ final class TaskSnapshots {
     }
 
     /** Records an unowned submission of a task with a pending owned one: the entry becomes ambiguous. */
-    boolean putUnowned(Object task, long generation) {
+    boolean putUnowned(Object task) {
         if (snapshots.isEmpty() || snapshots.get(new Lookup(task)) == null) {
             return false;
         }
-        Unowned unowned = new Unowned(generation);
+        Unowned unowned = new Unowned();
         snapshots.computeIfPresent(new Lookup(task), unowned);
         return unowned.touched;
     }
@@ -144,11 +144,11 @@ final class TaskSnapshots {
 
         @Override
         public Entry apply(Object key, Entry existing) {
-            if (existing == null || existing.generation != generation) {
+            if (existing == null) {
                 return new Entry(generation, payload);
             }
             existing.pending++;
-            if (!existing.ambiguous && !sameOwner(existing.payload, payload)) {
+            if (!existing.ambiguous && (existing.generation != generation || !sameOwner(existing.payload, payload))) {
                 existing.ambiguous = true;
             }
             ambiguous = existing.ambiguous;
@@ -158,18 +158,10 @@ final class TaskSnapshots {
 
     static final class Unowned implements BiFunction<Object, Entry, Entry> {
 
-        private final long generation;
         boolean touched;
-
-        Unowned(long generation) {
-            this.generation = generation;
-        }
 
         @Override
         public Entry apply(Object key, Entry existing) {
-            if (existing.generation != generation) {
-                return null;
-            }
             existing.pending++;
             existing.ambiguous = true;
             touched = true;

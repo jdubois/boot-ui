@@ -7,12 +7,41 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Durable Live Activity history is journal-rendered.** With
+  `bootui.activity.persistence.enabled=true`, persisted rows now contain the journal's `MASKED` view rather than
+  polling panel buffers. They no longer retain principals, exception or log messages, or email subjects. **Migration:**
+  use the bounded live panels when those details are needed; durable history retains safe summaries and metadata
+  ([Live Activity](docs/features/overview.md#durable-history), PLAN-v2 §8).
+
 ### Fixed
 
 - **Runtime Insights after Clear recording.** Clearing the journal or freeing BootUI memory now refreshes the
   report and its evidence at once instead of serving the cleared events until a new one arrives, and no route's first
   post-clear request is labeled cold. The evidence table follows each auto-refresh of the open observation, and
   `gc-inflated-latency` leaves each route's cold first request out of its slowest tenth (PLAN-v2 §5.5, M3-3a, M4-3).
+
+- **Runtime Insights tells an unavailable panel from a disabled one.** An observation whose evidence belongs to a panel
+  this application cannot serve, such as Security Logs on a Quarkus application without
+  `quarkus.security.events.enabled`, now names what would make it available instead of reporting the panel as disabled
+  or the evidence as insufficient. The panel's evidence stays out of the projection either way
+  ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 §5.5).
+
+- **Quarkus reports application-event publications as unrecorded.** Quarkus records which observers ran but not who
+  fired the event, so a change impact that reaches code only through an event now says so in its limitations, rather
+  than implying the Spring adapters' `PUBLISHES` edge exists there ([Quarkus support](docs/QUARKUS-SUPPORT.md),
+  PLAN-v2 §5.18).
+
+- **A cleared correlation scope holds on Quarkus.** Work run deliberately outside a request, such as a managed task
+  taken from a snapshot with no request, is no longer re-correlated by the Vert.x duplicated context it happens to run
+  on, and closing any correlation scope restores the request the thread was being metered for instead of stopping its
+  measurement (PLAN-v2 §5.1).
+
+- **`bootui.runtime-insights.ai-token-threshold` is validated on Quarkus.** A zero, negative, or unreadable value now
+  fails at startup with the same message as on Spring, instead of being silently replaced by the default
+  ([Properties](docs/PROPERTIES.md), PLAN-v2 §5.5).
+
 - **Retained request and execution profiles.** Live Activity displays the runtime-journal timeline even after an
   HTTP exchange leaves the shorter buffer. `get_request_profile` and `bootui request-profile` open journal requests,
   scheduled runs, and consumed-message executions first; their result names the selected source and falls back to the
@@ -67,10 +96,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dormant. `bootui-agent-bridge` is built and shaded into the agent but never published (PLAN-v2 M5-1d).
 
 - **Agent-ready request profiles and Copy for AI.** The new read-only `get_request_profile` MCP tool, also the
-  `bootui request-profile <id>` command, returns the same masked per-request profile as
-  `GET /bootui/api/activity/request/{id}` on Spring MVC, Spring WebFlux, and Quarkus, including the unavailable profile
-  for an unknown or evicted id, so an agent can follow a slow or failing Live Activity request to its SQL, N+1 groups,
-  call sites, and exceptions. Each profile exception now carries an additive `exceptionGroupId` for
+  `bootui request-profile <id>` command, returns a selection with `available`, `unavailableReason`, `source`,
+  `journal`, and `buffers` on Spring MVC, Spring WebFlux, and Quarkus. It consults journal evidence first and, for a
+  retained HTTP request, includes the richer HTTP-exchange profile in `buffers`; `source` is `none` when neither
+  retention window holds the id. Each buffer-profile exception carries an additive `exceptionGroupId` for
   `get_exception_detail`. The Live Activity profile drawer and the Exceptions detail gain **Copy for AI**, which
   previews one Markdown document, listing what it omits, before anything is copied; **Copy profile** now copies
   Markdown from the same helper. Exports contain only what the panels show, honor `METADATA_ONLY`, and send nothing
@@ -370,6 +399,15 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Java agent claim handoffs preserve request ownership.** Overlapping submissions of the same task across restarts
+  stay unowned rather than taking a newer claim's snapshot. Immediate reclaim cancels queued executor/thread sensor
+  removal or reinstalls the sensor after an in-flight reset, restoring thread subclasses even when the new claim
+  names different packages. Rejected direct fork/join tasks, including already-completed tasks, and failed
+  `CompletableFuture` thread-per-task starts release their snapshots without treating `invoke`'s accepted task failure
+  as a rejection; executor skip counters stop when the sensor is off
+  ([Java Agent](docs/features/java-agent.md#claims-and-lifecycle),
+  [#1213](https://github.com/jdubois/boot-ui/pull/1213); AGT-01, AGT-02, AGT-04, AGT-09).
+
 - **Profile resources joins segments closed by another thread.** A request segment still open when its request was
   taken from another thread, as on Quarkus where the response closes a worker's segment from the event loop, now commits
   its JFR event with its own thread's id, so the worker's CPU and allocation samples join the route instead of counting
@@ -584,6 +622,20 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   profile too. Applies on Spring MVC, Spring WebFlux, and Quarkus, including after a runtime change of the mode
   ([AI Framework value exposure](docs/features/services.md#ai-framework-value-exposure),
   [#1210](https://github.com/jdubois/boot-ui/pull/1210)).
+- **Journal-rendered SQL and log text now follows the value-exposure policy.** Live Activity rows, KPI strip,
+  request journal profiles, and Runtime Insights sentences and evidence rendered from the runtime journal showed SQL
+  literals, concatenated log messages, and `;name=value` path parameters as recorded in every mode, through the UI, the
+  REST API, `get_live_activity`, `get_runtime_insights`, `get_runtime_insight`, and their `bootui` CLI commands, and
+  the opt-in `bootui_activity` history stored them raw. Every read now applies the live `bootui.expose-values` /
+  `bootui.mask-secrets` policy, so a change from `FULL` to `MASKED` or `METADATA_ONLY` applies to the next read and the
+  Runtime Insights cache is keyed on it: SQL is shown as its literal-free shape, log messages and path parameters are
+  masked, and `METADATA_ONLY` omits log messages. Durable history is written at least as masked as `MASKED`, and stored
+  rows, including those written before this change, are masked again under the live mode on read, keeping their
+  structural label but dropping free text under `METADATA_ONLY`, and are read only while the panel that owns them is
+  enabled. Runtime Insights quote a statement's literal-free shape, never its grouping fingerprint, which kept MySQL
+  double-quoted strings and a truncated dollar quote verbatim. Applies on Spring MVC, Spring WebFlux, and Quarkus
+  ([Live Activity safety](docs/features/overview.md#safety-and-limits), PLAN-v2 §8,
+  [#1216](https://github.com/jdubois/boot-ui/pull/1216)).
 - **Trace data now follows the value-exposure policy.** `GET /bootui/api/traces/{id}`, the trace embedded in the
   per-request profile (`GET /bootui/api/activity/request/{id}`), and their `get_request_profile` MCP tool and
   `bootui request-profile` projections returned span status messages, `exception.message` and `exception.stacktrace`
