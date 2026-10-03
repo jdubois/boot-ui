@@ -168,9 +168,19 @@ public final class MessageExposure {
         return policy.maskSecrets() ? MASK : VERBATIM;
     }
 
+    /** Default display rule when no live policy is available. */
+    public static MessageExposure masked() {
+        return MASK;
+    }
+
     /** Whether this rule withholds the text entirely ({@link ValueExposure#METADATA_ONLY}). */
     public boolean omitsText() {
         return omitted;
+    }
+
+    /** Whether this rule masks secret-like text and values. */
+    public boolean masksText() {
+        return masked;
     }
 
     /**

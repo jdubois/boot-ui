@@ -600,7 +600,7 @@ Twenty-two observations run over the completed requests and garbage collections 
 
 | Observation | What it counts |
 | --- | --- |
-| `route-time-breakdown` | Where a route's warm requests spend their time: authentication, authorization (Spring, from the `authorization` source: a request's checks out of the filters, a method's out of the handler), other filters, connection wait, SQL, REST client calls, AI calls, synchronous message sends, other handler work, and the response write. Overlapping calls count once, and each route's first request is reported apart as cold |
+| `route-time-breakdown` | Where a route's warm requests spend their time: authentication, authorization (Spring, from the `authorization` source: a request's checks out of the filters, a method's out of the handler), other filters, connection wait, SQL, REST client calls, AI calls, synchronous message sends, other handler work, and the response write. Time without phase markers or recorded calls remains unattributed, not assumed to be application code. Overlapping calls count once, and each route's first request is reported apart as cold |
 | `exception-hotspots` | Exception groups per route, by a signature that survives line shifts, marked when the previous run served the route without them |
 | `errors-behind-2xx` | 2xx responses whose own request rolled back its transaction, recorded an exception, wrote an `ERROR` log, or received a downstream 5xx; requests a retry or fallback recovered are listed apart |
 | `repeated-selects` | The same SELECT run five or more times in a request after another statement, from three requests |

@@ -170,6 +170,13 @@ public final class SpanValueExposure {
         if (suffixAfter(name, PARAMETER_PREFIXES) != null && exposure == ValueExposure.METADATA_ONLY) {
             return null;
         }
+        if (value instanceof List<?> list) {
+            List<Object> out = new ArrayList<>(list.size());
+            for (Object element : list) {
+                out.add(value(key, element));
+            }
+            return out;
+        }
         if (value instanceof Map<?, ?> map) {
             // A key-value list attribute: each entry is classified by its full dotted key, like a flat attribute.
             Map<Object, Object> out = new LinkedHashMap<>();

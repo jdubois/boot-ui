@@ -7,6 +7,8 @@ import io.github.jdubois.bootui.core.dto.AiTokenBucketDto;
 import io.github.jdubois.bootui.core.dto.AiTokenSeriesDto;
 import io.github.jdubois.bootui.core.dto.AiToolCallDto;
 import io.github.jdubois.bootui.core.dto.AiVectorOpDto;
+import io.github.jdubois.bootui.engine.support.MessageExposure;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -40,14 +42,19 @@ public final class AiUsageService {
 
     private final LongSupplier nowMillis;
 
-    public AiUsageService(TelemetryStore store, Supplier<AiUsageSettings> settings, LongSupplier nowMillis) {
+    private final ExposurePolicy exposure;
+
+    public AiUsageService(
+            TelemetryStore store, Supplier<AiUsageSettings> settings, LongSupplier nowMillis, ExposurePolicy exposure) {
         this.store = store;
         this.settings = settings;
         this.nowMillis = nowMillis;
+        this.exposure = exposure;
     }
 
     public AiOverviewDto overview() {
         AiUsageSettings config = settings.get();
+        MessageExposure rule = MessageExposure.current(exposure);
         List<NormalizedSpan> chats = chatSpansSorted();
         long totalIn = 0;
         long totalOut = 0;
@@ -64,10 +71,12 @@ public final class AiUsageService {
             if (chat.isError()) {
                 errorCount++;
             }
-            String model = preferredModel(chat);
-            long modelTokens = (in == null ? 0 : in) + (out == null ? 0 : out);
-            tokensByModel.merge(model, modelTokens, Long::sum);
-            callsByModel.merge(model, 1, Integer::sum);
+            String model = rule.apply(preferredModel(chat));
+            if (model != null) {
+                long modelTokens = (in == null ? 0 : in) + (out == null ? 0 : out);
+                tokensByModel.merge(model, modelTokens, Long::sum);
+                callsByModel.merge(model, 1, Integer::sum);
+            }
         }
         int toolCount = 0;
         int vectorCount = 0;
@@ -86,7 +95,7 @@ public final class AiUsageService {
         int recentLimit = Math.min(clamp(config.maxRecentChats(), 0, MAX_RECENT_CHATS), chats.size());
         List<AiChatSummaryDto> recent = new ArrayList<>(recentLimit);
         for (int i = 0; i < recentLimit; i++) {
-            recent.add(toSummary(chats.get(i)));
+            recent.add(toSummary(chats.get(i), rule));
         }
         boolean telemetryEnabled = config.telemetryEnabled();
         boolean springAi = AiFrameworkDetector.isSpringAiPresent();
@@ -115,18 +124,20 @@ public final class AiUsageService {
 
     public List<AiChatSummaryDto> chats(int limit) {
         int safeLimit = Math.max(1, Math.min(500, limit));
+        MessageExposure rule = MessageExposure.current(exposure);
         List<NormalizedSpan> chats = chatSpansSorted();
         List<AiChatSummaryDto> out = new ArrayList<>(Math.min(safeLimit, chats.size()));
         for (int i = 0; i < chats.size() && i < safeLimit; i++) {
-            out.add(toSummary(chats.get(i)));
+            out.add(toSummary(chats.get(i), rule));
         }
         return out;
     }
 
     public Optional<AiChatDetailDto> chatDetail(String spanId) {
+        MessageExposure rule = MessageExposure.current(exposure);
         for (NormalizedSpan span : store.allSpansSnapshot()) {
             if (AiSpanRecognizer.isChat(span) && spanId.equals(span.spanId())) {
-                return Optional.of(buildDetail(span));
+                return Optional.of(buildDetail(span, rule));
             }
         }
         return Optional.empty();
@@ -221,7 +232,7 @@ public final class AiUsageService {
         return chats;
     }
 
-    private AiChatSummaryDto toSummary(NormalizedSpan chat) {
+    private AiChatSummaryDto toSummary(NormalizedSpan chat, MessageExposure rule) {
         int toolCalls = 0;
         int vectorOps = 0;
         TelemetryStore.TraceBucket bucket = store.findTrace(chat.traceId());
@@ -243,20 +254,20 @@ public final class AiUsageService {
                 chat.spanId(),
                 chat.startEpochNanos(),
                 chat.durationNanos(),
-                AiSpanRecognizer.provider(chat),
-                AiSpanRecognizer.requestModel(chat),
-                AiSpanRecognizer.responseModel(chat),
+                rule.apply(AiSpanRecognizer.provider(chat)),
+                rule.apply(AiSpanRecognizer.requestModel(chat)),
+                rule.apply(AiSpanRecognizer.responseModel(chat)),
                 in,
                 out,
                 total,
-                AiSpanRecognizer.finishReason(chat),
+                rule.apply(AiSpanRecognizer.finishReason(chat)),
                 chat.statusCode(),
                 "chat",
                 toolCalls,
                 vectorOps);
     }
 
-    private AiChatDetailDto buildDetail(NormalizedSpan chat) {
+    private AiChatDetailDto buildDetail(NormalizedSpan chat, MessageExposure rule) {
         TelemetryStore.TraceBucket bucket = store.findTrace(chat.traceId());
         List<AiToolCallDto> tools = new ArrayList<>();
         List<AiVectorOpDto> vectors = new ArrayList<>();
@@ -265,7 +276,7 @@ public final class AiUsageService {
                 if (AiSpanRecognizer.isToolCall(sibling)) {
                     tools.add(new AiToolCallDto(
                             sibling.spanId(),
-                            AiSpanRecognizer.toolName(sibling),
+                            rule.apply(AiSpanRecognizer.toolName(sibling)),
                             sibling.startEpochNanos(),
                             sibling.durationNanos(),
                             sibling.statusCode()));
@@ -273,8 +284,8 @@ public final class AiUsageService {
                 if (AiSpanRecognizer.isVectorOperation(sibling)) {
                     vectors.add(new AiVectorOpDto(
                             sibling.spanId(),
-                            AiSpanRecognizer.vectorOperation(sibling),
-                            AiSpanRecognizer.vectorCollection(sibling),
+                            rule.apply(AiSpanRecognizer.vectorOperation(sibling)),
+                            rule.apply(AiSpanRecognizer.vectorCollection(sibling)),
                             sibling.startEpochNanos(),
                             sibling.durationNanos(),
                             sibling.statusCode()));
@@ -295,11 +306,11 @@ public final class AiUsageService {
                         + "and completion text."
                 : null;
         return new AiChatDetailDto(
-                toSummary(chat),
+                toSummary(chat, rule),
                 tools,
                 vectors,
-                SpanMappers.toAttributeList(chat.attributes()),
-                SpanMappers.toEventList(chat.events()),
+                SpanMappers.toAttributeList(chat.attributes(), rule),
+                SpanMappers.toEventList(chat.events(), rule),
                 contentCaptured,
                 banner);
     }

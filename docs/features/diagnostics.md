@@ -12,6 +12,11 @@ The list shows the most recent traces with their service name, the HTTP path eac
 span count. When a trace has no path attribute, the root span name is used instead. Opening a trace renders a waterfall
 of its spans, so you can see latency contributions, errors, and parent and child relationships across services.
 
+Trace summaries and span details, including the spans in request profiles, follow the live value-exposure rules
+described below. AI chat details also follow `bootui.expose-values`: `MASKED` applies secret-key and free-text masking,
+including nested attributes and events; `METADATA_ONLY` omits their attributes and events; `FULL` shows captured values.
+Changing the policy affects the next read, not what is retained in memory.
+
 On Spring Boot, BootUI also runs an embedded OTLP/HTTP receiver at `/bootui/api/otlp/v1/traces`, so cooperating local
 services can export spans into the same in-memory store. On Quarkus, spans are captured in-process through an
 OpenTelemetry `SpanProcessor` registered only when the application depends on `quarkus-opentelemetry`, and there is no
