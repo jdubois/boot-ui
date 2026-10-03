@@ -102,6 +102,18 @@ describe('ChangeImpact', () => {
     expect(list.text()).not.toContain('Every mapped route that reaches it ran.')
   })
 
+  it('shows a failed read as its message, never as an object', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Request failed with status 403')))
+    wrapper = mountImpact()
+    await wrapper.find('input').setValue('ProductRepository')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    const alert = wrapper.get('[role="alert"]')
+    expect(alert.text()).toBe('Unable to read the change impact: Request failed with status 403')
+    expect(alert.text()).not.toContain('{')
+  })
+
   it('jumps to a list in place rather than through the hash router', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(resolved)))
     wrapper = mount(ChangeImpact, {
