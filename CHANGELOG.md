@@ -366,6 +366,10 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Profile resources joins segments closed by another thread.** A request segment still open when its request was
+  taken from another thread, as on Quarkus where the response closes a worker's segment from the event loop, now commits
+  its JFR event with its own thread's id, so the worker's CPU and allocation samples join the route instead of counting
+  as outside any request.
 - **`work-after-response` no longer reports a task its handler waited for.** The handler resumes as soon as the task
   sets its result, before the agent closes the task's handoff, so under load that handoff could end just after the
   response. Now only SQL, REST, and message work that ended at least two milliseconds after the response started is

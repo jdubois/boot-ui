@@ -23,4 +23,8 @@ final class ExecutionSegmentEvent extends jdk.jfr.Event {
 
     @Label("Request Id")
     String requestId;
+
+    /** The segment's own thread: a segment closed by another thread is committed by that one, so JFR's differs. */
+    @Label("Segment Thread Id")
+    long segmentThreadId;
 }
