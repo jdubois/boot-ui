@@ -197,12 +197,40 @@ class RuntimeModelProjectionTests {
         assertThat(stopped.partial()).isTrue();
         assertThat(stopped.limitations())
                 .anySatisfy(limitation -> assertThat(limitation).contains("100 ms read budget"))
-                .anySatisfy(limitation -> assertThat(limitation).contains("evicted 7"));
+                .anySatisfy(limitation -> assertThat(limitation)
+                        .contains("edges of 0 of " + journal.entries().size() + " retained events"))
+                .anySatisfy(limitation -> assertThat(limitation).contains("evicted 7"))
+                .noneSatisfy(limitation -> assertThat(limitation).contains("No retained event belongs"));
 
         RuntimeModel capped = project(journal, null);
         assertThat(capped.nodes()).hasSize(RuntimeModel.MAX_NODES);
         assertThat(capped.limitations())
                 .anySatisfy(limitation -> assertThat(limitation).contains("5000-node cap"));
+    }
+
+    @Test
+    void aBudgetReachedWhileReadingEdgesNamesHowManyEventsTheEdgesCover() {
+        JournalFixture journal = new JournalFixture();
+        for (int i = 0; i < 3_000; i++) {
+            journal.request("GET", "/api/r" + (i % 10), child(JournalSource.SQL, sql("select * from t" + (i % 10))));
+        }
+        int entries = journal.entries().size();
+        // The start, one reading per 1,024 events of the first pass, then two of the second pass stay in budget.
+        int inBudget = 1 + entries / 1_024 + 2;
+        AtomicLong readings = new AtomicLong();
+        RuntimeModel stopped = RuntimeModelProjection.project(
+                journal.entries(),
+                RouteTemplateResolver.empty(),
+                null,
+                0,
+                () -> readings.incrementAndGet() <= inBudget ? 0 : 1_000_000_000,
+                100_000_000);
+
+        assertThat(stopped.partial()).isTrue();
+        assertThat(stopped.edges()).isNotEmpty();
+        assertThat(stopped.limitations())
+                .containsExactly("The projection stopped at its 100 ms read budget after reading the edges of 2048 of "
+                        + entries + " retained events.");
     }
 
     static RuntimeModel project(JournalFixture journal, StructureSnapshot structure) {
