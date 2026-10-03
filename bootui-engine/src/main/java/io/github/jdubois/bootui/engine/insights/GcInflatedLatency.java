@@ -71,11 +71,15 @@ public final class GcInflatedLatency implements Observation {
                 pauses.put(gc.collector() + '#' + gc.gcId(), event);
             }
         }
+        boolean firstRequestIsCold = snapshot.firstRequestIsCold();
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;
         for (Map.Entry<String, List<ProjectedRequest>> route :
                 snapshot.httpByRoute().entrySet()) {
+            // The route's cold first request is reported apart and left out of the ranking, as for its percentiles.
+            ProjectedRequest cold = firstRequestIsCold ? route.getValue().get(0) : null;
             List<ProjectedRequest> measured = route.getValue().stream()
+                    .filter(request -> request != cold)
                     .filter(request -> request.resources() != null)
                     .sorted(Comparator.comparingLong(ProjectedRequest::durationNanos)
                             .reversed()

@@ -104,8 +104,7 @@ public final class RouteTimeBreakdown implements Observation {
 
     @Override
     public Evaluation evaluate(InsightsSnapshot snapshot) {
-        boolean firstRetainedIsFirst =
-                snapshot.status().evictedByCount() + snapshot.status().evictedByBytes() == 0;
+        boolean firstRetainedIsFirst = snapshot.firstRequestIsCold();
         boolean marksPhases = marksPhases(snapshot.stack());
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;
