@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.model;
 
+import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalStatus;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
@@ -43,6 +44,7 @@ public final class RuntimeModelService {
             return new RuntimeModelBuilder()
                     .build(null, List.of("The runtime journal is disabled: set bootui.runtime-journal.enabled=true."));
         }
+
         JournalStatus status = journal.status();
         long evicted = status.evictedByCount() + status.evictedByBytes();
         if (cached != null && cachedWatermark == status.lastSequence() && cachedEvicted == evicted) {
@@ -71,6 +73,34 @@ public final class RuntimeModelService {
         cachedWatermark = status.lastSequence();
         cachedEvicted = evicted;
         return cached;
+    }
+
+    /** Projects only the entries visible under one panel-policy read, without caching across policy changes. */
+    public synchronized RuntimeModel model(List<JournalEntry> visibleEntries) {
+        if (journal == null || !journal.settings().enabled()) {
+            return new RuntimeModelBuilder()
+                    .build(null, List.of("The runtime journal is disabled: set bootui.runtime-journal.enabled=true."));
+        }
+        JournalStatus status = journal.status();
+        if (snapshot == null
+                || !status.runId().equals(snapshotRun)
+                || (snapshot.routes().isEmpty() && snapshot.beans().isEmpty())) {
+            snapshot = read(status.runId());
+            snapshotRun = status.runId();
+        }
+        RouteTemplateResolver resolver;
+        try {
+            resolver = routes.get();
+        } catch (RuntimeException ex) {
+            resolver = RouteTemplateResolver.empty();
+        }
+        return RuntimeModelProjection.project(
+                visibleEntries,
+                resolver,
+                snapshot,
+                status.evictedByCount() + status.evictedByBytes(),
+                System::nanoTime,
+                RuntimeModelProjection.READ_BUDGET_NANOS);
     }
 
     /** The structure the current model was projected with, or an empty one before the first {@link #model()}. */

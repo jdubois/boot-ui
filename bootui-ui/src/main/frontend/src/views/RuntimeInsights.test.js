@@ -208,11 +208,39 @@ describe('Runtime Insights panel', () => {
 
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(jsonResponse({...report, window: {...report.window, requests: 0}, observations: []}))
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({...report, window: {...report.window, requests: 0, retainedEvents: 0}, observations: []})
+        )
     )
     wrapper = mountPanel()
     await flushPromises()
-    expect(wrapper.text()).toContain('No requests recorded in this run yet.')
+    expect(wrapper.text()).toContain('No HTTP requests recorded in this run yet.')
+  })
+
+  it('shows job and listener observations when no HTTP requests were recorded', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) =>
+        Promise.resolve(
+          jsonResponse(
+            String(url).includes('/insights/')
+              ? detail
+              : {
+                  ...report,
+                  window: {...report.window, requests: 0, retainedEvents: 5},
+                  observations: [{...report.observations[0], subject: '@Scheduled OrderJob.run'}]
+                }
+          )
+        )
+      )
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+    expect(wrapper.text()).toContain('@Scheduled OrderJob.run')
+    expect(wrapper.find('.insight-item').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('No HTTP requests recorded in this run yet.')
   })
 
   it('filters observations by search', async () => {

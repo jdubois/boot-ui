@@ -1591,8 +1591,12 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   names exactly that node. A resolved symbol lists, 8 rows each with totals, the routes that reach it and ran in this
   run, the mapped routes that reach it and did not, and the routes outside its reach that use a table, cache, or host
   the routes through it touched, with the structural reach as a count. A route is its own impact: it is listed itself,
-  with the routes sharing what it touched. It is worded as what was and was not exercised, never as safe, and reads
-  only what the journal, the aggregates, and the bean and mapping providers already hold.
+  with the routes sharing what it touched. A known handler method (`Class#method`, with `#` URL-encoded as `%23`)
+  narrows the answer to that method's mapped routes; the class alone still includes the whole bean. Whole-run route
+  counts survive event eviction; when aggregate route counts overflow, an unknown route is not called unexercised.
+  Disabled source-panel facts are omitted and named as limitations; when HTTP Exchanges is disabled the answer is
+  unavailable. It is worded as what was and was not exercised, never as safe, and reads only what the journal, the
+  aggregates, and the bean and mapping providers already hold.
 - `GET /bootui/api/runtime-insights/impact/symbols?query=<text>` suggests, as the impact box is typed in, at most 20 of
   the routes, beans, repositories, tables, caches, hosts, and events of the run's model whose name or bean class
   contains the text, with their kind and class and the total matched: an exact name first, then a name or a route's

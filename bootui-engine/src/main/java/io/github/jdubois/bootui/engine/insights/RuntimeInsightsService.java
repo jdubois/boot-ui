@@ -19,6 +19,7 @@ import io.github.jdubois.bootui.engine.journal.LifecyclePayload;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.VisibleJournalEntries;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -333,42 +334,6 @@ public final class RuntimeInsightsService {
      * the disabled panel's evidence, and keeping the opening event to carry its children would publish exactly that.
      * Every observation reading the source also reports {@code NOT_APPLICABLE}, naming the panel.
      */
-    private List<JournalEntry> visibleEntries(List<JournalEntry> entries, PanelVisibility visibility) {
-        Set<String> hidden = new HashSet<>();
-        for (JournalEntry entry : entries) {
-            RuntimeEvent event = entry.event();
-            if (anchorsAUnitOfWork(event) && !visibility.visible(event)) {
-                hidden.add(unitOf(event));
-            }
-        }
-        List<JournalEntry> visible = new ArrayList<>(entries.size());
-        for (JournalEntry entry : entries) {
-            RuntimeEvent event = entry.event();
-            if (!visibility.visible(event)) {
-                continue;
-            }
-            String unit = unitOf(event);
-            if (unit != null && hidden.contains(unit)) {
-                continue;
-            }
-            visible.add(entry);
-        }
-        return visible;
-    }
-
-    private static boolean anchorsAUnitOfWork(RuntimeEvent event) {
-        return (event.source() == JournalSource.HTTP && event.requestId() != null)
-                || InsightsSnapshot.opensExecution(event);
-    }
-
-    /** The request or execution an event belongs to, or {@code null} when it belongs to neither. */
-    private static String unitOf(RuntimeEvent event) {
-        if (event.requestId() != null) {
-            return "request:" + event.requestId();
-        }
-        return event.executionId() == null ? null : "execution:" + event.executionId();
-    }
-
     private Cached project(
             JournalStatus status,
             List<JournalEntry> entries,
@@ -383,7 +348,7 @@ public final class RuntimeInsightsService {
             resolver = RouteTemplateResolver.empty();
         }
         InsightsSnapshot snapshot = InsightsSnapshot.of(
-                visibleEntries(entries, visibility),
+                VisibleJournalEntries.of(entries, visibility::visible),
                 status,
                 resolver == null ? RouteTemplateResolver.empty() : resolver,
                 journal::records,

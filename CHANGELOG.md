@@ -9,6 +9,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Runtime Insights and change impact stay truthful with sparse or restricted evidence.** Scheduled jobs and consumed
+  messages can show observations without an HTTP request. Change impact counts route traffic across the whole run
+  after journal eviction, narrows an explicitly named handler method to its own mappings, and excludes disabled
+  source panels' evidence from its model and suggestions ([#1217](https://github.com/jdubois/boot-ui/pull/1217);
+  PLAN-v2 M4-18b).
+
 - **Retained request and execution profiles.** Live Activity displays the runtime-journal timeline even after an
   HTTP exchange leaves the shorter buffer. `get_request_profile` and `bootui request-profile` open journal requests,
   scheduled runs, and consumed-message executions first; their result names the selected source and falls back to the

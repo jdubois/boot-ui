@@ -158,6 +158,7 @@ export function checksWithReasons(report) {
 export function emptyState(report) {
   if (!report) return null
   if (!report.available) return 'disabled'
+  if ((report.observations ?? []).length > 0) return null
   if ((report.window?.requests ?? 0) === 0) return 'no-requests'
   if ((report.observations ?? []).length === 0) return 'nothing-observed'
   return null

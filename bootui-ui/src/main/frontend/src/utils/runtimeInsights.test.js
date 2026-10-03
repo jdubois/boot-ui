@@ -119,6 +119,10 @@ describe('runtimeInsights helpers', () => {
     expect(emptyState({available: false})).toBe('disabled')
     expect(emptyState({available: true, window: {requests: 0}, observations: []})).toBe('no-requests')
     expect(emptyState({available: true, window: {requests: 3}, observations: []})).toBe('nothing-observed')
+    expect(emptyState({available: true, window: {requests: 0}, observations: report.observations})).toBeNull()
+    expect(emptyState({available: true, window: {requests: 0, retainedEvents: 4}, observations: []})).toBe(
+      'no-requests'
+    )
     expect(emptyState(report)).toBeNull()
   })
 })

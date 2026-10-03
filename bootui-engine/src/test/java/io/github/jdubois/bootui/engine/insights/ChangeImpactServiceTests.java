@@ -17,9 +17,12 @@ import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.model.RuntimeModelService;
 import io.github.jdubois.bootui.engine.model.StructureSnapshot;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Predicate;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -94,7 +97,9 @@ class ChangeImpactServiceTests {
             assertThat(impact.status()).isEqualTo(ChangeImpactService.UNAVAILABLE);
             assertThat(impact.reason()).isEqualTo("Beans unreadable.");
         });
-        assertThat(new ChangeImpactService(null, null, null, null).impact("x").status())
+        assertThat(new ChangeImpactService(null, null, null, null, panel -> true)
+                        .impact("x")
+                        .status())
                 .isEqualTo(ChangeImpactService.UNAVAILABLE);
     }
 
@@ -170,24 +175,178 @@ class ChangeImpactServiceTests {
                     .isEqualTo(ChangeImpactService.RESOLVED);
         }
 
-        RuntimeImpactSymbolsDto disabled = new ChangeImpactService(null, null, null, null).symbols("x");
+        RuntimeImpactSymbolsDto disabled = new ChangeImpactService(null, null, null, null, panel -> true).symbols("x");
         assertThat(disabled.available()).isFalse();
         assertThat(disabled.unavailableReason()).contains("bootui.runtime-journal.enabled");
         assertThat(disabled.symbols()).isEmpty();
     }
 
+    @Test
+    void aHandlerMethodNarrowsTheImpactToTheRoutesMappedToItWhileItsClassStillChecksTheWholeBean() throws Exception {
+        journal.addListener(aggregates);
+        request("/api/products", "select * from sample_products");
+        request("/api/products", "select * from sample_products");
+        request("/api/products/{id}", "select * from sample_products where id = ?");
+        ChangeImpactService service = service(structure(null));
+
+        RuntimeChangeImpactDto list = service.impact("ProductController#list");
+        assertThat(list.status()).isEqualTo(ChangeImpactService.RESOLVED);
+        assertThat(list.node()).isEqualTo("METHOD com.example.ProductController#list");
+        assertThat(list.structuralReach()).as("only the route mapped to list").isEqualTo(1);
+        assertThat(list.observed()).singleElement().satisfies(route -> {
+            assertThat(route.route()).isEqualTo("GET /api/products");
+            assertThat(route.requests()).isEqualTo(2);
+        });
+        assertThat(list.notExercised()).isEmpty();
+        assertThat(list.sharedResources())
+                .as("the controller's other method is outside the method's reach, so it shares the table")
+                .singleElement()
+                .satisfies(route -> {
+                    assertThat(route.route()).isEqualTo("GET /api/products/{id}");
+                    assertThat(route.shared()).containsExactly("TABLE sample_products");
+                });
+        assertThat(list.limitations())
+                .anySatisfy(limitation -> assertThat(limitation).contains("mapped to it as their handler"));
+
+        for (String same : List.of(
+                "com.example.ProductController#list",
+                "com.example.ProductController#list(Pageable)",
+                "METHOD com.example.ProductController#list")) {
+            assertThat(service.impact(same)).satisfies(impact -> {
+                assertThat(impact.status()).as(same).isEqualTo(ChangeImpactService.RESOLVED);
+                assertThat(impact.node()).as(same).isEqualTo("METHOD com.example.ProductController#list");
+                assertThat(impact.observed())
+                        .extracting(RuntimeImpactRouteDto::route)
+                        .containsExactly("GET /api/products");
+            });
+        }
+
+        RuntimeChangeImpactDto bean = service.impact("ProductController");
+        assertThat(bean.node()).isEqualTo("BEAN productController");
+        assertThat(bean.structuralReach()).isEqualTo(2);
+        assertThat(bean.observed())
+                .extracting(RuntimeImpactRouteDto::route)
+                .containsExactly("GET /api/products", "GET /api/products/{id}");
+        assertThat(bean.sharedResources()).isEmpty();
+    }
+
+    @Test
+    void anUnmappedMethodIsNeverGuessedAndAMethodOfClassesSharingASimpleNameIsAmbiguous() throws Exception {
+        journal.addListener(aggregates);
+        request("/api/products", "select * from sample_products");
+
+        ChangeImpactService service = service(structure(null));
+        assertThat(service.impact("ProductController#get")).satisfies(get -> {
+            assertThat(get.status()).isEqualTo(ChangeImpactService.RESOLVED);
+            assertThat(get.observed()).isEmpty();
+            assertThat(get.notExercised())
+                    .extracting(RuntimeImpactRouteDto::route)
+                    .containsExactly("GET /api/products/{id}");
+        });
+        for (String unknown : List.of("ProductController#save", "ProductService#list", "Product#list")) {
+            assertThat(service.impact(unknown)).satisfies(impact -> {
+                assertThat(impact.status()).as(unknown).isEqualTo(ChangeImpactService.NOT_FOUND);
+                assertThat(impact.reason()).as(unknown).contains("name its class to check the whole bean");
+                assertThat(impact.observed()).isEmpty();
+            });
+        }
+
+        ChangeImpactService twoPackages = service(new StructureSnapshot(
+                null,
+                List.of(
+                        new StructureSnapshot.RouteHandler(
+                                "GET /a/products", "com.example.a.ProductController", "list"),
+                        new StructureSnapshot.RouteHandler(
+                                "GET /b/products", "com.example.b.ProductController", "list")),
+                List.of()));
+        RuntimeChangeImpactDto ambiguous = twoPackages.impact("ProductController#list");
+        assertThat(ambiguous.status()).isEqualTo(ChangeImpactService.AMBIGUOUS);
+        assertThat(ambiguous.candidates())
+                .containsExactly(
+                        "METHOD com.example.a.ProductController#list", "METHOD com.example.b.ProductController#list");
+        assertThat(twoPackages.impact(ambiguous.candidates().get(1))).satisfies(chosen -> {
+            assertThat(chosen.status()).isEqualTo(ChangeImpactService.RESOLVED);
+            assertThat(chosen.structuralReach()).isEqualTo(1);
+            assertThat(chosen.notExercised())
+                    .extracting(RuntimeImpactRouteDto::route)
+                    .containsExactly("GET /b/products");
+        });
+    }
+
+    @Test
+    void routeTrafficSurvivesEvictionEvenWhenItsExemplarAndModelExecutionDoNot() throws Exception {
+        RuntimeJournal shortJournal = new RuntimeJournal(
+                new RuntimeJournalSettings(true, 1, 50_000_000, 10, 0, 0, JournalSource.all()), RunIdentity.start());
+        JournalAggregates wholeRun = new JournalAggregates();
+        try {
+            shortJournal.addListener(wholeRun);
+            for (String path : List.of("/api/products", "/api/reviews")) {
+                String id = "eviction-" + path;
+                shortJournal.offer(RuntimeEvent.of(
+                        JournalSource.HTTP,
+                        1_000,
+                        1_000,
+                        CorrelationContext.forRequest(id),
+                        "http-1",
+                        null,
+                        false,
+                        new HttpPayload("GET", path, path, null, 200)));
+                assertThat(shortJournal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+            }
+            RuntimeModelService models = new RuntimeModelService(shortJournal, null, runId -> structure(null));
+            RuntimeChangeImpactDto impact = new ChangeImpactService(shortJournal, wholeRun, models, null, panel -> true)
+                    .impact("GET /api/products");
+            assertThat(impact.observed()).singleElement().satisfies(route -> {
+                assertThat(route.requests()).isEqualTo(1);
+                assertThat(route.exemplarRequestIds()).isEmpty();
+            });
+            assertThat(impact.notExercised()).isEmpty();
+        } finally {
+            shortJournal.close();
+        }
+    }
+
+    @Test
+    void disabledSourceFactsStayOutOfImpactAndSuggestionsEvenWhenThePolicyChangesWithoutNewEvents() throws Exception {
+        journal.addListener(aggregates);
+        request("/api/products", "select * from sample_products");
+        AtomicBoolean sqlEnabled = new AtomicBoolean(true);
+        Predicate<String> policy = panel -> !panel.equals(BootUiPanels.SQL_TRACE) || sqlEnabled.get();
+        ChangeImpactService impact = service(structure(null), policy);
+        assertThat(impact.impact("sample_products").status()).isEqualTo(ChangeImpactService.RESOLVED);
+        sqlEnabled.set(false);
+        assertThat(impact.impact("sample_products").status()).isEqualTo(ChangeImpactService.NOT_FOUND);
+        assertThat(impact.symbols("sample_products").symbols()).isEmpty();
+        RuntimeChangeImpactDto route = impact.impact("GET /api/products");
+        assertThat(route.observed()).singleElement().satisfies(row -> {
+            assertThat(row.reads()).isEmpty();
+            assertThat(row.writes()).isEmpty();
+        });
+        assertThat(route.limitations()).anySatisfy(limit -> assertThat(limit).contains(BootUiPanels.SQL_TRACE));
+
+        ChangeImpactService noHttp = service(structure(null), panel -> !panel.equals(BootUiPanels.HTTP_EXCHANGES));
+        assertThat(noHttp.impact("GET /api/products").status()).isEqualTo(ChangeImpactService.UNAVAILABLE);
+        assertThat(noHttp.symbols("sample_products").available()).isFalse();
+    }
+
     private ChangeImpactService service(StructureSnapshot structure) {
+        return service(structure, panel -> true);
+    }
+
+    private ChangeImpactService service(StructureSnapshot structure, Predicate<String> panelEnabled) {
         RuntimeModelService models = new RuntimeModelService(journal, null, runId -> structure);
-        return new ChangeImpactService(journal, aggregates, models, null);
+        return new ChangeImpactService(journal, aggregates, models, null, panelEnabled);
     }
 
     private static StructureSnapshot structure(String beansUnavailable) {
         return new StructureSnapshot(
                 null,
                 List.of(
-                        new StructureSnapshot.RouteHandler("GET /api/products", "com.example.ProductController"),
-                        new StructureSnapshot.RouteHandler("GET /api/products/{id}", "com.example.ProductController"),
-                        new StructureSnapshot.RouteHandler("GET /api/reviews", "com.example.ReviewController")),
+                        new StructureSnapshot.RouteHandler(
+                                "GET /api/products", "com.example.ProductController", "list"),
+                        new StructureSnapshot.RouteHandler(
+                                "GET /api/products/{id}", "com.example.ProductController", "get"),
+                        new StructureSnapshot.RouteHandler("GET /api/reviews", "com.example.ReviewController", "list")),
                 beansUnavailable != null
                         ? List.of()
                         : List.of(
