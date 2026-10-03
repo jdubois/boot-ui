@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.TraceSummaryDto;
 import io.github.jdubois.bootui.core.dto.TracesReport;
+import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -89,7 +91,17 @@ class TracesServiceTests {
         TelemetryStore store = new TelemetryStore(ENABLED);
         store.add(serverSpan("bootui-trace", "bootui-root", "GET /bootui/api/traces", "/bootui/api/traces"));
         store.add(serverSpan("host-trace", "host-root", "GET /api/orders", "/api/orders"));
-        TracesService service = new TracesService(store, ENABLED, SELF);
+        TracesService service = new TracesService(store, ENABLED, SELF, new ExposurePolicy() {
+            @Override
+            public ValueExposure valueExposure() {
+                return ValueExposure.MASKED;
+            }
+
+            @Override
+            public boolean maskSecrets() {
+                return true;
+            }
+        });
 
         TracesReport report = service.list(50);
 

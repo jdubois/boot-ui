@@ -4,6 +4,8 @@ import io.github.jdubois.bootui.core.dto.SpanDto;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
 import io.github.jdubois.bootui.core.dto.TraceSummaryDto;
 import io.github.jdubois.bootui.core.dto.TracesReport;
+import io.github.jdubois.bootui.engine.support.MessageExposure;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -38,15 +40,23 @@ public final class TracesService {
 
     private final SelfTelemetryClassifier selfClassifier;
 
-    public TracesService(TelemetryStore store, TelemetrySettings settings, SelfTelemetryClassifier selfClassifier) {
+    private final ExposurePolicy exposure;
+
+    public TracesService(
+            TelemetryStore store,
+            TelemetrySettings settings,
+            SelfTelemetryClassifier selfClassifier,
+            ExposurePolicy exposure) {
         this.store = store;
         this.settings = settings;
         this.selfClassifier = selfClassifier;
+        this.exposure = exposure;
     }
 
     public TracesReport list(int limit) {
         int safeLimit = Math.max(1, Math.min(500, limit));
         List<TraceSummaryDto> summaries = new ArrayList<>();
+        MessageExposure rule = MessageExposure.current(exposure);
         int retained = 0;
         for (TelemetryStore.TraceBucket bucket : store.recentTraces(store.capacity())) {
             if (!selfClassifier.shouldIncludeTrace(bucket.spans())) {
@@ -54,7 +64,7 @@ public final class TracesService {
             }
             retained++;
             if (summaries.size() < safeLimit) {
-                summaries.add(toSummary(bucket));
+                summaries.add(toSummary(bucket, rule));
             }
         }
         return new TracesReport(settings.enabled(), retained, store.capacity(), summaries);
@@ -69,8 +79,9 @@ public final class TracesService {
             return Optional.empty();
         }
         List<SpanDto> spans = new ArrayList<>(bucket.spans().size());
+        MessageExposure rule = MessageExposure.current(exposure);
         for (NormalizedSpan span : bucket.spans()) {
-            spans.add(toSpanDto(span));
+            spans.add(toSpanDto(span, rule));
         }
         spans.sort(Comparator.comparingLong(SpanDto::startEpochNanos));
         return Optional.of(new TraceDetailDto(bucket.traceId(), spans));
@@ -81,6 +92,10 @@ public final class TracesService {
     }
 
     static TraceSummaryDto toSummary(TelemetryStore.TraceBucket bucket) {
+        return toSummary(bucket, MessageExposure.masked());
+    }
+
+    private static TraceSummaryDto toSummary(TelemetryStore.TraceBucket bucket, MessageExposure rule) {
         long minStart = Long.MAX_VALUE;
         long maxEnd = Long.MIN_VALUE;
         Set<String> services = new LinkedHashSet<>();
@@ -124,9 +139,9 @@ public final class TracesService {
         }
         return new TraceSummaryDto(
                 bucket.traceId(),
-                rootSpanName,
-                resolveHttpPath(bucket.spans(), earliest),
-                firstServices(services),
+                rule.apply(rootSpanName),
+                rule.apply(resolveHttpPath(bucket.spans(), earliest)),
+                rule.omitsText() ? List.of() : firstServices(services).stream().map(rule::apply).toList(),
                 minStart,
                 maxEnd,
                 Math.max(0L, maxEnd - minStart),
@@ -225,22 +240,22 @@ public final class TracesService {
         return span.kind() != null && span.kind().contains("SERVER");
     }
 
-    static SpanDto toSpanDto(NormalizedSpan span) {
+    static SpanDto toSpanDto(NormalizedSpan span, MessageExposure rule) {
         return new SpanDto(
                 span.traceId(),
                 span.spanId(),
                 span.parentSpanId(),
-                span.name(),
+                rule.apply(span.name()),
                 span.kind(),
-                span.serviceName(),
-                span.scope(),
+                rule.apply(span.serviceName()),
+                rule.apply(span.scope()),
                 span.startEpochNanos(),
                 span.endEpochNanos(),
                 span.durationNanos(),
                 span.statusCode(),
-                span.statusMessage(),
-                SpanMappers.toAttributeList(span.attributes()),
-                SpanMappers.toEventList(span.events()));
+                rule.apply(span.statusMessage()),
+                SpanMappers.toAttributeList(span.attributes(), rule),
+                SpanMappers.toEventList(span.events(), rule));
     }
 
     private static List<String> firstServices(Set<String> services) {

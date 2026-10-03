@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.core.dto.AiChatDetailDto;
 import io.github.jdubois.bootui.core.dto.AiChatSummaryDto;
 import io.github.jdubois.bootui.core.dto.AiOverviewDto;
@@ -9,6 +10,7 @@ import io.github.jdubois.bootui.engine.telemetry.AiUsageService;
 import io.github.jdubois.bootui.engine.telemetry.AiUsageSettings;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -32,6 +34,11 @@ public class AiController {
     private final AiUsageService service;
 
     public AiController(TelemetryStore store, BootUiProperties properties) {
+        this(store, properties, new BootUiExposure(properties));
+    }
+
+    @Autowired
+    public AiController(TelemetryStore store, BootUiProperties properties, BootUiExposure exposure) {
         this.service = new AiUsageService(
                 store,
                 () -> new AiUsageSettings(
@@ -39,7 +46,8 @@ public class AiController {
                         properties.getAi().getMaxRecentChats(),
                         properties.getAi().getTokenSeriesMinutes(),
                         properties.getAi().isShowContentCaptureBanner()),
-                System::currentTimeMillis);
+                System::currentTimeMillis,
+                exposure);
     }
 
     @GetMapping("/overview")

@@ -71,13 +71,17 @@ public class BootUiTelemetryProducer {
     @Produces
     @Singleton
     public TracesService tracesService(
-            TelemetryStore store, QuarkusTelemetrySettings settings, SelfTelemetryClassifier selfClassifier) {
-        return new TracesService(store, settings, selfClassifier);
+            TelemetryStore store,
+            QuarkusTelemetrySettings settings,
+            SelfTelemetryClassifier selfClassifier,
+            QuarkusExposurePolicy exposure) {
+        return new TracesService(store, settings, selfClassifier, exposure);
     }
 
     @Produces
     @Singleton
-    public AiUsageService aiUsageService(TelemetryStore store, QuarkusTelemetrySettings settings, Config config) {
+    public AiUsageService aiUsageService(
+            TelemetryStore store, QuarkusTelemetrySettings settings, Config config, QuarkusExposurePolicy exposure) {
         Supplier<AiUsageSettings> aiSettings = () -> new AiUsageSettings(
                 settings.enabled(),
                 config.getOptionalValue("bootui.ai.max-recent-chats", Integer.class)
@@ -86,6 +90,6 @@ public class BootUiTelemetryProducer {
                         .orElse(60),
                 config.getOptionalValue("bootui.ai.show-content-capture-banner", Boolean.class)
                         .orElse(Boolean.TRUE));
-        return new AiUsageService(store, aiSettings, System::currentTimeMillis);
+        return new AiUsageService(store, aiSettings, System::currentTimeMillis, exposure);
     }
 }
