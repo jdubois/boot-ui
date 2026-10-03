@@ -363,7 +363,8 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   stay unowned rather than taking a newer claim's snapshot. Immediate reclaim cancels queued executor/thread sensor
   removal or reinstalls the sensor after an in-flight reset. Rejected direct fork/join tasks and failed
   `CompletableFuture` thread-per-task starts release their snapshots; executor skip counters stop when the sensor is
-  off ([Java Agent](docs/features/java-agent.md#claims-and-lifecycle), AGT-01, AGT-02, AGT-04, AGT-09).
+  off ([Java Agent](docs/features/java-agent.md#claims-and-lifecycle),
+  [#1213](https://github.com/jdubois/boot-ui/pull/1213); AGT-01, AGT-02, AGT-04, AGT-09).
 
 - **Runtime Insights no longer reports what it could not see.** From the 2.0 validation run
   ([report](docs/V2-VALIDATION-REPORT.md)): `route-time-breakdown` stops calling time "application code" when a request
