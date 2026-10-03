@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateStatisticsController;
 import io.github.jdubois.bootui.autoconfigure.insights.RuntimeInsightsController;
+import io.github.jdubois.bootui.autoconfigure.javaagent.JavaAgentController;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsController;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaController;
 import io.github.jdubois.bootui.autoconfigure.mail.BootUiMailSenderBeanPostProcessor;
@@ -293,6 +294,7 @@ import tools.jackson.databind.ObjectMapper;
     ReactiveLiveActivityController.class,
     LiveServiceMapController.class,
     RuntimeInsightsController.class,
+    JavaAgentController.class,
     EmailController.class,
     KafkaController.class,
     RabbitController.class,
@@ -362,6 +364,7 @@ public class BootUiReactiveAutoConfiguration {
             ReactiveLiveActivityController.class.getName(),
             LiveServiceMapController.class.getName(),
             RuntimeInsightsController.class.getName(),
+            JavaAgentController.class.getName(),
             ReactiveBootUiMcpController.class.getName(),
             ReactiveBootUiMcpServerController.class.getName(),
             EmailController.class.getName(),
@@ -437,7 +440,8 @@ public class BootUiReactiveAutoConfiguration {
                 ObjectProvider<FaultToleranceController> faultTolerance,
                 ObjectProvider<SpringCacheController> cache,
                 ObjectProvider<DatabaseConnectionPoolsController> connectionPools,
-                ObjectProvider<RuntimeInsightsController> runtimeInsights) {
+                ObjectProvider<RuntimeInsightsController> runtimeInsights,
+                ObjectProvider<JavaAgentController> javaAgent) {
             return new ReactiveBootUiMcpTools(
                     overview,
                     health,
@@ -471,7 +475,8 @@ public class BootUiReactiveAutoConfiguration {
                     faultTolerance,
                     cache,
                     connectionPools,
-                    runtimeInsights);
+                    runtimeInsights,
+                    javaAgent);
         }
 
         @Bean

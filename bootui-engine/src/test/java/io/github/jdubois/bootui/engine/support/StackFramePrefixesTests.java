@@ -88,6 +88,8 @@ class StackFramePrefixesTests {
                 .isTrue();
         assertThat(StackFramePrefixes.isFrameworkClass("io.github.jdubois.bootui.conformance.BootUiApiContractCatalog"))
                 .isTrue();
+        assertThat(StackFramePrefixes.isFrameworkClass("io.github.jdubois.bootui.agent.bridge.AgentBridge"))
+                .isTrue();
     }
 
     @Test

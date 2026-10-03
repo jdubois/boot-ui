@@ -249,6 +249,12 @@ public final class McpToolDescriptions {
                     "Return a passive snapshot of current JVM heap, non-heap, garbage collection, class-loading, and "
                             + "thread measurements without requesting GC or a class histogram."),
             Map.entry(
+                    "get_agent_status",
+                    "Return the BootUI Java agent's status: NOT_ATTACHED, DORMANT, ARMED, HELD by another application, "
+                            + "DISARMED, UNAVAILABLE, FAILED, or DISABLED with a reason; versions, the current claim, "
+                            + "sensors, and setup snippets that attach it. This read never claims, installs, or "
+                            + "changes the agent."),
+            Map.entry(
                     "get_jvm_tuning",
                     "Return the current JVM sizing facts and generated tuning recommendations using detected defaults. "
                             + "This is a passive calculation and does not change JVM or container settings."),

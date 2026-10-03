@@ -23,6 +23,7 @@ import io.github.jdubois.bootui.autoconfigure.health.SpringHealthProvider;
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateDiscovery;
 import io.github.jdubois.bootui.autoconfigure.hibernate.SpringHibernateStatisticsProvider;
 import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
+import io.github.jdubois.bootui.autoconfigure.javaagent.AgentClaimOwner;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsListenerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsProducerCaptureBeanPostProcessor;
 import io.github.jdubois.bootui.autoconfigure.journal.BootUiApplicationEventMulticaster;
@@ -77,6 +78,10 @@ import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.hibernate.HibernateStatisticsService;
+import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
+import io.github.jdubois.bootui.engine.javaagent.AgentSetupSnippets;
+import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
+import io.github.jdubois.bootui.engine.javaagent.JavaAgentSettings;
 import io.github.jdubois.bootui.engine.jms.JmsActivityRecorder;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
@@ -401,6 +406,25 @@ public class BootUiEngineConfiguration {
                     .observationHandler(new io.github.jdubois.bootui.autoconfigure.activity.AiObservationJournalHandler(
                             journal::getIfAvailable));
         }
+    }
+
+    /**
+     * The Java Agent panel's service ({@code docs/PLAN-v2.md} §5.13). It reads this run's claim from the
+     * {@link AgentClaimOwner} that {@code BootUiAgentClaimEnvironmentPostProcessor} registered, and finds none when the
+     * JVM runs without the agent.
+     */
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    JavaAgentService bootUiJavaAgentService(BootUiProperties properties, ObjectProvider<AgentClaimOwner> owner) {
+        return new JavaAgentService(
+                AgentBridgeAccess.locate(),
+                () -> {
+                    AgentClaimOwner current = owner.getIfUnique();
+                    return current == null ? null : current.claim();
+                },
+                JavaAgentSettings.of(
+                        AgentSetupSnippets.SPRING, properties.getAgent().isEnabled(), null));
     }
 
     @Bean

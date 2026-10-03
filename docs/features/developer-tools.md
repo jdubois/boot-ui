@@ -78,8 +78,8 @@ exception's `exceptionGroupId`. `get_exception_detail` returns a group's stack t
 `get_jvm_tuning`, `get_heap_dump_report`, `get_threads`, `get_startup_timeline`, `get_profile_diff`,
 `get_spring_data_repositories`, `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`,
 `get_ai_overview`, `get_emails`, `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`,
-`get_devtools_status`, `get_dev_services`, `get_github_dashboard`, `get_copilot_sessions`, and
-`get_claude_code_sessions`.
+`get_agent_status`, `get_devtools_status`, `get_dev_services`, `get_github_dashboard`,
+`get_copilot_sessions`, and `get_claude_code_sessions`.
 
 **Bounded controls** — `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`, `resume_sql_trace_recording`,
 `clear_transactions`, `pause_transaction_recording`, `resume_transaction_recording`, `clear_traces`,
@@ -131,7 +131,7 @@ engine. Each adapter supplies only a thin Jackson envelope codec, Jackson 2 on Q
 requests and responses are byte-identical across backends.
 
 **Quarkus** runs the same JSON-RPC bridge at the same endpoint with the same runtime toggle, reading the `bootui.mcp.*`
-keys from MicroProfile Config. Its catalog declares 79 tools against Spring MVC's 95, because the tools behind
+keys from MicroProfile Config. Its catalog declares 80 tools against Spring MVC's 96, because the tools behind
 Spring-only panels are withheld: the GraalVM and CRaC scans and reports, Conditions, Startup Timeline, HTTP Sessions,
 Spring Data, Spring Security, JMS, DevTools, and every transaction tool. `get_overview` is offered, and `spring_scan`
 runs the Quarkus-native idiom advisor.
@@ -170,6 +170,18 @@ panel shows what *this* instance answers to even when the CLI on your path was b
 Call counters — calls, mean latency, capacity refusals, and timeouts — are tracked separately from the MCP server's, so
 this panel reports what terminals and CI jobs did. There is no response-limit counter, because the command-line facade
 applies no response byte budget.
+
+## Java Agent
+
+The Java Agent panel is the setup and status page for the optional BootUI development-time `-javaagent`. It reports
+`GET /bootui/api/java-agent`, the `get_agent_status` MCP tool, and `bootui agent status` from the same `JavaAgentReport`:
+whether the bridge is absent, dormant, armed for this application, held by another application, disabled, unavailable,
+failed, or disarmed; the BootUI and agent versions; the JDK; the load mode; the claim; counters; messages; warnings;
+and setup snippets with **Copy** buttons.
+
+The panel is view-only on Spring MVC, Spring WebFlux, and Quarkus. It stays local-only, makes no external calls, and the
+agent remains dormant until BootUI claims it. See [Java Agent](java-agent.md) for attach snippets, claim lifecycle,
+OpenTelemetry/JaCoCo coexistence, and the expected class-data-sharing warning.
 
 ## Spring DevTools
 

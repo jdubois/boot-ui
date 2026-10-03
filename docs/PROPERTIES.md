@@ -62,6 +62,7 @@ equivalents).
 | Key                     | Spring                                                                                                              | Quarkus                                                                                                                            |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `bootui.overrides-file` | The Configuration panel persists runtime overrides here, and the key also locates the advisor dismissed-rules file. | The Configuration panel is read-only on Quarkus, so the key only locates the advisor dismissed-rules file (`.bootui/boot-ui.yml`). |
+| `bootui.agent.*` | Read at startup, before the context exists, to decide whether and how the run claims an attached BootUI agent. | Build-time configuration read when the application is built (augmented); dev mode rebuilds when it changes. |
 
 Everything not listed in the two tables above is honored under the same key — and with the same
 default — on both adapters. This includes the safety keys (`bootui.allow-non-localhost`,
@@ -215,6 +216,7 @@ Enforced identically on Spring and Quarkus (`PanelAccessFilter` / `QuarkusPanelA
 | Diagnostics     | HTTP Probe                | `http-probe`                | `bootui.panels.http-probe.enabled`                | `bootui.panels.http-probe.read-only`      |
 | Developer tools | MCP Server                | `mcp-server`                | `bootui.panels.mcp-server.enabled`                | `bootui.panels.mcp-server.read-only`      |
 | Developer tools | Command Line              | `cli`                       | `bootui.panels.cli.enabled`                       | Not applicable; view-only.                |
+| Developer tools | Java Agent                | `java-agent`                | `bootui.panels.java-agent.enabled`                | Not applicable; view-only.                |
 | Developer tools | Spring DevTools           | `devtools`                  | `bootui.panels.devtools.enabled`                  | `bootui.panels.devtools.read-only`        |
 | Developer tools | Dev Services              | `dev-services`              | `bootui.panels.dev-services.enabled`              | `bootui.panels.dev-services.read-only`    |
 | Developer tools | Copilot                   | `copilot`                   | `bootui.panels.copilot.enabled`                   | Not applicable; view-only.                |
@@ -857,6 +859,21 @@ The JMS panel is a dedicated view over the same bounded Spring JMS capture that 
 | ------------------------------ | ------- | -------------------------------------------------------------------------------------------------------------- |
 | `bootui.panels.crac.enabled`   | `true`  | Show the CRaC (Coordinated Restore at Checkpoint) readiness panel and its latest report.                       |
 | `bootui.panels.crac.read-only` | `false` | Disable the on-demand readiness scan and the Dockerfile/entrypoint install actions (downloads stay available). |
+
+### Java agent
+
+The Java Agent panel is view-only. On Spring, `bootui.agent.*` is read at startup, before the application context exists,
+so a change applies at the next start or DevTools restart. On Quarkus these keys are build-time properties, read when the
+application is built (augmented); dev mode rebuilds when they change.
+
+The main application package on Spring and the application archive packages on Quarkus are always included.
+`bootui.agent.packages` only adds extra prefixes.
+
+| Property                  | Default | Description |
+| ------------------------- | ------- | ----------- |
+| `bootui.agent.enabled`    | `true`  | Claim the BootUI agent when it is attached. When false, BootUI releases the claim and the agent removes its transformers, unless another application's armed claim holds it. |
+| `bootui.agent.packages`   | empty   | Additional application package prefixes to include in the claim, alongside adapter-discovered packages. |
+| `bootui.agent.mode`       | `auto`  | Claim mode: `auto`, `dev`, or `test`. `auto` chooses `test` under test frameworks / Quarkus test launch mode, otherwise `dev`. |
 
 ### Spring DevTools
 

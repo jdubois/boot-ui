@@ -12,8 +12,10 @@ import io.github.jdubois.bootui.engine.resources.ResourceSettings;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.util.unit.DataSize;
@@ -229,6 +231,10 @@ public class BootUiProperties {
      * Resource correlation settings: the CPU ledger and resource track.
      */
     private Resources resources = new Resources();
+    /**
+     * BootUI Java agent settings: whether and how this application claims the agent when it is attached.
+     */
+    private Agent agent = new Agent();
     /**
      * Email Viewer panel settings (captured outgoing mail).
      */
@@ -649,6 +655,14 @@ public class BootUiProperties {
 
     public void setResources(Resources resources) {
         this.resources = resources == null ? new Resources() : resources;
+    }
+
+    public Agent getAgent() {
+        return agent;
+    }
+
+    public void setAgent(Agent agent) {
+        this.agent = agent == null ? new Agent() : agent;
     }
 
     public void setActivity(Activity activity) {
@@ -2737,6 +2751,57 @@ public class BootUiProperties {
                     maxBytes == null ? null : maxBytes.toBytes(),
                     queueCapacity,
                     sources == null ? null : String.join(",", sources));
+        }
+    }
+
+    /**
+     * The BootUI Java agent ({@code docs/PLAN-v2.md} §5.13). These settings are read by an
+     * {@code EnvironmentPostProcessor} before the context exists, so they take effect at the next start.
+     */
+    public static class Agent {
+
+        /** Whether this application claims the BootUI agent when the JVM runs with it attached. */
+        private boolean enabled = true;
+
+        /**
+         * Application package prefixes the agent may instrument, in addition to the main application class's package
+         * and the auto-configuration packages.
+         */
+        private List<String> packages = new ArrayList<>();
+
+        /**
+         * The claim's mode: {@code dev}, {@code test}, or {@code auto}, which is {@code test} when the application starts
+         * under JUnit, TestNG, Cucumber, or Spring Boot's test support. A development application takes the agent over
+         * from a test one.
+         */
+        private String mode = "auto";
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public List<String> getPackages() {
+            return packages;
+        }
+
+        public void setPackages(List<String> packages) {
+            this.packages = packages == null ? new ArrayList<>() : packages;
+        }
+
+        public String getMode() {
+            return mode;
+        }
+
+        public void setMode(String mode) {
+            String value = mode == null ? "auto" : mode.trim().toLowerCase(Locale.ROOT);
+            if (!value.equals("auto") && !value.equals("dev") && !value.equals("test")) {
+                throw new IllegalArgumentException("bootui.agent.mode must be auto, dev, or test.");
+            }
+            this.mode = value;
         }
     }
 

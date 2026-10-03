@@ -133,6 +133,7 @@ Once it is on the `PATH`:
 ```bash
 bootui tools                                   # what this application actually exposes
 bootui --url http://127.0.0.1:8080 overview
+bootui agent status --json                      # optional BootUI Java agent attachment/claim state
 bootui hibernate scan --json | jq '.severityCounts'
 bootui exceptions show <id> --json
 bootui request-profile <id> --json             # one request's SQL, N+1 groups, exceptions, and timing
@@ -160,7 +161,16 @@ In CI, capture the exit code (`bootui … --json > report.json || status=$?`) so
 before the application is stopped.
 
 The full command table is at `https://github.com/jdubois/boot-ui/blob/main/docs/CLI.md`; each command maps to the MCP
-tool of the same behavior.
+tool of the same behavior. `bootui agent status` maps to `get_agent_status` and is read-only on Spring MVC, WebFlux, and
+Quarkus.
+
+### Attach the optional Java agent
+
+Use the BootUI Java agent only when the user asks for executor-propagation diagnostics or wants to prepare the
+Java Agent panel. It is optional, local-only, and development-time only; never add it to a production or AOT-cached JVM.
+Read `bootui agent status --json` / `get_agent_status` first: the report includes the exact jar path and copyable
+Maven, Gradle, Quarkus dev, Surefire/Failsafe, IntelliJ, and `JAVA_TOOL_OPTIONS` snippets. If the jar is missing, follow
+the report's `maven-download` snippet before adding `-javaagent:<path>`.
 
 ### Read MySQL operational evidence
 
@@ -442,7 +452,8 @@ When BootUI MCP tools are available:
 
 1. Call core reads such as `get_overview` and `get_health` first.
 2. Use targeted diagnostic reads such as `get_live_activity`, `get_request_profile` (one profileable request's SQL,
-   N+1 groups, exceptions, and timing), `get_exceptions`, `get_exception_detail`, `get_sql_traces`, `get_traces`, `get_log_tail`, `get_http_exchanges`, and `get_http_routes` (per-route request
+   N+1 groups, exceptions, and timing), `get_agent_status` (BootUI Java agent attachment/claim state), `get_exceptions`,
+   `get_exception_detail`, `get_sql_traces`, `get_traces`, `get_log_tail`, `get_http_exchanges`, and `get_http_routes` (per-route request
    counts, status classes, and p50/p95/p99 latency over the retained window). Their buffers are bounded: before
    concluding that a request, statement, or call never happened, check the `retention` object for evictions.
 3. Run only the advisor relevant to the task, such as `architecture_scan`, `spring_scan`, `hibernate_scan`,

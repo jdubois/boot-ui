@@ -72,6 +72,7 @@ public final class BootUiPanels {
     public static final String REST_CLIENT_TRACE = "rest-client-trace";
     public static final String MCP_SERVER = "mcp-server";
     public static final String CLI = "cli";
+    public static final String JAVA_AGENT = "java-agent";
     public static final String ACTIVITY = "activity";
     public static final String RUNTIME_INSIGHTS = "runtime-insights";
     public static final String EMAIL = "email";
@@ -146,6 +147,7 @@ public final class BootUiPanels {
             // toggle here would refuse action tools whose own panel is perfectly writable. The panel id
             // therefore drives only the sidebar entry and its enable/read-only toggles.
             new Panel(CLI, "Command Line", false, List.of()),
+            new Panel(JAVA_AGENT, "Java Agent", false, "/java-agent"),
             new Panel(ACTIVITY, "Live Activity", true, "/activity"),
             new Panel(RUNTIME_INSIGHTS, "Runtime Insights", true, "/runtime-insights"),
             new Panel(EMAIL, "Email", true, "/email"),

@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
 import io.github.jdubois.bootui.autoconfigure.hibernate.HibernateController;
 import io.github.jdubois.bootui.autoconfigure.insights.RuntimeInsightsController;
+import io.github.jdubois.bootui.autoconfigure.javaagent.JavaAgentController;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsController;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaController;
 import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
@@ -124,7 +125,8 @@ public class BootUiMcpTools {
             ObjectProvider<FaultToleranceController> faultTolerance,
             ObjectProvider<SpringCacheController> cache,
             ObjectProvider<DatabaseConnectionPoolsController> connectionPools,
-            ObjectProvider<RuntimeInsightsController> runtimeInsights) {
+            ObjectProvider<RuntimeInsightsController> runtimeInsights,
+            ObjectProvider<JavaAgentController> javaAgent) {
         // Resolve each (lazy) controller bean; conditionally-registered controllers (e.g. Hibernate,
         // Spring Security) may be absent depending on the host app's classpath, so the matching tool is
         // simply not advertised rather than failing the whole server.
@@ -161,6 +163,7 @@ public class BootUiMcpTools {
         SpringCacheController cacheBean = cache.getIfAvailable();
         DatabaseConnectionPoolsController connectionPoolsBean = connectionPools.getIfAvailable();
         RuntimeInsightsController runtimeInsightsBean = runtimeInsights.getIfAvailable();
+        JavaAgentController javaAgentBean = javaAgent.getIfAvailable();
 
         List<McpTool> registry = new ArrayList<>();
 
@@ -302,6 +305,13 @@ public class BootUiMcpTools {
                     "get_request_profile",
                     McpToolDescriptions.spring("get_request_profile"),
                     args -> liveActivityBean.request(args.id())));
+        }
+        // --- The BootUI Java agent (docs/PLAN-v2.md §5.13) ---
+        if (javaAgentBean != null) {
+            registry.add(tool(
+                    "get_agent_status",
+                    McpToolDescriptions.spring("get_agent_status"),
+                    args -> javaAgentBean.report()));
         }
         // --- Runtime Insights for agents (docs/PLAN-v2.md §5.6) ---
         if (runtimeInsightsBean != null) {

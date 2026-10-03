@@ -1731,6 +1731,42 @@ public abstract class AbstractBootUiApiConformanceTest {
         }
     }
 
+    private static boolean bootstrapAgentBridgeAbsent() {
+        try {
+            Class.forName("io.github.jdubois.bootui.agent.bridge.AgentBridge", false, null);
+            return false;
+        } catch (ClassNotFoundException | LinkageError ex) {
+            return true;
+        }
+    }
+
+    @Test
+    void theJavaAgentPanelReportsNotAttachedWithSetupSnippetsWhenTheJvmRunsWithoutTheAgent() {
+        assumeTrue(isPanelUsableInLiveManifest("java-agent"), "java-agent panel is not available in this environment");
+        assumeTrue(bootstrapAgentBridgeAbsent(), "this JVM runs with the BootUI agent attached");
+        Response response = probe().get(api("/java-agent"));
+
+        assertThat(response.status()).isEqualTo(200);
+        JsonNode report = response.json();
+        assertThat(report.path("state").asText())
+                .as("the sample applications run without the BootUI agent")
+                .isEqualTo("NOT_ATTACHED");
+        assertThat(report.path("reason").asText()).isNotBlank();
+        assertThat(report.path("expectedProtocol").asInt()).isEqualTo(1);
+        assertThat(report.path("protocol").isNull()).isTrue();
+        assertThat(report.path("claim").isNull()).isTrue();
+        assertThat(report.path("sensors").size()).isZero();
+        JsonNode snippets = report.path("setup").path("snippets");
+        assertThat(snippets.size()).isPositive();
+        for (JsonNode snippet : snippets) {
+            assertThat(snippet.path("id").asText()).isNotBlank();
+            assertThat(snippet.path("label").asText()).isNotBlank();
+            assertThat(snippet.path("language").asText()).isNotBlank();
+            assertThat(snippet.path("text").asText()).contains("bootui-agent");
+        }
+        assertThat(report.path("setup").path("jarPath").asText()).contains("bootui-agent");
+    }
+
     @Test
     void runtimeResourcesReportOneShapeWithABalancedLedger() {
         assumeTrue(isPanelUsableInLiveManifest("activity"), "activity panel is not available in this environment");
@@ -2651,6 +2687,7 @@ public abstract class AbstractBootUiApiConformanceTest {
             case OBJECT -> node.isObject();
             case NULLABLE_STRING -> isNull(node) || node.isTextual();
             case NULLABLE_OBJECT -> isNull(node) || node.isObject();
+            case NULLABLE_INTEGER -> isNull(node) || node.isIntegralNumber();
         };
     }
 

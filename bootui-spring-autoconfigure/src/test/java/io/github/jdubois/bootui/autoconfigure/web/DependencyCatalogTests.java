@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.tuple;
 
 import io.github.jdubois.bootui.core.dto.DependencyCoverageDto;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
+import io.github.jdubois.bootui.engine.javaagent.AgentJars;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyInventory;
 import java.io.File;
 import java.io.IOException;
@@ -21,6 +22,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.jar.Attributes;
 import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
@@ -1001,6 +1003,38 @@ class DependencyCatalogTests {
             }
         }
         return jar;
+    }
+
+    @Test
+    void theBootUiAgentJarIsNeitherALibraryNorAnUnidentifiedArchive() throws Exception {
+        Path repository = tempDir.resolve("repository");
+        Path agent = repository.resolve("com/julien-dubois/bootui/bootui-agent/1.19.0/bootui-agent-1.19.0.jar");
+        Files.createDirectories(agent.getParent());
+        Manifest manifest = new Manifest();
+        manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+        manifest.getMainAttributes().putValue("BootUI-Agent-Protocol", "1");
+        try (OutputStream out = Files.newOutputStream(agent);
+                JarOutputStream jarOut = new JarOutputStream(out, manifest)) {
+            jarOut.putNextEntry(new ZipEntry("io/github/jdubois/bootui/agent/AgentLauncher.class"));
+            jarOut.closeEntry();
+        }
+        Path library = plainJar("repository/org/acme/widget/1.0.0/widget-1.0.0.jar");
+        Set<Path> agents = AgentJars.fromJvmArguments(List.of("-javaagent:" + agent));
+
+        DependencyInventory inventory = withClassPathInventory(
+                new DependencyCatalog(emptyResolver(), List::of, () -> agents), agent.toString(), library.toString());
+        DependencyInventory unaware = withClassPathInventory(
+                new DependencyCatalog(emptyResolver(), List::of, Set::of), agent.toString(), library.toString());
+
+        assertThat(agents).containsExactly(agent.toAbsolutePath().normalize());
+        assertThat(inventory.dependencies())
+                .extracting(DependencyDto::packageName)
+                .containsExactly("org.acme:widget");
+        assertThat(inventory.coverage()).isEqualTo(DependencyCoverageDto.of(1, 0, List.of()));
+        assertThat(unaware.dependencies())
+                .as("without recognizing it, the agent jar reads as a library")
+                .extracting(DependencyDto::packageName)
+                .contains("com.julien-dubois.bootui:bootui-agent");
     }
 
     private Path plainJar(String name) throws IOException {

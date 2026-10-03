@@ -36,6 +36,10 @@ import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.hibernate.HibernateStatisticsService;
+import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
+import io.github.jdubois.bootui.engine.javaagent.AgentSetupSnippets;
+import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
+import io.github.jdubois.bootui.engine.javaagent.JavaAgentSettings;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.RunBaselineFile;
 import io.github.jdubois.bootui.engine.journal.RunHistory;
@@ -87,6 +91,7 @@ import io.github.jdubois.bootui.quarkus.errorcontract.QuarkusErrorContractProvid
 import io.github.jdubois.bootui.quarkus.faulttolerance.QuarkusFaultTolerancePolicyProvider;
 import io.github.jdubois.bootui.quarkus.health.QuarkusHealthGuidance;
 import io.github.jdubois.bootui.quarkus.hibernate.QuarkusHibernatePropertyLookup;
+import io.github.jdubois.bootui.quarkus.javaagent.QuarkusAgentClaim;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLoggerProvider;
 import io.github.jdubois.bootui.quarkus.mappings.QuarkusMappingProvider;
 import io.github.jdubois.bootui.quarkus.pentesting.QuarkusPentestingObservationCollector;
@@ -189,6 +194,24 @@ public class BootUiEngineProducer {
         } catch (ClassNotFoundException ex) {
             return false;
         }
+    }
+
+    /**
+     * The Java Agent panel's service ({@code docs/PLAN-v2.md} §5.13), reading the claim {@code BootUiAgentRecorder}
+     * made at static init. Production never wires it, so its disabled state is only ever reported defensively.
+     */
+    @Produces
+    @Singleton
+    public JavaAgentService javaAgentService(Instance<QuarkusAgentClaim> claim, Config config) {
+        QuarkusAgentClaim current = claim.isResolvable() ? claim.get() : QuarkusAgentClaim.none();
+        return new JavaAgentService(
+                AgentBridgeAccess.locate(),
+                current::claim,
+                JavaAgentSettings.of(
+                        AgentSetupSnippets.QUARKUS,
+                        config.getOptionalValue("bootui.agent.enabled", Boolean.class)
+                                .orElse(true),
+                        LaunchMode.current() == LaunchMode.NORMAL ? "Quarkus production mode" : null));
     }
 
     @Produces

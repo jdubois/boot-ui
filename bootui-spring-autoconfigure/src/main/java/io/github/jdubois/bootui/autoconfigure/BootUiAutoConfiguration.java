@@ -26,6 +26,7 @@ import io.github.jdubois.bootui.autoconfigure.idle.ConsoleActivityFilter;
 import io.github.jdubois.bootui.autoconfigure.idle.ConsoleActivityTracker;
 import io.github.jdubois.bootui.autoconfigure.idle.IdleReclaimable;
 import io.github.jdubois.bootui.autoconfigure.insights.RuntimeInsightsController;
+import io.github.jdubois.bootui.autoconfigure.javaagent.JavaAgentController;
 import io.github.jdubois.bootui.autoconfigure.jms.JmsController;
 import io.github.jdubois.bootui.autoconfigure.kafka.KafkaController;
 import io.github.jdubois.bootui.autoconfigure.mail.BootUiMailSenderBeanPostProcessor;
@@ -199,6 +200,7 @@ import tools.jackson.databind.ObjectMapper;
     LiveActivityController.class,
     LiveServiceMapController.class,
     RuntimeInsightsController.class,
+    JavaAgentController.class,
     EmailController.class,
     KafkaController.class,
     RabbitController.class,
@@ -242,6 +244,7 @@ public class BootUiAutoConfiguration {
             LiveActivityController.class.getName(),
             LiveServiceMapController.class.getName(),
             RuntimeInsightsController.class.getName(),
+            JavaAgentController.class.getName(),
             EmailController.class.getName(),
             KafkaController.class.getName(),
             RabbitController.class.getName(),
@@ -548,7 +551,8 @@ public class BootUiAutoConfiguration {
                 ObjectProvider<FaultToleranceController> faultTolerance,
                 ObjectProvider<SpringCacheController> cache,
                 ObjectProvider<DatabaseConnectionPoolsController> connectionPools,
-                ObjectProvider<RuntimeInsightsController> runtimeInsights) {
+                ObjectProvider<RuntimeInsightsController> runtimeInsights,
+                ObjectProvider<JavaAgentController> javaAgent) {
             return new BootUiMcpTools(
                     overview,
                     health,
@@ -582,7 +586,8 @@ public class BootUiAutoConfiguration {
                     faultTolerance,
                     cache,
                     connectionPools,
-                    runtimeInsights);
+                    runtimeInsights,
+                    javaAgent);
         }
 
         @Bean

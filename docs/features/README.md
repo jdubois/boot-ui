@@ -13,7 +13,7 @@ straight to a panel by name.
 | [Security](./security.md) | Spring Security · Security Logs | How is access actually enforced? |
 | [Services](./services.md) | Scheduled Tasks · REST Client · Fault Tolerance · WebSockets · AI Framework · Cache · Email · Kafka · RabbitMQ · JMS | What is my app talking to? |
 | [Diagnostics](./diagnostics.md) | Traces · Log Tail · Exceptions · HTTP Exchanges · HTTP Probe | Why did that request fail? |
-| [Developer tools](./developer-tools.md) | MCP Server · Command Line · Spring DevTools · Dev Services · Copilot · Claude Code | What is my toolchain doing locally? |
+| [Developer tools](./developer-tools.md) | MCP Server · Command Line · Java Agent · Spring DevTools · Dev Services · Copilot · Claude Code | What is my toolchain doing locally? |
 
 ## Rules that apply to every panel
 

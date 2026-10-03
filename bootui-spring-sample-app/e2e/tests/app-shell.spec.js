@@ -56,6 +56,7 @@ const allPanelLinks = [
   {id: 'rest-api', title: 'REST API', heading: /^REST API/},
   {id: 'mcp-server', title: 'MCP Server', heading: /^MCP Server/},
   {id: 'cli', title: 'Command Line', heading: /^Command Line/},
+  {id: 'java-agent', title: 'Java Agent', heading: /^Java Agent/},
   {id: 'devtools', title: 'Spring DevTools', heading: /^Spring DevTools/},
   {id: 'dev-services', title: 'Dev Services', heading: /^Dev Services/},
   {id: 'copilot', title: 'Copilot', heading: /^Copilot/},
@@ -425,7 +426,7 @@ test.describe('BootUI app shell', () => {
       {title: 'Security', count: 2},
       {title: 'Services', count: 10},
       {title: 'Diagnostics', count: 5},
-      {title: 'Developer tools', count: 7}
+      {title: 'Developer tools', count: 8}
     ]
 
     for (const group of groups) {
@@ -486,6 +487,20 @@ test.describe('BootUI app shell', () => {
       'Exceptions',
       'HTTP Exchanges',
       'HTTP Probe'
+    ])
+
+    await page.getByRole('button', {name: /Developer tools\s+8/}).click()
+    await expect(
+      page.getByRole('group', {name: 'Developer tools panels'}).locator('.bootui-nav-link__label')
+    ).toHaveText([
+      'MCP Server',
+      'Command Line',
+      'Java Agent',
+      'Spring DevTools',
+      'Dev Services',
+      'Copilot',
+      'Claude Code',
+      'GitHub'
     ])
   })
 
@@ -586,9 +601,18 @@ test.describe('BootUI app shell', () => {
       'Runtime Insights'
     ])
     await expect(page.locator('aside .bootui-nav-group__toggle', {hasText: 'Home'})).toHaveCount(0)
-    await page.getByRole('button', {name: /Developer tools\s+7/}).click()
+    await page.getByRole('button', {name: /Developer tools\s+8/}).click()
     await expect(
       page.getByRole('group', {name: 'Developer tools panels'}).locator('.bootui-nav-link__label')
-    ).toHaveText(['MCP Server', 'Command Line', 'Spring DevTools', 'Dev Services', 'Copilot', 'Claude Code', 'GitHub'])
+    ).toHaveText([
+      'MCP Server',
+      'Command Line',
+      'Java Agent',
+      'Spring DevTools',
+      'Dev Services',
+      'Copilot',
+      'Claude Code',
+      'GitHub'
+    ])
   })
 })

@@ -66,6 +66,7 @@ const PANEL_HEADINGS = {
   spring: /^Quarkus/,
   'mcp-server': /^MCP Server/,
   cli: /^Command Line/,
+  'java-agent': /Java Agent/,
   devtools: /^Spring DevTools/,
   'dev-services': /^Dev Services/,
   copilot: /^Copilot/,

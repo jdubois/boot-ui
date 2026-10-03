@@ -277,7 +277,8 @@ public final class McpToolCatalog {
             entry("get_dev_services", McpToolSchema.NONE, BootUiPanels.DEV_SERVICES, false, ALL_STACKS),
             entry("get_github_dashboard", McpToolSchema.NONE, BootUiPanels.GITHUB, false, ALL_STACKS),
             entry("get_copilot_sessions", McpToolSchema.NONE, BootUiPanels.COPILOT, false, ALL_STACKS),
-            entry("get_claude_code_sessions", McpToolSchema.NONE, BootUiPanels.CLAUDE_CODE, false, ALL_STACKS));
+            entry("get_claude_code_sessions", McpToolSchema.NONE, BootUiPanels.CLAUDE_CODE, false, ALL_STACKS),
+            entry("get_agent_status", McpToolSchema.NONE, BootUiPanels.JAVA_AGENT, false, ALL_STACKS));
 
     private static final Map<String, Entry> BY_NAME =
             ENTRIES.stream().collect(Collectors.toUnmodifiableMap(Entry::name, Function.identity()));

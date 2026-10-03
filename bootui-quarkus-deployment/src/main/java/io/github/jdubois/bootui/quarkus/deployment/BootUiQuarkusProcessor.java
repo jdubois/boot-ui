@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.quarkus.deployment;
 
+import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
+import io.github.jdubois.bootui.engine.javaagent.AgentPackages;
 import io.github.jdubois.bootui.quarkus.BootUiEngineProducer;
 import io.github.jdubois.bootui.quarkus.BootUiPathRewriteFilter;
 import io.github.jdubois.bootui.quarkus.BootUiProdShellGuardFilter;
@@ -38,6 +40,9 @@ import io.github.jdubois.bootui.quarkus.faulttolerance.QuarkusFaultTolerancePoli
 import io.github.jdubois.bootui.quarkus.faulttolerance.QuarkusFaultTolerancePolicyProvider;
 import io.github.jdubois.bootui.quarkus.faulttolerance.RawFaultTolerancePolicy;
 import io.github.jdubois.bootui.quarkus.faulttolerance.RawFaultToleranceSetting;
+import io.github.jdubois.bootui.quarkus.javaagent.BootUiAgentRecorder;
+import io.github.jdubois.bootui.quarkus.javaagent.QuarkusAgentClaim;
+import io.github.jdubois.bootui.quarkus.javaagent.QuarkusAgentClaimLifecycle;
 import io.github.jdubois.bootui.quarkus.logging.QuarkusLogTailCapture;
 import io.github.jdubois.bootui.quarkus.mappings.MappingsRecorder;
 import io.github.jdubois.bootui.quarkus.mappings.QuarkusMappingProvider;
@@ -58,6 +63,7 @@ import io.github.jdubois.bootui.quarkus.web.CopilotResource;
 import io.github.jdubois.bootui.quarkus.web.DevServicesResource;
 import io.github.jdubois.bootui.quarkus.web.ExceptionsResource;
 import io.github.jdubois.bootui.quarkus.web.HttpExchangesResource;
+import io.github.jdubois.bootui.quarkus.web.JavaAgentResource;
 import io.github.jdubois.bootui.quarkus.web.LiveActivityResource;
 import io.github.jdubois.bootui.quarkus.web.LiveServiceMapResource;
 import io.github.jdubois.bootui.quarkus.web.McpBridgeResource;
@@ -89,7 +95,9 @@ import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.ExecutionTime;
 import io.quarkus.deployment.annotations.Record;
+import io.quarkus.deployment.builditem.ApplicationArchivesBuildItem;
 import io.quarkus.deployment.builditem.ApplicationIndexBuildItem;
+import io.quarkus.deployment.builditem.ApplicationInfoBuildItem;
 import io.quarkus.deployment.builditem.CombinedIndexBuildItem;
 import io.quarkus.deployment.builditem.DevServicesResultBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
@@ -104,6 +112,7 @@ import io.quarkus.resteasy.reactive.server.deployment.ResteasyReactiveResourceMe
 import io.quarkus.resteasy.reactive.server.deployment.SetupEndpointsResultBuildItem;
 import io.quarkus.resteasy.reactive.server.spi.PreExceptionMapperHandlerBuildItem;
 import io.quarkus.runtime.LaunchMode;
+import io.quarkus.runtime.RuntimeValue;
 import jakarta.inject.Singleton;
 import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
@@ -118,7 +127,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
+import org.eclipse.microprofile.config.Config;
+import org.eclipse.microprofile.config.ConfigProvider;
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.AnnotationTarget;
 import org.jboss.jandex.AnnotationTransformation;
@@ -420,6 +432,8 @@ class BootUiQuarkusProcessor {
                         LiveActivityResource.class,
                         LiveServiceMapResource.class,
                         RuntimeInsightsResource.class,
+                        JavaAgentResource.class,
+                        QuarkusAgentClaimLifecycle.class,
                         QuarkusActivityCapture.class,
                         SecurityLogsResource.class,
                         SqlTraceResource.class,
@@ -1214,6 +1228,75 @@ class BootUiQuarkusProcessor {
                 .done());
         runtimeDefaults.produce(
                 new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.SCHEDULED_PRESENT_KEY, "true"));
+    }
+
+    /**
+     * Claims the BootUI Java agent at static init in dev and test launch modes ({@code docs/PLAN-v2.md} D34), so
+     * startup's first class loads and executors are already the claim's, and a live reload claims again in the same
+     * slot. Everything the claim needs is read here, at build time: the application name, the mode (test launch mode
+     * claims as {@code test}, which a dev application takes over), the application archive's packages reduced to their
+     * common prefixes without BootUI's own modules, and the build-time {@code bootui.agent.*} properties. With
+     * {@code bootui.agent.enabled=false} the recorder releases the agent instead. The synthetic
+     * {@link QuarkusAgentClaim} bean keeps the claim reachable for the run; production claims nothing.
+     */
+    @BuildStep
+    @Record(ExecutionTime.STATIC_INIT)
+    void claimJavaAgent(
+            LaunchModeBuildItem launchMode,
+            ApplicationInfoBuildItem applicationInfo,
+            ApplicationArchivesBuildItem archives,
+            BootUiAgentRecorder recorder,
+            BuildProducer<SyntheticBeanBuildItem> syntheticBeans) {
+        if (launchMode.getLaunchMode() == LaunchMode.NORMAL) {
+            return; // production: BootUI is dark and never claims the agent
+        }
+        Config config = ConfigProvider.getConfig();
+        String application = applicationInfo.getName();
+        String mode = agentMode(
+                config.getOptionalValue("bootui.agent.mode", String.class).orElse("auto"), launchMode.getLaunchMode());
+        boolean enabled =
+                config.getOptionalValue("bootui.agent.enabled", Boolean.class).orElse(true);
+        RuntimeValue<QuarkusAgentClaim> claim = enabled
+                ? recorder.claim(
+                        application,
+                        mode,
+                        agentPackages(
+                                archives.getRootArchive().getIndex(),
+                                config.getOptionalValues("bootui.agent.packages", String.class)
+                                        .orElse(List.of())))
+                : recorder.release(application, mode);
+        syntheticBeans.produce(SyntheticBeanBuildItem.configure(QuarkusAgentClaim.class)
+                .scope(Singleton.class)
+                .runtimeValue(claim)
+                .unremovable()
+                .done());
+    }
+
+    /** {@code bootui.agent.mode}, or with {@code auto}, test in the test launch mode and dev otherwise. */
+    static String agentMode(String configured, LaunchMode launchMode) {
+        String mode = configured == null ? "auto" : configured.trim().toLowerCase(Locale.ROOT);
+        if (mode.equals(AgentClaim.DEV) || mode.equals(AgentClaim.TEST)) {
+            return mode;
+        }
+        return launchMode == LaunchMode.TEST ? AgentClaim.TEST : AgentClaim.DEV;
+    }
+
+    /** The packages of the application archive's classes, reduced, then the configured extra packages. */
+    static List<String> agentPackages(IndexView index, List<String> extra) {
+        Set<String> packages = new TreeSet<>();
+        for (ClassInfo type : index.getKnownClasses()) {
+            String name = AgentPackages.packageOf(type.name().toString());
+            if (name != null) {
+                packages.add(name);
+            }
+        }
+        List<String> claimed = new ArrayList<>(AgentPackages.reduce(packages));
+        for (String name : extra == null ? List.<String>of() : extra) {
+            if (name != null && !name.isBlank() && !claimed.contains(name.trim())) {
+                claimed.add(name.trim());
+            }
+        }
+        return claimed;
     }
 
     /**
@@ -2154,7 +2237,7 @@ class BootUiQuarkusProcessor {
     static java.util.Set<String> namedPersistenceUnits(Iterable<String> propertyNames) {
         java.util.regex.Pattern named = java.util.regex.Pattern.compile(
                 "^quarkus\\.hibernate-orm\\.(?:\"([^\"]+)\"|([^.\"]+))\\.(?:datasource|packages)$");
-        java.util.Set<String> units = new java.util.TreeSet<>();
+        java.util.Set<String> units = new TreeSet<>();
         for (String name : propertyNames) {
             java.util.regex.Matcher matcher = named.matcher(name);
             if (matcher.matches()) {

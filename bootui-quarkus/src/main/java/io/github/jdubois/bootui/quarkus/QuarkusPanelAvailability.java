@@ -486,6 +486,7 @@ public class QuarkusPanelAvailability {
             BootUiPanels.EXCEPTIONS,
             BootUiPanels.MCP_SERVER,
             BootUiPanels.CLI,
+            BootUiPanels.JAVA_AGENT,
             BootUiPanels.VULNERABILITIES,
             BootUiPanels.DATABASE_ADVISOR);
 

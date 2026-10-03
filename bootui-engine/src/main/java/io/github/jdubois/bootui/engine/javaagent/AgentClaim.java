@@ -1,0 +1,235 @@
+package io.github.jdubois.bootui.engine.javaagent;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
+import java.util.function.Supplier;
+
+/**
+ * One application run's claim on the BootUI Java agent ({@code docs/PLAN-v2.md} §5.13, D34). The adapter claims as
+ * early as it can, refines the claim with the packages it learns once its context started, and disarms it when the run
+ * ends; a DevTools restart or Quarkus live reload claims again in the same slot, replacing this claim.
+ *
+ * <p>The bridge holds the claim's capture and reopen functions weakly, so the claim keeps them strongly reachable for as
+ * long as it is reachable itself, and each claim makes fresh ones: a claim whose run is gone, with nothing holding it,
+ * is abandoned and taken over. No sensor reads them yet: capture answers {@code null} and reopen a no-op.
+ */
+public final class AgentClaim {
+
+    /** A claim granted to this run. */
+    public static final String ARMED = "armed";
+
+    /** A claim refused because another application holds the agent. */
+    public static final String HELD = "held";
+
+    /** A run that ended its claim. */
+    public static final String DISARMED = "disarmed";
+
+    /** A release that removed the agent's transformers. */
+    public static final String RELEASED = "released";
+
+    /** A token whose claim was replaced or ended. */
+    public static final String STALE = "stale";
+
+    /** A transition the agent failed. */
+    public static final String FAILED = "failed";
+
+    /** No compatible, started agent. */
+    public static final String UNAVAILABLE = AgentBridgeAccess.UNAVAILABLE;
+
+    /** Development mode: takes the agent over from a test run. */
+    public static final String DEV = "dev";
+
+    /** Test mode. */
+    public static final String TEST = "test";
+
+    private static final AutoCloseable NO_SCOPE = () -> {};
+
+    private final AgentBridgeAccess access;
+    private final String application;
+    private final String owner;
+    private final String mode;
+    private final List<String> packages;
+    private final AtomicBoolean ended = new AtomicBoolean();
+
+    // Strongly reachable for as long as this claim is: the bridge only holds them weakly. Each claim builds its own
+    // capturing lambdas, never a cached non-capturing lambda or a method reference, so they die with the claim.
+    private final Supplier<Object> capture;
+    private final Function<Object, AutoCloseable> reopen;
+
+    private volatile Map<String, Object> result;
+    private volatile Long token;
+    private volatile Long generation;
+
+    private AgentClaim(AgentBridgeAccess access, String application, String owner, String mode, List<String> packages) {
+        this.access = access;
+        this.application = application;
+        this.owner = owner;
+        this.mode = mode;
+        this.packages = List.copyOf(packages);
+        this.capture = () -> captureContext();
+        this.reopen = snapshot -> reopenContext(snapshot);
+    }
+
+    /**
+     * Claims the agent for this run. Never throws: the answer's status says whether the claim is armed, held by another
+     * application, failed, or unavailable.
+     *
+     * @param mode {@value #DEV} or {@value #TEST}
+     * @param packages the application's package prefixes
+     */
+    public static AgentClaim claim(
+            AgentBridgeAccess access, String application, String owner, String mode, List<String> packages) {
+        AgentClaim claim = new AgentClaim(
+                access == null ? AgentBridgeAccess.absent() : access,
+                application,
+                owner,
+                TEST.equals(mode) ? TEST : DEV,
+                packages == null ? List.of() : clean(packages));
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("application", claim.application);
+        request.put("owner", claim.owner);
+        request.put("mode", claim.mode);
+        request.put("packages", new ArrayList<>(claim.packages));
+        Map<String, Object> answer = claim.access.claim(request, claim.capture, claim.reopen);
+        claim.result = answer;
+        claim.generation = AgentBridgeAccess.number(answer, "generation");
+        if (ARMED.equals(answer.get("status")) && answer.get("token") instanceof Long granted) {
+            claim.token = granted;
+        } else {
+            claim.ended.set(true);
+            if ("failed".equals(answer.get("status"))) {
+                // The bridge recorded the claim before the agent failed it, and returned no token to disarm it with:
+                // release the slot so recording stops and other applications are not held.
+                claim.access.release(claim.application, claim.mode);
+            }
+        }
+        return claim;
+    }
+
+    /**
+     * Removes the agent's transformers because BootUI is disabled for this application: a run that never claimed, so
+     * without a token. Leaves an armed claim of another application alone.
+     */
+    public static Map<String, Object> release(AgentBridgeAccess access, String application, String mode) {
+        AgentBridgeAccess bridge = access == null ? AgentBridgeAccess.absent() : access;
+        return bridge.release(application, TEST.equals(mode) ? TEST : DEV);
+    }
+
+    /**
+     * Adds packages to this run's claim, such as the auto-configuration packages known once the context started. Does
+     * nothing once the claim ended or was never armed.
+     */
+    public Map<String, Object> refine(List<String> packages) {
+        Long granted = token;
+        if (granted == null || ended.get()) {
+            return answer(STALE, "this claim is not armed");
+        }
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("packages", packages == null ? List.of() : clean(packages));
+        Map<String, Object> answer = access.refine(granted, request);
+        if (ARMED.equals(answer.get("status"))) {
+            result = answer;
+        }
+        return answer;
+    }
+
+    /** Ends this run's claim: recording stops and the agent keeps its transformers (D34). Idempotent. */
+    public Map<String, Object> disarm() {
+        Long granted = token;
+        if (granted == null || !ended.compareAndSet(false, true)) {
+            return answer(STALE, "this claim already ended or was never armed");
+        }
+        Map<String, Object> answer = access.disarm(granted);
+        if (DISARMED.equals(answer.get("status"))) {
+            result = answer;
+        }
+        return answer;
+    }
+
+    /** The status of the claim's first answer: {@value #ARMED}, {@value #HELD}, {@value #FAILED}, or {@value #UNAVAILABLE}. */
+    public String claimStatus() {
+        Map<String, Object> answer = result;
+        return answer == null ? UNAVAILABLE : String.valueOf(answer.get("status"));
+    }
+
+    /** The bridge's last answer to this claim: its claim, refine, or disarm. */
+    public Map<String, Object> result() {
+        Map<String, Object> answer = result;
+        return answer == null ? Map.of() : answer;
+    }
+
+    /** Whether this run holds an armed claim that it has not disarmed. */
+    public boolean armed() {
+        return token != null && !ended.get();
+    }
+
+    /** Whether this run's claim ended: disarmed, or never armed. */
+    public boolean ended() {
+        return ended.get();
+    }
+
+    /** The claim's generation, or {@code null} when it was never granted. */
+    public Long generation() {
+        return generation;
+    }
+
+    public String application() {
+        return application;
+    }
+
+    public String owner() {
+        return owner;
+    }
+
+    public String mode() {
+        return mode;
+    }
+
+    public List<String> packages() {
+        return packages;
+    }
+
+    /** The capture function the bridge holds weakly: one per claim. */
+    Supplier<Object> capture() {
+        return capture;
+    }
+
+    /** The reopen function the bridge holds weakly: one per claim. */
+    Function<Object, AutoCloseable> reopen() {
+        return reopen;
+    }
+
+    /** No sensor propagates a context before M5-2: nothing to capture. */
+    private Object captureContext() {
+        return null;
+    }
+
+    /** No sensor propagates a context before M5-2: nothing to reopen. */
+    private AutoCloseable reopenContext(Object snapshot) {
+        return NO_SCOPE;
+    }
+
+    private static List<String> clean(List<String> packages) {
+        List<String> names = new ArrayList<>();
+        for (String name : packages) {
+            if (name != null) {
+                String trimmed = name.trim();
+                if (!trimmed.isEmpty() && !names.contains(trimmed)) {
+                    names.add(trimmed);
+                }
+            }
+        }
+        return names;
+    }
+
+    private static Map<String, Object> answer(String status, String reason) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("status", status);
+        map.put("reason", reason);
+        return map;
+    }
+}

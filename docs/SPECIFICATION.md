@@ -612,6 +612,45 @@ Acceptance criteria:
 - Restart scheduling returns an API response before DevTools tears down the running context.
 - LiveReload is clearly described as a notification to connected browser tooling, not a forced BootUI page reload.
 
+### 5.7.2 Java Agent
+
+Purpose: answer "Is BootUI's optional Java agent attached and claimed, and how do I attach it?"
+
+Data sources:
+
+- The bootstrap-loaded `io.github.jdubois.bootui.agent.bridge.AgentBridge`, found only through the bootstrap class
+  loader.
+- Adapter claim state from Spring or Quarkus.
+- The local Maven repository path, honoring `maven.repo.local`, and build-tool markers in the working directory.
+
+Features:
+
+- Report `NOT_ATTACHED`, `DORMANT`, `ARMED`, `HELD`, `DISARMED`, `UNAVAILABLE`, `FAILED`, or `DISABLED`, with a reason
+  and `heldBy` when another application owns the JVM-wide agent.
+- Show BootUI and agent versions, protocol and expected protocol, JDK, load mode, jar path, startup time, claim details,
+  sensors, retransformation status, counters, messages, warnings, and setup snippets. The `JavaAgentReport` fields are
+  `state`, `reason`, `agentVersion`, `bootUiVersion`, `protocol`, `expectedProtocol`, `jdk`, `loadMode`, `jarPath`,
+  `startupMicros`, `claim`, `heldBy`, `sensors`, `retransformation`, `counters`, `messages`, `warnings`, and `setup`.
+- Keep the sensors table honest while M5-1 has no sensor yet: "No sensors yet: executor propagation arrives with the
+  next agent release."
+- Offer copyable setup snippets for Maven download (`maven-download`, **Download the agent**), Spring Boot Maven plugin
+  `agents` (`maven-plugin`), Gradle Kotlin/Groovy `bootRun` (`gradle-kotlin`, `gradle-groovy`), Quarkus dev mode
+  `-Djvm.args` (`quarkus-dev`), Surefire/Failsafe `@{argLine}` (`surefire`) for JaCoCo coexistence, IntelliJ VM options
+  (`intellij`), and `JAVA_TOOL_OPTIONS` (`java-tool-options`), with detected build-tool snippets first.
+- Warn when the agent version differs from BootUI on the same protocol and explain the expected HotSpot CDS warning
+  caused by appending the agent to the bootstrap class path.
+
+Acceptance criteria:
+
+- The panel is always available and view-only on Spring MVC, Spring WebFlux, and Quarkus.
+- `GET /bootui/api/java-agent`, `get_agent_status`, and `bootui agent status` return the same `JavaAgentReport`.
+- Spring claims from `BootUiAgentClaimEnvironmentPostProcessor` (registered in `META-INF/spring.factories`) once BootUI activation is resolved, refines after context
+  refresh, disarms on close or startup failure, and releases the agent when BootUI or `bootui.agent.enabled` is off.
+- Quarkus claims from a `STATIC_INIT` recorder in dev/test, refines on startup, disarms on shutdown, and reports
+  `DISABLED` in production launch mode.
+- The dependency inventory does not count a jar whose manifest carries `BootUI-Agent-Protocol` as an application
+  library.
+
 ### 5.8 Startup Timeline
 
 Purpose: answer "What made startup slow?"
@@ -2772,6 +2811,7 @@ Initial endpoints:
 | `/bootui/api/mcp`                            | POST | Local-only MCP JSON-RPC 2.0 transport (served only while the server is enabled; status lives at `/bootui/api/mcp-server`) |
 | `/bootui/api/cli`                            | GET    | Command-line endpoint status and the tool catalog this instance exposes                 |
 | `/bootui/api/cli/tools/{name}`               | POST   | Invoke one tool by name and return its payload directly, with the outcome in the HTTP status |
+| `/bootui/api/java-agent`                     | GET    | BootUI Java agent attachment, claim, setup, and sensor status                            |
 | `/bootui/api/rest-client-trace`              | GET    | Latest REST Client report and retained outbound HTTP calls                              |
 | `/bootui/api/rest-client-trace/clear`        | POST   | Clear the retained REST client call buffer                                              |
 | `/bootui/api/rest-client-trace/recording`    | POST   | Pause/resume REST client call capture at runtime                                        |
@@ -2999,8 +3039,8 @@ Design rules:
     `get_database_connection_pools`, `get_postgresql_report`, `get_mysql_report`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
     `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
     `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
-    `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_devtools_status`, `get_dev_services`,
-    `get_github_dashboard`, `get_copilot_sessions`, and `get_claude_code_sessions`.
+    `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_agent_status`, `get_devtools_status`,
+    `get_dev_services`, `get_github_dashboard`, `get_copilot_sessions`, and `get_claude_code_sessions`.
   - Bounded actions: `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
     `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`,
     `resume_transaction_recording`, `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`,
@@ -3194,6 +3234,7 @@ collapsible:
 - Developer tools:
   - MCP Server.
   - Command Line.
+  - Java Agent.
   - Spring DevTools.
   - Dev Services.
   - Copilot.

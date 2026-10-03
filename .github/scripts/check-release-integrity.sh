@@ -100,6 +100,7 @@ excluded_artifacts="$(
 readonly excluded_artifacts
 readonly expected_exclusions=(
   bootui-conformance
+  bootui-agent-bridge
   bootui-coverage
   bootui-spring-sample-app
   bootui-spring-webflux-sample-app

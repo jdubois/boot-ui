@@ -27,6 +27,7 @@ import io.github.jdubois.bootui.quarkus.web.HealthResource;
 import io.github.jdubois.bootui.quarkus.web.HeapDumpResource;
 import io.github.jdubois.bootui.quarkus.web.HibernateResource;
 import io.github.jdubois.bootui.quarkus.web.HttpExchangesResource;
+import io.github.jdubois.bootui.quarkus.web.JavaAgentResource;
 import io.github.jdubois.bootui.quarkus.web.JvmTuningResource;
 import io.github.jdubois.bootui.quarkus.web.KafkaResource;
 import io.github.jdubois.bootui.quarkus.web.LiquibaseResource;
@@ -137,7 +138,8 @@ public class QuarkusMcpTools {
             GitHubResource github,
             CopilotResource copilot,
             ClaudeCodeResource claudeCode,
-            RuntimeInsightsResource runtimeInsights) {
+            RuntimeInsightsResource runtimeInsights,
+            JavaAgentResource javaAgent) {
         List<McpTool> registry = new ArrayList<>();
 
         // --- Advisor tools (panel actions; behind the LocalhostGuard write floor) ---
@@ -327,6 +329,11 @@ public class QuarkusMcpTools {
                         "get_request_profile",
                         McpToolDescriptions.quarkus("get_request_profile"),
                         args -> liveActivity.request(args.id())));
+        // --- The BootUI Java agent (docs/PLAN-v2.md §5.13) ---
+        addIfAvailable(
+                registry,
+                availability,
+                tool("get_agent_status", McpToolDescriptions.quarkus("get_agent_status"), args -> javaAgent.report()));
         // --- Runtime Insights for agents (docs/PLAN-v2.md §5.6) ---
         addIfAvailable(
                 registry,

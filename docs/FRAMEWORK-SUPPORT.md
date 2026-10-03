@@ -19,7 +19,7 @@ and opening it shows a banner with the specific reason. The same information is 
 scripts read it too.
 
 The PostgreSQL and MySQL panels behave differently, because they are vendor-specific. Without that vendor's JDBC driver
-on the runtime classpath they do not appear at all, so a manifest can legitimately carry 59 panels rather than the 61
+on the runtime classpath they do not appear at all, so a manifest can legitimately carry 60 panels rather than the 62
 in the catalog.
 
 That is always current for your app and your dependencies. Prefer it over any list in the documentation.
@@ -39,8 +39,8 @@ feature guide lists the tested driver/pool combinations.
 
 ## Spring WebFlux
 
-Everything works, including every action — setting log levels, running migrations, capturing heap dumps, and every
-advisor scan — behind the same safety rules as the servlet stack.
+Everything works, including the view-only Java Agent panel and every action — setting log levels, running migrations,
+capturing heap dumps, and every advisor scan — behind the same safety rules as the servlet stack.
 
 The single exception is **HTTP Sessions**, which inventories servlet sessions through Spring Session's registry.
 WebFlux is stateless by default and has no equivalent registry to list.
@@ -67,8 +67,8 @@ need Spring Data repository metadata that Panache does not expose. And some capt
 Vert.x rather than a servlet thread, so request correlation works through the OpenTelemetry trace id instead of thread
 identity — add `quarkus-opentelemetry` to get it.
 
-Everything else ships, including the whole advisor and scoring surface and the MCP server, which is where BootUI adds
-the most on a stack that already has a dev UI.
+Everything else ships, including the Java Agent panel, the whole advisor and scoring surface, and the MCP server, which
+is where BootUI adds the most on a stack that already has a dev UI.
 
 ## Going deeper
 

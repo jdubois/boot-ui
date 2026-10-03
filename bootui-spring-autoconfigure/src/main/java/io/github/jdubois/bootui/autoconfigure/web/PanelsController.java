@@ -117,6 +117,7 @@ public class PanelsController {
                     BootUiPanels.VULNERABILITIES,
                     BootUiPanels.ACTIVITY,
                     BootUiPanels.CLI,
+                    BootUiPanels.JAVA_AGENT,
                     BootUiPanels.DATABASE_ADVISOR -> available();
             case BootUiPanels.RUNTIME_INSIGHTS ->
                 availability(properties.getRuntimeJournal().isEnabled(), RuntimeInsightsService.DISABLED);

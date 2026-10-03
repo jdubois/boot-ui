@@ -17,9 +17,11 @@ applyTo: "bootui-spring-autoconfigure/**,bootui-spring-boot-starter/**,bootui-sp
   active `bootui.enabled-profiles` entry (`dev`, `local` by default) or devtools enables BootUI; a
   `bootui.disabled-profiles` entry (`prod`, `production` by default) forces it off unless explicitly enabled.
 - Consume optional Actuator endpoints through `ObjectProvider`; if an endpoint is unavailable, return the panel's empty DTO rather than failing.
-- Keep all four Spring bootstrap `EnvironmentPostProcessor`s in the Spring adapter and register additions in
+- Keep all five Spring bootstrap `EnvironmentPostProcessor`s in the Spring adapter and register additions in
   `META-INF/spring.factories`. They have no Quarkus equivalent. The overrides EPP intentionally loads even while BootUI
-  is inactive; do not add the activation gate used by the other three.
+  is inactive; do not add the activation gate used by the other three. `BootUiAgentClaimEnvironmentPostProcessor` is
+  gated by BootUI's resolved activation like the startup EPP, but when BootUI or `bootui.agent.enabled` is off it
+  releases the agent instead of claiming it.
 - `LocalhostOnlyFilter`/`PanelAccessFilter` and their `ReactiveLocalhostOnlyFilter`/`ReactivePanelAccessFilter` siblings
   are thin bindings over shared engine policy. Change policy or canonical error text in the engine and keep MVC,
   WebFlux, and Quarkus bindings aligned.

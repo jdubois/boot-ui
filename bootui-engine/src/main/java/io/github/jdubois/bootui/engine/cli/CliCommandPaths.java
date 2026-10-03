@@ -25,6 +25,7 @@ public final class CliCommandPaths {
     public static final Map<String, String> BY_TOOL = Map.ofEntries(
             Map.entry("analyze_heap_dump", "memory heap analyze"),
             Map.entry("architecture_scan", "architecture scan"),
+            Map.entry("get_agent_status", "agent status"),
             Map.entry("clear_exceptions", "exceptions clear"),
             Map.entry("clear_rest_client_traces", "rest-client clear"),
             Map.entry("clear_sql_traces", "sql clear"),

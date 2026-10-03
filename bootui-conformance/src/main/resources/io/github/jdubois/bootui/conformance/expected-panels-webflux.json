@@ -55,6 +55,7 @@
     { "id": "ai", "title": "AI Framework", "actionCapable": false },
     { "id": "mcp-server", "title": "MCP Server", "actionCapable": true },
     { "id": "cli", "title": "Command Line", "actionCapable": false },
+    { "id": "java-agent", "title": "Java Agent", "actionCapable": false },
     { "id": "activity", "title": "Live Activity", "actionCapable": true },
     { "id": "runtime-insights", "title": "Runtime Insights", "actionCapable": true },
     { "id": "email", "title": "Email", "actionCapable": true },

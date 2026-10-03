@@ -3,6 +3,7 @@ package io.github.jdubois.bootui.autoconfigure.web;
 import io.github.jdubois.bootui.core.dto.DependencyAssessmentDto;
 import io.github.jdubois.bootui.core.dto.DependencyCoverageDto;
 import io.github.jdubois.bootui.core.dto.DependencyDto;
+import io.github.jdubois.bootui.engine.javaagent.AgentJars;
 import io.github.jdubois.bootui.engine.support.BlankStrings;
 import io.github.jdubois.bootui.engine.vulnerabilities.ArchiveNames;
 import io.github.jdubois.bootui.engine.vulnerabilities.DependencyInventory;
@@ -14,6 +15,7 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.management.ManagementFactory;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -136,6 +138,8 @@ final class DependencyCatalog implements DependencyProvider {
 
     private final Supplier<List<String>> basePackages;
 
+    private final Supplier<Set<Path>> agentJars;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     DependencyCatalog() {
@@ -151,8 +155,18 @@ final class DependencyCatalog implements DependencyProvider {
      *     class lives in them are reported as first-party rather than unidentified
      */
     DependencyCatalog(ResourcePatternResolver resolver, Supplier<List<String>> basePackages) {
+        this(resolver, basePackages, DependencyCatalog::jvmAgentJars);
+    }
+
+    /**
+     * @param agentJars the BootUI agent jars the JVM was started with, which a {@code -javaagent} flag also appends to
+     *     {@code java.class.path}: labelled {@value AgentJars#LABEL}, never counted as an application library
+     */
+    DependencyCatalog(
+            ResourcePatternResolver resolver, Supplier<List<String>> basePackages, Supplier<Set<Path>> agentJars) {
         this.resolver = resolver;
         this.basePackages = basePackages == null ? List::of : basePackages;
+        this.agentJars = agentJars == null ? Set::of : agentJars;
     }
 
     @Override
@@ -179,11 +193,12 @@ final class DependencyCatalog implements DependencyProvider {
                 }
             }
         }
-        for (DependencyDto dependency : javaClassPathDependencies()) {
+        Set<Path> agents = agentJars();
+        for (DependencyDto dependency : javaClassPathDependencies(agents)) {
             dependencies.putIfAbsent(key(dependency), dependency);
         }
 
-        List<CensusArchive> archives = archiveCensus();
+        List<CensusArchive> archives = archiveCensus(agents);
         for (DependencyDto dependency : sbom.notShipped()) {
             if (!dependencies.containsKey(key(dependency)) && isShipped(dependency, archives)) {
                 dependencies.put(key(dependency), dependency);
@@ -508,11 +523,11 @@ final class DependencyCatalog implements DependencyProvider {
      * enumerated from either {@code java.class.path} or the application's classloader,
      * which is reported as unknown coverage rather than as a clean bill of health.
      */
-    private List<CensusArchive> archiveCensus() {
+    private List<CensusArchive> archiveCensus(Set<Path> agents) {
         Map<String, CensusArchive> archives = new LinkedHashMap<>();
         Map<Path, Optional<LayersIndex>> explodedIndexes = new HashMap<>();
         for (Path entry : archiveEntries()) {
-            if (Files.isDirectory(entry)) {
+            if (Files.isDirectory(entry) || isAgentJar(entry, agents)) {
                 continue;
             }
             List<CensusArchive> nested = nestedLibraries(entry);
@@ -946,12 +961,53 @@ final class DependencyCatalog implements DependencyProvider {
                 DependencyAssessmentDto.unknown());
     }
 
-    private List<DependencyDto> javaClassPathDependencies() {
+    private Set<Path> agentJars() {
+        try {
+            Set<Path> agents = agentJars.get();
+            return agents == null ? Set.of() : agents;
+        } catch (RuntimeException ex) {
+            LOGGER.log(System.Logger.Level.DEBUG, "Could not list the BootUI agent jars: {0}", ex.getMessage());
+            return Set.of();
+        }
+    }
+
+    /** The BootUI agent jars among the JVM's {@code -javaagent} arguments, which include {@code JAVA_TOOL_OPTIONS}. */
+    static Set<Path> jvmAgentJars() {
+        try {
+            return AgentJars.fromJvmArguments(
+                    ManagementFactory.getRuntimeMXBean().getInputArguments());
+        } catch (RuntimeException | LinkageError ex) {
+            // No management API, as in some native images: the agent cannot be attached there either.
+            return Set.of();
+        }
+    }
+
+    private static boolean isAgentJar(Path entry, Set<Path> agents) {
+        if (agents.isEmpty() || !agents.contains(entry)) {
+            return false;
+        }
+        LOGGER.log(System.Logger.Level.DEBUG, "{0} is the {1}, not an application library", entry, AgentJars.LABEL);
+        return true;
+    }
+
+    private static boolean isAgentJar(String entry, Set<Path> agents) {
+        if (agents.isEmpty() || entry == null || entry.isBlank()) {
+            return false;
+        }
+        try {
+            return isAgentJar(Path.of(entry.trim()).toAbsolutePath().normalize(), agents);
+        } catch (IllegalArgumentException | SecurityException ex) {
+            return false;
+        }
+    }
+
+    private List<DependencyDto> javaClassPathDependencies(Set<Path> agents) {
         String classPath = System.getProperty("java.class.path", "");
         if (classPath.isBlank()) {
             return List.of();
         }
         return List.of(classPath.split(Pattern.quote(File.pathSeparator))).stream()
+                .filter(entry -> !isAgentJar(entry, agents))
                 .map(this::dependencyFromClassPathEntry)
                 .filter(dependency -> dependency != null)
                 .toList();

@@ -52,6 +52,7 @@ const Ai = () => import('./views/Ai.vue')
 const Copilot = () => import('./views/Copilot.vue')
 const McpServer = () => import('./views/McpServer.vue')
 const Cli = () => import('./views/Cli.vue')
+const JavaAgent = () => import('./views/JavaAgent.vue')
 const LiveActivity = () => import('./views/LiveActivity.vue')
 const RuntimeInsights = () => import('./views/RuntimeInsights.vue')
 const Email = () => import('./views/Email.vue')
@@ -992,6 +993,18 @@ export const routes = [
       title: 'Command Line',
       shortcut: 'cl',
       keywords: ['cli', 'command line', 'terminal', 'shell', 'bootui cli', 'ci', 'scripting', 'jbang']
+    }
+  },
+  {
+    path: '/java-agent',
+    name: 'java-agent',
+    component: JavaAgent,
+    meta: {
+      group: groups.developerTools,
+      icon: 'bi-plug-fill',
+      title: 'Java Agent',
+      shortcut: 'ja',
+      keywords: ['agent', 'javaagent', 'instrumentation', '-javaagent', 'byte buddy', 'bootui-agent']
     }
   },
   {

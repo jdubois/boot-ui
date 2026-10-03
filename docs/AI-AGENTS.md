@@ -263,9 +263,9 @@ the classpath) are simply not advertised.
   `get_database_connection_pools`, `get_postgresql_report`, `get_mysql_report`, `get_metrics`, `get_live_memory`, `get_jvm_tuning`, `get_heap_dump_report`,
   `get_threads`, `get_startup_timeline`, `get_profile_diff`, `get_spring_data_repositories`,
   `get_flyway_migrations`, `get_liquibase_changesets`, `get_spring_security`, `get_ai_overview`, `get_emails`,
-  `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_devtools_status`, `get_dev_services`,
-  `get_github_dashboard`, `get_copilot_sessions`, and `get_claude_code_sessions`. Stack-specific or unavailable
-  capabilities are omitted.
+  `get_kafka_activity`, `get_rabbitmq_activity`, `get_jms_activity`, `get_agent_status`, `get_devtools_status`,
+  `get_dev_services`, `get_github_dashboard`, `get_copilot_sessions`, and `get_claude_code_sessions`. Stack-specific or
+  unavailable capabilities are omitted.
 - **Bounded controls (actions):** `clear_exceptions`, `clear_sql_traces`, `pause_sql_trace_recording`,
   `resume_sql_trace_recording`, `clear_transactions`, `pause_transaction_recording`, `resume_transaction_recording`,
   `clear_traces`, `clear_rest_client_traces`, `pause_rest_client_recording`, `resume_rest_client_recording`,
@@ -483,7 +483,8 @@ The MCP server inherits BootUI's full safety posture, so handing it to an agent 
   `bootui.mcp.*`; capacity, timeout, and response-limit failures are explicit rather than silently truncated.
 
 See [Properties](PROPERTIES.md) for the `bootui.mcp.*` settings and [Features](features/developer-tools.md#mcp-server) for the full MCP Server panel
-description.
+description. `get_agent_status` is read-only and reports only the local BootUI Java agent state, setup snippets, and
+claim metadata.
 
 ## Assess an application and approve an action plan
 

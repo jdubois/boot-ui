@@ -9,6 +9,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Java Agent panel.** A view-only Java Agent panel in Developer tools, `GET /bootui/api/java-agent`, the read-only
+  `get_agent_status` MCP tool, and `bootui agent status` report whether the optional, development-time BootUI agent is
+  attached, who holds its claim, and how to attach it, with copyable setup snippets for the Spring Boot Maven plugin,
+  Gradle `bootRun`, Quarkus dev mode, Surefire and Failsafe, IntelliJ IDEA, and `JAVA_TOOL_OPTIONS`, on Spring MVC,
+  Spring WebFlux, and Quarkus. Spring claims an attached agent from an `EnvironmentPostProcessor` and Quarkus from a
+  static-init recorder in dev and test modes, configured by `bootui.agent.enabled`, `bootui.agent.packages`, and
+  `bootui.agent.mode`; the dependency inventory no longer counts the agent jar as an application library (PLAN-v2
+  M5-1).
+
 - **Agent-ready request profiles and Copy for AI.** The new read-only `get_request_profile` MCP tool, also the
   `bootui request-profile <id>` command, returns the same masked per-request profile as
   `GET /bootui/api/activity/request/{id}` on Spring MVC, Spring WebFlux, and Quarkus, including the unavailable profile

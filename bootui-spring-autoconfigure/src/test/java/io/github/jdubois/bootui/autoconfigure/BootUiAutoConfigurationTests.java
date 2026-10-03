@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.autoconfigure.architecture.ArchitectureControlle
 import io.github.jdubois.bootui.autoconfigure.config.ConfigOverrideService;
 import io.github.jdubois.bootui.autoconfigure.crac.CracController;
 import io.github.jdubois.bootui.autoconfigure.graalvm.GraalVmController;
+import io.github.jdubois.bootui.autoconfigure.javaagent.JavaAgentController;
 import io.github.jdubois.bootui.autoconfigure.logging.SpringLoggerProvider;
 import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.mcp.McpServerController;
@@ -31,10 +32,12 @@ import io.github.jdubois.bootui.autoconfigure.web.*;
 import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
+import io.github.jdubois.bootui.core.dto.JavaAgentReport;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalStatusDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunSummaryDto;
 import io.github.jdubois.bootui.engine.advisor.DismissedRulesStore;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RunBaselineFile;
@@ -400,6 +403,18 @@ class BootUiAutoConfigurationTests {
     }
 
     @Test
+    void theJavaAgentPanelIsServedWithItsSetupSnippetsWhetherOrNotTheAgentIsAttached() {
+        runner.withPropertyValues("bootui.enabled=ON").run(context -> {
+            assertThat(context).hasSingleBean(JavaAgentService.class);
+            JavaAgentReport report = context.getBean(JavaAgentController.class).report();
+            // The context runner runs no EnvironmentPostProcessor, so even under an attached agent nothing claims it.
+            assertThat(report.state())
+                    .isIn(JavaAgentReport.NOT_ATTACHED, JavaAgentReport.DORMANT, JavaAgentReport.HELD);
+            assertThat(report.setup().snippets()).isNotEmpty();
+        });
+    }
+
+    @Test
     void requestDrivenBootUiBeansAreLazyWhileInfrastructureStaysEager() {
         runner.withPropertyValues("bootui.enabled=ON").run(context -> {
             ConfigurableListableBeanFactory beanFactory = context.getBeanFactory();
@@ -437,6 +452,7 @@ class BootUiAutoConfigurationTests {
                             MappingsController.class,
                             LiveMemoryController.class,
                             JvmTuningController.class,
+                            JavaAgentController.class,
                             MetricsController.class,
                             OtlpReceiverController.class,
                             OverviewController.class,
@@ -461,6 +477,7 @@ class BootUiAutoConfigurationTests {
             assertLazyBeanDefinition(beanFactory, "bootUiOtlpSpanDecoder");
             assertLazyBeanDefinition(beanFactory, "bootUiThreadDumpService");
             assertLazyBeanDefinition(beanFactory, "bootUiHeapDumpService");
+            assertLazyBeanDefinition(beanFactory, "bootUiJavaAgentService");
 
             assertEagerBean(beanFactory, BootUiActivation.class);
             assertEagerBean(beanFactory, DevServicesController.class);

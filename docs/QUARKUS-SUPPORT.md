@@ -241,8 +241,8 @@ panel and is not claimed beyond the native-image tests that exercise that capabi
 **Command-line endpoint** (`/bootui/api/cli`) is served at full parity with Spring MVC and Spring WebFlux: a CDI
 producer builds the shared engine `CliService` over the same `QuarkusMcpTools` registry and `QuarkusMcpPanelPolicy`, and
 a thin JAX-RS resource maps the outcome onto HTTP status codes. It is enabled by default (`bootui.cli.enabled`), needs
-no MCP toggle, and is pinned to the Spring stacks by the shared CLI conformance suite. The 79 tools in the Quarkus
-catalog are a subset of the 95 Spring MVC declares, and a running application advertises only those whose backing
+no MCP toggle, and is pinned to the Spring stacks by the shared CLI conformance suite. The 80 tools in the Quarkus
+catalog are a subset of the 96 Spring MVC declares, and a running application advertises only those whose backing
 panel is available, so the catalog a client reads at runtime is authoritative.
 
 **Dev Services** is a Quarkus-native concept: a build-time `DevServicesResultBuildItem` snapshot captured via recorder +
@@ -251,7 +251,7 @@ synthetic bean, with masked config and logs/restart unavailable. Service `type` 
 
 :::
 
-### 5.2 Ported by swapping the data source (12)
+### 5.2 Ported by swapping the data source (13)
 
 Same DTO and UX; the Quarkus adapter implements the relevant SPI against a Quarkus API.
 
@@ -269,6 +269,7 @@ Same DTO and UX; the Quarkus adapter implements the relevant SPI against a Quark
 | `Architecture` advisor | Shared ArchUnit registry; generic rules run unchanged, Spring-only annotation rules no-op, and Jakarta-based/platform-sensitive rules use Quarkus semantics |
 | `Beans`               | **Implemented** — → Arc/CDI `BeanManager.getBeans(...)`, with resolved injection edges captured after Arc build-time validation and overlaid on the retained runtime inventory; defining resources and Spring Conditions evidence remain unavailable |
 | `Scorecard`           | Panel available; the scoring dashboard aggregates the advisor endpoints client-side, and `GET /bootui/api/overview` reports the Quarkus version + shell chrome |
+| `Java Agent`          | **Implemented** — shared Java agent status service; Quarkus claims from a `STATIC_INIT` recorder in dev/test, refines on startup, and disarms on shutdown; production launch mode never claims it |
 
 ::: details Fault Tolerance fidelity
 
@@ -553,10 +554,10 @@ No equivalent, low value, or superseded by Quarkus's own tooling:
 - `JMS` uses Spring JMS (`JmsTemplate` and `@JmsListener`) today. Quarkus users can use the implemented Kafka and RabbitMQ
   panels while a Quarkus-native JMS capture layer remains unimplemented.
 
-**Result:** 51 of the 61 panels ship on Quarkus: 27 are statically available and 24 are capability/detector-gated. The
+**Result:** 52 of the 62 panels ship on Quarkus: 28 are statically available and 24 are capability/detector-gated. The
 remaining 10 panels do not ship: 9 are intentionally not applicable (GraalVM, CRaC, Conditions, Startup Timeline, HTTP
 Sessions, Spring Data, Spring Security, Spring DevTools, Transactions), and 1 (`JMS`) is not yet available. By portability
-strategy, the 51 supported entries comprise 23 ported as-is, 12 source-swapped, 13 capture-rebuilt, and 3 replaced with a
+strategy, the 52 supported entries comprise 23 ported as-is, 13 source-swapped, 13 capture-rebuilt, and 3 replaced with a
 Quarkus-native panel. The Scorecard panel is available (its scoring dashboard renders client-side from the
 advisor endpoints, and the shell-chrome `GET /bootui/api/overview` endpoint is served on both adapters).
 
@@ -785,6 +786,7 @@ Pentesting, HTTP Probe, MCP Server) need no special ingredients — they work ag
 | Liquibase           | equiv       | Adapt   | Liquibase mapper                 | `MigrationProvider` → quarkus-liquibase     |
 | Scheduled Tasks     | equiv       | Adapt   | Scheduled mapper                 | `ScheduledTaskProvider` → quarkus-scheduler |
 | Fault Tolerance     | equiv       | Adapt   | `FaultToleranceService` + DTO    | `FaultTolerancePolicyProvider` → SmallRye Fault Tolerance (Jandex-scanned declarations, MicroProfile config overrides, live named-breaker state) |
+| Java Agent          | equiv       | Adapt   | Java agent status service        | Quarkus claims from a `STATIC_INIT` recorder in dev/test; production never claims |
 | Architecture        | equiv       | Adapt   | ArchUnit engine                  | `BasePackageProvider` (rules run unmodified) |
 | REST API            | **done**    | Rebuild | REST conventions engine          | JAX-RS handler-model builder                |
 | Database Connection Pools | **done**    | Rebuild | Pool model                       | `DataSourcePoolProvider` → Agroal           |

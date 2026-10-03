@@ -27,7 +27,9 @@ public final class StackFramePrefixes {
             "io.github.jdubois.bootui.quarkus.",
             "io.github.jdubois.bootui.client.",
             "io.github.jdubois.bootui.cli.",
-            "io.github.jdubois.bootui.conformance.");
+            "io.github.jdubois.bootui.conformance.",
+            // The Java agent and its bootstrap bridge (PLAN-v2 §5.13): their frames sit on application stacks.
+            "io.github.jdubois.bootui.agent.");
 
     private static final List<String> THIRD_PARTY_PREFIXES = List.of(
             "java.",

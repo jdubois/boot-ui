@@ -38,7 +38,8 @@ const featureDocs = [
   'features/security.md',
   'features/services.md',
   'features/diagnostics.md',
-  'features/developer-tools.md'
+  'features/developer-tools.md',
+  'features/java-agent.md'
 ]
 
 const groups = [

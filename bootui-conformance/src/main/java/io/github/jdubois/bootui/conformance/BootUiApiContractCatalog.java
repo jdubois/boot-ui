@@ -315,6 +315,32 @@ public final class BootUiApiContractCatalog {
                             "limitations", JsonType.ARRAY,
                             "notExercised", JsonType.ARRAY,
                             "notExercisedOmitted", JsonType.INTEGER)),
+            read(
+                    "java-agent",
+                    "/java-agent",
+                    fields(
+                            "state", JsonType.STRING,
+                            "reason", JsonType.NULLABLE_STRING,
+                            "agentVersion", JsonType.NULLABLE_STRING,
+                            "bootUiVersion", JsonType.STRING,
+                            "protocol", JsonType.NULLABLE_INTEGER,
+                            "expectedProtocol", JsonType.INTEGER,
+                            "jdk", JsonType.STRING,
+                            "loadMode", JsonType.NULLABLE_STRING,
+                            "jarPath", JsonType.NULLABLE_STRING,
+                            "startupMicros", JsonType.NULLABLE_INTEGER,
+                            "claim", JsonType.NULLABLE_OBJECT,
+                            "heldBy", JsonType.NULLABLE_STRING,
+                            "sensors", JsonType.ARRAY,
+                            "retransformation", JsonType.NULLABLE_OBJECT,
+                            "counters", JsonType.NULLABLE_OBJECT,
+                            "messages", JsonType.ARRAY,
+                            "warnings", JsonType.ARRAY,
+                            "setup", JsonType.OBJECT,
+                            "setup.jarPath", JsonType.STRING,
+                            "setup.jarFound", JsonType.BOOLEAN,
+                            "setup.buildTool", JsonType.STRING,
+                            "setup.snippets", JsonType.ARRAY)),
             capabilityList("email", "/email", "messages", "total", fields("devTrapEnabled", JsonType.BOOLEAN)),
             capture("kafka", "/kafka", "messages"),
             capture("rabbitmq", "/rabbitmq", "messages"),
@@ -856,7 +882,8 @@ public final class BootUiApiContractCatalog {
         ARRAY,
         OBJECT,
         NULLABLE_STRING,
-        NULLABLE_OBJECT
+        NULLABLE_OBJECT,
+        NULLABLE_INTEGER
     }
 
     public record ReadContract(

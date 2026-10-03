@@ -339,6 +339,7 @@
                         -->
                         <excludeArtifacts>
                             <excludeArtifact>bootui-conformance</excludeArtifact>
+                            <excludeArtifact>bootui-agent-bridge</excludeArtifact>
                             <excludeArtifact>bootui-coverage</excludeArtifact>
                             <excludeArtifact>bootui-spring-sample-app</excludeArtifact>
                             <excludeArtifact>bootui-spring-webflux-sample-app</excludeArtifact>
