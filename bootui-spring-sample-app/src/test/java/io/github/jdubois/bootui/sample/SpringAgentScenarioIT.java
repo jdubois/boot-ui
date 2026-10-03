@@ -164,20 +164,34 @@ class SpringAgentScenarioIT {
 
     @Test
     void workStillRunningAfterTheResponseIsObservedAndTheCounterexampleIsNot() throws Exception {
+        Set<String> earlier = requests(SEED + "/waits");
         assertThat(probe.get(SEED).status()).isEqualTo(200);
         assertThat(probe.get(SEED + "/waits").status()).isEqualTo(200);
-        Thread.sleep(1_000);
 
-        JsonNode report = probe.get("/bootui/api/runtime-insights").json();
+        // The seeded task queries 200 ms after its response, and the counterexample's worker may close its handoff a
+        // little after its response: wait, bounded, until the report sees the first and the journal holds the second.
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        JsonNode report;
         List<String> subjects = new ArrayList<>();
         List<String> lazy = new ArrayList<>();
-        for (JsonNode observation : report.path("observations")) {
-            if ("work-after-response".equals(observation.path("kind").asText())) {
-                subjects.add(observation.path("subject").asText());
-            } else if ("lazy-sql-after-handler".equals(observation.path("kind").asText())) {
-                lazy.add(observation.path("subject").asText());
+        do {
+            Thread.sleep(100);
+            report = probe.get("/bootui/api/runtime-insights").json();
+            subjects.clear();
+            lazy.clear();
+            for (JsonNode observation : report.path("observations")) {
+                if ("work-after-response".equals(observation.path("kind").asText())) {
+                    subjects.add(observation.path("subject").asText());
+                } else if ("lazy-sql-after-handler"
+                        .equals(observation.path("kind").asText())) {
+                    lazy.add(observation.path("subject").asText());
+                }
             }
-        }
+        } while (!(subjects.contains("GET " + SEED) && handoffRecorded(SEED + "/waits", earlier))
+                && System.nanoTime() < deadline);
+        assertThat(handoffRecorded(SEED + "/waits", earlier))
+                .as("the counterexample's handoff was recorded")
+                .isTrue();
         assertThat(subjects).as(report.path("checks").toString()).contains("GET " + SEED);
         assertThat(subjects).noneMatch(subject -> subject.endsWith("/waits"));
         assertThat(lazy)
@@ -201,6 +215,34 @@ class SpringAgentScenarioIT {
                 .isTrue();
         assertThat(handoff.path("sqlCount").asInt()).isEqualTo(1);
         assertThat(handoff.path("executionId").asText()).startsWith("async-");
+    }
+
+    /** The ids of the requests to {@code path} in the journal. */
+    private static Set<String> requests(String path) {
+        Set<String> ids = new HashSet<>();
+        JsonNode feed = probe.get("/bootui/api/activity?source=journal&type=REQUEST&limit=200")
+                .json();
+        for (JsonNode entry : feed.path("entries")) {
+            if (path.equals(entry.path("path").asText())) {
+                ids.add(entry.path("id").asText());
+            }
+        }
+        return ids;
+    }
+
+    /** Whether the journal holds a request to {@code path} other than {@code earlier}, each with its handoff. */
+    private static boolean handoffRecorded(String path, Set<String> earlier) {
+        Set<String> ids = requests(path);
+        ids.removeAll(earlier);
+        for (String id : ids) {
+            if (probe.get("/bootui/api/activity/request/" + id + "/journal")
+                    .json()
+                    .path("handoffs")
+                    .isEmpty()) {
+                return false;
+            }
+        }
+        return !ids.isEmpty();
     }
 
     private static JsonNode section(JsonNode profile, String type) {

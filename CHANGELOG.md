@@ -359,6 +359,12 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **`work-after-response` no longer reports a task its handler waited for.** The handler resumes as soon as the task
+  sets its result, before the agent closes the task's handoff, so under load that handoff could end just after the
+  response. Now only SQL, REST, and message work that ended at least two milliseconds after the response started is
+  counted, which absorbs the millisecond precision of recorded event starts. A task's failure still counts by its own
+  end ([Java Agent](docs/features/java-agent.md#the-executors-sensor), PLAN-v2 M5-2).
+
 - **Runtime Insights no longer reports what it could not see.** From the 2.0 validation run
   ([report](docs/V2-VALIDATION-REPORT.md)): `route-time-breakdown` stops calling time "application code" when a request
   reached no handler BootUI marks, such as an Actuator or `/q/` endpoint or a request the security filters answered with

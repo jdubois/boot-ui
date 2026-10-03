@@ -88,6 +88,8 @@ class AgentLeakIT {
         jvm.addAll(options);
         ChildJvm.Output output = ChildJvm.run(jvm, "runs", String.valueOf(RUNS), dump.toString());
         assertThat(output.exitCode()).as(output.toString()).isZero();
+        assertThat(output.value("SELF_TEST_executors")).as(output.toString()).startsWith("true null");
+        assertThat(output.value("SELF_TEST_threads")).as(output.toString()).startsWith("true null");
         assertThat(Long.parseLong(output.value("HITS"))).as(output.toString()).isPositive();
         assertThat(output.value("INSTALLER"))
                 .as(output.toString())
