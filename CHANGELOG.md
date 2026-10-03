@@ -395,6 +395,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- **Trace data now follows the value-exposure policy.** `GET /bootui/api/traces/{id}`, the trace embedded in the
+  per-request profile (`GET /bootui/api/activity/request/{id}`), and their `get_request_profile` MCP tool and
+  `bootui request-profile` projections returned span status messages, `exception.message` and `exception.stacktrace`
+  event attributes, URLs, and header values verbatim in every mode, so a secret in an exception message that the
+  Exceptions panel masked was still shown raw. Spans are still stored as captured, and every read now applies the live
+  `bootui.expose-values` / `bootui.mask-secrets` policy: free-form text uses the exception message rule (masked under
+  `MASKED`, omitted as `null` under `METADATA_ONLY`), URLs use the HTTP Exchanges URI rule, sensitive header and
+  attribute values are masked, and bound parameter and header values are omitted under `METADATA_ONLY`. Keys, types,
+  names, ids, and timings are unchanged, and `FULL` shows values verbatim, except URL user-info, which BootUI never
+  shows. Applies on Spring MVC, Spring WebFlux, and Quarkus, including after a runtime change of the mode
+  ([Trace value exposure](docs/features/diagnostics.md#trace-value-exposure)).
 - **Log, exception, and container-log masking now covers the credential after an authorization scheme.** Under the
   default `bootui.expose-values=MASKED`, the shared rule masked only the first word after a secret-like key, so
   `Authorization: Bearer <token>` hid the word `Bearer` and showed the token. The credential is now masked and the

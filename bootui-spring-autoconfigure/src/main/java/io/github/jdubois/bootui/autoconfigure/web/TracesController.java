@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.monitoring.BootUiSelfDataFilter;
 import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
@@ -20,7 +21,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Read-only API for the BootUI Traces panel. Thin Spring adapter over the framework-neutral
- * {@link TracesService} in {@code bootui-engine}.
+ * {@link TracesService} in {@code bootui-engine}, which applies the live {@link BootUiExposure} policy to span values
+ * on every read.
  */
 @RestController
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/traces")
@@ -29,13 +31,17 @@ public class TracesController {
     private final TracesService service;
 
     public TracesController(TelemetryStore store, BootUiProperties properties) {
-        this(store, properties, BootUiSelfDataFilter.defaults());
+        this(store, properties, BootUiSelfDataFilter.defaults(), new BootUiExposure(properties));
     }
 
     @Autowired
-    public TracesController(TelemetryStore store, BootUiProperties properties, BootUiSelfDataFilter selfDataFilter) {
-        this.service =
-                new TracesService(store, new SpringTelemetrySettings(properties), selfDataFilter.telemetryClassifier());
+    public TracesController(
+            TelemetryStore store,
+            BootUiProperties properties,
+            BootUiSelfDataFilter selfDataFilter,
+            BootUiExposure exposure) {
+        this.service = new TracesService(
+                store, new SpringTelemetrySettings(properties), selfDataFilter.telemetryClassifier(), exposure);
     }
 
     @GetMapping

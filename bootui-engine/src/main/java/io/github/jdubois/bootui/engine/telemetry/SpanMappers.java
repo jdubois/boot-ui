@@ -7,8 +7,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Shared mappers from normalized spans/events to the immutable DTOs the Traces and AI Framework panels
- * serialize. Centralized so both {@link TracesService} and {@link AiUsageService} stay in sync.
+ * Verbatim mappers from normalized spans/events to the immutable DTOs the AI Framework panel serializes. The Traces
+ * panel and the per-request profile map through {@link SpanValueExposure} instead, which applies the live
+ * value-exposure policy.
  */
 public final class SpanMappers {
 
