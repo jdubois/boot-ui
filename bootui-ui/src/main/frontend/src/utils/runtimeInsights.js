@@ -3,7 +3,11 @@
 
 /** The theme chips, in display order, and the observation kinds each one gathers. */
 export const THEMES = [
-  {id: 'time', label: 'Time', kinds: ['route-time-breakdown', 'event-loop-blocking', 'gc-inflated-latency']},
+  {
+    id: 'time',
+    label: 'Time',
+    kinds: ['route-time-breakdown', 'event-loop-blocking', 'gc-inflated-latency', 'work-after-response']
+  },
   {id: 'memory', label: 'Memory', kinds: ['heap-growth-after-gc']},
   {
     id: 'queries',

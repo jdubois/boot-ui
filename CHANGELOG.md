@@ -7,6 +7,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Durable Live Activity history is journal-rendered.** With
+  `bootui.activity.persistence.enabled=true`, persisted rows now contain the journal's `MASKED` view rather than
+  polling panel buffers. They no longer retain principals, exception or log messages, or email subjects. **Migration:**
+  use the bounded live panels when those details are needed; durable history retains safe summaries and metadata
+  ([Live Activity](docs/features/overview.md#durable-history), PLAN-v2 §8).
+
 ### Fixed
 
 - **Runtime Insights source-panel follow-ups.** Checks no longer report an empty evaluation after a unit they
@@ -15,6 +23,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   unverified prepared write executed when Hibernate evidence is hidden, and trace-only AI calls owned by hidden
   requests no longer survive as uncorrelated coverage ([#1217](https://github.com/jdubois/boot-ui/pull/1217)).
 
+- **Runtime Insights and Live Activity UI.** Load failures in Change impact, Run comparison, Profile resources,
+  Why-slow, and observation evidence show their message instead of a JSON object (including in the screen-reader
+  status region). `work-after-response` observations appear under the Time chip, the command palette finds Runtime
+  Insights by "what changed", "impact", and "compare", Live Activity's runtime-journal feed gains a **Run id** filter,
+  and the request drawer no longer shows or copies the previous row's profile when a second row is opened while the
+  first is still loading.
 - **Runtime Insights tells an unavailable panel from a disabled one.** An observation whose evidence belongs to a panel
   this application cannot serve, such as Security Logs on a Quarkus application without
   `quarkus.security.events.enabled`, now names what would make it available instead of reporting the panel as disabled
@@ -89,10 +103,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   dormant. `bootui-agent-bridge` is built and shaded into the agent but never published (PLAN-v2 M5-1d).
 
 - **Agent-ready request profiles and Copy for AI.** The new read-only `get_request_profile` MCP tool, also the
-  `bootui request-profile <id>` command, returns the same masked per-request profile as
-  `GET /bootui/api/activity/request/{id}` on Spring MVC, Spring WebFlux, and Quarkus, including the unavailable profile
-  for an unknown or evicted id, so an agent can follow a slow or failing Live Activity request to its SQL, N+1 groups,
-  call sites, and exceptions. Each profile exception now carries an additive `exceptionGroupId` for
+  `bootui request-profile <id>` command, returns a selection with `available`, `unavailableReason`, `source`,
+  `journal`, and `buffers` on Spring MVC, Spring WebFlux, and Quarkus. It consults journal evidence first and, for a
+  retained HTTP request, includes the richer HTTP-exchange profile in `buffers`; `source` is `none` when neither
+  retention window holds the id. Each buffer-profile exception carries an additive `exceptionGroupId` for
   `get_exception_detail`. The Live Activity profile drawer and the Exceptions detail gain **Copy for AI**, which
   previews one Markdown document, listing what it omits, before anything is copied; **Copy profile** now copies
   Markdown from the same helper. Exports contain only what the panels show, honor `METADATA_ONLY`, and send nothing
