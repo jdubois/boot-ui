@@ -92,6 +92,7 @@ const errorsOnly = ref(false)
 const feedSource = ref('')
 const routeFilter = ref('')
 const requestIdFilter = ref('')
+const runFilter = ref('')
 const noRequestOnly = ref(false)
 const JOURNAL_SOURCE_LABEL = 'Runtime journal'
 // The journal serves the feed when asked for, or by default when the server's last report came from it.
@@ -119,6 +120,8 @@ const profileRequestId = ref(null)
 const journalProfile = ref(null)
 const drawerEl = ref(null)
 const profileOpenerEl = ref(null)
+// Bumped by every profile load and by closing the drawer, so a late response never lands on a different row.
+let profileLoadToken = 0
 // The "Copy for AI" preview of the open profile, or null while the profile itself is shown.
 const aiExport = ref(null)
 
@@ -163,9 +166,10 @@ function activityUrl(extra = {}) {
     for (const [key, value] of Object.entries(filterParams)) params.set(key, value)
   }
   if (feedSource.value) params.set('source', feedSource.value)
-  if (fromJournal.value) {
+  if (fromJournal.value && !persistent.value) {
     if (routeFilter.value.trim()) params.set('route', routeFilter.value.trim())
     if (requestIdFilter.value.trim()) params.set('requestId', requestIdFilter.value.trim())
+    if (runFilter.value.trim()) params.set('run', runFilter.value.trim())
     if (noRequestOnly.value) params.set('noRequest', 'true')
   }
   for (const [key, value] of Object.entries(extra)) {
@@ -537,6 +541,8 @@ async function loadProfile(id, opener, execution = false) {
       ? opener
       : opener?.querySelector?.('.bootui-keyboard-target') || null
   profileRequestId.value = id
+  const token = ++profileLoadToken
+  const isCurrent = () => token === profileLoadToken
   profileLoading.value = true
   profileError.value = null
   profile.value = null
@@ -545,28 +551,38 @@ async function loadProfile(id, opener, execution = false) {
   try {
     if (!execution) {
       const response = await apiFetch(`api/activity/request/${encodeURIComponent(id)}`)
+      if (!isCurrent()) return
       if (!response.ok) {
         throw new Error(`Request failed with status ${response.status}`)
       }
-      profile.value = await response.json()
+      const loaded = await response.json()
+      if (!isCurrent()) return
+      profile.value = loaded
     }
-    await loadJournalProfile(profile.value?.request?.requestId || id)
+    await loadJournalProfile(profile.value?.request?.requestId || id, isCurrent)
   } catch (err) {
-    await loadJournalProfile(id)
-    if (!journalProfile.value?.available) profileError.value = err.message || 'Could not load request profile'
+    if (!isCurrent()) return
+    await loadJournalProfile(id, isCurrent)
+    if (isCurrent() && !journalProfile.value?.available) {
+      profileError.value = err.message || 'Could not load request profile'
+    }
   } finally {
-    profileLoading.value = false
-    focusDrawer()
+    if (isCurrent()) {
+      profileLoading.value = false
+      focusDrawer()
+    }
   }
 }
 
-async function loadJournalProfile(requestId) {
+async function loadJournalProfile(requestId, isCurrent) {
   try {
     const response = await apiFetch(`api/activity/request/${encodeURIComponent(requestId)}/journal`)
+    if (!isCurrent()) return
     if (!response.ok) throw new Error(`status ${response.status}`)
     const loaded = await response.json()
-    if (profileRequestId.value) journalProfile.value = loaded
+    if (isCurrent()) journalProfile.value = loaded
   } catch (err) {
+    if (!isCurrent()) return
     journalProfile.value = {
       available: false,
       unavailableReason: `Could not load the runtime journal's record of this request (${err.message}).`
@@ -575,6 +591,8 @@ async function loadJournalProfile(requestId) {
 }
 
 function closeProfile() {
+  profileLoadToken++
+  profileLoading.value = false
   const opener = profileOpenerEl.value
   profileRequestId.value = null
   profile.value = null
@@ -690,7 +708,7 @@ watch([typeFilter, severityFilter, textFilter, errorsOnly], () => {
 })
 
 // The journal's filters run on the server, so changing one reloads the feed.
-watch([feedSource, routeFilter, requestIdFilter, noRequestOnly], () => {
+watch([feedSource, routeFilter, requestIdFilter, runFilter, noRequestOnly], () => {
   persistFilters()
   olderEntries.value = []
   olderPageInfo.value = null
@@ -699,7 +717,9 @@ watch([feedSource, routeFilter, requestIdFilter, noRequestOnly], () => {
 })
 
 const hasJournalFilters = computed(
-  () => fromJournal.value && (!!routeFilter.value.trim() || !!requestIdFilter.value.trim() || noRequestOnly.value)
+  () =>
+    fromJournal.value &&
+    (!!routeFilter.value.trim() || !!requestIdFilter.value.trim() || !!runFilter.value.trim() || noRequestOnly.value)
 )
 
 onMounted(() => {
@@ -723,6 +743,7 @@ function clearFilters() {
   errorsOnly.value = false
   routeFilter.value = ''
   requestIdFilter.value = ''
+  runFilter.value = ''
   noRequestOnly.value = false
 }
 
@@ -1081,7 +1102,11 @@ function toggleFlow() {
               <option value="buffers">Panel buffers</option>
             </select>
           </div>
-          <template v-if="fromJournal">
+          <p v-if="fromJournal && persistent" class="small text-muted mb-0" role="note">
+            Route, request, run, and no-request filters apply to the in-memory runtime journal; persisted history keeps
+            no run or request grouping.
+          </p>
+          <template v-if="fromJournal && !persistent">
             <div>
               <label class="form-label small mb-1" for="activity-route-filter">Route</label>
               <input
@@ -1100,6 +1125,16 @@ function toggleFlow() {
                 type="search"
                 class="form-control form-control-sm"
                 placeholder="Request id"
+              />
+            </div>
+            <div>
+              <label class="form-label small mb-1" for="activity-run-filter">Run id</label>
+              <input
+                id="activity-run-filter"
+                v-model="runFilter"
+                type="search"
+                class="form-control form-control-sm"
+                placeholder="Run id (see Runtime journal)"
               />
             </div>
             <div class="form-check mb-1">
