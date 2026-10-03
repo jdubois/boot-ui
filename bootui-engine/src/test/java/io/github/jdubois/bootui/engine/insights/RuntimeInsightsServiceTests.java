@@ -178,7 +178,8 @@ class RuntimeInsightsServiceTests {
             assertThat(row.cells().get(5)).isEqualTo("yes");
         });
         assertThat(inside.limitations())
-                .contains(RepeatedSelects.UNDER_DEFAULT_FLOOR, RepeatedSelects.RESULT_SIZE_UNRECORDED);
+                .contains(RepeatedSelects.RESULT_SIZE_UNRECORDED)
+                .doesNotContain(RepeatedSelects.UNDER_DEFAULT_FLOOR);
 
         RuntimeObservationDetailDto outside =
                 service.insight(byRoute.get("GET /api/outside").id());
@@ -207,11 +208,41 @@ class RuntimeInsightsServiceTests {
         assertThat(list.observations())
                 .filteredOn(observation -> RepeatedSelects.KIND.equals(observation.kind()))
                 .extracting(observation -> observation.subject())
-                .contains("GET /api/outside", "GET /api/unmeasured", "GET /api/unknown")
-                .doesNotContain("GET /api/orders/{id}");
+                .contains("GET /api/orders/{id}", "GET /api/outside", "GET /api/unmeasured", "GET /api/unknown");
+        assertThat(list.limitations()).noneMatch(limitation -> limitation.contains("Left out"));
         assertThat(RuntimeInsightsAgentView.list(report, "repeated-selects", 20).observations())
                 .extracting(observation -> observation.subject())
                 .contains("GET /api/orders/{id}");
+    }
+
+    @Test
+    void aSufficientLocalNPlusOneStaysInTheDefaultListAndAWeakCheapRepeatDoesNot() {
+        for (int i = 0; i < 3; i++) {
+            request("GET", "/api/orders/line-by-line", lineByLine(6, 200_000));
+        }
+        request("GET", "/api/cheap", lineByLine(5, 1_000_000));
+        request("GET", "/api/hot", lineByLine(RepeatedSelects.HIGH_REPEAT_KEEP, 200_000));
+
+        RuntimeInsightsService service = service();
+        RuntimeInsightsReportDto report = service.report();
+        Map<String, RuntimeObservationDto> byRoute = observations(report, RepeatedSelects.KIND);
+        assertThat(byRoute.get("GET /api/orders/line-by-line").status()).isEqualTo("OBSERVED");
+        assertThat(byRoute.get("GET /api/orders/line-by-line").limitations())
+                .doesNotContain(RepeatedSelects.UNDER_DEFAULT_FLOOR);
+        assertThat(byRoute.get("GET /api/hot").status()).isEqualTo("INSUFFICIENT");
+        assertThat(byRoute.get("GET /api/hot").limitations()).doesNotContain(RepeatedSelects.UNDER_DEFAULT_FLOOR);
+        assertThat(byRoute.get("GET /api/cheap").limitations()).contains(RepeatedSelects.UNDER_DEFAULT_FLOOR);
+
+        RuntimeInsightsAgentReportDto list = RuntimeInsightsAgentView.list(report, "", 20);
+        assertThat(list.observations())
+                .filteredOn(observation -> RepeatedSelects.KIND.equals(observation.kind()))
+                .extracting(observation -> observation.subject())
+                .contains("GET /api/orders/line-by-line", "GET /api/hot")
+                .doesNotContain("GET /api/cheap");
+        assertThat(list.limitations()).anyMatch(limitation -> limitation.contains("Left out 1 repeated-selects row"));
+        assertThat(RuntimeInsightsAgentView.list(report, "repeated-selects", 20).observations())
+                .extracting(observation -> observation.subject())
+                .contains("GET /api/cheap");
     }
 
     @Test
@@ -676,6 +707,20 @@ class RuntimeInsightsServiceTests {
 
     private static OrmPayload orm() {
         return new OrmPayload("default", 1, 1_000, 1, 1_000, 1, 1_000, 0, 0, 1, 1, 0, 0, 0, List.of());
+    }
+
+    /** A parent select, then {@code children} repeats of one child select, the sample's line-by-line N+1. */
+    private static Child[] lineByLine(int children, long childNanos) {
+        Child[] events = new Child[1 + children];
+        events[0] = sql("select id, customer from insight_orders order by id", RequestPhase.HANDLER, 10, childNanos);
+        for (int i = 0; i < children; i++) {
+            events[i + 1] = sql(
+                    "select sku, quantity from insight_order_lines where order_id = ?",
+                    RequestPhase.HANDLER,
+                    20L + i,
+                    childNanos);
+        }
+        return events;
     }
 
     private static Child sql(String sql, RequestPhase phase, long completedNanos, long durationNanos) {

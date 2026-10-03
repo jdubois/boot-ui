@@ -44,11 +44,11 @@ public final class RuntimeInsightsAgentView {
 
     /**
      * The report's observations matching {@code query}, at most {@code limit}: empty for every observation, including
-     * latency rows, except repeated-selects under 50 ms of summed measured time; {@code latency} for latency rows only;
-     * {@code security} for anonymous access; {@code new} or {@code diff} for what the previous run did not show; an
-     * observation kind for that kind; anything else for observations naming that route, table, bean, or class. When
-     * more match than {@code limit}, every kind's most affected observation comes before any kind's second, so one
-     * prolific kind cannot hide the others.
+     * latency rows, except an insufficient repeated-selects row under 50 ms that ran fewer than 10 times in any one
+     * request; {@code latency} for latency rows only; {@code security} for anonymous access; {@code new} or {@code diff}
+     * for what the previous run did not show; an observation kind for that kind; anything else for observations naming
+     * that route, table, bean, or class. When more match than {@code limit}, every kind's most affected observation
+     * comes before any kind's second, so one prolific kind cannot hide the others.
      */
     public static RuntimeInsightsAgentReportDto list(RuntimeInsightsReportDto report, String query, Integer limit) {
         String asked = query == null ? "" : query.trim();
@@ -86,8 +86,13 @@ public final class RuntimeInsightsAgentView {
                     + " get_runtime_run_comparison with previous.");
         }
         if (asked.isEmpty()) {
-            limitations.add("Repeated SELECTs whose summed measured time is under 50 ms are left out; ask for them"
-                    + " with the query repeated-selects. Latency rows are included.");
+            long dropped = report.observations().stream()
+                    .filter(RuntimeInsightsAgentView::underFloor)
+                    .count();
+            if (dropped > 0) {
+                limitations.add(floorDropped(dropped));
+            }
+            limitations.add("Latency rows are included.");
         }
         String leftOut = leftOut(matching, listed);
         if (leftOut != null) {
@@ -172,14 +177,18 @@ public final class RuntimeInsightsAgentView {
     }
 
     /**
-     * What {@code requests} 0 means, decided from the unfiltered report. The idle sentence is only for a run that
-     * retained no observation, evicted nothing, and recorded no scheduled run or consumed message.
+     * What {@code requests} 0 means, decided from the unfiltered report. An observation is evidence that work ran only
+     * when it names a request or execution. A run-level row with an empty exemplar list, such as heap growth after one
+     * collection, does not. The idle sentence follows eviction and the non-HTTP limitation, and does not call the list
+     * empty when a run-level row is present.
      */
     private static String requestsZero(RuntimeInsightsReportDto report) {
+        boolean executed = report.observations().stream()
+                .anyMatch(observation -> !observation.exemplarRequestIds().isEmpty());
         boolean nonHttp = report.limitations().stream()
                 .anyMatch(limitation -> limitation.startsWith(RuntimeInsightsService.NON_HTTP_PREFIX));
         long evicted = report.window() == null ? 0 : report.window().evictedEvents();
-        if (!report.observations().isEmpty()) {
+        if (executed) {
             return "requests counts completed HTTP exchanges only. Observations here can come from scheduled jobs,"
                     + " messages, or other non-HTTP executions, so requests 0 is not proof nothing ran.";
         }
@@ -190,9 +199,22 @@ public final class RuntimeInsightsAgentView {
             return "requests counts completed HTTP exchanges only. See the limitation that starts with \""
                     + RuntimeInsightsService.NON_HTTP_PREFIX + "\".";
         }
-        return "No HTTP request completed in this run's retained events, so request-level checks had"
-                + " nothing to judge: an empty list here means not exercised, not healthy. Run the application's"
-                + " tests or send it traffic, then call again.";
+        if (report.observations().isEmpty()) {
+            return "No HTTP request completed in this run's retained events, so request-level checks had"
+                    + " nothing to judge: an empty list here means not exercised, not healthy. Run the application's"
+                    + " tests or send it traffic, then call again.";
+        }
+        return "No HTTP request completed in this run's retained events, and no observation names a request or"
+                + " execution, so request-level checks had nothing to judge: not exercised, not healthy. Run the"
+                + " application's tests or send it traffic, then call again.";
+    }
+
+    /** How many empty-query rows the floor dropped. Absent unless {@code dropped} is positive. */
+    private static String floorDropped(long dropped) {
+        return "Left out " + dropped + " repeated-selects " + (dropped == 1 ? "row" : "rows")
+                + " under 50 ms of summed measured time, seen in fewer than " + RepeatedSelects.MIN_REQUESTS
+                + " requests and fewer than " + RepeatedSelects.HIGH_REPEAT_KEEP
+                + " times in any one; ask for them with the query repeated-selects.";
     }
 
     /** Whether the empty query leaves this repeated-selects row out, matching the finding's exact-nanos decision. */

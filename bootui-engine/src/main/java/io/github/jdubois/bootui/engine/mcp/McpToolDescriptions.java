@@ -45,9 +45,11 @@ public final class McpToolDescriptions {
                             + "query is empty, new, security, diff, latency, an observation kind, or a route, table, "
                             + "bean, or class; past the limit, every kind is listed once before any kind twice. "
                             + "requests counts completed HTTP exchanges only: zero is not proof nothing ran when "
-                            + "observations, a non-HTTP limitation, or eviction say otherwise. The empty query includes "
-                            + "latency rows and omits repeated-selects under 50 ms of summed measured time; ask for those "
-                            + "with the query repeated-selects. An empty list means not exercised only when limitations "
+                            + "an observation names a request or execution, a non-HTTP limitation, or eviction says "
+                            + "otherwise. A run-level observation with no exemplar does not. The empty query includes "
+                            + "latency rows and omits only an insufficient repeated-selects row under 50 ms that ran "
+                            + "fewer than 10 times in any request; a limitation names how many, and the query "
+                            + "repeated-selects returns them. An empty list means not exercised only when limitations "
                             + "say so. INSUFFICIENT, PARTIAL, NOT_APPLICABLE, and UNAVAILABLE are not successes."),
             Map.entry(
                     "get_runtime_insight",

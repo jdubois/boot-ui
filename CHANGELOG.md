@@ -18,10 +18,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - **Runtime Insights agent list.** `requests` counts completed HTTP exchanges only: zero is not proof the run was idle
-  when observations, retained scheduled runs or consumed messages, or evicted events say otherwise. The default agent
-  list includes latency rows and omits repeated SELECTs under 50 ms of summed measured time; `query=repeated-selects`
-  returns them. Repeated-selects evidence names the phase and whether the repeats ran in a transaction, and says when
-  the total is unmeasured or a parent result size was not recorded.
+  when an observation names a request or execution, retained scheduled runs or consumed messages, or evicted events
+  say otherwise. A run-level observation with no exemplar, such as heap growth after one collection, does not. The
+  default agent list includes latency rows and omits only an insufficient repeated SELECT under 50 ms of summed
+  measured time that ran fewer than 10 times in any one request; a limitation names how many were left out, and
+  `query=repeated-selects` returns them. A sufficient finding, including a local-database N+1, stays. Repeated-selects
+  evidence names the phase and whether the repeats ran in a transaction, and says when the total is unmeasured or a
+  parent result size was not recorded.
 
 - **Runtime Insights tells an unavailable panel from a disabled one.** An observation whose evidence belongs to a panel
   this application cannot serve, such as Security Logs on a Quarkus application without

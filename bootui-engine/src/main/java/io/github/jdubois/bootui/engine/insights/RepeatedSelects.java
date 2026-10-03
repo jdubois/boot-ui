@@ -18,8 +18,11 @@ import java.util.Set;
  * {@value #MIN_REPEATS} times in a request after a different statement ran, the shape of a suspected N+1. Reported per
  * route and fingerprint once {@value #MIN_REQUESTS} requests show it; fewer are reported as insufficient.
  *
- * <p>The default agent list omits a finding whose summed measured repeat time is under {@value #DEFAULT_LIST_FLOOR_NANOS}
- * nanoseconds. Unmeasured time, including Quarkus ORM preparations recorded as {@code 0}, is not treated as cheap.
+ * <p>The default agent list omits a finding only when it is insufficient, every duration is known, at least one is
+ * measured, the sum across affected requests is under {@value #DEFAULT_LIST_FLOOR_NANOS} nanoseconds, and no affected
+ * request repeated the statement {@value #HIGH_REPEAT_KEEP} or more times. A sufficient finding stays however cheap, so
+ * a local-database N+1 is not hidden. Unmeasured time, including Quarkus ORM preparations recorded as {@code 0}, is not
+ * treated as cheap.
  */
 public final class RepeatedSelects implements Observation {
 
@@ -27,14 +30,23 @@ public final class RepeatedSelects implements Observation {
     static final int MIN_REPEATS = 5;
     static final int MIN_REQUESTS = 3;
 
-    /** Summed measured repeat time below which the default agent list leaves the finding out. Exactly this stays. */
+    /**
+     * Executions in one affected request at or above which a cheap insufficient finding stays in the default list. A
+     * single request that already repeated this often is the N+1 shape, not a sample too small to show.
+     */
+    static final int HIGH_REPEAT_KEEP = 10;
+
+    /** Summed measured repeat time below which a cheap insufficient finding may leave the default list. Exactly this stays. */
     static final long DEFAULT_LIST_FLOOR_NANOS = 50_000_000L;
 
     /**
-     * Stable limitation the agent view matches, decided from the exact nanoseconds rather than the displayed total.
+     * Stable limitation the agent view matches, attached only when every omit condition holds. Decided from the exact
+     * nanoseconds rather than the displayed total.
      */
-    static final String UNDER_DEFAULT_FLOOR = "Repeated SELECTs under 50 ms of total time are left out of the default"
-            + " agent list; ask for them with the query repeated-selects.";
+    static final String UNDER_DEFAULT_FLOOR =
+            "Repeated SELECTs under 50 ms of summed measured time, seen in fewer than "
+                    + MIN_REQUESTS + " requests and fewer than " + HIGH_REPEAT_KEEP
+                    + " times in any one, are left out of the default agent list; ask for them with the query repeated-selects.";
 
     static final String UNMEASURED_REPEAT_TIME = "Total repeat time is unmeasured: every execution was recorded as 0.";
 
@@ -160,7 +172,7 @@ public final class RepeatedSelects implements Observation {
         } else {
             limitations.add(
                     "Total repeat time is " + InsightText.millis(totalNanos) + " ms, summed across affected requests.");
-            if (totalNanos < DEFAULT_LIST_FLOOR_NANOS) {
+            if (!sufficient && totalNanos < DEFAULT_LIST_FLOOR_NANOS && most < HIGH_REPEAT_KEEP) {
                 limitations.add(UNDER_DEFAULT_FLOOR);
             }
         }

@@ -37,8 +37,8 @@ class RuntimeInsightsAgentViewTests {
         assertThat(list.observations().get(0).exemplarRequestId()).isEqualTo("r-0");
         assertThat(list.observations().get(0).verify()).isEqualTo("Check the call site.");
         assertThat(list.limitations())
-                .anyMatch(limitation -> limitation.contains("query repeated-selects"))
                 .anyMatch(limitation -> limitation.contains("Latency rows are included"))
+                .noneMatch(limitation -> limitation.contains("repeated-selects row"))
                 .noneMatch(limitation -> limitation.contains("Latency-only observations are left out"));
         assertThat(list.requests()).isEqualTo(12);
         assertThat(list.notExercised()).hasSize(8).first().isEqualTo("GET /api/unused/0");
@@ -136,12 +136,43 @@ class RuntimeInsightsAgentViewTests {
                 List.of(),
                 0);
 
-        assertThat(RuntimeInsightsAgentView.list(report, null, null).observations())
+        RuntimeInsightsAgentReportDto list = RuntimeInsightsAgentView.list(report, null, null);
+        assertThat(list.observations())
                 .extracting(observation -> observation.id())
                 .containsExactly("repeated-selects:2");
+        assertThat(list.limitations())
+                .anyMatch(limitation -> limitation.contains("Left out 1 repeated-selects row"))
+                .anyMatch(limitation -> limitation.contains("query repeated-selects"));
         assertThat(RuntimeInsightsAgentView.list(report, "repeated-selects", 20).observations())
                 .extracting(observation -> observation.id())
                 .containsExactly("repeated-selects:1", "repeated-selects:2");
+        assertThat(RuntimeInsightsAgentView.list(report, "repeated-selects", 20).limitations())
+                .noneMatch(limitation -> limitation.contains("Left out"));
+    }
+
+    @Test
+    void aRunLevelObservationWithNoExemplarDoesNotHideTheIdleGuidance() {
+        RuntimeObservationDto heap = new RuntimeObservationDto(
+                "heap-growth-after-gc:1",
+                HeapGrowthAfterGc.KIND,
+                "jvm",
+                "INSUFFICIENT",
+                "one collection is not enough to judge heap growth",
+                0,
+                0,
+                "RUN",
+                List.of(),
+                List.of(),
+                0,
+                List.of());
+
+        RuntimeInsightsAgentReportDto list = RuntimeInsightsAgentView.list(idleReport(List.of(heap), 0), null, null);
+
+        assertThat(list.observations()).hasSize(1);
+        assertThat(list.limitations().get(0))
+                .contains("not exercised, not healthy", "Run the application's tests")
+                .doesNotContain("empty list")
+                .doesNotContain("not proof nothing ran");
     }
 
     @Test
