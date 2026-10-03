@@ -1,9 +1,11 @@
 package io.github.jdubois.bootui.engine.journal;
 
+import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.function.Predicate;
 
 /**
  * The panel that owns each journal source's evidence ({@code docs/PLAN-v2.md} §8, source-panel policy). One mapping
@@ -65,6 +67,51 @@ public final class JournalSourcePanels {
             return BootUiPanels.JMS;
         }
         return "rabbitmq".equals(broker) ? BootUiPanels.RABBITMQ : BootUiPanels.KAFKA;
+    }
+
+    /**
+     * Whether a stored Live Activity row may be read while only the panels {@code panelEnabled} accepts are enabled.
+     * Durable history ({@code bootui_activity}) holds rows written while their panel was enabled; they are gated again
+     * on every read, so disabling a panel hides its persisted rows too. A row owned by no panel (a marker or an
+     * application event) is always readable, and a row of a type this version does not know is hidden (fail closed).
+     */
+    public static boolean isReadable(ActivityEntryDto row, Predicate<String> panelEnabled) {
+        if (row == null || row.type() == null) {
+            return false;
+        }
+        return switch (row.type()) {
+            case JournalActivityFeed.TYPE_MARKER, JournalActivityFeed.TYPE_APP_EVENT -> true;
+            default -> {
+                String panel = panelOfRow(row);
+                yield panel != null && panelEnabled.test(panel);
+            }
+        };
+    }
+
+    /**
+     * The panel that owns a stored Live Activity row, or {@code null} when none does or its type is unknown. Mirrors
+     * {@link #panelOf(RuntimeEvent)}: a messaging row stores its broker as its detail.
+     */
+    static String panelOfRow(ActivityEntryDto row) {
+        return switch (row.type()) {
+            case JournalActivityFeed.TYPE_REQUEST -> BootUiPanels.HTTP_EXCHANGES;
+            case JournalActivityFeed.TYPE_SQL -> BootUiPanels.SQL_TRACE;
+            case JournalActivityFeed.TYPE_REST_CLIENT -> BootUiPanels.REST_CLIENT_TRACE;
+            case JournalActivityFeed.TYPE_EXCEPTION -> BootUiPanels.EXCEPTIONS;
+            case JournalActivityFeed.TYPE_SECURITY -> BootUiPanels.SECURITY_LOGS;
+            case JournalActivityFeed.TYPE_CACHE -> BootUiPanels.CACHE;
+            case JournalActivityFeed.TYPE_SCHEDULED -> BootUiPanels.SCHEDULED;
+            case JournalActivityFeed.TYPE_TRANSACTION -> BootUiPanels.TRANSACTIONS;
+            case JournalActivityFeed.TYPE_LOG -> BootUiPanels.LOG_TAIL;
+            case JournalActivityFeed.TYPE_MAIL -> BootUiPanels.EMAIL;
+            case JournalActivityFeed.TYPE_FAULT_TOLERANCE -> BootUiPanels.FAULT_TOLERANCE;
+            case JournalActivityFeed.TYPE_AI -> BootUiPanels.AI;
+            case JournalActivityFeed.TYPE_WEBSOCKET -> BootUiPanels.WEBSOCKETS;
+            case JournalActivityFeed.TYPE_ORM -> BootUiPanels.HIBERNATE;
+            case JournalActivityFeed.TYPE_ASYNC -> BootUiPanels.JAVA_AGENT;
+            case JournalActivityFeed.TYPE_MESSAGING -> messagingPanel(String.valueOf(row.detail()));
+            default -> null;
+        };
     }
 
     /** Every panel that owns at least one source, in source order, each listed once. */

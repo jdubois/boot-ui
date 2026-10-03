@@ -5,6 +5,7 @@ import io.github.jdubois.bootui.engine.journal.JournalActivityFeed.Feed;
 import io.github.jdubois.bootui.engine.journal.JournalActivityFeed.Filter;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -48,8 +49,24 @@ public final class JournalActivityReports {
             int nPlusOneThreshold,
             Supplier<RouteTemplateResolver> declaredRoutes,
             Predicate<String> panelEnabled) {
+        this(journal, requestSlowThresholdMs, nPlusOneThreshold, declaredRoutes, panelEnabled, null);
+    }
+
+    /**
+     * Reports whose rows show SQL, log text, and request paths as the live {@code exposure} policy allows when each
+     * report is read ({@code PLAN-v2} §8).
+     *
+     * @param exposure the live exposure policy; {@code null} renders as {@link JournalTextExposure#masked()}
+     */
+    public JournalActivityReports(
+            RuntimeJournal journal,
+            long requestSlowThresholdMs,
+            int nPlusOneThreshold,
+            Supplier<RouteTemplateResolver> declaredRoutes,
+            Predicate<String> panelEnabled,
+            ExposurePolicy exposure) {
         this.journal = journal;
-        this.feed = new JournalActivityFeed(requestSlowThresholdMs, nPlusOneThreshold, declaredRoutes);
+        this.feed = new JournalActivityFeed(requestSlowThresholdMs, nPlusOneThreshold, declaredRoutes, exposure);
         this.panelEnabled = panelEnabled == null ? panel -> true : panelEnabled;
     }
 
@@ -81,6 +98,7 @@ public final class JournalActivityReports {
             }
         }
         int cap = limit <= 0 ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
+        JournalTextExposure text = feed.exposure();
         Feed rendered = feed.render(
                 visible,
                 journal::eventId,
@@ -91,12 +109,13 @@ public final class JournalActivityReports {
                 journal::evictedARequestOf,
                 journal.settings().records(JournalSource.AGENT_EXECUTORS) && panelEnabled(BootUiPanels.JAVA_AGENT)
                         ? RunningHandoffs.shared().snapshot()
-                        : List.of());
+                        : List.of(),
+                text);
         return new LiveActivityReport(
                 true,
                 rendered.entries(),
                 rendered.typeCounts(),
-                feed.kpis(visible, healthStatus),
+                feed.kpis(visible, healthStatus, text),
                 List.of(SOURCE),
                 List.of());
     }

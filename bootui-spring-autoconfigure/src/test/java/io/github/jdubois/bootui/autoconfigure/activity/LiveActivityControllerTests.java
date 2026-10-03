@@ -42,6 +42,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.spi.CorrelationContext;
@@ -154,6 +155,50 @@ class LiveActivityControllerTests {
     }
 
     @Test
+    void aPersistedRowIsHiddenOnceItsPanelIsDisabled() throws Exception {
+        SwitchableActivityStore store = mock(SwitchableActivityStore.class);
+        when(store.persistent()).thenReturn(true);
+        ActivityEntryDto sql = storedRow("sql-1", "SQL", "select * from audit");
+        ActivityEntryDto request = storedRow("req-1", "REQUEST", "GET /orders → 200");
+        ActivityEntryDto marker = storedRow("marker-1", "MARKER", "Application started");
+        when(store.query(any()))
+                .thenReturn(new ActivityPage(
+                        List.of(
+                                new StoredActivityEntry("instance-a", 3L, sql),
+                                new StoredActivityEntry("instance-a", 2L, request),
+                                new StoredActivityEntry("instance-a", 1L, marker)),
+                        null,
+                        false));
+        BootUiProperties properties = new BootUiProperties();
+        BootUiProperties.Panel disabled = new BootUiProperties.Panel();
+        disabled.setEnabled(false);
+        properties.getPanels().put(BootUiPanels.SQL_TRACE, disabled);
+
+        LiveActivityController controller = controllerWith(
+                empty(SqlTraceRecorder.class),
+                empty(ExceptionStore.class),
+                store,
+                enabledSettings("instance-a", Duration.ofSeconds(2)),
+                empty(DataSource.class),
+                properties);
+        try {
+            // Rows written while SQL Trace was enabled stay in bootui_activity, but are not read once it is off.
+            assertThat(controller
+                            .activity(null, null, 0, 0, null, null, null, 50)
+                            .entries())
+                    .extracting(ActivityEntryDto::id)
+                    .containsExactly("req-1", "marker-1");
+        } finally {
+            controller.shutdown();
+        }
+    }
+
+    private static ActivityEntryDto storedRow(String id, String type, String summary) {
+        return new ActivityEntryDto(
+                id, type, 1_000L, "OK", summary, null, null, null, null, null, null, null, false, null, null, false);
+    }
+
+    @Test
     void activityDelegatesEntriesAndPageInfoToStoreWhenPersistenceEnabled() throws Exception {
         SwitchableActivityStore store = mock(SwitchableActivityStore.class);
         when(store.persistent()).thenReturn(true);
@@ -162,7 +207,7 @@ class LiveActivityControllerTests {
                 "SQL",
                 1_000L,
                 "OK",
-                "select 1",
+                "select * from audit where owner = 'alice'",
                 null,
                 null,
                 null,
@@ -191,7 +236,26 @@ class LiveActivityControllerTests {
 
             LiveActivityReport result = controller.activity("SQL", "OK", 0, 0, "select", 999L, "cursor-1", 50);
 
-            assertThat(result.entries()).containsExactly(storedEntry);
+            // A stored row is masked again under the live policy (MASKED by default) when it is read (§8).
+            assertThat(result.entries())
+                    .containsExactly(new ActivityEntryDto(
+                            storedEntry.id(),
+                            storedEntry.type(),
+                            storedEntry.timestamp(),
+                            storedEntry.severity(),
+                            "select * from audit where owner = ?",
+                            storedEntry.detail(),
+                            storedEntry.durationMs(),
+                            storedEntry.correlationId(),
+                            storedEntry.method(),
+                            storedEntry.path(),
+                            storedEntry.status(),
+                            storedEntry.thread(),
+                            storedEntry.profileable(),
+                            storedEntry.parentId(),
+                            storedEntry.securedPrincipal(),
+                            storedEntry.sqlNPlusOneSuspected(),
+                            storedEntry.badges()));
             assertThat(result.pageInfo()).isEqualTo(new ActivityPageInfo(true, "cursor-2", true));
             assertThat(result.persistenceOption())
                     .isEqualTo(new ActivityPersistenceOptionDto(true, false, "bootui_activity"));
