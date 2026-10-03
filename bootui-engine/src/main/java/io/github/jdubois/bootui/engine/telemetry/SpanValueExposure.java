@@ -17,15 +17,18 @@ import java.util.Set;
 import java.util.function.UnaryOperator;
 
 /**
- * The value-exposure rule for span data the Traces panel, the per-request profile, and their MCP and CLI projections
- * return. Spans are stored raw, so a live change to {@code bootui.expose-values} or {@code bootui.mask-secrets}
- * applies to the next read; resolve the rule with {@link #current(ExposurePolicy)} once per response.
+ * The value-exposure rule for span data the Traces panel, the per-request profile, the AI Framework chat detail, and
+ * their MCP and CLI projections return. Spans are stored raw, so a live change to {@code bootui.expose-values} or
+ * {@code bootui.mask-secrets} applies to the next read; resolve the rule with {@link #current(ExposurePolicy)} once
+ * per response.
  *
  * <p>Each value is classified by its attribute key and reuses the rule its sibling panel already applies:</p>
  *
  * <ul>
  *   <li><strong>Free-form text</strong>: the span status message and the {@code exception.message},
- *       {@code exception.stacktrace}, {@code error.message}, and generative-AI content attributes follow
+ *       {@code exception.stacktrace}, {@code error.message}, and generative-AI content attributes (prompts,
+ *       completions, input and output messages, system instructions, tool call arguments and results, and vector
+ *       query content and returned documents) follow
  *       {@link MessageExposure}, exactly as the Exceptions and Log Tail panels do: omitted under
  *       {@link ValueExposure#METADATA_ONLY}, scrubbed of secret-like assignments and authorization credentials under
  *       {@link ValueExposure#MASKED}, and verbatim under {@link ValueExposure#FULL}.</li>
@@ -56,7 +59,16 @@ public final class SpanValueExposure {
             "gen_ai.completion",
             "gen_ai.input.messages",
             "gen_ai.output.messages",
-            "gen_ai.system_instructions");
+            "gen_ai.system_instructions",
+            "gen_ai.tool.call.arguments",
+            "gen_ai.tool.call.result",
+            "spring.ai.tool.call.arguments",
+            "spring.ai.tool.call.result",
+            "db.vector.query.content",
+            "db.vector.query.response.documents");
+
+    /** Indexed generative-AI content, such as {@code gen_ai.prompt.0.content}, follows the free-form text rule too. */
+    private static final List<String> TEXT_PREFIXES = List.of("gen_ai.prompt.", "gen_ai.completion.");
 
     private static final Set<String> URI_KEYS = Set.of("url.full", "http.url", "http.target");
 
@@ -143,7 +155,7 @@ public final class SpanValueExposure {
             return value;
         }
         String name = key.toLowerCase(Locale.ROOT);
-        if (TEXT_KEYS.contains(name)) {
+        if (TEXT_KEYS.contains(name) || suffixAfter(name, TEXT_PREFIXES) != null) {
             return messages.omitsText() ? null : leaves(value, messages::apply);
         }
         if (URI_KEYS.contains(name)) {

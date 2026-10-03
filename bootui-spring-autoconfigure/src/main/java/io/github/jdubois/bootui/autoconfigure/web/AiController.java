@@ -26,6 +26,9 @@ import org.springframework.web.server.ResponseStatusException;
  * <p>The data is derived from the OTLP spans accumulated in {@link TelemetryStore}. Spring AI and
  * LangChain4j both emit the OTel GenAI semantic-conventions spans needed here automatically; no
  * additional configuration is required.</p>
+ *
+ * <p>The chat detail applies the live {@link BootUiExposure} policy to span attribute and event values on every
+ * read.</p>
  */
 @RestController
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/ai")

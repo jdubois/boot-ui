@@ -13,12 +13,12 @@ import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
 import io.github.jdubois.bootui.engine.journal.JournalStatus;
 import io.github.jdubois.bootui.engine.journal.LifecyclePayload;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
-import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -271,12 +271,12 @@ public final class RuntimeInsightsService {
         long watermark = status.lastSequence();
         long evicted = status.evictedByCount() + status.evictedByBytes();
         // A panel disabled or re-enabled since the last read changes what may be shown, so it invalidates the cache.
-        long visibility = visibility();
+        PanelVisibility visibility = panelVisibility();
         SqlCapture capture = sqlCapture();
         if (cached != null
                 && cached.watermark() == watermark
                 && cached.evicted() == evicted
-                && cached.visibility() == visibility
+                && cached.visibility() == visibility.mask()
                 && cached.sqlCapture().equals(capture)) {
             return cached;
         }
@@ -298,14 +298,75 @@ public final class RuntimeInsightsService {
         }
     }
 
-    private long visibility() {
+    /**
+     * Reads every owning panel's state once, so one projection derives its cache key, the events it keeps, and the
+     * reason it gives for a source it left out from the same answer. A panel toggled while a projection runs would
+     * otherwise let it drop a source's events and then evaluate as though the source were visible, which reads as the
+     * source having nothing to report.
+     */
+    private PanelVisibility panelVisibility() {
+        Map<String, Boolean> enabled = new LinkedHashMap<>();
         long mask = 0;
-        for (JournalSource source : JournalSource.values()) {
-            if (panelVisible(source)) {
-                mask |= 1L << source.ordinal();
+        int bit = 0;
+        for (String panel : JournalSourcePanels.owningPanels()) {
+            boolean on;
+            try {
+                on = panelEnabled.test(panel);
+            } catch (RuntimeException ex) {
+                on = false;
+            }
+            enabled.put(panel, on);
+            if (on) {
+                mask |= 1L << bit;
+            }
+            bit++;
+        }
+        return new PanelVisibility(Map.copyOf(enabled), mask);
+    }
+
+    /**
+     * {@code entries} without the evidence of a disabled panel ({@code docs/PLAN-v2.md} §8, source-panel policy), so a
+     * disabled panel's events are neither counted nor read by an observation.
+     *
+     * <p>A unit of work is left out whole when the panel owning the event that opens it is disabled: a request, a
+     * scheduled run, a consumed message, and a WebSocket handler name their route, destination, and outcome, which is
+     * the disabled panel's evidence, and keeping the opening event to carry its children would publish exactly that.
+     * Every observation reading the source also reports {@code NOT_APPLICABLE}, naming the panel.
+     */
+    private List<JournalEntry> visibleEntries(List<JournalEntry> entries, PanelVisibility visibility) {
+        Set<String> hidden = new HashSet<>();
+        for (JournalEntry entry : entries) {
+            RuntimeEvent event = entry.event();
+            if (anchorsAUnitOfWork(event) && !visibility.visible(event)) {
+                hidden.add(unitOf(event));
             }
         }
-        return mask;
+        List<JournalEntry> visible = new ArrayList<>(entries.size());
+        for (JournalEntry entry : entries) {
+            RuntimeEvent event = entry.event();
+            if (!visibility.visible(event)) {
+                continue;
+            }
+            String unit = unitOf(event);
+            if (unit != null && hidden.contains(unit)) {
+                continue;
+            }
+            visible.add(entry);
+        }
+        return visible;
+    }
+
+    private static boolean anchorsAUnitOfWork(RuntimeEvent event) {
+        return (event.source() == JournalSource.HTTP && event.requestId() != null)
+                || InsightsSnapshot.opensExecution(event);
+    }
+
+    /** The request or execution an event belongs to, or {@code null} when it belongs to neither. */
+    private static String unitOf(RuntimeEvent event) {
+        if (event.requestId() != null) {
+            return "request:" + event.requestId();
+        }
+        return event.executionId() == null ? null : "execution:" + event.executionId();
     }
 
     private Cached project(
@@ -313,7 +374,7 @@ public final class RuntimeInsightsService {
             List<JournalEntry> entries,
             long watermark,
             long evicted,
-            long visibility,
+            PanelVisibility visibility,
             SqlCapture capture) {
         RouteTemplateResolver resolver;
         try {
@@ -322,11 +383,11 @@ public final class RuntimeInsightsService {
             resolver = RouteTemplateResolver.empty();
         }
         InsightsSnapshot snapshot = InsightsSnapshot.of(
-                entries,
+                visibleEntries(entries, visibility),
                 status,
                 resolver == null ? RouteTemplateResolver.empty() : resolver,
                 journal::records,
-                this::panelVisible,
+                visibility::visible,
                 stack,
                 previousRun(status.runId()),
                 poolSizes,
@@ -350,7 +411,7 @@ public final class RuntimeInsightsService {
                 continue;
             }
             String partial = partialReason(observation, snapshot);
-            List<String> unseen = unseenSources(observation, snapshot);
+            List<String> unseen = unseenSources(observation, snapshot, visibility);
             if (capture.reason() != null
                     && (snapshot.records(JournalSource.SQL) || snapshot.records(JournalSource.CONNECTION))
                     && (readsSql(observation.reads()) || readsSql(observation.optionalReads()))) {
@@ -360,13 +421,18 @@ public final class RuntimeInsightsService {
                                 : capture.reason() + " Its SQL and connection evidence is not counted.");
             }
             Observation.Evaluation evaluation = observation.evaluate(snapshot);
+            // What it could not judge is the check's, while each finding names its own route's share.
+            List<String> reasons = partial != null ? new ArrayList<>(List.of(partial)) : new ArrayList<>(unseen);
+            if (evaluation.uncounted() != null) {
+                reasons.add(evaluation.uncounted());
+            }
             checks.add(new RuntimeInsightCheckDto(
                     observation.kind(),
                     observation.title(),
                     partial == null ? "EVALUATED" : "PARTIAL",
                     evaluation.eligibleRequests(),
                     evaluation.findings().size(),
-                    partial != null ? partial : unseen.isEmpty() ? null : String.join(" ", unseen)));
+                    reasons.isEmpty() ? null : String.join(" ", reasons)));
             for (Finding finding : evaluation.findings()) {
                 String findingStatus =
                         !finding.sufficient() ? "INSUFFICIENT" : partial == null ? "OBSERVED" : "PARTIAL";
@@ -384,7 +450,7 @@ public final class RuntimeInsightsService {
                         finding.sentence(),
                         finding.eligible(),
                         finding.affected(),
-                        observation.minimumTier().name(),
+                        (finding.tier() != null ? finding.tier() : observation.minimumTier()).name(),
                         finding.whatToCheck(),
                         finding.exemplarRequestIds()
                                 .subList(
@@ -439,7 +505,7 @@ public final class RuntimeInsightsService {
                 limitations,
                 notExercised.subList(0, Math.min(notExercised.size(), RuntimeInsightsReportDto.MAX_NOT_EXERCISED)),
                 Math.max(0, notExercised.size() - RuntimeInsightsReportDto.MAX_NOT_EXERCISED));
-        return new Cached(watermark, evicted, visibility, capture, report, details);
+        return new Cached(watermark, evicted, visibility.mask(), capture, report, details);
     }
 
     /**
@@ -539,20 +605,28 @@ public final class RuntimeInsightsService {
                         + " source (bootui.runtime-journal.sources).";
             }
             if (!snapshot.visible(source)) {
-                return "The " + panelOf(source) + " panel, whose evidence this reads, is disabled.";
+                List<String> panels = JournalSourcePanels.panelsOf(source);
+                return panelsLabel(panels) + ", whose evidence this reads, " + (panels.size() == 1 ? "is" : "are")
+                        + " disabled.";
             }
         }
         return null;
     }
 
-    private List<String> unseenSources(Observation observation, InsightsSnapshot snapshot) {
+    private List<String> unseenSources(Observation observation, InsightsSnapshot snapshot, PanelVisibility visibility) {
         List<String> unseen = new ArrayList<>();
         for (JournalSource source : observation.optionalReads()) {
             if (!snapshot.records(source)) {
                 unseen.add("Without the " + source.propertyName() + " source, which the runtime journal does not"
                         + " record, its evidence is not counted.");
-            } else if (!snapshot.visible(source)) {
-                unseen.add("The " + panelOf(source) + " panel is disabled, so its evidence is not counted.");
+            } else {
+                // A source several panels own, like messaging, loses a broker's evidence as soon as that broker's
+                // panel is disabled, even while the others keep serving theirs.
+                List<String> disabled = visibility.disabled(source);
+                if (!disabled.isEmpty()) {
+                    unseen.add(panelsLabel(disabled) + (disabled.size() == 1 ? " is" : " are")
+                            + " disabled, so its evidence is not counted.");
+                }
             }
         }
         return unseen;
@@ -602,30 +676,54 @@ public final class RuntimeInsightsService {
                 : "The journal dropped " + dropped + " events this observation reads, so its counts are a floor.";
     }
 
-    private boolean panelVisible(JournalSource source) {
-        String panel = panelOf(source);
-        try {
-            return panel == null || panelEnabled.test(panel);
-        } catch (RuntimeException ex) {
-            return false;
+    /** {@code The sql-trace panel}, or {@code The kafka, rabbitmq and jms panels} when several are named. */
+    private static String panelsLabel(List<String> panels) {
+        if (panels.size() == 1) {
+            return "The " + panels.get(0) + " panel";
         }
-    }
-
-    private static String panelOf(JournalSource source) {
-        return switch (source) {
-            case SQL, CONNECTION -> BootUiPanels.SQL_TRACE;
-            case HTTP -> BootUiPanels.HTTP_EXCHANGES;
-            case EXCEPTION -> BootUiPanels.EXCEPTIONS;
-            case TRANSACTION -> BootUiPanels.TRANSACTIONS;
-            case LOG -> BootUiPanels.LOG_TAIL;
-            case REST_CLIENT -> BootUiPanels.REST_CLIENT_TRACE;
-            case FAULT_TOLERANCE -> BootUiPanels.FAULT_TOLERANCE;
-            case AI -> BootUiPanels.AI;
-            default -> null;
-        };
+        return "The " + String.join(", ", panels.subList(0, panels.size() - 1)) + " and "
+                + panels.get(panels.size() - 1) + " panels";
     }
 
     private record Detail(RuntimeObservationDto observation, Finding finding) {}
+
+    /**
+     * Every owning panel's state as one projection read it, so the cache key, the events kept, and the reason given
+     * for a source left out all answer from the same read. A panel this does not name is treated as disabled.
+     */
+    private record PanelVisibility(Map<String, Boolean> enabled, long mask) {
+
+        /** Whether the panel publishing {@code event} is enabled, so its evidence may be projected. */
+        boolean visible(RuntimeEvent event) {
+            String panel = JournalSourcePanels.panelOf(event);
+            return panel == null || enabled.getOrDefault(panel, Boolean.FALSE);
+        }
+
+        /** Whether no panel owns {@code source}, or at least one that does is enabled. */
+        boolean visible(JournalSource source) {
+            List<String> panels = JournalSourcePanels.panelsOf(source);
+            if (panels.isEmpty()) {
+                return true;
+            }
+            for (String panel : panels) {
+                if (enabled.getOrDefault(panel, Boolean.FALSE)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /** The panels owning {@code source} that are disabled, so their evidence is left out of this projection. */
+        List<String> disabled(JournalSource source) {
+            List<String> disabled = new ArrayList<>();
+            for (String panel : JournalSourcePanels.panelsOf(source)) {
+                if (!enabled.getOrDefault(panel, Boolean.FALSE)) {
+                    disabled.add(panel);
+                }
+            }
+            return disabled;
+        }
+    }
 
     private record Cached(
             long watermark,

@@ -57,6 +57,25 @@ class JournalActivityReportsTests {
     }
 
     @Test
+    void rowsOfTheSourcesV2AddedAreLeftOutWhenTheirPanelIsDisabled() {
+        offer("r1", JournalSource.WEBSOCKET, new WebSocketPayload("/ws", "MESSAGE", true, "/topic", 10, null, false));
+        offer("r1", JournalSource.HTTP, new HttpPayload("GET", "/a", "/a", null, 200));
+        journal.dispatchPending();
+
+        LiveActivityReport all =
+                new JournalActivityReports(journal, 1_000, 5, null, panel -> true).report(Filter.NONE, 0, "UP");
+        LiveActivityReport gated = new JournalActivityReports(
+                        journal, 1_000, 5, null, panel -> !panel.equals(BootUiPanels.WEBSOCKETS))
+                .report(Filter.NONE, 0, "UP");
+
+        assertThat(all.entries()).extracting(ActivityEntryDto::type).containsExactly("REQUEST", "WEBSOCKET");
+        assertThat(gated.entries())
+                .as("the websockets panel owns the WebSocket row, so disabling it leaves the row out")
+                .extracting(ActivityEntryDto::type)
+                .containsExactly("REQUEST");
+    }
+
+    @Test
     void aReportReturnsTheDefaultNumberOfEntriesAndNeverMoreThanTheMaximum() {
         for (int i = 0; i < JournalActivityReports.DEFAULT_LIMIT + 5; i++) {
             offer("r" + i, JournalSource.HTTP, new HttpPayload("GET", "/a", "/a", null, 200));

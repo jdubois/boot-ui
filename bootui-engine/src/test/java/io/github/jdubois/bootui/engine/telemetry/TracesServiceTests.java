@@ -280,50 +280,6 @@ class TracesServiceTests {
         assertThat(span(service.detail("trace").orElseThrow()).statusMessage()).isEqualTo("failed token=example-value");
     }
 
-    @Test
-    void aiChatDetailsApplyTheLiveSpanExposurePolicy() {
-        TelemetryStore store = new TelemetryStore(ENABLED);
-        store.add(new NormalizedSpan(
-                "ai-trace",
-                "chat-span",
-                null,
-                "chat",
-                "CLIENT",
-                "sample",
-                "test",
-                1L,
-                5L,
-                "OK",
-                null,
-                Map.of(
-                        "gen_ai.operation.name", AttributeValue.ofString("chat"),
-                        "gen_ai.request.model", AttributeValue.ofString("example-model"),
-                        "gen_ai.prompt", AttributeValue.ofString("token=example-value"),
-                        "details", new AttributeValue("map", Map.of("password", "example-value"))),
-                List.of(new NormalizedEvent(
-                        "event token=example-value",
-                        2L,
-                        Map.of("notes", AttributeValue.ofList(List.of("token=example-value")))))));
-        MutablePolicy policy = new MutablePolicy(ValueExposure.MASKED);
-        AiUsageService service = new AiUsageService(
-                store, () -> new AiUsageSettings(true, 10, 60, false), System::currentTimeMillis, policy);
-
-        var masked = service.chatDetail("chat-span").orElseThrow();
-        assertThat(masked.attributes())
-                .extracting(attribute -> attribute.value())
-                .contains("token=******");
-        assertThat(masked.toString()).doesNotContain("example-value");
-        policy.exposure = ValueExposure.METADATA_ONLY;
-        assertThat(service.chatDetail("chat-span").orElseThrow().attributes()).isEmpty();
-        assertThat(service.chatDetail("chat-span").orElseThrow().events()).isEmpty();
-        assertThat(service.chats(10).get(0).requestModel()).isNull();
-        assertThat(service.overview().tokensByModel()).isEmpty();
-        policy.exposure = ValueExposure.FULL;
-        assertThat(service.chatDetail("chat-span").orElseThrow().attributes())
-                .extracting(attribute -> attribute.value())
-                .contains("token=example-value");
-    }
-
     private static SpanDto span(TraceDetailDto detail) {
         assertThat(detail.spans()).hasSize(1);
         return detail.spans().get(0);

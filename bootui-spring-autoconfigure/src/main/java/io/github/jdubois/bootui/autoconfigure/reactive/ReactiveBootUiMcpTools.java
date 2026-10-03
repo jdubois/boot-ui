@@ -276,7 +276,7 @@ public class ReactiveBootUiMcpTools {
             registry.add(tool(
                     "get_request_profile",
                     McpToolDescriptions.spring("get_request_profile"),
-                    args -> liveActivityBean.request(args.id())));
+                    args -> liveActivityBean.agentProfile(args.id())));
         }
         // --- The BootUI Java agent (docs/PLAN-v2.md §5.13) ---
         if (javaAgentBean != null) {

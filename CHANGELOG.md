@@ -7,6 +7,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Retained request and execution profiles.** Live Activity displays the runtime-journal timeline even after an
+  HTTP exchange leaves the shorter buffer. `get_request_profile` and `bootui request-profile` open journal requests,
+  scheduled runs, and consumed-message executions first; their result names the selected source and falls back to the
+  HTTP-exchange profile when necessary. Missing ids identify both retention windows (PLAN-v2 M2-9b, M3-7).
+
 ### Added
 
 - **Executor propagation with the BootUI agent.** With the agent attached, its `executors` sensor carries a request's
@@ -365,6 +372,16 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   counted, which absorbs the millisecond precision of recorded event starts. A task's failure still counts by its own
   end ([#1218](https://github.com/jdubois/boot-ui/pull/1218)).
 
+- **Runtime Insights times AI calls once and reports what it could not count.** `route-time-breakdown` no longer
+  subtracts an AI call's time from the handler when its model HTTP call was already counted as REST client or SQL time:
+  calls reported by Spring AI or Quarkus LangChain4j carry their monotonic completion and are placed on the request's
+  clock as **AI calls**, and tool and retrieval operations, which wrap application code, stay in the handler.
+  `transaction-across-remote-call` no longer shows methods whose remote calls are fast as **Needs more traffic**.
+  `lazy-sql-after-handler` counts requests whose response-phase SQL cannot be placed against their transactions apart,
+  with a limitation and a check reason, instead of dropping them, and `split-transaction-writes` names its uncounted
+  requests in its check reason too. `ai-usage-by-route` reports the tier its calls were actually linked by, and
+  mentions trace-id linking only for calls recovered from GenAI spans.
+
 - **Spring WebFlux requests report their GraphQL operation and authentication time again.** The reactive correlation
   filter never began a request's phase markers, so the shared GraphQL operation and Spring Security authentication
   observation handlers had nothing to record into on WebFlux: Live Activity and Runtime Insights showed every GraphQL
@@ -526,6 +543,34 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Security
 
+- **Every runtime-journal source now follows its panel's policy.** The sources 2.0 added — `authorization`, `orm`,
+  `websocket`, and `agent.executors` — and `connection` were owned by no panel, so their evidence was still recorded
+  and served through Live Activity, request profiles, Runtime Insights, and the MCP tools and CLI commands over them
+  while the panel that publishes it (Security Logs, Hibernate, WebSockets, Java Agent, SQL Trace) was disabled. Runtime
+  Insights additionally ignored `security`, `cache`, `messaging`, `scheduled`, and `mail`. One mapping,
+  `JournalSourcePanels`, now names the owning panel of every source for all three surfaces on Spring MVC, Spring
+  WebFlux, and Quarkus, exhaustively, so a new source cannot be added without declaring its panel. A disabled panel's
+  events are left out of the Runtime Insights projection, every observation reading that source is `NOT_APPLICABLE`
+  with the panel named, and one reading it as optional evidence says the evidence is not counted — including when only
+  one broker's panel (`kafka`, `rabbitmq`, `jms`) is disabled. A unit of work is left out whole when the panel owning
+  the event that opens it is disabled, since that event names the route, destination, and status the panel publishes.
+  One projection reads each panel's state once, so a panel toggled while it runs cannot make a recorded source read as
+  absent. The running agent handoffs Live Activity synthesizes now require the Java Agent panel, and an observation
+  that treats a source as optional evidence reads "recorded **and** visible", so a disabled panel can no longer read as
+  proof that nothing happened and produce a false finding.
+
+- **The AI Framework chat detail now follows the value-exposure policy.** `GET /bootui/api/ai/chats/{spanId}` returned
+  the chat span's attributes and events verbatim in every mode, so captured prompts, completions, input and output
+  messages, sensitive attributes, and `exception.message` and `exception.stacktrace` text were shown raw even under the
+  default `MASKED`. Every chat detail read now applies the live `bootui.expose-values` / `bootui.mask-secrets` policy
+  through the same rule as the Traces detail: content is scrubbed of secret-like assignments under `MASKED`, omitted as
+  `null` under `METADATA_ONLY`, and verbatim only under `FULL`, while keys, types, token counts, models, and timings are
+  unchanged. Tool call arguments and results (`gen_ai.tool.call.*`, `spring.ai.tool.call.*`), vector query content and
+  returned documents (`db.vector.query.content`, `db.vector.query.response.documents`), and indexed
+  `gen_ai.prompt.*` / `gen_ai.completion.*` content are now treated as free-form text on the Traces detail and request
+  profile too. Applies on Spring MVC, Spring WebFlux, and Quarkus, including after a runtime change of the mode
+  ([AI Framework value exposure](docs/features/services.md#ai-framework-value-exposure),
+  [#1210](https://github.com/jdubois/boot-ui/pull/1210)).
 - **Trace data now follows the value-exposure policy.** `GET /bootui/api/traces/{id}`, the trace embedded in the
   per-request profile (`GET /bootui/api/activity/request/{id}`), and their `get_request_profile` MCP tool and
   `bootui request-profile` projections returned span status messages, `exception.message` and `exception.stacktrace`
