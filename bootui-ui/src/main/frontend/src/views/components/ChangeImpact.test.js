@@ -83,6 +83,27 @@ describe('ChangeImpact', () => {
     )
   })
 
+  it('jumps to a list in place rather than through the hash router', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(resolved)))
+    wrapper = mount(ChangeImpact, {
+      props: {initialSymbol: 'ProductRepository'},
+      attachTo: document.body,
+      global: {stubs: {'router-link': {template: '<a><slot /></a>'}}}
+    })
+    await flushPromises()
+
+    const links = wrapper.findAll('.insight-impact-summary-link')
+    expect(links.map((link) => link.element.tagName)).toEqual(['BUTTON', 'BUTTON', 'BUTTON'])
+    expect(links.some((link) => link.attributes('href'))).toBe(false)
+    const target = wrapper.find('#insight-impact-not-exercised').element
+    target.scrollIntoView = vi.fn()
+
+    await links[1].trigger('click')
+
+    expect(target.scrollIntoView).toHaveBeenCalledWith({block: 'start', behavior: 'smooth'})
+    expect(document.activeElement).toBe(target)
+  })
+
   it('offers the candidates of an ambiguous symbol and checks the one chosen', async () => {
     const fetchMock = vi
       .fn()
