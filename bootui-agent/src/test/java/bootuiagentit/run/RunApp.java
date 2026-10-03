@@ -32,7 +32,7 @@ public final class RunApp {
         request.put("owner", "it run " + SENTINEL.run);
         request.put("mode", "dev");
         request.put("packages", List.of("bootuiagentit.run"));
-        request.put("sensors", List.of("executors"));
+        request.put("sensors", List.of("executors", "threads"));
         Object marker = new Object();
         capture = () -> marker != null && CURRENT.get() != null
                 ? new Object[] {"run-" + SENTINEL.run, null, null, null, null, null, null, 1L, 1L}
@@ -86,6 +86,10 @@ public final class RunApp {
             java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
             pool.submit(() -> Probed.touch(SENTINEL.run)).get();
             pool.shutdown();
+            // A thread this run starts itself, propagated by the threads sensor.
+            Thread own = new Thread(() -> Probed.touch(SENTINEL.run));
+            own.start();
+            own.join();
             Thread inert = new Thread();
             inert.setContextClassLoader(null);
             java.util.concurrent.CompletableFuture.delayedExecutor(10, java.util.concurrent.TimeUnit.MINUTES)

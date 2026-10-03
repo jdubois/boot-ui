@@ -35,6 +35,8 @@ import org.eclipse.microprofile.config.Config;
  *       {@link BootUiEngineProducer} (Metrics, Cache) and the OTel-gated {@link BootUiOtelProducer}
  *       (capture) inject this same instance rather than building their own, so capture and every
  *       transform/display panel can never disagree on which paths are BootUI's own.</li>
+ *   <li>The traces transform reads the live {@link QuarkusExposurePolicy} on every call, so span values follow
+ *       {@code bootui.expose-values} / {@code bootui.mask-secrets} without a restart.</li>
  *   <li>The AI usage settings are supplied fresh per request so {@code bootui.ai.*} and
  *       {@code bootui.telemetry.enabled} overrides are honored live.</li>
  * </ul>

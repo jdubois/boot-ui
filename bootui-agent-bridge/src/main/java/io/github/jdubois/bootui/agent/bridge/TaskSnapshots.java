@@ -22,79 +22,85 @@ final class TaskSnapshots {
     /** The owner fields of a snapshot compared to tell owners apart: request, execution, trace, and span ids. */
     static final int OWNER_FIELDS = 4;
 
-    private static final ConcurrentHashMap<Object, Entry> SNAPSHOTS = new ConcurrentHashMap<Object, Entry>();
-    private static final ReferenceQueue<Object> QUEUE = new ReferenceQueue<Object>();
-    private static final LongAdder NEVER_APPLIED = new LongAdder();
+    /** The snapshots of tasks handed to executors. */
+    static final TaskSnapshots TASKS = new TaskSnapshots();
+
+    /** The snapshots of threads started from owned work, kept apart so pool workers never crowd the task map. */
+    static final TaskSnapshots THREADS = new TaskSnapshots();
+
+    private final ConcurrentHashMap<Object, Entry> snapshots = new ConcurrentHashMap<Object, Entry>();
+    private final ReferenceQueue<Object> queue = new ReferenceQueue<Object>();
+    private final LongAdder neverAppliedCount = new LongAdder();
 
     private TaskSnapshots() {}
 
     /** Records an owned submission; returns false when the entry is (now) ambiguous. */
-    static boolean put(Object task, long generation, Object[] payload) {
+    boolean put(Object task, long generation, Object[] payload) {
         expunge();
         Put put = new Put(generation, payload);
-        SNAPSHOTS.compute(new Key(task, QUEUE), put);
+        snapshots.compute(new Key(task, queue), put);
         return !put.ambiguous;
     }
 
     /** Records an unowned submission of a task with a pending owned one: the entry becomes ambiguous. */
-    static boolean putUnowned(Object task, long generation) {
-        if (SNAPSHOTS.isEmpty() || SNAPSHOTS.get(new Lookup(task)) == null) {
+    boolean putUnowned(Object task, long generation) {
+        if (snapshots.isEmpty() || snapshots.get(new Lookup(task)) == null) {
             return false;
         }
         Unowned unowned = new Unowned(generation);
-        SNAPSHOTS.computeIfPresent(new Lookup(task), unowned);
+        snapshots.computeIfPresent(new Lookup(task), unowned);
         return unowned.touched;
     }
 
     /** Where the task runs: null (unowned), {@link #AMBIGUOUS}, or the {@link Entry} to reopen. */
-    static Object take(Object task) {
-        if (SNAPSHOTS.isEmpty() || SNAPSHOTS.get(new Lookup(task)) == null) {
+    Object take(Object task) {
+        if (snapshots.isEmpty() || snapshots.get(new Lookup(task)) == null) {
             return null;
         }
         Take take = new Take();
-        SNAPSHOTS.computeIfPresent(new Lookup(task), take);
+        snapshots.computeIfPresent(new Lookup(task), take);
         return take.result;
     }
 
     /** A submission that will not run (the queue refused it, its worker did not start, it was removed). */
-    static void release(Object task) {
-        if (SNAPSHOTS.isEmpty() || SNAPSHOTS.get(new Lookup(task)) == null) {
+    void release(Object task) {
+        if (snapshots.isEmpty() || snapshots.get(new Lookup(task)) == null) {
             return;
         }
-        SNAPSHOTS.computeIfPresent(new Lookup(task), new Take());
+        snapshots.computeIfPresent(new Lookup(task), new Take());
     }
 
-    static boolean isEmpty() {
-        return SNAPSHOTS.isEmpty();
+    boolean isEmpty() {
+        return snapshots.isEmpty();
     }
 
-    static int size() {
+    int size() {
         expunge();
-        return SNAPSHOTS.size();
+        return snapshots.size();
     }
 
     /** Entries whose task was reclaimed while still pending: keyed but never run where a hook applies it. */
-    static long neverApplied() {
+    long neverApplied() {
         expunge();
-        return NEVER_APPLIED.sum();
+        return neverAppliedCount.sum();
     }
 
     /** Tests only. */
-    static void reset() {
-        SNAPSHOTS.clear();
-        NEVER_APPLIED.reset();
+    void reset() {
+        snapshots.clear();
+        neverAppliedCount.reset();
     }
 
-    static void expungeStale() {
+    void expungeStale() {
         expunge();
     }
 
-    private static void expunge() {
+    private void expunge() {
         Object stale;
-        while ((stale = QUEUE.poll()) != null) {
-            Entry entry = SNAPSHOTS.remove(stale);
+        while ((stale = queue.poll()) != null) {
+            Entry entry = snapshots.remove(stale);
             if (entry != null && entry.pending > 0) {
-                NEVER_APPLIED.increment();
+                neverAppliedCount.increment();
             }
         }
     }

@@ -223,6 +223,63 @@ describe('Java Agent panel', () => {
     expect(wrapper.find('[aria-labelledby="java-agent-hooks-executors"]').exists()).toBe(true)
   })
 
+  it('shows the threads sensor with its own explained counters', async () => {
+    wrapper = mountPanel({
+      ...baseReport,
+      state: 'ARMED',
+      sensors: [
+        {
+          id: 'threads',
+          state: 'installed',
+          instrumentedTypes: 3,
+          failures: [],
+          durationMillis: 41,
+          selfTestPassed: true,
+          selfTestError: null,
+          selfTestSteps: {},
+          hooks: [
+            {
+              id: 'Thread.start',
+              kind: 'key',
+              type: 'java.lang.Thread',
+              present: true,
+              transformed: true,
+              selfTest: 'passed',
+              fired: 4
+            }
+          ],
+          failedTypes: 0,
+          skippedTypes: 0,
+          executors: {
+            pending: 0,
+            neverApplied: 0,
+            ambiguous: 0,
+            stale: 0,
+            refused: 0,
+            virtualSkipped: 0,
+            periodicSkipped: 0,
+            skippedTasks: 0,
+            skippedThreads: 0,
+            failures: 0,
+            disabledReason: null,
+            asyncApplies: false,
+            libraryThreadsSkipped: 6,
+            poolWorkersSkipped: 2
+          }
+        }
+      ]
+    })
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('Thread.start')
+    expect(text).toContain('starts threads')
+    expect(text).toContain('Library threads skipped 6')
+    expect(text).toContain('Pool workers skipped 2')
+    expect(text).not.toContain('Periodic tasks skipped')
+    expect(wrapper.find('[aria-labelledby="java-agent-hooks-threads"]').exists()).toBe(true)
+  })
+
   it('does not call the API when manifest availability says the panel is unavailable', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)

@@ -2,10 +2,12 @@ package io.github.jdubois.bootui.quarkus.it;
 
 import io.github.jdubois.bootui.conformance.AbstractBootUiApiConformanceTest;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.Runtime;
+import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.QuarkusTestProfile;
 import io.quarkus.test.junit.TestProfile;
+import jakarta.inject.Inject;
 import java.net.URL;
 import java.util.Map;
 import java.util.Set;
@@ -47,6 +49,14 @@ class BootUiQuarkusApiConformanceTest extends AbstractBootUiApiConformanceTest {
 
     @TestHTTPResource
     URL baseUrl;
+
+    @Inject
+    TelemetryStore telemetryStore;
+
+    @Override
+    protected TelemetryStore telemetryStore() {
+        return telemetryStore;
+    }
 
     @Override
     protected boolean expectsResolvedSourcePaths() {

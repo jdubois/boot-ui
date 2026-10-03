@@ -4,7 +4,6 @@ import io.github.jdubois.bootui.core.dto.SpanDto;
 import io.github.jdubois.bootui.core.dto.TraceDetailDto;
 import io.github.jdubois.bootui.core.dto.TraceSummaryDto;
 import io.github.jdubois.bootui.core.dto.TracesReport;
-import io.github.jdubois.bootui.engine.support.MessageExposure;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.net.URI;
 import java.util.ArrayList;
@@ -13,6 +12,7 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -20,6 +20,10 @@ import java.util.Set;
  * Framework-neutral read model for the BootUI Traces panel. Transforms spans accumulated in the
  * {@link TelemetryStore} into the immutable trace DTOs the UI renders, applying the transform-side
  * self-trace filter (see {@link SelfTelemetryClassifier}).
+ *
+ * <p>Spans are stored raw. Every read applies the live value-exposure policy through {@link SpanValueExposure}, so
+ * the Traces panel, the per-request profile that embeds a trace, and their MCP and CLI projections never return a
+ * value the policy withholds, and a runtime change to {@code bootui.expose-values} applies to the next read.</p>
  */
 public final class TracesService {
 
@@ -50,13 +54,13 @@ public final class TracesService {
         this.store = store;
         this.settings = settings;
         this.selfClassifier = selfClassifier;
-        this.exposure = exposure;
+        this.exposure = Objects.requireNonNull(exposure, "exposure");
     }
 
     public TracesReport list(int limit) {
         int safeLimit = Math.max(1, Math.min(500, limit));
+        SpanValueExposure values = SpanValueExposure.current(exposure);
         List<TraceSummaryDto> summaries = new ArrayList<>();
-        MessageExposure rule = MessageExposure.current(exposure);
         int retained = 0;
         for (TelemetryStore.TraceBucket bucket : store.recentTraces(store.capacity())) {
             if (!selfClassifier.shouldIncludeTrace(bucket.spans())) {
@@ -64,7 +68,7 @@ public final class TracesService {
             }
             retained++;
             if (summaries.size() < safeLimit) {
-                summaries.add(toSummary(bucket, rule));
+                summaries.add(toSummary(bucket, values));
             }
         }
         return new TracesReport(settings.enabled(), retained, store.capacity(), summaries);
@@ -78,10 +82,10 @@ public final class TracesService {
         if (!selfClassifier.shouldIncludeTrace(bucket.spans())) {
             return Optional.empty();
         }
+        SpanValueExposure values = SpanValueExposure.current(exposure);
         List<SpanDto> spans = new ArrayList<>(bucket.spans().size());
-        MessageExposure rule = MessageExposure.current(exposure);
         for (NormalizedSpan span : bucket.spans()) {
-            spans.add(toSpanDto(span, rule));
+            spans.add(toSpanDto(span, values));
         }
         spans.sort(Comparator.comparingLong(SpanDto::startEpochNanos));
         return Optional.of(new TraceDetailDto(bucket.traceId(), spans));
@@ -91,11 +95,7 @@ public final class TracesService {
         store.clear();
     }
 
-    static TraceSummaryDto toSummary(TelemetryStore.TraceBucket bucket) {
-        return toSummary(bucket, MessageExposure.masked());
-    }
-
-    private static TraceSummaryDto toSummary(TelemetryStore.TraceBucket bucket, MessageExposure rule) {
+    static TraceSummaryDto toSummary(TelemetryStore.TraceBucket bucket, SpanValueExposure values) {
         long minStart = Long.MAX_VALUE;
         long maxEnd = Long.MIN_VALUE;
         Set<String> services = new LinkedHashSet<>();
@@ -139,11 +139,9 @@ public final class TracesService {
         }
         return new TraceSummaryDto(
                 bucket.traceId(),
-                rule.apply(rootSpanName),
-                rule.apply(resolveHttpPath(bucket.spans(), earliest)),
-                rule.omitsText()
-                        ? List.of()
-                        : firstServices(services).stream().map(rule::apply).toList(),
+                rootSpanName,
+                values.path(resolveHttpPath(bucket.spans(), earliest)),
+                firstServices(services),
                 minStart,
                 maxEnd,
                 Math.max(0L, maxEnd - minStart),
@@ -215,15 +213,19 @@ public final class TracesService {
         if (path.isEmpty()) {
             return null;
         }
-        if (path.contains("://")) {
+        int scheme = path.indexOf("://");
+        if (scheme >= 0) {
+            String uriPath = null;
             try {
-                String uriPath = URI.create(path).getRawPath();
-                if (uriPath != null && !uriPath.isEmpty()) {
-                    path = uriPath;
-                }
+                uriPath = URI.create(path).getRawPath();
             } catch (IllegalArgumentException ignored) {
-                // Keep the raw value if it cannot be parsed as a URI.
+                // Fall back to cutting the scheme and authority by hand below.
             }
+            if (uriPath == null || uriPath.isEmpty()) {
+                // Never keep the authority: it can carry user-info credentials.
+                uriPath = pathAfterAuthority(path, scheme + 3);
+            }
+            path = uriPath;
         }
         int cut = path.length();
         int query = path.indexOf('?');
@@ -238,26 +240,44 @@ public final class TracesService {
         return path.isEmpty() ? null : path;
     }
 
+    /**
+     * The path of an absolute URI that {@link URI} could not parse, or {@code /} when it has none. The authority ends
+     * at the first {@code /} after its last {@code @}, so a slash inside user-info cannot leak the rest of it.
+     */
+    private static String pathAfterAuthority(String uri, int authorityStart) {
+        int end = uri.length();
+        for (char delimiter : new char[] {'?', '#'}) {
+            int index = uri.indexOf(delimiter, authorityStart);
+            if (index >= 0 && index < end) {
+                end = index;
+            }
+        }
+        int userInfoEnd = uri.lastIndexOf('@', end - 1);
+        int hostStart = userInfoEnd >= authorityStart ? userInfoEnd + 1 : authorityStart;
+        int slash = uri.indexOf('/', hostStart);
+        return slash < 0 || slash >= end ? "/" : uri.substring(slash);
+    }
+
     private static boolean isServer(NormalizedSpan span) {
         return span.kind() != null && span.kind().contains("SERVER");
     }
 
-    static SpanDto toSpanDto(NormalizedSpan span, MessageExposure rule) {
+    static SpanDto toSpanDto(NormalizedSpan span, SpanValueExposure values) {
         return new SpanDto(
                 span.traceId(),
                 span.spanId(),
                 span.parentSpanId(),
-                rule.apply(span.name()),
+                span.name(),
                 span.kind(),
-                rule.apply(span.serviceName()),
-                rule.apply(span.scope()),
+                span.serviceName(),
+                span.scope(),
                 span.startEpochNanos(),
                 span.endEpochNanos(),
                 span.durationNanos(),
                 span.statusCode(),
-                rule.apply(span.statusMessage()),
-                SpanMappers.toAttributeList(span.attributes(), rule),
-                SpanMappers.toEventList(span.events(), rule));
+                values.statusMessage(span.statusMessage()),
+                values.attributes(span.attributes()),
+                values.events(span.events()));
     }
 
     private static List<String> firstServices(Set<String> services) {

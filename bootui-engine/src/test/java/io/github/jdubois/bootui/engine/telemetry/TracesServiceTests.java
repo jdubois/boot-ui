@@ -2,7 +2,10 @@ package io.github.jdubois.bootui.engine.telemetry;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.core.SecretMasker;
 import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.core.dto.SpanDto;
+import io.github.jdubois.bootui.core.dto.TraceDetailDto;
 import io.github.jdubois.bootui.core.dto.TraceSummaryDto;
 import io.github.jdubois.bootui.core.dto.TracesReport;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
@@ -16,6 +19,8 @@ class TracesServiceTests {
     private static final TelemetrySettings ENABLED = TelemetrySettings.of(true, true, 500, 500, 4096);
 
     private static final SelfTelemetryClassifier SELF = new SelfTelemetryClassifier(true, "/bootui", "/bootui/api");
+
+    private static final SpanValueExposure MASKED = SpanValueExposure.current(policy(ValueExposure.MASKED, true));
 
     @Test
     void summaryExposesHttpPathFromRootServerSpan() {
@@ -34,7 +39,7 @@ class TracesServiceTests {
                 Map.of("url.path", AttributeValue.ofString("/api/products/42?page=1")),
                 List.of());
 
-        TraceSummaryDto summary = TracesService.toSummary(bucketOf(root));
+        TraceSummaryDto summary = TracesService.toSummary(bucketOf(root), MASKED);
 
         assertThat(summary.rootSpanName()).isEqualTo("security filterchain before");
         assertThat(summary.httpPath()).isEqualTo("/api/products/42");
@@ -59,7 +64,7 @@ class TracesServiceTests {
                 Map.of("http.route", AttributeValue.ofString("/api/orders/{id}")),
                 List.of());
 
-        TraceSummaryDto summary = TracesService.toSummary(bucketOf(root, server));
+        TraceSummaryDto summary = TracesService.toSummary(bucketOf(root, server), MASKED);
 
         assertThat(summary.httpPath()).isEqualTo("/api/orders/{id}");
     }
@@ -81,7 +86,7 @@ class TracesServiceTests {
                 Map.of("code.function", AttributeValue.ofString("run")),
                 List.of());
 
-        TraceSummaryDto summary = TracesService.toSummary(bucketOf(root));
+        TraceSummaryDto summary = TracesService.toSummary(bucketOf(root), MASKED);
 
         assertThat(summary.rootSpanName()).isEqualTo("scheduled task");
         assertThat(summary.httpPath()).isNull();
@@ -92,7 +97,7 @@ class TracesServiceTests {
         TelemetryStore store = new TelemetryStore(ENABLED);
         store.add(serverSpan("bootui-trace", "bootui-root", "GET /bootui/api/traces", "/bootui/api/traces"));
         store.add(serverSpan("host-trace", "host-root", "GET /api/orders", "/api/orders"));
-        TracesService service = new TracesService(store, ENABLED, SELF, new MutableExposure());
+        TracesService service = new TracesService(store, ENABLED, SELF, policy(ValueExposure.MASKED, true));
 
         TracesReport report = service.list(50);
 
@@ -107,13 +112,117 @@ class TracesServiceTests {
     }
 
     @Test
-    void spanReadsApplyTheCurrentPolicyWithoutChangingStoredEvidence() {
+    void summaryMasksMatrixParametersOfTheHttpPath() {
+        NormalizedSpan root = new NormalizedSpan(
+                "trace",
+                "root",
+                null,
+                "GET",
+                "SERVER",
+                "sample",
+                "test",
+                1L,
+                2L,
+                "OK",
+                null,
+                Map.of("url.path", AttributeValue.ofString("/cart;token=session-secret/items")),
+                List.of());
+
+        assertThat(TracesService.toSummary(bucketOf(root), MASKED).httpPath())
+                .isEqualTo("/cart;token=" + SecretMasker.MASKED_VALUE + "/items");
+    }
+
+    @Test
+    void summaryNeverReturnsTheAuthorityOfAnAbsoluteUrl() {
+        assertThat(summaryPath("http://user:password@localhost:8080")).isEqualTo("/");
+        assertThat(summaryPath("http://user:password@localhost:8080/orders?id=1"))
+                .isEqualTo("/orders");
+        assertThat(summaryPath("http://us/er:pass word@local host/orders?id=1")).isEqualTo("/orders");
+        assertThat(summaryPath("http://user:pass word@local host")).isEqualTo("/");
+    }
+
+    private static String summaryPath(String url) {
+        NormalizedSpan root = new NormalizedSpan(
+                "trace",
+                "root",
+                null,
+                "GET",
+                "CLIENT",
+                "sample",
+                "test",
+                1L,
+                2L,
+                "OK",
+                null,
+                Map.of("url.full", AttributeValue.ofString(url)),
+                List.of());
+        return TracesService.toSummary(bucketOf(root), MASKED).httpPath();
+    }
+
+    @Test
+    void detailAppliesTheLiveExposurePolicyOnEveryRead() {
         TelemetryStore store = new TelemetryStore(ENABLED);
         Map<String, AttributeValue> attributes = new LinkedHashMap<>();
-        attributes.put("http.route", AttributeValue.ofString("/api/orders"));
+        attributes.put("http.route", AttributeValue.ofString("/api/sample/boom"));
+        store.add(new NormalizedSpan(
+                "trace",
+                "root",
+                null,
+                "GET /api/sample/boom",
+                "SERVER",
+                "sample",
+                "test",
+                1L,
+                2L,
+                "ERROR",
+                "Boom: apiToken=sample-secret-token",
+                attributes,
+                List.of(new NormalizedEvent(
+                        "exception",
+                        1L,
+                        Map.of(
+                                "exception.type",
+                                AttributeValue.ofString("java.lang.IllegalStateException"),
+                                "exception.message",
+                                AttributeValue.ofString("Boom: apiToken=sample-secret-token"),
+                                "exception.stacktrace",
+                                AttributeValue.ofString(
+                                        "java.lang.IllegalStateException: Boom: apiToken=sample-secret-token\n"
+                                                + "\tat com.example.Sample.boom(Sample.java:42)"))))));
+        MutablePolicy policy = new MutablePolicy(ValueExposure.FULL);
+        TracesService service = new TracesService(store, ENABLED, SELF, policy);
+
+        SpanDto full = span(service.detail("trace").orElseThrow());
+        assertThat(full.statusMessage()).isEqualTo("Boom: apiToken=sample-secret-token");
+        assertThat(eventAttribute(full, "exception.message")).isEqualTo("Boom: apiToken=sample-secret-token");
+
+        policy.exposure = ValueExposure.MASKED;
+        TraceDetailDto masked = service.detail("trace").orElseThrow();
+        assertThat(masked.toString()).doesNotContain("sample-secret-token");
+        assertThat(span(masked).statusMessage()).isEqualTo("Boom: apiToken=" + SecretMasker.MASKED_VALUE);
+        assertThat(eventAttribute(span(masked), "exception.message"))
+                .isEqualTo("Boom: apiToken=" + SecretMasker.MASKED_VALUE);
+        assertThat((String) eventAttribute(span(masked), "exception.stacktrace"))
+                .startsWith("java.lang.IllegalStateException: Boom: apiToken=" + SecretMasker.MASKED_VALUE)
+                .contains("Sample.boom(Sample.java:42)");
+
+        policy.exposure = ValueExposure.METADATA_ONLY;
+        TraceDetailDto metadata = service.detail("trace").orElseThrow();
+        assertThat(metadata.toString()).doesNotContain("sample-secret-token", "Boom");
+        assertThat(span(metadata).statusMessage()).isNull();
+        assertThat(span(metadata).statusCode()).isEqualTo("ERROR");
+        assertThat(eventAttribute(span(metadata), "exception.message")).isNull();
+        assertThat(eventAttribute(span(metadata), "exception.stacktrace")).isNull();
+        assertThat(eventAttribute(span(metadata), "exception.type")).isEqualTo("java.lang.IllegalStateException");
+        assertThat(span(metadata).events().get(0).name()).isEqualTo("exception");
+    }
+
+    @Test
+    void spanReadsMaskNestedValuesWithoutChangingStoredEvidence() {
+        TelemetryStore store = new TelemetryStore(ENABLED);
+        Map<String, AttributeValue> attributes = new LinkedHashMap<>();
         attributes.put("auth.token", AttributeValue.ofString("example-value"));
         attributes.put("http.request.header.authorization", AttributeValue.ofList(List.of("Basic example-value")));
-        attributes.put("exception.message", AttributeValue.ofString("failed token=example-value"));
         attributes.put("notes", AttributeValue.ofList(List.of("token=example-value", "safe")));
         attributes.put(
                 "headers",
@@ -137,104 +246,42 @@ class TracesServiceTests {
                 "ERROR",
                 "failed token=example-value",
                 attributes,
-                List.of(new NormalizedEvent(
-                        "exception token=example-value",
-                        2L,
-                        Map.of(
-                                "exception.message",
-                                AttributeValue.ofString("token=example-value"),
-                                "details",
-                                new AttributeValue(
-                                        "map",
-                                        Map.of(
-                                                "headers",
-                                                List.of(Map.of("authorization", "Basic example-value")))))))));
-        MutableExposure exposure = new MutableExposure();
-        TracesService service = new TracesService(store, ENABLED, SELF, exposure);
+                List.of(new NormalizedEvent("exception", 2L, Map.of("details", attributes.get("headers"))))));
+        MutablePolicy policy = new MutablePolicy(ValueExposure.MASKED);
+        TracesService service = new TracesService(store, ENABLED, SELF, policy);
 
-        var masked = service.detail("trace").orElseThrow().spans().get(0);
+        SpanDto masked = span(service.detail("trace").orElseThrow());
         assertThat(masked.statusMessage()).isEqualTo("failed token=******");
-        assertThat(masked.attributes().stream()
-                        .filter(attribute -> attribute.key().equals("auth.token"))
-                        .findFirst()
-                        .orElseThrow()
-                        .value())
-                .isEqualTo("******");
-        assertThat(masked.attributes().stream()
-                        .filter(attribute -> attribute.key().equals("http.request.header.authorization"))
-                        .findFirst()
-                        .orElseThrow()
-                        .value())
-                .isEqualTo("******");
-        assertThat(masked.events().get(0).name()).isEqualTo("exception token=******");
-        assertThat(masked.events().get(0).attributes().stream()
-                        .filter(attribute -> attribute.key().equals("exception.message"))
-                        .findFirst()
-                        .orElseThrow()
-                        .value())
-                .isEqualTo("token=******");
-        assertThat(masked.events().get(0).attributes().stream()
-                        .filter(attribute -> attribute.key().equals("details"))
-                        .findFirst()
-                        .orElseThrow()
-                        .value())
-                .isEqualTo(Map.of("headers", List.of(Map.of("authorization", "******"))));
-        assertThat(masked.attributes().stream()
-                        .filter(attribute -> attribute.key().equals("notes"))
-                        .findFirst()
-                        .orElseThrow()
-                        .value())
-                .isEqualTo(List.of("token=******", "safe"));
-        assertThat(masked.attributes().stream()
-                        .filter(attribute -> attribute.key().equals("headers"))
-                        .findFirst()
-                        .orElseThrow()
-                        .value())
+        assertThat(masked.attributes())
+                .extracting(attribute -> attribute.value())
+                .containsExactly(
+                        "******",
+                        List.of("******"),
+                        List.of("token=******", "safe"),
+                        Map.of("authorization", "******", "nested", List.of(Map.of("password", "******"))));
+        assertThat(eventAttribute(masked, "details"))
                 .isEqualTo(Map.of("authorization", "******", "nested", List.of(Map.of("password", "******"))));
-        assertThat(masked.attributes().stream()
-                        .filter(attribute -> attribute.key().equals("http.route"))
-                        .findFirst()
-                        .orElseThrow()
-                        .value())
-                .isEqualTo("/api/orders");
 
-        exposure.value = ValueExposure.METADATA_ONLY;
-        var metadata = service.detail("trace").orElseThrow().spans().get(0);
+        policy.exposure = ValueExposure.METADATA_ONLY;
+        SpanDto metadata = span(service.detail("trace").orElseThrow());
         assertThat(metadata.statusMessage()).isNull();
-        assertThat(metadata.attributes()).isEmpty();
-        assertThat(metadata.events()).isEmpty();
-        assertThat(service.list(10).traces().get(0).services()).isEmpty();
-        assertThat(service.list(10).traces().get(0).rootSpanName()).isNull();
+        assertThat(metadata.attributes()).hasSize(attributes.size());
+        assertThat(metadata.events()).hasSize(1);
+        assertThat(service.list(10).traces().get(0).services()).containsExactly("sample");
 
-        exposure.value = ValueExposure.FULL;
-        var full = service.detail("trace").orElseThrow().spans().get(0);
+        policy.exposure = ValueExposure.FULL;
+        SpanDto full = span(service.detail("trace").orElseThrow());
         assertThat(full.statusMessage()).isEqualTo("failed token=example-value");
-        assertThat(full.attributes().stream()
-                        .filter(attribute -> attribute.key().equals("auth.token"))
-                        .findFirst()
-                        .orElseThrow()
-                        .value())
-                .isEqualTo("example-value");
-        assertThat(full.attributes().stream()
-                        .filter(attribute -> attribute.key().equals("headers"))
-                        .findFirst()
-                        .orElseThrow()
-                        .value())
-                .isEqualTo(Map.of(
-                        "authorization",
-                        "Basic example-value",
-                        "nested",
-                        List.of(Map.of("password", "example-value"))));
-        assertThat(full.events().get(0).name()).isEqualTo("exception token=example-value");
+        assertThat(eventAttribute(full, "details"))
+                .isEqualTo(attributes.get("headers").value());
 
-        exposure.value = ValueExposure.MASKED;
-        exposure.mask = false;
-        assertThat(service.detail("trace").orElseThrow().spans().get(0).statusMessage())
-                .isEqualTo("failed token=example-value");
+        policy.exposure = ValueExposure.MASKED;
+        policy.mask = false;
+        assertThat(span(service.detail("trace").orElseThrow()).statusMessage()).isEqualTo("failed token=example-value");
     }
 
     @Test
-    void aiChatDetailsShareTheSameLiveSpanExposureRule() {
+    void aiChatDetailsApplyTheLiveSpanExposurePolicy() {
         TelemetryStore store = new TelemetryStore(ENABLED);
         store.add(new NormalizedSpan(
                 "ai-trace",
@@ -251,39 +298,71 @@ class TracesServiceTests {
                 Map.of(
                         "gen_ai.operation.name", AttributeValue.ofString("chat"),
                         "gen_ai.request.model", AttributeValue.ofString("example-model"),
-                        "gen_ai.prompt", AttributeValue.ofString("token=example-value")),
-                List.of()));
-        MutableExposure exposure = new MutableExposure();
+                        "gen_ai.prompt", AttributeValue.ofString("token=example-value"),
+                        "details", new AttributeValue("map", Map.of("password", "example-value"))),
+                List.of(new NormalizedEvent(
+                        "event token=example-value",
+                        2L,
+                        Map.of("notes", AttributeValue.ofList(List.of("token=example-value")))))));
+        MutablePolicy policy = new MutablePolicy(ValueExposure.MASKED);
         AiUsageService service = new AiUsageService(
-                store, () -> new AiUsageSettings(true, 10, 60, false), System::currentTimeMillis, exposure);
+                store, () -> new AiUsageSettings(true, 10, 60, false), System::currentTimeMillis, policy);
 
-        assertThat(service.chatDetail("chat-span").orElseThrow().attributes().stream()
-                        .filter(attribute -> attribute.key().equals("gen_ai.prompt"))
-                        .findFirst()
-                        .orElseThrow()
-                        .value())
-                .isEqualTo("token=******");
-        exposure.value = ValueExposure.METADATA_ONLY;
+        var masked = service.chatDetail("chat-span").orElseThrow();
+        assertThat(masked.attributes())
+                .extracting(attribute -> attribute.value())
+                .contains("token=******");
+        assertThat(masked.toString()).doesNotContain("example-value");
+        policy.exposure = ValueExposure.METADATA_ONLY;
         assertThat(service.chatDetail("chat-span").orElseThrow().attributes()).isEmpty();
+        assertThat(service.chatDetail("chat-span").orElseThrow().events()).isEmpty();
         assertThat(service.chats(10).get(0).requestModel()).isNull();
         assertThat(service.overview().tokensByModel()).isEmpty();
-        exposure.value = ValueExposure.FULL;
-        assertThat(service.chatDetail("chat-span").orElseThrow().attributes().stream()
-                        .filter(attribute -> attribute.key().equals("gen_ai.prompt"))
-                        .findFirst()
-                        .orElseThrow()
-                        .value())
-                .isEqualTo("token=example-value");
+        policy.exposure = ValueExposure.FULL;
+        assertThat(service.chatDetail("chat-span").orElseThrow().attributes())
+                .extracting(attribute -> attribute.value())
+                .contains("token=example-value");
     }
 
-    private static final class MutableExposure implements ExposurePolicy {
+    private static SpanDto span(TraceDetailDto detail) {
+        assertThat(detail.spans()).hasSize(1);
+        return detail.spans().get(0);
+    }
 
-        private ValueExposure value = ValueExposure.MASKED;
+    private static Object eventAttribute(SpanDto span, String key) {
+        return span.events().get(0).attributes().stream()
+                .filter(attribute -> attribute.key().equals(key))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("missing event attribute " + key))
+                .value();
+    }
+
+    static ExposurePolicy policy(ValueExposure exposure, boolean maskSecrets) {
+        return new ExposurePolicy() {
+            @Override
+            public ValueExposure valueExposure() {
+                return exposure;
+            }
+
+            @Override
+            public boolean maskSecrets() {
+                return maskSecrets;
+            }
+        };
+    }
+
+    private static final class MutablePolicy implements ExposurePolicy {
+
+        private ValueExposure exposure;
         private boolean mask = true;
+
+        private MutablePolicy(ValueExposure exposure) {
+            this.exposure = exposure;
+        }
 
         @Override
         public ValueExposure valueExposure() {
-            return value;
+            return exposure;
         }
 
         @Override

@@ -26,7 +26,6 @@ import io.github.jdubois.bootui.quarkus.beans.QuarkusBeanDependencies;
 import io.github.jdubois.bootui.quarkus.cli.BootUiCliProducer;
 import io.github.jdubois.bootui.quarkus.config.QuarkusConfigProvider;
 import io.github.jdubois.bootui.quarkus.devservices.DevServicesRecorder;
-import io.github.jdubois.bootui.quarkus.devservices.QuarkusDevServices;
 import io.github.jdubois.bootui.quarkus.devservices.QuarkusDevServicesProvider;
 import io.github.jdubois.bootui.quarkus.devservices.RawDevService;
 import io.github.jdubois.bootui.quarkus.errorcontract.ErrorContractRecorder;
@@ -1820,33 +1819,32 @@ class BootUiQuarkusProcessor {
     /**
      * Lights up the Dev Services panel from the build-time {@code DevServicesResultBuildItem}s. Quarkus exposes
      * Dev Services only at build time (no runtime container-listing API), so each result's name, description,
-     * container id and injected config map is recorded into a {@link QuarkusDevServices} synthetic bean and
-     * replayed at runtime; {@code QuarkusDevServicesProvider} masks the config values. The build step runs only
-     * in non-production launch modes (Dev Services never start in production) and stays quiet when no dev
-     * services were started, so the present-key defaults to false and the panel reports an honest hint.
+     * container id and injected config map is recorded into the runtime {@code CapturedDevServices} snapshot;
+     * {@code QuarkusDevServicesProvider} masks the config values and {@code QuarkusPanelAvailability} lights the
+     * panel when the snapshot exists. The build step runs only in non-production launch modes (Dev Services
+     * never start in production). It records even an empty list, which clears the snapshot, so a dev-mode
+     * restart without Dev Services does not keep the previous start's services; the panel then reports an
+     * honest hint.
+     *
+     * <p>This step must produce nothing but recorded bytecode: no {@code SyntheticBeanBuildItem}, no
+     * {@code RunTimeConfigurationDefaultBuildItem}, nothing else the bean container consumes. Dev Services wait
+     * for logging setup, and logging setup waits for the bean container when a CDI-backed log handler is
+     * installed (OpenTelemetry logs), so feeding Dev Services results into ArC is a build-step cycle that stops
+     * the application from starting.</p>
      */
     @BuildStep
     @Record(ExecutionTime.STATIC_INIT)
-    void registerDevServices(
+    void captureDevServices(
             LaunchModeBuildItem launchMode,
             List<DevServicesResultBuildItem> devServices,
-            DevServicesRecorder recorder,
-            BuildProducer<SyntheticBeanBuildItem> syntheticBeans,
-            BuildProducer<RunTimeConfigurationDefaultBuildItem> runtimeDefaults) {
-        if (launchMode.getLaunchMode() == LaunchMode.NORMAL || devServices.isEmpty()) {
-            return; // production, or no dev services started: panel stays unavailable (key defaults to false)
+            DevServicesRecorder recorder) {
+        if (launchMode.getLaunchMode() == LaunchMode.NORMAL) {
+            return; // Dev Services never start in production: the panel stays unavailable
         }
-        List<RawDevService> services = devServices.stream()
+        recorder.capture(devServices.stream()
                 .map(item -> new RawDevService(
                         item.getName(), item.getDescription(), item.getContainerId(), item.getConfig()))
-                .toList();
-        syntheticBeans.produce(SyntheticBeanBuildItem.configure(QuarkusDevServices.class)
-                .scope(Singleton.class)
-                .runtimeValue(recorder.create(services))
-                .unremovable()
-                .done());
-        runtimeDefaults.produce(
-                new RunTimeConfigurationDefaultBuildItem(QuarkusPanelAvailability.DEV_SERVICES_PRESENT_KEY, "true"));
+                .toList());
     }
 
     private static final String CIRCUIT_BREAKER_STATES_CLASS =

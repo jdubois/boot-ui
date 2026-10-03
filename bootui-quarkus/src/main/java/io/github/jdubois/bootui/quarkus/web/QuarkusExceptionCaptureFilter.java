@@ -11,6 +11,7 @@ import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.Config;
+import org.jboss.logging.Logger;
 
 /**
  * Captures unhandled HTTP request failures into the shared {@link ExceptionStore} — the Quarkus analogue
@@ -53,6 +54,8 @@ public class QuarkusExceptionCaptureFilter {
     /** After the safety filter (priority 1000); only ever records, never short-circuits. */
     private static final int PRIORITY = 900;
 
+    private static final Logger LOG = Logger.getLogger(QuarkusExceptionCaptureFilter.class);
+
     private final ExceptionStore store;
     private final TraceIdSource traceIdProvider;
     private final Config config;
@@ -69,27 +72,48 @@ public class QuarkusExceptionCaptureFilter {
     }
 
     void handle(RoutingContext rc) {
+        try {
+            observe(rc);
+        } catch (RuntimeException failure) {
+            logCaptureFailure(failure);
+        }
+        rc.next();
+    }
+
+    private void observe(RoutingContext rc) {
         String path = rc.normalizedPath();
         if (QuarkusBootUiPaths.isBootUiRequest(config, path)) {
-            rc.next();
             return;
         }
         String method = rc.request().method().name();
         String traceId = currentTraceId();
         rc.addBodyEndHandler(v -> {
-            Throwable failure = rc.failure();
-            if (failure != null) {
-                store.record(
-                        failure,
-                        Thread.currentThread().getName(),
-                        method,
-                        path,
-                        QuarkusResourceHandlers.currentHandler(),
-                        "web",
-                        traceId);
+            try {
+                Throwable failure = rc.failure();
+                if (failure != null) {
+                    store.record(
+                            failure,
+                            Thread.currentThread().getName(),
+                            method,
+                            path,
+                            QuarkusResourceHandlers.currentHandler(),
+                            "web",
+                            traceId);
+                }
+            } catch (RuntimeException captureFailure) {
+                logCaptureFailure(captureFailure);
             }
         });
-        rc.next();
+    }
+
+    /**
+     * Logged under BootUI's own logger, which the Exceptions panel ignores, so a capture failure is never
+     * thrown into Vert.x (where {@code QuarkusErrorHandler} would report it as the application's failure).
+     */
+    private static void logCaptureFailure(RuntimeException failure) {
+        LOG.warnf(
+                "BootUI skipped a Quarkus exception capture (%s)",
+                failure.getClass().getSimpleName());
     }
 
     /**

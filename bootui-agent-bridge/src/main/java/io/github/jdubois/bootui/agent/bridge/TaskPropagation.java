@@ -120,7 +120,7 @@ public final class TaskPropagation {
             long generation = claim.generation;
             if (Thread.currentThread() == selfTestThread) {
                 SELF_TEST_KEYED[hook].increment();
-                TaskSnapshots.put(task, generation, SELF_TEST);
+                TaskSnapshots.TASKS.put(task, generation, SELF_TEST);
                 return TOUCHED;
             }
             if (!claim.hasSensor(SENSOR) || generation == disabledGeneration) {
@@ -133,16 +133,16 @@ public final class TaskPropagation {
             Supplier<Object> capture = claim.capture.get();
             Object payload = capture == null ? null : capture.get();
             if (payload == null) {
-                return TaskSnapshots.putUnowned(task, generation) ? TOUCHED : NONE;
+                return TaskSnapshots.TASKS.putUnowned(task, generation) ? TOUCHED : NONE;
             }
             if (!flatJdkValues(payload)) {
                 REFUSED.increment();
-                return TaskSnapshots.putUnowned(task, generation) ? TOUCHED : NONE;
+                return TaskSnapshots.TASKS.putUnowned(task, generation) ? TOUCHED : NONE;
             }
             if (count) {
                 KEYED[hook].increment();
             }
-            if (!TaskSnapshots.put(task, generation, (Object[]) payload)) {
+            if (!TaskSnapshots.TASKS.put(task, generation, (Object[]) payload)) {
                 AMBIGUOUS.increment();
             }
             return KEYED_OWNED;
@@ -276,8 +276,8 @@ public final class TaskPropagation {
     /** A submission that will not run: the worker did not start, or the task was removed. */
     public static void release(Object task) {
         try {
-            TaskSnapshots.release(task);
-            TaskSnapshots.expungeStale();
+            TaskSnapshots.TASKS.release(task);
+            TaskSnapshots.TASKS.expungeStale();
         } catch (Throwable ex) {
             AgentBridge.error(ex);
         }
@@ -288,14 +288,14 @@ public final class TaskPropagation {
     /** Where an executor runs {@code task}: the handle to {@link #exit} after it, or {@code null}. */
     public static Object enter(Object task, int hook) {
         try {
-            if (task == null || TaskSnapshots.isEmpty()) {
+            if (task == null || TaskSnapshots.TASKS.isEmpty()) {
                 return null;
             }
             if (hook != APPLY_ASYNC && asyncApplies && isAsyncTask(task)) {
                 // CompletableFuture's own advice applies it, where the stage's outcome is readable.
                 return null;
             }
-            Object entry = TaskSnapshots.take(task);
+            Object entry = TaskSnapshots.TASKS.take(task);
             if (entry == null || entry == TaskSnapshots.AMBIGUOUS) {
                 return null;
             }
@@ -336,14 +336,21 @@ public final class TaskPropagation {
     }
 
     /** Ends the child execution {@code handle} opened, telling it the task's failure first, if any. */
-    @SuppressWarnings("unchecked")
     public static void exit(Object handle, Throwable failure) {
+        if (handle != null && failure != null) {
+            FAILURES.increment();
+        }
+        exitHandle(handle, failure);
+    }
+
+    /** Tells {@code handle} the failure, if any, then closes it; never throws. */
+    @SuppressWarnings("unchecked")
+    static void exitHandle(Object handle, Throwable failure) {
         if (handle == null) {
             return;
         }
         try {
             if (failure != null && handle instanceof Consumer) {
-                FAILURES.increment();
                 ((Consumer<Throwable>) handle).accept(failure);
             }
         } catch (Throwable ex) {
@@ -501,8 +508,8 @@ public final class TaskPropagation {
         Map<String, Object> map = new LinkedHashMap<String, Object>();
         map.put("keyed", counts(KEY_HOOKS, KEYED));
         map.put("applied", counts(APPLY_HOOKS, APPLIED));
-        map.put("pending", Long.valueOf(TaskSnapshots.size()));
-        map.put("neverApplied", Long.valueOf(TaskSnapshots.neverApplied()));
+        map.put("pending", Long.valueOf(TaskSnapshots.TASKS.size()));
+        map.put("neverApplied", Long.valueOf(TaskSnapshots.TASKS.neverApplied()));
         map.put("ambiguous", Long.valueOf(AMBIGUOUS.sum()));
         map.put("stale", Long.valueOf(STALE.sum()));
         map.put("refused", Long.valueOf(REFUSED.sum()));
@@ -517,7 +524,7 @@ public final class TaskPropagation {
     }
 
     static void reset() {
-        TaskSnapshots.reset();
+        TaskSnapshots.TASKS.reset();
         for (int i = 0; i < KEYED.length; i++) {
             KEYED[i].reset();
             SELF_TEST_KEYED[i].reset();
@@ -539,7 +546,7 @@ public final class TaskPropagation {
         enable();
     }
 
-    private static Map<String, Object> counts(String[] names, LongAdder[] adders) {
+    static Map<String, Object> counts(String[] names, LongAdder[] adders) {
         Map<String, Object> map = new LinkedHashMap<String, Object>();
         for (int i = 0; i < names.length; i++) {
             map.put(names[i], Long.valueOf(adders[i].sum()));

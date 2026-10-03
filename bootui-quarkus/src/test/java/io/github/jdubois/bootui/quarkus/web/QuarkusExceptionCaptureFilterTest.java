@@ -1,7 +1,9 @@
 package io.github.jdubois.bootui.quarkus.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -98,13 +100,43 @@ class QuarkusExceptionCaptureFilterTest {
         assertThat(store.totalExceptions()).isEqualTo(1);
     }
 
-    /** Runs the filter and then fires the body-end handler it registered, as Vert.x does on response end. */
-    private static void completeRequest(QuarkusExceptionCaptureFilter filter, RoutingContext rc) {
+    @Test
+    void aFailingCaptureNeverReachesTheRequest() {
+        RoutingContext rc = mockRequest("/orders/42", new IllegalStateException("boom"));
+        ExceptionStore store = mock(ExceptionStore.class);
+        doThrow(new IllegalStateException("capture failed"))
+                .when(store)
+                .record(any(), any(), any(), any(), any(), any(), any());
+        QuarkusExceptionCaptureFilter filter = filter(store, Map.of());
+
         filter.handle(rc);
+
+        verify(rc).next();
+        assertThatCode(() -> bodyEndHandler(rc).handle(null)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void aFailureBeforeRegistrationStillContinuesTheRequest() {
+        RoutingContext rc = mockRequest("/orders/42", null);
+        when(rc.request().method()).thenThrow(new IllegalStateException("request recycled"));
+
+        assertThatCode(() -> filter(newStore(), Map.of()).handle(rc)).doesNotThrowAnyException();
+
+        verify(rc).next();
+        verify(rc, never()).addBodyEndHandler(any());
+    }
+
+    private static Handler<Void> bodyEndHandler(RoutingContext rc) {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Handler<Void>> captor = ArgumentCaptor.forClass(Handler.class);
         verify(rc).addBodyEndHandler(captor.capture());
-        captor.getValue().handle(null);
+        return captor.getValue();
+    }
+
+    /** Runs the filter and then fires the body-end handler it registered, as Vert.x does on response end. */
+    private static void completeRequest(QuarkusExceptionCaptureFilter filter, RoutingContext rc) {
+        filter.handle(rc);
+        bodyEndHandler(rc).handle(null);
     }
 
     private static ExceptionStore newStore() {

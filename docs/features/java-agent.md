@@ -82,8 +82,8 @@ ignored.
 
 ## The executors sensor
 
-A claim asks for the sensors in `bootui.agent.sensors`; `executors` is the only one and the default. The agent installs
-it once, on its own thread, then self-tests every hook with private pools before it propagates anything. The sensor row
+A claim asks for the sensors in `bootui.agent.sensors`: `executors`, the default, and the opt-in
+[`threads`](#the-threads-sensor). The agent installs each one once, on its own thread, then self-tests every hook with private pools before it propagates anything. The sensor row
 shows its state (`installing`, `installed`, `failed`, or `off`), how long installing and the self-test took, the
 self-test's result, how many JDK types it instrumented, and the types that failed to transform. Without a sensor, the
 panel says:
@@ -155,7 +155,7 @@ report warns that the self-test decides.
   after it started is published `capped`.
 - SQL a propagated task runs is never stamped with its request's phase, so it is reported by `work-after-response`, not
   as lazy loading by `lazy-sql-after-handler`.
-- Threads a request starts itself are not propagated yet.
+- Threads a request starts itself are propagated only by the opt-in [threads sensor](#the-threads-sensor).
 
 Work still running after its request answered shows in Live Activity as a running `ASYNC` entry with an **after
 response** badge, and Runtime Insights reports it as `work-after-response` when it ran SQL, called a REST service, sent a
@@ -164,6 +164,48 @@ handler waited for ended before, and a request that marked no response, as when 
 end; on Spring WebFlux, which marks no request phases, the request's end stands in for its response. That observation and the request profile's `PROPAGATED` tier apply only while the agent is attached
 and armed for the application, its `executors` sensor is installed and not disabled by a failed self-test, and BootUI
 attached its handoffs to the claim; otherwise they say which of these is missing.
+
+## The threads sensor
+
+`bootui.agent.sensors=executors,threads` adds the `threads` sensor, which carries a request into the threads its
+application code starts, with `new Thread(...).start()`, a virtual thread, or
+`Executors.newVirtualThreadPerTaskExecutor()`. It is off by default because `java.lang.Thread` is the riskiest JDK
+class to retransform; it installs and self-tests on its own, with a platform thread and, from JDK 21, a virtual thread.
+A failed self-test stops only this sensor, at once, then removes its transformer; if the JVM refuses that, the sensor
+stays stopped and its state reads `self-test-failed (release-failed)`.
+
+| Hook | Role | JDK type |
+| --- | --- | --- |
+| `Thread.start` | starts threads | `Thread.start()`, and on JDK 21+ the `start(ThreadContainer)` executors use |
+| `VirtualThread.start` | starts threads | JDK 21+ virtual threads |
+| `Thread.run` | runs threads | the thread's task, through `Thread.run` (JDK 17) or `Thread.runWith` (JDK 21+) |
+| `Thread subclass run` | runs threads | `run()` of a `Thread` subclass in the claimed packages |
+
+On JDK 21 and later the task's call inside `Thread.runWith` is replaced, never wrapped, so the scoped-value bindings a
+`StructuredTaskScope` subtask inherits, which `runWith` keeps in its frame, stay visible in it.
+
+A thread is propagated only when application code starts it: the first caller of `start()` outside the JDK must belong
+to the claimed packages (`bootui.agent.packages` and the packages BootUI discovers). A thread a library or a framework
+starts inside a request, such as a client's I/O thread, a pool filler built from an application thread factory, a
+framework's dispatch to a virtual thread, or a context-propagating executor wrapper such as Micrometer's, never
+inherits that request, even when its task is an application lambda; the wrapper carries the context itself. The
+caller is looked up only inside owned work. A thread started inside `ThreadPoolExecutor.addWorker` and a fork/join
+worker are pool workers and are never propagated: they would otherwise carry the request that created them for their
+whole life. Nor is a platform thread whose class overrides `run()` outside the claimed packages, such as
+`java.util.Timer`'s. `bootui-` threads are skipped, and the `bootui.agent.executors.skip-tasks` and `skip-threads`
+prefixes are checked against the thread's task and name. A thread `CompletableFuture` starts for its own
+thread-per-task fallback is left to the executors sensor, which reports the stage's outcome; Kotlin's `thread { }`
+counts as its caller. Accepted limits: a background thread the application starts lazily from a request, such as a
+polling loop, carries that request until it ends, the handoff window bounding what is attributed; and a stage of
+`CompletableFuture.supplyAsync(..., executor)` on a virtual-thread-per-task executor is propagated by this sensor,
+which cannot see the stage's failure, so its handoff ends successful.
+
+Its counters are those of the executors sensor, over threads instead of tasks, plus:
+
+| Counter | What it counts |
+| --- | --- |
+| Library threads skipped | Threads started inside owned work by code outside the claimed packages. |
+| Pool workers skipped | Pool worker threads, never propagated. |
 
 ## Coexistence and class data sharing
 
@@ -194,7 +236,7 @@ See [BootUI properties](../PROPERTIES.md#java-agent) for:
 | `bootui.agent.enabled` | `true` | Claim the agent when it is attached. |
 | `bootui.agent.packages` | empty | Extra application package prefixes; the adapter-discovered packages are always included. |
 | `bootui.agent.mode` | `auto` | `auto`, `dev`, or `test`. |
-| `bootui.agent.sensors` | `executors` | The sensors this application asks for. |
+| `bootui.agent.sensors` | `executors` | The sensors this application asks for: `executors`, and the opt-in `threads`. |
 | `bootui.agent.executors.skip-tasks` | BootUI's, Micrometer's, and Spring's propagating wrappers, `jdk.internal.`, `sun.`, `com.zaxxer.hikari.`, `com.github.benmanes.caffeine.` | Task class-name prefixes never propagated. |
 | `bootui.agent.executors.skip-threads` | `vert.x-`, `bootui-` | Worker thread-name prefixes never propagated to; on Spring, Reactor's `parallel-`, `boundedElastic-`, and `single-` are added when Reactor's automatic context propagation is on. |
 | `bootui.agent.executors.max-handoff` | `5m` | The handoff window: a task belongs to its request when it starts no later than this after the request ended, its work is attributed until this long after it started, and it is published `capped` when it runs longer. |

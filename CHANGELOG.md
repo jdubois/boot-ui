@@ -25,6 +25,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   of opening an empty nested execution, and exception groups ignore the agent bridge's frames
   ([Java Agent](docs/features/java-agent.md#the-executors-sensor), PLAN-v2 M5-2).
 
+- **Thread propagation with the BootUI agent (opt-in).** `bootui.agent.sensors=executors,threads` adds the agent's
+  `threads` sensor, which carries a request into the platform and virtual threads application code starts, including
+  those of a virtual-thread-per-task executor and structured subtasks, keeping inherited scoped values visible. Threads a
+  library or framework starts inside a request and pool workers are never propagated, and the Java Agent panel counts
+  both
+  ([Java Agent](docs/features/java-agent.md#the-threads-sensor), PLAN-v2 M5-2c).
+
 - **Free BootUI memory.** Live Memory, JVM Tuning, Heap Dump, and the Memory advisor share a header action, with an
   expandable explanation, that empties BootUI's in-memory capture buffers (runtime journal, Live Activity, HTTP
   exchanges, traces, SQL, REST client, transaction, messaging, WebSocket, cache, scheduler, fault-tolerance, exception,
@@ -352,6 +359,20 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Quarkus HTTP and exception capture can no longer fail a request after its response.** When a worker or virtual
+  thread ended the response, the HTTP exchange capture read the response headers while the event loop could still be
+  changing them. The read intermittently threw `NullPointerException` or `NoSuchElementException`, and Quarkus then
+  logged an ERROR for the application's URL that the Exceptions panel and Live Activity recorded as an application
+  failure. Off the event loop, the capture now copies the response headers just before Vert.x writes them. Both the
+  HTTP exchange and exception capture filters now catch their own failures and log a warning under BootUI's own logger,
+  which the Exceptions panel ignores ([#1203](https://github.com/jdubois/boot-ui/pull/1203)).
+- **Quarkus apps with OpenTelemetry logs and Dev Services start again with BootUI.** Adding `bootui-quarkus` to an
+  application that enables `quarkus.otel.logs.enabled` and starts Compose or datasource Dev Services stopped dev and
+  test mode with a build-step `Cycle detected` error, because BootUI fed the Dev Services results into the CDI bean
+  container, which the OpenTelemetry log handler needs before logging is set up. BootUI now records the Dev Services
+  snapshot without touching the bean container; the Dev Services panel shows the same services and stays unavailable
+  when none started ([Dev Services on Quarkus](docs/QUARKUS-SUPPORT.md),
+  [#1204](https://github.com/jdubois/boot-ui/pull/1204)).
 - **`ARCH-SPRING-004` no longer reports a self-call that only joins the caller's transaction.** A method that already
   runs in a transaction, declared on the method or the class, can call a `@Transactional` method of the same bean
   whose `REQUIRED`, `SUPPORTS` or `MANDATORY` propagation would only join that transaction. That call is no longer
@@ -465,6 +486,18 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Security
 
+- **Trace data now follows the value-exposure policy.** `GET /bootui/api/traces/{id}`, the trace embedded in the
+  per-request profile (`GET /bootui/api/activity/request/{id}`), and their `get_request_profile` MCP tool and
+  `bootui request-profile` projections returned span status messages, `exception.message` and `exception.stacktrace`
+  event attributes, URLs, and header values verbatim in every mode, so a secret in an exception message that the
+  Exceptions panel masked was still shown raw. Spans are still stored as captured, and every read now applies the live
+  `bootui.expose-values` / `bootui.mask-secrets` policy: free-form text uses the exception message rule (masked under
+  `MASKED`, omitted as `null` under `METADATA_ONLY`), URLs use the HTTP Exchanges URI rule, sensitive header and
+  attribute values are masked, and bound parameter and header values are omitted under `METADATA_ONLY`. Keys, types,
+  names, ids, and timings are unchanged, and `FULL` shows values verbatim, except URL user-info, which BootUI never
+  shows. Applies on Spring MVC, Spring WebFlux, and Quarkus, including after a runtime change of the mode
+  ([Trace value exposure](docs/features/diagnostics.md#trace-value-exposure),
+  [#1205](https://github.com/jdubois/boot-ui/pull/1205)).
 - **Log, exception, and container-log masking now covers the credential after an authorization scheme.** Under the
   default `bootui.expose-values=MASKED`, the shared rule masked only the first word after a secret-like key, so
   `Authorization: Bearer <token>` hid the word `Bearer` and showed the token. The credential is now masked and the

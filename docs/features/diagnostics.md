@@ -12,10 +12,10 @@ The list shows the most recent traces with their service name, the HTTP path eac
 span count. When a trace has no path attribute, the root span name is used instead. Opening a trace renders a waterfall
 of its spans, so you can see latency contributions, errors, and parent and child relationships across services.
 
-Trace summaries and span details, including the spans in request profiles and AI chat details, follow the live
-`bootui.expose-values` policy. `MASKED` applies secret-key and free-text masking to attributes, events, and status
-messages; `METADATA_ONLY` omits their text and attribute values; `FULL` shows the captured text. Changing the policy
-affects the next read, not what is retained in memory.
+Trace summaries and span details, including the spans in request profiles, follow the live value-exposure rules
+described below. AI chat details also follow `bootui.expose-values`: `MASKED` applies secret-key and free-text masking,
+including nested attributes and events; `METADATA_ONLY` omits their attributes and events; `FULL` shows captured values.
+Changing the policy affects the next read, not what is retained in memory.
 
 On Spring Boot, BootUI also runs an embedded OTLP/HTTP receiver at `/bootui/api/otlp/v1/traces`, so cooperating local
 services can export spans into the same in-memory store. On Quarkus, spans are captured in-process through an
@@ -24,6 +24,31 @@ embedded receiver. The empty state points at whichever model applies.
 
 Trace data resets on application restart and through the panel's clear action. When `bootui.telemetry.enabled=false`,
 the sidebar dims the panel and the view shows a disabled state, so an empty list never reads as "no traces yet".
+
+### Trace value exposure
+
+Spans are stored as captured, and every read applies the live `bootui.expose-values` and `bootui.mask-secrets` policy,
+so a runtime change takes effect on the next read without a restart. The same rule covers `GET /bootui/api/traces/{id}`,
+the trace embedded in the [per-request profile](overview.md#the-per-request-profiler), and the `get_request_profile` MCP
+tool and `bootui request-profile` command on Spring MVC, Spring WebFlux, and Quarkus:
+
+- **Status messages and exception events.** A span's status message and its `exception.message` and
+  `exception.stacktrace` event attributes, like `error.message` and captured generative-AI prompt and completion text,
+  follow the [exception message](#exposure-and-bounds) rule: secret-like assignments and authorization credentials are
+  masked under the default `MASKED`, the text is omitted under `METADATA_ONLY`, and it is verbatim only under `FULL`.
+- **URLs.** `url.full`, `http.url`, `http.target`, `url.query`, and `url.path` are masked like the HTTP Exchanges URI:
+  user-info is always removed, sensitive query and matrix parameter values are masked under `MASKED`, and query values
+  are dropped under `METADATA_ONLY`.
+- **Headers and bound parameters.** `http.request.header.*` and `http.response.header.*` values with a sensitive name,
+  such as `authorization` or `cookie`, are masked under `MASKED`, and every header and `db.query.parameter.*` value is
+  omitted under `METADATA_ONLY`.
+- **Other attributes.** A string attribute whose key looks sensitive, such as `app.api_key`, is masked, and any other
+  string attribute, such as `db.statement`, has secret-like assignments masked, unless the mode is `FULL`. Numbers and
+  booleans, such as token counts and status codes, are never masked.
+
+Keys, types, span and event names, ids, kinds, and timings are never changed. An omitted value is `null`, so the span
+keeps its shape. Masked text is safer to show, not guaranteed secret-free: like log messages, only secrets with a
+recognizable shape are detected.
 
 ::: details Sampling defaults and log-level pins
 

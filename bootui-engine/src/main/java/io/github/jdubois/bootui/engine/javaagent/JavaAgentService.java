@@ -104,7 +104,7 @@ public final class JavaAgentService {
                 AgentBridgeAccess.number(agent, "startupMicros"),
                 claimDto(bridgeClaim),
                 resolution.heldBy(),
-                sensors(agent, AgentBridgeAccess.map(status, "executors")),
+                sensors(agent, status),
                 retransformation(AgentBridgeAccess.map(agent, "installer")),
                 counters(AgentBridgeAccess.map(status, "counters")),
                 strings(AgentBridgeAccess.items(status, "messages")),
@@ -290,7 +290,8 @@ public final class JavaAgentService {
                 AgentBridgeAccess.flag(claim, "abandoned"));
     }
 
-    private static List<JavaAgentSensorDto> sensors(Map<String, Object> agent, Map<String, Object> executors) {
+    /** Each sensor the agent reports, with the bridge's counters for it, which the bridge keeps under the sensor's id. */
+    private static List<JavaAgentSensorDto> sensors(Map<String, Object> agent, Map<String, Object> status) {
         List<JavaAgentSensorDto> sensors = new ArrayList<>();
         for (Object item : AgentBridgeAccess.items(agent, "sensors")) {
             if (item instanceof Map<?, ?> raw) {
@@ -300,7 +301,7 @@ public final class JavaAgentService {
                     types = AgentBridgeAccess.number(sensor, "transformed");
                 }
                 String id = AgentBridgeAccess.text(sensor, "id");
-                boolean executorSensor = AgentSensorSettings.EXECUTORS.equals(id);
+                Map<String, Object> counters = id == null ? Map.of() : AgentBridgeAccess.map(status, id);
                 Long duration = AgentBridgeAccess.number(sensor, "durationMillis");
                 sensors.add(new JavaAgentSensorDto(
                         id,
@@ -311,10 +312,10 @@ public final class JavaAgentService {
                         AgentBridgeAccess.flag(sensor, "selfTestPassed"),
                         AgentBridgeAccess.text(sensor, "selfTestError"),
                         texts(AgentBridgeAccess.map(sensor, "selfTestSteps")),
-                        hooks(sensor, executorSensor ? executors : Map.of()),
+                        hooks(sensor, counters),
                         count(sensor, "failed"),
                         count(sensor, "skipped"),
-                        executorSensor && !executors.isEmpty() ? executorCounters(executors) : null));
+                        counters.isEmpty() ? null : executorCounters(counters)));
             }
         }
         return sensors;
@@ -356,7 +357,9 @@ public final class JavaAgentService {
                 longValue(executors, "skippedThreads"),
                 longValue(executors, "failures"),
                 AgentBridgeAccess.text(executors, "disabledReason"),
-                AgentBridgeAccess.flag(executors, "asyncApplies"));
+                AgentBridgeAccess.flag(executors, "asyncApplies"),
+                AgentBridgeAccess.number(executors, "libraryThreadsSkipped"),
+                AgentBridgeAccess.number(executors, "poolWorkersSkipped"));
     }
 
     private static Map<String, String> texts(Map<String, Object> map) {

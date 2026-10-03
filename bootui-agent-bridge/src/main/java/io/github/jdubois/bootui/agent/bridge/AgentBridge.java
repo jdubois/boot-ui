@@ -255,6 +255,7 @@ public final class AgentBridge {
         counters.put("errors", Long.valueOf(ERRORS.sum()));
         counters.put("probeHits", Long.valueOf(PROBE_HITS.sum()));
         map.put("executors", TaskPropagation.status());
+        map.put("threads", ThreadPropagation.status());
         map.put("counters", counters);
         if (agent != null) {
             Map<String, Object> request = new LinkedHashMap<String, Object>();
@@ -387,5 +388,6 @@ public final class AgentBridge {
         ERRORS.reset();
         PROBE_HITS.reset();
         TaskPropagation.reset();
+        ThreadPropagation.reset();
     }
 }

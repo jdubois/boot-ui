@@ -21,7 +21,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Read-only API for the BootUI Traces panel. Thin Spring adapter over the framework-neutral
- * {@link TracesService} in {@code bootui-engine}.
+ * {@link TracesService} in {@code bootui-engine}, which applies the live {@link BootUiExposure} policy to span values
+ * on every read.
  */
 @RestController
 @RequestMapping("${bootui.api-path:${bootui.path:/bootui}/api}/traces")

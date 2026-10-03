@@ -7,10 +7,12 @@ import io.github.jdubois.bootui.conformance.AbstractBootUiApiConformanceTest;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.Runtime;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
+import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.QuarkusTestProfile;
 import io.quarkus.test.junit.TestProfile;
+import jakarta.inject.Inject;
 import java.net.URL;
 import java.nio.file.Path;
 import java.util.Map;
@@ -27,6 +29,14 @@ class BootUiCustomPathBootTest extends AbstractBootUiApiConformanceTest {
 
     @TestHTTPResource
     URL baseUrl;
+
+    @Inject
+    TelemetryStore telemetryStore;
+
+    @Override
+    protected TelemetryStore telemetryStore() {
+        return telemetryStore;
+    }
 
     private BootUiHttpProbe probe() {
         String serverRoot = baseUrl.getProtocol() + "://" + baseUrl.getHost() + ":" + baseUrl.getPort();

@@ -1,7 +1,9 @@
 package io.github.jdubois.bootui.sample;
 
 import io.github.jdubois.bootui.conformance.AbstractBootUiApiConformanceTest;
+import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -40,6 +42,14 @@ class SpringApiConformanceTest extends AbstractBootUiApiConformanceTest {
 
     @LocalServerPort
     int port;
+
+    @Autowired
+    TelemetryStore telemetryStore;
+
+    @Override
+    protected TelemetryStore telemetryStore() {
+        return telemetryStore;
+    }
 
     @Override
     protected boolean expectsResolvedSourcePaths() {
