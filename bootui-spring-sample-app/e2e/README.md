@@ -90,7 +90,9 @@ run `export BOOTUI_MAVEN_REPO_LOCAL="$PWD/.m2"` from the repository root.
 `tests-agent/` runs the Spring MVC sample with the BootUI agent attached (`-javaagent`), where the default suites assert
 the Java Agent panel reports it not attached. It checks the armed claim and the executors sensor's hooks and counters,
 the `ASYNC` entry Live Activity nests under the `work-after-response` seed's request, and that Runtime Insights reports
-the seed but not its counterexample. Build the agent first (`./mvnw install -pl bootui-agent -am`), or set
+the seed but not its counterexample. It also reruns the Live Activity, app-shell, and Java Agent view specs from
+`tests/`; the Java Agent view spec reads the `agentAttached` fixture option, which only this suite sets, and asserts the
+armed claim and its sensor rows there instead of the not-attached state. Build the agent first (`./mvnw install -pl bootui-agent -am`), or set
 `BOOTUI_AGENT_JAR`, then run:
 
 ```bash

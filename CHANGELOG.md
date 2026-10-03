@@ -392,6 +392,11 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   the application frame as the call site; frames of applications in `org.springframework.samples` or
   `io.quarkus.sample` count as application code. The `errors-behind-2xx` sentence reads "2 requests whose transaction
   rolled back", and insufficient findings are labelled **Not enough evidence** (PLAN-v2 M4-18a).
+- **Live Activity says when nothing has been recorded yet.** An empty feed with no filter, search, or toggle narrowing
+  it said "No activity matches the current filters"; it now says no activity is recorded yet and how to produce some,
+  keeping the filter message for a feed a filter narrowed. `orm-auto-flush` applies its threshold per request, as the
+  plan sets it, so one request that auto-flushed three times or more, or for a fifth of its ORM time, reports its route
+  instead of waiting for a second one ([report](docs/V2-VALIDATION-REPORT.md), PLAN-v2 M4-18c).
 - **The Mappings panel lists Spring WebFlux routes.** The Actuator-backed provider read only Spring MVC's
   `dispatcherServlets`, so a WebFlux application showed no mapping and, without OpenTelemetry, grouped its requests by
   masked paths. It now also reads WebFlux's `dispatcherHandlers`: annotated controllers, and functional routes whose

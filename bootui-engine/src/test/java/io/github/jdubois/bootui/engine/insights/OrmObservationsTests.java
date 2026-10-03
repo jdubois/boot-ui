@@ -118,22 +118,40 @@ class OrmObservationsTests {
             request("/api/tags/auto-flush", orm(1, 3, 6, 0, 4 * MS, 2 * MS, 12));
             request("/api/tags/read-then-write", orm(1, 0, 4, 0, 0, 2 * MS, 3));
         }
+
+        List<RuntimeObservationDto> flushes = observations(OrmAutoFlush.KIND);
+
+        assertThat(flushes).singleElement().satisfies(observation -> {
+            assertThat(observation.subject()).isEqualTo("POST /api/tags/auto-flush");
+            assertThat(observation.status()).isEqualTo("OBSERVED");
+            assertThat(observation.sentence())
+                    .isEqualTo("`POST /api/tags/auto-flush` made Hibernate write pending changes before a query up to"
+                            + " 3 times in one request, in 3 of 3 requests.");
+        });
+    }
+
+    @Test
+    void theThresholdIsPerRequestSoOneFlaggedRequestOfARouteIsReported() {
+        // Three auto-flushes that wrote, in the route's only request.
         request("/api/tags/once", orm(1, 3, 6, 0, 4 * MS, 2 * MS, 12));
+        // One auto-flush taking 3 of the request's 10 ms of ORM time: under three, but over a fifth.
+        request("/api/tags/slow-flush", orm(1, 1, 1, 0, 3 * MS, 2 * MS, 12));
+        // One auto-flush taking 1 of 33 ms: under three and under a fifth, in each of three requests.
+        for (int i = 0; i < 3; i++) {
+            request("/api/tags/quick-flush", orm(1, 1, 6, 0, MS, 2 * MS, 12));
+        }
 
         List<RuntimeObservationDto> flushes = observations(OrmAutoFlush.KIND);
 
         assertThat(flushes)
                 .extracting(RuntimeObservationDto::subject, RuntimeObservationDto::status)
                 .containsExactlyInAnyOrder(
-                        org.assertj.core.groups.Tuple.tuple("POST /api/tags/auto-flush", "OBSERVED"),
-                        org.assertj.core.groups.Tuple.tuple("POST /api/tags/once", "INSUFFICIENT"));
-        assertThat(flushes.stream()
-                        .filter(o -> o.status().equals("OBSERVED"))
-                        .findFirst()
-                        .orElseThrow()
-                        .sentence())
-                .isEqualTo("`POST /api/tags/auto-flush` made Hibernate write pending changes before a query up to 3"
-                        + " times in one request, in 3 of 3 requests.");
+                        org.assertj.core.groups.Tuple.tuple("POST /api/tags/once", "OBSERVED"),
+                        org.assertj.core.groups.Tuple.tuple("POST /api/tags/slow-flush", "OBSERVED"));
+        assertThat(flushes)
+                .extracting(RuntimeObservationDto::sentence)
+                .contains("`POST /api/tags/once` made Hibernate write pending changes before a query up to 3 times in"
+                        + " one request, in 1 of 1 request.");
     }
 
     @Test
@@ -149,6 +167,22 @@ class OrmObservationsTests {
             assertThat(observation.sentence())
                     .isEqualTo("`POST /api/report/all` held up to 1200 entities in its persistence context in"
                             + " 3 of 3 requests.");
+        });
+    }
+
+    @Test
+    void aLargeContextInFewerThanThreeRequestsOfARouteIsInsufficient() {
+        for (int i = 0; i < 2; i++) {
+            request("/api/report/twice", orm(1, 0, 3, 0, 0, MS, 800));
+        }
+
+        assertThat(observations(LargePersistenceContext.KIND)).singleElement().satisfies(observation -> {
+            assertThat(observation.subject()).isEqualTo("POST /api/report/twice");
+            assertThat(observation.status()).isEqualTo("INSUFFICIENT");
+            assertThat(observation.sentence())
+                    .isEqualTo("`POST /api/report/twice` held up to 800 entities in its persistence context in"
+                            + " 2 of 2 requests. 3 requests with 500 entities or more are needed to call it a"
+                            + " pattern.");
         });
     }
 
