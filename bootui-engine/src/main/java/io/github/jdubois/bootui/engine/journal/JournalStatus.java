@@ -26,6 +26,7 @@ import java.util.Map;
  * @param accepted the events accepted since startup, per source
  * @param dropped the events dropped since startup because the queue was full, per source
  * @param listenerFailures the batches a listener failed to process
+ * @param clears how many times the retained events were cleared since startup; a clear is not an eviction
  */
 public record JournalStatus(
         boolean enabled,
@@ -48,7 +49,8 @@ public record JournalStatus(
         int queueCapacity,
         Map<JournalSource, Long> accepted,
         Map<JournalSource, Long> dropped,
-        long listenerFailures) {
+        long listenerFailures,
+        long clears) {
 
     public JournalStatus {
         accepted = accepted == null ? Map.of() : Map.copyOf(accepted);

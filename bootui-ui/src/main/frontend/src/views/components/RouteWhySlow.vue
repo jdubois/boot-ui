@@ -2,7 +2,7 @@
 import {computed, inject, ref} from 'vue'
 import {getJson} from '../../api.js'
 import {insightsUsable} from '../../utils/insightsPanel.js'
-import {describeLoadError} from '../../utils/loadError.js'
+import {formatLoadError} from '../../utils/loadError.js'
 import InsightText from './InsightText.vue'
 
 // "Why this route is slow" in a request's drawer (docs/PLAN-v2.md §5.3): the route's time breakdown from Runtime
@@ -27,7 +27,7 @@ async function load() {
       ) ?? null
     loaded.value = true
   } catch (e) {
-    error.value = describeLoadError(e, 'Unable to load Runtime Insights')
+    error.value = formatLoadError(e, 'Unable to load Runtime Insights')
   } finally {
     loading.value = false
   }
