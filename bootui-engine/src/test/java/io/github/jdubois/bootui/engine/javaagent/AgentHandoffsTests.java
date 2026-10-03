@@ -26,9 +26,12 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.IntConsumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 class AgentHandoffsTests {
 
@@ -375,6 +378,70 @@ class AgentHandoffsTests {
 
         assertThat(((AsyncHandoffPayload) sink.single().payload()).failureAfterResponse())
                 .isFalse();
+    }
+
+    @Test
+    void anEarlyOutcomeDoesNotEndTheBodyOrReTimeItsFailure() {
+        RequestPhases phases = new RequestPhases();
+        phases.begin("r1");
+        AgentHandoffs handoffs = handoffs(phases, null);
+        AutoCloseable handle = handoffs.reopen(new Object[] {snapshot(handoffs), "ForkJoinTask", "hook"});
+        ((IntConsumer) handle).accept(1);
+        phases.mark("r1", RequestPhase.RESPONSE);
+        ((Runnable) handle).run();
+        @SuppressWarnings("unchecked")
+        Consumer<Throwable> outcome = (Consumer<Throwable>) handle;
+        outcome.accept(new IllegalStateException("published early"));
+        close(handle);
+
+        AsyncHandoffPayload payload = (AsyncHandoffPayload) sink.single().payload();
+        assertThat(payload.bodyAfterResponse()).isTrue();
+        assertThat(payload.failureAfterResponse()).isFalse();
+    }
+
+    @Test
+    void anEarlyFailureAlreadyAfterTheResponseKeepsThatOrdering() {
+        RequestPhases phases = new RequestPhases();
+        phases.begin("r1");
+        phases.mark("r1", RequestPhase.RESPONSE);
+        AgentHandoffs handoffs = handoffs(phases, null);
+        AutoCloseable handle = handoffs.reopen(new Object[] {snapshot(handoffs), "ForkJoinTask", "hook"});
+        ((IntConsumer) handle).accept(1);
+        ((Runnable) handle).run();
+        @SuppressWarnings("unchecked")
+        Consumer<Throwable> outcome = (Consumer<Throwable>) handle;
+        outcome.accept(new IllegalStateException("published early"));
+        close(handle);
+
+        assertThat(((AsyncHandoffPayload) sink.single().payload()).failureAfterResponse())
+                .isTrue();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,1999,false", "false,2000,true", "true,1,true"})
+    void aNestedPromiseKeepsLongContinuationsAndFastAlreadyLateBodiesButToleratesClockSlack(
+            boolean responseFirst, long continuationMicros, boolean expectedAfterResponse) {
+        RequestPhases phases = new RequestPhases();
+        phases.begin("r1");
+        long start = phases.markers("r1").filtersAt();
+        now = Instant.ofEpochSecond(start / 1_000_000L, start % 1_000_000L * 1_000L);
+        if (responseFirst) {
+            phases.mark("r1", RequestPhase.RESPONSE);
+        }
+        AgentHandoffs handoffs = handoffs(phases, null);
+        AutoCloseable handle = handoffs.reopen(new Object[] {snapshot(handoffs), "Runnable", "hook"});
+        ((IntConsumer) handle).accept(2);
+        if (!responseFirst) {
+            phases.mark("r1", RequestPhase.RESPONSE);
+        }
+        long responseAt = phases.markers("r1").responseAt();
+        nanos.addAndGet((responseAt - start + continuationMicros) * 1_000L);
+        ((IntConsumer) handle).accept(2);
+        ((Runnable) handle).run();
+        close(handle);
+
+        assertThat(((AsyncHandoffPayload) sink.single().payload()).bodyAfterResponse())
+                .isEqualTo(expectedAfterResponse);
     }
 
     @Test

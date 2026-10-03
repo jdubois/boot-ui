@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.IntConsumer;
 import java.util.function.LongSupplier;
 
 /**
@@ -229,7 +230,8 @@ public final class AgentHandoffs implements RuntimeEventPublisher {
      * One task running in its request's context. The bridge tells it the task's failure, if any, then closes it, which
      * restores the worker's previous context and then publishes the handoff.
      */
-    final class Handoff implements AutoCloseable, Consumer<Throwable>, BiConsumer<Throwable, Boolean>, Runnable {
+    final class Handoff
+            implements AutoCloseable, Consumer<Throwable>, BiConsumer<Throwable, Boolean>, IntConsumer, Runnable {
 
         private final CorrelationContext context;
         private final String parentExecutionId;
@@ -250,6 +252,9 @@ public final class AgentHandoffs implements RuntimeEventPublisher {
         private Long bodyAfterResponseMicros;
         private boolean bodyEnded;
         private Boolean failureAfterResponse;
+        private Boolean earlyOutcomeAfterResponse;
+        private boolean nestedPublication;
+        private Boolean responseBeforeNestedPublication;
 
         private Handoff(
                 CorrelationContext context,
@@ -286,7 +291,8 @@ public final class AgentHandoffs implements RuntimeEventPublisher {
                 failed = true;
                 exceptionClass = failure.getClass().getName();
                 if (Boolean.TRUE.equals(bodyFailure)) {
-                    failureAfterResponse = bodyAfterResponse;
+                    failureAfterResponse =
+                            earlyOutcomeAfterResponse != null ? earlyOutcomeAfterResponse : bodyAfterResponse;
                 } else {
                     long failureAt = startMicros() + Math.max(0, nanoTime.getAsLong() - startNanos) / 1_000L;
                     RequestPhases.Markers markers =
@@ -302,7 +308,27 @@ public final class AgentHandoffs implements RuntimeEventPublisher {
             }
         }
 
-        /** Called before the JDK publishes the task's result and releases its waiters. */
+        /** Records an explicit early outcome without confusing it with the body's later return. */
+        @Override
+        public void accept(int marker) {
+            if (marker != 1 && marker != 2) {
+                throw new IllegalArgumentException("Unknown task publication marker: " + marker);
+            }
+            if (marker == 2 && nestedPublication) {
+                return;
+            }
+            RequestPhases.Markers markers =
+                    context.requestId() == null || phases == null ? null : phases.markers(context.requestId());
+            Boolean afterResponse = markers == null ? null : markers.responseAt() != null || markers.endedAt() != null;
+            if (marker == 1) {
+                earlyOutcomeAfterResponse = afterResponse;
+            } else {
+                nestedPublication = true;
+                responseBeforeNestedPublication = afterResponse;
+            }
+        }
+
+        /** Called before normal result publication, or at a raw/early-published task body's own return. */
         @Override
         public void run() {
             if (bodyEnded) {
@@ -315,15 +341,14 @@ public final class AgentHandoffs implements RuntimeEventPublisher {
                 return;
             }
             Long responseAt = markers.responseAt() != null ? markers.responseAt() : markers.endedAt();
+            long endMicros = startMicros() + Math.max(0, nanoTime.getAsLong() - startNanos) / 1_000L;
             // No marker yet is an ordering fact, not a comparison between clocks on different threads.
-            bodyAfterResponse = responseAt != null;
-            bodyAfterResponseMicros = responseAt == null
-                    ? 0L
-                    : Math.max(
-                            0,
-                            startMicros()
-                                    + Math.max(0, nanoTime.getAsLong() - startNanos) / 1_000L
-                                    - Math.max(startMicros(), responseAt));
+            bodyAfterResponse = responseAt != null
+                    && (!nestedPublication
+                            || Boolean.TRUE.equals(responseBeforeNestedPublication)
+                            || endMicros - responseAt >= HandoffWindow.RESPONSE_TIMESTAMP_SLACK_MICROS);
+            bodyAfterResponseMicros =
+                    !bodyAfterResponse ? 0L : Math.max(0, endMicros - Math.max(startMicros(), responseAt));
         }
 
         private long startMicros() {

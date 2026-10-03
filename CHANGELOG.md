@@ -12,7 +12,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Work after the response.** Follow-up to [#1218](https://github.com/jdubois/boot-ui/pull/1218):
   task-body completion restores fast late-starting tasks and earlier SQL followed by long-running
   computation, without counting a waited-for task's delayed handoff close. Result-publication tails remain visible
-  and I/O uses the actual response boundary (PLAN-v2 M5-2b, D32).
+  and I/O uses the actual response boundary. Promise-signalling runnables and explicitly early-completed fork/join
+  tasks keep their own body-return markers (PLAN-v2 M5-2b, D32).
 
 - **Runtime Insights tells an unavailable panel from a disabled one.** An observation whose evidence belongs to a panel
   this application cannot serve, such as Security Logs on a Quarkus application without

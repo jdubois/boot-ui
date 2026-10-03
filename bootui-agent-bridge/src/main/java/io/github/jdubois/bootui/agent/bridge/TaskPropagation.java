@@ -17,6 +17,7 @@ import java.util.concurrent.atomic.LongAdder;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.IntConsumer;
 import java.util.function.Supplier;
 
 /**
@@ -31,7 +32,10 @@ import java.util.function.Supplier;
  * values identify the owner (request, execution, trace, and span ids); {@code reopen} receives
  * {@code Object[] {snapshot, taskClass, hook}} and returns {@code null} or an {@code AutoCloseable}, which may also be a
  * {@code Consumer<Throwable>} told the task's failure before it is closed. An optional {@code Runnable} receives the
- * body-completion marker before the JDK publishes its result; handoff closure still follows publication and tails.
+ * body-completion marker before normal JDK result publication, or at an explicitly early-published body's return.
+ * An optional {@code IntConsumer} receives {@code 1} before an early manual result publication and {@code 2} for a
+ * nested publication inside a plain runnable. Plain runnables are marked at their own return, never at a nested
+ * future's publication.
  */
 public final class TaskPropagation {
 
@@ -101,7 +105,7 @@ public final class TaskPropagation {
         final Object handle;
         final Active previous;
         boolean completed;
-        boolean nestedPublication;
+        boolean ownPublished;
 
         Active(Object target, Object handle, Active previous) {
             this.target = target;
@@ -412,11 +416,21 @@ public final class TaskPropagation {
                 return;
             }
             if (active.target != target) {
-                // A decorator can hide a FutureTask that releases waiters before the decorator returns.
-                active.nestedPublication = true;
+                if (!(active.target instanceof Future) && active.handle instanceof IntConsumer) {
+                    ((IntConsumer) active.handle).accept(2);
+                }
                 return;
             }
-            if ((target instanceof ForkJoinTask && ((ForkJoinTask<?>) target).isDone()) || !jdkBodyReturned()) {
+            if (!jdkBodyReturned()) {
+                if (!active.ownPublished && target instanceof Future && !((Future<?>) target).isDone()) {
+                    active.ownPublished = true;
+                    if (active.handle instanceof IntConsumer) {
+                        ((IntConsumer) active.handle).accept(1);
+                    }
+                }
+                return;
+            }
+            if (target instanceof ForkJoinTask && ((ForkJoinTask<?>) target).isDone() && !active.ownPublished) {
                 return;
             }
             active.completed = true;
@@ -515,9 +529,9 @@ public final class TaskPropagation {
             thrown = ex;
             throw ex;
         } finally {
-            if (handle instanceof Active && !(task instanceof Future)) {
+            if (handle instanceof Active) {
                 Active active = (Active) handle;
-                if (!active.completed && !active.nestedPublication) {
+                if (!active.completed && (!(task instanceof Future) || active.ownPublished)) {
                     active.completed = true;
                     try {
                         ((Runnable) active.handle).run();
@@ -537,6 +551,13 @@ public final class TaskPropagation {
         }
         Throwable failure = null;
         try {
+            if (handle instanceof Active) {
+                Active active = (Active) handle;
+                if (active.target == task && active.ownPublished && !active.completed) {
+                    active.completed = true;
+                    ((Runnable) active.handle).run();
+                }
+            }
             if (task instanceof ForkJoinTask && ((ForkJoinTask<?>) task).isCompletedAbnormally()) {
                 failure = ((ForkJoinTask<?>) task).getException();
             }

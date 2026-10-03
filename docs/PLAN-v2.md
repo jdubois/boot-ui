@@ -447,6 +447,10 @@ which an application lambda passed to a library's thread factory defeated.
 
 As delivered, M5-2b distinguishes task-body completion from the full handoff lifetime: a plain `Runnable` is marked
 at its return, and a confirmed JDK result marker runs before publication releases waiters.
+An explicitly early-published JDK body is instead marked at its later return, including fork/join bodies whose
+`exec()` returns false; external completion and cancellation do not invent a body marker. A raw promise-signalling
+runnable keeps its own return boundary, including its synchronous completion callbacks, not the hidden future's
+publication. An early failure's outcome retains its own response ordering.
 `work-after-response` keeps earlier I/O as evidence when that body
 ends after the response. Fast tasks starting after the response use the actual response boundary, never a boundary
 recovered from their own lifetime. Result-publication tails still count by their late I/O; without a confirmed body
