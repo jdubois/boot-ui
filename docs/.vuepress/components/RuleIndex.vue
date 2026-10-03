@@ -13,7 +13,9 @@ const rules = computed(() => page.value.ruleCatalog ?? [])
 const severityCounts = computed(() => {
   const counts = new Map(SEVERITIES.map((severity) => [severity, 0]))
   for (const rule of rules.value) {
-    counts.set(rule.severity, (counts.get(rule.severity) ?? 0) + 1)
+    if (SEVERITIES.includes(rule.severity)) {
+      counts.set(rule.severity, counts.get(rule.severity) + 1)
+    }
   }
   return counts
 })
@@ -162,10 +164,16 @@ onUnmounted(() => {
       <li v-for="rule in matches" :key="rule.id">
         <a :href="`#${rule.slug}`">
           <code class="rule-index__id">{{ rule.id }}</code>
-          <span class="rule-index__badge" :class="`rule-index__badge--${rule.severity.toLowerCase()}`">{{
-            rule.severity
+          <span
+            v-if="rule.severity"
+            class="rule-index__badge"
+            :class="`rule-index__badge--${rule.severity.toLowerCase()}`"
+          >
+            {{ rule.severity }}
+          </span>
+          <span class="rule-index__title" :class="{'rule-index__title--no-severity': !rule.severity}">{{
+            rule.title
           }}</span>
-          <span class="rule-index__title">{{ rule.title }}</span>
         </a>
       </li>
     </ol>
@@ -365,6 +373,10 @@ onUnmounted(() => {
   color: var(--bootui-text);
 }
 
+.rule-index__title--no-severity {
+  grid-column: 2 / -1;
+}
+
 .rule-index__empty {
   margin: 0.9rem 0 0;
   font-size: 0.95rem;
@@ -376,6 +388,10 @@ onUnmounted(() => {
     grid-template-columns: 1fr;
     gap: 0.15rem;
     padding: 0.55rem 0.2rem;
+  }
+
+  .rule-index__title--no-severity {
+    grid-column: auto;
   }
 }
 </style>

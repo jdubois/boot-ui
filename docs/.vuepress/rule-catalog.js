@@ -2,6 +2,7 @@ import {slugify} from '@mdit-vue/shared'
 
 const RULE_HEADING = /^###\s+([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)\s+(?:—|--|-)\s+(.+?)\s*$/
 const SEVERITY_BULLET = /^[-*]\s+\*\*Severity(?:\s*\/\s*confidence)?:?\*\*:?\s*(.+?)\s*$/i
+const LEADING_SEVERITY = /^\s*\*\*((?:CRITICAL|HIGH|MEDIUM|LOW|INFO)\b.*?)\*\*/i
 const TRAILING_SEVERITY = /\s*\((CRITICAL|HIGH|MEDIUM|LOW|INFO)(?:\s+or\s+(?:CRITICAL|HIGH|MEDIUM|LOW|INFO))?\)\s*$/
 const KNOWN_SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
 
@@ -53,6 +54,11 @@ export function parseRuleCatalog(content) {
       const severity = line.match(SEVERITY_BULLET)
       if (severity) {
         current.severity = normalizeSeverity(severity[1])
+        continue
+      }
+      const leadingSeverity = line.match(LEADING_SEVERITY)
+      if (leadingSeverity) {
+        current.severity = normalizeSeverity(leadingSeverity[1])
       }
     }
   }
