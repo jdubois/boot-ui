@@ -64,6 +64,12 @@ class RuntimeInsightsControllerTests {
                     .andExpect(jsonPath("$.status").value("UNAVAILABLE"))
                     .andExpect(jsonPath("$.reason")
                             .value(org.hamcrest.Matchers.containsString("beans could not be read")));
+            mvc.perform(get("/bootui/api/runtime-insights/impact/symbols").param("query", "orders"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.available").value(true))
+                    .andExpect(jsonPath("$.query").value("orders"))
+                    .andExpect(jsonPath("$.symbols.length()").value(0))
+                    .andExpect(jsonPath("$.total").value(0));
             assertThat(journal.status().lastSequence())
                     .as("reading the panel records nothing")
                     .isLessThanOrEqualTo(0);

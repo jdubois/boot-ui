@@ -1040,7 +1040,7 @@ existing `McpToolSchema` names, which the published CLI binds, and add no schema
 | --- | --- | --- | --- |
 | `get_runtime_insights` | `QUERY_LIMIT` | `bootui insights list` | Coverage first, then at most `limit` (8 by default) observations: id, status, one sentence, eligible and affected counts, tier, at most one exemplar request id, a `verify` line, and a truncation count. `query` is empty, `new`, `security`, `diff`, or a route, table, bean, or class. The default omits latency-only rows and anything below its tier floor |
 | `get_runtime_insight` | `ID` | `bootui insights show <id>` | The same compact object and at most 20 evidence rows; drill down with `get_request_profile` on the exemplar |
-| `get_runtime_impact` | `ID` | `bootui insights impact <id>` | For a bean, class, repository, table, cache, or host: `AMBIGUOUS` with candidates, or the checklist of §5.7, capped at 8 rows per list |
+| `get_runtime_impact` | `ID` | `bootui insights impact <id>` | For a route, bean, class, repository, table, cache, or host: `AMBIGUOUS` with candidates, or the checklist of §5.7, capped at 8 rows per list |
 | `get_runtime_run_comparison` | `ID` | `bootui insights compare <id>` | For `previous` or a run id: comparability first, then at most 8 behavior rows (§5.8). Too few samples is `INSUFFICIENT`, never "no change" |
 
 - `INSUFFICIENT`, `NOT_APPLICABLE`, `NOT_COMPARABLE`, and `PARTIAL` are statuses an agent cannot collapse into success,
@@ -1080,6 +1080,10 @@ Scope:
   - **not exercised**: mapped routes in the closure with no traffic in this run, each with one check;
   - **through shared resources**: routes outside the closure that read the tables or caches, or call the hosts, that
     the changed code writes or calls. They share a resource with it, not code.
+- A route is a symbol too: it is its own impact, listed itself with the routes that share what it touched.
+- The impact box suggests, as the developer types, the routes, beans, repositories, tables, caches, hosts, and events
+  of the run's model, each labelled with its kind (`GET /runtime-insights/impact/symbols?query=`); picking one asks for
+  `KIND name`, which names exactly one node.
 - Structural reach is a count, never a node dump, and it stays apart from observed execution: route traffic does not
   prove that a request went through the changed bean.
 - Word the result as what was and was not exercised, never as "safe".

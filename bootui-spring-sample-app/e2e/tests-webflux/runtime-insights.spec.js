@@ -27,9 +27,18 @@ test.describe('Runtime Insights on Spring WebFlux', () => {
     await expect(comparison).toContainText(/Compared|Needs more traffic|Not comparable|No previous run/)
 
     const impact = page.locator('.insight-impact')
-    await impact.getByRole('searchbox').fill('noSuchSymbolAnywhere')
+    const symbol = impact.getByRole('combobox', {name: /Symbol to check/})
+    await symbol.fill('noSuchSymbolAnywhere')
     await impact.getByRole('button', {name: 'Check impact'}).click()
     await expect(impact.locator('.insight-impact-reason')).toBeVisible()
+
+    // Typing suggests what the run's model holds, each with its kind; picking one checks exactly that node.
+    await symbol.fill('/api/greetings')
+    const route = impact.getByRole('option', {name: /^GET \/api\/greetings\/\{name\} route$/})
+    await expect(route).toBeVisible()
+    await route.click()
+    await expect(symbol).toHaveValue('GET /api/greetings/{name}')
+    await expect(impact.locator('[data-list="observed"]')).toContainText('GET /api/greetings/{name}')
 
     const profile = page.locator('.insight-profile')
     await expect(profile.getByRole('heading', {name: 'Profile resources'})).toBeVisible()

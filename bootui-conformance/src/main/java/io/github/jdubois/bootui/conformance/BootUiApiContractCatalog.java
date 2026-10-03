@@ -521,6 +521,20 @@ public final class BootUiApiContractCatalog {
                     "limitations", JsonType.ARRAY));
 
     /**
+     * The symbols change impact can check that match what was typed, a read of the {@code runtime-insights} panel
+     * ({@code docs/PLAN-v2.md} §5.7) kept out of {@link #reads()}: a query nothing matches answers the same shape.
+     */
+    private static final ReadContract CHANGE_IMPACT_SYMBOLS = read(
+            "runtime-insights",
+            "/runtime-insights/impact/symbols?query=conformanceUnknownSymbol",
+            fields(
+                    "available", JsonType.BOOLEAN,
+                    "unavailableReason", JsonType.NULLABLE_STRING,
+                    "query", JsonType.STRING,
+                    "symbols", JsonType.ARRAY,
+                    "total", JsonType.INTEGER));
+
+    /**
      * One request as the runtime journal recorded it, a detail read of the {@code activity} panel ({@code docs/PLAN-v2.md}
      * §5.3, §5.11), kept out of {@link #reads()} like {@link #requestProfile()}. Its nullable objects and numbers are
      * not listed.
@@ -580,6 +594,11 @@ public final class BootUiApiContractCatalog {
     /** The change impact's read contract ({@code docs/PLAN-v2.md} §5.7). */
     public static ReadContract changeImpact() {
         return CHANGE_IMPACT;
+    }
+
+    /** The change impact's symbol suggestions' read contract ({@code docs/PLAN-v2.md} §5.7). */
+    public static ReadContract changeImpactSymbols() {
+        return CHANGE_IMPACT_SYMBOLS;
     }
 
     /** The <b>Profile resources</b> session's read contract ({@code docs/PLAN-v2.md} §5.11). */

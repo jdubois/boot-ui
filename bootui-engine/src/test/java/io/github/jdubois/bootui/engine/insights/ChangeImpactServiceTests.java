@@ -1,9 +1,12 @@
 package io.github.jdubois.bootui.engine.insights;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 import io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto;
 import io.github.jdubois.bootui.core.dto.RuntimeImpactRouteDto;
+import io.github.jdubois.bootui.core.dto.RuntimeImpactSymbolDto;
+import io.github.jdubois.bootui.core.dto.RuntimeImpactSymbolsDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
@@ -93,6 +96,84 @@ class ChangeImpactServiceTests {
         });
         assertThat(new ChangeImpactService(null, null, null, null).impact("x").status())
                 .isEqualTo(ChangeImpactService.UNAVAILABLE);
+    }
+
+    @Test
+    void aRouteIsItsOwnImpactWithTheRoutesSharingWhatItTouchedAndATypedSymbolNamesOneNode() throws Exception {
+        journal.addListener(aggregates);
+        request("/api/products", "select * from sample_products");
+        request("/api/reviews", "select * from sample_products p join sample_reviews r on r.product_id = p.id");
+
+        RuntimeChangeImpactDto route = service(structure(null)).impact("GET /api/products");
+        assertThat(route.status()).isEqualTo(ChangeImpactService.RESOLVED);
+        assertThat(route.node()).isEqualTo("ROUTE GET /api/products");
+        assertThat(route.structuralReach()).isZero();
+        assertThat(route.observed()).extracting(RuntimeImpactRouteDto::route).containsExactly("GET /api/products");
+        assertThat(route.sharedResources()).singleElement().satisfies(shared -> {
+            assertThat(shared.route()).isEqualTo("GET /api/reviews");
+            assertThat(shared.shared()).containsExactly("TABLE sample_products");
+        });
+        assertThat(route.limitations())
+                .anySatisfy(
+                        limitation -> assertThat(limitation).contains("A route reaches no other route through code"));
+
+        RuntimeChangeImpactDto unexercised = service(structure(null)).impact("ROUTE GET /api/products/{id}");
+        assertThat(unexercised.node()).isEqualTo("ROUTE GET /api/products/{id}");
+        assertThat(unexercised.observed()).isEmpty();
+        assertThat(unexercised.notExercised())
+                .extracting(RuntimeImpactRouteDto::route)
+                .containsExactly("GET /api/products/{id}");
+
+        RuntimeChangeImpactDto typed = service(structure(null)).impact("BEAN orderMapper");
+        assertThat(typed.status()).isEqualTo(ChangeImpactService.RESOLVED);
+        assertThat(typed.node()).isEqualTo("BEAN orderMapper");
+    }
+
+    @Test
+    void symbolsSuggestWhatTheImpactCanCheckBestMatchesFirst() throws Exception {
+        journal.addListener(aggregates);
+        request("/api/products", "select * from sample_products");
+        request("/api/reviews", "select * from sample_reviews");
+        ChangeImpactService service = service(structure(null));
+
+        RuntimeImpactSymbolsDto product = service.symbols(" product ");
+        assertThat(product.available()).isTrue();
+        assertThat(product.query()).isEqualTo("product");
+        assertThat(product.symbols())
+                .extracting(RuntimeImpactSymbolDto::kind, RuntimeImpactSymbolDto::name)
+                .containsExactly(
+                        tuple("BEAN", "productController"),
+                        tuple("BEAN", "productMapper"),
+                        tuple("BEAN", "productService"),
+                        tuple("REPOSITORY", "productRepository"),
+                        tuple("ROUTE", "GET /api/products"),
+                        tuple("ROUTE", "GET /api/products/{id}"),
+                        tuple("TABLE", "sample_products"));
+        assertThat(product.total()).isEqualTo(7);
+        assertThat(product.symbols().get(3).type()).isEqualTo("com.example.ProductRepository");
+        assertThat(product.symbols().get(4).type()).isNull();
+
+        assertThat(service.symbols("/api/rev").symbols())
+                .extracting(RuntimeImpactSymbolDto::name)
+                .containsExactly("GET /api/reviews");
+        assertThat(service.symbols("Mapper").symbols())
+                .extracting(RuntimeImpactSymbolDto::name)
+                .containsExactly("orderMapper", "productMapper");
+        assertThat(service.symbols("nothing-matches")).satisfies(none -> {
+            assertThat(none.symbols()).isEmpty();
+            assertThat(none.total()).isZero();
+        });
+        assertThat(service.symbols("").total()).isGreaterThan(RuntimeImpactSymbolsDto.MAX_SYMBOLS / 2);
+        for (RuntimeImpactSymbolDto symbol : product.symbols()) {
+            assertThat(service.impact(symbol.kind() + " " + symbol.name()).status())
+                    .as("%s %s resolves", symbol.kind(), symbol.name())
+                    .isEqualTo(ChangeImpactService.RESOLVED);
+        }
+
+        RuntimeImpactSymbolsDto disabled = new ChangeImpactService(null, null, null, null).symbols("x");
+        assertThat(disabled.available()).isFalse();
+        assertThat(disabled.unavailableReason()).contains("bootui.runtime-journal.enabled");
+        assertThat(disabled.symbols()).isEmpty();
     }
 
     private ChangeImpactService service(StructureSnapshot structure) {

@@ -49,5 +49,32 @@ export function nodeParts(node) {
   if (!node) return null
   const space = node.indexOf(' ')
   if (space < 0) return {kind: '', name: node}
-  return {kind: node.slice(0, space).toLowerCase().replace('_', ' '), name: node.slice(space + 1)}
+  return {kind: kindLabel(node.slice(0, space)), name: node.slice(space + 1)}
+}
+
+/** A node kind as read, such as "graphql operation" for {@code GRAPHQL_OPERATION}. */
+export function kindLabel(kind) {
+  return String(kind ?? '')
+    .toLowerCase()
+    .replaceAll('_', ' ')
+}
+
+/** Whether a response is the impact box's symbol suggestions. */
+export function isSymbols(value) {
+  return Boolean(value && typeof value.available === 'boolean' && Array.isArray(value.symbols))
+}
+
+/**
+ * A suggested symbol as the impact box lists it: the name to show, its kind, the class when the name does not already
+ * say it, and the exact symbol to ask for, such as {@code TABLE sample_products}.
+ */
+export function symbolOption(symbol) {
+  const simpleType = symbol.type ? symbol.type.slice(symbol.type.lastIndexOf('.') + 1) : ''
+  const showType = simpleType && !symbol.name.toLowerCase().includes(simpleType.toLowerCase())
+  return {
+    name: symbol.name,
+    kind: kindLabel(symbol.kind),
+    type: showType ? simpleType : '',
+    symbol: `${symbol.kind} ${symbol.name}`
+  }
 }
