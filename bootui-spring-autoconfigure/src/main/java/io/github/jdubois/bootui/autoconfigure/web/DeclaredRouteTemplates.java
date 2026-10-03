@@ -39,9 +39,16 @@ public final class DeclaredRouteTemplates {
         return RouteTemplateResolver.caching(() -> mappings(mappingProvider));
     }
 
-    /** The declared routes themselves, read on each call, or none without a mappings provider. */
+    /**
+     * The declared routes themselves, read on each call, or {@code null} when they cannot be read: without a mappings
+     * provider, as without Actuator, or with one that is unavailable. Runtime Insights then says that the routes no
+     * request reached are unknown, instead of listing none.
+     */
     public static Supplier<List<MappingDto>> declared(ObjectProvider<MappingProvider> mappingProvider) {
-        return mappingProvider == null ? List::of : () -> mappings(mappingProvider);
+        return () -> {
+            MappingProvider provider = mappingProvider == null ? null : mappingProvider.getIfAvailable();
+            return provider == null || !provider.available() ? null : provider.mappings();
+        };
     }
 
     private static List<MappingDto> mappings(ObjectProvider<MappingProvider> mappingProvider) {

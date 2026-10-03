@@ -430,7 +430,7 @@ public abstract class AbstractMcpConformanceTest {
     }
 
     @Test
-    void testMcpRequestProfileReturnsTheSameDtoAsTheRestEndpoint() throws Exception {
+    void testMcpRequestProfileNamesBothMissingRetentionWindows() throws Exception {
         assertThat(enableMcp()).as("this adapter claims MCP support").isTrue();
         try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
             String id = "conformance-unknown-request";
@@ -447,12 +447,42 @@ public abstract class AbstractMcpConformanceTest {
             JsonNode profile = new ObjectMapper()
                     .readTree(result.path("content").get(0).path("text").asText());
 
-            Response rest = probe().get("/bootui/api/activity/request/" + id);
-            assertThat(rest.status()).isEqualTo(200);
-            assertThat(profile).isEqualTo(rest.json());
             assertThat(profile.path("available").asBoolean(true)).isFalse();
-            assertThat(profile.path("unavailableReason").asText()).contains(id);
+            assertThat(profile.path("source").asText()).isEqualTo("none");
+            assertThat(profile.path("unavailableReason").asText()).contains(id, "journal", "buffer");
         }
+    }
+
+    @Test
+    void testMcpRequestProfileOpensRetainedJournalRequest() throws Exception {
+        assertThat(enableMcp()).isTrue();
+        try (var cleanup = new ConformanceCleanup(this::disableMcp)) {
+            String path = requestProfileProbePath();
+            Response traffic = probe().get(path);
+            assertThat(traffic.status()).isEqualTo(200);
+            Response activity = probe().get("/bootui/api/activity?source=journal");
+            assertThat(activity.status()).isEqualTo(200);
+            String id = null;
+            for (JsonNode entry : activity.json().path("entries")) {
+                if ("REQUEST".equals(entry.path("type").asText())
+                        && path.split("\\?", 2)[0].equals(entry.path("path").asText())) {
+                    id = entry.path("id").asText();
+                    break;
+                }
+            }
+            assertThat(id).as("the sample request is retained by the journal").isNotBlank();
+
+            JsonNode selected = callTool("get_request_profile", "{\"id\":\"" + id + "\"}");
+            assertThat(selected.path("available").asBoolean()).isTrue();
+            assertThat(selected.path("source").asText()).isEqualTo("journal");
+            assertThat(selected.path("journal"))
+                    .isEqualTo(probe().get("/bootui/api/activity/request/" + id + "/journal")
+                            .json());
+        }
+    }
+
+    protected String requestProfileProbePath() {
+        return "/api/sample/slow?ms=1";
     }
 
     @Test

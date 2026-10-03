@@ -246,8 +246,10 @@ the classpath) are simply not advertised.
   evidence window they cover; its optional `limit` is the number of routes each ranking criterion contributes.
   `get_live_activity` returns the correlated feed the [Live Activity panel](features/overview.md#live-activity) shows (HTTP requests, SQL
   statements, exceptions, and security events grouped by request/trace); `get_request_profile` takes the required `id`
-  of a `REQUEST` entry whose `profileable` flag is true and returns the same masked profile as
-  `GET /bootui/api/activity/request/{id}` and the panel's profile drawer — see
+  of a profileable request, scheduled run, or consumed message (also an insight exemplar). It returns a selection
+  with `source: "journal"`, `"buffers"`, or `"none"`; a retained journal `journal` profile is preferred,
+  and a retained HTTP-exchange `buffers` profile accompanies it for HTTP requests (or is returned alone as a
+  fallback). It is not the single legacy REST DTO — see
   [Investigate one request](#investigate-one-request); `get_exception_detail` takes a required `id`
   (from `get_exceptions`, `get_live_activity`, or a profile exception's `exceptionGroupId`) and returns that exception
   group's full stack trace, causes, and individual occurrences. `get_http_exchanges`, `get_sql_traces`, and `get_rest_client_traces` read bounded buffers
@@ -275,23 +277,25 @@ the classpath) are simply not advertised.
 
 ### Investigate one request
 
-`get_live_activity` says which request was slow or failed; `get_request_profile` says why. The workflow is the same
+`get_live_activity` says which execution was slow or failed; `get_request_profile` opens its retained evidence. The workflow is the same
 through MCP and the CLI:
 
 1. **List activity.** Call `get_live_activity` (`bootui activity --limit 50 --json`) and pick the `REQUEST` entry in
-   question. Only entries with `profileable: true` have a profile, and `sqlNPlusOneSuspected` or an `ERROR` or `SLOW`
+   question (or a scheduled/message execution). Only entries with `profileable: true` have a profile, and `sqlNPlusOneSuspected` or an `ERROR` or `SLOW`
    severity marks the ones worth opening.
 2. **Fetch its profile.** Call `get_request_profile` with that entry's `id` (`bootui request-profile <id> --json`). The
-   profile carries the request, its correlated SQL as normalized statement groups with N+1 flags and the application
-   call sites that issued them, exceptions, security events, REST client calls, cache accesses, a timing breakdown,
-   per-section correlation tiers and truncation counts, and notes. A child tiered `PROPAGATED` ran in a task the BootUI
+   `source: "journal"` carries the `journal` profile's timeline, route or execution label, resources and touched
+   metadata. `source: "buffers"` carries the `buffers` HTTP-exchange profile's normalized SQL groups with N+1 flags,
+   application call sites, exceptions, security events, REST client calls, cache accesses, timing, correlation tiers
+   and truncation counts. A child tiered `PROPAGATED` ran in a task the BootUI
    agent propagated from the request to a JDK executor, as exact as `REQUEST_ID`; `correlationTiers` reports
    `PROPAGATED` unavailable, with the reason, unless the agent's `executors` sensor propagates for the application. It
-   is the same DTO the REST endpoint returns, masked the same way, including the embedded trace's status messages,
-   exception events, and attribute values ([Trace value exposure](features/diagnostics.md#trace-value-exposure)). An
-   unknown or evicted id returns `available: false` with an `unavailableReason`; that is an answer,
+   follows the same panel policy and masking as the browser. When both are retained, `buffers` also accompanies the
+   journal result so its SQL grouping and exception ids remain available. The buffer profile includes a trace whose
+   values follow [Trace value exposure](features/diagnostics.md#trace-value-exposure). An unknown or evicted id returns
+   `source: "none"` and `available: false` with an `unavailableReason` naming both retention windows; that is an answer,
    not a failure to retry.
-3. **Follow each exception.** Every profile exception carries an `exceptionGroupId`; pass it to
+3. **Follow each exception.** When the `buffers` profile is present, its exceptions carry an `exceptionGroupId`; pass it to
    `get_exception_detail` (`bootui exceptions show <id> --json`) for the stack trace, cause chain, and recent
    occurrences.
 
@@ -311,9 +315,9 @@ read tools return short, stable facts rather than a dashboard:
 | `get_runtime_impact` | `bootui insights impact <id>` | For a route, bean, class, repository, table, cache, host, or event type: the routes that ran through it, those that did not, and those sharing a resource, at most 8 each, or `AMBIGUOUS` with candidates |
 | `get_runtime_run_comparison` | `bootui insights compare <id>` | With `previous` (the newest kept run that served requests) or a run id from `runs`: comparability first, then at most 8 behavior rows and edges; latency is left out |
 
-`INSUFFICIENT`, `PARTIAL`, `NOT_APPLICABLE`, and `NOT_COMPARABLE` are not successes, and an empty list never means
-healthy: read `requests`, `checksNotRun`, and `limitations` first. `requests: 0` means nothing was exercised. The
-`diagnose_runtime_issue` prompt starts with `get_runtime_insights`, then one `get_request_profile`; the
+`INSUFFICIENT`, `PARTIAL`, `NOT_APPLICABLE`, `UNAVAILABLE`, and `NOT_COMPARABLE` are not successes, and an empty list
+never means healthy: read `requests`, `checksNotRun`, and `limitations` first. `requests: 0` means nothing was
+exercised. The `diagnose_runtime_issue` prompt starts with `get_runtime_insights`, then one `get_request_profile`; the
 `verify_after_change` prompt calls `get_runtime_impact` on the changed symbol when it is known, runs the tests, calls
 `get_runtime_run_comparison` with `previous`, and stops.
 

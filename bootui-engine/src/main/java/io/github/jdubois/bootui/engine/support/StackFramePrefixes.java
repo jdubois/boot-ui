@@ -14,7 +14,10 @@ import java.util.stream.Stream;
  *
  * <p>BootUI is matched by its module packages rather than by the whole {@code io.github.jdubois.bootui} namespace,
  * so the sample applications ({@code io.github.jdubois.bootui.sample} and {@code
- * io.github.jdubois.bootui.webfluxsample}) count as application code and show real call sites.</p>
+ * io.github.jdubois.bootui.webfluxsample}) count as application code and show real call sites. For the same reason,
+ * applications living in a framework's namespace, such as Spring PetClinic ({@code org.springframework.samples}) and
+ * Quarkus Super Heroes ({@code io.quarkus.sample}), and pages compiled from JSPs ({@code org.apache.jsp}), count as
+ * application code.</p>
  */
 public final class StackFramePrefixes {
 
@@ -56,6 +59,10 @@ public final class StackFramePrefixes {
             "net.bytebuddy.",
             "org.jboss.");
 
+    /** Application code inside a framework prefix above. Package-private for tests. */
+    static final List<String> APPLICATION_PREFIXES =
+            List.of("org.springframework.samples.", "io.quarkus.sample.", "org.apache.jsp.");
+
     private static final List<String> FRAMEWORK_PREFIXES = Stream.concat(
                     THIRD_PARTY_PREFIXES.stream(), BOOTUI_MODULE_PREFIXES.stream())
             .toList();
@@ -70,6 +77,11 @@ public final class StackFramePrefixes {
     public static boolean isFrameworkClass(String className) {
         if (className == null) {
             return true;
+        }
+        for (String prefix : APPLICATION_PREFIXES) {
+            if (className.startsWith(prefix)) {
+                return false;
+            }
         }
         for (String prefix : FRAMEWORK_PREFIXES) {
             if (className.startsWith(prefix)) {

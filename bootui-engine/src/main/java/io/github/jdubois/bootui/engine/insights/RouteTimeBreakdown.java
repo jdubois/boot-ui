@@ -26,6 +26,13 @@ import java.util.TreeSet;
  * {@code route-time-breakdown} ({@code docs/PLAN-v2.md} §5.5): where a route's warm requests spend their time, as named
  * phases. Calls are placed by their monotonic times and unioned, so overlapping calls never add up to more than the
  * request, and the overlap is shown. Each route's first request in the run is reported apart as cold.
+ *
+ * <p>Time is never called the application's unless BootUI saw the handler run. On Spring MVC and Quarkus, which mark
+ * when a handler begins, a request without that mark never reached a handler BootUI marks (an Actuator or {@code /q/}
+ * endpoint, a request the security filters answered): it is left out of its route's phases, and a route made mostly of
+ * such requests is reported insufficient with its recorded calls. On Spring WebFlux, which marks no handler or
+ * response phase, a route whose requests named nothing at all, neither a recorded call nor authentication time, is
+ * insufficient, since its breakdown would be one unattributed span.</p>
  */
 public final class RouteTimeBreakdown implements Observation {
 
@@ -86,6 +93,7 @@ public final class RouteTimeBreakdown implements Observation {
                 JournalSource.REST_CLIENT,
                 JournalSource.AUTHORIZATION,
                 JournalSource.AI,
+                JournalSource.ORM,
                 JournalSource.MESSAGING);
     }
 
@@ -93,6 +101,7 @@ public final class RouteTimeBreakdown implements Observation {
     public Evaluation evaluate(InsightsSnapshot snapshot) {
         boolean firstRetainedIsFirst =
                 snapshot.status().evictedByCount() + snapshot.status().evictedByBytes() == 0;
+        boolean marksPhases = marksPhases(snapshot.stack());
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;
         for (Map.Entry<String, List<ProjectedRequest>> route :
@@ -112,19 +121,39 @@ public final class RouteTimeBreakdown implements Observation {
                     warm.add(breakdown);
                 }
             }
-            eligible += warm.size();
-            findings.add(finding(route.getKey(), warm, cold, unplaced, firstRetainedIsFirst, snapshot));
+            // On a stack that marks phases, a request with no handler mark never reached a handler BootUI marks: an
+            // Actuator endpoint, a request the security filters answered, a framework route. Its time is not the
+            // application's handler work, so it is never split as if it were.
+            List<Breakdown> unmarked = marksPhases
+                    ? warm.stream()
+                            .filter(breakdown -> !breakdown.request().timing().phased())
+                            .toList()
+                    : List.of();
+            List<String> limitations = limitations(snapshot, firstRetainedIsFirst, unplaced, warm);
+            if (!warm.isEmpty() && unmarked.size() * 2 > warm.size()) {
+                findings.add(unmarkedFinding(route.getKey(), warm, unmarked, cold, snapshot.stack(), limitations));
+                continue;
+            }
+            List<Breakdown> split = warm;
+            if (!unmarked.isEmpty()) {
+                split = warm.stream()
+                        .filter(breakdown -> breakdown.request().timing().phased())
+                        .toList();
+                limitations.add(leftOut(unmarked, snapshot.stack()));
+            }
+            eligible += split.size();
+            findings.add(finding(route.getKey(), split, cold, snapshot.stack(), limitations));
         }
         return new Evaluation(eligible, findings);
     }
 
-    private Finding finding(
-            String route,
-            List<Breakdown> warm,
-            ProjectedRequest cold,
-            long unplaced,
-            boolean coldKnown,
-            InsightsSnapshot snapshot) {
+    /** Whether the stack marks when a request's handler begins: Spring MVC and Quarkus do, Spring WebFlux does not. */
+    static boolean marksPhases(InsightsStack stack) {
+        return stack == InsightsStack.SPRING_MVC || stack == InsightsStack.QUARKUS;
+    }
+
+    private static List<String> limitations(
+            InsightsSnapshot snapshot, boolean coldKnown, long unplaced, List<Breakdown> warm) {
         List<String> limitations = new ArrayList<>();
         if (!coldKnown) {
             limitations.add("The journal evicted older events, so a route's first request may be gone and none is"
@@ -132,13 +161,6 @@ public final class RouteTimeBreakdown implements Observation {
         }
         if (unplaced > 0) {
             limitations.add(InsightText.counted(unplaced, "request") + " had no monotonic start and are left out.");
-        }
-        long unphased =
-                warm.stream().filter(b -> !b.request().timing().phased()).count();
-        if (unphased > 0) {
-            limitations.add(InsightText.counted(unphased, "warm request")
-                    + " had no phase markers: time outside recorded calls cannot be assigned to filters, the"
-                    + " handler, or response writing.");
         }
         if (warm.stream()
                 .anyMatch(breakdown -> breakdown.request().resources() != null
@@ -150,7 +172,7 @@ public final class RouteTimeBreakdown implements Observation {
         }
         if (snapshot.stack() == InsightsStack.SPRING_WEBFLUX) {
             limitations.add("Spring WebFlux marks no phases, so filters, handler, and response write are one"
-                    + " unattributed span around the calls.");
+                    + " unattributed span around the calls, out of which only authentication time is named.");
         }
         if (snapshot.stack() == InsightsStack.QUARKUS) {
             boolean sessions = warm.stream()
@@ -163,8 +185,24 @@ public final class RouteTimeBreakdown implements Observation {
                             : "Hibernate ORM statements on Quarkus are timed as preparations, so their SQL time is"
                                     + " unknown and counts as handler work: record the orm source to measure it.");
         }
-        String coldText =
-                cold == null ? "" : " First request " + InsightText.millis(cold.durationNanos()) + " ms (cold).";
+        long kafka = warm.stream()
+                .filter(breakdown -> Breakdown.sendsAsynchronously(breakdown.request()))
+                .count();
+        if (kafka > 0) {
+            limitations.add(InsightText.counted(kafka, "request") + " sent Kafka messages: a Kafka send is timed"
+                    + " until the broker acknowledges it asynchronously, which the handler does not wait for, so its"
+                    + " time is not counted as Message sends.");
+        }
+        return limitations;
+    }
+
+    private static String coldText(ProjectedRequest cold) {
+        return cold == null ? "" : " First request " + InsightText.millis(cold.durationNanos()) + " ms (cold).";
+    }
+
+    private Finding finding(
+            String route, List<Breakdown> warm, ProjectedRequest cold, InsightsStack stack, List<String> limitations) {
+        String coldText = coldText(cold);
         if (warm.size() < MIN_WARM_REQUESTS) {
             return new Finding(
                     route,
@@ -180,52 +218,39 @@ public final class RouteTimeBreakdown implements Observation {
                     List.of(),
                     limitations);
         }
-        Map<Phase, long[]> totals = new EnumMap<>(Phase.class);
-        long total = 0;
-        long overlap = 0;
-        long[] durations = new long[warm.size()];
-        for (int i = 0; i < warm.size(); i++) {
-            Breakdown breakdown = warm.get(i);
-            total += breakdown.duration();
-            overlap += breakdown.overlap();
-            durations[i] = breakdown.duration();
-            for (Map.Entry<Phase, Long> phase : breakdown.phases().entrySet()) {
-                long[] perPhase = totals.computeIfAbsent(phase.getKey(), p -> new long[warm.size() + 1]);
-                perPhase[0] += phase.getValue();
-                perPhase[i + 1] = phase.getValue();
-            }
+        Totals totals = Totals.of(warm);
+        long median = median(totals.durations());
+        String warmText = "`" + route + "`: warm median " + InsightText.millis(median) + " ms over "
+                + InsightText.counted(warm.size(), "request");
+        List<String> exemplars = slowest(warm);
+        if (totals.onlyUnattributed()) {
+            // Without phase marks and without a recorded call, the whole request is one unattributed span: the
+            // breakdown would say nothing about where the time went.
+            return new Finding(
+                    route,
+                    route,
+                    false,
+                    warmText + ", none of it in a recorded call; " + stackName(stack)
+                            + " marks no phases, so where that time went is not known." + rejected(warm)
+                            + resources(warm) + coldText,
+                    warm.size(),
+                    warm.size(),
+                    List.of("Open the slowest exemplar request in Live Activity to see its timeline."),
+                    exemplars,
+                    COLUMNS,
+                    totals.rows(),
+                    limitations);
         }
-        long median = median(durations);
-        long sum = Math.max(1, total);
-        List<Map.Entry<Phase, long[]>> ranked = new ArrayList<>(totals.entrySet());
-        ranked.sort(Comparator.comparingLong((Map.Entry<Phase, long[]> e) -> e.getValue()[0])
-                .reversed());
+        List<Map.Entry<Phase, long[]>> ranked = totals.ranked();
         List<String> top = new ArrayList<>();
         for (Map.Entry<Phase, long[]> phase : ranked) {
             if (top.size() == 3 || phase.getValue()[0] == 0) {
                 break;
             }
-            top.add(phase.getKey().label + " " + percent(phase.getValue()[0], sum));
+            top.add(phase.getKey().label + " " + percent(phase.getValue()[0], totals.sum()));
         }
-        boolean dominant = !ranked.isEmpty() && ranked.get(0).getValue()[0] * 2 >= total;
-        String sentence = "`" + route + "`: warm median " + InsightText.millis(median) + " ms over "
-                + InsightText.counted(warm.size(), "request") + "; " + String.join(", ", top) + "."
-                + resources(warm) + coldText;
-        List<List<String>> rows = new ArrayList<>();
-        for (Phase phase : Phase.values()) {
-            long[] perPhase = totals.get(phase);
-            if (perPhase == null || perPhase[0] == 0) {
-                continue;
-            }
-            rows.add(List.of(
-                    phase.label,
-                    InsightText.millis(perPhase[0]),
-                    percent(perPhase[0], sum),
-                    InsightText.millis(median(Arrays.copyOfRange(perPhase, 1, perPhase.length)))));
-        }
-        if (overlap > 0) {
-            rows.add(List.of("Overlapping calls, counted once above", InsightText.millis(overlap), "", ""));
-        }
+        boolean dominant = !ranked.isEmpty() && ranked.get(0).getValue()[0] * 2 >= totals.total();
+        String sentence = warmText + "; " + String.join(", ", top) + "." + resources(warm) + coldText;
         List<String> checks = new ArrayList<>();
         if (!ranked.isEmpty()) {
             checks.add(check(ranked.get(0).getKey()));
@@ -241,14 +266,188 @@ public final class RouteTimeBreakdown implements Observation {
                 warm.size(),
                 warm.size(),
                 checks,
-                warm.stream()
-                        .sorted(Comparator.comparingLong(Breakdown::duration).reversed())
-                        .limit(3)
-                        .map(b -> b.request().requestId())
-                        .toList(),
-                List.of("Phase", "Total (ms)", "Share", "Median per request (ms)"),
-                rows,
+                exemplars,
+                COLUMNS,
+                totals.rows(),
                 limitations);
+    }
+
+    /**
+     * A route whose warm requests mostly reached no handler BootUI marks: not split into phases, since none of its
+     * time is known to be the handler's. Its recorded calls are still named.
+     */
+    private Finding unmarkedFinding(
+            String route,
+            List<Breakdown> warm,
+            List<Breakdown> unmarked,
+            ProjectedRequest cold,
+            InsightsStack stack,
+            List<String> limitations) {
+        long[] durations = warm.stream().mapToLong(Breakdown::duration).toArray();
+        long rejected = unmarked.stream().filter(b -> rejected(b.request())).count();
+        String which = unmarked.size() == warm.size() ? "all of them" : unmarked.size() + " of them";
+        StringBuilder sentence = new StringBuilder("`")
+                .append(route)
+                .append("`: warm median ")
+                .append(InsightText.millis(median(durations)))
+                .append(" ms over ")
+                .append(InsightText.counted(warm.size(), "request"))
+                .append("; ")
+                .append(which);
+        if (rejected == unmarked.size()) {
+            sentence.append(" answered 401 or 403 before reaching a handler BootUI marks, as security filters do when"
+                    + " they reject a request, so the time is not split into phases.");
+        } else {
+            sentence.append(" reached no handler BootUI marks (")
+                    .append(unmarkedExamples(stack))
+                    .append("), so the time is not split into phases.");
+            if (rejected > 0) {
+                sentence.append(' ')
+                        .append(InsightText.counted(rejected, "request"))
+                        .append(rejected == 1 ? " was" : " were")
+                        .append(" answered 401 or 403.");
+            }
+        }
+        Totals totals = Totals.of(unmarked);
+        List<String> calls = new ArrayList<>();
+        for (Map.Entry<Phase, long[]> phase : totals.ranked()) {
+            // Authentication is an observed phase, not a call the request made, so it stays out of this sentence; the
+            // evidence rows still name it.
+            if (phase.getKey() != Phase.UNATTRIBUTED
+                    && phase.getKey() != Phase.AUTHENTICATION
+                    && phase.getValue()[0] > 0
+                    && calls.size() < 3) {
+                calls.add(phase.getKey().label + " " + percent(phase.getValue()[0], totals.sum()));
+            }
+        }
+        if (!calls.isEmpty()) {
+            sentence.append(" Recorded calls: ")
+                    .append(String.join(", ", calls))
+                    .append('.');
+        }
+        sentence.append(coldText(cold));
+        return new Finding(
+                route,
+                route,
+                false,
+                sentence.toString(),
+                warm.size(),
+                unmarked.size(),
+                List.of(
+                        rejected == unmarked.size()
+                                ? "Send the route requests it accepts to read where its handler's time goes."
+                                : "Open the slowest exemplar request in Live Activity to see its timeline and"
+                                        + " recorded calls."),
+                slowest(unmarked),
+                COLUMNS,
+                totals.rows(),
+                limitations);
+    }
+
+    /** Why requests left out of a route's split reached no marked handler. */
+    private static String leftOut(List<Breakdown> unmarked, InsightsStack stack) {
+        long rejected = unmarked.stream().filter(b -> rejected(b.request())).count();
+        String why = rejected == unmarked.size()
+                ? "were answered 401 or 403 before reaching a handler BootUI marks, as security filters do when they"
+                        + " reject a request"
+                : "reached no handler BootUI marks (" + unmarkedExamples(stack) + ")";
+        return InsightText.counted(unmarked.size(), "warm request") + " " + why + ", so "
+                + (unmarked.size() == 1 ? "it is" : "they are") + " left out of the phases.";
+    }
+
+    private static String unmarkedExamples(InsightsStack stack) {
+        return stack == InsightsStack.QUARKUS
+                ? "a framework endpoint such as /q/health, a Vert.x route or static resource, or a request an HTTP"
+                        + " security policy answered"
+                : "an Actuator endpoint, a request the security filters answered, or a servlet outside Spring MVC";
+    }
+
+    private static boolean rejected(ProjectedRequest request) {
+        return request.status() == 401 || request.status() == 403;
+    }
+
+    /** Says so when every request was rejected by security, which no phase can show on a stack without marks. */
+    private static String rejected(List<Breakdown> warm) {
+        return warm.stream().allMatch(b -> rejected(b.request()))
+                ? " Every one was answered 401 or 403, as security filters do when they reject a request."
+                : "";
+    }
+
+    private static String stackName(InsightsStack stack) {
+        return stack == null ? "This stack" : stack.label();
+    }
+
+    private static List<String> slowest(List<Breakdown> breakdowns) {
+        return breakdowns.stream()
+                .sorted(Comparator.comparingLong(Breakdown::duration).reversed())
+                .limit(3)
+                .map(b -> b.request().requestId())
+                .toList();
+    }
+
+    private static final List<String> COLUMNS = List.of("Phase", "Total (ms)", "Share", "Median per request (ms)");
+
+    /** Every phase's time over a route's requests: in total, and per request for its median. */
+    private record Totals(Map<Phase, long[]> phases, long total, long overlap, long[] durations) {
+
+        static Totals of(List<Breakdown> breakdowns) {
+            Map<Phase, long[]> totals = new EnumMap<>(Phase.class);
+            long total = 0;
+            long overlap = 0;
+            long[] durations = new long[breakdowns.size()];
+            for (int i = 0; i < breakdowns.size(); i++) {
+                Breakdown breakdown = breakdowns.get(i);
+                total += breakdown.duration();
+                overlap += breakdown.overlap();
+                durations[i] = breakdown.duration();
+                for (Map.Entry<Phase, Long> phase : breakdown.phases().entrySet()) {
+                    long[] perPhase = totals.computeIfAbsent(phase.getKey(), p -> new long[breakdowns.size() + 1]);
+                    perPhase[0] += phase.getValue();
+                    perPhase[i + 1] = phase.getValue();
+                }
+            }
+            return new Totals(totals, total, overlap, durations);
+        }
+
+        long sum() {
+            return Math.max(1, total);
+        }
+
+        List<Map.Entry<Phase, long[]>> ranked() {
+            List<Map.Entry<Phase, long[]>> ranked = new ArrayList<>(phases.entrySet());
+            ranked.sort(Comparator.comparingLong((Map.Entry<Phase, long[]> e) -> e.getValue()[0])
+                    .reversed());
+            return ranked;
+        }
+
+        /** Whether no time at all was placed in a named phase: no phase marks, and no recorded call took time. */
+        boolean onlyUnattributed() {
+            for (Map.Entry<Phase, long[]> phase : phases.entrySet()) {
+                if (phase.getKey() != Phase.UNATTRIBUTED && phase.getValue()[0] > 0) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        List<List<String>> rows() {
+            List<List<String>> rows = new ArrayList<>();
+            for (Phase phase : Phase.values()) {
+                long[] perPhase = phases.get(phase);
+                if (perPhase == null || perPhase[0] == 0) {
+                    continue;
+                }
+                rows.add(List.of(
+                        phase.label,
+                        InsightText.millis(perPhase[0]),
+                        percent(perPhase[0], sum()),
+                        InsightText.millis(median(Arrays.copyOfRange(perPhase, 1, perPhase.length)))));
+            }
+            if (overlap > 0) {
+                rows.add(List.of("Overlapping calls, counted once above", InsightText.millis(overlap), "", ""));
+            }
+            return rows;
+        }
     }
 
     private static String check(Phase phase) {
@@ -271,11 +470,12 @@ public final class RouteTimeBreakdown implements Observation {
                         + " request.";
             case FILTERS -> "Most of the time is in filters before the handler: check what they do per request.";
             case HANDLER ->
-                "Most of the time is in application code outside recorded calls: run Profile resources to see the"
+                "Most of the time is in the handler outside recorded calls: run Profile resources to see the"
                         + " route's hottest frames.";
             case UNATTRIBUTED ->
-                "Most of the time has no phase markers or recorded calls: inspect the exemplar request before"
-                        + " attributing it to application code.";
+                "Most of the time is outside recorded calls, in filters, handler, or response write, which this stack"
+                        + " does not tell apart: open the slowest exemplar request in Live Activity to see its"
+                        + " timeline.";
         };
     }
 
@@ -378,11 +578,14 @@ public final class RouteTimeBreakdown implements Observation {
                 }
                 previous = bound;
             }
-            if (timing.authenticationNanos() > 0 && phases.containsKey(Phase.FILTERS)) {
-                long filters = phases.get(Phase.FILTERS);
-                long authentication = Math.min(filters, timing.authenticationNanos());
-                phases.put(Phase.FILTERS, filters - authentication);
-                phases.merge(Phase.AUTHENTICATION, authentication, Long::sum);
+            if (timing.authenticationNanos() > 0) {
+                // Authentication runs in the filters where the adapter marks them, and inside the request's single
+                // unattributed span where it marks none, as on WebFlux.
+                carve(
+                        phases,
+                        phases.containsKey(Phase.FILTERS) ? Phase.FILTERS : Phase.UNATTRIBUTED,
+                        Phase.AUTHENTICATION,
+                        timing.authenticationNanos());
             }
             if (timing.phased()) {
                 carveAuthorization(request, phases);
@@ -417,9 +620,35 @@ public final class RouteTimeBreakdown implements Observation {
         }
 
         /**
+         * The brokers whose recorded send blocks the caller until the broker took the message: a
+         * {@code RabbitTemplate} send and a {@code JmsTemplate} send. A Kafka send is timed until the broker's
+         * asynchronous acknowledgement, which a handler does not wait for unless it blocks on the returned future, so
+         * it is never taken out of the handler's time.
+         */
+        static final Set<String> SYNCHRONOUS_SEND_BROKERS = Set.of("rabbitmq", "jms");
+
+        /** Whether {@code request} sent a Kafka message, whose recorded time runs to an asynchronous acknowledgement. */
+        static boolean sendsAsynchronously(ProjectedRequest request) {
+            for (RuntimeEvent child : request.children(JournalSource.MESSAGING)) {
+                if (child.payload() instanceof MessagingPayload message
+                        && message.sent()
+                        && "kafka".equalsIgnoreCase(message.broker())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static boolean synchronousSend(MessagingPayload message) {
+            return message.sent()
+                    && message.broker() != null
+                    && SYNCHRONOUS_SEND_BROKERS.contains(message.broker().toLowerCase(Locale.ROOT));
+        }
+
+        /**
          * Names the AI calls and synchronous message sends the handler made (M3-8), and Hibernate's own flush time
-         * (M4-9), moving their time out of its other work. Neither is placed on the request's monotonic clock, so only their totals move, at most what the
-         * handler holds, as with authorization.
+         * (M4-9), moving their time out of its other work. Neither is placed on the request's monotonic clock, so only
+         * their totals move, at most what the handler holds, as with authorization.
          */
         private static void carveHandlerCalls(ProjectedRequest request, Map<Phase, Long> phases) {
             long ai = 0;
@@ -433,7 +662,7 @@ public final class RouteTimeBreakdown implements Observation {
                 }
                 if (child.payload() instanceof AiPayload) {
                     ai += child.durationNanos();
-                } else if (child.payload() instanceof MessagingPayload message && message.sent()) {
+                } else if (child.payload() instanceof MessagingPayload message && synchronousSend(message)) {
                     sends += child.durationNanos();
                 } else if (child.payload() instanceof OrmPayload orm) {
                     hibernate += orm.hibernateNanos();

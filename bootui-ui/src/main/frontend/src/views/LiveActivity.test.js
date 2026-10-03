@@ -266,6 +266,123 @@ describe('LiveActivity', () => {
     ).toEqual(['Default', 'Runtime journal', 'Panel buffers'])
   })
 
+  it('shows a retained journal profile when its HTTP-exchange details have been evicted', async () => {
+    const fetchMock = stubFetch(
+      activityReport({sources: ['Runtime journal']}),
+      requestProfile({available: false, unavailableReason: 'Request req-1 is no longer in the buffer.', request: null}),
+      {
+        available: true,
+        route: 'GET /api/todos',
+        durationMicros: 120000,
+        status: 200,
+        timeline: [{source: 'sql', label: 'select from todo', offsetMillis: 2, durationMicros: 1000}],
+        gcPauses: [],
+        touched: {tables: ['todo']},
+        notes: []
+      }
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    await wrapper.find('.activity-table tbody tr .bootui-keyboard-target').trigger('click')
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledWith('api/activity/request/req-1/journal', expect.anything())
+    expect(wrapper.find('.request-journal').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Recorded by the runtime journal')
+    expect(wrapper.text()).toContain('HTTP-exchange details unavailable')
+    expect(wrapper.text()).toContain('select from todo')
+  })
+
+  it('opens scheduled executions directly from the journal without an HTTP-exchange lookup', async () => {
+    const fetchMock = stubFetch(
+      activityReport({
+        sources: ['Runtime journal'],
+        entries: [requestEntry({id: 'scheduled-1', type: 'SCHEDULED', summary: 'Cleanup', profileable: true})]
+      }),
+      requestProfile({available: false, unavailableReason: 'not an HTTP request'}),
+      {
+        available: true,
+        route: 'Scheduled: Cleanup',
+        durationMicros: 25000,
+        status: null,
+        timeline: [],
+        gcPauses: [],
+        touched: {tables: []},
+        notes: []
+      }
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    await wrapper.find('.activity-table tbody tr .bootui-keyboard-target').trigger('click')
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledWith('api/activity/request/scheduled-1/journal', expect.anything())
+    expect(fetchMock.mock.calls.some(([url]) => url === 'api/activity/request/scheduled-1')).toBe(false)
+    expect(wrapper.text()).toContain('Scheduled: Cleanup')
+    expect(wrapper.text()).not.toContain('HTTP-exchange details unavailable')
+  })
+
+  it('says no activity is recorded yet when the feed is empty and nothing narrows it', async () => {
+    safeLocalStorage.removeItem('bootui.activity.filters')
+    vi.stubGlobal('fetch', stubFetch(activityReport({entries: [], typeCounts: {}}), requestProfile()))
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    const text = wrapper.get('table tbody').text()
+    expect(text).toContain('No activity recorded yet. Send a request to the application')
+    expect(text).not.toContain('No activity matches the current filters.')
+  })
+
+  it('says no activity matches the filters only while a filter, search, or toggle narrows the feed', async () => {
+    safeLocalStorage.removeItem('bootui.activity.filters')
+    vi.stubGlobal('fetch', stubFetch(activityReport({sources: ['Runtime journal']}), requestProfile()))
+
+    wrapper = mountLiveActivity()
+    await flushPromises()
+    const emptyText = () => wrapper.get('table tbody').text()
+
+    await wrapper.get('#activity-severity-filter').setValue('ERROR')
+    expect(emptyText()).toContain('No activity matches the current filters.')
+    expect(emptyText()).not.toContain('No activity recorded yet.')
+
+    await wrapper.get('#activity-severity-filter').setValue('')
+    await wrapper.get('#activity-text-filter').setValue('no-such-path')
+    expect(emptyText()).toContain('No activity matches the current filters.')
+
+    await wrapper.get('#activity-text-filter').setValue('')
+    await wrapper.get('#activity-errors-only').setValue(true)
+    expect(emptyText()).toContain('No activity matches the current filters.')
+
+    await wrapper.get('#activity-errors-only').setValue(false)
+    expect(wrapper.text()).toContain('GET /api/todos → 200')
+  })
+
+  it('says no activity matches the filters when a journal filter narrows an empty feed', async () => {
+    vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
+    try {
+      safeLocalStorage.removeItem('bootui.activity.filters')
+      vi.stubGlobal(
+        'fetch',
+        stubFetch(activityReport({entries: [], typeCounts: {}, sources: ['Runtime journal']}), requestProfile())
+      )
+
+      wrapper = mountLiveActivity()
+      await flushPromises()
+      expect(wrapper.get('table tbody').text()).toContain('No activity recorded yet.')
+
+      await wrapper.get('#activity-no-request').setValue(true)
+      expect(wrapper.get('table tbody').text()).toContain('No activity matches the current filters.')
+      expect(wrapper.get('table tbody').text()).not.toContain('No activity recorded yet.')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('opens the resource track only on demand', async () => {
     const fetchMock = stubFetch(activityReport(), requestProfile())
     vi.stubGlobal('fetch', fetchMock)

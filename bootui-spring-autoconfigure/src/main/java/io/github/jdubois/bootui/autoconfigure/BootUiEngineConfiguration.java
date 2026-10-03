@@ -959,16 +959,13 @@ public class BootUiEngineConfiguration {
      * passthrough controller are only wired when the Actuator {@code MappingsEndpoint} type is on the
      * classpath. The {@code MappingsEndpoint}-typed parameters live in this nested,
      * {@code @ConditionalOnClass}-gated configuration (never inline in the always-active root config), so
-     * the type and the Web MVC mapping descriptor types are never linked in an Actuator-absent
-     * application. The neutral {@code MappingsController} ({@code /flat}) stays unconditional and serves
-     * an empty report when this backend is absent.
+     * the type is never linked in an Actuator-absent application, and the provider reads the Web MVC and
+     * WebFlux mapping descriptor types only when their module is present. The neutral
+     * {@code MappingsController} ({@code /flat}) stays unconditional and serves an empty report when this
+     * backend is absent.
      */
     @Configuration(proxyBeanMethods = false)
-    @ConditionalOnClass(
-            name = {
-                "org.springframework.boot.actuate.web.mappings.MappingsEndpoint",
-                "org.springframework.boot.webmvc.actuate.web.mappings.DispatcherServletMappingDescription"
-            })
+    @ConditionalOnClass(name = "org.springframework.boot.actuate.web.mappings.MappingsEndpoint")
     static class MappingsBackendConfiguration {
 
         @Bean

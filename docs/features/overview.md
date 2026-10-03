@@ -277,8 +277,10 @@ Opening Live Activity with `?request=<exchange id>`, as each HTTP Exchanges row'
 request's profile directly.
 
 Each correlated exception carries its `exceptionGroupId`, the id of its group in the
-[Exceptions panel](diagnostics.md#exceptions). Agents reach the same profile through the `get_request_profile` MCP tool
-and the `bootui request-profile <id>` command, which return this DTO unchanged; see
+[Exceptions panel](diagnostics.md#exceptions). Agents use `get_request_profile` or `bootui request-profile <id>`:
+these return the retained journal profile first (`source: "journal"`), with the HTTP-exchange profile
+(`source: "buffers"`) as fallback, rather than returning this REST DTO unchanged. Scheduled runs and consumed messages
+can also be opened by execution id when retained; see
 [Investigate one request](../AI-AGENTS.md#investigate-one-request).
 
 #### Copy profile and Copy for AI
@@ -600,7 +602,7 @@ Twenty-two observations run over the completed requests and garbage collections 
 
 | Observation | What it counts |
 | --- | --- |
-| `route-time-breakdown` | Where a route's warm requests spend their time: authentication, authorization (Spring, from the `authorization` source: a request's checks out of the filters, a method's out of the handler), other filters, connection wait, SQL, REST client calls, AI calls, synchronous message sends, other handler work, and the response write. Time without phase markers or recorded calls remains unattributed, not assumed to be application code. Overlapping calls count once, and each route's first request is reported apart as cold |
+| `route-time-breakdown` | Where a route's warm requests spend their time: authentication, authorization (Spring, from the `authorization` source: a request's checks out of the filters, a method's out of the handler), other filters, connection wait, SQL, REST client calls, AI calls, synchronous message sends (RabbitMQ and JMS; a Kafka send is timed until the broker's asynchronous acknowledgement, so it stays in the handler's time and the row says so), other handler work, and the response write. Overlapping calls count once, and each route's first request is reported apart as cold. On Spring MVC and Quarkus, a request that reached no handler BootUI marks, such as an Actuator or `/q/` endpoint or a request the security filters answered with 401 or 403, is never split as handler work: it is left out of its route's phases, and a route whose requests mostly did is reported insufficient with its recorded calls. On WebFlux, which marks no handler or response phase, a route whose requests named nothing at all, neither a recorded call nor authentication time, is insufficient, since its breakdown would be one unattributed span |
 | `exception-hotspots` | Exception groups per route, by a signature that survives line shifts, marked when the previous run served the route without them |
 | `errors-behind-2xx` | 2xx responses whose own request rolled back its transaction, recorded an exception, wrote an `ERROR` log, or received a downstream 5xx; requests a retry or fallback recovered are listed apart |
 | `repeated-selects` | The same SELECT run five or more times in a request after another statement, from three requests |
@@ -611,9 +613,9 @@ Twenty-two observations run over the completed requests and garbage collections 
 | `anonymous-success-on-restricted-route` | 2xx answers to proven-anonymous requests on a route whose rules this run saw deny another anonymous caller or require an authority: "a successful anonymous response, not proof that the rule is wrong" |
 | `split-transaction-writes` | Requests whose writes committed in two or more independent transactions or autocommit statements |
 | `transaction-across-remote-call` | Transactions still open when a REST client call starts, with the connection they held |
-| `lazy-sql-after-handler` | SQL run while the response was written, outside every transaction (open session in view) |
+| `lazy-sql-after-handler` | SQL run while the response was written, outside every transaction (open session in view). When the statement's frames show a template engine rendering the view, such as Thymeleaf calling a Spring `Formatter`, it says the view ran the query and advises loading that data in the handler, into the model, and names the application frame the view called as the call site |
 | `event-loop-blocking` | JDBC statements started on an event-loop thread |
-| `orm-auto-flush` | Requests in which Hibernate wrote pending changes before a query three times or more, or for at least a fifth of their ORM time, in two requests of a route or more |
+| `orm-auto-flush` | Requests in which Hibernate wrote pending changes before a query three times or more, or for at least a fifth of their ORM time; the threshold is per request, so one such request reports its route |
 | `large-persistence-context` | Requests whose Hibernate session held 500 entities or more at a flush, in three requests of a route or more |
 | `gc-inflated-latency` | The share of a route's slowest tenth of requests, at least five, during which a stop-the-world pause completed, against the share of its other requests, with the pauses' total. Pauses join requests by collector and collection id, never by time, and are worded "a pause completed during", never "caused by" |
 | `transactional-listener-skipped` | Spring: a `@TransactionalEventListener` that never ran because its event was published with no transaction active, from one event. Not applicable on Quarkus, where CDI notifies a transactional observer at once |
@@ -631,8 +633,12 @@ logs also cover jobs and listeners, counted in runs or messages. Those that read
 method, phases, authorization, or measured resources) stay on HTTP requests.
 
 Every observation reports whether it ran. One whose journal source is not recorded, whose panel is disabled, or which
-does not apply to this stack says so with its reason, so an empty list never reads as healthy. Findings below their
-minimum are shown as **insufficient**, naming what is missing, and a source that dropped events marks its findings
+does not apply to this stack says so with its reason, so an empty list never reads as healthy. One that reads SQL is
+**unavailable** when this application's SQL cannot be recorded: BootUI records JDBC statements through a traced
+`DataSource` (and, on Quarkus, Hibernate ORM's statements), never R2DBC or a reactive SQL client, so an R2DBC
+application's SQL checks say so instead of finding nothing; an observation that only optionally reads SQL, such as
+`route-time-breakdown`, runs and names what it could not count. Findings below their minimum are shown as
+**insufficient** (**Not enough evidence**), naming what is missing, and a source that dropped events marks its findings
 **partial**. Each finding has a stable id that survives refreshes and restarts, one to three conditional checks, up to
 three exemplar request ids to open in Live Activity, and at most 20 evidence rows. When BootUI changed something during the
 window, the report names it among its limitations, and a finding whose evidence names the logger, cache, or key that a
@@ -652,8 +658,11 @@ same facts through the `get_runtime_insights`, `get_runtime_insight`, `get_runti
 `get_runtime_run_comparison` MCP tools and the `bootui insights` CLI commands ([AI agents](../AI-AGENTS.md#runtime-insights-for-agents)).
 
 **Not exercised in this run** lists the application's declared routes that no request of this run reached, so nothing
-in the panel is mistaken for a verdict on a route that never ran. Framework endpoints, such as the error controller and
-Actuator, and catch-all patterns are left out. **Export JSON** saves the report as the panel received it, with no new
+in the panel is mistaken for a verdict on a route that never ran. Framework endpoints, such as the error controller,
+Actuator, and Quarkus's own extension and `/q/` endpoints, and catch-all patterns are left out; an application whose
+packages start with `io.quarkus`, such as the Quarkus samples, keeps its routes. Spring WebFlux routes, annotated or
+functional, are read from Actuator's mappings like Spring MVC's. When the declared routes cannot be read, as without
+Actuator's mappings endpoint, the report says so among its limitations instead of listing no route. **Export JSON** saves the report as the panel received it, with no new
 request.
 
 **Change impact** answers "what does my change reach?" for a route, a bean, a class, a repository, a table, a cache, or

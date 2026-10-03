@@ -33,4 +33,9 @@ class BootUiQuarkusMcpConformanceTest extends AbstractMcpConformanceTest {
     protected String baseUrl() {
         return baseUrl.toExternalForm();
     }
+
+    @Override
+    protected String requestProfileProbePath() {
+        return "/it/correlation/worker";
+    }
 }

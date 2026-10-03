@@ -164,15 +164,24 @@ were already framework-neutral in practice, not just in the engine underneath th
 
 | Panels ported unchanged |
 | ----------------------- |
-| Scorecard, GitHub, Beans, Conditions, Configuration, Mappings, Health, Loggers, Startup Timeline, Spring Data |
+| Scorecard, GitHub, Beans, Conditions, Configuration, Mappings[^mappings-reactive], Health, Loggers, Startup Timeline, Spring Data |
 | Database, Hibernate, Hibernate Statistics, PostgreSQL, MySQL, Flyway, Liquibase, Database Connection Pools, Cache, Dev Services |
 | Vulnerabilities, Scheduled Tasks, Fault Tolerance, HTTP Probe, Pentesting, Heap Dump, Architecture, REST API advisor |
 | Profile Diff, Spring advisor[^spring-advisor-reactive], Live Memory, JVM Tuning, Metrics, Spring DevTools, Traces, AI Framework |
 | GraalVM, CRaC, Threads, Memory, Email, Kafka, RabbitMQ, JMS, Runtime Insights[^runtime-insights-reactive], Java Agent |
 
+[^mappings-reactive]: The Actuator-backed provider reads WebFlux's `dispatcherHandlers` descriptions as well as Spring
+    MVC's `dispatcherServlets`, each only when its web module is present: annotated controllers by their conditions,
+    and functional routes by a predicate naming one method and one path, such as `(GET && /api/items/{id})`. Other
+    functional predicates are listed whole.
+
 [^runtime-insights-reactive]: The shared `RuntimeInsightsController` reads the same runtime journal. WebFlux marks no
-    request phases, so `route-time-breakdown` reports the time around a request's calls as unattributed, and
-    `lazy-sql-after-handler` is not applicable; only blocking transactions are placed. With the BootUI agent attached,
+    handler or response phase, so `route-time-breakdown` names the authentication time Spring Security observed and
+    reports the rest of the time around a request's calls as unattributed, and a route whose requests named nothing at
+    all, neither a recorded call nor authentication time, is insufficient rather than one unattributed span;
+    `lazy-sql-after-handler` is not applicable. BootUI records
+    JDBC, not R2DBC, so in an application without a traced `DataSource` the checks that read SQL report `UNAVAILABLE`
+    with that reason; only blocking transactions are placed. With the BootUI agent attached,
     `work-after-response` applies as on Spring MVC. Reactor's own schedulers already carry BootUI's context when
     `spring.reactor.context-propagation=auto`, so the agent's executors sensor then skips their `parallel-`,
     `boundedElastic-`, and `single-` threads; raw executors and `CompletableFuture` are propagated by the agent.
@@ -246,7 +255,7 @@ assets still target a JVM process and Spring's checkpoint lifecycle; they do not
 
 | Panel          | Reactive binding                                                                                          |
 | -------------- | ---------------------------------------------------------------------------------------------------------- |
-| HTTP Exchanges | `ReactiveHttpExchangeRepositoryConfiguration` supplies BootUI's failure-preserving `BootUiHttpExchangeRepository` and `BootUiHttpExchangesWebFilter`, a subclass of Actuator's reactive `HttpExchangesWebFilter`, instead of the servlet filter — same DTO, same UI, same capture semantics, including skipping BootUI's own requests below the WebFlux base path and the shared `bootui.activity.request-slow-threshold-ms`. Route rankings take the WebFlux handler pattern from `HttpExchangeTraceRegistry`, which `ReactiveHttpExchangeTraceFilter` fills only when OpenTelemetry is present, as it is with the reactive starter. The Mappings provider reads servlet mappings only, so without OpenTelemetry WebFlux routes fall back to masked paths, and the rankings state that limitation |
+| HTTP Exchanges | `ReactiveHttpExchangeRepositoryConfiguration` supplies BootUI's failure-preserving `BootUiHttpExchangeRepository` and `BootUiHttpExchangesWebFilter`, a subclass of Actuator's reactive `HttpExchangesWebFilter`, instead of the servlet filter — same DTO, same UI, same capture semantics, including skipping BootUI's own requests below the WebFlux base path and the shared `bootui.activity.request-slow-threshold-ms`. Route rankings take the WebFlux handler pattern from `HttpExchangeTraceRegistry`, which `ReactiveHttpExchangeTraceFilter` fills only when OpenTelemetry is present, as it is with the reactive starter. Without OpenTelemetry, a path is matched against the WebFlux routes the Mappings provider reads from Actuator's `dispatcherHandlers` descriptions, as on Spring MVC; a path no declared route matches falls back to a masked path, and the rankings state that limitation |
 | MCP Server     | `ReactiveBootUiMcpController` — same `BootUiMcpService`, `McpServerState`, and `McpProtocol` as the servlet `BootUiMcpController`; only the transport differs (`DataBuffer` payload assembly with the same `bootui.mcp.max-payload-bytes` limit, and tool execution offloaded to `Schedulers.boundedElastic()`) |
 | Command Line   | `ReactiveBootUiCliController` — same `CliService` and the same `/bootui/api/cli` contract and statuses as the servlet `BootUiCliController`, with tool invocation offloaded to `Schedulers.boundedElastic()` because BootUI's tools call blocking diagnostics |
 

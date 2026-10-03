@@ -43,6 +43,34 @@ test.describe('Live Activity view (Quarkus)', () => {
     await expect(table.locator('tbody tr.table-danger').first()).toBeVisible()
   })
 
+  test('keeps a journal request visible when the HTTP-exchange profile is unavailable', async ({page}) => {
+    const search = await page.request.get('/api/sample/product-search')
+    expect(search.ok()).toBeTruthy()
+    const activity = await page.request.get('/bootui/api/activity?source=journal')
+    expect(activity.ok()).toBeTruthy()
+    const exemplar = (await activity.json()).entries.find(
+      (entry) => entry.type === 'REQUEST' && entry.path === '/api/sample/product-search'
+    )
+    expect(exemplar?.id).toBeTruthy()
+
+    await page.route('**/api/activity/request/*', async (route) => {
+      if (route.request().url().endsWith('/journal')) return route.continue()
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          available: false,
+          unavailableReason: `Request ${exemplar.id} is no longer in the buffer.`
+        })
+      })
+    })
+    await page.goto(`/bootui/#/activity?request=${encodeURIComponent(exemplar.id)}`)
+
+    const drawer = page.locator('.activity-drawer')
+    await expect(drawer.locator('.request-journal')).toContainText('GET /api/sample/product-search')
+    await expect(drawer).toContainText('HTTP-exchange details unavailable')
+  })
+
   test('opens the runtime journal status on demand and clears the recording after confirmation', async ({
     openView,
     page

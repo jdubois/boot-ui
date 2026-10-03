@@ -88,7 +88,10 @@ const coverage = computed(() => coverageSummary(report.value))
 const sources = computed(() => coverageSources(report.value))
 const unrun = computed(() => checksWithReasons(report.value))
 const empty = computed(() => emptyState(report.value))
-const evaluated = computed(() => (report.value?.checks ?? []).filter((check) => check.status !== 'NOT_APPLICABLE'))
+// A check ran when it was evaluated, even partially; one not applicable or unavailable did not.
+const evaluated = computed(() =>
+  (report.value?.checks ?? []).filter((check) => check.status === 'EVALUATED' || check.status === 'PARTIAL')
+)
 const selected = computed(() => visibleObservations.value.find((observation) => observation.id === selectedId.value))
 watch(selectedId, () => (aiExport.value = null))
 
@@ -149,7 +152,7 @@ function toggleTheme(id) {
 }
 
 function statusLabel(status) {
-  return {OBSERVED: 'Observed', PARTIAL: 'Partial', INSUFFICIENT: 'Needs more traffic'}[status] ?? status
+  return {OBSERVED: 'Observed', PARTIAL: 'Partial', INSUFFICIENT: 'Not enough evidence'}[status] ?? status
 }
 
 function statusClass(status) {
@@ -157,7 +160,10 @@ function statusClass(status) {
 }
 
 function checkStatusLabel(status) {
-  return {NOT_APPLICABLE: 'Not applicable', PARTIAL: 'Partial', EVALUATED: 'Ran'}[status] ?? status
+  return (
+    {NOT_APPLICABLE: 'Not applicable', UNAVAILABLE: 'Unavailable', PARTIAL: 'Partial', EVALUATED: 'Ran'}[status] ??
+    status
+  )
 }
 
 function tierLabel(tier) {

@@ -13,6 +13,7 @@ import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.RequestJournalProfileDto;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
+import io.github.jdubois.bootui.core.dto.RequestProfileSelectionDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalClearRequest;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalStatusDto;
@@ -40,6 +41,7 @@ import io.github.jdubois.bootui.engine.journal.JournalActivityReports;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalRowDetails;
 import io.github.jdubois.bootui.engine.journal.RequestJournalProfiles;
+import io.github.jdubois.bootui.engine.journal.RequestProfileSelection;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalService;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
@@ -591,6 +593,10 @@ public class LiveActivityResource {
                         panel -> panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel))
                 .maxHandoff(maxHandoff)
                 .profile(id);
+    }
+
+    public RequestProfileSelectionDto agentProfile(String id) {
+        return RequestProfileSelection.select(id, this::requestJournal, this::request);
     }
 
     @GET
