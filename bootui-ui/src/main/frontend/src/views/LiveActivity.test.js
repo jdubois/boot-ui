@@ -359,6 +359,21 @@ describe('LiveActivity', () => {
     expect(wrapper.text()).not.toContain('Loading…')
   })
 
+  it('withholds the journal-only filters while persisted history serves the feed', async () => {
+    safeLocalStorage.removeItem('bootui.activity.filters')
+    const persisted = activityReport({
+      sources: ['Runtime journal'],
+      pageInfo: {persistent: true, hasMore: false, nextCursor: null}
+    })
+    vi.stubGlobal('fetch', stubFetch(persisted, requestProfile()))
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    expect(wrapper.find('#activity-run-filter').exists()).toBe(false)
+    expect(wrapper.find('#activity-route-filter').exists()).toBe(false)
+    expect(wrapper.text()).toContain('persisted history keeps no run or request grouping')
+  })
+
   it('asks for one run only when a run id is entered', async () => {
     vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
     try {

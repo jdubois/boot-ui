@@ -166,7 +166,7 @@ function activityUrl(extra = {}) {
     for (const [key, value] of Object.entries(filterParams)) params.set(key, value)
   }
   if (feedSource.value) params.set('source', feedSource.value)
-  if (fromJournal.value) {
+  if (fromJournal.value && !persistent.value) {
     if (routeFilter.value.trim()) params.set('route', routeFilter.value.trim())
     if (requestIdFilter.value.trim()) params.set('requestId', requestIdFilter.value.trim())
     if (runFilter.value.trim()) params.set('run', runFilter.value.trim())
@@ -1102,7 +1102,11 @@ function toggleFlow() {
               <option value="buffers">Panel buffers</option>
             </select>
           </div>
-          <template v-if="fromJournal">
+          <p v-if="fromJournal && persistent" class="small text-muted mb-0" role="note">
+            Route, request, run, and no-request filters apply to the in-memory runtime journal; persisted history keeps
+            no run or request grouping.
+          </p>
+          <template v-if="fromJournal && !persistent">
             <div>
               <label class="form-label small mb-1" for="activity-route-filter">Route</label>
               <input
