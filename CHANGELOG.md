@@ -17,13 +17,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **Runtime observation accuracy (OBS-01, OBS-02, OBS-08).** Proxy bypass no longer judges `@Cacheable(sync = true)`
-  or condition-dependent cache methods as bypasses when Spring legitimately records no preceding cache access.
-  Anonymous writes identify each captured DML target, including JDBC batch previews, not tables read by INSERT … SELECT,
-  subqueries, or UPDATE … FROM; ambiguous multi-table forms stay visible as labelled lexical candidates, not proven
-  writes, and possible batch truncation is explicit. The anonymous-access documentation now describes intended public
-  writes and unproven anonymity honestly
-  ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-12, M4-13).
+- **Runtime Insights source-panel follow-ups.** Checks no longer report an empty evaluation after a unit they
+  examine is hidden; only its disabled opening panel is named, and HTTP-only checks do not blame hidden jobs.
+  Dropped HTTP events count once even when HTTP is a required source. Quarkus does not claim that an
+  unverified prepared write executed when Hibernate evidence is hidden, and trace-only AI calls owned by hidden
+  requests no longer survive as uncorrelated coverage ([#1217](https://github.com/jdubois/boot-ui/pull/1217)).
 
 - **Runtime Insights after Clear recording.** Clearing the journal or freeing BootUI memory now refreshes the
   report and its evidence at once instead of serving the cleared events until a new one arrives, and no route's first
@@ -61,6 +59,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   HTTP exchange leaves the shorter buffer. `get_request_profile` and `bootui request-profile` open journal requests,
   scheduled runs, and consumed-message executions first; their result names the selected source and falls back to the
   HTTP-exchange profile when necessary. Missing ids identify both retention windows (PLAN-v2 M2-9b, M3-7).
+
+- **Runtime observation accuracy (OBS-01, OBS-02, OBS-08).** Proxy bypass no longer judges `@Cacheable(sync = true)`
+  or condition-dependent cache methods as bypasses when Spring legitimately records no preceding cache access.
+  Anonymous writes identify each captured DML target, including JDBC batch previews, not tables read by INSERT … SELECT,
+  subqueries, or UPDATE … FROM; ambiguous multi-table forms stay visible as labelled lexical candidates, not proven
+  writes, and possible batch truncation is explicit. The anonymous-access documentation now describes intended public
+  writes and unproven anonymity honestly
+  ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-12, M4-13).
 
 ### Added
 
