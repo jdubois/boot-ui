@@ -38,7 +38,12 @@ public final class SafeMethodDml implements Observation {
 
     @Override
     public Set<JournalSource> reads() {
-        return Set.of(JournalSource.SQL);
+        return Set.of(JournalSource.HTTP, JournalSource.SQL);
+    }
+
+    @Override
+    public Set<ProjectedRequest.Kind> unitKinds() {
+        return Set.of(ProjectedRequest.Kind.HTTP);
     }
 
     @Override
@@ -50,6 +55,9 @@ public final class SafeMethodDml implements Observation {
     public Evaluation evaluate(InsightsSnapshot snapshot) {
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;
+        boolean hiddenOrm = snapshot.stack() == InsightsStack.QUARKUS
+                && snapshot.records(JournalSource.ORM)
+                && !snapshot.visible(JournalSource.ORM);
         for (Map.Entry<String, List<ProjectedRequest>> route :
                 snapshot.httpByRoute().entrySet()) {
             List<ProjectedRequest> safe = route.getValue().stream()
@@ -63,7 +71,7 @@ public final class SafeMethodDml implements Observation {
                 Map<String, String> callSites = new LinkedHashMap<>();
                 boolean preparationsExecuted = preparationsExecuted(snapshot, request);
                 for (RuntimeEvent event : request.children(JournalSource.SQL)) {
-                    if (preparation(snapshot, event) && !preparationsExecuted) {
+                    if (preparation(snapshot, event) && (hiddenOrm || !preparationsExecuted)) {
                         continue;
                     }
                     if (event.payload() instanceof SqlPayload sql && !sql.failed() && isDml(sql.sql())) {
@@ -90,7 +98,13 @@ public final class SafeMethodDml implements Observation {
                     safe.size(),
                     limitation(snapshot))));
         }
-        return new Evaluation(eligible, findings);
+        return new Evaluation(
+                eligible,
+                findings,
+                hiddenOrm
+                        ? "The hibernate panel is disabled, so prepared statements cannot be verified as executed"
+                                + " writes and are not counted; timed JDBC executions still are."
+                        : null);
     }
 
     /** What a Quarkus finding counts: executions proven by Hibernate's sessions, or preparations without them. */
@@ -101,8 +115,11 @@ public final class SafeMethodDml implements Observation {
         return snapshot.available(JournalSource.ORM)
                 ? "Counts Hibernate statements when they are prepared, leaving out a request whose Hibernate sessions"
                         + " executed no statement at all."
-                : "Counts Hibernate statements when they are prepared: record the orm source to leave out a request"
-                        + " whose sessions executed none.";
+                : snapshot.records(JournalSource.ORM)
+                        ? "Counts timed JDBC executions only: the hibernate panel is disabled, so unverified"
+                                + " preparations are left out."
+                        : "Counts Hibernate statements when they are prepared: record the orm source to leave out a"
+                                + " request whose sessions executed none.";
     }
 
     private Finding finding(
