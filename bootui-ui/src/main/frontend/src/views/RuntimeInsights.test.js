@@ -342,6 +342,30 @@ describe('Runtime Insights panel', () => {
     expect(fetchMock.mock.calls.length).toBe(calls)
   })
 
+  it('reloads the open observation’s evidence when the report refreshes, keeping the rows meanwhile', async () => {
+    let evidence = detail
+    let current = report
+    const fetchMock = vi.fn((url) =>
+      Promise.resolve(jsonResponse(String(url).includes('/insights/') ? evidence : current))
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountPanel()
+    await flushPromises()
+    expect(wrapper.find('.insight-evidence').text()).toContain('r-1')
+
+    current = {
+      ...report,
+      observations: [{...report.observations[0], affected: 5, evidenceRows: 2}]
+    }
+    evidence = {...detail, observation: current.observations[0], rows: [{cells: ['r-1', '6']}, {cells: ['r-7', '9']}]}
+    await wrapper.findComponent({name: 'PanelHeader'}).vm.$emit('refresh')
+    await flushPromises()
+
+    expect(wrapper.find('.insight-evidence').text()).toContain('r-7')
+    const detailCalls = fetchMock.mock.calls.filter(([url]) => String(url).includes('/insights/'))
+    expect(detailCalls).toHaveLength(2)
+  })
+
   it('exports the report it already has as JSON without another request', async () => {
     const fetchMock = vi.fn((url) =>
       Promise.resolve(jsonResponse(String(url).includes('/insights/') ? detail : report))

@@ -21,8 +21,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   or condition-dependent cache methods as bypasses when Spring legitimately records no preceding cache access.
   Anonymous writes identify each captured DML target, including JDBC batch previews, not tables read by INSERT … SELECT,
   subqueries, or UPDATE … FROM; ambiguous multi-table forms stay visible as labelled lexical candidates, not proven
-  writes, and possible batch truncation is explicit. The anonymous-access documentation now describes intended public writes and unproven anonymity
-  honestly ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-12, M4-13).
+  writes, and possible batch truncation is explicit. The anonymous-access documentation now describes intended public
+  writes and unproven anonymity honestly
+  ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-12, M4-13).
+
+- **Runtime Insights after Clear recording.** Clearing the journal or freeing BootUI memory now refreshes the
+  report and its evidence at once instead of serving the cleared events until a new one arrives, and no route's first
+  post-clear request is labeled cold. The evidence table follows each auto-refresh of the open observation, and
+  `gc-inflated-latency` leaves each route's cold first request out of its slowest tenth (PLAN-v2 §5.5, M3-3a, M4-3).
 
 - **Runtime Insights and Live Activity UI.** Load failures in Change impact, Run comparison, Profile resources,
   Why-slow, and observation evidence show their message instead of a JSON object (including in the screen-reader
