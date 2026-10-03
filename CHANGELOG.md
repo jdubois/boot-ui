@@ -359,6 +359,11 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Profile resources joins segments closed by another thread.** A request segment still open when its request was
+  taken from another thread, as on Quarkus where the response closes a worker's segment from the event loop, now commits
+  its JFR event with its own thread's id, so the worker's CPU and allocation samples join the route instead of counting
+  as outside any request.
+
 - **Quarkus HTTP and exception capture can no longer fail a request after its response.** When a worker or virtual
   thread ended the response, the HTTP exchange capture read the response headers while the event loop could still be
   changing them. The read intermittently threw `NullPointerException` or `NoSuchElementException`, and Quarkus then
