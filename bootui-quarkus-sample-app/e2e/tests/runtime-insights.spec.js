@@ -37,9 +37,19 @@ test.describe('Runtime Insights view', () => {
     await expect(comparison).toContainText(/Compared|Needs more traffic|Not comparable|No previous run/)
 
     const impact = page.locator('.insight-impact')
-    await impact.getByRole('searchbox').fill('noSuchSymbolAnywhere')
+    const symbol = impact.getByRole('combobox', {name: /Symbol to check/})
+    await symbol.fill('noSuchSymbolAnywhere')
     await impact.getByRole('button', {name: 'Check impact'}).click()
     await expect(impact.locator('.insight-impact-reason')).toBeVisible()
+
+    // Typing suggests what the run's model holds, each with its kind; picking one checks exactly that node.
+    await symbol.fill('/api/sample/product-search')
+    const route = impact.getByRole('option', {name: /^GET \/api\/sample\/product-search route$/})
+    await expect(route).toBeVisible()
+    await route.click()
+    await expect(symbol).toHaveValue('GET /api/sample/product-search')
+    await expect(impact.locator('.insight-impact-node')).toContainText('GET /api/sample/product-search')
+    await expect(impact.locator('[data-list="observed"]')).toContainText('GET /api/sample/product-search')
 
     await page.locator('.insight-search').fill('no-such-route-xyz')
     await expect(page.getByText('No observation matches this search.')).toBeVisible()

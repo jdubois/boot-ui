@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.quarkus.web;
 
 import io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto;
+import io.github.jdubois.bootui.core.dto.RuntimeImpactSymbolsDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeResourceProfileDto;
@@ -109,6 +110,14 @@ public class RuntimeInsightsResource {
     @Produces(MediaType.APPLICATION_JSON)
     public RuntimeChangeImpactDto impact(@QueryParam("symbol") String symbol) {
         return impact.impact(symbol);
+    }
+
+    /** The routes, beans, tables, and other symbols the impact can check that match {@code query}. */
+    @GET
+    @Path("/impact/symbols")
+    @Produces(MediaType.APPLICATION_JSON)
+    public RuntimeImpactSymbolsDto impactSymbols(@QueryParam("query") String query) {
+        return impact.symbols(query);
     }
 
     /** The <b>Profile resources</b> session's state and last results ({@code PLAN-v2} §5.11); starts nothing. */

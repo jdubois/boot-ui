@@ -646,16 +646,18 @@ in the panel is mistaken for a verdict on a route that never ran. Framework endp
 Actuator, and catch-all patterns are left out. **Export JSON** saves the report as the panel received it, with no new
 request.
 
-**Change impact** answers "what does my change reach?" for a bean, a class, a repository, a table, a cache, or an
-outbound host, named in its field and checked only when you ask. It resolves the name to exactly one node of the run's
-model, or lists the candidates when it names several, and then lists, eight rows each with totals: the routes that
-reach that code through the bean graph and ran in this run, with their requests, anonymous and failed requests, the
-tables and caches they read and wrote, and requests to open; the mapped routes that reach it and did not run, each
-with a reminder to exercise it; and the routes outside its reach that use a table, cache, or host the routes through
-it touched. The structural reach is a count, kept apart from what ran, since a route's traffic does not prove that a
-request went through the changed code. Spring MVC and WebFlux read the bean graph and Quarkus its ArC injection edges;
-when the beans cannot be read, the impact says so rather than listing nothing. `?impact=<symbol>` opens the panel on a
-symbol.
+**Change impact** answers "what does my change reach?" for a route, a bean, a class, a repository, a table, a cache, or
+an outbound host, named in its field and checked only when you ask. As you type, the field suggests the matching routes,
+beans, repositories, tables, caches, hosts, and events of the run's model, each labelled with its kind; picking one
+checks exactly that node. It resolves the name to exactly one node of the run's model, or lists the candidates when it
+names several, and then lists, eight rows each with totals: the routes that reach that code through the bean graph and
+ran in this run, with their requests, anonymous and failed requests, the tables and caches they read and wrote, and
+requests to open; the mapped routes that reach it and did not run, each with a reminder to exercise it; and the routes
+outside its reach that use a table, cache, or host the routes through it touched. A route is its own impact, listed with
+the routes that share what it touched. The structural reach is a count, kept apart from what ran, since a route's
+traffic does not prove that a request went through the changed code. Spring MVC and WebFlux read the bean graph and
+Quarkus its ArC injection edges; when the beans cannot be read, the impact says so rather than listing nothing.
+`?impact=<symbol>` opens the panel on a symbol.
 
 **Profile resources** measures what scope readings cannot, such as CPU on virtual threads. Only when you click it, it
 records a JDK Flight Recorder session of `bootui.resources.jfr.max-duration` (30 seconds by default; **Stop now** ends

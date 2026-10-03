@@ -304,7 +304,7 @@ read tools return short, stable facts rather than a dashboard:
 | --- | --- | --- |
 | `get_runtime_insights` | `bootui insights list [--query Q] [--limit N]` | Coverage first, the checks that did not fully run, then at most `limit` (8) observations: id, status, one sentence, eligible and affected counts, tier, one exemplar request id, and a `verify` line. `query` is empty (every observation but latency-only ones), `latency`, `new`, `security`, `diff`, or a route, table, bean, or class |
 | `get_runtime_insight` | `bootui insights show <id>` | One observation with every check and at most 20 evidence rows; open its exemplar with `get_request_profile` |
-| `get_runtime_impact` | `bootui insights impact <id>` | For a bean, class, repository, table, cache, host, or event type: the routes that ran through it, those that did not, and those sharing a resource, at most 8 each, or `AMBIGUOUS` with candidates |
+| `get_runtime_impact` | `bootui insights impact <id>` | For a route, bean, class, repository, table, cache, host, or event type: the routes that ran through it, those that did not, and those sharing a resource, at most 8 each, or `AMBIGUOUS` with candidates |
 | `get_runtime_run_comparison` | `bootui insights compare <id>` | With `previous` or a run id: comparability first, then at most 8 behavior rows and edges; latency is left out |
 
 `INSUFFICIENT`, `PARTIAL`, `NOT_APPLICABLE`, and `NOT_COMPARABLE` are not successes, and an empty list never means
