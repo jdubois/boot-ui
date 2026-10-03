@@ -204,6 +204,67 @@ class BootUiCorrelationTests {
         assertThat(meter.currentRequestId()).isNull();
     }
 
+    @Test
+    void aClearedScopeIsDistinguishableFromHavingNoScopeAtAll() {
+        assertThat(BootUiCorrelation.cleared()).isFalse();
+
+        try (Scope ignored = BootUiCorrelation.openCleared()) {
+            assertThat(BootUiCorrelation.cleared()).isTrue();
+            assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
+        }
+
+        assertThat(BootUiCorrelation.cleared()).isFalse();
+        assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
+    }
+
+    @Test
+    void openingAnEmptyContextIsNotAnExplicitClearing() {
+        try (Scope ignored = BootUiCorrelation.open(CorrelationContext.NONE)) {
+            assertThat(BootUiCorrelation.cleared())
+                    .as("only openCleared states that the thread must be correlated to nothing")
+                    .isFalse();
+        }
+    }
+
+    @Test
+    void closingAClearedScopeRestoresTheSurroundingRequest() {
+        CorrelationContext request = CorrelationContext.forRequest("r1");
+
+        try (Scope outer = BootUiCorrelation.open(request)) {
+            try (Scope ignored = BootUiCorrelation.openCleared()) {
+                assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
+            }
+            assertThat(BootUiCorrelation.current()).isEqualTo(request);
+            assertThat(BootUiCorrelation.cleared()).isFalse();
+        }
+    }
+
+    @Test
+    void closingAScopeOpenedInsideAClearedScopeLeavesTheThreadCleared() {
+        try (Scope outer = BootUiCorrelation.openCleared()) {
+            try (Scope ignored = BootUiCorrelation.open(CorrelationContext.forRequest("r1"))) {
+                assertThat(BootUiCorrelation.cleared()).isFalse();
+            }
+            assertThat(BootUiCorrelation.cleared())
+                    .as("the surrounding clearing survives a nested scope")
+                    .isTrue();
+        }
+        assertThat(BootUiCorrelation.cleared()).isFalse();
+    }
+
+    @Test
+    void clearingInsideAPropagatedScopeRestoresIt() {
+        CorrelationContext propagated = CorrelationContext.forRequest("r1").withExecutionId("e1");
+
+        try (Scope outer = BootUiCorrelation.openPropagated(propagated)) {
+            try (Scope ignored = BootUiCorrelation.openCleared()) {
+                assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
+            }
+            assertThat(BootUiCorrelation.current()).isEqualTo(propagated);
+        }
+        assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
+    }
+
     private static ExecutorService virtualThreadPerTaskExecutor() {
         try {
             return (ExecutorService)

@@ -477,8 +477,9 @@ availability-driven, so do not assume every framework exposes every tool.
 When BootUI MCP tools are available:
 
 1. Call core reads such as `get_overview` and `get_health` first.
-2. Use targeted diagnostic reads such as `get_live_activity`, `get_request_profile` (one profileable request's SQL,
-   N+1 groups, exceptions, and timing), `get_agent_status` (BootUI Java agent attachment/claim state), `get_exceptions`,
+2. Use targeted diagnostic reads such as `get_live_activity`, `get_request_profile` (a journal-first selection for one
+   retained request or execution, with its journal timeline and optional HTTP-exchange `buffers` profile),
+   `get_agent_status` (BootUI Java agent attachment/claim state), `get_exceptions`,
    `get_exception_detail`, `get_sql_traces`, `get_traces`, `get_log_tail`, `get_http_exchanges`, and `get_http_routes` (per-route request
    counts, status classes, and p50/p95/p99 latency over the retained window). Their buffers are bounded: before
    concluding that a request, statement, or call never happened, check the `retention` object for evictions.

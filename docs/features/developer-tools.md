@@ -68,9 +68,11 @@ impact, and the run comparison, compacted for agents, with `INSUFFICIENT` and `N
 `get_http_exchanges`, `get_http_routes`, and
 `get_rest_client_traces`. `get_live_activity` returns the correlated feed of HTTP requests, SQL statements, exceptions,
 security events, scheduled-task runs, and, on Spring, cache accesses, grouped by request or trace.
-`get_request_profile` takes a profileable `REQUEST` entry's id and returns its
-[per-request profile](overview.md#the-per-request-profiler), the same masked DTO as the profile drawer, with each
-exception's `exceptionGroupId`. `get_exception_detail` returns a group's stack trace, causes, and occurrences.
+`get_request_profile` takes a profileable request or execution id and returns a selection with `available`,
+`unavailableReason`, `source`, `journal`, and `buffers`. It consults the retained journal first; when an HTTP exchange
+is also retained, `buffers` carries the richer [per-request profile](overview.md#the-per-request-profiler), including
+each exception's `exceptionGroupId`. `source` is `none` when neither retention window holds the id.
+`get_exception_detail` returns a group's stack trace, causes, and occurrences.
 
 **Runtime and integration reads** — `get_overview`, `get_health`, `get_config`, `get_beans`, `get_mappings`,
 `get_loggers`, `get_conditions`, `get_http_sessions`, `get_scheduled_tasks`, `get_fault_tolerance`, `get_cache_stats`,

@@ -631,8 +631,9 @@ Features:
   sensors, retransformation status, counters, messages, warnings, and setup snippets. The `JavaAgentReport` fields are
   `state`, `reason`, `agentVersion`, `bootUiVersion`, `protocol`, `expectedProtocol`, `jdk`, `loadMode`, `jarPath`,
   `startupMicros`, `claim`, `heldBy`, `sensors`, `retransformation`, `counters`, `messages`, `warnings`, and `setup`.
-- Keep the sensors table honest while M5-1 has no sensor yet: "No sensors yet: executor propagation arrives with the
-  next agent release."
+- Show each installed `executors` or opt-in `threads` sensor's state, hooks, self-test, transformed types, and
+  counters. When none is installed, say: "No sensor installed: the agent installs the sensors this application asks for
+  when it claims the agent (bootui.agent.sensors)."
 - Offer copyable setup snippets for Maven download (`maven-download`, **Download the agent**), Spring Boot Maven plugin
   `agents` (`maven-plugin`), Gradle Kotlin/Groovy `bootRun` (`gradle-kotlin`, `gradle-groovy`), Quarkus dev mode
   `-Djvm.args` (`quarkus-dev`), Surefire/Failsafe `@{argLine}` (`surefire`) for JaCoCo coexistence, IntelliJ VM options
