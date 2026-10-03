@@ -78,6 +78,26 @@ while staying in the sidebar. On both stacks, meters describing BootUI's own `/b
 The Live Memory panel summarizes current heap and non-heap usage and memory pool utilization, so you can spot heap
 pressure, non-heap growth, and pool-level saturation. Sizing controls live in the JVM Tuning panel instead.
 
+### Free BootUI memory
+
+BootUI keeps its diagnostics — the runtime journal, Live Activity, HTTP exchanges, traces, SQL statements, messaging
+activity, exceptions, and more — in your application's heap, so they inflate the numbers every memory panel analyzes.
+Live Memory, JVM Tuning, Heap Dump, and the Memory advisor therefore share a **Free BootUI memory** button at the top
+right of the panel header. Its info button expands an explanation of what is cleared and what is kept.
+
+After you confirm, `POST /bootui/api/live-memory/offload` empties every BootUI capture buffer that exists, then
+requests a garbage collection, and the panel shows heap used before and after, the reclaimed estimate, and the number
+of buffered entries cleared; Live Memory, JVM Tuning, and Heap Dump reload their data. Recording keeps running, so the
+buffers fill again with new traffic. Settings, configuration overrides, dismissed rules, cached scan reports, and a
+persisted Live Activity history are kept.
+
+::: warning Cleared data is gone
+The discarded journal, traces, and captures cannot be recovered, and exception triage statuses are dropped with their
+groups. The garbage collection request is only a hint: the JVM may defer it, and ignores it under
+`-XX:+DisableExplicitGC` (the result says so). The action is refused when `bootui.read-only=true` or
+`bootui.panels.live-memory.read-only=true`, and hidden when the Live Memory panel is disabled.
+:::
+
 ## JVM Tuning
 
 ![BootUI JVM Tuning panel](../images/bootui-jvm-tuning.webp)
@@ -130,6 +150,9 @@ count and shallow size, and the captured dumps with retention-based eviction.
 Capture, live analysis, and delete share one single-flight admission, because they operate on the same directory,
 histogram, and status. A conflicting action receives the canonical `409` busy response naming both the requested and
 the active operation. Report reads remain available throughout.
+
+Use [Free BootUI memory](#free-bootui-memory) before analyzing the live heap or capturing a dump, so BootUI's own
+buffers do not crowd the histogram.
 
 ::: warning Treat every dump as sensitive
 Heap dumps can contain plaintext secrets, credentials, and personal data. The panel only ever summarizes class names

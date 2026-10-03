@@ -92,6 +92,7 @@ import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
 import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.mappings.MappingsService;
+import io.github.jdubois.bootui.engine.memory.MemoryOffloadService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.memory.MemoryScanner;
 import io.github.jdubois.bootui.engine.metrics.MetricsReportProvider;
@@ -118,14 +119,17 @@ import io.github.jdubois.bootui.spi.FaultTolerancePolicyProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
 import io.github.jdubois.bootui.spi.MappingProvider;
+import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import io.github.jdubois.bootui.spi.ScheduledTaskProvider;
 import io.github.jdubois.bootui.spi.ThreadKindClassifier;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.persistence.EntityManagerFactory;
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.List;
 import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
+import org.springframework.aop.scope.ScopedObject;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
@@ -686,6 +690,30 @@ public class BootUiEngineConfiguration {
         // Environment (and thus the runtime override property source) on every report, not snapshotted,
         // and the exposure policy masking JVM input arguments is re-read the same way.
         return new MemoryReportProvider(new SpringMemoryRuntimeConfig(environment), exposure);
+    }
+
+    /**
+     * <b>Free BootUI memory</b> for the Live Memory, JVM Tuning, Heap Dump, and Memory panels. It reads the singletons
+     * the context has already created, on each call, so it never instantiates a lazy capture store nor links an
+     * optional integration that is absent; the engine keeps only the {@link MemoryOffloadable} ones.
+     */
+    @Bean
+    @Lazy
+    @ConditionalOnMissingBean
+    MemoryOffloadService bootUiMemoryOffloadService(ConfigurableListableBeanFactory beanFactory) {
+        return new MemoryOffloadService(() -> createdOffloadables(beanFactory));
+    }
+
+    static List<Object> createdOffloadables(ConfigurableListableBeanFactory beanFactory) {
+        List<Object> offloadables = new ArrayList<>();
+        for (String name : beanFactory.getSingletonNames()) {
+            Object singleton = beanFactory.getSingleton(name);
+            // A scoped proxy is a singleton, but calling it would create its request- or session-scoped target.
+            if (singleton instanceof MemoryOffloadable && !(singleton instanceof ScopedObject)) {
+                offloadables.add(singleton);
+            }
+        }
+        return offloadables;
     }
 
     @Bean

@@ -2,6 +2,8 @@ import {flushPromises, mount} from '@vue/test-utils'
 import {afterEach, describe, expect, it, vi} from 'vitest'
 
 import Memory from './Memory.vue'
+import MemoryOffloadButton from './components/MemoryOffloadButton.vue'
+import PanelHeader from './components/PanelHeader.vue'
 
 function ruleResult(id, name, severity, status, violationCount = 0) {
   return {
@@ -134,5 +136,13 @@ describe('Memory', () => {
     const wrapper = await mountWithReport(advisorReport([]))
     const link = wrapper.findAll('a').find((anchor) => anchor.text() === 'Runtime Insights')
     expect(JSON.parse(link.attributes('href'))).toEqual({path: '/runtime-insights', query: {theme: 'memory'}})
+  })
+
+  it('offers the shared BootUI memory offload next to the scan action', async () => {
+    const wrapper = await mountWithReport(advisorReport([]))
+
+    const offload = wrapper.getComponent(PanelHeader).getComponent(MemoryOffloadButton)
+    expect(offload.props('followUp')).toContain('Run memory checks again')
+    expect(fetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
   })
 })

@@ -736,6 +736,21 @@ Features:
 
 - The Live Memory panel shows live heap and non-heap usage summaries.
 - The Live Memory panel shows memory pool usage.
+- Live Memory, JVM Tuning, Heap Dump, and the Memory advisor share a **Free BootUI memory** header action with an
+  expandable explanation. After a danger confirmation it calls `POST /bootui/api/live-memory/offload`, which empties
+  every BootUI-owned capture buffer that already exists (runtime journal and its aggregates, in-memory Live Activity,
+  HTTP exchanges, traces, SQL statements, REST client calls, transactions, Kafka/RabbitMQ/JMS/WebSocket activity, cache
+  events, scheduled runs, fault-tolerance events, exceptions with their triage status, security events, and captured
+  emails) and then requests a garbage collection, so memory figures reflect the application rather than BootUI.
+  Recording state, settings, configuration overrides, dismissed rules, cached scan reports, run history, and a durable
+  Live Activity store are kept. Stores register through the engine's `MemoryOffloadable` port; adapters hand over only
+  singletons already created, so the action never instantiates a lazy bean or loads an optional integration. The
+  response (`MemoryOffloadReport`) reports heap used before and after (`MemoryMXBean`), a non-negative reclaimed
+  estimate, the cleared entry count, each store's outcome (a failing store is reported, not fatal), and whether
+  `-XX:+DisableExplicitGC` makes the collection request a no-op; `System.gc()` is only a hint. The action belongs to
+  the Live Memory panel, which is therefore action-capable: global `bootui.read-only=true` or
+  `bootui.panels.live-memory.read-only=true` refuses it with the canonical panel denial, and the button is disabled
+  with that reason. The UI makes no request until the user confirms.
 - The JVM Tuning panel shows JVM input arguments. Their values pass through `SecretMasker` and the
   `bootui.expose-values` / `bootui.mask-secrets` policy before serialization, keeping each key visible:
   `-XX:OnError`/`-XX:OnOutOfMemoryError` commands are always masked, and `METADATA_ONLY` masks every `-D` value
@@ -2734,6 +2749,7 @@ Initial endpoints:
 | `/bootui/api/devtools/livereload`            | POST   | Trigger a DevTools LiveReload notification when available                              |
 | `/bootui/api/devtools/restart`               | POST   | Schedule a DevTools restart after explicit confirmation                                |
 | `/bootui/api/live-memory`                         | GET    | JVM memory report                                                                      |
+| `/bootui/api/live-memory/offload`                 | POST   | Clear BootUI's in-memory capture buffers and request a GC; blocked in read-only mode   |
 | `/bootui/api/jvm-tuning`                 | GET    | JVM tuning advisor report                                                              |
 | `/bootui/api/heap-dump`                      | GET    | Heap dump capture inventory and latest value-free histogram report                     |
 | `/bootui/api/heap-dump/capture`              | POST   | Capture a local heap dump after explicit confirmation                                  |
@@ -3332,7 +3348,8 @@ Current compatibility:
   access-filter tests consume that catalog so a browser mutation cannot silently bypass global read-only policy. The live
   contract covers confirmation gates, canonical panel denial, missing targets, single-flight `409` responses, and only
   deterministic repeatable successes; it never calls external services or invokes destructive, heap-capture, or
-  GC-heavy actions.
+  GC-heavy actions (the Live Memory offload is cataloged for the read-only and access-filter checks but not invoked
+  live, because it would erase other suites' captured data).
 - The same suite runs at the default mount and at independent custom UI/API mounts (including each runtime's host root
   path), so shell, assets, reads, streams, downloads, errors, and safe writes share one path contract.
 

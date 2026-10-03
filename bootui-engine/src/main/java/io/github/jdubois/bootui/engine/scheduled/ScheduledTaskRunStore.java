@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.engine.journal.ScheduledPayload;
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -29,7 +30,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>All retained data lives only in memory, is bounded to {@code maxEntries} (oldest evicted first),
  * and is reset on application restart or via {@link #clear()}.
  */
-public final class ScheduledTaskRunStore implements RuntimeEventPublisher {
+public final class ScheduledTaskRunStore implements RuntimeEventPublisher, MemoryOffloadable {
 
     private final int maxEntries;
     private final Object lock = new Object();
@@ -150,6 +151,24 @@ public final class ScheduledTaskRunStore implements RuntimeEventPublisher {
         synchronized (lock) {
             return new ArrayList<>(runs);
         }
+    }
+
+    @Override
+    public String offloadId() {
+        return "scheduled-runs";
+    }
+
+    @Override
+    public String offloadLabel() {
+        return "Scheduled task runs";
+    }
+
+    /** Drops what {@link #clear()} drops, for <b>Free BootUI memory</b>; recording settings are kept. */
+    @Override
+    public long offloadRetainedData() {
+        long retained = runs().size();
+        clear();
+        return retained;
     }
 
     public void clear() {

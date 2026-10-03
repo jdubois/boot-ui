@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
+import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import java.util.List;
 
 /**
@@ -33,7 +34,7 @@ import java.util.List;
  * enabled) is applied at <em>read</em> time (not at capture time), so a live change takes effect on the
  * next request without needing to re-capture anything.</p>
  */
-public final class EmailCaptureService implements RuntimeEventPublisher {
+public final class EmailCaptureService implements RuntimeEventPublisher, MemoryOffloadable {
 
     private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
 
@@ -132,6 +133,24 @@ public final class EmailCaptureService implements RuntimeEventPublisher {
     /** Returns one captured message by id, revealed or masked per {@link #isMaskContentEnabled()}. */
     public EmailMessageDto get(String id) {
         return store.get(id).map(this::toDto).orElse(null);
+    }
+
+    @Override
+    public String offloadId() {
+        return "email";
+    }
+
+    @Override
+    public String offloadLabel() {
+        return "Captured emails";
+    }
+
+    /** Drops what {@link #clear()} drops, for <b>Free BootUI memory</b>; recording settings are kept. */
+    @Override
+    public long offloadRetainedData() {
+        long retained = store.size();
+        clear();
+        return retained;
     }
 
     /** Discards all captured messages. */

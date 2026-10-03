@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.engine.journal.WebSocketPayload;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
+import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -32,7 +33,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * report. Every entry point is fail-open: recording is best-effort and must never disrupt, delay, or
  * reorder application frame dispatch.</p>
  */
-public final class WebSocketActivityRecorder implements IdleReclaimable, RuntimeEventPublisher {
+public final class WebSocketActivityRecorder implements IdleReclaimable, RuntimeEventPublisher, MemoryOffloadable {
 
     /** Frame direction relative to the application. */
     public enum Direction {
@@ -284,6 +285,24 @@ public final class WebSocketActivityRecorder implements IdleReclaimable, Runtime
 
     public long failedFrames() {
         return failedFrames.get();
+    }
+
+    @Override
+    public String offloadId() {
+        return "websockets";
+    }
+
+    @Override
+    public String offloadLabel() {
+        return "WebSocket frames";
+    }
+
+    /** Drops what {@link #clear()} drops, for <b>Free BootUI memory</b>; recording settings are kept. */
+    @Override
+    public long offloadRetainedData() {
+        long retained = recent().size();
+        clear();
+        return retained;
     }
 
     /** Drops the retained activity and per-session counters. Never touches a live session. */

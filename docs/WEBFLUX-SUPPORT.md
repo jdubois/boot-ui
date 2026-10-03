@@ -37,6 +37,7 @@ Connector/J is read but unsupported. See [MySQL](features/database.md#mysql).
 | Flyway               | migrate / clean                      |
 | Liquibase            | update                               |
 | Heap Dump            | capture / analyze / delete / download |
+| Live Memory          | free BootUI memory                   |
 | Threads              | download                             |
 | Traces               | clear                                |
 | SQL Trace            | toggle recording / clear             |

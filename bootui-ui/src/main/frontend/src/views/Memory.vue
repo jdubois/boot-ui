@@ -4,6 +4,7 @@ import {useAdvisorPanel} from '../utils/useAdvisorPanel.js'
 import {panelProps} from '../utils/panelState.js'
 import AdvisorSummary from './components/AdvisorSummary.vue'
 import AdvisorRuleViolations from './components/AdvisorRuleViolations.vue'
+import MemoryOffloadButton from './components/MemoryOffloadButton.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
@@ -52,6 +53,7 @@ function formatBytes(value) {
           loading-label="Running..."
           @click="panel.runScan"
         />
+        <MemoryOffloadButton follow-up="Run memory checks again so the findings reflect the reduced heap." />
       </template>
     </PanelHeader>
     <div v-if="panel.actionMessage" class="alert alert-warning" role="status" aria-live="polite">

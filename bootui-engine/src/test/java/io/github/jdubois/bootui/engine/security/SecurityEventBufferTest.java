@@ -20,6 +20,20 @@ class SecurityEventBufferTest {
     }
 
     @Test
+    void offloadDropsRetainedEventsButKeepsRecording() {
+        SecurityEventBuffer buffer = new SecurityEventBuffer(10);
+        buffer.record(event());
+        buffer.record(event());
+
+        assertThat(buffer.offloadId()).isEqualTo("security-events");
+        assertThat(buffer.offloadRetainedData()).isEqualTo(2);
+        assertThat(buffer.snapshot()).isEmpty();
+
+        buffer.record(event());
+        assertThat(buffer.snapshot()).hasSize(1);
+    }
+
+    @Test
     void notifiesListenersOnRecord() {
         SecurityEventBuffer buffer = new SecurityEventBuffer(10);
         AtomicInteger ticks = new AtomicInteger();

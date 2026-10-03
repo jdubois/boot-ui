@@ -3,6 +3,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import LiveMemory from './LiveMemory.vue'
 import FlashBanner from './components/FlashBanner.vue'
+import MemoryOffloadButton from './components/MemoryOffloadButton.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 
@@ -137,5 +138,21 @@ describe('LiveMemory', () => {
     expect(wrapper.text()).toContain('Heap memory')
     expect(wrapper.getComponent(FlashBanner).text()).toContain('Showing the last successful snapshot')
     expect(wrapper.getComponent(FlashBanner).find('button.btn-close').exists()).toBe(false)
+  })
+
+  it('offers the shared BootUI memory offload in the header and reloads after it ran', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(memoryReport()))
+    vi.stubGlobal('fetch', fetchMock)
+
+    wrapper = mount(LiveMemory)
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    const offload = wrapper.getComponent(PanelHeader).getComponent(MemoryOffloadButton)
+    offload.vm.$emit('offloaded', {reclaimedBytes: 0})
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls.every(([, init]) => init?.method !== 'POST')).toBe(true)
   })
 })

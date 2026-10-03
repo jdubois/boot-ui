@@ -1,10 +1,12 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
@@ -13,7 +15,10 @@ import io.github.jdubois.bootui.core.dto.KubernetesMemoryRecommendationDto;
 import io.github.jdubois.bootui.core.dto.LiveMemoryReport;
 import io.github.jdubois.bootui.core.dto.MemoryCalculationDto;
 import io.github.jdubois.bootui.core.dto.MemoryPoolDto;
+import io.github.jdubois.bootui.engine.memory.MemoryOffloadService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
+import io.github.jdubois.bootui.spi.MemoryOffloadable;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -63,10 +68,54 @@ class LiveMemoryControllerTests {
         return provider;
     }
 
+    private static MemoryOffloadService offloadService(List<Object> singletons) {
+        return new MemoryOffloadService(() -> singletons);
+    }
+
+    @Test
+    void offloadRouteEmptiesTheSuppliedStoresAndProjectsTheReport() throws Exception {
+        List<String> retained = new ArrayList<>(List.of("a", "b", "c"));
+        MemoryOffloadable store = new MemoryOffloadable() {
+            @Override
+            public String offloadId() {
+                return "test-store";
+            }
+
+            @Override
+            public String offloadLabel() {
+                return "Test store";
+            }
+
+            @Override
+            public long offloadRetainedData() {
+                int size = retained.size();
+                retained.clear();
+                return size;
+            }
+        };
+        MockMvc mvc = standaloneSetup(new LiveMemoryController(
+                        stubbedProvider(), offloadService(new ArrayList<>(List.of(store, "not a store")))))
+                .build();
+
+        mvc.perform(post("/bootui/api/live-memory/offload").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.gcRequested").value(true))
+                .andExpect(jsonPath("$.entriesCleared").value(3))
+                .andExpect(jsonPath("$.stores.length()").value(1))
+                .andExpect(jsonPath("$.stores[0].id").value("test-store"))
+                .andExpect(jsonPath("$.stores[0].label").value("Test store"))
+                .andExpect(jsonPath("$.stores[0].cleared").value(true))
+                .andExpect(jsonPath("$.stores[0].entriesCleared").value(3))
+                .andExpect(jsonPath("$.heapUsedBeforeBytes").isNumber())
+                .andExpect(jsonPath("$.heapUsedAfterBytes").isNumber())
+                .andExpect(jsonPath("$.reclaimedBytes").isNumber());
+        assertThat(retained).isEmpty();
+    }
+
     @Test
     void liveMemoryRouteProjectsReport() throws Exception {
-        MockMvc mvc =
-                standaloneSetup(new LiveMemoryController(stubbedProvider())).build();
+        MockMvc mvc = standaloneSetup(new LiveMemoryController(stubbedProvider(), offloadService(new ArrayList<>())))
+                .build();
 
         mvc.perform(get("/bootui/api/live-memory").accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
@@ -79,7 +128,8 @@ class LiveMemoryControllerTests {
     @Test
     void liveMemoryRoutePassesQueryParamsToProvider() throws Exception {
         MemoryReportProvider provider = stubbedProvider();
-        MockMvc mvc = standaloneSetup(new LiveMemoryController(provider)).build();
+        MockMvc mvc = standaloneSetup(new LiveMemoryController(provider, offloadService(new ArrayList<>())))
+                .build();
 
         mvc.perform(get("/bootui/api/live-memory")
                         .param("totalMemoryMb", "512")

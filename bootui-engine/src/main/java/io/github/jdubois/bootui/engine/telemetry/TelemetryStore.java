@@ -9,6 +9,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
+import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import java.util.*;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -28,7 +29,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * {@link #resumeFromIdle()} as plain methods so an adapter can bridge them to
  * its own idle-reclaim mechanism without coupling the engine to it.</p>
  */
-public class TelemetryStore implements RuntimeEventPublisher {
+public class TelemetryStore implements RuntimeEventPublisher, MemoryOffloadable {
 
     static final int HARD_MAX_TRACES = 10_000;
 
@@ -363,6 +364,24 @@ public class TelemetryStore implements RuntimeEventPublisher {
             lock.readLock().unlock();
         }
         return out;
+    }
+
+    @Override
+    public String offloadId() {
+        return "traces";
+    }
+
+    @Override
+    public String offloadLabel() {
+        return "Traces";
+    }
+
+    /** Drops what {@link #clear()} drops, for <b>Free BootUI memory</b>; recording settings are kept. */
+    @Override
+    public long offloadRetainedData() {
+        long retained = retainedTraceCount();
+        clear();
+        return retained;
     }
 
     public void clear() {

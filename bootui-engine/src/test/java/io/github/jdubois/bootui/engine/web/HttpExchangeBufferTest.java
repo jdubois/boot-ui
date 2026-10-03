@@ -37,6 +37,20 @@ class HttpExchangeBufferTest {
     }
 
     @Test
+    void offloadDropsRetainedExchangesButKeepsRecording() {
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+        buffer.record(exchange());
+        buffer.record(exchange());
+
+        assertThat(buffer.offloadId()).isEqualTo("http-exchanges");
+        assertThat(buffer.offloadRetainedData()).isEqualTo(2);
+        assertThat(buffer.snapshot()).isEmpty();
+
+        buffer.record(exchange());
+        assertThat(buffer.snapshot()).hasSize(1);
+    }
+
+    @Test
     void notifiesListenersOnRecord() {
         HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
         AtomicInteger ticks = new AtomicInteger();

@@ -6,6 +6,7 @@ import {resolveBootUiApiUrl} from '../utils/bootUiPath.js'
 import {describeLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useConfirm} from '../utils/useConfirm.js'
+import MemoryOffloadButton from './components/MemoryOffloadButton.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import SpinnerButton from './components/SpinnerButton.vue'
@@ -237,6 +238,10 @@ onBeforeUnmount(() => {
           label="Capture heap dump"
           loading-label="Working..."
           @click="captureDump"
+        />
+        <MemoryOffloadButton
+          follow-up="Analyze the live heap or capture a new dump to see the application without BootUI's buffers."
+          @offloaded="loadReport()"
         />
       </template>
     </PanelHeader>

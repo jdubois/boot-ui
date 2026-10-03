@@ -1,5 +1,6 @@
 <script setup>
 import {computed} from 'vue'
+import MemoryOffloadButton from './components/MemoryOffloadButton.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import UnavailableState from './components/UnavailableState.vue'
@@ -84,7 +85,11 @@ function formatPercentage(value) {
       :last-fetched="lastUpdated ? lastUpdated.getTime() : null"
       v-model:auto-refresh="autoRefresh"
       @refresh="load"
-    />
+    >
+      <template #actions>
+        <MemoryOffloadButton @offloaded="load" />
+      </template>
+    </PanelHeader>
 
     <PanelSkeleton v-if="initialLoading" />
 

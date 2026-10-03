@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.engine.resources.ResourceTrack;
 import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
+import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import io.github.jdubois.bootui.spi.ThreadKindClassifier;
 import java.lang.System.Logger.Level;
 import java.time.Duration;
@@ -43,7 +44,7 @@ import java.util.concurrent.atomic.LongAdder;
  * <p>Sequence numbers are unique within the run, and each event's id joins the run id and its sequence, so a restart
  * never collides with an earlier run.</p>
  */
-public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
+public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, MemoryOffloadable {
 
     /** The dispatcher thread's name. */
     public static final String DISPATCHER_THREAD = "bootui-journal-dispatch";
@@ -412,6 +413,25 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
         return listeners.contains(listener);
     }
 
+    @Override
+    public String offloadId() {
+        return "runtime-journal";
+    }
+
+    @Override
+    public String offloadLabel() {
+        return "Runtime journal events";
+    }
+
+    /**
+     * Drops what {@link #clear()} drops, for <b>Free BootUI memory</b>, and counts the retained and still-queued events
+     * it discarded; recording settings are kept.
+     */
+    @Override
+    public long offloadRetainedData() {
+        return clearAndCount();
+    }
+
     /**
      * Drops every retained event and every event still queued: the confirmation-gated <b>Clear recording</b> action.
      * Counts since startup are kept, the run's dictionary is emptied once the ring is, the statements derived from the
@@ -420,11 +440,17 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
      * It waits for a batch being processed, so no event recorded before the clear is processed after it.
      */
     public void clear() {
+        clearAndCount();
+    }
+
+    /** {@link #clear()}, returning how many retained and queued events it dropped, counted under the same lock. */
+    private long clearAndCount() {
         synchronized (processing) {
             clears++;
             List<Queued> queued = new ArrayList<>();
             queue.drainTo(queued);
             processed.addAndGet(queued.size());
+            long dropped = ring.counts().retained() + queued.size();
             ring.clear();
             dictionary.clear();
             SqlShapes.clear();
@@ -436,6 +462,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable {
                     log.log(Level.WARNING, "A listener of BootUI's runtime journal failed to clear its state", ex);
                 }
             }
+            return dropped;
         }
     }
 
