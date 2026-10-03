@@ -366,6 +366,15 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Java agent claim handoffs preserve request ownership.** Overlapping submissions of the same task across restarts
+  stay unowned rather than taking a newer claim's snapshot. Immediate reclaim cancels queued executor/thread sensor
+  removal or reinstalls the sensor after an in-flight reset, restoring thread subclasses even when the new claim
+  names different packages. Rejected direct fork/join tasks, including already-completed tasks, and failed
+  `CompletableFuture` thread-per-task starts release their snapshots without treating `invoke`'s accepted task failure
+  as a rejection; executor skip counters stop when the sensor is off
+  ([Java Agent](docs/features/java-agent.md#claims-and-lifecycle),
+  [#1213](https://github.com/jdubois/boot-ui/pull/1213); AGT-01, AGT-02, AGT-04, AGT-09).
+
 - **Profile resources joins segments closed by another thread.** A request segment still open when its request was
   taken from another thread, as on Quarkus where the response closes a worker's segment from the event loop, now commits
   its JFR event with its own thread's id, so the worker's CPU and allocation samples join the route instead of counting
