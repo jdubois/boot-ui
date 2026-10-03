@@ -1,0 +1,271 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.julien-dubois.bootui</groupId>
+        <artifactId>bootui-parent</artifactId>
+        <version>1.19.0</version>
+    </parent>
+
+    <artifactId>bootui-agent</artifactId>
+    <name>BootUI :: Agent</name>
+    <description>The optional BootUI Java agent, attached with -javaagent. It stays dormant until a BootUI application
+        claims it.</description>
+
+    <!--
+        The published jar uses OpenTelemetry's layout (PLAN-v2 D33): the launcher, its isolated class loader, and the
+        bridge at the root; the implementation and Byte Buddy, relocated, as inst/**.classdata. The shade plugin builds
+        target/bootui-agent-shaded.jar, then the antrun plugin rebuilds the module's main jar in that layout, replacing the
+        jar plugin's output, which is what gets installed and published. Both dependencies are optional and shaded in, so
+        the published POM gives a consumer no dependency.
+    -->
+    <properties>
+        <bootui.agent.shaded>${project.build.directory}/bootui-agent-shaded.jar</bootui.agent.shaded>
+        <bootui.agent.jar>${project.build.directory}/${project.build.finalName}.jar</bootui.agent.jar>
+        <bootui.agent.it.jar>${project.build.directory}/bootui-agent-it.jar</bootui.agent.it.jar>
+        <opentelemetry-javaagent.version>2.31.1</opentelemetry-javaagent.version>
+        <jacoco-agent.version>0.8.15</jacoco-agent.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.julien-dubois.bootui</groupId>
+            <artifactId>bootui-agent-bridge</artifactId>
+            <version>${project.version}</version>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>net.bytebuddy</groupId>
+            <artifactId>byte-buddy</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <!-- Test only: the forked-JVM coexistence tests attach it beside the BootUI agent, in both orders. -->
+            <groupId>io.opentelemetry.javaagent</groupId>
+            <artifactId>opentelemetry-javaagent</artifactId>
+            <version>${opentelemetry-javaagent.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <!-- Test only: reads the coverage JaCoCo wrote beside the BootUI agent. -->
+            <groupId>org.jacoco</groupId>
+            <artifactId>org.jacoco.core</artifactId>
+            <version>${jacoco-agent.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <!-- Test only: JaCoCo's agent beside the BootUI agent must still write its coverage. -->
+            <groupId>org.jacoco</groupId>
+            <artifactId>org.jacoco.agent</artifactId>
+            <version>${jacoco-agent.version}</version>
+            <classifier>runtime</classifier>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <!-- The launcher runs in premain: no string-concatenation bootstrap there (PLAN-v2 M5 rules). -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-compile</id>
+                        <configuration>
+                            <compilerArgs>
+                                <arg>-XDstringConcat=inline</arg>
+                            </compilerArgs>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <!-- Always rebuilt from target/classes: otherwise an up-to-date check keeps the previous build's
+                     relaid-out jar, which the shade plugin would then shade again. -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <forceCreation>true</forceCreation>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <!-- Exposes ${group:artifact:type[:classifier]} paths for the forked-JVM tests. -->
+                        <id>agent-paths</id>
+                        <goals>
+                            <goal>properties</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>${maven-shade-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>agent-shaded</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <outputFile>${bootui.agent.shaded}</outputFile>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <artifactSet>
+                                <includes>
+                                    <include>com.julien-dubois.bootui:bootui-agent-bridge</include>
+                                    <include>net.bytebuddy:byte-buddy</include>
+                                </includes>
+                            </artifactSet>
+                            <relocations>
+                                <relocation>
+                                    <pattern>net.bytebuddy</pattern>
+                                    <shadedPattern>io.github.jdubois.bootui.agent.shaded.bytebuddy</shadedPattern>
+                                </relocation>
+                            </relocations>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>module-info.class</exclude>
+                                        <exclude>META-INF/versions/**</exclude>
+                                        <exclude>META-INF/MANIFEST.MF</exclude>
+                                        <exclude>META-INF/maven/**</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>agent-layout</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <property name="layout" value="${project.build.directory}/agent-layout"/>
+                                <delete dir="${layout}"/>
+                                <unzip src="${bootui.agent.shaded}" dest="${layout}">
+                                    <patternset>
+                                        <exclude name="inst/**"/>
+                                    </patternset>
+                                </unzip>
+                                <delete file="${bootui.agent.jar}"/>
+                                <jar destfile="${bootui.agent.jar}">
+                                    <manifest>
+                                        <attribute name="Premain-Class" value="io.github.jdubois.bootui.agent.AgentLauncher"/>
+                                        <attribute name="Agent-Class" value="io.github.jdubois.bootui.agent.AgentLauncher"/>
+                                        <attribute name="Can-Retransform-Classes" value="true"/>
+                                        <attribute name="Can-Redefine-Classes" value="true"/>
+                                        <attribute name="Implementation-Title" value="BootUI agent"/>
+                                        <attribute name="Implementation-Version" value="${project.version}"/>
+                                        <attribute name="BootUI-Agent-Protocol" value="1"/>
+                                        <attribute name="Automatic-Module-Name" value="io.github.jdubois.bootui.agent"/>
+                                    </manifest>
+                                    <fileset dir="${layout}">
+                                        <include name="io/github/jdubois/bootui/agent/bridge/**"/>
+                                        <include name="io/github/jdubois/bootui/agent/AgentLauncher*.class"/>
+                                        <include name="io/github/jdubois/bootui/agent/AgentBootstrap*.class"/>
+                                        <include name="io/github/jdubois/bootui/agent/AgentClassLoader*.class"/>
+                                        <include name="META-INF/LICENSE"/>
+                                        <include name="META-INF/NOTICE"/>
+                                    </fileset>
+                                    <mappedresources>
+                                        <fileset dir="${layout}">
+                                            <include name="**/*.class"/>
+                                            <exclude name="io/github/jdubois/bootui/agent/bridge/**"/>
+                                            <exclude name="io/github/jdubois/bootui/agent/AgentLauncher*.class"/>
+                                            <exclude name="io/github/jdubois/bootui/agent/AgentBootstrap*.class"/>
+                                            <exclude name="io/github/jdubois/bootui/agent/AgentClassLoader*.class"/>
+                                        </fileset>
+                                        <globmapper from="*.class" to="inst/*.classdata"/>
+                                    </mappedresources>
+                                    <mappedresources>
+                                        <fileset dir="${layout}">
+                                            <exclude name="**/*.class"/>
+                                            <exclude name="META-INF/LICENSE"/>
+                                            <exclude name="META-INF/NOTICE"/>
+                                        </fileset>
+                                        <globmapper from="*" to="inst/*"/>
+                                    </mappedresources>
+                                </jar>
+                            </target>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <!-- The test variant: the published jar plus a test hook under inst/ (never published). -->
+                        <id>agent-it-jar</id>
+                        <phase>pre-integration-test</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <copy file="${bootui.agent.jar}" tofile="${bootui.agent.it.jar}" overwrite="true"/>
+                                <jar destfile="${bootui.agent.it.jar}" update="true">
+                                    <mappedresources>
+                                        <fileset dir="${project.build.testOutputDirectory}">
+                                            <include name="io/github/jdubois/bootui/agent/ithook/**/*.class"/>
+                                        </fileset>
+                                        <globmapper from="*.class" to="inst/*.classdata"/>
+                                    </mappedresources>
+                                    <zipfileset file="${project.basedir}/src/it-hook/io.github.jdubois.bootui.agent.AgentTestHook"
+                                                fullpath="inst/META-INF/services/io.github.jdubois.bootui.agent.AgentTestHook"/>
+                                </jar>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <redirectTestOutputToFile>true</redirectTestOutputToFile>
+                    <systemPropertyVariables>
+                        <bootui.agent.jar>${bootui.agent.jar}</bootui.agent.jar>
+                        <bootui.agent.it.jar>${bootui.agent.it.jar}</bootui.agent.it.jar>
+                        <bootui.agent.test-classes>${project.build.testOutputDirectory}</bootui.agent.test-classes>
+                        <bootui.agent.work>${project.build.directory}/agent-it</bootui.agent.work>
+                        <opentelemetry.agent.jar>${io.opentelemetry.javaagent:opentelemetry-javaagent:jar}</opentelemetry.agent.jar>
+                        <jacoco.agent.jar>${org.jacoco:org.jacoco.agent:jar:runtime}</jacoco.agent.jar>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

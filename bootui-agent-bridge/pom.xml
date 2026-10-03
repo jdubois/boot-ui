@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.julien-dubois.bootui</groupId>
+        <artifactId>bootui-parent</artifactId>
+        <version>1.19.0</version>
+    </parent>
+
+    <artifactId>bootui-agent-bridge</artifactId>
+    <name>BootUI :: Agent Bridge</name>
+    <description>The contract between the BootUI engine and the BootUI Java agent, loaded by the bootstrap class loader.
+        Built here and shipped inside bootui-agent only; never published on its own.</description>
+
+    <!--
+        The bridge runs on the bootstrap class path, inside advised java.base methods, possibly while java.lang.invoke is
+        still bootstrapping (PLAN-v2 M5 rules). So it uses JDK types only, no dependency, and no lambda, method reference,
+        invokedynamic string concatenation, synchronized, or VarHandle: AgentBridgeBytecodeTests enforces it on the
+        compiled classes.
+    -->
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <!-- Test only: its repackaged ASM reads the compiled bridge classes. -->
+            <groupId>net.bytebuddy</groupId>
+            <artifactId>byte-buddy</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-compile</id>
+                        <configuration>
+                            <compilerArgs>
+                                <arg>-XDstringConcat=inline</arg>
+                            </compilerArgs>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <bridge.classes>${project.build.outputDirectory}</bridge.classes>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

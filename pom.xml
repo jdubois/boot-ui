@@ -46,6 +46,8 @@
         <module>bootui-conformance</module>
         <module>bootui-client</module>
         <module>bootui-cli</module>
+        <module>bootui-agent-bridge</module>
+        <module>bootui-agent</module>
         <module>bootui-spring-sample-app</module>
         <module>bootui-spring-webflux-sample-app</module>
         <module>bootui-quarkus-parent</module>
