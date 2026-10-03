@@ -17,6 +17,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Duplicate `X-Content-Type-Options` on streamed BootUI responses.** On Spring MVC with Spring Security, a host
+  header writer racing the response commit (for example the log-tail SSE stream) could add `nosniff` twice. The
+  security-headers response wrapper is now synchronized and drops identical repeated baseline values.
+
 - **Runtime Insights after Clear recording.** Clearing the journal or freeing BootUI memory now refreshes the
   report and its evidence at once instead of serving the cleared events until a new one arrives, and no route's first
   post-clear request is labeled cold. The evidence table follows each auto-refresh of the open observation, and
