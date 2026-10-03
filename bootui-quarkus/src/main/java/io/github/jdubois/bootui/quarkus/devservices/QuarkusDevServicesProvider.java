@@ -6,23 +6,24 @@ import io.github.jdubois.bootui.core.dto.DevServiceDto;
 import io.github.jdubois.bootui.engine.devservices.DevServiceTypeInference;
 import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.spi.DevServicesProvider;
-import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 /**
- * Quarkus {@link DevServicesProvider} backed by the build-time-captured {@link QuarkusDevServices} holder.
+ * Quarkus {@link DevServicesProvider} backed by the build-time-captured {@link CapturedDevServices} snapshot.
  *
  * <p>Quarkus exposes Dev Services only at build time, so there is no runtime container list, log tail or
  * restart: services are {@code restartable=false}/{@code logsAvailable=false} and the resource declines the
- * log/restart actions. The deployment processor exposes the synthetic {@code QuarkusDevServices} bean only in
- * non-production launch modes (Dev Services never run in production), so an unsatisfied {@code Instance} means
- * no dev services started — the panel renders empty. Config values (which include JDBC URLs and passwords) are
+ * log/restart actions. The deployment processor publishes the snapshot only in non-production launch modes
+ * (Dev Services never run in production), so an empty snapshot means no dev services started — the panel
+ * renders empty. Config values (which include JDBC URLs and passwords) are
  * masked here through the same {@code SecretMasker} + {@link QuarkusExposurePolicy} the Configuration panel
  * uses, byte-compatibly with the Spring adapter. The service {@code type} (PostgreSQL, Redis, Kafka, ...) is
  * classified via the shared {@link DevServiceTypeInference} engine helper, matching the Spring adapter's
@@ -34,14 +35,18 @@ public class QuarkusDevServicesProvider implements DevServicesProvider {
     private static final Pattern URL_CREDENTIALS =
             Pattern.compile("([a-z][a-z0-9+.-]*://)([^:/@\\s]+):([^@\\s]+)@", Pattern.CASE_INSENSITIVE);
 
-    private final Instance<QuarkusDevServices> captured;
+    private final Supplier<Optional<QuarkusDevServices>> captured;
 
     private final QuarkusExposurePolicy exposure;
 
     private final SecretMasker masker = new SecretMasker();
 
     @Inject
-    public QuarkusDevServicesProvider(Instance<QuarkusDevServices> captured, QuarkusExposurePolicy exposure) {
+    public QuarkusDevServicesProvider(QuarkusExposurePolicy exposure) {
+        this(CapturedDevServices::current, exposure);
+    }
+
+    QuarkusDevServicesProvider(Supplier<Optional<QuarkusDevServices>> captured, QuarkusExposurePolicy exposure) {
         this.captured = captured;
         this.exposure = exposure;
     }
@@ -63,10 +68,9 @@ public class QuarkusDevServicesProvider implements DevServicesProvider {
 
     @Override
     public List<DevServiceDto> services() {
-        if (captured.isUnsatisfied()) {
-            return List.of();
-        }
-        return captured.get().services().stream().map(this::toDto).toList();
+        return captured.get()
+                .map(snapshot -> snapshot.services().stream().map(this::toDto).toList())
+                .orElse(List.of());
     }
 
     @Override

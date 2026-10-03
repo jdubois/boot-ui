@@ -289,6 +289,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failure. Off the event loop, the capture now copies the response headers just before Vert.x writes them. Both the
   HTTP exchange and exception capture filters now catch their own failures and log a warning under BootUI's own logger,
   which the Exceptions panel ignores ([#1203](https://github.com/jdubois/boot-ui/pull/1203)).
+- **Quarkus apps with OpenTelemetry logs and Dev Services start again with BootUI.** Adding `bootui-quarkus` to an
+  application that enables `quarkus.otel.logs.enabled` and starts Compose or datasource Dev Services stopped dev and
+  test mode with a build-step `Cycle detected` error, because BootUI fed the Dev Services results into the CDI bean
+  container, which the OpenTelemetry log handler needs before logging is set up. BootUI now records the Dev Services
+  snapshot without touching the bean container; the Dev Services panel shows the same services and stays unavailable
+  when none started ([Dev Services on Quarkus](docs/QUARKUS-SUPPORT.md),
+  [#1204](https://github.com/jdubois/boot-ui/pull/1204)).
 - **`ARCH-SPRING-004` no longer reports a self-call that only joins the caller's transaction.** A method that already
   runs in a transaction, declared on the method or the class, can call a `@Transactional` method of the same bean
   whose `REQUIRED`, `SUPPORTS` or `MANDATORY` propagation would only join that transaction. That call is no longer
