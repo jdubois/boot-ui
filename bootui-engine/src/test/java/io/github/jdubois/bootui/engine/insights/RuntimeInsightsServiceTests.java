@@ -16,6 +16,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.time.Duration;
 import java.util.EnumSet;
@@ -208,6 +209,61 @@ class RuntimeInsightsServiceTests {
                         .report()
                         .unavailableReason())
                 .isEqualTo(RuntimeInsightsService.DISABLED);
+    }
+
+    @Test
+    void checksThatReadSqlAreUnavailableWhereThisApplicationsSqlIsNotRecorded() {
+        for (int i = 0; i < 3; i++) {
+            request("GET", "/api/orders/{id}");
+        }
+        RuntimeInsightsService service = service();
+        service.setSqlCapture(() -> SqlCapture.of(null, true, true));
+
+        RuntimeInsightsReportDto report = service.report();
+
+        Map<String, RuntimeInsightCheckDto> checks =
+                report.checks().stream().collect(Collectors.toMap(RuntimeInsightCheckDto::kind, Function.identity()));
+        for (String kind : new String[] {RepeatedSelects.KIND, SafeMethodDml.KIND, ConnectionsPerRequest.KIND}) {
+            assertThat(checks.get(kind).status()).as(kind).isEqualTo("UNAVAILABLE");
+            assertThat(checks.get(kind).reason()).as(kind).isEqualTo(SqlCapture.R2DBC_ONLY);
+            assertThat(checks.get(kind).findings()).isZero();
+        }
+        assertThat(SqlCapture.R2DBC_ONLY)
+                .contains("BootUI records JDBC statements")
+                .contains("not R2DBC");
+        RuntimeInsightCheckDto breakdown = checks.get(RouteTimeBreakdown.KIND);
+        assertThat(breakdown.status())
+                .as("an observation that only optionally reads SQL still runs")
+                .isEqualTo("EVALUATED");
+        assertThat(breakdown.reason()).contains(SqlCapture.R2DBC_ONLY);
+        assertThat(report.observations())
+                .filteredOn(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
+                .allSatisfy(observation -> assertThat(observation.limitations()).contains(breakdown.reason()));
+
+        service.setSqlCapture(SqlCapture::capturing);
+        assertThat(service.report().checks())
+                .filteredOn(check -> check.kind().equals(RepeatedSelects.KIND))
+                .extracting(RuntimeInsightCheckDto::status)
+                .as("once a traced DataSource records statements, the check runs")
+                .containsExactly("EVALUATED");
+    }
+
+    @Test
+    void sqlCaptureNamesWhyStatementsAreNotRecorded() {
+        SqlTraceRecorder disabled = new SqlTraceRecorder(false, true, false, false, 8, 100, 2000, 200, 5);
+        SqlTraceRecorder unwrapped = new SqlTraceRecorder(true, true, false, false, 8, 100, 2000, 200, 5);
+        SqlTraceRecorder wrapped = new SqlTraceRecorder(true, true, false, false, 8, 100, 2000, 200, 5);
+        wrapped.registerDataSource("dataSource");
+
+        assertThat(SqlCapture.of(null, true, false)).isEqualTo(SqlCapture.notRecorded(SqlCapture.NOT_RECORDED));
+        assertThat(SqlCapture.of(disabled, true, false)).isEqualTo(SqlCapture.notRecorded(SqlCapture.DISABLED));
+        assertThat(SqlCapture.of(unwrapped, true, true)).isEqualTo(SqlCapture.notRecorded(SqlCapture.R2DBC_ONLY));
+        assertThat(SqlCapture.of(unwrapped, false, false))
+                .as("on Quarkus, the recorder exists only with a JDBC data source")
+                .isEqualTo(SqlCapture.capturing());
+        assertThat(SqlCapture.of(wrapped, true, false)).isEqualTo(SqlCapture.capturing());
+        assertThat(SqlCapture.of(wrapped, true, true))
+                .isEqualTo(SqlCapture.recordedExcept(SqlCapture.R2DBC_NOT_RECORDED));
     }
 
     private RuntimeInsightsService service() {

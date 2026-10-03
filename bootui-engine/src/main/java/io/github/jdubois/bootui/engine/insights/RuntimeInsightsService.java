@@ -38,7 +38,9 @@ import java.util.function.Supplier;
  * on read, evaluates every observation, and caches the result until the journal records more.
  *
  * <p>An observation whose source the journal does not record, or whose panel is disabled, is reported not applicable
- * with the reason, never silently skipped. One whose source dropped events reports its findings as {@code PARTIAL}.</p>
+ * with the reason, never silently skipped. One that reads SQL where this application's SQL cannot be recorded, as over
+ * R2DBC, is reported {@code UNAVAILABLE} with the reason. One whose source dropped events reports its findings as
+ * {@code PARTIAL}.</p>
  */
 public final class RuntimeInsightsService {
 
@@ -55,6 +57,10 @@ public final class RuntimeInsightsService {
     public static final String DISABLED = "Runtime Insights reads the runtime journal, which is disabled:"
             + " set bootui.runtime-journal.enabled=true.";
 
+    /** Why no route is listed as not exercised when the application's declared routes could not be read. */
+    public static final String ROUTE_INVENTORY_UNAVAILABLE = "The application's declared routes could not be read, so"
+            + " the routes no request reached are not listed: that does not mean every route was exercised.";
+
     private final RuntimeJournal journal;
     private final Supplier<RouteTemplateResolver> routes;
     private final Predicate<String> panelEnabled;
@@ -65,6 +71,7 @@ public final class RuntimeInsightsService {
     private volatile Function<String, Integer> poolSizes;
     private volatile Supplier<List<MappingDto>> declaredMappings;
     private volatile Supplier<JournalAggregates.RouteLabels> runRoutes;
+    private volatile Supplier<SqlCapture> sqlCapture;
     private String previousRunOf;
     private RunSummary previousRun;
 
@@ -152,6 +159,17 @@ public final class RuntimeInsightsService {
     }
 
     /**
+     * Installs whether this application's SQL can be recorded at all ({@link SqlCapture}): without it, an observation
+     * that reads the {@code sql} or {@code connection} source reports {@code UNAVAILABLE} with the reason, rather than
+     * running over nothing, and one that only optionally reads them names what it cannot count. Without a supplier,
+     * statements are assumed recordable.
+     */
+    public synchronized void setSqlCapture(Supplier<SqlCapture> sqlCapture) {
+        this.sqlCapture = sqlCapture;
+        this.cached = null;
+    }
+
+    /**
      * The stable id of a finding: its kind and a hash of its key, such as {@code repeated-selects:3fa9c0e1b2}, the same
      * across refreshes and restarts, and safe in a URL path whatever its route holds.
      */
@@ -161,7 +179,9 @@ public final class RuntimeInsightsService {
 
     /**
      * Installs the application's declared routes and the route labels of every request this run completed, which
-     * together list the routes no request reached. Without them, the report lists none.
+     * together list the routes no request reached. Without them, the report lists none. {@code declaredMappings}
+     * answers {@code null}, or throws, when the route inventory cannot be read, which the report then says rather than
+     * implying that every route was exercised.
      */
     public synchronized void setDeclaredRoutes(
             Supplier<List<MappingDto>> declaredMappings, Supplier<JournalAggregates.RouteLabels> runRoutes) {
@@ -242,6 +262,7 @@ public final class RuntimeInsightsService {
                     -1,
                     -1,
                     0,
+                    SqlCapture.capturing(),
                     new RuntimeInsightsReportDto(
                             false, DISABLED, null, List.of(), List.of(), List.of(), List.of(), List.of(), 0),
                     Map.of());
@@ -251,14 +272,30 @@ public final class RuntimeInsightsService {
         long evicted = status.evictedByCount() + status.evictedByBytes();
         // A panel disabled or re-enabled since the last read changes what may be shown, so it invalidates the cache.
         long visibility = visibility();
+        SqlCapture capture = sqlCapture();
         if (cached != null
                 && cached.watermark() == watermark
                 && cached.evicted() == evicted
-                && cached.visibility() == visibility) {
+                && cached.visibility() == visibility
+                && cached.sqlCapture().equals(capture)) {
             return cached;
         }
-        cached = project(status, journal.entries(), watermark, evicted, visibility);
+        cached = project(status, journal.entries(), watermark, evicted, visibility, capture);
         return cached;
+    }
+
+    private SqlCapture sqlCapture() {
+        Supplier<SqlCapture> supplier = sqlCapture;
+        if (supplier == null) {
+            return SqlCapture.capturing();
+        }
+        try {
+            SqlCapture capture = supplier.get();
+            return capture == null ? SqlCapture.capturing() : capture;
+        } catch (RuntimeException ex) {
+            return SqlCapture.notRecorded("Whether this application's SQL is recorded could not be read ("
+                    + ex.getClass().getSimpleName() + "), so no statement is counted.");
+        }
     }
 
     private long visibility() {
@@ -272,7 +309,12 @@ public final class RuntimeInsightsService {
     }
 
     private Cached project(
-            JournalStatus status, List<JournalEntry> entries, long watermark, long evicted, long visibility) {
+            JournalStatus status,
+            List<JournalEntry> entries,
+            long watermark,
+            long evicted,
+            long visibility,
+            SqlCapture capture) {
         RouteTemplateResolver resolver;
         try {
             resolver = routes.get();
@@ -302,8 +344,21 @@ public final class RuntimeInsightsService {
                         observation.kind(), observation.title(), "NOT_APPLICABLE", 0, 0, missing));
                 continue;
             }
+            if (!capture.recorded() && readsSql(observation.reads())) {
+                checks.add(new RuntimeInsightCheckDto(
+                        observation.kind(), observation.title(), "UNAVAILABLE", 0, 0, capture.reason()));
+                continue;
+            }
             String partial = partialReason(observation, snapshot);
             List<String> unseen = unseenSources(observation, snapshot);
+            if (capture.reason() != null
+                    && (snapshot.records(JournalSource.SQL) || snapshot.records(JournalSource.CONNECTION))
+                    && (readsSql(observation.reads()) || readsSql(observation.optionalReads()))) {
+                unseen.add(
+                        capture.recorded()
+                                ? capture.reason()
+                                : capture.reason() + " Its SQL and connection evidence is not counted.");
+            }
             Observation.Evaluation evaluation = observation.evaluate(snapshot);
             checks.add(new RuntimeInsightCheckDto(
                     observation.kind(),
@@ -384,7 +439,7 @@ public final class RuntimeInsightsService {
                 limitations,
                 notExercised.subList(0, Math.min(notExercised.size(), RuntimeInsightsReportDto.MAX_NOT_EXERCISED)),
                 Math.max(0, notExercised.size() - RuntimeInsightsReportDto.MAX_NOT_EXERCISED));
-        return new Cached(watermark, evicted, visibility, report, details);
+        return new Cached(watermark, evicted, visibility, capture, report, details);
     }
 
     /**
@@ -407,8 +462,14 @@ public final class RuntimeInsightsService {
                             + " not exercised may have been reached.");
                 }
             }
-            return NotExercisedRoutes.of(mappings.get(), exercised);
+            List<MappingDto> declared = mappings.get();
+            if (declared == null) {
+                limitations.add(ROUTE_INVENTORY_UNAVAILABLE);
+                return List.of();
+            }
+            return NotExercisedRoutes.of(declared, exercised);
         } catch (RuntimeException ex) {
+            limitations.add(ROUTE_INVENTORY_UNAVAILABLE);
             return List.of();
         }
     }
@@ -520,6 +581,11 @@ public final class RuntimeInsightsService {
         return found;
     }
 
+    /** Whether {@code sources} holds one that only a traced JDBC {@code DataSource} records. */
+    private static boolean readsSql(Set<JournalSource> sources) {
+        return sources.contains(JournalSource.SQL) || sources.contains(JournalSource.CONNECTION);
+    }
+
     private static String partialReason(Observation observation, InsightsSnapshot snapshot) {
         long dropped = 0;
         for (JournalSource source : observation.reads()) {
@@ -565,6 +631,7 @@ public final class RuntimeInsightsService {
             long watermark,
             long evicted,
             long visibility,
+            SqlCapture sqlCapture,
             RuntimeInsightsReportDto report,
             Map<String, Detail> details) {}
 }

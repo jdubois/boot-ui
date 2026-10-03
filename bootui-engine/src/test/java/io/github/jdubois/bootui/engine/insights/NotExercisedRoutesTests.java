@@ -41,6 +41,49 @@ class NotExercisedRoutesTests {
     }
 
     @Test
+    void anApplicationInTheQuarkusNamespaceKeepsItsRoutesWhileQuarkusOwnAreLeftOut() {
+        List<MappingDto> declared = List.of(
+                mapping("GET", "/api/villains/{id}", "io.quarkus.sample.superheroes.villain.rest.VillainResource#get"),
+                mapping("DELETE", "/api/villains/{id}", "io.quarkus.foo.VillainResource#delete"),
+                mapping("GET", "/q/health", "io.quarkus.smallrye.health.runtime.SmallRyeHealthHandler#handle"),
+                mapping("GET", "/openapi", "io.quarkus.smallrye.openapi.runtime.OpenApiHandler#handle"),
+                mapping("GET", "/q/metrics", "io.quarkus.micrometer.MetricsResource#scrape"));
+
+        assertThat(NotExercisedRoutes.of(declared, Set.of()))
+                .containsExactly("DELETE /api/villains/{id}", "GET /api/villains/{id}");
+    }
+
+    @Test
+    void aRouteInventoryThatCannotBeReadIsSaidRatherThanListingNoRoute() throws Exception {
+        RuntimeJournal journal = new RuntimeJournal(
+                new RuntimeJournalSettings(true, 1_000, 10_000_000, 1_000, 10, 10, JournalSource.all()),
+                RunIdentity.start());
+        try {
+            RuntimeInsightsService service = new RuntimeInsightsService(journal, null, null, null, null);
+            service.setDeclaredRoutes(() -> null, () -> new JournalAggregates.RouteLabels(Set.of(), false));
+            RuntimeInsightsReportDto unavailable = service.report();
+            service.setDeclaredRoutes(
+                    () -> {
+                        throw new IllegalStateException("mappings endpoint failed");
+                    },
+                    () -> new JournalAggregates.RouteLabels(Set.of(), false));
+            RuntimeInsightsReportDto failing = service.report();
+            service.setDeclaredRoutes(List::of, () -> new JournalAggregates.RouteLabels(Set.of(), false));
+            RuntimeInsightsReportDto none = service.report();
+
+            for (RuntimeInsightsReportDto report : List.of(unavailable, failing)) {
+                assertThat(report.notExercised()).isEmpty();
+                assertThat(report.limitations()).contains(RuntimeInsightsService.ROUTE_INVENTORY_UNAVAILABLE);
+            }
+            assertThat(none.limitations())
+                    .as("an application that declares no route is not an inventory failure")
+                    .doesNotContain(RuntimeInsightsService.ROUTE_INVENTORY_UNAVAILABLE);
+        } finally {
+            journal.close();
+        }
+    }
+
+    @Test
     void theReportCountsEvictedRequestsThroughTheRunsAggregates() throws Exception {
         RuntimeJournal journal = new RuntimeJournal(
                 new RuntimeJournalSettings(true, 1_000, 10_000_000, 1_000, 10, 10, JournalSource.all()),

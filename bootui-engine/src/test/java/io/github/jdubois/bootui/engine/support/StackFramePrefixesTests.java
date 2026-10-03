@@ -104,6 +104,23 @@ class StackFramePrefixesTests {
     }
 
     @Test
+    void treatsApplicationsInAFrameworksNamespaceAsApplicationCode() {
+        assertThat(StackFramePrefixes.isFrameworkClass("org.springframework.samples.petclinic.owner.PetTypeFormatter"))
+                .isFalse();
+        assertThat(StackFramePrefixes.isFrameworkClass("io.quarkus.sample.superheroes.villain.service.VillainService"))
+                .isFalse();
+        assertThat(StackFramePrefixes.isFrameworkClass("org.apache.jsp.WEB_002dINF.jsp.owners_jsp"))
+                .isFalse();
+        assertThat(StackFramePrefixes.isFrameworkClass(
+                        "org.springframework.format.support.FormattingConversionService"))
+                .isTrue();
+        assertThat(StackFramePrefixes.isFrameworkClass("io.quarkus.arc.impl.ArcContainerImpl"))
+                .isTrue();
+        assertThat(StackFramePrefixes.isFrameworkClass("org.apache.jasper.runtime.HttpJspBase"))
+                .isTrue();
+    }
+
+    @Test
     void matchesBootUiModulesOnWholePackageSegmentsOnly() {
         assertThat(StackFramePrefixes.isFrameworkClass("io.github.jdubois.bootui.engineering.Report"))
                 .isFalse();

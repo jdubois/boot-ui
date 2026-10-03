@@ -27,16 +27,18 @@ public final class ErrorsBehind2xx implements Observation {
 
     /** The evidence, strongest first. */
     enum Evidence {
-        ROLLED_BACK("rolled back its transaction", "rolled-back transaction"),
-        EXCEPTION("recorded an exception", "exception"),
-        ERROR_LOG("wrote an ERROR log", "ERROR log"),
-        DOWNSTREAM("received a 5xx or failed downstream call", "downstream 5xx or failure");
+        ROLLED_BACK("whose transaction rolled back", "rolled-back transaction"),
+        EXCEPTION("that recorded an exception", "exception"),
+        ERROR_LOG("that wrote an ERROR log", "ERROR log"),
+        DOWNSTREAM("that received a 5xx or failed downstream call", "downstream 5xx or failure");
 
-        private final String verb;
+        /** What a request showing it did, after {@code 3 requests}. */
+        private final String clause;
+
         private final String noun;
 
-        Evidence(String verb, String noun) {
-            this.verb = verb;
+        Evidence(String clause, String noun) {
+            this.clause = clause;
             this.noun = noun;
         }
     }
@@ -196,14 +198,14 @@ public final class ErrorsBehind2xx implements Observation {
             behind.evidence().keySet().forEach(kind -> counts.merge(kind, 1, Integer::sum));
         }
         List<String> parts = new ArrayList<>();
-        counts.forEach((kind, count) -> parts.add(count + " " + kind.verb));
+        counts.forEach((kind, count) -> parts.add(InsightText.counted(count, "request") + " " + kind.clause));
         List<Behind> ordered = new ArrayList<>(requests);
         ordered.sort(
                 (a, b) -> Integer.compare(a.strongest().ordinal(), b.strongest().ordinal()));
         String sentence = "`" + route + "` answered 2xx in " + requests.size() + " of "
-                + InsightText.counted(eligible, "successful request") + " whose request "
+                + InsightText.counted(eligible, "successful request") + ": "
                 + String.join(", ", parts)
-                + (recovered ? ", and a retry or fallback recovered." : ".");
+                + (recovered ? "; a retry or fallback recovered." : ".");
         List<String> checks = new ArrayList<>();
         if (recovered) {
             checks.add("Verify the fallback contract: should the caller know that it received a fallback?");

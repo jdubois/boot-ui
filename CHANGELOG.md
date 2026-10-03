@@ -364,6 +364,24 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   its JFR event with its own thread's id, so the worker's CPU and allocation samples join the route instead of counting
   as outside any request.
 
+- **Runtime Insights no longer reports what it could not see.** From the 2.0 validation run
+  ([report](docs/V2-VALIDATION-REPORT.md)): `route-time-breakdown` stops calling time "application code" when a request
+  reached no handler BootUI marks, such as an Actuator or `/q/` endpoint or a request the security filters answered with
+  401 or 403: such requests are left out of their route's phases, a route made mostly of them is insufficient with its
+  recorded calls, and on WebFlux a route with no recorded call is insufficient instead of one unattributed span.
+  Kafka sends, timed until the broker's asynchronous acknowledgement, are no longer counted as **Message sends**; only
+  RabbitMQ and JMS sends are. Checks that read SQL report the new `UNAVAILABLE` status with the reason where this
+  application's SQL is not recorded, as with R2DBC, instead of `EVALUATED` with nothing found, on Spring MVC, Spring
+  WebFlux, and Quarkus. **Not exercised in this run** keeps the routes of applications in `io.quarkus.*` packages,
+  lists Spring WebFlux routes, and says when the declared routes could not be read. `lazy-sql-after-handler` names a
+  query a view ran while rendering, such as through a Thymeleaf formatter, and advises loading it in the handler, with
+  the application frame as the call site; frames of applications in `org.springframework.samples` or
+  `io.quarkus.sample` count as application code. The `errors-behind-2xx` sentence reads "2 requests whose transaction
+  rolled back", and insufficient findings are labelled **Not enough evidence** (PLAN-v2 M4-18a).
+- **The Mappings panel lists Spring WebFlux routes.** The Actuator-backed provider read only Spring MVC's
+  `dispatcherServlets`, so a WebFlux application showed no mapping and, without OpenTelemetry, grouped its requests by
+  masked paths. It now also reads WebFlux's `dispatcherHandlers`: annotated controllers, and functional routes whose
+  predicate names one method and one path ([WebFlux support](docs/WEBFLUX-SUPPORT.md)).
 - **Quarkus HTTP and exception capture can no longer fail a request after its response.** When a worker or virtual
   thread ended the response, the HTTP exchange capture read the response headers while the event loop could still be
   changing them. The read intermittently threw `NullPointerException` or `NoSuchElementException`, and Quarkus then
