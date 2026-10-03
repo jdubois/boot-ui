@@ -1,6 +1,7 @@
 import {describe, expect, it} from 'vitest'
 
 import {
+  THEMES,
   availableThemes,
   evidenceShares,
   numericColumns,
@@ -159,5 +160,35 @@ describe('numericColumns', () => {
     }
     expect([...numericColumns(detail)]).toEqual([1, 3])
     expect(numericColumns(null).size).toBe(0)
+  })
+})
+
+describe('theme coverage', () => {
+  it('gathers every observation kind the engine produces under a theme chip', () => {
+    const engineKinds = [
+      'route-time-breakdown',
+      'event-loop-blocking',
+      'gc-inflated-latency',
+      'work-after-response',
+      'heap-growth-after-gc',
+      'repeated-selects',
+      'safe-method-dml',
+      'lazy-sql-after-handler',
+      'orm-auto-flush',
+      'large-persistence-context',
+      'exception-hotspots',
+      'errors-behind-2xx',
+      'connections-per-request',
+      'split-transaction-writes',
+      'transaction-across-remote-call',
+      'transactional-listener-skipped',
+      'after-commit-writes',
+      'anonymous-data-reach',
+      'anonymous-success-on-restricted-route',
+      'framework-warnings-by-route',
+      'proxy-bypass',
+      'ai-usage-by-route'
+    ]
+    expect(engineKinds.filter((kind) => !THEMES.some((theme) => theme.kinds.includes(kind)))).toEqual([])
   })
 })
