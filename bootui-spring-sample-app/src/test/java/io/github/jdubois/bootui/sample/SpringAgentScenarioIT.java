@@ -172,10 +172,13 @@ class SpringAgentScenarioIT {
         // little after its response: wait, bounded, until the report sees the first and the journal holds the second.
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
         JsonNode report;
+        boolean waitsRecorded;
         List<String> subjects = new ArrayList<>();
         List<String> lazy = new ArrayList<>();
         do {
             Thread.sleep(100);
+            // Read before the report, so the report asserted on was taken once the counterexample's handoff was in.
+            waitsRecorded = handoffRecorded(SEED + "/waits", earlier);
             report = probe.get("/bootui/api/runtime-insights").json();
             subjects.clear();
             lazy.clear();
@@ -187,9 +190,8 @@ class SpringAgentScenarioIT {
                     lazy.add(observation.path("subject").asText());
                 }
             }
-        } while (!(subjects.contains("GET " + SEED) && handoffRecorded(SEED + "/waits", earlier))
-                && System.nanoTime() < deadline);
-        assertThat(handoffRecorded(SEED + "/waits", earlier))
+        } while (!(waitsRecorded && subjects.contains("GET " + SEED)) && System.nanoTime() < deadline);
+        assertThat(waitsRecorded)
                 .as("the counterexample's handoff was recorded")
                 .isTrue();
         assertThat(subjects).as(report.path("checks").toString()).contains("GET " + SEED);
