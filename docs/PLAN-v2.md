@@ -318,6 +318,14 @@ slice depends on M5-1, and on the milestone named:
 | M5-9 | Vulnerable code reach and dynamic access recording with its reachability-metadata export (§5.15) | M5-3 | 8–10 | 📋 Planned |
 | M5-10 | The remaining agent tools, the `verify_after_change` and `diagnose_runtime_issue` updates, `McpGuidance.instructions` and `assess_application` updates, the agent benchmark investigation and its refusal fixture, the consumer skill, and documentation | M5-3, M5-4, M5-5, M5-6, M5-8, M5-9 | 5–7 | 📋 Planned |
 
+M5-1/M5-2 lifecycle guarantees delivered: pending submissions from overlapping claim generations retain their count
+and become sticky-ambiguous, never taking a newer run's snapshot (D32); direct fork/join rejections and failed
+thread-per-task starts release their keyed submissions, without double-releasing a completed `invoke` failure.
+Both sensors supersede queued releases and reinstall after an in-flight reset when reclaimed (D34), with deterministic
+worker-gated regression tests in both orderings. Executor skip counters stop while disarmed, omitted from the current
+claim, or disabled by the self-test. Retained tasks removed without a release hook can stay ambiguous until collected;
+a generation change deliberately does not clear them.
+
 #### M5 implementation steps
 
 The slices above, broken into the steps each pull request takes. They carry the constraints of two rubber-duck reviews

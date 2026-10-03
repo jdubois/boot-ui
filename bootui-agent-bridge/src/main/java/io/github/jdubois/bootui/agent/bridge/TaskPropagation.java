@@ -10,6 +10,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.RunnableScheduledFuture;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Consumer;
@@ -133,11 +134,11 @@ public final class TaskPropagation {
             Supplier<Object> capture = claim.capture.get();
             Object payload = capture == null ? null : capture.get();
             if (payload == null) {
-                return TaskSnapshots.TASKS.putUnowned(task, generation) ? TOUCHED : NONE;
+                return TaskSnapshots.TASKS.putUnowned(task) ? TOUCHED : NONE;
             }
             if (!flatJdkValues(payload)) {
                 REFUSED.increment();
-                return TaskSnapshots.TASKS.putUnowned(task, generation) ? TOUCHED : NONE;
+                return TaskSnapshots.TASKS.putUnowned(task) ? TOUCHED : NONE;
             }
             if (count) {
                 KEYED[hook].increment();
@@ -170,7 +171,7 @@ public final class TaskPropagation {
     }
 
     static void confirm(int outcome, int hook) {
-        if (outcome == KEYED_OWNED) {
+        if (outcome == KEYED_OWNED && sensorOn(AgentBridge.current())) {
             KEYED[hook].increment();
         }
     }
@@ -217,7 +218,9 @@ public final class TaskPropagation {
             return;
         }
         if (periodic) {
-            PERIODIC_SKIPPED.increment();
+            if (sensorOn(AgentBridge.current())) {
+                PERIODIC_SKIPPED.increment();
+            }
         } else {
             submitted(task, KEY_SCHEDULED);
         }
@@ -227,27 +230,34 @@ public final class TaskPropagation {
      * A root {@code ForkJoinTask} submitted to a {@code ForkJoinPool}. The pool's own adapters are keyed where they are
      * constructed, and virtual threads' continuations never.
      */
-    public static void forkJoinRoot(Object pool, Object task) {
+    public static boolean forkJoinRoot(Object pool, Object task) {
         if (!(task instanceof ForkJoinTask)) {
-            return;
+            return false;
         }
         Thread current = Thread.currentThread();
         if (current instanceof ForkJoinWorkerThread && ((ForkJoinWorkerThread) current).getPool() == pool) {
             // A worker's own subtask, not a root submission.
-            return;
+            return false;
         }
         String name = task.getClass().getName();
         if (name.startsWith("java.util.concurrent.ForkJoinTask$")
                 || name.startsWith("java.util.concurrent.DelayScheduler$")) {
-            return;
+            return false;
         }
-        submitted(task, KEY_FORK_JOIN_ROOT);
+        return submitted(task, KEY_FORK_JOIN_ROOT);
+    }
+
+    /** A rejected root never runs; an exception from {@code invoke}'s completed task must not release a second entry. */
+    public static void forkJoinDone(boolean keyed, Object task, Throwable thrown) {
+        if (keyed && thrown instanceof RejectedExecutionException && !((ForkJoinTask<?>) task).isDone()) {
+            release(task);
+        }
     }
 
     /** Constructors of {@code ForkJoinTask$Adapted*} and {@code $RunnableExecuteAction}: skips virtual threads. */
     public static void adapterCreated(Object adapter, Object wrapped) {
         if (wrapped != null && wrapped.getClass().getName().startsWith("java.lang.VirtualThread")) {
-            if (AgentBridge.recording()) {
+            if (sensorOn(AgentBridge.current())) {
                 VIRTUAL_SKIPPED.increment();
             }
             return;
@@ -265,7 +275,7 @@ public final class TaskPropagation {
     /** JDK 25+ {@code DelayScheduler$ScheduledForkJoinTask} constructors: one-shot when the period is 0. */
     public static void delayedCreated(Object task, long period) {
         if (period != 0L) {
-            if (AgentBridge.recording()) {
+            if (sensorOn(AgentBridge.current())) {
                 PERIODIC_SKIPPED.increment();
             }
             return;
@@ -308,11 +318,11 @@ public final class TaskPropagation {
                 return null;
             }
             Claim claim = AgentBridge.current();
-            if (claim == null || !claim.armed || claim.generation != snapshot.generation) {
-                STALE.increment();
+            if (!sensorOn(claim)) {
                 return null;
             }
-            if (claim.generation == disabledGeneration) {
+            if (claim.generation != snapshot.generation) {
+                STALE.increment();
                 return null;
             }
             if (Claim.startsWithAny(Thread.currentThread().getName(), claim.skipThreads)) {
@@ -341,6 +351,10 @@ public final class TaskPropagation {
             FAILURES.increment();
         }
         exitHandle(handle, failure);
+    }
+
+    private static boolean sensorOn(Claim claim) {
+        return claim != null && claim.armed && claim.hasSensor(SENSOR) && claim.generation != disabledGeneration;
     }
 
     /** Tells {@code handle} the failure, if any, then closes it; never throws. */

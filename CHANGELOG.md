@@ -359,6 +359,12 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Java agent claim handoffs preserve request ownership.** Overlapping submissions of the same task across restarts
+  stay unowned rather than taking a newer claim's snapshot. Immediate reclaim cancels queued executor/thread sensor
+  removal or reinstalls the sensor after an in-flight reset. Rejected direct fork/join tasks and failed
+  `CompletableFuture` thread-per-task starts release their snapshots; executor skip counters stop when the sensor is
+  off ([Java Agent](docs/features/java-agent.md#claims-and-lifecycle), AGT-01, AGT-02, AGT-04, AGT-09).
+
 - **Quarkus HTTP and exception capture can no longer fail a request after its response.** When a worker or virtual
   thread ended the response, the HTTP exchange capture read the response headers while the event loop could still be
   changing them. The read intermittently threw `NullPointerException` or `NoSuchElementException`, and Quarkus then

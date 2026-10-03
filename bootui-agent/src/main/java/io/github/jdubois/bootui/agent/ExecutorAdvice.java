@@ -57,8 +57,14 @@ final class ExecutorAdvice {
     static final class ForkJoinRoot {
 
         @Advice.OnMethodEnter(suppress = Throwable.class)
-        static void enter(@Advice.This Object pool, @Advice.Argument(0) Object task) {
-            TaskPropagation.forkJoinRoot(pool, task);
+        static boolean enter(@Advice.This Object pool, @Advice.Argument(0) Object task) {
+            return TaskPropagation.forkJoinRoot(pool, task);
+        }
+
+        @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+        static void exit(
+                @Advice.Enter boolean keyed, @Advice.Argument(0) Object task, @Advice.Thrown Throwable thrown) {
+            TaskPropagation.forkJoinDone(keyed, task, thrown);
         }
     }
 
@@ -93,8 +99,16 @@ final class ExecutorAdvice {
     static final class ThreadPerTask {
 
         @Advice.OnMethodEnter(suppress = Throwable.class)
-        static void enter(@Advice.Argument(0) Object task) {
-            TaskPropagation.submitted(task, TaskPropagation.KEY_THREAD_PER_TASK);
+        static boolean enter(@Advice.Argument(0) Object task) {
+            return TaskPropagation.submitted(task, TaskPropagation.KEY_THREAD_PER_TASK);
+        }
+
+        @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+        static void exit(
+                @Advice.Enter boolean keyed, @Advice.Argument(0) Object task, @Advice.Thrown Throwable thrown) {
+            if (keyed && thrown != null) {
+                TaskPropagation.release(task);
+            }
         }
     }
 

@@ -56,6 +56,8 @@ final class ThreadSensor {
     private volatile String selfTestError;
     private Thread worker;
     private int pending;
+    private boolean releasing;
+    private long jobGeneration;
 
     private static final int INSTALL = 1;
     private static final int RELEASE = 2;
@@ -68,12 +70,20 @@ final class ThreadSensor {
 
     /** Installs the sensor once and self-tests it, off the claiming thread. */
     synchronized void claimed(long claimGeneration, List<String> claimedPackages) {
+        boolean changedPackages = !packages.equals(claimedPackages);
         generation = claimGeneration;
         packages = Collections.unmodifiableList(new ArrayList<String>(claimedPackages));
-        if (stuck || (transformer != null && selfTestPassed)) {
+        if (stuck) {
             return;
         }
-        schedule(INSTALL);
+        if (!releasing && transformer != null && selfTestPassed) {
+            pending &= ~RELEASE;
+            if (changedPackages) {
+                schedule(pending | REFINE);
+            }
+            return;
+        }
+        schedule(INSTALL | (pending & REFINE));
     }
 
     /** New claimed packages: their {@code Thread} subclasses already loaded are retransformed, off the caller's thread. */
@@ -100,6 +110,8 @@ final class ThreadSensor {
     private synchronized int nextJob() {
         int job = pending;
         pending = 0;
+        releasing = (job & RELEASE) != 0;
+        jobGeneration = generation;
         if (job == 0) {
             worker = null;
         }
@@ -140,13 +152,13 @@ final class ThreadSensor {
             while ((job = nextJob()) != 0) {
                 try {
                     if ((job & RELEASE) != 0) {
-                        reset();
+                        reset(jobGeneration);
                     }
-                    if ((job & INSTALL) != 0) {
+                    if ((job & INSTALL) != 0 && !stuck) {
                         if (transformer == null) {
                             install();
                         }
-                        selfTest();
+                        selfTest(jobGeneration);
                     }
                     if ((job & REFINE) != 0 && transformer != null) {
                         retransformSubclasses();
@@ -160,7 +172,7 @@ final class ThreadSensor {
         }
     }
 
-    private void install() {
+    void install() {
         long started = System.nanoTime();
         state = "installing";
         InstallAction action = new InstallAction();
@@ -189,7 +201,7 @@ final class ThreadSensor {
         }
     }
 
-    private void reset() {
+    void reset(long claimGeneration) {
         ResettableClassFileTransformer installed = transformer;
         transformer = null;
         selfTestPassed = false;
@@ -206,7 +218,7 @@ final class ThreadSensor {
                         stats.redefinitionFailures()));
         if (!restored) {
             stuck = true;
-            ThreadPropagation.disable(generation, true);
+            ThreadPropagation.disable(claimGeneration, true);
         }
         state = restored ? "released" : "release-failed";
     }
@@ -284,7 +296,7 @@ final class ThreadSensor {
 
     // ---- self-test -----------------------------------------------------------------------------------------------
 
-    private void selfTest() {
+    void selfTest(long claimGeneration) {
         Map<String, String> steps = new LinkedHashMap<String, String>();
         Map<String, Object> seen;
         ThreadPropagation.beginSelfTest();
@@ -311,10 +323,10 @@ final class ThreadSensor {
         } else {
             selfTestPassed = false;
             selfTestError = "self-test failed for " + failed + " " + steps;
-            ThreadPropagation.disable(generation, false);
+            ThreadPropagation.disable(claimGeneration, false);
             AgentBridge.message(
                     "the BootUI agent's threads sensor failed its self-test and was removed: " + selfTestError);
-            reset();
+            reset(claimGeneration);
             state = stuck ? "self-test-failed (release-failed)" : "self-test-failed";
         }
     }

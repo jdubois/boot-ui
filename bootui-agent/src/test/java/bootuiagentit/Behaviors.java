@@ -221,6 +221,7 @@ public class Behaviors {
         ForkJoinTask<String> fjt = ForkJoinTask.adapt(() -> CONTEXT.get());
         ForkJoinPool.commonPool().execute(fjt);
         check("FJP execute(ForkJoinTask) keeps identity", "request-42".equals(fjt.get()) && fjt.isDone());
+        rejectedForkJoinRoots();
 
         // B3: the same task object submitted by two owners before it runs is never cross-attributed.
         ThreadPoolExecutor single = new ThreadPoolExecutor(1, 1, 1, TimeUnit.MINUTES, new LinkedBlockingQueue<>());
@@ -564,6 +565,52 @@ public class Behaviors {
             latch.await();
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    private static void rejectedForkJoinRoots() throws Exception {
+        ForkJoinPool stopped = new ForkJoinPool(1);
+        stopped.shutdown();
+        ForkJoinPool running = new ForkJoinPool(1);
+        try {
+            for (String method : List.of("execute", "submit", "invoke")) {
+                for (String acceptedOwner : List.of("rejected-owner", "different-owner")) {
+                    RecursiveTask<String> task = new RecursiveTask<>() {
+                        @Override
+                        protected String compute() {
+                            return CONTEXT.get();
+                        }
+                    };
+                    CONTEXT.set("rejected-owner");
+                    boolean rejected = false;
+                    try {
+                        switch (method) {
+                            case "execute" -> stopped.execute(task);
+                            case "submit" -> stopped.submit(task);
+                            case "invoke" -> stopped.invoke(task);
+                            default -> throw new AssertionError(method);
+                        }
+                    } catch (RejectedExecutionException expected) {
+                        rejected = true;
+                    }
+                    check("FJP rejected " + method + " has not run", rejected && !task.isDone());
+                    CONTEXT.set(acceptedOwner);
+                    running.execute(task);
+                    check(
+                            "FJP rejected " + method + " resubmitted by " + acceptedOwner,
+                            acceptedOwner.equals(task.get(5, TimeUnit.SECONDS)));
+                    task.reinitialize();
+                    CONTEXT.set("fresh-owner");
+                    running.execute(task);
+                    check(
+                            "FJP rejected " + method + " leaves no residual snapshot",
+                            "fresh-owner".equals(task.get(5, TimeUnit.SECONDS)));
+                }
+            }
+        } finally {
+            CONTEXT.set("request-42");
+            running.shutdownNow();
+            running.awaitTermination(5, TimeUnit.SECONDS);
         }
     }
 
