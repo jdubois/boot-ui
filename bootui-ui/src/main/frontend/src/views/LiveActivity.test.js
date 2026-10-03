@@ -266,6 +266,66 @@ describe('LiveActivity', () => {
     ).toEqual(['Default', 'Runtime journal', 'Panel buffers'])
   })
 
+  it('shows a retained journal profile when its HTTP-exchange details have been evicted', async () => {
+    const fetchMock = stubFetch(
+      activityReport({sources: ['Runtime journal']}),
+      requestProfile({available: false, unavailableReason: 'Request req-1 is no longer in the buffer.', request: null}),
+      {
+        available: true,
+        route: 'GET /api/todos',
+        durationMicros: 120000,
+        status: 200,
+        timeline: [{source: 'sql', label: 'select from todo', offsetMillis: 2, durationMicros: 1000}],
+        gcPauses: [],
+        touched: {tables: ['todo']},
+        notes: []
+      }
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    await wrapper.find('.activity-table tbody tr .bootui-keyboard-target').trigger('click')
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledWith('api/activity/request/req-1/journal', expect.anything())
+    expect(wrapper.find('.request-journal').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Recorded by the runtime journal')
+    expect(wrapper.text()).toContain('HTTP-exchange details unavailable')
+    expect(wrapper.text()).toContain('select from todo')
+  })
+
+  it('opens scheduled executions directly from the journal without an HTTP-exchange lookup', async () => {
+    const fetchMock = stubFetch(
+      activityReport({
+        sources: ['Runtime journal'],
+        entries: [requestEntry({id: 'scheduled-1', type: 'SCHEDULED', summary: 'Cleanup', profileable: true})]
+      }),
+      requestProfile({available: false, unavailableReason: 'not an HTTP request'}),
+      {
+        available: true,
+        route: 'Scheduled: Cleanup',
+        durationMicros: 25000,
+        status: null,
+        timeline: [],
+        gcPauses: [],
+        touched: {tables: []},
+        notes: []
+      }
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    await wrapper.find('.activity-table tbody tr .bootui-keyboard-target').trigger('click')
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledWith('api/activity/request/scheduled-1/journal', expect.anything())
+    expect(fetchMock.mock.calls.some(([url]) => url === 'api/activity/request/scheduled-1')).toBe(false)
+    expect(wrapper.text()).toContain('Scheduled: Cleanup')
+    expect(wrapper.text()).not.toContain('HTTP-exchange details unavailable')
+  })
+
   it('says no activity is recorded yet when the feed is empty and nothing narrows it', async () => {
     safeLocalStorage.removeItem('bootui.activity.filters')
     vi.stubGlobal('fetch', stubFetch(activityReport({entries: [], typeCounts: {}}), requestProfile()))

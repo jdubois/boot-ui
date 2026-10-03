@@ -292,8 +292,8 @@ See [MySQL](features/database.md#mysql).
 
 ### Investigating one request
 
-`bootui activity` lists what happened; `bootui request-profile` explains one request. List recent activity, pick a
-`REQUEST` entry whose `profileable` field is `true`, and pass its `id`:
+`bootui activity` lists what happened; `bootui request-profile` opens one request or execution. Pick a
+profileable `REQUEST`, `SCHEDULED`, or consumed `MESSAGING` entry (or a Runtime Insights exemplar) and pass its `id`:
 
 ```bash
 bootui activity --limit 50 --json \
@@ -302,11 +302,12 @@ bootui request-profile <id> --json
 bootui exceptions show <exceptionGroupId> --json
 ```
 
-The profile is the same masked document the Live Activity drawer shows and `GET /bootui/api/activity/request/{id}`
-returns: the request, its correlated SQL as normalized statement groups with N+1 flags and the call sites that issued
-them, exceptions with the `exceptionGroupId` that `bootui exceptions show` accepts, security events, REST client calls,
-cache accesses, timing, and notes. An id that is unknown or already evicted still exits `0`, with `available: false`
-and an `unavailableReason`.
+The result is a selection: `source: "journal"` has a `journal` timeline and touched resources, including scheduled and
+message executions; `source: "buffers"` has the legacy HTTP-exchange `buffers` profile, with N+1 groups, call sites,
+and exception `exceptionGroupId` values for `bootui exceptions show`. When both are retained for an HTTP request,
+`source` is `journal` and both fields are populated; read `buffers` for the richer HTTP details. The journal is consulted
+first, then the buffer. Both respect panel visibility and exposure policy. An id neither retains still exits `0`, with
+`source: "none"`, `available: false`, and an `unavailableReason` naming both windows.
 
 The command is `request-profile`, at the top level, because `bootui activity` is itself a command and a command path
 cannot also be the parent of another. It is unavailable, and exits `2`, when the Live Activity panel is disabled. See

@@ -502,6 +502,8 @@ describe('insightMarkdown', () => {
     expect(markdown).toContain('- **Counted:** 3 of 9 requests')
     expect(markdown).toContain('1. Load them with one statement, such as a join.')
     expect(markdown).toContain('`bootui request-profile r-1`')
+    expect(markdown).toContain('journal profile first')
+    expect(markdown).toContain('Check `source` and `available`')
     expect(markdown).toContain('| r-1 | select a \\| b from t |')
     expect(markdown).toContain('not a verdict')
     expect(omissions).toEqual(['2 evidence rows beyond the first 1.'])
