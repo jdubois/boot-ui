@@ -17,6 +17,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
@@ -228,7 +229,7 @@ public final class AgentHandoffs implements RuntimeEventPublisher {
      * One task running in its request's context. The bridge tells it the task's failure, if any, then closes it, which
      * restores the worker's previous context and then publishes the handoff.
      */
-    final class Handoff implements AutoCloseable, Consumer<Throwable>, Runnable {
+    final class Handoff implements AutoCloseable, Consumer<Throwable>, BiConsumer<Throwable, Boolean>, Runnable {
 
         private final CorrelationContext context;
         private final String parentExecutionId;
@@ -248,6 +249,7 @@ public final class AgentHandoffs implements RuntimeEventPublisher {
         private Boolean bodyAfterResponse;
         private Long bodyAfterResponseMicros;
         private boolean bodyEnded;
+        private Boolean failureAfterResponse;
 
         private Handoff(
                 CorrelationContext context,
@@ -275,9 +277,28 @@ public final class AgentHandoffs implements RuntimeEventPublisher {
         /** Remembers the task's failure: its class only, never its message. */
         @Override
         public void accept(Throwable failure) {
+            accept(failure, true);
+        }
+
+        @Override
+        public void accept(Throwable failure, Boolean bodyFailure) {
             if (failure != null) {
                 failed = true;
                 exceptionClass = failure.getClass().getName();
+                if (Boolean.TRUE.equals(bodyFailure)) {
+                    failureAfterResponse = bodyAfterResponse;
+                } else {
+                    long failureAt = startMicros() + Math.max(0, nanoTime.getAsLong() - startNanos) / 1_000L;
+                    RequestPhases.Markers markers =
+                            context.requestId() == null || phases == null ? null : phases.markers(context.requestId());
+                    Long responseAt = markers == null
+                            ? null
+                            : markers.responseAt() != null ? markers.responseAt() : markers.endedAt();
+                    failureAfterResponse = markers == null
+                            ? null
+                            : responseAt != null
+                                    && failureAt - responseAt >= HandoffWindow.RESPONSE_TIMESTAMP_SLACK_MICROS;
+                }
             }
         }
 
@@ -402,7 +423,8 @@ public final class AgentHandoffs implements RuntimeEventPublisher {
                     HandoffWindow.capped(durationNanos, maxHandoffNanos),
                     bodyAfterResponse,
                     bodyAfterResponseMicros,
-                    responseAt);
+                    responseAt,
+                    failureAfterResponse);
             journal.offer(RuntimeEvent.of(
                     JournalSource.AGENT_EXECUTORS,
                     start.toEpochMilli(),

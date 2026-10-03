@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -313,6 +314,67 @@ class AgentHandoffsTests {
         assertThat(payload.bodyAfterResponse()).isTrue();
         assertThat(payload.bodyAfterResponseMicros()).isEqualTo(1_500);
         assertThat(payload.afterResponseMicros()).isEqualTo(501_500);
+    }
+
+    @Test
+    void aTailFailureIsTimedSeparatelyFromTheBodyOutcome() {
+        RequestPhases phases = new RequestPhases();
+        phases.begin("r1");
+        long start = phases.markers("r1").filtersAt();
+        now = Instant.ofEpochSecond(start / 1_000_000L, start % 1_000_000L * 1_000L);
+        AgentHandoffs handoffs = handoffs(phases, null);
+        AutoCloseable handle = handoffs.reopen(new Object[] {snapshot(handoffs), "FutureTask", "hook"});
+        ((Runnable) handle).run();
+        phases.mark("r1", RequestPhase.RESPONSE);
+        long responseAt = phases.markers("r1").responseAt();
+        nanos.addAndGet((responseAt - start + 2_000L) * 1_000L);
+        @SuppressWarnings("unchecked")
+        BiConsumer<Throwable, Boolean> outcome = (BiConsumer<Throwable, Boolean>) handle;
+        outcome.accept(new IllegalStateException("tail failure"), false);
+        close(handle);
+
+        AsyncHandoffPayload payload = (AsyncHandoffPayload) sink.single().payload();
+        assertThat(payload.bodyAfterResponse()).isFalse();
+        assertThat(payload.failureAfterResponse()).isTrue();
+        assertThat(payload.failed()).isTrue();
+    }
+
+    @Test
+    void aTailFailureWithinResponseClockSlackIsNotClassifiedAsLate() {
+        RequestPhases phases = new RequestPhases();
+        phases.begin("r1");
+        long start = phases.markers("r1").filtersAt();
+        now = Instant.ofEpochSecond(start / 1_000_000L, start % 1_000_000L * 1_000L);
+        AgentHandoffs handoffs = handoffs(phases, null);
+        AutoCloseable handle = handoffs.reopen(new Object[] {snapshot(handoffs), "FutureTask", "hook"});
+        ((Runnable) handle).run();
+        phases.mark("r1", RequestPhase.RESPONSE);
+        long responseAt = phases.markers("r1").responseAt();
+        nanos.addAndGet((responseAt - start + 1_999L) * 1_000L);
+        @SuppressWarnings("unchecked")
+        BiConsumer<Throwable, Boolean> outcome = (BiConsumer<Throwable, Boolean>) handle;
+        outcome.accept(new IllegalStateException("tail failure"), false);
+        close(handle);
+
+        assertThat(((AsyncHandoffPayload) sink.single().payload()).failureAfterResponse())
+                .isFalse();
+    }
+
+    @Test
+    void aDeferredBodyFailureKeepsItsPrePublicationResponseOrdering() {
+        RequestPhases phases = new RequestPhases();
+        phases.begin("r1");
+        AgentHandoffs handoffs = handoffs(phases, null);
+        AutoCloseable handle = handoffs.reopen(new Object[] {snapshot(handoffs), "FutureTask", "hook"});
+        ((Runnable) handle).run();
+        phases.mark("r1", RequestPhase.RESPONSE);
+        @SuppressWarnings("unchecked")
+        Consumer<Throwable> outcome = (Consumer<Throwable>) handle;
+        outcome.accept(new IllegalStateException("body failure"));
+        close(handle);
+
+        assertThat(((AsyncHandoffPayload) sink.single().payload()).failureAfterResponse())
+                .isFalse();
     }
 
     @Test

@@ -168,7 +168,10 @@ before the JDK publishes the result and releases waiters. A body that ends after
 attributed SQL, REST, and message evidence, including an earlier write followed by computation and a fast task that
 started after the response. A waited-for body is not reported merely because its handoff closes late.
 The full handoff lifetime remains visible: `FutureTask.done()` and synchronous dependent stages can still do real
-work after result publication. When the body ended before the response, or its completion could not be confirmed
+work after result publication. A failure observed escaping the task's result-publication tail is timed separately
+from a body failure stored in its future, using the same 2 ms clock slack as unconfirmed late I/O; the escaping
+failure's class takes precedence if both body and tail fail.
+When the body ended before the response, or its completion could not be confirmed
 (for example, a custom executor wrapper hiding a result-publishing JDK task), only I/O ending at least two milliseconds past the
 actual response boundary counts. With no retained request timeline, the request's end is the conservative boundary;
 pure computation after earlier I/O cannot be distinguished from closure bookkeeping without a body marker.

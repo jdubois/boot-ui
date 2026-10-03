@@ -28,12 +28,6 @@ public final class WorkAfterResponse implements Observation {
 
     static final int MIN_REQUESTS = 1;
 
-    /**
-     * Slack for I/O evidence when no body end was observed after the response. Event starts and the fallback HTTP
-     * boundary have millisecond precision; the body marker itself uses the producer's response-phase ordering.
-     */
-    private static final long TIMESTAMP_SLACK_MICROS = 2_000L;
-
     static final String REQUIRES_AGENT = "This observation requires the BootUI agent's executors sensor, which"
             + " propagates the work a request hands to an executor as its own: start the application with"
             + " -javaagent:bootui-agent.jar (see the Java Agent panel).";
@@ -111,12 +105,16 @@ public final class WorkAfterResponse implements Observation {
                                     requestEndMillis(request), event.epochMillis(), maxHandoffMillis)) {
                         continue;
                     }
-                    if (!Boolean.TRUE.equals(handoff.bodyAfterResponse()) && !afterResponse(request, event, handoff)) {
+                    if (!Boolean.TRUE.equals(handoff.bodyAfterResponse())
+                            && !Boolean.TRUE.equals(handoff.failureAfterResponse())
+                            && !afterResponse(request, event, handoff)) {
                         continue;
                     }
                     Work work = work(request, event, handoff);
-                    boolean failedAfterResponse =
-                            handoff.failed() && !Boolean.FALSE.equals(handoff.bodyAfterResponse());
+                    boolean failedAfterResponse = handoff.failed()
+                            && (handoff.failureAfterResponse() != null
+                                    ? handoff.failureAfterResponse()
+                                    : !Boolean.FALSE.equals(handoff.bodyAfterResponse()));
                     if (work.empty() && !failedAfterResponse) {
                         continue;
                     }
@@ -229,7 +227,8 @@ public final class WorkAfterResponse implements Observation {
                     || !HandoffWindow.attributed(event.epochMillis(), child.epochMillis(), maxHandoffMillis)
                     || (!Boolean.TRUE.equals(handoff.bodyAfterResponse())
                             && endMicros(child)
-                                    < responseStartMicros(request, event, handoff) + TIMESTAMP_SLACK_MICROS)) {
+                                    < responseStartMicros(request, event, handoff)
+                                            + HandoffWindow.RESPONSE_TIMESTAMP_SLACK_MICROS)) {
                 continue;
             }
             if (child.payload() instanceof SqlPayload) {

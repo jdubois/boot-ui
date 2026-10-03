@@ -13,6 +13,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.RunnableScheduledFuture;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -367,13 +368,17 @@ public final class TaskPropagation {
 
     /** Ends the child execution {@code handle} opened, telling it the task's failure first, if any. */
     public static void exit(Object handle, Throwable failure) {
+        exit(handle, failure, true);
+    }
+
+    private static void exit(Object handle, Throwable failure, boolean bodyFailure) {
         if (handle != null && failure != null) {
             FAILURES.increment();
         }
         if (handle instanceof Active) {
             Active active = (Active) handle;
             try {
-                exitHandle(active.handle, failure);
+                exitHandle(active.handle, failure, bodyFailure);
             } finally {
                 if (active.previous == null) {
                     ACTIVE.remove();
@@ -382,7 +387,7 @@ public final class TaskPropagation {
                 }
             }
         } else {
-            exitHandle(handle, failure);
+            exitHandle(handle, failure, bodyFailure);
         }
     }
 
@@ -455,13 +460,19 @@ public final class TaskPropagation {
     }
 
     /** Tells {@code handle} the failure, if any, then closes it; never throws. */
-    @SuppressWarnings("unchecked")
     static void exitHandle(Object handle, Throwable failure) {
+        exitHandle(handle, failure, true);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void exitHandle(Object handle, Throwable failure, boolean bodyFailure) {
         if (handle == null) {
             return;
         }
         try {
-            if (failure != null && handle instanceof Consumer) {
+            if (failure != null && handle instanceof BiConsumer) {
+                ((BiConsumer<Throwable, Boolean>) handle).accept(failure, Boolean.valueOf(bodyFailure));
+            } else if (failure != null && handle instanceof Consumer) {
                 ((Consumer<Throwable>) handle).accept(failure);
             }
         } catch (Throwable ex) {
@@ -501,7 +512,7 @@ public final class TaskPropagation {
                     }
                 }
             }
-            exit(handle, thrown != null ? thrown : futureFailure(task));
+            exit(handle, thrown != null ? thrown : futureFailure(task), thrown == null || !(task instanceof Future));
         }
     }
 

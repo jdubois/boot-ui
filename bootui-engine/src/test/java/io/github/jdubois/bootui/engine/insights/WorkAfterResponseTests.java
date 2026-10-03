@@ -203,6 +203,37 @@ class WorkAfterResponseTests {
     }
 
     @Test
+    void aResultPublicationTailCanFailAfterABodyCompletedBeforeTheResponse() {
+        request(
+                "/seed/work-after-response",
+                1_000,
+                new Child(
+                        JournalSource.AGENT_EXECUTORS,
+                        1_002,
+                        500_000_000,
+                        "async-1",
+                        new AsyncHandoffPayload(
+                                "async-1",
+                                null,
+                                "java.util.concurrent.FutureTask",
+                                "ThreadPoolExecutor.runWorker",
+                                1_001,
+                                0,
+                                null,
+                                true,
+                                "java.lang.IllegalStateException",
+                                false,
+                                0L,
+                                false,
+                                false,
+                                0L,
+                                1_030_000L,
+                                true)));
+
+        assertThat(only(service(true).report()).sentence()).contains("1 task failed after the response");
+    }
+
+    @Test
     void dependentWorkAfterBodyCompletionIsStillReported() {
         request(
                 "/seed/work-after-response",
