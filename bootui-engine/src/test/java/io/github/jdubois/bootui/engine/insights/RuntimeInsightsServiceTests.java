@@ -369,6 +369,66 @@ class RuntimeInsightsServiceTests {
     }
 
     @Test
+    void aPanelTheApplicationCannotServeIsReportedUnavailableRatherThanDisabled() {
+        request(
+                "GET",
+                "/api/orders/{id}",
+                new Child(
+                        JournalSource.AUTHORIZATION,
+                        1_000,
+                        new AuthorizationPayload("/api/orders/42", "alice", "hasRole", "USER", true, 1)),
+                new Child(JournalSource.ORM, 1_000, orm()));
+
+        RuntimeInsightsService insights = new RuntimeInsightsService(
+                journal,
+                null,
+                panel -> !panel.equals(BootUiPanels.SECURITY_LOGS) && !panel.equals(BootUiPanels.HIBERNATE),
+                null,
+                null);
+        insights.setPanelUnavailable(panel -> panel.equals(BootUiPanels.SECURITY_LOGS)
+                ? "Quarkus security events are disabled. Set quarkus.security.events.enabled=true."
+                : null);
+        Map<String, RuntimeInsightCheckDto> checks = checks(insights.report());
+
+        assertThat(checks.get(AnonymousSuccessOnRestrictedRoute.KIND).reason())
+                .as("an unavailable panel names what would make it available instead of implying someone switched"
+                        + " it off")
+                .isEqualTo("The security-logs panel, whose evidence this reads, is not available in this"
+                        + " application: Quarkus security events are disabled. Set"
+                        + " quarkus.security.events.enabled=true.");
+        assertThat(checks.get(OrmAutoFlush.KIND).reason())
+                .as("a panel off with no reason is still simply disabled")
+                .isEqualTo("The hibernate panel, whose evidence this reads, is disabled.");
+        assertThat(checks.get(RouteTimeBreakdown.KIND).reason())
+                .as("optional evidence makes the same distinction rather than reporting it as insufficient")
+                .contains("The security-logs panel is not available in this application, so its evidence is not"
+                        + " counted: Quarkus security events are disabled. Set"
+                        + " quarkus.security.events.enabled=true.")
+                .contains("The hibernate panel is disabled, so its evidence is not counted.");
+    }
+
+    @Test
+    void anUnavailablePanelsEvidenceStaysOutOfTheProjection() {
+        request(
+                "GET",
+                "/api/orders/{id}",
+                new Child(
+                        JournalSource.AUTHORIZATION,
+                        1_000,
+                        new AuthorizationPayload("/api/orders/42", null, "authenticated", null, true, 1)));
+
+        RuntimeInsightsService insights = new RuntimeInsightsService(
+                journal, null, panel -> !panel.equals(BootUiPanels.SECURITY_LOGS), null, null);
+        insights.setPanelUnavailable(panel -> panel.equals(BootUiPanels.SECURITY_LOGS) ? "the reason" : null);
+
+        assertThat(checks(insights.report())
+                        .get(AnonymousSuccessOnRestrictedRoute.KIND)
+                        .status())
+                .as("naming why a panel is off never makes evidence it cannot serve visible")
+                .isEqualTo("NOT_APPLICABLE");
+    }
+
+    @Test
     void disablingOneBrokersPanelLeavesTheOthersCountedAndIsStillReported() {
         request("GET", "/api/orders/{id}", sqls("select 1", 0, null));
 

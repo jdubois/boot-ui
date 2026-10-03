@@ -2654,10 +2654,7 @@ public class BootUiProperties {
         }
 
         public void setAiTokenThreshold(long aiTokenThreshold) {
-            if (aiTokenThreshold < 1) {
-                throw new IllegalArgumentException("bootui.runtime-insights.ai-token-threshold must be positive.");
-            }
-            this.aiTokenThreshold = aiTokenThreshold;
+            this.aiTokenThreshold = AiUsageByRoute.validateTokenThreshold(aiTokenThreshold);
         }
     }
 
