@@ -82,7 +82,13 @@ public final class RepeatedSelects implements Observation {
             counts.put(
                     fingerprint,
                     current == null
-                            ? new Repeat(request, fingerprint, 1, Math.max(0, event.durationNanos()), sql.callSite())
+                            ? new Repeat(
+                                    request,
+                                    fingerprint,
+                                    InsightText.statement(sql.sql()),
+                                    1,
+                                    Math.max(0, event.durationNanos()),
+                                    sql.callSite())
                             : current.plus(Math.max(0, event.durationNanos())));
         }
         return counts.values().stream()
@@ -93,14 +99,15 @@ public final class RepeatedSelects implements Observation {
     private Finding finding(String route, String fingerprint, List<Repeat> repeats, long eligible) {
         repeats.sort(Comparator.comparingInt(Repeat::executions).reversed());
         int most = repeats.get(0).executions();
+        String statement = repeats.get(0).statement();
         boolean sufficient = repeats.size() >= MIN_REQUESTS;
         String sentence = sufficient
-                ? "`" + route + "` ran `" + InsightText.quoted(fingerprint) + "` " + MIN_REPEATS
+                ? "`" + route + "` ran `" + statement + "` " + MIN_REPEATS
                         + " or more times after"
                         + " another statement in " + repeats.size() + " of "
                         + InsightText.counted(eligible, InsightText.unit(route)) + ", up to " + most + " times in one."
                 : "`" + route + "`: " + repeats.size() + " of " + MIN_REQUESTS + " " + InsightText.unit(route)
-                        + "s needed to report `" + InsightText.quoted(fingerprint) + "` repeated " + MIN_REPEATS
+                        + "s needed to report `" + statement + "` repeated " + MIN_REPEATS
                         + " or more times.";
         List<List<String>> rows = new ArrayList<>();
         for (Repeat repeat : repeats) {
@@ -135,10 +142,17 @@ public final class RepeatedSelects implements Observation {
         return fingerprint != null && fingerprint.stripLeading().regionMatches(true, 0, "select", 0, 6);
     }
 
-    record Repeat(ProjectedRequest request, String fingerprint, int executions, long nanos, String callSite) {
+    /** @param statement the statement as a sentence quotes it, which {@code fingerprint} only groups */
+    record Repeat(
+            ProjectedRequest request,
+            String fingerprint,
+            String statement,
+            int executions,
+            long nanos,
+            String callSite) {
 
         Repeat plus(long moreNanos) {
-            return new Repeat(request, fingerprint, executions + 1, nanos + moreNanos, callSite);
+            return new Repeat(request, fingerprint, statement, executions + 1, nanos + moreNanos, callSite);
         }
     }
 }

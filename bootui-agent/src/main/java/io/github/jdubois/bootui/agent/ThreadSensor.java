@@ -45,6 +45,7 @@ final class ThreadSensor {
     private final boolean privileged;
     private final TransformStats stats = new TransformStats();
     private volatile List<String> packages = Collections.emptyList();
+    private SubclassMatcher installedSubclasses;
     private volatile ResettableClassFileTransformer transformer;
     private volatile String state = "off";
     private volatile long durationMillis = -1;
@@ -56,6 +57,8 @@ final class ThreadSensor {
     private volatile String selfTestError;
     private Thread worker;
     private int pending;
+    private boolean releasing;
+    private long jobGeneration;
 
     private static final int INSTALL = 1;
     private static final int RELEASE = 2;
@@ -68,17 +71,32 @@ final class ThreadSensor {
 
     /** Installs the sensor once and self-tests it, off the claiming thread. */
     synchronized void claimed(long claimGeneration, List<String> claimedPackages) {
+        boolean changedPackages = !packages.equals(claimedPackages);
         generation = claimGeneration;
         packages = Collections.unmodifiableList(new ArrayList<String>(claimedPackages));
-        if (stuck || (transformer != null && selfTestPassed)) {
+        if (stuck) {
             return;
         }
-        schedule(INSTALL);
+        boolean refineInstalled = changedPackages && installedSubclasses != null;
+        if (!releasing && installedSubclasses != null) {
+            installedSubclasses.update(packages);
+        }
+        if (!releasing && transformer != null && selfTestPassed) {
+            pending &= ~RELEASE;
+            if (changedPackages) {
+                schedule(pending | REFINE);
+            }
+            return;
+        }
+        schedule(INSTALL | (pending & REFINE) | (refineInstalled ? REFINE : 0));
     }
 
     /** New claimed packages: their {@code Thread} subclasses already loaded are retransformed, off the caller's thread. */
     synchronized void refined(List<String> claimedPackages) {
         packages = Collections.unmodifiableList(new ArrayList<String>(claimedPackages));
+        if (!releasing && pending != RELEASE && installedSubclasses != null) {
+            installedSubclasses.update(packages);
+        }
         if (pending != RELEASE && (transformer != null || pending != 0 || worker != null)) {
             schedule(pending | REFINE);
         }
@@ -100,6 +118,8 @@ final class ThreadSensor {
     private synchronized int nextJob() {
         int job = pending;
         pending = 0;
+        releasing = (job & RELEASE) != 0;
+        jobGeneration = generation;
         if (job == 0) {
             worker = null;
         }
@@ -140,13 +160,13 @@ final class ThreadSensor {
             while ((job = nextJob()) != 0) {
                 try {
                     if ((job & RELEASE) != 0) {
-                        reset();
+                        reset(jobGeneration);
                     }
-                    if ((job & INSTALL) != 0) {
+                    if ((job & INSTALL) != 0 && !stuck) {
                         if (transformer == null) {
                             install();
                         }
-                        selfTest();
+                        selfTest(jobGeneration);
                     }
                     if ((job & REFINE) != 0 && transformer != null) {
                         retransformSubclasses();
@@ -160,11 +180,21 @@ final class ThreadSensor {
         }
     }
 
-    private void install() {
+    void install() {
         long started = System.nanoTime();
         state = "installing";
-        InstallAction action = new InstallAction();
-        transformer = privileged ? (ResettableClassFileTransformer) AgentThreads.privileged(action) : action.run();
+        SubclassMatcher subclasses = newSubclassMatcher();
+        InstallAction action = new InstallAction(subclasses);
+        try {
+            transformer = privileged ? (ResettableClassFileTransformer) AgentThreads.privileged(action) : action.run();
+        } catch (Throwable ex) {
+            synchronized (this) {
+                if (installedSubclasses == subclasses) {
+                    installedSubclasses = null;
+                }
+            }
+            throw ex;
+        }
         durationMillis = (System.nanoTime() - started) / 1_000_000L;
         state = "installed";
     }
@@ -189,10 +219,17 @@ final class ThreadSensor {
         }
     }
 
-    private void reset() {
-        ResettableClassFileTransformer installed = transformer;
-        transformer = null;
-        selfTestPassed = false;
+    void reset(long claimGeneration) {
+        ResettableClassFileTransformer installed;
+        synchronized (this) {
+            installed = transformer;
+            transformer = null;
+            selfTestPassed = false;
+            if (installedSubclasses != null) {
+                installedSubclasses.beginReset();
+                installedSubclasses = null;
+            }
+        }
         if (installed == null) {
             state = stuck ? "release-failed" : "released";
             return;
@@ -206,23 +243,33 @@ final class ThreadSensor {
                         stats.redefinitionFailures()));
         if (!restored) {
             stuck = true;
-            ThreadPropagation.disable(generation, true);
+            ThreadPropagation.disable(claimGeneration, true);
         }
         state = restored ? "released" : "release-failed";
     }
 
     final class InstallAction implements PrivilegedAction<ResettableClassFileTransformer> {
 
+        private final SubclassMatcher subclasses;
+
+        InstallAction(SubclassMatcher subclasses) {
+            this.subclasses = subclasses;
+        }
+
         @Override
         public ResettableClassFileTransformer run() {
-            return builder().installOn(instrumentation);
+            return builder(subclasses).installOn(instrumentation);
         }
     }
 
-    private AgentBuilder builder() {
+    private synchronized SubclassMatcher newSubclassMatcher() {
+        installedSubclasses = new SubclassMatcher(packages);
+        return installedSubclasses;
+    }
+
+    private AgentBuilder builder(SubclassMatcher subclasses) {
         MethodDescription runThreadTask = method(ThreadPropagation.class, "runThreadTask", Runnable.class);
         MethodDescription run = method(Runnable.class, "run");
-        ElementMatcher.Junction<TypeDescription> subclasses = new SubclassMatcher();
         return stats.configure(new AgentBuilder.Default())
                 .assureReadEdgeTo(instrumentation, ThreadPropagation.class)
                 .ignore(ElementMatchers.not(ElementMatchers.<TypeDescription>namedOneOf(THREAD, VIRTUAL_THREAD, TPE)
@@ -251,11 +298,34 @@ final class ThreadSensor {
     }
 
     /** {@code Thread} subclasses in the claimed packages: their own {@code run()} bypasses {@code Thread.run}. */
-    final class SubclassMatcher extends ElementMatcher.Junction.AbstractBase<TypeDescription> {
+    static final class SubclassMatcher extends ElementMatcher.Junction.AbstractBase<TypeDescription> {
+
+        private volatile List<String> current;
+        private List<String> history;
+
+        SubclassMatcher(List<String> packages) {
+            current = Collections.unmodifiableList(new ArrayList<String>(packages));
+            history = current;
+        }
+
+        void update(List<String> packages) {
+            List<String> expanded = new ArrayList<String>(history);
+            for (String name : packages) {
+                if (!expanded.contains(name)) {
+                    expanded.add(name);
+                }
+            }
+            history = Collections.unmodifiableList(expanded);
+            current = Collections.unmodifiableList(new ArrayList<String>(packages));
+        }
+
+        void beginReset() {
+            current = history;
+        }
 
         @Override
         public boolean matches(TypeDescription target) {
-            if (target.isInterface() || !AgentInstaller.inPackages(target.getName(), packages)) {
+            if (target.isInterface() || !AgentInstaller.inPackages(target.getName(), current)) {
                 return false;
             }
             try {
@@ -284,7 +354,7 @@ final class ThreadSensor {
 
     // ---- self-test -----------------------------------------------------------------------------------------------
 
-    private void selfTest() {
+    void selfTest(long claimGeneration) {
         Map<String, String> steps = new LinkedHashMap<String, String>();
         Map<String, Object> seen;
         ThreadPropagation.beginSelfTest();
@@ -311,10 +381,10 @@ final class ThreadSensor {
         } else {
             selfTestPassed = false;
             selfTestError = "self-test failed for " + failed + " " + steps;
-            ThreadPropagation.disable(generation, false);
+            ThreadPropagation.disable(claimGeneration, false);
             AgentBridge.message(
                     "the BootUI agent's threads sensor failed its self-test and was removed: " + selfTestError);
-            reset();
+            reset(claimGeneration);
             state = stuck ? "self-test-failed (release-failed)" : "self-test-failed";
         }
     }

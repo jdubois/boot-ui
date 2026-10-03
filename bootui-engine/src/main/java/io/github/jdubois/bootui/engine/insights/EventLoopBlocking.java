@@ -65,7 +65,13 @@ public final class EventLoopBlocking implements Observation {
                 for (RuntimeEvent event : request.children(JournalSource.SQL)) {
                     if (event.threadKind() == ThreadKind.EVENT_LOOP && event.payload() instanceof SqlPayload sql) {
                         String site = sql.callSite() != null ? sql.callSite() : SqlShapes.fingerprint(sql.sql());
-                        sites.computeIfAbsent(site, s -> new Site()).add(request, event, sql);
+                        sites.computeIfAbsent(
+                                        site,
+                                        s -> new Site(
+                                                sql.callSite() != null
+                                                        ? sql.callSite()
+                                                        : InsightText.statement(sql.sql())))
+                                .add(request, event, sql);
                         perRequest.merge(site, 1, Integer::sum);
                     }
                 }
@@ -81,7 +87,7 @@ public final class EventLoopBlocking implements Observation {
         String sentence = "`" + route + "` started " + InsightText.counted(found.rows.size(), "JDBC statement")
                 + " on an event-loop thread, in " + found.requests + " of "
                 + InsightText.counted(eligible, InsightText.unit(route))
-                + ", at `" + site + "`"
+                + ", at `" + found.label + "`"
                 + (found.requests >= RECURRING_REQUESTS ? "; it recurs." : ".");
         String move = snapshot.stack() == InsightsStack.QUARKUS
                 ? "Run the endpoint on a worker or virtual thread with @Blocking or @RunOnVirtualThread, or use a"
@@ -109,13 +115,19 @@ public final class EventLoopBlocking implements Observation {
     private static final class Site {
 
         private final List<List<String>> rows = new ArrayList<>();
+        private final String label;
         private long requests;
+
+        /** @param label the call site, or the statement as a sentence quotes it when none was recorded */
+        Site(String label) {
+            this.label = label;
+        }
 
         void add(ProjectedRequest request, RuntimeEvent event, SqlPayload sql) {
             rows.add(List.of(
                     request.requestId(),
                     event.thread() == null ? "" : event.thread(),
-                    InsightText.quoted(SqlShapes.fingerprint(sql.sql())),
+                    InsightText.statement(sql.sql()),
                     InsightText.millis(Math.max(0, event.durationNanos()))));
         }
     }
