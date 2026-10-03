@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.engine.journal.JournalAggregates.StatementStats;
 import io.github.jdubois.bootui.engine.model.ObservedEdge;
 import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -124,6 +125,7 @@ class RunSummaryTests {
                                     1_000L * (request + 1) * (statement + 1),
                                     "com.example.repository.Repository" + route + ".find:" + statement));
                 }
+
                 publish(aggregates, http(requestId, "/api/resource-" + route + "/{id}", 200, 1_000_000L * route));
             }
         }
@@ -165,6 +167,26 @@ class RunSummaryTests {
         assertThat(fewestObservationsKept)
                 .as("the most observed edges are kept")
                 .isGreaterThanOrEqualTo(mostObservationsLeftOut);
+    }
+
+    @Test
+    void encodedSummariesExcludeTruncatedSqlLiteralValuesAndTableLikeWords() {
+        String secret = "sëcrét-table";
+        JournalAggregates aggregates = new JournalAggregates();
+        publish(aggregates, sql("r1", "select * from orders where note = $$join " + secret, 1_000_000, null));
+        publish(aggregates, http("r1", "/api/orders", 200, 2_000_000));
+
+        byte[] encoded = RunSummaryCodec.encode(
+                RunSummary.of(RunIdentity.start(), aggregates.snapshot(), 3_000), RunHistory.MAX_SUMMARY_BYTES);
+        RunSummary decoded = RunSummaryCodec.decode(encoded);
+
+        assertThat(new String(encoded, StandardCharsets.UTF_8)).doesNotContain(secret);
+        assertThat(decoded.aggregates().statements())
+                .extracting(StatementStats::fingerprint)
+                .containsExactly("select * from orders where note = ?");
+        assertThat(decoded.aggregates().edges())
+                .extracting(edge -> edge.edge().toKey())
+                .containsExactly("orders");
     }
 
     @Test
