@@ -15,13 +15,19 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledForJreRange;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
 /**
  * A Quarkus live reload starts a new application run, so {@code /overview} reports a new {@code run} with a new id and
  * the next ordinal, while the BootUI instance, whose jars survive the reload, keeps its id ({@code docs/PLAN-v2.md}
  * §5.1). The run that ended keeps its summary, which the runtime journal's status lists as a previous run (§5.2).
+ *
+ * <p>Disabled on JDK 27 and later: the Quarkus LTS platform's dev mode reads the application's class files with an ASM
+ * that does not know their version (major 71), so every live reload fails with "Unable to perform live reload
+ * scanning" before BootUI is involved. The platform documents JDK 17, 21, and 25; the JDK 27 lane is informational.</p>
  */
+@DisabledForJreRange(minVersion = 27)
 class BootUiLiveReloadRunIdentityTest {
 
     private static final Pattern RUN = Pattern.compile(
