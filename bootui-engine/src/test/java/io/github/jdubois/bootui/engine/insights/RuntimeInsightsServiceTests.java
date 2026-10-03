@@ -246,6 +246,60 @@ class RuntimeInsightsServiceTests {
     }
 
     @Test
+    void clearingTheRecordingInvalidatesTheCachedReportEvenWithoutAnyNewEvent() {
+        for (int i = 0; i < 3; i++) {
+            request(
+                    "GET",
+                    "/api/orders/{id}",
+                    sqls("select 1 from orders", 5, "select * from lines where order_id = ?"));
+        }
+        RuntimeInsightsService service = service();
+        String id = observations(service.report(), RepeatedSelects.KIND)
+                .get("GET /api/orders/{id}")
+                .id();
+        assertThat(service.insight(id).available()).isTrue();
+
+        journal.clear();
+
+        assertThat(observations(service.report(), RepeatedSelects.KIND)).isEmpty();
+        assertThat(service.report().window().retainedEvents()).isZero();
+        assertThat(service.insight(id).available()).isFalse();
+    }
+
+    @Test
+    void aReportReadWhileAClearIsStillRunningIsNotCachedAsTheClearedOne() throws Exception {
+        request("GET", "/api/orders/{id}", sqls("select 1 from orders", 5, "select * from lines where order_id = ?"));
+        RuntimeInsightsService service = service();
+        service.report();
+        java.util.concurrent.CountDownLatch inClear = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        journal.addListener(new io.github.jdubois.bootui.engine.journal.JournalListener() {
+            @Override
+            public void onEntries(List<io.github.jdubois.bootui.engine.journal.JournalEntry> entries) {}
+
+            @Override
+            public void onClear() {
+                inClear.countDown();
+                try {
+                    release.await();
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        });
+        Thread clearer = new Thread(journal::clear);
+        clearer.start();
+        assertThat(inClear.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+
+        service.report();
+        release.countDown();
+        clearer.join();
+
+        assertThat(service.report().window().retainedEvents()).isZero();
+        assertThat(journal.status().clears()).isEqualTo(1);
+    }
+
+    @Test
     void writesInGetRequestsAreAskedAboutAndWritesInPostsOrFailedWritesAreNot() {
         request("GET", "/api/products/{id}", sqls("update product_views set n = n + 1 where id = 3", 0, null));
         request("POST", "/api/orders", sqls("insert into orders (id) values (5)", 0, null));

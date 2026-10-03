@@ -87,6 +87,7 @@ class InsightsReadBudgetTests {
                 0,
                 Map.of(),
                 Map.of(),
+                0,
                 0);
 
         long best = Long.MAX_VALUE;

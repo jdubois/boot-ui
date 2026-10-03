@@ -301,7 +301,8 @@ public final class RuntimeInsightsService {
                     null,
                     new RuntimeInsightsReportDto(
                             false, DISABLED, null, List.of(), List.of(), List.of(), List.of(), List.of(), 0),
-                    Map.of());
+                    Map.of(),
+                    0);
         }
         JournalStatus status = journal.status();
         long watermark = status.lastSequence();
@@ -316,6 +317,7 @@ public final class RuntimeInsightsService {
                 && cached.evicted() == evicted
                 && cached.visibility().equals(visibility)
                 && cached.sqlCapture().equals(capture)
+                && cached.clears() == status.clears()
                 && text.equals(cached.exposure())) {
             return cached;
         }
@@ -557,7 +559,7 @@ public final class RuntimeInsightsService {
                 limitations,
                 notExercised.subList(0, Math.min(notExercised.size(), RuntimeInsightsReportDto.MAX_NOT_EXERCISED)),
                 Math.max(0, notExercised.size() - RuntimeInsightsReportDto.MAX_NOT_EXERCISED));
-        return new Cached(watermark, evicted, visibility, capture, text, report, details);
+        return new Cached(watermark, evicted, visibility, capture, text, report, details, status.clears());
     }
 
     /**
@@ -851,5 +853,6 @@ public final class RuntimeInsightsService {
             SqlCapture sqlCapture,
             JournalTextExposure exposure,
             RuntimeInsightsReportDto report,
-            Map<String, Detail> details) {}
+            Map<String, Detail> details,
+            long clears) {}
 }

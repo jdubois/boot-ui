@@ -110,6 +110,23 @@ class RouteTimeBreakdownTests {
     }
 
     @Test
+    void afterAClearNoRequestIsReportedAsColdBecauseTheJournalKeptCountingSinceStartup() {
+        request("/api/orders/{id}", 400 * MS, new RequestTiming(0, -1, -1, -1));
+        journal.clear();
+        for (int i = 0; i < 5; i++) {
+            request("/api/orders/{id}", 40 * MS, new RequestTiming(clock, 2 * MS, 5 * MS, 35 * MS));
+        }
+
+        RuntimeObservationDto orders = new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null)
+                .report().observations().stream()
+                        .filter(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
+                        .findFirst()
+                        .orElseThrow();
+
+        assertThat(orders.sentence()).doesNotContain("cold").contains("warm median 40 ms over 5 requests");
+    }
+
+    @Test
     void authorizationTimeIsTakenFromTheFiltersForARequestAndFromTheHandlerForAMethod() {
         request("/api/admin", 100 * MS, new RequestTiming(0, -1, -1, -1));
         for (int i = 0; i < 5; i++) {

@@ -25,6 +25,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `query=repeated-selects` returns them. A sufficient finding, including a local-database N+1, stays. Repeated-selects
   evidence names the phase and whether the repeats ran in a transaction, and says when the total is unmeasured or a
   parent result size was not recorded.
+- **Runtime Insights after Clear recording.** Clearing the journal or freeing BootUI memory now refreshes the
+  report and its evidence at once instead of serving the cleared events until a new one arrives, and no route's first
+  post-clear request is labeled cold. The evidence table follows each auto-refresh of the open observation, and
+  `gc-inflated-latency` leaves each route's cold first request out of its slowest tenth (PLAN-v2 §5.5, M3-3a, M4-3).
 
 - **Runtime Insights and Live Activity UI.** Load failures in Change impact, Run comparison, Profile resources,
   Why-slow, and observation evidence show their message instead of a JSON object (including in the screen-reader
