@@ -37,11 +37,28 @@ class BootUiThreadContextProviderTest {
             ThreadContextController controller =
                     provider.clearedContext(Map.of()).begin();
             assertThat(BootUiCorrelation.current()).isEqualTo(CorrelationContext.NONE);
+            assertThat(BootUiCorrelation.cleared())
+                    .as("the clearing is explicit, so an ambient request context cannot fill the gap")
+                    .isTrue();
             controller.endContext();
             assertThat(BootUiCorrelation.current().requestId()).isEqualTo("r1");
         }
         assertThat(ServiceLoader.load(ThreadContextProvider.class).stream().map(ServiceLoader.Provider::type))
                 .contains(BootUiThreadContextProvider.class);
         assertThat(provider.getThreadContextType()).isEqualTo("BootUI");
+    }
+
+    @Test
+    void aSnapshotTakenWithNoRequestClearsTheThreadRatherThanLeavingItAmbient() {
+        ThreadContextSnapshot snapshot = provider.currentContext(Map.of());
+
+        ThreadContextController controller = snapshot.begin();
+        boolean cleared = BootUiCorrelation.cleared();
+        controller.endContext();
+
+        assertThat(cleared)
+                .as("a task submitted by work that carried no request must not pick up the worker's ambient request")
+                .isTrue();
+        assertThat(BootUiCorrelation.cleared()).isFalse();
     }
 }
