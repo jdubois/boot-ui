@@ -125,6 +125,12 @@ class JournalTextExposureTests {
             assertThat(rule.sql("select * from t where a = E'password=x\\' trailing sk_live_EXAMPLE' and b = 1"))
                     .doesNotContain("sk_live_EXAMPLE")
                     .doesNotContain("trailing");
+            // MySQL's default sql_mode reads "..." as a string literal with backslash escapes; the normalizer does not.
+            assertThat(rule.sql("select * from t where a = \"x\\\"sk_live_EXAMPLE\""))
+                    .isEqualTo("select * from t where a = ?")
+                    .doesNotContain("sk_live_EXAMPLE");
+            assertThat(rule.sql("insert into users(pw) values(\"x\\\"hunter2pass\")"))
+                    .doesNotContain("hunter2pass");
         }
         assertThat(JournalTextExposure.masked().sql("select * from t where a = 'x' and b = 'y'"))
                 .isEqualTo("select * from t where a = ? and b = ?");
@@ -182,12 +188,39 @@ class JournalTextExposureTests {
         JournalTextExposure metadata = new JournalTextExposure(ValueExposure.METADATA_ONLY, true);
         for (ActivityEntryDto stored : List.of(sql, request, rest, log)) {
             ActivityEntryDto shown = metadata.reapply(stored);
-            assertThat(shown.summary()).isEmpty();
-            assertThat(shown.detail()).isNull();
+            assertThat(shown.summary()).doesNotContain("abc123", "alice", "s3cr3t", "hunter2", "Login");
             assertThat(shown.type()).isEqualTo(stored.type());
             assertThat(String.valueOf(shown.path())).doesNotContain("abc123");
         }
+        // Only free text is dropped: the structural label each row is shown by stays.
+        assertThat(metadata.reapply(request).summary()).isEqualTo("GET /orders;token=****** → 200");
+        assertThat(metadata.reapply(request).detail()).isEqualTo("/orders");
+        assertThat(metadata.reapply(rest).summary()).isEqualTo("GET api.example.com/orders;token=****** → 502");
+        assertThat(metadata.reapply(sql).summary()).isEqualTo("select * from users where name = ? and token = ?");
+        assertThat(metadata.reapply(log).summary()).isEmpty();
+        assertThat(metadata.reapply(log).detail()).isEqualTo("java.io.IOException");
         assertThat(full.reapply(null)).isNull();
+    }
+
+    @Test
+    void metadataOnlyDropsTheFreeTextA1xRowStored() {
+        JournalTextExposure metadata = new JournalTextExposure(ValueExposure.METADATA_ONLY, true);
+
+        ActivityEntryDto exception = metadata.reapply(
+                row("EXCEPTION", "java.lang.IllegalStateException: card 4111 declined", null, "Svc.java:42"));
+        assertThat(exception.summary()).isEqualTo("java.lang.IllegalStateException");
+        ActivityEntryDto security = metadata.reapply(row("SECURITY", "AUTHENTICATION_FAILURE · alice", null, null));
+        assertThat(security.summary()).isEqualTo("AUTHENTICATION_FAILURE");
+        ActivityEntryDto mail = metadata.reapply(row("MAIL", "Your reset code 123456", null, "to bob@example.com"));
+        assertThat(mail.summary()).isEqualTo("Email");
+        assertThat(mail.detail()).isNull();
+        ActivityEntryDto scheduled =
+                metadata.reapply(row("SCHEDULED", "Jobs.purge", null, "java.io.IOException: disk /home/alice"));
+        assertThat(scheduled.summary()).isEqualTo("Jobs.purge");
+        assertThat(scheduled.detail()).isEqualTo("java.io.IOException");
+        assertThat(metadata.reapply(row("MAIL", "Email to 2 recipients", null, "1 attachment")))
+                .extracting(ActivityEntryDto::summary, ActivityEntryDto::detail)
+                .containsExactly("Email to 2 recipients", "1 attachment");
     }
 
     private List<ActivityEntryDto> render() {

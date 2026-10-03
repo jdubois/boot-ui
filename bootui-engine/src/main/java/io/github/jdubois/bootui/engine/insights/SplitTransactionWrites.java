@@ -3,7 +3,6 @@ package io.github.jdubois.bootui.engine.insights;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
-import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import io.github.jdubois.bootui.engine.web.CorrelationTier;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -141,14 +140,14 @@ public final class SplitTransactionWrites implements Observation {
     private static final class Unit {
 
         private final TransactionWindows.Window transaction;
-        private final List<String> fingerprints = new ArrayList<>();
+        private final List<String> statements = new ArrayList<>();
 
         Unit(TransactionWindows.Window transaction) {
             this.transaction = transaction;
         }
 
         void add(RuntimeEvent write) {
-            fingerprints.add(SqlShapes.fingerprint(((SqlPayload) write.payload()).sql()));
+            statements.add(InsightText.statement(((SqlPayload) write.payload()).sql()));
         }
 
         String describe() {
@@ -158,8 +157,8 @@ public final class SplitTransactionWrites implements Observation {
                                     ? "transaction"
                                     : transaction.transaction().method())
                             + (transaction.transaction().nested() ? " (nested)" : "");
-            return name + ": " + InsightText.counted(fingerprints.size(), "write") + ", first `"
-                    + InsightText.quoted(fingerprints.get(0)) + "`";
+            return name + ": " + InsightText.counted(statements.size(), "write") + ", first `" + statements.get(0)
+                    + "`";
         }
     }
 }

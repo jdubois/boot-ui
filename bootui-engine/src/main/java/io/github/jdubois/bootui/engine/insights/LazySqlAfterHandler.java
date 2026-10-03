@@ -88,6 +88,7 @@ public final class LazySqlAfterHandler implements Observation {
             List<ProjectedRequest> requests = route.getValue();
             eligible += requests.size();
             Map<String, Statement> statements = new LinkedHashMap<>();
+            Map<String, String> shapes = new LinkedHashMap<>();
             for (ProjectedRequest request : requests) {
                 TransactionWindows windows = new TransactionWindows(request);
                 Map<String, int[]> perRequest = new LinkedHashMap<>();
@@ -106,6 +107,7 @@ public final class LazySqlAfterHandler implements Observation {
                     String fingerprint = SqlShapes.fingerprint(sql.sql());
                     perRequest.computeIfAbsent(fingerprint, f -> new int[1])[0]++;
                     sites.putIfAbsent(fingerprint, callSite(sql));
+                    shapes.putIfAbsent(fingerprint, InsightText.statement(sql.sql()));
                     if (renderingView(sql.frames())) {
                         rendering.add(fingerprint);
                     }
@@ -114,17 +116,17 @@ public final class LazySqlAfterHandler implements Observation {
                         .computeIfAbsent(fingerprint, f -> new Statement())
                         .add(request, count[0], sites.get(fingerprint), rendering.contains(fingerprint)));
             }
-            statements.forEach((fingerprint, statement) ->
-                    findings.add(finding(route.getKey(), fingerprint, statement, requests.size(), transactions)));
+            statements.forEach((fingerprint, statement) -> findings.add(finding(
+                    route.getKey(), fingerprint, shapes.get(fingerprint), statement, requests.size(), transactions)));
         }
         return new Evaluation(eligible, findings);
     }
 
     private Finding finding(
-            String route, String fingerprint, Statement statement, long eligible, boolean transactions) {
+            String route, String fingerprint, String shown, Statement statement, long eligible, boolean transactions) {
         boolean sufficient =
                 statement.rows.size() >= MIN_REQUESTS || statement.mostInOneRequest >= MIN_STATEMENTS_IN_ONE_REQUEST;
-        String counted = "`" + route + "` ran `" + InsightText.quoted(fingerprint) + "` after its handler returned, "
+        String counted = "`" + route + "` ran `" + shown + "` after its handler returned, "
                 + InsightText.counted(statement.executions, "time") + " in " + statement.rows.size() + " of "
                 + InsightText.counted(eligible, "request");
         String sentence = sufficient

@@ -66,7 +66,7 @@ public record JournalTextExposure(ValueExposure exposure, boolean maskSecrets) {
         return exposure == ValueExposure.FULL || (exposure == ValueExposure.MASKED && !maskSecrets);
     }
 
-    /** Whether this rule withholds free text: log messages and the summaries and details of persisted rows. */
+    /** Whether this rule withholds free text: log messages, live or persisted. */
     public boolean omitsText() {
         return exposure == ValueExposure.METADATA_ONLY;
     }
@@ -101,28 +101,46 @@ public record JournalTextExposure(ValueExposure exposure, boolean maskSecrets) {
         if (verbatim()) {
             return whitespaceNormalized(sql);
         }
-        int firstQuote = sql.indexOf('\'');
+        int singleQuote = sql.indexOf('\'');
+        int doubleQuote = sql.indexOf('"');
+        int firstQuote =
+                singleQuote < 0 ? doubleQuote : doubleQuote < 0 ? singleQuote : Math.min(singleQuote, doubleQuote);
         if (firstQuote >= 0 && sql.indexOf('\\') >= 0) {
             // A backslash escapes a quote in MySQL but not in standard SQL ('C:\'), and the recorded text does not
-            // say which dialect wrote it. The two readings are compared on the recorded text, before any masking can
-            // consume a backslash; when they differ, nothing after the first quote is shown, so neither reading can
-            // turn a literal into visible text.
-            String mysql = SqlStatementNormalizer.normalize(sql).sql();
-            String standard =
-                    SqlStatementNormalizer.normalize(sql.replace("\\", "")).sql();
-            if (!standard.equals(mysql)) {
-                return SqlStatementNormalizer.normalize(
+            // say which dialect wrote it. The normalizer honors a backslash only inside '...', so a double-quoted run
+            // with a backslash ("x\"secret") is always ambiguous; a single-quoted one is when the two readings differ,
+            // compared on the recorded text before any masking can consume a backslash. Then nothing after the first
+            // quote is shown, so no reading can turn a literal into visible text.
+            boolean ambiguous = doubleQuote >= 0
+                    || !SqlStatementNormalizer.normalize(sql.replace("\\", ""))
+                            .sql()
+                            .equals(SqlStatementNormalizer.normalize(sql).sql());
+            if (ambiguous) {
+                return shape(SqlStatementNormalizer.normalize(
                                         MessageExposure.maskSecretAssignments(sql.substring(0, firstQuote)))
-                                .sql()
+                                .sql())
                         + " ?";
             }
         }
         // Secret-like assignments are masked before the shape is taken, so a quoted secret becomes a plain placeholder.
-        String shape = SqlStatementNormalizer.normalize(MessageExposure.maskSecretAssignments(sql))
-                .sql();
+        return shape(SqlStatementNormalizer.normalize(MessageExposure.maskSecretAssignments(sql))
+                .sql());
+    }
+
+    /**
+     * The literal-free shape of a SQL statement whatever the live mode: what {@link #masked()} shows. Runtime Insights
+     * quotes it in its sentences and evidence, where a statement's fingerprint — which keeps identifier-like
+     * {@code "..."} runs and unterminated dollar quotes verbatim — only groups. Never {@code null}.
+     */
+    public static String displayShape(String sql) {
+        return MASKED.sql(sql);
+    }
+
+    /** Hardens a normalized shape: the runs the normalizer keeps but cannot tell apart from a value become {@code ?}. */
+    private static String shape(String normalized) {
         // The normalizer keeps identifier-like "..." runs, which MySQL reads as string literals, and an unterminated
         // dollar quote of a truncated statement; neither can be told apart from a value, so neither is shown.
-        shape = DOUBLE_QUOTED.matcher(shape).replaceAll("?");
+        String shape = DOUBLE_QUOTED.matcher(normalized).replaceAll("?");
         shape = UNTERMINATED_DOLLAR_QUOTE.matcher(shape).replaceAll("?");
         // A quote the normalizer left open is a literal it could not close: nothing after it is shown.
         int strayQuote = shape.indexOf('\'');
@@ -141,7 +159,8 @@ public record JournalTextExposure(ValueExposure exposure, boolean maskSecrets) {
      * Re-applies this rule to a row read back from the durable Live Activity store, which was written under
      * {@link #masked()} — or raw, by a build before this rule existed — so the live policy holds for it too
      * ({@code PLAN-v2} §8). A stored row is never shown less masked than {@code MASKED}, even under {@code FULL}.
-     * {@link ValueExposure#METADATA_ONLY} omits its summary and detail, keeping the structured columns.
+     * {@link ValueExposure#METADATA_ONLY} omits a log row's message, as the live feed does, and keeps every other row's
+     * structural summary ({@code GET /orders → 200}, a SQL shape, its path parameters masked) and its stored detail.
      */
     public ActivityEntryDto reapply(ActivityEntryDto row) {
         if (row == null) {
@@ -149,21 +168,22 @@ public record JournalTextExposure(ValueExposure exposure, boolean maskSecrets) {
         }
         JournalTextExposure rule = verbatim() ? MASKED : this;
         String maskedPath = rule.path(row.path());
-        String summary;
+        String summary = row.summary();
         String detail = row.detail();
         if (rule.omitsText()) {
-            summary = "";
-            detail = null;
-        } else {
-            summary = row.summary();
-            if (summary != null && row.path() != null && !row.path().equals(maskedPath)) {
+            summary = metadataSummary(row.type(), summary);
+            detail = metadataDetail(row.type(), detail);
+        }
+        if (summary != null && !summary.isEmpty()) {
+            if (row.path() != null && !row.path().equals(maskedPath)) {
                 summary = summary.replace(row.path(), maskedPath);
             }
-            if (JournalActivityFeed.TYPE_SQL.equals(row.type())) {
-                summary = rule.sql(summary);
-            } else if (summary != null) {
-                summary = MessageExposure.maskSecretAssignments(summary);
-            }
+            summary = JournalActivityFeed.TYPE_SQL.equals(row.type())
+                    ? rule.sql(summary)
+                    : MessageExposure.maskSecretAssignments(summary);
+        }
+        if (detail != null) {
+            detail = MessageExposure.maskSecretAssignments(detail);
         }
         return new ActivityEntryDto(
                 row.id(),
@@ -183,6 +203,43 @@ public record JournalTextExposure(ValueExposure exposure, boolean maskSecrets) {
                 row.securedPrincipal(),
                 row.sqlNPlusOneSuspected(),
                 row.badges());
+    }
+
+    /**
+     * A stored summary reduced to the metadata the live feed shows under {@code METADATA_ONLY}. A log row's summary is
+     * its message template, which the live feed omits. Rows a 1.x build stored carry free text the journal never
+     * records — an exception's message, a security event's principal, an email's subject — so each of those keeps only
+     * its structural prefix.
+     */
+    private static String metadataSummary(String type, String summary) {
+        if (summary == null || type == null) {
+            return summary;
+        }
+        return switch (type) {
+            case JournalActivityFeed.TYPE_LOG -> "";
+            case JournalActivityFeed.TYPE_EXCEPTION -> before(summary, ":");
+            case JournalActivityFeed.TYPE_SECURITY -> before(summary, " · ");
+            case JournalActivityFeed.TYPE_MAIL -> summary.startsWith("Email to ") ? summary : "Email";
+            default -> summary;
+        };
+    }
+
+    /** A stored detail reduced as {@link #metadataSummary} reduces a summary; a 1.x row's free text is dropped. */
+    private static String metadataDetail(String type, String detail) {
+        if (detail == null || type == null) {
+            return detail;
+        }
+        return switch (type) {
+            case JournalActivityFeed.TYPE_SCHEDULED, JournalActivityFeed.TYPE_EXCEPTION, JournalActivityFeed.TYPE_LOG ->
+                before(detail, ":");
+            case JournalActivityFeed.TYPE_MAIL -> detail.startsWith("to ") ? null : detail;
+            default -> detail;
+        };
+    }
+
+    private static String before(String text, String delimiter) {
+        int index = text.indexOf(delimiter);
+        return index < 0 ? text : text.substring(0, index).trim();
     }
 
     static String whitespaceNormalized(String text) {

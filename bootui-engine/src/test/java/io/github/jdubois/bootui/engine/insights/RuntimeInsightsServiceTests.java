@@ -134,6 +134,34 @@ class RuntimeInsightsServiceTests {
     }
 
     @Test
+    void aSentenceAndItsEvidenceQuoteAStatementsShapeNeverAValueItsFingerprintKeeps() {
+        // A fingerprint keeps identifier-like "..." runs, which MySQL reads as string literals, and a truncated dollar
+        // quote verbatim: it groups statements but is never shown.
+        request("GET", "/api/products/{id}", sqls("insert into users(pw) values(\"hunter2\")", 0, null));
+        for (int i = 0; i < 3; i++) {
+            request(
+                    "GET",
+                    "/api/notes/{id}",
+                    sqls("select 1 from notes", 5, "select * from t where body = $$sk_live_EXAMPLE"));
+        }
+        RuntimeInsightsService service = service();
+        RuntimeInsightsReportDto report = service.report();
+
+        RuntimeObservationDto write = observations(report, SafeMethodDml.KIND).get("GET /api/products/{id}");
+        RuntimeObservationDto repeat =
+                observations(report, RepeatedSelects.KIND).get("GET /api/notes/{id}");
+        assertThat(write.sentence()).contains("executed `insert into users(pw) values(?)`");
+        assertThat(repeat.sentence()).contains("ran `select * from t where body = ?`");
+        for (RuntimeObservationDto observation : report.observations()) {
+            assertThat(observation.sentence()).doesNotContain("hunter2", "sk_live_EXAMPLE");
+            RuntimeObservationDetailDto detail = service.insight(observation.id());
+            assertThat(detail.rows())
+                    .allSatisfy(row ->
+                            assertThat(String.join(" ", row.cells())).doesNotContain("hunter2", "sk_live_EXAMPLE"));
+        }
+    }
+
+    @Test
     void connectionsHeldTogetherAreFoundAndBackToBackConnectionsAreNot() {
         // Nested: an inner connection checked out and released while the outer one is held.
         request("POST", "/api/orders", connection("db", 1_000, 50_000_000), connection("db", 10_000_000, 5_000_000));
