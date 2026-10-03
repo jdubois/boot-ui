@@ -14,6 +14,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RecursiveAction;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -80,6 +81,7 @@ final class ExecutorSensor {
     private volatile Map<String, String> selfTestSteps = new LinkedHashMap<String, String>();
     private Thread worker;
     private long pendingGeneration = -1L;
+    private boolean releasing;
 
     ExecutorSensor(Instrumentation instrumentation, boolean privileged) {
         this.instrumentation = instrumentation;
@@ -88,7 +90,8 @@ final class ExecutorSensor {
 
     /** Installs the sensor once, then self-tests it, off the claiming thread; later claims test again after a failure. */
     synchronized void claimed(long generation) {
-        if (transformer != null && selfTestPassed) {
+        if (!releasing && transformer != null && selfTestPassed) {
+            pendingGeneration = -1L;
             return;
         }
         pendingGeneration = generation;
@@ -138,6 +141,7 @@ final class ExecutorSensor {
     private synchronized long nextJob() {
         long job = pendingGeneration;
         pendingGeneration = -1L;
+        releasing = job == -2L;
         if (job == -1L) {
             worker = null;
         }
@@ -168,7 +172,7 @@ final class ExecutorSensor {
         }
     }
 
-    private void install() {
+    void install() {
         long started = System.nanoTime();
         state = "installing";
         InstallAction action = new InstallAction();
@@ -177,7 +181,7 @@ final class ExecutorSensor {
         state = "installed";
     }
 
-    private void reset() {
+    void reset() {
         ResettableClassFileTransformer installed = transformer;
         transformer = null;
         selfTestPassed = false;
@@ -230,8 +234,11 @@ final class ExecutorSensor {
                         .on(ElementMatchers.named("delayedExecute").and(ElementMatchers.takesArguments(1)))))
                 .type(ElementMatchers.named(FJP))
                 .transform(new Visit(Advice.to(ExecutorAdvice.ForkJoinRoot.class)
-                        .on(ElementMatchers.namedOneOf("execute", "submit", "invoke")
-                                .and(ElementMatchers.takesArguments(1)))))
+                                .on(ElementMatchers.named("externalSubmit")
+                                        .and(ElementMatchers.takesArguments(ForkJoinTask.class))))
+                        .and(Advice.to(ExecutorAdvice.ForkJoinPoolSubmit.class)
+                                .on(ElementMatchers.named("poolSubmit")
+                                        .and(ElementMatchers.takesArguments(boolean.class, ForkJoinTask.class)))))
                 .type(ElementMatchers.named(FJT))
                 .transform(new Visit(Advice.to(ExecutorAdvice.DoExec.class).on(ElementMatchers.named("doExec")))
                         .and(Advice.to(ExecutorAdvice.Fork.class)
@@ -340,7 +347,7 @@ final class ExecutorSensor {
      * has its own outcome; only a core hook that ran and saw nothing disables propagation. The common-pool step runs
      * last, with a short wait.
      */
-    private void selfTest(long generation) {
+    void selfTest(long generation) {
         Map<String, String> steps = new LinkedHashMap<String, String>();
         TaskPropagation.asyncApplies(present(ASYNC_SUPPLY));
         ThreadPoolExecutor pool = new ThreadPoolExecutor(

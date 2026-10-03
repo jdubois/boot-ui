@@ -5,7 +5,6 @@ import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.journal.TransactionPayload;
-import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import io.github.jdubois.bootui.engine.web.CorrelationTier;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -158,7 +157,7 @@ public final class AfterCommitWrites implements Observation {
             requests.add(request.requestId());
             rows.add(List.of(
                     request.requestId(),
-                    InsightText.quoted(SqlShapes.fingerprint(((SqlPayload) statement.payload()).sql())),
+                    InsightText.statement(((SqlPayload) statement.payload()).sql()),
                     InsightText.millis(Math.max(0, statement.durationNanos()))));
         }
     }

@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.engine.insights;
 
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
 import io.github.jdubois.bootui.engine.journal.LogPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.web.CorrelationTier;
@@ -81,7 +82,8 @@ public final class FrameworkWarningsByRoute implements Observation {
                 }
                 perRequest.forEach((key, count) -> groups.get(key).add(request, count));
             }
-            groups.forEach((key, group) -> findings.add(finding(route.getKey(), key, group, requests.size())));
+            groups.forEach((key, group) ->
+                    findings.add(finding(route.getKey(), key, group, requests.size(), snapshot.exposure())));
         }
         return new Evaluation(eligible, findings);
     }
@@ -98,12 +100,15 @@ public final class FrameworkWarningsByRoute implements Observation {
         return false;
     }
 
-    private Finding finding(String route, String key, Group group, long eligible) {
+    private Finding finding(String route, String key, Group group, long eligible, JournalTextExposure text) {
         LogPayload log = group.log;
         String template = log.template() == null ? "" : log.template();
+        // The raw template only matches known fragments; what is quoted follows the live exposure policy (§8).
+        String shown = text.message(template);
         String sentence = "`" + route + "` logged `" + log.level() + "` from `" + InsightText.simpleName(log.logger())
                 + "` in " + group.rows.size() + " of " + InsightText.counted(eligible, InsightText.unit(route)) + " ("
-                + InsightText.counted(group.events, "event") + "): \"" + InsightText.quoted(template) + "\".";
+                + InsightText.counted(group.events, "event") + ")"
+                + (shown == null ? "." : ": \"" + InsightText.quoted(shown) + "\".");
         List<String> checks = new ArrayList<>();
         KNOWN.forEach((fragment, check) -> {
             if (template.contains(fragment) && !checks.contains(check)) {
