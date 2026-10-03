@@ -24,6 +24,12 @@ final class ChildJvm {
 
     static Output run(List<String> jvmOptions, Path extraClassPath, String... programArguments)
             throws IOException, InterruptedException {
+        return runWithClassPath(
+                jvmOptions, extraClassPath == null ? null : extraClassPath.toString(), programArguments);
+    }
+
+    static Output runWithClassPath(List<String> jvmOptions, String extraClassPath, String... programArguments)
+            throws IOException, InterruptedException {
         Files.createDirectories(WORK);
         List<String> command = new ArrayList<>();
         command.add(Path.of(System.getProperty("java.home"), "bin", "java").toString());

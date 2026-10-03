@@ -63,6 +63,32 @@ class AgentCoexistenceIT {
         assertThat(greeter.hasHits()).as("JaCoCo recorded Greeter's coverage").isTrue();
     }
 
+    @Test
+    void mockitosInlineMockMakerSpiesAProbedFinalClass() throws Exception {
+        Path mockito = Path.of(System.getProperty("mockito.jar"));
+        String classPath = String.join(
+                java.io.File.pathSeparator,
+                mockito.toString(),
+                System.getProperty("bytebuddy.jar"),
+                System.getProperty("bytebuddy.agent.jar"),
+                System.getProperty("objenesis.jar"));
+        ChildJvm.Output output = ChildJvm.runWithClassPath(
+                List.of(
+                        ChildJvm.javaAgent(ChildJvm.TEST_AGENT),
+                        "-javaagent:" + mockito,
+                        "-Dbootui.agent.it.probe=bootuiagentit.probed"),
+                classPath,
+                "mockito");
+
+        assertThat(output.exitCode()).as(output.toString()).isZero();
+        assertThat(output.value("MOCKITO")).isEqualTo("ok");
+        assertThat(Long.parseLong(output.value("HITS"))).as(output.toString()).isPositive();
+        assertThat(output.value("INSTALLER"))
+                .as(output.toString())
+                .contains("failed=0")
+                .contains("skipped=0");
+    }
+
     private static void probeBeside(List<String> agents) throws Exception {
         List<String> jvm = new ArrayList<>(agents);
         jvm.addAll(OPENTELEMETRY_OPTIONS);

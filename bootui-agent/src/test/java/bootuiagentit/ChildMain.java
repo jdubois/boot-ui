@@ -24,6 +24,7 @@ public final class ChildMain {
             case "status" -> status();
             case "probe" -> probe();
             case "claim-only" -> claimOnly();
+            case "mockito" -> mockito();
             case "runs" -> runs(Integer.parseInt(args[1]), args[2]);
             default -> throw new IllegalArgumentException(args[0]);
         }
@@ -92,6 +93,35 @@ public final class ChildMain {
         }
         Greeter.greet("again");
         System.out.println("HITS_AFTER_RELEASE=" + (counter(bridge, "probeHits") - before));
+        System.out.println("INSTALLER=" + installer(bridge));
+        System.out.println("CAPTURE_ALIVE=" + (capture != null && reopen != null));
+    }
+
+    /**
+     * Mockito's inline mock maker, attached as an agent, spies a final class the probe advises: both agents' transformers
+     * apply to the same class, and the spy must still work while the probe keeps counting.
+     */
+    @SuppressWarnings("unchecked")
+    static void mockito() throws Exception {
+        Class<?> bridge = bridge();
+        Object marker = new Object();
+        Supplier<Object> capture = () -> marker;
+        Function<Object, AutoCloseable> reopen = snapshot -> () -> {};
+        Map<String, Object> result =
+                (Map<String, Object>) bridge.getMethod("claim", Map.class, Supplier.class, Function.class)
+                        .invoke(
+                                null,
+                                Map.of("application", "mockito", "packages", List.of("bootuiagentit.probed")),
+                                capture,
+                                reopen);
+        System.out.println("CLAIM=" + result.get("status"));
+        awaitInstalled(bridge);
+        long before = counter(bridge, "probeHits");
+        bootuiagentit.probed.Task spy = org.mockito.Mockito.spy(new bootuiagentit.probed.Task());
+        spy.run();
+        org.mockito.Mockito.verify(spy).run();
+        System.out.println("MOCKITO=ok");
+        System.out.println("HITS=" + (counter(bridge, "probeHits") - before));
         System.out.println("INSTALLER=" + installer(bridge));
         System.out.println("CAPTURE_ALIVE=" + (capture != null && reopen != null));
     }
