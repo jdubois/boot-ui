@@ -22,6 +22,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   post-clear request is labeled cold. The evidence table follows each auto-refresh of the open observation, and
   `gc-inflated-latency` leaves each route's cold first request out of its slowest tenth (PLAN-v2 §5.5, M3-3a, M4-3).
 
+- **Runtime Insights and Live Activity UI.** Load failures in Change impact, Run comparison, Profile resources,
+  Why-slow, and observation evidence show their message instead of a JSON object (including in the screen-reader
+  status region). `work-after-response` observations appear under the Time chip, the command palette finds Runtime
+  Insights by "what changed", "impact", and "compare", Live Activity's runtime-journal feed gains a **Run id** filter,
+  and the request drawer no longer shows or copies the previous row's profile when a second row is opened while the
+  first is still loading.
 - **Runtime Insights tells an unavailable panel from a disabled one.** An observation whose evidence belongs to a panel
   this application cannot serve, such as Security Logs on a Quarkus application without
   `quarkus.security.events.enabled`, now names what would make it available instead of reporting the panel as disabled

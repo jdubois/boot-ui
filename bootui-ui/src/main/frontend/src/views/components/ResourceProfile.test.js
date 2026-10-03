@@ -79,6 +79,16 @@ describe('ResourceProfile', () => {
     expect(wrapper.get('.insight-profile-start').attributes('disabled')).toBeUndefined()
   })
 
+  it('shows a failed read as its message, never as an object', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Request failed with status 500')))
+    wrapper = mount(ResourceProfile)
+    await flushPromises()
+
+    const alert = wrapper.get('[role="alert"]')
+    expect(alert.text()).toBe('Unable to read the resource profile: Request failed with status 500')
+    expect(alert.text()).not.toContain('{')
+  })
+
   it('starts a session only when asked, counts it down, and offers to stop it', async () => {
     vi.useFakeTimers({now: 11_000})
     const fetchMock = respond(idle, {...idle, state: 'RUNNING', startedAt: 1_000, endsAt: 31_000})

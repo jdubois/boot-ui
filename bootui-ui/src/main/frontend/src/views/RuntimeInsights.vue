@@ -3,7 +3,7 @@ import {computed, ref, watch} from 'vue'
 import {useRoute} from 'vue-router'
 import {getJson} from '../api.js'
 import {formatClockTime, formatNumber} from '../utils/format.js'
-import {describeLoadError} from '../utils/loadError.js'
+import {describeLoadError, formatLoadError} from '../utils/loadError.js'
 import {panelProps, usePanelState} from '../utils/panelState.js'
 import {useAutoRefresh} from '../utils/useAutoRefresh.js'
 import {
@@ -138,7 +138,7 @@ watch(selected, async (observation, previous) => {
   } catch (e) {
     if (token === detailRequest && !refresh) {
       detail.value = null
-      detailError.value = describeLoadError(e, 'Unable to load this observation’s evidence')
+      detailError.value = formatLoadError(e, 'Unable to load this observation’s evidence')
     }
   } finally {
     if (token === detailRequest) detailLoading.value = false

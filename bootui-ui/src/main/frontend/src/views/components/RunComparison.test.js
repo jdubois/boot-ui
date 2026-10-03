@@ -71,6 +71,16 @@ describe('RunComparison', () => {
     expect(wrapper.find('details').text()).toContain('Tracing was on before')
   })
 
+  it('shows a failed load as its message, never as an object', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Request failed with status 403')))
+    wrapper = mount(RunComparison)
+    await flushPromises()
+
+    const alert = wrapper.get('[role="alert"]')
+    expect(alert.text()).toBe('Unable to load the run comparison: Request failed with status 403')
+    expect(alert.text()).not.toContain('{')
+  })
+
   it('compares with a chosen kept run', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(compared))
     vi.stubGlobal('fetch', fetchMock)
