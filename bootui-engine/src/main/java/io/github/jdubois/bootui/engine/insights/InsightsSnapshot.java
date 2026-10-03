@@ -365,6 +365,16 @@ public final class InsightsSnapshot {
         return visible.test(source);
     }
 
+    /**
+     * Whether {@code source}'s evidence is in this projection: the journal records it and the panel that owns it is
+     * enabled ({@code docs/PLAN-v2.md} §8). An observation that treats a source as optional evidence reads this rather
+     * than {@link #records(JournalSource)}, so a disabled panel reads as absent evidence instead of as proof that
+     * nothing happened.
+     */
+    public boolean available(JournalSource source) {
+        return records(source) && visible(source);
+    }
+
     /** Events the journal dropped from {@code source} in this run. */
     public long dropped(JournalSource source) {
         return status.dropped().getOrDefault(source, 0L);

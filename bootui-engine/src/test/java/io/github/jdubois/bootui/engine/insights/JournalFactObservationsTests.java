@@ -107,6 +107,25 @@ class JournalFactObservationsTests {
     }
 
     @Test
+    void errorsBehind2xxCountsSeveralRequestsInPlainWords() {
+        for (int i = 0; i < 2; i++) {
+            request(
+                    "/api/orders/{id}",
+                    200,
+                    exception("e" + i, "java.lang.IllegalStateException"),
+                    child(
+                            JournalSource.TRANSACTION,
+                            new TransactionPayload("OrderService.place", true, false, false, 1)));
+        }
+
+        assertThat(byKind(service(null, null).report(), ErrorsBehind2xx.KIND))
+                .singleElement()
+                .satisfies(observation -> assertThat(observation.sentence())
+                        .isEqualTo("`" + ORDERS + "` answered 2xx in 2 of 2 successful requests: 2 requests whose"
+                                + " transaction rolled back, 2 requests that recorded an exception."));
+    }
+
+    @Test
     void errorsBehind2xxOrderEvidenceByStrengthAndReportRecoveredRequestsApart() {
         request(
                 "/api/orders/{id}",
@@ -147,14 +166,17 @@ class JournalFactObservationsTests {
         RuntimeObservationDto unrecovered =
                 found.get(RuntimeInsightsService.idOf(ErrorsBehind2xx.KIND, ORDERS + ":unrecovered"));
         assertThat(unrecovered.sentence())
-                .isEqualTo("`" + ORDERS + "` answered 2xx in 2 of 4 successful requests whose request 1 rolled back"
-                        + " its transaction, 1 recorded an exception, 1 received a 5xx or failed downstream call.");
+                .isEqualTo("`" + ORDERS + "` answered 2xx in 2 of 4 successful requests: 1 request whose transaction"
+                        + " rolled back, 1 request that recorded an exception, 1 request that received a 5xx or failed"
+                        + " downstream call.");
         assertThat(unrecovered.exemplarRequestIds()).containsExactly("r1", "r5");
         assertThat(unrecovered.whatToCheck()).hasSize(2);
         RuntimeObservationDto recovered =
                 found.get(RuntimeInsightsService.idOf(ErrorsBehind2xx.KIND, ORDERS + ":recovered"));
         assertThat(recovered.affected()).isEqualTo(1);
-        assertThat(recovered.sentence()).endsWith("1 wrote an ERROR log, and a retry or fallback recovered.");
+        assertThat(recovered.sentence())
+                .endsWith("in 1 of 4 successful requests: 1 request that wrote an ERROR log; a retry or fallback"
+                        + " recovered.");
         assertThat(found).hasSize(2);
     }
 

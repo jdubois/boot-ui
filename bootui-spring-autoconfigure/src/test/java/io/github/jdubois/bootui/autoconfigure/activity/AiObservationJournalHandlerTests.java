@@ -49,8 +49,14 @@ class AiObservationJournalHandlerTests {
         assertThat(journal.entries()).singleElement().satisfies(entry -> {
             assertThat(entry.event().source()).isEqualTo(JournalSource.AI);
             assertThat(entry.event().requestId()).isEqualTo("r1");
-            assertThat(entry.event().payload())
+            AiPayload payload = (AiPayload) entry.event().payload();
+            assertThat(payload)
+                    .usingRecursiveComparison()
+                    .ignoringFields("completedNanos")
                     .isEqualTo(new AiPayload("chat", "ollama", "llama3", 14L, 3L, "stop", false));
+            assertThat(payload.completedNanos())
+                    .as("its monotonic completion places it on its request's clock")
+                    .isNotEqualTo(-1);
         });
     }
 }

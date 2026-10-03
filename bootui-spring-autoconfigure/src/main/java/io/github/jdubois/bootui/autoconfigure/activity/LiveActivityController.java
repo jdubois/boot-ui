@@ -18,6 +18,7 @@ import io.github.jdubois.bootui.core.dto.ActivitySwitchResult;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.RequestJournalProfileDto;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
+import io.github.jdubois.bootui.core.dto.RequestProfileSelectionDto;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalClearRequest;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalClearResult;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalStatusDto;
@@ -41,6 +42,7 @@ import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalActivityReports;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.RequestJournalProfiles;
+import io.github.jdubois.bootui.engine.journal.RequestProfileSelection;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalService;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
@@ -499,6 +501,10 @@ public class LiveActivityController implements InitializingBean {
     @GetMapping("/request/{id}")
     public RequestProfileDto request(@PathVariable("id") String id) {
         return correlator.profile(id);
+    }
+
+    public RequestProfileSelectionDto agentProfile(String id) {
+        return RequestProfileSelection.select(id, this::requestJournal, this::request);
     }
 
     /**

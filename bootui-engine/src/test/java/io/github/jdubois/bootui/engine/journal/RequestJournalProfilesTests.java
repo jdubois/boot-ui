@@ -326,12 +326,116 @@ class RequestJournalProfilesTests {
 
     @Test
     void anUnknownRequestOrADisabledJournalSaysWhy() {
-        assertThat(profiles(null).profile("missing").unavailableReason()).contains("does not retain request missing");
+        assertThat(profiles(null).profile("missing").unavailableReason()).contains("execution missing");
         assertThat(profiles(null).profile(" ").available()).isFalse();
         assertThat(new RequestJournalProfiles(null, null, 1_000, 5, null)
                         .profile("r1")
                         .unavailableReason())
                 .isEqualTo(RequestJournalProfiles.DISABLED);
+    }
+
+    @Test
+    void scheduledAndConsumedMessageExecutionsOpenByIdWithoutExposingDisabledSources() {
+        CorrelationContext scheduled = CorrelationContext.forExecution("scheduled-1");
+        CorrelationContext consumer = CorrelationContext.forExecution("message-1");
+        offer(RuntimeEvent.of(
+                JournalSource.SCHEDULED,
+                1_000,
+                25_000_000,
+                scheduled,
+                "scheduler",
+                ThreadKind.WORKER,
+                false,
+                new ScheduledPayload("com.example.Cleanup.run", null)));
+        offer(RuntimeEvent.of(
+                JournalSource.SQL,
+                1_005,
+                2_000_000,
+                scheduled,
+                "scheduler",
+                ThreadKind.WORKER,
+                false,
+                new SqlPayload("select * from orders", null, "db", false)));
+        CorrelationContext handoff = CorrelationContext.forExecution("async-job");
+        offer(RuntimeEvent.of(
+                JournalSource.AGENT_EXECUTORS,
+                1_010,
+                5_000_000,
+                handoff,
+                "pool-1",
+                ThreadKind.WORKER,
+                false,
+                new AsyncHandoffPayload(
+                        "async-job",
+                        "scheduled-1",
+                        "CleanupTask",
+                        "Executor.execute",
+                        1_009,
+                        1_000_000,
+                        null,
+                        false,
+                        null,
+                        false,
+                        0L,
+                        false)));
+        offer(RuntimeEvent.of(
+                JournalSource.SQL,
+                1_012,
+                1_000_000,
+                handoff,
+                "pool-1",
+                ThreadKind.WORKER,
+                false,
+                new SqlPayload("select * from archived_orders", null, "db", false)));
+        offer(RuntimeEvent.of(
+                JournalSource.MESSAGING,
+                2_000,
+                30_000_000,
+                consumer,
+                "listener",
+                ThreadKind.WORKER,
+                false,
+                new MessagingPayload("kafka", false, "orders", false, null)));
+        offer(RuntimeEvent.of(
+                JournalSource.SQL,
+                2_004,
+                1_000_000,
+                consumer,
+                "listener",
+                ThreadKind.WORKER,
+                false,
+                new SqlPayload("select * from customers", null, "db", false)));
+        journal.dispatchPending();
+
+        RequestJournalProfileDto job = profiles(null).profile("scheduled-1");
+        assertThat(job.available()).isTrue();
+        assertThat(job.route()).isEqualTo("Scheduled: com.example.Cleanup.run");
+        assertThat(job.status()).isNull();
+        assertThat(job.routeComparison()).isNull();
+        assertThat(job.timeline())
+                .extracting(RequestTimelineItemDto::source)
+                .containsExactly("sql", "agent.executors", "sql");
+        assertThat(job.touched().tables()).containsExactly("orders", "archived_orders");
+        assertThat(job.handoffs()).hasSize(1);
+        assertThat(profiles(panel -> !panel.equals(BootUiPanels.SCHEDULED))
+                        .profile("scheduled-1")
+                        .available())
+                .isFalse();
+        offer(http("r-without-exchanges-panel", 3_000, 1_000_000, null));
+        journal.dispatchPending();
+        assertThat(profiles(panel -> !panel.equals(BootUiPanels.HTTP_EXCHANGES))
+                        .profile("r-without-exchanges-panel")
+                        .available())
+                .as("Live Activity may open its retained request even after the HTTP Exchanges panel is disabled")
+                .isTrue();
+
+        RequestJournalProfileDto message = profiles(null).profile("message-1");
+        assertThat(message.available()).isTrue();
+        assertThat(message.route()).isEqualTo("Message: orders");
+        assertThat(message.timeline())
+                .extracting(RequestTimelineItemDto::source)
+                .containsExactly("sql");
+        assertThat(message.touched().tables()).containsExactly("customers");
     }
 
     @Test

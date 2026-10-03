@@ -253,11 +253,14 @@ public final class SqlStatementNormalizer {
     /**
      * The index just past a complete PostgreSQL dollar-quoted string starting at {@code index}, or
      * {@code -1} when this {@code $} does not open one. The tag is empty ({@code $$}) or a SQL identifier
-     * ({@code $body$}), which keeps positional bind parameters such as {@code $1} out of this branch, and
-     * an unterminated run is rejected too, so an identifier that merely contains {@code $} can never
-     * swallow the rest of the statement.
+     * ({@code $body$}), which keeps positional bind parameters such as {@code $1} out of this branch. A
+     * recognized opener without its closing delimiter consumes the rest of the captured text, because SQL
+     * capture can truncate a valid literal. A dollar sign within an identifier is never an opener.
      */
     private static int dollarQuoteEnd(String sql, int index) {
+        if (index > 0 && isIdentifierCharacter(sql.charAt(index - 1))) {
+            return -1;
+        }
         int cursor = index + 1;
         int length = sql.length();
         int bodyStart = -1;
@@ -278,7 +281,11 @@ public final class SqlStatementNormalizer {
         }
         String tag = sql.substring(index, bodyStart);
         int end = sql.indexOf(tag, bodyStart);
-        return end < 0 ? -1 : end + tag.length();
+        return end < 0 ? length : end + tag.length();
+    }
+
+    private static boolean isIdentifierCharacter(char c) {
+        return c >= 128 || Character.isLetterOrDigit(c) || c == '_' || c == '$';
     }
 
     /**

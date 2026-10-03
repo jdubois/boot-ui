@@ -1711,10 +1711,14 @@ public abstract class AbstractBootUiApiConformanceTest {
         for (int attempt = 0; attempt < 30 && breakdown == null; attempt++) {
             JsonNode report = probe.get(api("/runtime-insights")).json();
             for (JsonNode observation : report.path("observations")) {
-                // The probe's route is labelled by its template where a stack resolves one, so any observed
-                // breakdown will do: the probe guarantees at least one route has five warm requests.
+                // The probe's route is labelled by its template where a stack resolves one, so any breakdown over
+                // five warm requests will do: the probe guarantees at least one route has them. Its time is split
+                // into phases, or, when its requests reached no handler BootUI marks (an unmapped path on Quarkus)
+                // or made no recorded call on a stack that marks no phases (WebFlux), it says so as insufficient.
                 if ("route-time-breakdown".equals(observation.path("kind").asText())
-                        && "OBSERVED".equals(observation.path("status").asText())) {
+                        && observation.path("eligible").asLong() >= 5
+                        && ("OBSERVED".equals(observation.path("status").asText())
+                                || explainsUnsplitTime(observation))) {
                     breakdown = observation;
                 }
             }
@@ -1723,7 +1727,7 @@ public abstract class AbstractBootUiApiConformanceTest {
             }
         }
         assertThat(breakdown)
-                .as("a route with five warm requests shows where its time went")
+                .as("a route with five warm requests shows where its time went, or why it cannot")
                 .isNotNull();
         String id = breakdown.path("id").asText();
         assertThat(id).matches("route-time-breakdown:[0-9a-f]{10}");
@@ -1756,6 +1760,13 @@ public abstract class AbstractBootUiApiConformanceTest {
                     .doesNotContain("/bootui")
                     .doesNotContain("*");
         }
+    }
+
+    /** Whether an insufficient breakdown says why its route's time is not split into phases. */
+    private static boolean explainsUnsplitTime(JsonNode observation) {
+        String sentence = observation.path("sentence").asText();
+        return "INSUFFICIENT".equals(observation.path("status").asText())
+                && (sentence.contains("not split into phases") || sentence.contains("marks no phases"));
     }
 
     private static boolean bootstrapAgentBridgeAbsent() {
@@ -1869,6 +1880,38 @@ public abstract class AbstractBootUiApiConformanceTest {
             }
         });
         trace.assertMasked(traceDetail(trace), "GET /traces/{id} (restored default)");
+    }
+
+    @Test
+    void aiChatDetailFollowsTheLiveValueExposurePolicy() {
+        // The AI Framework chat detail returns the chat span's attributes and events. They are stored raw and must
+        // follow the same live exposure policy as the Traces detail. The endpoint is served whether or not an AI
+        // framework is on the classpath, so only a disabled panel skips the contract.
+        JsonNode panel = panelFromLiveManifest("ai");
+        assumeTrue(panel != null && panel.path("enabled").asBoolean(true), "ai panel is disabled");
+        AiChatExposureContract chat = new AiChatExposureContract();
+        assertThat(telemetryStore().add(chat.span(), false))
+                .as("the seeded chat span is retained")
+                .isTrue();
+
+        LogTailExposureContract.withExposure(
+                "FULL", null, () -> chat.assertVerbatim(aiChatDetail(chat), "GET /ai/chats/{id} (FULL)"));
+        LogTailExposureContract.withExposure("MASKED", null, () -> {
+            chat.assertMasked(aiChatDetail(chat), "GET /ai/chats/{id} (MASKED)");
+            chat.assertNoSecret(probe().get(api("/ai/overview")).json(), "GET /ai/overview (MASKED)");
+            chat.assertNoSecret(probe().get(api("/ai/chats")).json(), "GET /ai/chats (MASKED)");
+        });
+        LogTailExposureContract.withExposure("METADATA_ONLY", null, () -> {
+            chat.assertOmitted(aiChatDetail(chat), "GET /ai/chats/{id} (METADATA_ONLY)");
+            chat.assertNoSecret(probe().get(api("/ai/overview")).json(), "GET /ai/overview (METADATA_ONLY)");
+        });
+        chat.assertMasked(aiChatDetail(chat), "GET /ai/chats/{id} (restored default)");
+    }
+
+    private JsonNode aiChatDetail(AiChatExposureContract chat) {
+        Response response = probe().get(api("/ai/chats/" + chat.spanId));
+        assertThat(response.status()).as("GET /ai/chats/{id} status").isEqualTo(200);
+        return response.json();
     }
 
     private JsonNode traceDetail(TraceExposureContract trace) {

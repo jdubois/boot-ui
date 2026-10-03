@@ -67,8 +67,21 @@ final class NotExercisedRoutes {
         String handler = mapping.handler() == null ? "" : mapping.handler();
         return !handler.contains("org.springframework.boot.")
                 && !handler.startsWith("Actuator ")
-                && !handler.contains("io.quarkus.")
+                && !quarkusEndpoint(handler, pattern)
                 && !"/error".equals(pattern);
+    }
+
+    /**
+     * Whether a route is one of Quarkus's own: a class of an extension's runtime module ({@code io.quarkus.*.runtime.*},
+     * where every extension keeps its runtime classes) or an {@code io.quarkus} handler under the non-application root
+     * {@code /q/}. An application whose own packages start with {@code io.quarkus}, such as the Quarkus samples'
+     * {@code io.quarkus.sample.superheroes}, keeps its routes.
+     */
+    static boolean quarkusEndpoint(String handler, String pattern) {
+        if (!handler.startsWith("io.quarkus.")) {
+            return false;
+        }
+        return handler.contains(".runtime.") || pattern.equals("/q") || pattern.startsWith("/q/");
     }
 
     /** A GraphQL operation subdivides its route, so {@code POST /graphql (query Products)} exercised {@code POST /graphql}. */

@@ -732,7 +732,9 @@ export function insightMarkdown(detail, {title, checkReason} = {}) {
   if (observation.exemplarRequestIds?.length) {
     push(
       doc,
-      heading(2, 'Requests to open'),
+      heading(2, 'Executions to open'),
+      'Each command reads the retained runtime-journal profile first and falls back to HTTP-exchange details.' +
+        ' Check `source` and `available` before using the evidence; neither source may retain an older id.',
       observation.exemplarRequestIds
         .map((id) => `- ${inlineCode(id)}: \`bootui request-profile ${oneLine(id).replace(/`/g, '')}\``)
         .join('\n')

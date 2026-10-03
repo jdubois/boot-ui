@@ -256,7 +256,8 @@ transaction (Transactions open across remote calls), a self-invoked `@Transactio
 a bean (Proxy bypass), an import that rolls back yet answers 200 (Errors behind 2xx responses), a report that reads
 during the response write (SQL after the handler returned), an unreadable body (Framework warnings), an anonymous debug
 reset (Anonymous writes), and a payroll report whose exact security matcher misses `/api/insights/reports/PAYROLL`
-(Anonymous success on a restricted route). The WebFlux sample adds blocking JDBC on the event loop and a per-note loop.
+(Anonymous success on a restricted route), and tags saved before each count against counted first (Hibernate
+auto-flushes). The WebFlux sample adds blocking JDBC on the event loop and a per-note loop.
 With the app running, send the traffic and open the panel, no tracing needed:
 
 ```bash

@@ -7,6 +7,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Retained request and execution profiles.** Live Activity displays the runtime-journal timeline even after an
+  HTTP exchange leaves the shorter buffer. `get_request_profile` and `bootui request-profile` open journal requests,
+  scheduled runs, and consumed-message executions first; their result names the selected source and falls back to the
+  HTTP-exchange profile when necessary. Missing ids identify both retention windows (PLAN-v2 M2-9b, M3-7).
+
 ### Added
 
 - **Executor propagation with the BootUI agent.** With the agent attached, its `executors` sensor carries a request's
@@ -359,6 +366,56 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **`work-after-response` no longer reports a task its handler waited for.** The handler resumes as soon as the task
+  sets its result, before the agent closes the task's handoff, so under load that handoff could end just after the
+  response. Now only SQL, REST, and message work that ended at least two milliseconds after the response started is
+  counted, which absorbs the millisecond precision of recorded event starts. A task's failure still counts by its own
+  end ([#1218](https://github.com/jdubois/boot-ui/pull/1218)).
+
+- **Runtime Insights times AI calls once and reports what it could not count.** `route-time-breakdown` no longer
+  subtracts an AI call's time from the handler when its model HTTP call was already counted as REST client or SQL time:
+  calls reported by Spring AI or Quarkus LangChain4j carry their monotonic completion and are placed on the request's
+  clock as **AI calls**, and tool and retrieval operations, which wrap application code, stay in the handler.
+  `transaction-across-remote-call` no longer shows methods whose remote calls are fast as **Needs more traffic**.
+  `lazy-sql-after-handler` counts requests whose response-phase SQL cannot be placed against their transactions apart,
+  with a limitation and a check reason, instead of dropping them, and `split-transaction-writes` names its uncounted
+  requests in its check reason too. `ai-usage-by-route` reports the tier its calls were actually linked by, and
+  mentions trace-id linking only for calls recovered from GenAI spans.
+
+- **Spring WebFlux requests report their GraphQL operation and authentication time again.** The reactive correlation
+  filter never began a request's phase markers, so the shared GraphQL operation and Spring Security authentication
+  observation handlers had nothing to record into on WebFlux: Live Activity and Runtime Insights showed every GraphQL
+  request as the plain `/graphql` route instead of one route per operation, and `route-time-breakdown` reported no
+  authentication time. The filter now begins the request's marker timeline before the rest of the chain is assembled
+  and ends it when the chain terminates, including cancellation, and passes what was recorded to the journal. WebFlux
+  still marks no handler or response phase, so those offsets stay unknown rather than guessed, and the breakdown names
+  the authentication time out of the request's unattributed time: a WebFlux route is insufficient only when neither a
+  recorded call nor authentication time names any of its time
+  ([#1214](https://github.com/jdubois/boot-ui/pull/1214)).
+
+- **Runtime Insights no longer reports what it could not see.** From the 2.0 validation run
+  ([report](docs/V2-VALIDATION-REPORT.md)): `route-time-breakdown` stops calling time "application code" when a request
+  reached no handler BootUI marks, such as an Actuator or `/q/` endpoint or a request the security filters answered with
+  401 or 403: such requests are left out of their route's phases, a route made mostly of them is insufficient with its
+  recorded calls, and on WebFlux a route with no recorded call is insufficient instead of one unattributed span.
+  Kafka sends, timed until the broker's asynchronous acknowledgement, are no longer counted as **Message sends**; only
+  RabbitMQ and JMS sends are. Checks that read SQL report the new `UNAVAILABLE` status with the reason where this
+  application's SQL is not recorded, as with R2DBC, instead of `EVALUATED` with nothing found, on Spring MVC, Spring
+  WebFlux, and Quarkus. **Not exercised in this run** keeps the routes of applications in `io.quarkus.*` packages,
+  lists Spring WebFlux routes, and says when the declared routes could not be read. `lazy-sql-after-handler` names a
+  query a view ran while rendering, such as through a Thymeleaf formatter, and advises loading it in the handler, with
+  the application frame as the call site; frames of applications in `org.springframework.samples` or
+  `io.quarkus.sample` count as application code. The `errors-behind-2xx` sentence reads "2 requests whose transaction
+  rolled back", and insufficient findings are labelled **Not enough evidence** (PLAN-v2 M4-18a).
+- **Live Activity says when nothing has been recorded yet.** An empty feed with no filter, search, or toggle narrowing
+  it said "No activity matches the current filters"; it now says no activity is recorded yet and how to produce some,
+  keeping the filter message for a feed a filter narrowed. `orm-auto-flush` applies its threshold per request, as the
+  plan sets it, so one request that auto-flushed three times or more, or for a fifth of its ORM time, reports its route
+  instead of waiting for a second one ([report](docs/V2-VALIDATION-REPORT.md), PLAN-v2 M4-18c).
+- **The Mappings panel lists Spring WebFlux routes.** The Actuator-backed provider read only Spring MVC's
+  `dispatcherServlets`, so a WebFlux application showed no mapping and, without OpenTelemetry, grouped its requests by
+  masked paths. It now also reads WebFlux's `dispatcherHandlers`: annotated controllers, and functional routes whose
+  predicate names one method and one path ([WebFlux support](docs/WEBFLUX-SUPPORT.md)).
 - **Quarkus HTTP and exception capture can no longer fail a request after its response.** When a worker or virtual
   thread ended the response, the HTTP exchange capture read the response headers while the event loop could still be
   changing them. The read intermittently threw `NullPointerException` or `NoSuchElementException`, and Quarkus then
@@ -486,6 +543,34 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Security
 
+- **Every runtime-journal source now follows its panel's policy.** The sources 2.0 added — `authorization`, `orm`,
+  `websocket`, and `agent.executors` — and `connection` were owned by no panel, so their evidence was still recorded
+  and served through Live Activity, request profiles, Runtime Insights, and the MCP tools and CLI commands over them
+  while the panel that publishes it (Security Logs, Hibernate, WebSockets, Java Agent, SQL Trace) was disabled. Runtime
+  Insights additionally ignored `security`, `cache`, `messaging`, `scheduled`, and `mail`. One mapping,
+  `JournalSourcePanels`, now names the owning panel of every source for all three surfaces on Spring MVC, Spring
+  WebFlux, and Quarkus, exhaustively, so a new source cannot be added without declaring its panel. A disabled panel's
+  events are left out of the Runtime Insights projection, every observation reading that source is `NOT_APPLICABLE`
+  with the panel named, and one reading it as optional evidence says the evidence is not counted — including when only
+  one broker's panel (`kafka`, `rabbitmq`, `jms`) is disabled. A unit of work is left out whole when the panel owning
+  the event that opens it is disabled, since that event names the route, destination, and status the panel publishes.
+  One projection reads each panel's state once, so a panel toggled while it runs cannot make a recorded source read as
+  absent. The running agent handoffs Live Activity synthesizes now require the Java Agent panel, and an observation
+  that treats a source as optional evidence reads "recorded **and** visible", so a disabled panel can no longer read as
+  proof that nothing happened and produce a false finding.
+
+- **The AI Framework chat detail now follows the value-exposure policy.** `GET /bootui/api/ai/chats/{spanId}` returned
+  the chat span's attributes and events verbatim in every mode, so captured prompts, completions, input and output
+  messages, sensitive attributes, and `exception.message` and `exception.stacktrace` text were shown raw even under the
+  default `MASKED`. Every chat detail read now applies the live `bootui.expose-values` / `bootui.mask-secrets` policy
+  through the same rule as the Traces detail: content is scrubbed of secret-like assignments under `MASKED`, omitted as
+  `null` under `METADATA_ONLY`, and verbatim only under `FULL`, while keys, types, token counts, models, and timings are
+  unchanged. Tool call arguments and results (`gen_ai.tool.call.*`, `spring.ai.tool.call.*`), vector query content and
+  returned documents (`db.vector.query.content`, `db.vector.query.response.documents`), and indexed
+  `gen_ai.prompt.*` / `gen_ai.completion.*` content are now treated as free-form text on the Traces detail and request
+  profile too. Applies on Spring MVC, Spring WebFlux, and Quarkus, including after a runtime change of the mode
+  ([AI Framework value exposure](docs/features/services.md#ai-framework-value-exposure),
+  [#1210](https://github.com/jdubois/boot-ui/pull/1210)).
 - **Trace data now follows the value-exposure policy.** `GET /bootui/api/traces/{id}`, the trace embedded in the
   per-request profile (`GET /bootui/api/activity/request/{id}`), and their `get_request_profile` MCP tool and
   `bootui request-profile` projections returned span status messages, `exception.message` and `exception.stacktrace`

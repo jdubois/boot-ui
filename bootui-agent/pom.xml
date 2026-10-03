@@ -267,6 +267,8 @@
                     </execution>
                 </executions>
                 <configuration>
+                    <!-- Failsafe 3.6 no longer binds -DskipTests on its own; keep it skipping these ITs too. -->
+                    <skipTests>${skipTests}</skipTests>
                     <redirectTestOutputToFile>true</redirectTestOutputToFile>
                     <systemPropertyVariables>
                         <bootui.agent.jar>${bootui.agent.jar}</bootui.agent.jar>

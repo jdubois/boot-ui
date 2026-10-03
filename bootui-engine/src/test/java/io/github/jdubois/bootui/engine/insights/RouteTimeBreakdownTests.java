@@ -6,10 +6,12 @@ import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationRowDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.journal.AiPayload;
 import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.MessagingPayload;
 import io.github.jdubois.bootui.engine.journal.RequestTiming;
 import io.github.jdubois.bootui.engine.journal.RestClientPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
@@ -170,12 +172,129 @@ class RouteTimeBreakdownTests {
                         .findFirst()
                         .orElseThrow();
 
+        assertThat(breakdown.status()).isEqualTo("OBSERVED");
         assertThat(breakdown.sentence()).contains("Unattributed 60 %, SQL 40 %");
+        assertThat(breakdown.whatToCheck().get(0))
+                .as("unattributed time is not known to be application code")
+                .doesNotContain("application code")
+                .contains("does not tell apart");
         assertThat(breakdown.limitations())
                 .anySatisfy(limitation -> assertThat(limitation).contains("WebFlux"));
-        assertThat(breakdown.whatToCheck().get(0)).contains("no phase markers").doesNotContain("hottest frames");
-        assertThat(breakdown.limitations())
-                .anySatisfy(limitation -> assertThat(limitation).contains("no phase markers"));
+        assertThat(breakdown.whatToCheck().get(0))
+                .contains("does not tell apart")
+                .doesNotContain("hottest frames");
+    }
+
+    @Test
+    void authenticationIsNamedOutOfTheUnattributedTimeOfARequestWithoutPhases() {
+        for (int i = 0; i < 6; i++) {
+            long start = clock;
+            request(
+                    "/api/orders",
+                    10 * MS,
+                    new RequestTiming(start, 2 * MS, -1, -1),
+                    new Child(
+                            JournalSource.SQL,
+                            4 * MS,
+                            new SqlPayload("select 1", null, "db", false, null, null, start + 6 * MS)));
+        }
+
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_WEBFLUX, null);
+        RuntimeObservationDto breakdown = service.report().observations().stream()
+                .filter(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(service.insight(breakdown.id()).rows())
+                .extracting(RuntimeObservationRowDto::cells)
+                .containsExactly(
+                        List.of("Authentication", "10", "20 %", "2.0"),
+                        List.of("SQL", "20", "40 %", "4.0"),
+                        List.of("Unattributed", "20", "40 %", "4.0"));
+    }
+
+    @Test
+    void authenticationNeverTakesMoreThanTheUnattributedTimeItIsNamedOutOf() {
+        for (int i = 0; i < 6; i++) {
+            long start = clock;
+            request(
+                    "/api/orders",
+                    10 * MS,
+                    new RequestTiming(start, 9 * MS, -1, -1),
+                    new Child(
+                            JournalSource.SQL,
+                            4 * MS,
+                            new SqlPayload("select 1", null, "db", false, null, null, start + 6 * MS)));
+        }
+
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_WEBFLUX, null);
+        RuntimeObservationDto breakdown = service.report().observations().stream()
+                .filter(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(service.insight(breakdown.id()).rows())
+                .extracting(RuntimeObservationRowDto::cells)
+                .as("the authentication reported is capped at the time left around the recorded calls")
+                .containsExactly(List.of("Authentication", "30", "60 %", "6.0"), List.of("SQL", "20", "40 %", "4.0"));
+    }
+
+    @Test
+    void authenticationTimeAloneIsEnoughToBreakDownAWebFluxRouteWithoutARecordedCall() {
+        for (int i = 0; i < 6; i++) {
+            request("/api/orders", 10 * MS, new RequestTiming(clock, 4 * MS, -1, -1));
+        }
+
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_WEBFLUX, null);
+        RuntimeObservationDto breakdown = service.report().observations().stream()
+                .filter(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(breakdown.status())
+                .as("authentication names part of the time, so the breakdown is no longer one unattributed span")
+                .isEqualTo("OBSERVED");
+        assertThat(service.insight(breakdown.id()).rows())
+                .extracting(RuntimeObservationRowDto::cells)
+                .containsExactly(
+                        List.of("Authentication", "20", "40 %", "4.0"), List.of("Unattributed", "30", "60 %", "6.0"));
+    }
+
+    @Test
+    void authenticationOfARequestThatReachedNoMarkedHandlerIsEvidenceRatherThanARecordedCall() {
+        for (int i = 0; i < 6; i++) {
+            long start = clock;
+            request(
+                    "/api/admin",
+                    403,
+                    20 * MS,
+                    new RequestTiming(start, 5 * MS, -1, -1),
+                    new Child(
+                            JournalSource.SQL,
+                            4 * MS,
+                            new SqlPayload("select 1", null, "db", false, null, null, start + 6 * MS)));
+        }
+
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+        RuntimeObservationDto breakdown = service.report().observations().stream()
+                .filter(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(breakdown.status()).isEqualTo("INSUFFICIENT");
+        assertThat(breakdown.sentence())
+                .as("authentication is an observed phase, not a call the request made")
+                .contains("Recorded calls: SQL")
+                .doesNotContain("Recorded calls: Authentication")
+                .doesNotContain("application code");
+        assertThat(service.insight(breakdown.id()).rows())
+                .extracting(RuntimeObservationRowDto::cells)
+                .as("the authentication time is still named in the evidence")
+                .anySatisfy(cells -> assertThat(cells).first().isEqualTo("Authentication"));
     }
 
     @Test
@@ -191,13 +310,284 @@ class RouteTimeBreakdownTests {
                         .findFirst()
                         .orElseThrow();
 
-        assertThat(breakdown.sentence()).contains("Unattributed 100 %");
-        assertThat(breakdown.whatToCheck().get(0))
-                .contains("inspect the exemplar request")
-                .doesNotContain("application code outside recorded calls");
-        assertThat(breakdown.limitations())
-                .anySatisfy(limitation ->
-                        assertThat(limitation).contains("5 warm requests").contains("no phase markers"));
+        assertThat(breakdown.sentence())
+                .contains("reached no handler BootUI marks")
+                .doesNotContain("application code");
+        assertThat(breakdown.whatToCheck())
+                .noneSatisfy(check -> assertThat(check).contains("application code outside recorded calls"));
+    }
+
+    @Test
+    void withoutPhasesOrRecordedCallsABreakdownSaysItCannotTellWhereTheTimeWent() {
+        for (int i = 0; i < 6; i++) {
+            request("/api/greetings/{id}", 401, 7 * MS, RequestTiming.startedAt(clock));
+        }
+
+        RuntimeObservationDto breakdown =
+                breakdowns(InsightsStack.SPRING_WEBFLUX).get(0);
+
+        assertThat(breakdown.status()).isEqualTo("INSUFFICIENT");
+        assertThat(breakdown.sentence())
+                .isEqualTo("`GET /api/greetings/{id}`: warm median 7.0 ms over 5 requests, none of it in a recorded"
+                        + " call; Spring WebFlux marks no phases, so where that time went is not known. Every one was"
+                        + " answered 401 or 403, as security filters do when they reject a request. First request"
+                        + " 7.0 ms (cold).");
+        assertThat(breakdown.whatToCheck()).noneMatch(check -> check.contains("application code"));
+    }
+
+    @Test
+    void requestsThatReachedNoMarkedHandlerAreNotSplitAndTheirRecordedCallsAreKept() {
+        for (int i = 0; i < 6; i++) {
+            long start = clock;
+            // Filters ran, but no handler BootUI marks did: an Actuator endpoint answers through its own mapping.
+            request(
+                    "/actuator/health",
+                    20 * MS,
+                    new RequestTiming(start, -1, -1, -1),
+                    new Child(
+                            JournalSource.SQL,
+                            5 * MS,
+                            new SqlPayload("select 1", null, "db", false, null, null, start + 10 * MS)));
+        }
+
+        RuntimeObservationDto health = breakdowns(InsightsStack.SPRING_MVC).get(0);
+
+        assertThat(health.status()).isEqualTo("INSUFFICIENT");
+        assertThat(health.sentence())
+                .isEqualTo("`GET /actuator/health`: warm median 20 ms over 5 requests; all of them reached no handler"
+                        + " BootUI marks (an Actuator endpoint, a request the security filters answered, or a servlet"
+                        + " outside Spring MVC), so the time is not split into phases. Recorded calls: SQL 25 %."
+                        + " First request 20 ms (cold).");
+        assertThat(health.affected()).isEqualTo(5);
+        assertThat(health.whatToCheck()).noneMatch(check -> check.contains("application code"));
+    }
+
+    @Test
+    void onQuarkusAFrameworkRouteIsNamedAsSuch() {
+        for (int i = 0; i < 6; i++) {
+            request("/q/health", 3 * MS, RequestTiming.startedAt(clock));
+        }
+
+        RuntimeObservationDto health = breakdowns(InsightsStack.QUARKUS).get(0);
+
+        assertThat(health.status()).isEqualTo("INSUFFICIENT");
+        assertThat(health.sentence())
+                .contains("a framework endpoint such as /q/health")
+                .doesNotContain("Recorded");
+    }
+
+    @Test
+    void securityRejectionsAreNamedAndLeftOutOfTheHandlersSplit() {
+        request("/api/account", 30 * MS, new RequestTiming(clock, -1, 1 * MS, 9 * MS));
+        for (int i = 0; i < 5; i++) {
+            request("/api/account", 10 * MS, new RequestTiming(clock, -1, 1 * MS, 9 * MS));
+        }
+        for (int i = 0; i < 3; i++) {
+            request("/api/account", 401, 2 * MS, new RequestTiming(clock, 1 * MS, -1, -1));
+        }
+        for (int i = 0; i < 4; i++) {
+            request("/api/admin", 403, 2 * MS, new RequestTiming(clock, 1 * MS, -1, -1));
+        }
+
+        List<RuntimeObservationDto> breakdowns = breakdowns(InsightsStack.SPRING_MVC);
+        RuntimeObservationDto account = bySubject(breakdowns, "GET /api/account");
+        RuntimeObservationDto admin = bySubject(breakdowns, "GET /api/admin");
+
+        assertThat(account.status()).isEqualTo("OBSERVED");
+        assertThat(account.eligible()).isEqualTo(5);
+        assertThat(account.sentence()).startsWith("`GET /api/account`: warm median 10 ms over 5 requests;");
+        assertThat(account.limitations())
+                .contains("3 warm requests were answered 401 or 403 before reaching a handler BootUI marks, as"
+                        + " security filters do when they reject a request, so they are left out of the phases.");
+        assertThat(admin.status()).isEqualTo("INSUFFICIENT");
+        assertThat(admin.sentence())
+                .isEqualTo("`GET /api/admin`: warm median 2.0 ms over 3 requests; all of them answered 401 or 403"
+                        + " before reaching a handler BootUI marks, as security filters do when they reject a request,"
+                        + " so the time is not split into phases. First request 2.0 ms (cold).");
+        assertThat(admin.whatToCheck()).singleElement().asString().contains("requests it accepts");
+    }
+
+    @Test
+    void onlySendsThatBlockTheCallerAreTakenOutOfTheHandler() {
+        for (int i = 0; i < 6; i++) {
+            request(
+                    "/api/orders",
+                    100 * MS,
+                    new RequestTiming(clock, -1, 2 * MS, 95 * MS),
+                    new Child(JournalSource.MESSAGING, 60 * MS, new MessagingPayload("kafka", true, "orders", false)));
+            request(
+                    "/api/payments",
+                    100 * MS,
+                    new RequestTiming(clock, -1, 2 * MS, 95 * MS),
+                    new Child(
+                            JournalSource.MESSAGING,
+                            60 * MS,
+                            new MessagingPayload("rabbitmq", true, "payments", false)));
+        }
+
+        List<RuntimeObservationDto> breakdowns = breakdowns(InsightsStack.SPRING_MVC);
+        RuntimeObservationDto kafka = bySubject(breakdowns, "GET /api/orders");
+        RuntimeObservationDto rabbit = bySubject(breakdowns, "GET /api/payments");
+
+        assertThat(kafka.sentence())
+                .as("a fire-and-forget Kafka send is timed to its asynchronous acknowledgement")
+                .doesNotContain("Message sends")
+                .contains("Handler, other work 93 %");
+        assertThat(kafka.limitations())
+                .anySatisfy(limitation -> assertThat(limitation)
+                        .startsWith("5 requests sent Kafka messages")
+                        .contains("not counted as Message sends"));
+        assertThat(rabbit.sentence()).contains("Message sends 60 %");
+        assertThat(rabbit.limitations()).noneMatch(limitation -> limitation.contains("Kafka"));
+    }
+
+    @Test
+    void anAiCallTimedOnTheRequestClockClaimsTheModelHttpCallInsideItRatherThanCountingItTwice() {
+        for (int i = 0; i < 6; i++) {
+            long start = clock;
+            request(
+                    "/api/chat",
+                    100 * MS,
+                    new RequestTiming(start, -1, 2 * MS, 95 * MS),
+                    restCall(start + 90 * MS, 40 * MS),
+                    new Child(
+                            JournalSource.AI,
+                            50 * MS,
+                            new AiPayload("chat", "openai", "gpt-4o", 10L, 5L, "stop", false, null, start + 92 * MS)));
+        }
+
+        List<String> rows = phaseRows("GET /api/chat");
+
+        assertThat(rows)
+                .as("the model's HTTP call inside the AI call is counted once, as AI")
+                .contains("AI calls=50", "Handler, other work=43")
+                .noneMatch(row -> row.startsWith("REST client"));
+    }
+
+    @Test
+    void anAiCallWithoutItsCompletionIsCarvedOnlyBeyondTheRestClientTimeAlreadyCounted() {
+        for (int i = 0; i < 6; i++) {
+            long start = clock;
+            request(
+                    "/api/chat",
+                    100 * MS,
+                    new RequestTiming(start, -1, 2 * MS, 95 * MS),
+                    restCall(start + 90 * MS, 40 * MS),
+                    new Child(
+                            JournalSource.AI,
+                            50 * MS,
+                            new AiPayload("chat", "openai", "gpt-4o", 10L, 5L, "stop", false)));
+        }
+
+        assertThat(phaseRows("GET /api/chat"))
+                .as("only the AI time beyond its model HTTP call is taken out of the handler")
+                .contains("REST client=40", "AI calls=10", "Handler, other work=43");
+    }
+
+    @Test
+    void anUntimedAiCallIsCarvedOnlyBeyondTheTimedCallsAndStatementsNestedInIt() {
+        for (int i = 0; i < 6; i++) {
+            long start = clock;
+            request(
+                    "/api/chat",
+                    100 * MS,
+                    new RequestTiming(start, -1, 2 * MS, 95 * MS),
+                    new Child(
+                            JournalSource.SQL,
+                            10 * MS,
+                            new SqlPayload("select 1", null, "db", false, null, null, start + 20 * MS)),
+                    new Child(
+                            JournalSource.AI,
+                            30 * MS,
+                            new AiPayload("chat", "openai", "gpt-4o", 10L, 5L, "stop", false, null, start + 60 * MS)),
+                    new Child(
+                            JournalSource.AI,
+                            60 * MS,
+                            new AiPayload("chat", "openai", "gpt-4o", 10L, 5L, "stop", false)));
+        }
+
+        assertThat(phaseRows("GET /api/chat"))
+                .as("the untimed outer call adds only what its timed inner call and statement did not cover")
+                .contains("SQL=10", "AI calls=50", "Handler, other work=33");
+    }
+
+    @Test
+    void nestedAiCallsWithoutTheirCompletionAreCountedOnce() {
+        for (int i = 0; i < 6; i++) {
+            request(
+                    "/api/chat",
+                    100 * MS,
+                    new RequestTiming(clock, -1, 2 * MS, 95 * MS),
+                    new Child(
+                            JournalSource.AI,
+                            60 * MS,
+                            new AiPayload("chat", "openai", "gpt-4o", 10L, 5L, "stop", false)),
+                    new Child(
+                            JournalSource.AI,
+                            30 * MS,
+                            new AiPayload("embeddings", "openai", "text-embedding", 10L, null, null, false)));
+        }
+
+        assertThat(phaseRows("GET /api/chat"))
+                .as("both started together, so the inner call adds nothing to the outer one")
+                .contains("AI calls=60", "Handler, other work=33");
+    }
+
+    @Test
+    void toolAndRetrievalCallsWithoutTheirCompletionStayInTheHandlerTheyWrap() {
+        for (int i = 0; i < 6; i++) {
+            request(
+                    "/api/agent",
+                    100 * MS,
+                    new RequestTiming(clock, -1, 2 * MS, 95 * MS),
+                    new Child(
+                            JournalSource.AI, 30 * MS, new AiPayload("tool", null, "lookup", null, null, null, false)),
+                    new Child(
+                            JournalSource.AI,
+                            20 * MS,
+                            new AiPayload("retrieval", null, "docs", null, null, null, false)));
+        }
+
+        assertThat(phaseRows("GET /api/agent"))
+                .contains("Handler, other work=93")
+                .noneMatch(row -> row.startsWith("AI calls"));
+    }
+
+    private Child restCall(long completedNanos, long nanos) {
+        return new Child(
+                JournalSource.REST_CLIENT,
+                nanos,
+                new RestClientPayload(
+                        "POST", "api.openai.com", "/v1/chat", 200, "RestClient", false, null, completedNanos));
+    }
+
+    /** The breakdown's phase rows, as {@code label=median ms}. */
+    private List<String> phaseRows(String subject) {
+        RuntimeInsightsService service =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+        RuntimeObservationDto breakdown = service.report().observations().stream()
+                .filter(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
+                .filter(observation -> observation.subject().equals(subject))
+                .findFirst()
+                .orElseThrow();
+        return service.insight(breakdown.id()).rows().stream()
+                .map(RuntimeObservationRowDto::cells)
+                .map(cells -> cells.get(0) + "=" + cells.get(3))
+                .toList();
+    }
+
+    private List<RuntimeObservationDto> breakdowns(InsightsStack stack) {
+        return new RuntimeInsightsService(journal, null, null, stack, null)
+                .report().observations().stream()
+                        .filter(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
+                        .toList();
+    }
+
+    private static RuntimeObservationDto bySubject(List<RuntimeObservationDto> observations, String subject) {
+        return observations.stream()
+                .filter(observation -> observation.subject().equals(subject))
+                .findFirst()
+                .orElseThrow();
     }
 
     @Test
@@ -239,6 +629,10 @@ class RouteTimeBreakdownTests {
     }
 
     private void request(String template, long durationNanos, RequestTiming timing, Child... children) {
+        request(template, 200, durationNanos, timing, children);
+    }
+
+    private void request(String template, int status, long durationNanos, RequestTiming timing, Child... children) {
         String requestId = "r" + (++requests);
         CorrelationContext context = CorrelationContext.forRequest(requestId);
         List<RuntimeEvent> events = new ArrayList<>();
@@ -254,7 +648,7 @@ class RouteTimeBreakdownTests {
                 "http-1",
                 null,
                 false,
-                new HttpPayload("GET", template.replace("{id}", "42"), template, null, 200, null, timing)));
+                new HttpPayload("GET", template.replace("{id}", "42"), template, null, status, null, timing)));
         events.forEach(journal::offer);
         clock += 1_000 * MS;
         try {
