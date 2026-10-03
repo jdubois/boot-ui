@@ -282,6 +282,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Quarkus HTTP and exception capture can no longer fail a request after its response.** When a worker or virtual
+  thread ended the response, the HTTP exchange capture read the response headers while the event loop could still be
+  changing them. The read intermittently threw `NullPointerException` or `NoSuchElementException`, and Quarkus then
+  logged an ERROR for the application's URL that the Exceptions panel and Live Activity recorded as an application
+  failure. Off the event loop, the capture now copies the response headers just before Vert.x writes them. Both the
+  HTTP exchange and exception capture filters now catch their own failures and log a warning under BootUI's own logger,
+  which the Exceptions panel ignores ([#1203](https://github.com/jdubois/boot-ui/pull/1203)).
 - **Quarkus apps with OpenTelemetry logs and Dev Services start again with BootUI.** Adding `bootui-quarkus` to an
   application that enables `quarkus.otel.logs.enabled` and starts Compose or datasource Dev Services stopped dev and
   test mode with a build-step `Cycle detected` error, because BootUI fed the Dev Services results into the CDI bean
