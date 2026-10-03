@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Measures the CPU time, allocated bytes, and completed GC pauses of each request by identity, not by timestamp
@@ -276,7 +277,7 @@ public final class SegmentMeter {
 
         private String requestId;
         /** The JFR segment event open with it during a Profile resources session, or {@code null}. */
-        private Object jfrEvent;
+        private final AtomicReference<Object> jfrEvent = new AtomicReference<>();
 
         private long startCpuNanos;
         private long startAllocatedBytes;
@@ -295,7 +296,7 @@ public final class SegmentMeter {
             startAllocatedBytes = readings.currentAllocatedBytes();
             startCpuNanos = readings.currentCpuNanos();
             this.requestId = requestId;
-            jfrEvent = JfrSegments.begin(requestId);
+            jfrEvent.set(JfrSegments.begin(requestId));
             if (meter.opened(this)) {
                 this.meter = meter;
             }
@@ -309,11 +310,12 @@ public final class SegmentMeter {
             meter.closed(this, cpu, allocated, endCollections, readings);
         }
 
-        /** Commits the segment's JFR event; only its own thread may, since JFR records the committing thread. */
+        /**
+         * Commits the segment's JFR event once, from whichever thread closes the segment. JFR records the committing
+         * thread, so the event carries its own thread's id for {@link JfrProfiler} to join on.
+         */
         void endJfrEvent() {
-            Object event = jfrEvent;
-            jfrEvent = null;
-            JfrSegments.end(event);
+            JfrSegments.end(jfrEvent.getAndSet(null));
         }
     }
 
@@ -359,9 +361,7 @@ public final class SegmentMeter {
                 Thread caller = Thread.currentThread();
                 for (Segment segment : open) {
                     boolean own = segment.thread == caller;
-                    if (own) {
-                        segment.endJfrEvent();
-                    }
+                    segment.endJfrEvent();
                     long cpu = own ? readings.currentCpuNanos() : readings.cpuNanos(segment.threadId);
                     long allocated = own ? readings.currentAllocatedBytes() : readings.allocatedBytes(segment.threadId);
                     credit(segment, cpu, allocated, collections, readings);

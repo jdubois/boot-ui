@@ -151,7 +151,9 @@ public final class ChildMain {
             long token = (Long) app.getMethod("claim").invoke(null);
             if (run == 1) {
                 awaitInstalled(bridge());
-                Behaviors.awaitSelfTest(bridge());
+                // Both sensors: a pool worker started before the executors sensor installed keeps running the
+                // untransformed runWorker, so the shared pool would never propagate.
+                ThreadBehaviors.awaitSelfTests(bridge());
             }
             app.getMethod("propagate").invoke(null);
             app.getMethod("disarm", long.class).invoke(null, token);

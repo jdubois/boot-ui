@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Publishes the AI calls an AI framework reports itself ({@code docs/PLAN-v2.md} §5.18, M3-9): Spring AI's {@code
@@ -30,7 +31,7 @@ public final class AiCallEvents {
 
     /**
      * Publishes one call, which started at {@code startEpochMillis} and took {@code durationNanos}, for the work {@code
-     * context} names.
+     * context} names, without its monotonic completion.
      *
      * @param traceId the call's trace id, or {@code null} without tracing
      * @param spanId the call's own span id, or {@code null} when unknown
@@ -45,12 +46,37 @@ public final class AiCallEvents {
             long durationNanos,
             String thread,
             AiPayload payload) {
+        return publish(journal, context, traceId, spanId, startEpochMillis, durationNanos, -1, thread, payload);
+    }
+
+    /**
+     * Publishes one call, which started at {@code startEpochMillis}, took {@code durationNanos}, and completed at the
+     * {@link System#nanoTime()} {@code completedNanos}, for the work {@code context} names.
+     *
+     * @param traceId the call's trace id, or {@code null} without tracing
+     * @param spanId the call's own span id, or {@code null} when unknown
+     * @param completedNanos the monotonic time the call completed, or {@code -1} when unknown, which places it on its
+     *     request's clock ({@code route-time-breakdown})
+     * @return whether the journal accepted it
+     */
+    public static boolean publish(
+            RuntimeEventSink journal,
+            CorrelationContext context,
+            String traceId,
+            String spanId,
+            long startEpochMillis,
+            long durationNanos,
+            long completedNanos,
+            String thread,
+            AiPayload payload) {
         if (journal == null || payload == null || payload.operation() == null || !journal.records(JournalSource.AI)) {
             return false;
         }
         CorrelationContext owner = context == null ? CorrelationContext.NONE : context;
         String trace = blankToNull(traceId != null ? traceId : owner.traceId());
-        AiPayload withSpan = spanId == null || payload.spanId() != null
+        String span = payload.spanId() != null ? payload.spanId() : spanId;
+        long completed = payload.completedNanos() >= 0 ? payload.completedNanos() : completedNanos;
+        AiPayload withSpan = Objects.equals(span, payload.spanId()) && completed == payload.completedNanos()
                 ? payload
                 : new AiPayload(
                         payload.operation(),
@@ -60,7 +86,8 @@ public final class AiCallEvents {
                         payload.outputTokens(),
                         payload.finishReason(),
                         payload.failed(),
-                        spanId);
+                        span,
+                        completed);
         remember(trace, withSpan.spanId(), withSpan.operation());
         return journal.offer(RuntimeEvent.of(
                 JournalSource.AI,

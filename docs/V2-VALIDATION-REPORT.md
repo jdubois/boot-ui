@@ -118,7 +118,8 @@ JDBC telemetry turned off. During the traffic, BootUI's own HTTP capture threw a
 so Quarkus logged an `ERROR` against the application's URL and BootUI then reported its own failure as the
 application's exception: three of the misleading rows, and all three behavior changes in the run comparison. The
 "Not exercised in this run" list was empty because the application's package starts with `io.quarkus.`. `rest-heroes`
-(Hibernate Reactive) was not run.
+(Hibernate Reactive) was not run. The build-step cycle and the capture failure have since been fixed (Findings 1 and
+2); this run predates those fixes.
 
 | Kind | Rows | Both useful | Misleading (either) |
 | --- | --- | --- | --- |
@@ -234,13 +235,17 @@ is seeded for these observations; each question ran once, on one model, on Sprin
 Misleading observations, checks that hid something real, and failed investigations:
 
 1. **Quarkus dev mode fails to start with BootUI** when OpenTelemetry logging and Dev Services are present: a
-   build-step cycle through `BootUiQuarkusProcessor#registerDevServices`. Present on `main` (1.x).
+   build-step cycle through `BootUiQuarkusProcessor#registerDevServices`. A 1.x bug. **Fixed** on `main` by
+   [#1204](https://github.com/jdubois/boot-ui/pull/1204), merged into `v2`.
 2. **Quarkus HTTP capture can throw after a response**: the body-end handler copies the response headers outside the
    guard that protects publishing, so Quarkus logs an `ERROR` against the application, and Runtime Insights reports
-   BootUI's own failure as the application's. Present on `main` (1.x).
+   BootUI's own failure as the application's. A 1.x bug. **Fixed** on `main` by
+   [#1203](https://github.com/jdubois/boot-ui/pull/1203), merged into `v2`.
 3. **Trace spans bypass the exposure policy**: an exception message carrying a secret is returned unmasked under
    `MASKED` and `METADATA_ONLY` by request profiles (including `get_request_profile`) and trace details, while the
-   Exceptions panel masks it. Found on the sample application; present on `main` (1.x).
+   Exceptions panel masks it. Found on the sample application. A 1.x bug. **Fixed** on `main` by
+   [#1205](https://github.com/jdubois/boot-ui/pull/1205), merged into `v2`. The AI Framework chat detail has the same
+   leak and is being fixed on `main` separately.
 4. **`route-time-breakdown` names unattributed time "application code"**: requests without phase marks (rejected by
    Spring Security, all Actuator requests) are entirely unattributed.
 5. **`route-time-breakdown` counts asynchronous message sends** as handler time, until the broker's acknowledgement.

@@ -3,7 +3,6 @@ package io.github.jdubois.bootui.engine.insights;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
-import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
 import io.github.jdubois.bootui.engine.web.CorrelationTier;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -53,6 +52,7 @@ public final class SplitTransactionWrites implements Observation {
     public Evaluation evaluate(InsightsSnapshot snapshot) {
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;
+        long uncounted = 0;
         for (Map.Entry<String, List<ProjectedRequest>> route :
                 snapshot.byRoute().entrySet()) {
             long routeEligible = 0;
@@ -90,11 +90,19 @@ public final class SplitTransactionWrites implements Observation {
                 }
             }
             eligible += routeEligible;
+            uncounted += unplaced;
             if (!rows.isEmpty()) {
                 findings.add(finding(route.getKey(), rows, routeEligible, unplaced, snapshot));
             }
         }
-        return new Evaluation(eligible, findings);
+        return new Evaluation(
+                eligible,
+                findings,
+                uncounted == 0
+                        ? null
+                        : InsightText.counted(uncounted, "request") + " wrote with a transaction or statement that had"
+                                + " no monotonic time, so " + (uncounted == 1 ? "its writes are" : "their writes are")
+                                + " not placed or counted.");
     }
 
     static boolean committedWrite(RuntimeEvent event) {
@@ -141,14 +149,14 @@ public final class SplitTransactionWrites implements Observation {
     private static final class Unit {
 
         private final TransactionWindows.Window transaction;
-        private final List<String> fingerprints = new ArrayList<>();
+        private final List<String> statements = new ArrayList<>();
 
         Unit(TransactionWindows.Window transaction) {
             this.transaction = transaction;
         }
 
         void add(RuntimeEvent write) {
-            fingerprints.add(SqlShapes.fingerprint(((SqlPayload) write.payload()).sql()));
+            statements.add(InsightText.statement(((SqlPayload) write.payload()).sql()));
         }
 
         String describe() {
@@ -158,8 +166,8 @@ public final class SplitTransactionWrites implements Observation {
                                     ? "transaction"
                                     : transaction.transaction().method())
                             + (transaction.transaction().nested() ? " (nested)" : "");
-            return name + ": " + InsightText.counted(fingerprints.size(), "write") + ", first `"
-                    + InsightText.quoted(fingerprints.get(0)) + "`";
+            return name + ": " + InsightText.counted(statements.size(), "write") + ", first `" + statements.get(0)
+                    + "`";
         }
     }
 }

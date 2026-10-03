@@ -23,6 +23,7 @@ import io.github.jdubois.bootui.engine.resources.ResourceSettings;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.web.ProfileCapabilities;
 import io.github.jdubois.bootui.quarkus.BootUiEngineProducer;
+import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.github.jdubois.bootui.spi.BeanProvider;
 import io.github.jdubois.bootui.spi.MappingProvider;
@@ -63,6 +64,7 @@ public class RuntimeInsightsResource {
             Instance<BeanProvider> beans,
             Instance<JavaAgentService> javaAgent,
             Instance<SqlTraceRecorder> sqlTraceRecorder,
+            QuarkusExposurePolicy exposure,
             Config config) {
         JournalAggregates journalAggregates = aggregates.isResolvable() ? aggregates.get() : null;
         this.comparison = new RunComparisonService(
@@ -92,6 +94,7 @@ public class RuntimeInsightsResource {
                 InsightsStack.QUARKUS,
                 RunHistory.shared()::summaries,
                 BootUiEngineProducer.runtimeInsightsTokenThreshold(config));
+        this.insights.setExposure(exposure);
         if (journalAggregates != null) {
             this.insights.setDeclaredRoutes(DeclaredRouteTemplates.declared(mappings), journalAggregates::routeLabels);
         }

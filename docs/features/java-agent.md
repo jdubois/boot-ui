@@ -80,6 +80,11 @@ Quarkus live reloads replace the same application slot.
 The engine looks up the bridge only from the bootstrap class loader, so an accidental application-classpath copy is
 ignored.
 
+Sensor removal runs off the caller's thread. A new claim supersedes a queued release; if removal has already begun,
+the sensor is installed and self-tested again afterward. This applies to both `executors` and `threads`. Each threads
+transformer retains its own package history for restoration: reclaiming with different packages cannot leave advice
+on subclasses from the previous claim. The replacement transformer uses the new claim's packages.
+
 ## The executors sensor
 
 A claim asks for the sensors in `bootui.agent.sensors`: `executors`, the default, and the opt-in
@@ -141,6 +146,10 @@ report warns that the self-test decides.
 | Threads skipped | Workers whose executor propagates the context itself (`bootui.agent.executors.skip-threads`). |
 | Failed tasks | Propagated tasks that ended with an exception. |
 
+New submissions and skip counters are recorded only while the current armed claim asks for `executors` and that
+sensor has not been disabled by its self-test. Pending entries are still drained while recording is off, without
+reopening their snapshots. A handoff already opened before recording stopped is still closed and reports its outcome.
+
 ### Accepted limits
 
 - Parallel-stream subtasks run by other workers stay unowned: only root submissions and a `fork()` from outside the pool
@@ -149,6 +158,15 @@ report warns that the self-test decides.
 - Pools whose workers started before the first claim never apply their tasks; they are counted as never applied.
 - A task submitted before a DevTools restart or a Quarkus live reload that ends after it is never reopened, and a task
   from the previous run that is still running when it ends is lost.
+- If the same task object has pending submissions across claim generations, all overlapping submissions stay
+  ambiguous and run unowned until their pending count drains, even when their owner ids match. A task retained after
+  `shutdownNow`, `purge`, or a discard can therefore stay ambiguous if a removed submission never reaches a run or
+  release hook; changing the generation never replaces its pending snapshot.
+- A rejected direct fork/join root submission and a failed `CompletableFuture` thread-per-task start release their
+  snapshots, including when the rejected fork/join task is already completed. Fork/join cleanup observes the pool's
+  admission method, not the subsequent join: an application exception rethrown by `ForkJoinPool.invoke` after its task
+  ran does not release another pending submission. A custom pool thread factory throwing after enqueueing remains an
+  exceptional path where ownership may be lost.
 - One window, `bootui.agent.executors.max-handoff` (5 minutes), bounds a handoff: a task belongs to its request when
   it started no later than that after the request ended (a later one is only counted in the request profile); its work
   recorded more than that after the task started is not attributed to the request; and a task that ends more than that
@@ -161,7 +179,10 @@ Work still running after its request answered shows in Live Activity as a runnin
 response** badge, and Runtime Insights reports it as `work-after-response` when it ran SQL, called a REST service, sent a
 message, or failed. A task is after the response when it ends after its request's response started: a task its
 handler waited for ended before, and a request that marked no response, as when its handler failed, is compared with its
-end; on Spring WebFlux, which marks no request phases, the request's end stands in for its response. That observation and the request profile's `PROPAGATED` tier apply only while the agent is attached
+end; on Spring WebFlux, which marks no request phases, the request's end stands in for its response. Only the SQL, REST,
+and message work that ended at least two milliseconds after the response started counts, or the task's failure: a waited-for
+task releases its handler before its handoff closes, so that handoff may end just after the response although its work
+ended before. That observation and the request profile's `PROPAGATED` tier apply only while the agent is attached
 and armed for the application, its `executors` sensor is installed and not disabled by a failed self-test, and BootUI
 attached its handoffs to the claim; otherwise they say which of these is missing.
 

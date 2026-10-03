@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.insights;
 
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
 import io.github.jdubois.bootui.engine.journal.RestClientPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.TransactionPayload;
@@ -17,7 +18,10 @@ import java.util.Set;
 /**
  * {@code transaction-across-remote-call} ({@code docs/PLAN-v2.md} §5.5): a physical transaction still open when a REST
  * client call starts, per route and transactional method, with the connection it held and, as a labelled estimate, the
- * request rate at which this route alone would exhaust the pool: pool size ÷ hold time.
+ * request rate at which this route alone would exhaust the pool: pool size ÷ hold time. A method is reported only
+ * once one of its calls took 20 ms or more, since the slowest call is what holds the connection longest and more
+ * traffic would not make a faster call slow; it is insufficient below 3 transactions. A method whose calls were all
+ * faster is named in the check's reason instead.
  */
 public final class TransactionAcrossRemoteCall implements Observation {
 
@@ -63,6 +67,7 @@ public final class TransactionAcrossRemoteCall implements Observation {
     public Evaluation evaluate(InsightsSnapshot snapshot) {
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;
+        long fast = 0;
         for (Map.Entry<String, List<ProjectedRequest>> route :
                 snapshot.byRoute().entrySet()) {
             Map<String, Method> methods = new LinkedHashMap<>();
@@ -87,26 +92,47 @@ public final class TransactionAcrossRemoteCall implements Observation {
                     String method = open.method();
                     Connection held = connection(request, callStart);
                     methods.computeIfAbsent(method, m -> new Method())
-                            .add(request, open, call, payload, held, seen.add(method));
+                            .add(request, open, call, payload, held, seen.add(method), snapshot.exposure());
                 }
             }
             eligible += routeEligible;
-            long routeRequests = routeEligible;
-            methods.forEach(
-                    (method, found) -> findings.add(finding(route.getKey(), method, found, routeRequests, snapshot)));
+            for (Map.Entry<String, Method> method : methods.entrySet()) {
+                // Calls all under the minimum are not a finding: more traffic would not make them slower.
+                if (method.getValue().slowest >= MIN_CALL_NANOS) {
+                    findings.add(finding(route.getKey(), method.getKey(), method.getValue(), routeEligible, snapshot));
+                } else {
+                    fast++;
+                }
+            }
         }
-        return new Evaluation(eligible, findings);
+        return new Evaluation(
+                eligible,
+                findings,
+                fast == 0
+                        ? null
+                        : InsightText.counted(fast, "transactional method")
+                                + " kept a transaction open only across calls under "
+                                + InsightText.millis(MIN_CALL_NANOS)
+                                + " ms, so " + (fast == 1 ? "it is" : "they are") + " not reported.");
     }
 
     private Finding finding(String route, String method, Method found, long eligible, InsightsSnapshot snapshot) {
         long callMedian = RouteTimeBreakdown.median(found.callNanos());
-        boolean sufficient = found.transactions >= MIN_TRANSACTIONS && callMedian >= MIN_CALL_NANOS;
+        boolean sufficient = found.transactions >= MIN_TRANSACTIONS;
         StringBuilder sentence = new StringBuilder("`" + route + "`: `" + method
                 + "` kept its transaction open across a call to `" + found.firstCall + "` in "
                 + found.transactions + " of " + InsightText.counted(eligible, InsightText.unit(route))
-                + " that both called out and opened a transaction; the call took a median "
+                + " that both called out and opened a transaction; its calls took a median "
                 + InsightText.millis(callMedian)
                 + " ms");
+        if (found.slowest > callMedian) {
+            sentence.append(", the slowest ")
+                    .append(InsightText.millis(found.slowest))
+                    .append(" ms");
+            if (!found.slowestCall.equals(found.firstCall)) {
+                sentence.append(" (`").append(found.slowestCall).append("`)");
+            }
+        }
         long[] holds = found.holdNanos();
         long holdMedian = RouteTimeBreakdown.median(holds);
         if (holds.length > 0) {
@@ -132,8 +158,7 @@ public final class TransactionAcrossRemoteCall implements Observation {
             }
         }
         if (!sufficient) {
-            sentence.append(" Reported from " + MIN_TRANSACTIONS + " transactions whose calls take "
-                    + InsightText.millis(MIN_CALL_NANOS) + " ms or more.");
+            sentence.append(" Reported from " + MIN_TRANSACTIONS + " transactions.");
         }
         limitations.add("A call is placed in a transaction by time within its request; parallel work of the same"
                 + " request on another thread could be placed too.");
@@ -211,6 +236,8 @@ public final class TransactionAcrossRemoteCall implements Observation {
         private final List<Long> calls = new ArrayList<>();
         private final List<Long> holds = new ArrayList<>();
         private long transactions;
+        private long slowest;
+        private String slowestCall;
         private String firstCall;
         private String dataSource;
 
@@ -220,7 +247,8 @@ public final class TransactionAcrossRemoteCall implements Observation {
                 RuntimeEvent call,
                 RestClientPayload payload,
                 Connection held,
-                boolean newTransaction) {
+                boolean newTransaction,
+                JournalTextExposure text) {
             if (newTransaction) {
                 transactions++;
                 if (held != null) {
@@ -230,11 +258,15 @@ public final class TransactionAcrossRemoteCall implements Observation {
                     }
                 }
             }
-            String described = describe(payload);
+            String described = describe(payload, text);
             if (firstCall == null) {
                 firstCall = described;
             }
             calls.add(Math.max(0, call.durationNanos()));
+            if (slowestCall == null || call.durationNanos() > slowest) {
+                slowest = Math.max(0, call.durationNanos());
+                slowestCall = described;
+            }
             rows.add(List.of(
                     request.requestId(),
                     described,
@@ -251,10 +283,10 @@ public final class TransactionAcrossRemoteCall implements Observation {
             return holds.stream().mapToLong(Long::longValue).toArray();
         }
 
-        private static String describe(RestClientPayload payload) {
+        private static String describe(RestClientPayload payload, JournalTextExposure text) {
             return ((payload.method() == null ? "" : payload.method() + " ")
                             + (payload.authority() == null ? "" : payload.authority())
-                            + (payload.path() == null ? "" : payload.path()))
+                            + (payload.path() == null ? "" : text.path(payload.path())))
                     .trim();
         }
     }

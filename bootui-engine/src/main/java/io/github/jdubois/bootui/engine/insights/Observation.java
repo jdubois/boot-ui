@@ -47,11 +47,20 @@ public interface Observation {
      *
      * @param eligibleRequests the requests it examined
      * @param findings what it found
+     * @param uncounted a sentence for the check's reason naming what it left out of its findings: what it could not
+     *     judge and left out of {@code eligibleRequests}, such as requests whose statements could not be placed
+     *     against their transactions, or what it judged but does not report, such as methods whose remote calls were
+     *     all fast; {@code null} when it left nothing out
      */
-    record Evaluation(long eligibleRequests, List<Finding> findings) {
+    record Evaluation(long eligibleRequests, List<Finding> findings, String uncounted) {
 
         public Evaluation {
             findings = List.copyOf(findings);
+        }
+
+        /** An evaluation that judged everything it read. */
+        public Evaluation(long eligibleRequests, List<Finding> findings) {
+            this(eligibleRequests, findings, null);
         }
     }
 }

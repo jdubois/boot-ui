@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.insights;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
@@ -63,8 +64,8 @@ class TransactionAcrossRemoteCallTests {
         assertThat(found.get(0).status()).isEqualTo("OBSERVED");
         assertThat(found.get(0).sentence())
                 .isEqualTo("`POST /api/orders`: `OrderService.place` kept its transaction open across a call to `GET"
-                        + " stock:8080/items` in 4 of 5 requests that both called out and opened a transaction; the"
-                        + " call took a median 50 ms, and its connection was held a median 99 ms. Estimate: at about"
+                        + " stock:8080/items` in 4 of 5 requests that both called out and opened a transaction; its"
+                        + " calls took a median 50 ms, and its connection was held a median 99 ms. Estimate: at about"
                         + " 101 requests per second, this route alone would hold all 10 connections of `db` (pool"
                         + " size ÷ hold time).");
         assertThat(found.get(1).status()).isEqualTo("INSUFFICIENT");
@@ -82,6 +83,75 @@ class TransactionAcrossRemoteCallTests {
                                 .orElseThrow()
                                 .status())
                 .isEqualTo("NOT_APPLICABLE");
+    }
+
+    @Test
+    void enoughTransactionsWhoseCallsAreFastAreNotReportedAsNeedingMoreTraffic() {
+        for (int i = 0; i < 4; i++) {
+            request("PUT", "/api/stock", transaction("StockService.update", 0, 100), call("/sync", 80, 5));
+        }
+
+        RuntimeInsightsReportDto report =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null).report();
+
+        assertThat(report.observations())
+                .noneMatch(observation -> observation.kind().equals(TransactionAcrossRemoteCall.KIND));
+        RuntimeInsightCheckDto check = check(report);
+        assertThat(check.status()).isEqualTo("EVALUATED");
+        assertThat(check.reason())
+                .isEqualTo("1 transactional method kept a transaction open only across calls under 20 ms, so it is"
+                        + " not reported.");
+    }
+
+    @Test
+    void fewTransactionsWhoseCallsAreFastAreNotReportedAsNeedingMoreTraffic() {
+        for (int i = 0; i < 2; i++) {
+            request("PUT", "/api/stock", transaction("StockService.update", 0, 100), call("/sync", 80, 1));
+        }
+
+        RuntimeInsightsReportDto report =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null).report();
+
+        assertThat(report.observations())
+                .noneMatch(observation -> observation.kind().equals(TransactionAcrossRemoteCall.KIND));
+        assertThat(check(report).reason()).startsWith("1 transactional method kept a transaction open only");
+    }
+
+    @Test
+    void aSlowCallAmongFastOnesIsReportedEvenThoughTheMedianCallIsFast() {
+        for (int i = 0; i < 4; i++) {
+            Child[] children = new Child[11];
+            children[0] = transaction("OrderService.place", 0, 600);
+            for (int c = 0; c < 9; c++) {
+                children[1 + c] = call("/items", 10 + 3 * c, 2);
+            }
+            children[10] = new Child(
+                    JournalSource.REST_CLIENT,
+                    500 * MS,
+                    new RestClientPayload(
+                            "POST", "payments:8080", "/charge", 200, "RestClient", false, null, 550 * MS));
+            request("POST", "/api/orders", children);
+        }
+
+        RuntimeInsightsReportDto report =
+                new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null).report();
+        List<RuntimeObservationDto> found = report.observations().stream()
+                .filter(observation -> observation.kind().equals(TransactionAcrossRemoteCall.KIND))
+                .toList();
+
+        assertThat(found).singleElement().satisfies(observation -> {
+            assertThat(observation.status()).isEqualTo("OBSERVED");
+            assertThat(observation.sentence())
+                    .contains("its calls took a median 2.0 ms, the slowest 500 ms (`POST payments:8080/charge`).");
+        });
+        assertThat(check(report).reason()).isNull();
+    }
+
+    private static RuntimeInsightCheckDto check(RuntimeInsightsReportDto report) {
+        return report.checks().stream()
+                .filter(check -> check.kind().equals(TransactionAcrossRemoteCall.KIND))
+                .findFirst()
+                .orElseThrow();
     }
 
     private static Child transaction(String method, long startMs, long endMs) {

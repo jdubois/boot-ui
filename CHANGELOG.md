@@ -386,6 +386,40 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Java agent claim handoffs preserve request ownership.** Overlapping submissions of the same task across restarts
+  stay unowned rather than taking a newer claim's snapshot. Immediate reclaim cancels queued executor/thread sensor
+  removal or reinstalls the sensor after an in-flight reset, restoring thread subclasses even when the new claim
+  names different packages. Rejected direct fork/join tasks, including already-completed tasks, and failed
+  `CompletableFuture` thread-per-task starts release their snapshots without treating `invoke`'s accepted task failure
+  as a rejection; executor skip counters stop when the sensor is off
+  ([Java Agent](docs/features/java-agent.md#claims-and-lifecycle),
+  [#1213](https://github.com/jdubois/boot-ui/pull/1213); AGT-01, AGT-02, AGT-04, AGT-09).
+
+- **Profile resources joins segments closed by another thread.** A request segment still open when its request was
+  taken from another thread, as on Quarkus where the response closes a worker's segment from the event loop, now commits
+  its JFR event with its own thread's id, so the worker's CPU and allocation samples join the route instead of counting
+  as outside any request.
+- **`work-after-response` no longer reports a task its handler waited for.** The handler resumes as soon as the task
+  sets its result, before the agent closes the task's handoff, so under load that handoff could end just after the
+  response. Now only SQL, REST, and message work that ended at least two milliseconds after the response started is
+  counted, which absorbs the millisecond precision of recorded event starts. A task's failure still counts by its own
+  end ([#1218](https://github.com/jdubois/boot-ui/pull/1218)).
+
+- **Runtime Insights times AI calls once and reports what it could not count.** `route-time-breakdown` no longer
+  subtracts an AI call's time from the handler when its model HTTP call was already counted as REST client or SQL time:
+  calls reported by Spring AI or Quarkus LangChain4j carry their monotonic completion and are placed on the request's
+  clock as **AI calls**, and tool and retrieval operations, which wrap application code, stay in the handler. A call
+  known only from a GenAI span is placed by its wall-clock start, with a limitation, and adds only its time inside the
+  handler that no placed call covers, so a query made before it no longer shrinks its AI time.
+  `transaction-across-remote-call` reports a method once one of its remote calls took 20 ms or more, naming its median
+  and slowest call, so a slow call among fast ones is no longer dropped. A method whose calls were all faster is not
+  shown, not even as **Needs more traffic**, and the check's reason counts it.
+  `lazy-sql-after-handler` counts requests whose response-phase SQL cannot be placed against their transactions apart,
+  with a limitation and a check reason, instead of dropping them, and `split-transaction-writes` names its uncounted
+  requests in its check reason too. `ai-usage-by-route` reports the tier its calls were actually linked by, and
+  mentions trace-id linking only for calls recovered from GenAI spans
+  ([#1219](https://github.com/jdubois/boot-ui/pull/1219)).
+
 - **Spring WebFlux requests report their GraphQL operation and authentication time again.** The reactive correlation
   filter never began a request's phase markers, so the shared GraphQL operation and Spring Security authentication
   observation handlers had nothing to record into on WebFlux: Live Activity and Runtime Insights showed every GraphQL
@@ -396,6 +430,7 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   the authentication time out of the request's unattributed time: a WebFlux route is insufficient only when neither a
   recorded call nor authentication time names any of its time
   ([#1214](https://github.com/jdubois/boot-ui/pull/1214)).
+
 - **Runtime Insights no longer reports what it could not see.** From the 2.0 validation run
   ([report](docs/V2-VALIDATION-REPORT.md)): `route-time-breakdown` stops calling time "application code" when a request
   reached no handler BootUI marks, such as an Actuator or `/q/` endpoint or a request the security filters answered with
@@ -574,6 +609,20 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   profile too. Applies on Spring MVC, Spring WebFlux, and Quarkus, including after a runtime change of the mode
   ([AI Framework value exposure](docs/features/services.md#ai-framework-value-exposure),
   [#1210](https://github.com/jdubois/boot-ui/pull/1210)).
+- **Journal-rendered SQL and log text now follows the value-exposure policy.** Live Activity rows, KPI strip,
+  request journal profiles, and Runtime Insights sentences and evidence rendered from the runtime journal showed SQL
+  literals, concatenated log messages, and `;name=value` path parameters as recorded in every mode, through the UI, the
+  REST API, `get_live_activity`, `get_runtime_insights`, `get_runtime_insight`, and their `bootui` CLI commands, and
+  the opt-in `bootui_activity` history stored them raw. Every read now applies the live `bootui.expose-values` /
+  `bootui.mask-secrets` policy, so a change from `FULL` to `MASKED` or `METADATA_ONLY` applies to the next read and the
+  Runtime Insights cache is keyed on it: SQL is shown as its literal-free shape, log messages and path parameters are
+  masked, and `METADATA_ONLY` omits log messages. Durable history is written at least as masked as `MASKED`, and stored
+  rows, including those written before this change, are masked again under the live mode on read, keeping their
+  structural label but dropping free text under `METADATA_ONLY`, and are read only while the panel that owns them is
+  enabled. Runtime Insights quote a statement's literal-free shape, never its grouping fingerprint, which kept MySQL
+  double-quoted strings and a truncated dollar quote verbatim. Applies on Spring MVC, Spring WebFlux, and Quarkus
+  ([Live Activity safety](docs/features/overview.md#safety-and-limits), PLAN-v2 §8,
+  [#1216](https://github.com/jdubois/boot-ui/pull/1216)).
 - **Trace data now follows the value-exposure policy.** `GET /bootui/api/traces/{id}`, the trace embedded in the
   per-request profile (`GET /bootui/api/activity/request/{id}`), and their `get_request_profile` MCP tool and
   `bootui request-profile` projections returned span status messages, `exception.message` and `exception.stacktrace`

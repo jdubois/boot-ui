@@ -126,6 +126,13 @@ if (props.initialSymbol) {
   check(props.initialSymbol)
 }
 
+// The router uses hash history, so a "#id" href would be read as a route; scroll to the list instead.
+function showList(id) {
+  const section = document.getElementById(`insight-impact-${id}`)
+  section?.scrollIntoView?.({block: 'start', behavior: 'smooth'})
+  section?.focus({preventScroll: true})
+}
+
 const lists = computed(() => impactLists(impact.value))
 const node = computed(() => nodeParts(impact.value?.node))
 </script>
@@ -209,15 +216,20 @@ const node = computed(() => nodeParts(impact.value?.node))
             </p>
             <ul class="list-inline small mb-0 mt-2 insight-impact-summary" aria-label="Jump to a list below">
               <li v-for="list in lists" :key="list.id" class="list-inline-item">
-                <a :href="`#insight-impact-${list.id}`" class="insight-impact-summary-link">
+                <button
+                  type="button"
+                  class="btn btn-link btn-sm p-0 align-baseline insight-impact-summary-link"
+                  @click="showList(list.id)"
+                >
                   {{ formatNumber(list.total) }} {{ list.total === 1 ? 'route' : 'routes' }} · {{ list.title }}
-                </a>
+                </button>
               </li>
             </ul>
             <div
               v-for="list in lists"
               :id="`insight-impact-${list.id}`"
               :key="list.id"
+              tabindex="-1"
               class="insight-impact-list"
               :data-list="list.id"
             >

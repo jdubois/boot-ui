@@ -448,6 +448,21 @@ The panel inherits BootUI's full safety model — loopback filter, Host allow-li
 masking. Its reads are read-only, and its two state-changing actions, **Use the existing datasource** and **Clear
 recording**, are confirmation-gated and blocked whenever the app or panel is read-only.
 
+The text the feed renders from the runtime journal follows the live `bootui.expose-values` / `bootui.mask-secrets`
+policy at every read, in the panel, `get_live_activity`, `bootui live-activity`, request journal profiles, and the KPI
+strip, so a change of mode applies to the next read. Under the default `MASKED`, SQL statements are shown as their
+literal-free shape (`where name = ?`), with double-quoted runs and an unterminated dollar quote of a truncated statement
+replaced too, and log messages and `;name=value` path parameters are masked as in the
+[Logs panel](diagnostics.md#log-message-exposure). `FULL`, or `MASKED` with `bootui.mask-secrets=false`, shows them as
+recorded. `METADATA_ONLY` keeps the SQL shape and omits log messages. [Durable history](#durable-history) is always
+written at least as masked as `MASKED`, even while the live mode is `FULL`, and each stored row is masked again under
+the live mode when it is read: never shown less masked than `MASKED`, and under `METADATA_ONLY` with its free text
+(log messages, exception messages, principals, email subjects and recipients) dropped while its structural label, such
+as `GET /orders → 200` or a SQL shape, stays. A stored row is also read only while the panel that owns it is enabled:
+disabling SQL Trace, Logs, or any other source panel hides its rows already written to durable history, as it does for
+live rows. A SQL statement that mixes a quote with a backslash or a `#`, which MySQL and MariaDB may read as an escaped
+quote or a comment, is cut at its first quote rather than guessed at.
+
 The stream is capped by `bootui.activity.max-entries`. The slow-request threshold,
 `bootui.activity.request-slow-threshold-ms` (1,000 ms by default, `0` to disable), applies on Spring MVC, Spring
 WebFlux, and Quarkus alike: it sets the `SLOW` severity of request and scheduled-task entries, and decides which HTTP
@@ -596,13 +611,15 @@ the feed stays visible underneath. The viewport adapts to the graph's content, u
 **Runtime Insights** answers what this run did that no single panel shows. It reads the
 [runtime journal](#runtime-journal) and projects its retained events into observations: each one names what was counted
 on a route, never a cause, a severity, or a score. Opening the panel starts no capture, scan, database read, or network
-call; it only re-reads what the journal already recorded, and caches the result until the journal records more.
+call; it only re-reads what the journal already recorded, and caches the result until the journal records more or the
+live exposure policy changes. Sentences and evidence that quote recorded text, such as a framework warning's message or
+a request path, follow the same rule as [Live Activity](#safety-and-limits).
 
 Twenty-two observations run over the completed requests and garbage collections the journal retains:
 
 | Observation | What it counts |
 | --- | --- |
-| `route-time-breakdown` | Where a route's warm requests spend their time: authentication, authorization (Spring, from the `authorization` source: a request's checks out of the filters, a method's out of the handler), other filters, connection wait, SQL, REST client calls, AI calls, synchronous message sends (RabbitMQ and JMS; a Kafka send is timed until the broker's asynchronous acknowledgement, so it stays in the handler's time and the row says so), other handler work, and the response write. Overlapping calls count once, and each route's first request is reported apart as cold. On Spring MVC and Quarkus, a request that reached no handler BootUI marks, such as an Actuator or `/q/` endpoint or a request the security filters answered with 401 or 403, is never split as handler work: it is left out of its route's phases, and a route whose requests mostly did is reported insufficient with its recorded calls. On WebFlux, which marks no handler or response phase, a route whose requests named nothing at all, neither a recorded call nor authentication time, is insufficient, since its breakdown would be one unattributed span |
+| `route-time-breakdown` | Where a route's warm requests spend their time: authentication, authorization (Spring, from the `authorization` source: a request's checks out of the filters, a method's out of the handler), other filters, connection wait, SQL, REST client calls, AI calls (a model call reported by Spring AI or Quarkus LangChain4j is placed over the HTTP call that carried it, so that time counts once, as AI; one known only from a GenAI span is placed by its wall-clock start, to the millisecond, and adds only its time inside the handler that no placed call covers; tool and retrieval operations stay in the handler they wrap), synchronous message sends (RabbitMQ and JMS; a Kafka send is timed until the broker's asynchronous acknowledgement, so it stays in the handler's time and the row says so), other handler work, and the response write. Overlapping calls count once, and each route's first request is reported apart as cold. On Spring MVC and Quarkus, a request that reached no handler BootUI marks, such as an Actuator or `/q/` endpoint or a request the security filters answered with 401 or 403, is never split as handler work: it is left out of its route's phases, and a route whose requests mostly did is reported insufficient with its recorded calls. On WebFlux, which marks no handler or response phase, a route whose requests named nothing at all, neither a recorded call nor authentication time, is insufficient, since its breakdown would be one unattributed span |
 | `exception-hotspots` | Exception groups per route, by a signature that survives line shifts, marked when the previous run served the route without them |
 | `errors-behind-2xx` | 2xx responses whose own request rolled back its transaction, recorded an exception, wrote an `ERROR` log, or received a downstream 5xx; requests a retry or fallback recovered are listed apart |
 | `repeated-selects` | The same SELECT run five or more times in a request after another statement, from three requests |
@@ -612,8 +629,8 @@ Twenty-two observations run over the completed requests and garbage collections 
 | `anonymous-data-reach` | Successful requests an authorization decision proved anonymous that wrote a table, per route and table. Anonymous reads, authenticated writes, and requests no rule checked are never counted, and each row says not to add authorization from it alone |
 | `anonymous-success-on-restricted-route` | 2xx answers to proven-anonymous requests on a route whose rules this run saw deny another anonymous caller or require an authority: "a successful anonymous response, not proof that the rule is wrong" |
 | `split-transaction-writes` | Requests whose writes committed in two or more independent transactions or autocommit statements |
-| `transaction-across-remote-call` | Transactions still open when a REST client call starts, with the connection they held |
-| `lazy-sql-after-handler` | SQL run while the response was written, outside every transaction (open session in view). When the statement's frames show a template engine rendering the view, such as Thymeleaf calling a Spring `Formatter`, it says the view ran the query and advises loading that data in the handler, into the model, and names the application frame the view called as the call site |
+| `transaction-across-remote-call` | Transactions still open when a REST client call starts, with the connection they held. A method is reported once one of its calls took 20 ms or more, and its median and slowest call are named; a method whose calls were all faster is not reported, and the check's reason counts it |
+| `lazy-sql-after-handler` | SQL run while the response was written, outside every transaction (open session in view). When the statement's frames show a template engine rendering the view, such as Thymeleaf calling a Spring `Formatter`, it says the view ran the query and advises loading that data in the handler, into the model, and names the application frame the view called as the call site. A request whose statements or transactions have no monotonic time is counted apart, as a limitation and in the check's reason |
 | `event-loop-blocking` | JDBC statements started on an event-loop thread |
 | `orm-auto-flush` | Requests in which Hibernate wrote pending changes before a query three times or more, or for at least a fifth of their ORM time; the threshold is per request, so one such request reports its route |
 | `large-persistence-context` | Requests whose Hibernate session held 500 entities or more at a flush, in three requests of a route or more |
@@ -621,7 +638,7 @@ Twenty-two observations run over the completed requests and garbage collections 
 | `transactional-listener-skipped` | Spring: a `@TransactionalEventListener` that never ran because its event was published with no transaction active, from one event. Not applicable on Quarkus, where CDI notifies a transactional observer at once |
 | `after-commit-writes` | Spring: INSERT, UPDATE, or DELETE statements run by an after-commit, after-rollback, or after-completion listener outside every transaction that began within it; such writes join the finished transaction and are never committed |
 | `heap-growth-after-gc` | Old-generation occupancy after the full or mixed collections that reclaimed it, rising across the run from three such collections; the Memory panel links to it. Never called a leak, since a warming cache rises too before it levels off |
-| `ai-usage-by-route` | AI operations per route, job, or listener: model calls per request, tokens, input growth, and length-limited answers. Spring AI's model observation and Quarkus LangChain4j's chat listener stamp each call with its request when it is made, so no tracing is needed; GenAI spans received over OTLP fill in what they do not report, without counting a call twice |
+| `ai-usage-by-route` | AI operations per route, job, or listener: model calls per request, tokens, input growth, and length-limited answers. Spring AI's model observation and Quarkus LangChain4j's chat listener stamp each call with its request when it is made, so no tracing is needed; GenAI spans received over OTLP fill in what they do not report, without counting a call twice. Each route shows the tier its calls were linked by, and only calls joined from GenAI spans carry the trace-id limitation |
 | `framework-warnings-by-route` | `WARN` and `ERROR` events from framework loggers, grouped by logger, template, and route |
 | `work-after-response` | Work a request handed to a JDK executor that was still running once its response started, and that ran SQL, called a REST service, sent or received a message, or failed, from one request. Needs the [BootUI agent](java-agent.md)'s `executors` sensor, and is not applicable, with the reason, unless the agent is attached and armed for the application, the sensor is installed and not disabled, and BootUI attached its handoffs to the claim; a task that recorded nothing, such as a library's housekeeping, is never counted |
 

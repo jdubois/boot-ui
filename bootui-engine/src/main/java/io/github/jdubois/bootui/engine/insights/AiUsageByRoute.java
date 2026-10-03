@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.insights;
 
+import io.github.jdubois.bootui.engine.correlation.ExecutionIds;
 import io.github.jdubois.bootui.engine.journal.AiPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
@@ -12,7 +13,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * {@code ai-usage-by-route} ({@code docs/PLAN-v2.md} §5.5): the AI operations each route's requests made, linked by
+ * {@code ai-usage-by-route} ({@code docs/PLAN-v2.md} §5.5): the AI operations each route's requests or jobs made, each
+ * stamped with its request or execution when the AI framework reported it (M3-9), or else linked by its GenAI span's
  * trace id: model calls per request, which reveals agent loops, latency, errors, tokens with their coverage, input
  * growth across a request's successive model calls, and calls stopped at the length limit. Never a money figure.
  */
@@ -60,6 +62,7 @@ public final class AiUsageByRoute implements Observation {
         return "AI usage by route";
     }
 
+    /** Trace id for operations recovered from GenAI spans; each finding reports the tier its operations used. */
     @Override
     public CorrelationTier minimumTier() {
         return CorrelationTier.TRACE_ID;
@@ -164,8 +167,11 @@ public final class AiUsageByRoute implements Observation {
             checks.add("Open an exemplar request's trace to see each operation in order.");
         }
         List<String> limitations = new ArrayList<>();
-        limitations.add(
-                "Operations are linked to requests by trace id; work outside a traced request is not" + " counted.");
+        if (usage.traceLinked > 0) {
+            limitations.add(InsightText.counted(usage.traceLinked, "operation") + " of " + usage.operations
+                    + " came from GenAI spans, linked to " + (usage.traceLinked == 1 ? "its" : "their")
+                    + " request by trace id and time; such an operation outside a traced request is not counted.");
+        }
         if (usage.callsWithTokens < usage.modelCalls) {
             limitations.add("Some model calls reported no tokens, so token totals are a floor.");
         }
@@ -180,7 +186,8 @@ public final class AiUsageByRoute implements Observation {
                 usage.exemplars(),
                 List.of("Request", "Operations", "Model calls", "Models", "Input tokens", "Output tokens"),
                 usage.rows,
-                limitations);
+                limitations,
+                usage.tier());
     }
 
     private static final class Usage {
@@ -198,6 +205,8 @@ public final class AiUsageByRoute implements Observation {
         private long lengthLimited;
         private long overThreshold;
         private long failed;
+        private long traceLinked;
+        private long propagated;
         private long growingRequests;
         private double largestGrowth;
         private int mostCallsInOneRequest;
@@ -219,6 +228,11 @@ public final class AiUsageByRoute implements Observation {
                     continue;
                 }
                 operations++;
+                if (event.requestId() == null && event.executionId() == null) {
+                    traceLinked++;
+                } else if (event.requestId() != null && ExecutionIds.isAsync(event.executionId())) {
+                    propagated++;
+                }
                 if (ai.failed()) {
                     failed++;
                 }
@@ -266,6 +280,13 @@ public final class AiUsageByRoute implements Observation {
                     String.join(", ", models),
                     String.valueOf(requestIn),
                     String.valueOf(requestOut)));
+        }
+
+        /** The weakest tier its operations were joined at: trace id, a propagated task, or the request's own id. */
+        CorrelationTier tier() {
+            return traceLinked > 0
+                    ? CorrelationTier.TRACE_ID
+                    : propagated > 0 ? CorrelationTier.PROPAGATED : CorrelationTier.REQUEST_ID;
         }
 
         long[] chatNanos() {
