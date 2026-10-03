@@ -44,6 +44,34 @@ final class HeapWalk {
         return walk;
     }
 
+    /**
+     * Run number to the path by which the thread-locals of the threads named with one of {@code threadPrefixes} (JVM-wide
+     * threads such as the common pool's workers) reach it: a propagated context left set after its task would.
+     */
+    Map<Integer, String> runsReachedThroughThreadLocals(
+            List<String> threadPrefixes, String agentPrefix, String runClass) {
+        Map<Long, Long> parent = new HashMap<>();
+        Map<Long, String> edge = new HashMap<>();
+        ArrayDeque<Long> queue = new ArrayDeque<>();
+        for (Long object : offsets.keySet()) {
+            long type = classOf(object);
+            if (!isThread(type)) {
+                continue;
+            }
+            String threadName = threadName(object, type);
+            if (threadName == null || threadPrefixes.stream().noneMatch(threadName::startsWith)) {
+                continue;
+            }
+            for (String field : List.of("threadLocals", "inheritableThreadLocals")) {
+                Object map = field(object, type, field);
+                if (map instanceof Long id && id != 0) {
+                    root(id, parent, edge, queue, field + " of " + threadName);
+                }
+            }
+        }
+        return walk(parent, edge, queue, agentPrefix, runClass);
+    }
+
     /** Run number to the path the agent reaches it by. */
     Map<Integer, String> runsReachedByAgent(String agentPrefix, String runClass) {
         Map<Long, Long> parent = new HashMap<>();
@@ -66,6 +94,15 @@ final class HeapWalk {
                 }
             }
         }
+        return walk(parent, edge, queue, agentPrefix, runClass);
+    }
+
+    private Map<Integer, String> walk(
+            Map<Long, Long> parent,
+            Map<Long, String> edge,
+            ArrayDeque<Long> queue,
+            String agentPrefix,
+            String runClass) {
         TreeMap<Integer, String> runs = new TreeMap<>();
         while (!queue.isEmpty()) {
             long object = queue.poll();

@@ -111,6 +111,10 @@ public final class AgentBridge {
         String owner = text(request.get("owner"), application);
         String mode = TEST.equals(request.get("mode")) ? TEST : DEV;
         List<String> packages = strings(request.get("packages"));
+        List<String> sensors = strings(request.get("sensors"));
+        Object options = request.get("executors");
+        String[] skipTasks = array(options instanceof Map ? ((Map<?, ?>) options).get("skipTasks") : null);
+        String[] skipThreads = array(options instanceof Map ? ((Map<?, ?>) options).get("skipThreads") : null);
         String slot = Claim.slot(mode, application);
         while (true) {
             Claim current = CLAIM.get();
@@ -129,6 +133,9 @@ public final class AgentBridge {
                     application,
                     mode,
                     packages,
+                    sensors,
+                    skipTasks,
+                    skipThreads,
                     System.currentTimeMillis(),
                     true,
                     new WeakReference<Supplier<Object>>(capture),
@@ -216,6 +223,14 @@ public final class AgentBridge {
         return current != null && current.armed;
     }
 
+    /** Counts an error of an advice entry point, which never throws to the application. */
+    static void error(Throwable ex) {
+        ERRORS.increment();
+        if (ERRORS.sum() <= 5) {
+            message("advice error: " + ex);
+        }
+    }
+
     /**
      * Called from the agent's diagnostic probe advice (no production sensor uses it): counts every probed method entry,
      * claimed or not, so a test can tell the advice was removed from a class.
@@ -239,6 +254,7 @@ public final class AgentBridge {
         counters.put("staleTokens", Long.valueOf(STALE_TOKENS.sum()));
         counters.put("errors", Long.valueOf(ERRORS.sum()));
         counters.put("probeHits", Long.valueOf(PROBE_HITS.sum()));
+        map.put("executors", TaskPropagation.status());
         map.put("counters", counters);
         if (agent != null) {
             Map<String, Object> request = new LinkedHashMap<String, Object>();
@@ -329,6 +345,16 @@ public final class AgentBridge {
         return text.isEmpty() ? fallback : text;
     }
 
+    private static String[] array(Object value) {
+        List<String> list = strings(value);
+        return list.toArray(new String[0]);
+    }
+
+    /** The current claim, for the bridge's advice entry points. */
+    static Claim current() {
+        return CLAIM.get();
+    }
+
     private static List<String> strings(Object value) {
         List<String> list = new ArrayList<String>();
         if (value instanceof Collection) {
@@ -360,5 +386,6 @@ public final class AgentBridge {
         STALE_TOKENS.reset();
         ERRORS.reset();
         PROBE_HITS.reset();
+        TaskPropagation.reset();
     }
 }

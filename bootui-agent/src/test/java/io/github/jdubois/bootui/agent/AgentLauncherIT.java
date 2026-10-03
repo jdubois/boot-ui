@@ -23,13 +23,18 @@ class AgentLauncherIT {
                     .map(JarEntry::getName)
                     .filter(name -> name.endsWith(".class"))
                     .toList();
+            List<String> launcher = List.of(
+                    "io/github/jdubois/bootui/agent/AgentLauncher.class",
+                    "io/github/jdubois/bootui/agent/AgentBootstrap.class",
+                    "io/github/jdubois/bootui/agent/AgentClassLoader.class");
             assertThat(rootClasses)
-                    .containsExactlyInAnyOrder(
-                            "io/github/jdubois/bootui/agent/AgentLauncher.class",
-                            "io/github/jdubois/bootui/agent/AgentBootstrap.class",
-                            "io/github/jdubois/bootui/agent/AgentClassLoader.class",
+                    .as("only the launcher, its class loader, and the bridge sit at the root")
+                    .allMatch(name ->
+                            name.startsWith("io/github/jdubois/bootui/agent/bridge/") || launcher.contains(name))
+                    .containsAll(launcher)
+                    .contains(
                             "io/github/jdubois/bootui/agent/bridge/AgentBridge.class",
-                            "io/github/jdubois/bootui/agent/bridge/Claim.class");
+                            "io/github/jdubois/bootui/agent/bridge/TaskPropagation.class");
             assertThat(jar.getEntry("inst/io/github/jdubois/bootui/agent/BootUiAgent.classdata"))
                     .isNotNull();
             assertThat(jar.stream().map(JarEntry::getName))

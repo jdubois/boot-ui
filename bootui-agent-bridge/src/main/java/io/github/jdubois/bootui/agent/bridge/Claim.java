@@ -23,6 +23,13 @@ final class Claim {
     final String application;
     final String mode;
     final List<String> packages;
+    /** The sensors this application asked for, such as {@code executors}. */
+    final List<String> sensors;
+    /** Task class-name prefixes of wrappers that already propagate BootUI's context: never keyed. */
+    final String[] skipTasks;
+    /** Worker thread-name prefixes of executors that propagate BootUI's context themselves: never applied. */
+    final String[] skipThreads;
+
     final long armedAt;
     final boolean armed;
     final WeakReference<Supplier<Object>> capture;
@@ -35,6 +42,9 @@ final class Claim {
             String application,
             String mode,
             List<String> packages,
+            List<String> sensors,
+            String[] skipTasks,
+            String[] skipThreads,
             long armedAt,
             boolean armed,
             WeakReference<Supplier<Object>> capture,
@@ -46,6 +56,9 @@ final class Claim {
         this.application = application;
         this.mode = mode;
         this.packages = packages;
+        this.sensors = sensors;
+        this.skipTasks = skipTasks;
+        this.skipThreads = skipThreads;
         this.armedAt = armedAt;
         this.armed = armed;
         this.capture = capture;
@@ -76,6 +89,9 @@ final class Claim {
                 application,
                 mode,
                 Collections.unmodifiableList(merged),
+                sensors,
+                skipTasks,
+                skipThreads,
                 armedAt,
                 armed,
                 capture,
@@ -83,7 +99,45 @@ final class Claim {
     }
 
     Claim disarmed() {
-        return new Claim(generation, token, owner, application, mode, packages, armedAt, false, capture, reopen);
+        return new Claim(
+                generation,
+                token,
+                owner,
+                application,
+                mode,
+                packages,
+                sensors,
+                skipTasks,
+                skipThreads,
+                armedAt,
+                false,
+                capture,
+                reopen);
+    }
+
+    boolean hasSensor(String sensor) {
+        return sensors.contains(sensor);
+    }
+
+    /** Whether {@code name} starts with one of {@code prefixes}. */
+    static boolean startsWithAny(String name, String[] prefixes) {
+        if (name == null) {
+            return false;
+        }
+        for (int i = 0; i < prefixes.length; i++) {
+            if (name.startsWith(prefixes[i])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static List<String> list(String[] values) {
+        List<String> list = new ArrayList<String>();
+        for (int i = 0; i < values.length; i++) {
+            list.add(values[i]);
+        }
+        return list;
     }
 
     /** JDK types only, for the agent and for status. */
@@ -94,6 +148,11 @@ final class Claim {
         map.put("application", application);
         map.put("mode", mode);
         map.put("packages", new ArrayList<String>(packages));
+        map.put("sensors", new ArrayList<String>(sensors));
+        Map<String, Object> executors = new LinkedHashMap<String, Object>();
+        executors.put("skipTasks", list(skipTasks));
+        executors.put("skipThreads", list(skipThreads));
+        map.put("executors", executors);
         map.put("armedAt", Long.valueOf(armedAt));
         map.put("armed", Boolean.valueOf(armed));
         map.put("abandoned", Boolean.valueOf(abandoned()));

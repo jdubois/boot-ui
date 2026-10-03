@@ -53,7 +53,7 @@ public final class McpToolDescriptions {
                             + "exemplar request. An unknown or evicted id returns available=false with a reason."),
             Map.entry(
                     "get_runtime_impact",
-                    "For a bean, class, repository, table, cache, host, or event type id: the routes this run "
+                    "For a route, bean, class, repository, table, cache, host, or event type id: the routes this run "
                             + "exercised through it, those it did not, and those sharing a resource with it, at most 8 "
                             + "each, or AMBIGUOUS with candidates. A checklist of what was and was not exercised, never "
                             + "a verdict that a change is safe."),

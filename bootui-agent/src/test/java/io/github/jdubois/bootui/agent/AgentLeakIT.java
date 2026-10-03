@@ -18,11 +18,39 @@ class AgentLeakIT {
     private static final int RUNS = 10;
     private static final String RUN_CLASS = "bootuiagentit/run/RunApp";
 
+    private static final List<String> JVM_WIDE_THREADS = List.of(
+            "ForkJoinPool.commonPool-worker",
+            "CompletableFutureDelayScheduler",
+            "ForkJoinPool.commonPool-delayScheduler",
+            "shared-pool-worker");
+
     @Test
     void theAgentReachesNoRunAfterTenRuns() throws Exception {
         Map<Integer, String> reached = reached("clean", List.of());
 
         assertThat(reached).as("runs the agent strongly reaches: %s", reached).isEmpty();
+    }
+
+    @Test
+    void jvmWideThreadsKeepNoRunsContextAfterPropagatedWork() throws Exception {
+        Path dump = dump("thread-locals", List.of());
+        Map<Integer, String> reached = HeapWalk.read(dump)
+                .runsReachedThroughThreadLocals(JVM_WIDE_THREADS, "io/github/jdubois/bootui/agent/", RUN_CLASS);
+        java.nio.file.Files.deleteIfExists(dump);
+
+        assertThat(reached)
+                .as("runs JVM-wide threads keep through thread-locals: %s", reached)
+                .isEmpty();
+    }
+
+    @Test
+    void aReopenedContextLeftSetOnAJvmWideThreadIsCaught() throws Exception {
+        Path dump = dump("left-set", List.of("-Dbootui.agent.it.leave-context-set=true"));
+        Map<Integer, String> reached = HeapWalk.read(dump)
+                .runsReachedThroughThreadLocals(JVM_WIDE_THREADS, "io/github/jdubois/bootui/agent/", RUN_CLASS);
+        java.nio.file.Files.deleteIfExists(dump);
+
+        assertThat(reached).isNotEmpty();
     }
 
     @Test
@@ -44,6 +72,14 @@ class AgentLeakIT {
     }
 
     private static Map<Integer, String> reached(String name, List<String> options) throws Exception {
+        Path dump = dump(name, options);
+        Map<Integer, String> reached =
+                HeapWalk.read(dump).runsReachedByAgent("io/github/jdubois/bootui/agent/", RUN_CLASS);
+        java.nio.file.Files.deleteIfExists(dump);
+        return reached;
+    }
+
+    private static Path dump(String name, List<String> options) throws Exception {
         Path dump = ChildJvm.WORK.resolve("leak-" + name + ".hprof");
         List<String> jvm = new ArrayList<>();
         jvm.add(ChildJvm.javaAgent(ChildJvm.TEST_AGENT));
@@ -57,9 +93,9 @@ class AgentLeakIT {
                 .as(output.toString())
                 .contains("failed=0")
                 .contains("skipped=0");
-        Map<Integer, String> reached =
-                HeapWalk.read(dump).runsReachedByAgent("io/github/jdubois/bootui/agent/", RUN_CLASS);
-        java.nio.file.Files.deleteIfExists(dump);
-        return reached;
+        assertThat(output.value("EXECUTORS"))
+                .as("the runs' work was propagated: %s", output)
+                .doesNotContain("ThreadPoolExecutor.runWorker=0");
+        return dump;
     }
 }

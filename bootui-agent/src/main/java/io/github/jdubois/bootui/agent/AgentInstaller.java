@@ -10,16 +10,13 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.agent.builder.ResettableClassFileTransformer;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.type.TypeDescription;
-import net.bytebuddy.dynamic.ClassFileLocator;
 import net.bytebuddy.dynamic.DynamicType;
 import net.bytebuddy.matcher.ElementMatcher;
 import net.bytebuddy.matcher.ElementMatchers;
-import net.bytebuddy.pool.TypePool;
 import net.bytebuddy.utility.JavaModule;
 
 /**
@@ -38,13 +35,7 @@ final class AgentInstaller {
     private final Instrumentation instrumentation;
     private final AgentTestHook hook;
     private final Class<?> advice;
-    private final AtomicInteger transformed = new AtomicInteger();
-    private final AtomicInteger retransformed = new AtomicInteger();
-    private final AtomicInteger failed = new AtomicInteger();
-    private final AtomicInteger skipped = new AtomicInteger();
-    private final AtomicInteger fallbacks = new AtomicInteger();
-    private final List<String> failures = Collections.synchronizedList(new ArrayList<String>());
-    private final List<String> fallbackTypes = Collections.synchronizedList(new ArrayList<String>());
+    private final TransformStats stats = new TransformStats();
     private final ArrayDeque<Runnable> jobs = new ArrayDeque<Runnable>();
     /** The packages wanted by the claims since the last release. */
     private volatile List<String> probePackages = Collections.emptyList();
@@ -88,20 +79,10 @@ final class AgentInstaller {
         map.put("state", state);
         map.put("advice", advice.getSimpleName());
         map.put("probePackages", new ArrayList<String>(probePackages));
-        map.put("transformed", Integer.valueOf(transformed.get()));
-        map.put("retransformed", Integer.valueOf(retransformed.get()));
-        map.put("failed", Integer.valueOf(failed.get()));
-        map.put("skipped", Integer.valueOf(skipped.get()));
-        map.put("poolFallbacks", Integer.valueOf(fallbacks.get()));
+        stats.putInto(map);
         map.put("durationMillis", Long.valueOf(durationMillis));
         synchronized (this) {
             map.put("running", Boolean.valueOf(worker != null));
-        }
-        synchronized (failures) {
-            map.put("failures", new ArrayList<String>(failures));
-        }
-        synchronized (fallbackTypes) {
-            map.put("fallbackTypes", new ArrayList<String>(fallbackTypes));
         }
         return map;
     }
@@ -136,16 +117,7 @@ final class AgentInstaller {
     }
 
     private AgentBuilder builder() {
-        return new AgentBuilder.Default()
-                .disableClassFormatChanges()
-                .with(AgentBuilder.RedefinitionStrategy.RETRANSFORMATION)
-                .with(AgentBuilder.RedefinitionStrategy.BatchAllocator.ForFixedSize.ofSize(64))
-                .with(AgentBuilder.RedefinitionStrategy.DiscoveryStrategy.Reiterating.INSTANCE)
-                .with(AgentBuilder.RedefinitionStrategy.Listener.BatchReallocator.splitting())
-                .with(new RedefinitionFailures())
-                .with(AgentBuilder.TypeStrategy.Default.DECORATE)
-                .with(new BootstrapFallbackPoolStrategy())
-                .with(new Transformations())
+        return stats.configure(new AgentBuilder.Default())
                 .ignore(ignored())
                 .type(new ProbeMatcher())
                 .transform(new ProbeTransformer(advice));
@@ -179,11 +151,7 @@ final class AgentInstaller {
     }
 
     private void failure(String text) {
-        synchronized (failures) {
-            if (failures.size() < FAILURES) {
-                failures.add(text);
-            }
-        }
+        stats.failure(text);
     }
 
     /** Runs the queued jobs one at a time; a failing job is reported and the next one still runs. */
@@ -258,7 +226,7 @@ final class AgentInstaller {
                     AgentBuilder.RedefinitionStrategy.BatchAllocator.ForFixedSize.ofSize(64),
                     new AgentBuilder.RedefinitionStrategy.Listener.Compound(
                             AgentBuilder.RedefinitionStrategy.Listener.BatchReallocator.splitting(),
-                            new RedefinitionFailures()));
+                            stats.redefinitionFailures()));
             installedPackages = Collections.emptyList();
             state = restored ? "released" : "release-failed";
         }
@@ -270,8 +238,7 @@ final class AgentInstaller {
                 try {
                     instrumentation.retransformClasses(type);
                 } catch (Throwable ex) {
-                    skipped.incrementAndGet();
-                    failure(type.getName() + ": " + ex);
+                    stats.skipped(type.getName(), ex);
                 }
             }
         }
@@ -319,86 +286,6 @@ final class AgentInstaller {
                             .and(ElementMatchers.not(ElementMatchers.isAbstract()))
                             .and(ElementMatchers.not(ElementMatchers.isNative()))
                             .and(ElementMatchers.not(ElementMatchers.isSynthetic()))));
-        }
-    }
-
-    final class Transformations extends AgentBuilder.Listener.Adapter {
-
-        @Override
-        public void onTransformation(
-                TypeDescription type,
-                ClassLoader classLoader,
-                JavaModule module,
-                boolean loaded,
-                DynamicType dynamicType) {
-            transformed.incrementAndGet();
-            if (loaded) {
-                retransformed.incrementAndGet();
-            }
-        }
-
-        @Override
-        public void onError(
-                String typeName, ClassLoader classLoader, JavaModule module, boolean loaded, Throwable error) {
-            failed.incrementAndGet();
-            failure(typeName + ": " + error);
-        }
-    }
-
-    /** Byte Buddy swallows retransformation failures by default: count and name each class still failing alone. */
-    final class RedefinitionFailures extends AgentBuilder.RedefinitionStrategy.Listener.Adapter {
-
-        @Override
-        public Iterable<? extends List<Class<?>>> onError(
-                int index, List<Class<?>> batch, Throwable throwable, List<Class<?>> types) {
-            if (batch.size() == 1) {
-                skipped.incrementAndGet();
-                failure(batch.get(0).getName() + ": " + throwable);
-            }
-            return Collections.emptyList();
-        }
-    }
-
-    /**
-     * Another agent can add bootstrap types it appended at runtime (OpenTelemetry's {@code VirtualFieldInstalledMarker})
-     * to a class as it loads; live-phase bootstrap appends are not readable as resources. Falls back to the loaded type,
-     * through the bootstrap class loader only: loading application classes from a transformer risks circularity skips
-     * and class loader deadlocks.
-     */
-    final class BootstrapFallbackPoolStrategy implements AgentBuilder.PoolStrategy {
-
-        @Override
-        public TypePool typePool(ClassFileLocator locator, ClassLoader classLoader) {
-            return new BootstrapFallbackPool(locator);
-        }
-
-        @Override
-        public TypePool typePool(ClassFileLocator locator, ClassLoader classLoader, String name) {
-            return new BootstrapFallbackPool(locator);
-        }
-    }
-
-    final class BootstrapFallbackPool extends TypePool.Default {
-
-        BootstrapFallbackPool(ClassFileLocator locator) {
-            super(new TypePool.CacheProvider.Simple(), locator, TypePool.Default.ReaderMode.FAST);
-        }
-
-        @Override
-        protected Resolution doDescribe(String name) {
-            Resolution resolution = super.doDescribe(name);
-            if (resolution.isResolved()) {
-                return resolution;
-            }
-            try {
-                Class<?> type = Class.forName(name, false, null);
-                if (fallbacks.incrementAndGet() <= FAILURES) {
-                    fallbackTypes.add(name);
-                }
-                return new Resolution.Simple(TypeDescription.ForLoadedType.of(type));
-            } catch (Throwable ex) {
-                return resolution;
-            }
         }
     }
 }

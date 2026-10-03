@@ -17,6 +17,18 @@ public final class ChildMain {
 
     static final String BRIDGE = "io.github.jdubois.bootui.agent.bridge.AgentBridge";
 
+    /**
+     * A pool defined outside every run and living across them, as an application-wide executor does: its threads keep
+     * whatever a reopened context leaves in their thread-locals, unlike the common pool's, which the JDK erases.
+     */
+    public static final java.util.concurrent.ExecutorService SHARED_POOL =
+            java.util.concurrent.Executors.newFixedThreadPool(1, task -> {
+                Thread thread = new Thread(task, "shared-pool-worker");
+                thread.setDaemon(true);
+                thread.setContextClassLoader(null);
+                return thread;
+            });
+
     private ChildMain() {}
 
     public static void main(String[] args) throws Exception {
@@ -25,6 +37,7 @@ public final class ChildMain {
             case "probe" -> probe();
             case "claim-only" -> claimOnly();
             case "mockito" -> mockito();
+            case "behaviors" -> Behaviors.main(new String[] {"agent"});
             case "runs" -> runs(Integer.parseInt(args[1]), args[2]);
             default -> throw new IllegalArgumentException(args[0]);
         }
@@ -137,12 +150,15 @@ public final class ChildMain {
             long token = (Long) app.getMethod("claim").invoke(null);
             if (run == 1) {
                 awaitInstalled(bridge());
+                Behaviors.awaitSelfTest(bridge());
             }
+            app.getMethod("propagate").invoke(null);
             app.getMethod("disarm", long.class).invoke(null, token);
             Thread.currentThread().setContextClassLoader(ChildMain.class.getClassLoader());
         }
         System.out.println("HITS=" + counter(bridge(), "probeHits"));
         System.out.println("INSTALLER=" + installer(bridge()));
+        System.out.println("EXECUTORS=" + executors(bridge()));
         for (int i = 0; i < 3; i++) {
             System.gc();
             Thread.sleep(100);
@@ -171,6 +187,11 @@ public final class ChildMain {
         Map<String, Object> agent = (Map<String, Object>) status.get("agent");
         Object installer = agent == null ? null : agent.get("installer");
         return installer == null ? Map.of("state", "none") : (Map<String, Object>) installer;
+    }
+
+    @SuppressWarnings("unchecked")
+    static Object executors(Class<?> bridge) throws Exception {
+        return ((Map<String, Object>) bridge.getMethod("status").invoke(null)).get("executors");
     }
 
     @SuppressWarnings("unchecked")
