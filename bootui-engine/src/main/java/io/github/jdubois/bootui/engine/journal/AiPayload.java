@@ -13,6 +13,8 @@ package io.github.jdubois.bootui.engine.journal;
  * @param failed whether the span ended in error
  * @param spanId the span id of the call, which tells a GenAI span from the framework's own event for the same call, or
  *     {@code null} when unknown
+ * @param completedNanos the {@link System#nanoTime()} when it completed, or {@code -1} when unknown, as for a GenAI span
+ *     received over OTLP; it places the call on its request's clock ({@code docs/PLAN-v2.md} §5.5)
  */
 public record AiPayload(
         String operation,
@@ -22,8 +24,22 @@ public record AiPayload(
         Long outputTokens,
         String finishReason,
         boolean failed,
-        String spanId)
+        String spanId,
+        long completedNanos)
         implements RuntimeEventPayload {
+
+    /** A call without its monotonic completion. */
+    public AiPayload(
+            String operation,
+            String provider,
+            String model,
+            Long inputTokens,
+            Long outputTokens,
+            String finishReason,
+            boolean failed,
+            String spanId) {
+        this(operation, provider, model, inputTokens, outputTokens, finishReason, failed, spanId, -1);
+    }
 
     /** A call whose span id is unknown. */
     public AiPayload(
@@ -58,7 +74,8 @@ public record AiPayload(
                 outputTokens,
                 dictionary.shared(finishReason),
                 failed,
-                spanId);
+                spanId,
+                completedNanos);
     }
 
     /** Its fixed part and its strings, each counted as the payload's own. */
@@ -70,7 +87,7 @@ public record AiPayload(
     /** Its fixed part, with each string {@code dictionary} shares counted as a reference. */
     @Override
     public int estimatedBytes(JournalDictionary dictionary) {
-        return 48
+        return 56
                 + JournalDictionary.retained(dictionary, operation)
                 + JournalDictionary.retained(dictionary, provider)
                 + JournalDictionary.retained(dictionary, model)

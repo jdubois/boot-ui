@@ -14,7 +14,8 @@ import java.util.List;
  * @param sentence one sentence naming what was counted
  * @param eligible the requests that could have shown it
  * @param affected the requests that did
- * @param minimumTier the weakest correlation tier the observation accepts, such as {@code REQUEST_ID}
+ * @param minimumTier the weakest correlation tier its evidence was linked by, such as {@code REQUEST_ID}: the
+ *     observation's minimum, or a stronger tier when every signal behind it was joined more exactly
  * @param whatToCheck one to three conditional checks
  * @param exemplarRequestIds at most three request ids to open in Live Activity
  * @param evidenceRows the evidence rows its detail lists, at most 20

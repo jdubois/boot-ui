@@ -360,13 +360,18 @@ public final class RuntimeInsightsService {
                                 : capture.reason() + " Its SQL and connection evidence is not counted.");
             }
             Observation.Evaluation evaluation = observation.evaluate(snapshot);
+            // What it could not judge is the check's, while each finding names its own route's share.
+            List<String> reasons = partial != null ? new ArrayList<>(List.of(partial)) : new ArrayList<>(unseen);
+            if (evaluation.uncounted() != null) {
+                reasons.add(evaluation.uncounted());
+            }
             checks.add(new RuntimeInsightCheckDto(
                     observation.kind(),
                     observation.title(),
                     partial == null ? "EVALUATED" : "PARTIAL",
                     evaluation.eligibleRequests(),
                     evaluation.findings().size(),
-                    partial != null ? partial : unseen.isEmpty() ? null : String.join(" ", unseen)));
+                    reasons.isEmpty() ? null : String.join(" ", reasons)));
             for (Finding finding : evaluation.findings()) {
                 String findingStatus =
                         !finding.sufficient() ? "INSUFFICIENT" : partial == null ? "OBSERVED" : "PARTIAL";
@@ -384,7 +389,7 @@ public final class RuntimeInsightsService {
                         finding.sentence(),
                         finding.eligible(),
                         finding.affected(),
-                        observation.minimumTier().name(),
+                        (finding.tier() != null ? finding.tier() : observation.minimumTier()).name(),
                         finding.whatToCheck(),
                         finding.exemplarRequestIds()
                                 .subList(

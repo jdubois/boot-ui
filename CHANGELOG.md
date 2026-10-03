@@ -359,6 +359,16 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Runtime Insights times AI calls once and reports what it could not count.** `route-time-breakdown` no longer
+  subtracts an AI call's time from the handler when its model HTTP call was already counted as REST client or SQL time:
+  calls reported by Spring AI or Quarkus LangChain4j carry their monotonic completion and are placed on the request's
+  clock as **AI calls**, and tool and retrieval operations, which wrap application code, stay in the handler.
+  `transaction-across-remote-call` no longer shows methods whose remote calls are fast as **Needs more traffic**.
+  `lazy-sql-after-handler` counts requests whose response-phase SQL cannot be placed against their transactions apart,
+  with a limitation and a check reason, instead of dropping them, and `split-transaction-writes` names its uncounted
+  requests in its check reason too. `ai-usage-by-route` reports the tier its calls were actually linked by, and
+  mentions trace-id linking only for calls recovered from GenAI spans.
+
 - **Spring WebFlux requests report their GraphQL operation and authentication time again.** The reactive correlation
   filter never began a request's phase markers, so the shared GraphQL operation and Spring Security authentication
   observation handlers had nothing to record into on WebFlux: Live Activity and Runtime Insights showed every GraphQL
