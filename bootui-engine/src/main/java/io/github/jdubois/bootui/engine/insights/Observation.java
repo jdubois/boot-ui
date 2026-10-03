@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.insights;
 
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.web.CorrelationTier;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 
@@ -31,9 +32,9 @@ public interface Observation {
         return Set.of();
     }
 
-    /** Whether this observation examines request or execution units, rather than only unowned collection events. */
-    default boolean readsUnits() {
-        return true;
+    /** The request and execution kinds it examines; none when it reads only unowned collection events. */
+    default Set<ProjectedRequest.Kind> unitKinds() {
+        return EnumSet.allOf(ProjectedRequest.Kind.class);
     }
 
     /**

@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.insights;
 
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
 import io.github.jdubois.bootui.engine.journal.RestClientPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.TransactionPayload;
@@ -91,7 +92,7 @@ public final class TransactionAcrossRemoteCall implements Observation {
                     String method = open.method();
                     Connection held = connection(request, callStart);
                     methods.computeIfAbsent(method, m -> new Method())
-                            .add(request, open, call, payload, held, seen.add(method));
+                            .add(request, open, call, payload, held, seen.add(method), snapshot.exposure());
                 }
             }
             eligible += routeEligible;
@@ -246,7 +247,8 @@ public final class TransactionAcrossRemoteCall implements Observation {
                 RuntimeEvent call,
                 RestClientPayload payload,
                 Connection held,
-                boolean newTransaction) {
+                boolean newTransaction,
+                JournalTextExposure text) {
             if (newTransaction) {
                 transactions++;
                 if (held != null) {
@@ -256,7 +258,7 @@ public final class TransactionAcrossRemoteCall implements Observation {
                     }
                 }
             }
-            String described = describe(payload);
+            String described = describe(payload, text);
             if (firstCall == null) {
                 firstCall = described;
             }
@@ -281,10 +283,10 @@ public final class TransactionAcrossRemoteCall implements Observation {
             return holds.stream().mapToLong(Long::longValue).toArray();
         }
 
-        private static String describe(RestClientPayload payload) {
+        private static String describe(RestClientPayload payload, JournalTextExposure text) {
             return ((payload.method() == null ? "" : payload.method() + " ")
                             + (payload.authority() == null ? "" : payload.authority())
-                            + (payload.path() == null ? "" : payload.path()))
+                            + (payload.path() == null ? "" : text.path(payload.path())))
                     .trim();
         }
     }

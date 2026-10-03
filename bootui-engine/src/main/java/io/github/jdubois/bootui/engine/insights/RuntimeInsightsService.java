@@ -16,15 +16,20 @@ import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
 import io.github.jdubois.bootui.engine.journal.JournalStatus;
+import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
 import io.github.jdubois.bootui.engine.journal.LifecyclePayload;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.ScheduledPayload;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -71,6 +76,7 @@ public final class RuntimeInsightsService {
     private final Supplier<List<RunSummary>> runs;
     private Cached cached;
     private volatile Function<String, Integer> poolSizes;
+    private volatile ExposurePolicy exposure;
     private volatile Supplier<List<MappingDto>> declaredMappings;
     private volatile Supplier<JournalAggregates.RouteLabels> runRoutes;
     private volatile Supplier<SqlCapture> sqlCapture;
@@ -172,6 +178,16 @@ public final class RuntimeInsightsService {
     }
 
     /**
+     * Installs the live exposure policy that insight sentences and evidence quote recorded log text and request paths
+     * under ({@code PLAN-v2} §8). Without one they are quoted as {@link JournalTextExposure#masked()}. The cached
+     * projection is keyed by the rule the policy prescribes, so a live change applies to the next read.
+     */
+    public synchronized void setExposure(ExposurePolicy exposure) {
+        this.exposure = exposure;
+        this.cached = null;
+    }
+
+    /**
      * The stable id of a finding: its kind and a hash of its key, such as {@code repeated-selects:3fa9c0e1b2}, the same
      * across refreshes and restarts, and safe in a URL path whatever its route holds.
      */
@@ -265,6 +281,7 @@ public final class RuntimeInsightsService {
                     -1,
                     0,
                     SqlCapture.capturing(),
+                    null,
                     new RuntimeInsightsReportDto(
                             false, DISABLED, null, List.of(), List.of(), List.of(), List.of(), List.of(), 0),
                     Map.of());
@@ -275,14 +292,17 @@ public final class RuntimeInsightsService {
         // A panel disabled or re-enabled since the last read changes what may be shown, so it invalidates the cache.
         PanelVisibility visibility = panelVisibility();
         SqlCapture capture = sqlCapture();
+        // So is a live change of the exposure policy, which changes what recorded text may be quoted (§8).
+        JournalTextExposure text = JournalTextExposure.of(exposure);
         if (cached != null
                 && cached.watermark() == watermark
                 && cached.evicted() == evicted
                 && cached.visibility() == visibility.mask()
-                && cached.sqlCapture().equals(capture)) {
+                && cached.sqlCapture().equals(capture)
+                && text.equals(cached.exposure())) {
             return cached;
         }
-        cached = project(status, journal.entries(), watermark, evicted, visibility, capture);
+        cached = project(status, journal.entries(), watermark, evicted, visibility, capture, text);
         return cached;
     }
 
@@ -337,14 +357,21 @@ public final class RuntimeInsightsService {
      */
     private VisibleEntries visibleEntries(List<JournalEntry> entries, PanelVisibility visibility) {
         Set<String> hidden = new HashSet<>();
-        Set<String> hiddenPanels = new LinkedHashSet<>();
+        Map<ProjectedRequest.Kind, Set<String>> hiddenPanels = new EnumMap<>(ProjectedRequest.Kind.class);
         AiCallOwners aiCallOwners = new AiCallOwners(journal::evictedARequestOf);
         for (JournalEntry entry : entries) {
             RuntimeEvent event = entry.event();
             aiCallOwners.learn(event);
             if (anchorsAUnitOfWork(event) && !visibility.visible(event)) {
                 hidden.add(unitOf(event));
-                hiddenPanels.add(JournalSourcePanels.panelOf(event));
+                ProjectedRequest.Kind kind = event.requestId() != null
+                        ? ProjectedRequest.Kind.HTTP
+                        : event.payload() instanceof ScheduledPayload
+                                ? ProjectedRequest.Kind.SCHEDULED
+                                : ProjectedRequest.Kind.MESSAGE;
+                hiddenPanels
+                        .computeIfAbsent(kind, ignored -> new LinkedHashSet<>())
+                        .add(JournalSourcePanels.panelOf(event));
             }
         }
         List<JournalEntry> visible = new ArrayList<>(entries.size());
@@ -365,7 +392,9 @@ public final class RuntimeInsightsService {
             }
             visible.add(entry);
         }
-        return new VisibleEntries(visible, List.copyOf(hiddenPanels));
+        Map<ProjectedRequest.Kind, List<String>> panelsByKind = new EnumMap<>(ProjectedRequest.Kind.class);
+        hiddenPanels.forEach((kind, panels) -> panelsByKind.put(kind, List.copyOf(panels)));
+        return new VisibleEntries(visible, Map.copyOf(panelsByKind));
     }
 
     private static boolean anchorsAUnitOfWork(RuntimeEvent event) {
@@ -387,7 +416,8 @@ public final class RuntimeInsightsService {
             long watermark,
             long evicted,
             PanelVisibility visibility,
-            SqlCapture capture) {
+            SqlCapture capture,
+            JournalTextExposure text) {
         RouteTemplateResolver resolver;
         try {
             resolver = routes.get();
@@ -396,20 +426,22 @@ public final class RuntimeInsightsService {
         }
         VisibleEntries projected = visibleEntries(entries, visibility);
         InsightsSnapshot snapshot = InsightsSnapshot.of(
-                projected.entries(),
-                status,
-                resolver == null ? RouteTemplateResolver.empty() : resolver,
-                journal::records,
-                visibility::visible,
-                stack,
-                previousRun(status.runId()),
-                poolSizes,
-                journal::evictedARequestOf);
+                        projected.entries(),
+                        status,
+                        resolver == null ? RouteTemplateResolver.empty() : resolver,
+                        journal::records,
+                        visibility::visible,
+                        stack,
+                        previousRun(status.runId()),
+                        poolSizes,
+                        journal::evictedARequestOf)
+                .withExposure(text);
         List<RuntimeInsightCheckDto> checks = new ArrayList<>();
         List<RuntimeObservationDto> rows = new ArrayList<>();
         Map<String, Detail> details = new LinkedHashMap<>();
         for (Observation observation : observations) {
-            String missing = missingSource(observation, snapshot, projected.hiddenPanels());
+            List<String> hiddenPanels = projected.hiddenPanels(observation);
+            String missing = missingSource(observation, snapshot, hiddenPanels);
             if (missing == null) {
                 missing = observation.notApplicable(snapshot);
             }
@@ -424,7 +456,7 @@ public final class RuntimeInsightsService {
                 continue;
             }
             String partial = partialReason(observation, snapshot);
-            List<String> unseen = unseenSources(observation, snapshot, visibility, projected.hiddenPanels());
+            List<String> unseen = unseenSources(observation, snapshot, visibility, hiddenPanels);
             if (capture.reason() != null
                     && (snapshot.records(JournalSource.SQL) || snapshot.records(JournalSource.CONNECTION))
                     && (readsSql(observation.reads()) || readsSql(observation.optionalReads()))) {
@@ -518,7 +550,7 @@ public final class RuntimeInsightsService {
                 limitations,
                 notExercised.subList(0, Math.min(notExercised.size(), RuntimeInsightsReportDto.MAX_NOT_EXERCISED)),
                 Math.max(0, notExercised.size() - RuntimeInsightsReportDto.MAX_NOT_EXERCISED));
-        return new Cached(watermark, evicted, visibility.mask(), capture, report, details);
+        return new Cached(watermark, evicted, visibility.mask(), capture, text, report, details);
     }
 
     /**
@@ -623,11 +655,11 @@ public final class RuntimeInsightsService {
                         + " disabled.";
             }
         }
-        if (observation.readsUnits() && snapshot.requests().isEmpty()) {
-            if (!hiddenPanels.isEmpty()) {
-                return panelsLabel(hiddenPanels) + (hiddenPanels.size() == 1 ? " is" : " are")
-                        + " disabled, so its unit-of-work evidence cannot be evaluated.";
-            }
+        if (!hiddenPanels.isEmpty()
+                && snapshot.requests().stream()
+                        .noneMatch(request -> observation.unitKinds().contains(request.kind()))) {
+            return panelsLabel(hiddenPanels) + (hiddenPanels.size() == 1 ? " is" : " are")
+                    + " disabled, so its unit-of-work evidence cannot be evaluated.";
         }
         return null;
     }
@@ -635,7 +667,7 @@ public final class RuntimeInsightsService {
     private List<String> unseenSources(
             Observation observation, InsightsSnapshot snapshot, PanelVisibility visibility, List<String> hiddenPanels) {
         List<String> unseen = new ArrayList<>();
-        if (observation.readsUnits() && !hiddenPanels.isEmpty()) {
+        if (!hiddenPanels.isEmpty()) {
             unseen.add(panelsLabel(hiddenPanels) + (hiddenPanels.size() == 1 ? " is" : " are")
                     + " disabled, so its request or execution units are not counted.");
         }
@@ -685,16 +717,17 @@ public final class RuntimeInsightsService {
     }
 
     private static String partialReason(Observation observation, InsightsSnapshot snapshot) {
-        long dropped = 0;
-        for (JournalSource source : observation.reads()) {
-            dropped += snapshot.dropped(source);
-        }
+        Set<JournalSource> sources = EnumSet.noneOf(JournalSource.class);
+        sources.addAll(observation.reads());
         for (JournalSource source : observation.optionalReads()) {
             if (snapshot.records(source)) {
-                dropped += snapshot.dropped(source);
+                sources.add(source);
             }
         }
-        dropped += snapshot.dropped(JournalSource.HTTP);
+        if (observation.unitKinds().contains(ProjectedRequest.Kind.HTTP)) {
+            sources.add(JournalSource.HTTP);
+        }
+        long dropped = sources.stream().mapToLong(snapshot::dropped).sum();
         return dropped == 0
                 ? null
                 : "The journal dropped " + dropped + " events this observation reads, so its counts are a floor.";
@@ -711,7 +744,17 @@ public final class RuntimeInsightsService {
 
     private record Detail(RuntimeObservationDto observation, Finding finding) {}
 
-    private record VisibleEntries(List<JournalEntry> entries, List<String> hiddenPanels) {}
+    private record VisibleEntries(List<JournalEntry> entries, Map<ProjectedRequest.Kind, List<String>> panelsByKind) {
+        List<String> hiddenPanels(Observation observation) {
+            Set<String> names = new LinkedHashSet<>();
+            for (ProjectedRequest.Kind kind : ProjectedRequest.Kind.values()) {
+                if (observation.unitKinds().contains(kind)) {
+                    names.addAll(panelsByKind.getOrDefault(kind, List.of()));
+                }
+            }
+            return List.copyOf(names);
+        }
+    }
 
     /**
      * Every owning panel's state as one projection read it, so the cache key, the events kept, and the reason given
@@ -756,6 +799,7 @@ public final class RuntimeInsightsService {
             long evicted,
             long visibility,
             SqlCapture sqlCapture,
+            JournalTextExposure exposure,
             RuntimeInsightsReportDto report,
             Map<String, Detail> details) {}
 }

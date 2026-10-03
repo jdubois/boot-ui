@@ -59,6 +59,11 @@ public final class GcInflatedLatency implements Observation {
     }
 
     @Override
+    public Set<ProjectedRequest.Kind> unitKinds() {
+        return Set.of(ProjectedRequest.Kind.HTTP);
+    }
+
+    @Override
     public Evaluation evaluate(InsightsSnapshot snapshot) {
         Map<String, RuntimeEvent> pauses = new HashMap<>();
         for (RuntimeEvent event : snapshot.collections()) {

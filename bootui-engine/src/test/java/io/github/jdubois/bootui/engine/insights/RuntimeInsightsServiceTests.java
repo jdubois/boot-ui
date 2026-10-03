@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.insights;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCoverageDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
@@ -13,6 +14,7 @@ import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.LogPayload;
 import io.github.jdubois.bootui.engine.journal.OrmPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPayload;
@@ -23,12 +25,15 @@ import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.time.Duration;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
@@ -170,6 +175,34 @@ class RuntimeInsightsServiceTests {
     }
 
     @Test
+    void aSentenceAndItsEvidenceQuoteAStatementsShapeNeverAValueItsFingerprintKeeps() {
+        // A fingerprint keeps identifier-like "..." runs, which MySQL reads as string literals, and a truncated dollar
+        // quote verbatim: it groups statements but is never shown.
+        request("GET", "/api/products/{id}", sqls("insert into users(pw) values(\"hunter2\")", 0, null));
+        for (int i = 0; i < 3; i++) {
+            request(
+                    "GET",
+                    "/api/notes/{id}",
+                    sqls("select 1 from notes", 5, "select * from t where body = $$sk_live_EXAMPLE"));
+        }
+        RuntimeInsightsService service = service();
+        RuntimeInsightsReportDto report = service.report();
+
+        RuntimeObservationDto write = observations(report, SafeMethodDml.KIND).get("GET /api/products/{id}");
+        RuntimeObservationDto repeat =
+                observations(report, RepeatedSelects.KIND).get("GET /api/notes/{id}");
+        assertThat(write.sentence()).contains("executed `insert into users(pw) values(?)`");
+        assertThat(repeat.sentence()).contains("ran `select * from t where body = ?`");
+        for (RuntimeObservationDto observation : report.observations()) {
+            assertThat(observation.sentence()).doesNotContain("hunter2", "sk_live_EXAMPLE");
+            RuntimeObservationDetailDto detail = service.insight(observation.id());
+            assertThat(detail.rows())
+                    .allSatisfy(row ->
+                            assertThat(String.join(" ", row.cells())).doesNotContain("hunter2", "sk_live_EXAMPLE"));
+        }
+    }
+
+    @Test
     void connectionsHeldTogetherAreFoundAndBackToBackConnectionsAreNot() {
         // Nested: an inner connection checked out and released while the outer one is held.
         request("POST", "/api/orders", connection("db", 1_000, 50_000_000), connection("db", 10_000_000, 5_000_000));
@@ -308,6 +341,65 @@ class RuntimeInsightsServiceTests {
         assertThat(SqlCapture.of(wrapped, true, false)).isEqualTo(SqlCapture.capturing());
         assertThat(SqlCapture.of(wrapped, true, true))
                 .isEqualTo(SqlCapture.recordedExcept(SqlCapture.R2DBC_NOT_RECORDED));
+    }
+
+    @Test
+    void aLiveExposureSwitchReProjectsTheQuotedTemplateAtAnUnchangedWatermark() {
+        request(
+                "GET",
+                "/api/login",
+                new Child(
+                        JournalSource.LOG,
+                        -1,
+                        new LogPayload(
+                                "org.springframework.web.Login", "WARN", "Login password=hunter2 refused", null)));
+        ValueExposure[] exposure = {ValueExposure.FULL};
+        RuntimeInsightsService service = service();
+        service.setExposure(new ExposurePolicy() {
+            @Override
+            public ValueExposure valueExposure() {
+                return exposure[0];
+            }
+
+            @Override
+            public boolean maskSecrets() {
+                return true;
+            }
+        });
+
+        RuntimeObservationDto full =
+                observations(service.report(), FrameworkWarningsByRoute.KIND).get("GET /api/login");
+        exposure[0] = ValueExposure.MASKED;
+        RuntimeObservationDto masked =
+                observations(service.report(), FrameworkWarningsByRoute.KIND).get("GET /api/login");
+        exposure[0] = ValueExposure.METADATA_ONLY;
+        RuntimeObservationDto metadata =
+                observations(service.report(), FrameworkWarningsByRoute.KIND).get("GET /api/login");
+
+        assertThat(full.sentence()).contains("password=hunter2");
+        assertThat(masked.sentence()).contains("password=").doesNotContain("hunter2");
+        assertThat(metadata.sentence()).doesNotContain("password", "hunter2", "refused");
+        assertThat(metadata.id()).isEqualTo(full.id());
+        assertThat(service.insight(metadata.id()).toString()).doesNotContain("hunter2");
+    }
+
+    @Test
+    void aNullExposurePolicyFailsClosedToMasked() {
+        request(
+                "GET",
+                "/api/login",
+                new Child(
+                        JournalSource.LOG,
+                        -1,
+                        new LogPayload(
+                                "org.springframework.web.Login", "WARN", "Login password=hunter2 refused", null)));
+        RuntimeInsightsService service = service();
+        service.setExposure(null);
+
+        assertThat(observations(service.report(), FrameworkWarningsByRoute.KIND)
+                        .get("GET /api/login")
+                        .sentence())
+                .doesNotContain("hunter2");
     }
 
     private RuntimeInsightsService service() {
@@ -489,6 +581,93 @@ class RuntimeInsightsServiceTests {
                 .report();
         assertThat(checks(report).get(RepeatedSelects.KIND).status()).isEqualTo("NOT_APPLICABLE");
         assertThat(checks(report).get(RepeatedSelects.KIND).reason()).contains("scheduled");
+        assertThat(checks(report).get(SafeMethodDml.KIND).status()).isEqualTo("EVALUATED");
+        assertThat(checks(report).get(SafeMethodDml.KIND).reason()).isNull();
+    }
+
+    @Test
+    void hiddenScheduledUnitsDoNotLimitFindingsAboutVisibleHttpRequests() {
+        request("GET", "/api/orders/{id}", sqls("insert into audit (id) values (1)", 0, null));
+        journal.offer(RuntimeEvent.of(
+                JournalSource.SCHEDULED,
+                2_000,
+                1_000,
+                CorrelationContext.forExecution("job-1"),
+                "scheduler",
+                null,
+                false,
+                new ScheduledPayload("Job.run", null)));
+        drain();
+
+        RuntimeInsightsReportDto report = new RuntimeInsightsService(
+                        journal, null, panel -> !panel.equals(BootUiPanels.SCHEDULED), null, null)
+                .report();
+        assertThat(checks(report).get(SafeMethodDml.KIND).status()).isEqualTo("EVALUATED");
+        assertThat(checks(report).get(SafeMethodDml.KIND).reason()).isNull();
+        assertThat(observations(report, SafeMethodDml.KIND))
+                .containsOnlyKeys("GET /api/orders/{id}")
+                .allSatisfy((route, finding) ->
+                        assertThat(finding.limitations()).noneMatch(limitation -> limitation.contains("scheduled")));
+        assertThat(checks(report).get(RepeatedSelects.KIND).reason()).contains("scheduled");
+    }
+
+    @Test
+    void anHttpDropIsCountedOnceWhenTheObservationRequiresHttp() throws InterruptedException {
+        journal.close();
+        journal = new RuntimeJournal(
+                new RuntimeJournalSettings(true, 10_000, 50_000_000, 1, 10, 10, JournalSource.all()),
+                RunIdentity.start());
+        CountDownLatch blocked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        journal.addListener(entries -> {
+            blocked.countDown();
+            try {
+                release.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        try {
+            assertThat(journal.offer(RuntimeEvent.of(
+                            JournalSource.HTTP,
+                            1_000,
+                            1_000,
+                            CorrelationContext.forRequest("r1"),
+                            "http-1",
+                            null,
+                            false,
+                            new HttpPayload("GET", "/first", "/first", null, 200))))
+                    .isTrue();
+            assertThat(blocked.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(journal.offer(RuntimeEvent.of(
+                            JournalSource.HTTP,
+                            2_000,
+                            1_000,
+                            CorrelationContext.forRequest("r2"),
+                            "http-1",
+                            null,
+                            false,
+                            new HttpPayload("GET", "/second", "/second", null, 200))))
+                    .isTrue();
+            assertThat(journal.offer(RuntimeEvent.of(
+                            JournalSource.HTTP,
+                            3_000,
+                            1_000,
+                            CorrelationContext.forRequest("r3"),
+                            "http-1",
+                            null,
+                            false,
+                            new HttpPayload("GET", "/dropped", "/dropped", null, 200))))
+                    .isFalse();
+        } finally {
+            release.countDown();
+        }
+        drain();
+
+        assertThat(journal.status().dropped()).containsEntry(JournalSource.HTTP, 1L);
+        RuntimeInsightCheckDto check = checks(service().report()).get(SafeMethodDml.KIND);
+        assertThat(check.status()).isEqualTo("PARTIAL");
+        assertThat(check.reason()).contains("dropped 1 events").doesNotContain("dropped 2 events");
     }
 
     @Test

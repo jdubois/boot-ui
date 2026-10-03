@@ -42,6 +42,11 @@ public final class SafeMethodDml implements Observation {
     }
 
     @Override
+    public Set<ProjectedRequest.Kind> unitKinds() {
+        return Set.of(ProjectedRequest.Kind.HTTP);
+    }
+
+    @Override
     public Set<JournalSource> optionalReads() {
         return Set.of(JournalSource.ORM);
     }
@@ -60,6 +65,7 @@ public final class SafeMethodDml implements Observation {
                     .toList();
             eligible += safe.size();
             Map<String, List<String[]>> byFingerprint = new LinkedHashMap<>();
+            Map<String, String> statements = new LinkedHashMap<>();
             for (ProjectedRequest request : safe) {
                 Map<String, int[]> perRequest = new LinkedHashMap<>();
                 Map<String, String> callSites = new LinkedHashMap<>();
@@ -72,6 +78,7 @@ public final class SafeMethodDml implements Observation {
                         String fingerprint = SqlShapes.fingerprint(sql.sql());
                         perRequest.computeIfAbsent(fingerprint, f -> new int[1])[0]++;
                         callSites.putIfAbsent(fingerprint, sql.callSite());
+                        statements.putIfAbsent(fingerprint, InsightText.statement(sql.sql()));
                     }
                 }
                 perRequest.forEach((fingerprint, count) -> byFingerprint
@@ -83,8 +90,13 @@ public final class SafeMethodDml implements Observation {
                             callSites.get(fingerprint) == null ? "" : callSites.get(fingerprint)
                         }));
             }
-            byFingerprint.forEach((fingerprint, rows) ->
-                    findings.add(finding(route.getKey(), fingerprint, rows, safe.size(), limitation(snapshot))));
+            byFingerprint.forEach((fingerprint, rows) -> findings.add(finding(
+                    route.getKey(),
+                    fingerprint,
+                    statements.get(fingerprint),
+                    rows,
+                    safe.size(),
+                    limitation(snapshot))));
         }
         return new Evaluation(
                 eligible,
@@ -110,12 +122,13 @@ public final class SafeMethodDml implements Observation {
                                 + " request whose sessions executed none.";
     }
 
-    private Finding finding(String route, String fingerprint, List<String[]> rows, long eligible, String limitation) {
+    private Finding finding(
+            String route, String fingerprint, String statement, List<String[]> rows, long eligible, String limitation) {
         return new Finding(
                 route + ":" + InsightText.stableHash(fingerprint),
                 route,
                 true,
-                "`" + route + "` executed `" + InsightText.quoted(fingerprint) + "` in " + rows.size() + " of "
+                "`" + route + "` executed `" + statement + "` in " + rows.size() + " of "
                         + InsightText.counted(eligible, "request") + ": an incidental write, such as an audit or a"
                         + " counter, or a change the caller asked for?",
                 eligible,

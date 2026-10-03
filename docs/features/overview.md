@@ -448,6 +448,21 @@ The panel inherits BootUI's full safety model — loopback filter, Host allow-li
 masking. Its reads are read-only, and its two state-changing actions, **Use the existing datasource** and **Clear
 recording**, are confirmation-gated and blocked whenever the app or panel is read-only.
 
+The text the feed renders from the runtime journal follows the live `bootui.expose-values` / `bootui.mask-secrets`
+policy at every read, in the panel, `get_live_activity`, `bootui live-activity`, request journal profiles, and the KPI
+strip, so a change of mode applies to the next read. Under the default `MASKED`, SQL statements are shown as their
+literal-free shape (`where name = ?`), with double-quoted runs and an unterminated dollar quote of a truncated statement
+replaced too, and log messages and `;name=value` path parameters are masked as in the
+[Logs panel](diagnostics.md#log-message-exposure). `FULL`, or `MASKED` with `bootui.mask-secrets=false`, shows them as
+recorded. `METADATA_ONLY` keeps the SQL shape and omits log messages. [Durable history](#durable-history) is always
+written at least as masked as `MASKED`, even while the live mode is `FULL`, and each stored row is masked again under
+the live mode when it is read: never shown less masked than `MASKED`, and under `METADATA_ONLY` with its free text
+(log messages, exception messages, principals, email subjects and recipients) dropped while its structural label, such
+as `GET /orders → 200` or a SQL shape, stays. A stored row is also read only while the panel that owns it is enabled:
+disabling SQL Trace, Logs, or any other source panel hides its rows already written to durable history, as it does for
+live rows. A SQL statement that mixes a quote with a backslash or a `#`, which MySQL and MariaDB may read as an escaped
+quote or a comment, is cut at its first quote rather than guessed at.
+
 The stream is capped by `bootui.activity.max-entries`. The slow-request threshold,
 `bootui.activity.request-slow-threshold-ms` (1,000 ms by default, `0` to disable), applies on Spring MVC, Spring
 WebFlux, and Quarkus alike: it sets the `SLOW` severity of request and scheduled-task entries, and decides which HTTP
@@ -596,7 +611,9 @@ the feed stays visible underneath. The viewport adapts to the graph's content, u
 **Runtime Insights** answers what this run did that no single panel shows. It reads the
 [runtime journal](#runtime-journal) and projects its retained events into observations: each one names what was counted
 on a route, never a cause, a severity, or a score. Opening the panel starts no capture, scan, database read, or network
-call; it only re-reads what the journal already recorded, and caches the result until the journal records more.
+call; it only re-reads what the journal already recorded, and caches the result until the journal records more or the
+live exposure policy changes. Sentences and evidence that quote recorded text, such as a framework warning's message or
+a request path, follow the same rule as [Live Activity](#safety-and-limits).
 
 Twenty-two observations run over the completed requests and garbage collections the journal retains:
 
@@ -646,9 +663,10 @@ change targeted says so. A breakdown's evidence draws each phase's share
 as a bar, with the largest phase emphasized and every number kept beside it.
 
 Disabling a panel that opens a request, job, or message leaves out that whole unit and any trace-only AI call
-uniquely owned by it. Checks confined to HTTP requests say **not applicable** when HTTP exchanges are disabled;
-checks that can still count jobs or messages name the disabled opening panel in their reason, or say **not applicable**
-when no visible units remain. On Quarkus, when the journal records ORM but the Hibernate panel is disabled,
+uniquely owned by it. Checks confined to HTTP requests say **not applicable** when HTTP exchanges are disabled,
+but do not blame a hidden job or message they never examine. Checks that can also count jobs or messages name only
+the disabled opening panels for the kinds of work they examine, or say **not applicable** when none of those units
+remain visible. On Quarkus, when the journal records ORM but the Hibernate panel is disabled,
 `safe-method-dml` leaves out unverified prepared writes, names that limitation, and still counts timed JDBC executions.
 
 The header states the window the journal retains, and a coverage strip shows how each source's events are linked to a

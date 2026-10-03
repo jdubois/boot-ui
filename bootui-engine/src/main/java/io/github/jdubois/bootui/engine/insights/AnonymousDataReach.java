@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.insights;
 
 import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
@@ -42,6 +43,11 @@ public final class AnonymousDataReach implements Observation {
     }
 
     @Override
+    public Set<ProjectedRequest.Kind> unitKinds() {
+        return Set.of(ProjectedRequest.Kind.HTTP);
+    }
+
+    @Override
     public Evaluation evaluate(InsightsSnapshot snapshot) {
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;
@@ -61,7 +67,7 @@ public final class AnonymousDataReach implements Observation {
                     if (event.payload() instanceof SqlPayload sql && !sql.failed() && SafeMethodDml.isDml(sql.sql())) {
                         for (String table : SqlShapes.tables(sql.sql())) {
                             writes.computeIfAbsent(table, ignored -> new int[1])[0]++;
-                            statements.putIfAbsent(table, SqlShapes.fingerprint(sql.sql()));
+                            statements.putIfAbsent(table, JournalTextExposure.displayShape(sql.sql()));
                         }
                     }
                 }

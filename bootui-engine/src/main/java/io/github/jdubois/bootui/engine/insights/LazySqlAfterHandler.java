@@ -62,6 +62,11 @@ public final class LazySqlAfterHandler implements Observation {
     }
 
     @Override
+    public Set<ProjectedRequest.Kind> unitKinds() {
+        return Set.of(ProjectedRequest.Kind.HTTP);
+    }
+
+    @Override
     public Set<JournalSource> optionalReads() {
         return Set.of(JournalSource.TRANSACTION);
     }
@@ -90,6 +95,7 @@ public final class LazySqlAfterHandler implements Observation {
             long routeEligible = 0;
             long routeUnplaced = 0;
             Map<String, Statement> statements = new LinkedHashMap<>();
+            Map<String, String> shapes = new LinkedHashMap<>();
             for (ProjectedRequest request : requests) {
                 TransactionWindows windows = new TransactionWindows(request);
                 List<SqlPayload> afterHandler = new ArrayList<>();
@@ -122,6 +128,7 @@ public final class LazySqlAfterHandler implements Observation {
                     String fingerprint = SqlShapes.fingerprint(sql.sql());
                     perRequest.computeIfAbsent(fingerprint, f -> new int[1])[0]++;
                     sites.putIfAbsent(fingerprint, callSite(sql));
+                    shapes.putIfAbsent(fingerprint, InsightText.statement(sql.sql()));
                     if (renderingView(sql.frames())) {
                         rendering.add(fingerprint);
                     }
@@ -134,8 +141,8 @@ public final class LazySqlAfterHandler implements Observation {
             unplaced += routeUnplaced;
             long examined = routeEligible;
             long apart = routeUnplaced;
-            statements.forEach((fingerprint, statement) ->
-                    findings.add(finding(route.getKey(), fingerprint, statement, examined, apart, transactions)));
+            statements.forEach((fingerprint, statement) -> findings.add(finding(
+                    route.getKey(), fingerprint, shapes.get(fingerprint), statement, examined, apart, transactions)));
         }
         return new Evaluation(
                 eligible,
@@ -150,10 +157,16 @@ public final class LazySqlAfterHandler implements Observation {
     }
 
     private Finding finding(
-            String route, String fingerprint, Statement statement, long eligible, long unplaced, boolean transactions) {
+            String route,
+            String fingerprint,
+            String shown,
+            Statement statement,
+            long eligible,
+            long unplaced,
+            boolean transactions) {
         boolean sufficient =
                 statement.rows.size() >= MIN_REQUESTS || statement.mostInOneRequest >= MIN_STATEMENTS_IN_ONE_REQUEST;
-        String counted = "`" + route + "` ran `" + InsightText.quoted(fingerprint) + "` after its handler returned, "
+        String counted = "`" + route + "` ran `" + shown + "` after its handler returned, "
                 + InsightText.counted(statement.executions, "time") + " in " + statement.rows.size() + " of "
                 + InsightText.counted(eligible, "request");
         String sentence = sufficient

@@ -63,6 +63,11 @@ public final class WorkAfterResponse implements Observation {
     }
 
     @Override
+    public Set<ProjectedRequest.Kind> unitKinds() {
+        return Set.of(ProjectedRequest.Kind.HTTP);
+    }
+
+    @Override
     public Set<JournalSource> optionalReads() {
         return Set.of(JournalSource.SQL, JournalSource.REST_CLIENT, JournalSource.MESSAGING);
     }

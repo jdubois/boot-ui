@@ -72,6 +72,12 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <!-- Real transformer reset tests require startup instrumentation, not dynamic attachment. -->
+            <groupId>net.bytebuddy</groupId>
+            <artifactId>byte-buddy-agent</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <!-- Test only: reads the coverage JaCoCo wrote beside the BootUI agent. -->
             <groupId>org.jacoco</groupId>
             <artifactId>org.jacoco.core</artifactId>
@@ -90,6 +96,13 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>@{argLine} -javaagent:${net.bytebuddy:byte-buddy-agent:jar}</argLine>
+                </configuration>
+            </plugin>
             <plugin>
                 <!-- The launcher runs in premain: no string-concatenation bootstrap there (PLAN-v2 M5 rules). -->
                 <groupId>org.apache.maven.plugins</groupId>

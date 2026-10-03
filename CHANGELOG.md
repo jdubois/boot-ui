@@ -9,8 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **Runtime Insights source-panel follow-ups.** Checks no longer report an empty evaluation after their request,
-  scheduled, or message units are hidden; they name the disabled opening panel. Quarkus does not claim that an
+- **Runtime Insights source-panel follow-ups.** Checks no longer report an empty evaluation after a unit they
+  examine is hidden; only its disabled opening panel is named, and HTTP-only checks do not blame hidden jobs.
+  Dropped HTTP events count once even when HTTP is a required source. Quarkus does not claim that an
   unverified prepared write executed when Hibernate evidence is hidden, and trace-only AI calls owned by hidden
   requests no longer survive as uncorrelated coverage ([#1217](https://github.com/jdubois/boot-ui/pull/1217)).
 
@@ -371,6 +372,15 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Java agent claim handoffs preserve request ownership.** Overlapping submissions of the same task across restarts
+  stay unowned rather than taking a newer claim's snapshot. Immediate reclaim cancels queued executor/thread sensor
+  removal or reinstalls the sensor after an in-flight reset, restoring thread subclasses even when the new claim
+  names different packages. Rejected direct fork/join tasks, including already-completed tasks, and failed
+  `CompletableFuture` thread-per-task starts release their snapshots without treating `invoke`'s accepted task failure
+  as a rejection; executor skip counters stop when the sensor is off
+  ([Java Agent](docs/features/java-agent.md#claims-and-lifecycle),
+  [#1213](https://github.com/jdubois/boot-ui/pull/1213); AGT-01, AGT-02, AGT-04, AGT-09).
+
 - **Profile resources joins segments closed by another thread.** A request segment still open when its request was
   taken from another thread, as on Quarkus where the response closes a worker's segment from the event loop, now commits
   its JFR event with its own thread's id, so the worker's CPU and allocation samples join the route instead of counting
@@ -585,6 +595,20 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   profile too. Applies on Spring MVC, Spring WebFlux, and Quarkus, including after a runtime change of the mode
   ([AI Framework value exposure](docs/features/services.md#ai-framework-value-exposure),
   [#1210](https://github.com/jdubois/boot-ui/pull/1210)).
+- **Journal-rendered SQL and log text now follows the value-exposure policy.** Live Activity rows, KPI strip,
+  request journal profiles, and Runtime Insights sentences and evidence rendered from the runtime journal showed SQL
+  literals, concatenated log messages, and `;name=value` path parameters as recorded in every mode, through the UI, the
+  REST API, `get_live_activity`, `get_runtime_insights`, `get_runtime_insight`, and their `bootui` CLI commands, and
+  the opt-in `bootui_activity` history stored them raw. Every read now applies the live `bootui.expose-values` /
+  `bootui.mask-secrets` policy, so a change from `FULL` to `MASKED` or `METADATA_ONLY` applies to the next read and the
+  Runtime Insights cache is keyed on it: SQL is shown as its literal-free shape, log messages and path parameters are
+  masked, and `METADATA_ONLY` omits log messages. Durable history is written at least as masked as `MASKED`, and stored
+  rows, including those written before this change, are masked again under the live mode on read, keeping their
+  structural label but dropping free text under `METADATA_ONLY`, and are read only while the panel that owns them is
+  enabled. Runtime Insights quote a statement's literal-free shape, never its grouping fingerprint, which kept MySQL
+  double-quoted strings and a truncated dollar quote verbatim. Applies on Spring MVC, Spring WebFlux, and Quarkus
+  ([Live Activity safety](docs/features/overview.md#safety-and-limits), PLAN-v2 §8,
+  [#1216](https://github.com/jdubois/boot-ui/pull/1216)).
 - **Trace data now follows the value-exposure policy.** `GET /bootui/api/traces/{id}`, the trace embedded in the
   per-request profile (`GET /bootui/api/activity/request/{id}`), and their `get_request_profile` MCP tool and
   `bootui request-profile` projections returned span status messages, `exception.message` and `exception.stacktrace`

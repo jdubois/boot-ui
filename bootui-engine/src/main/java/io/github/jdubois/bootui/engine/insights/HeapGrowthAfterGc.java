@@ -56,8 +56,8 @@ public final class HeapGrowthAfterGc implements Observation {
     }
 
     @Override
-    public boolean readsUnits() {
-        return false;
+    public Set<ProjectedRequest.Kind> unitKinds() {
+        return Set.of();
     }
 
     @Override

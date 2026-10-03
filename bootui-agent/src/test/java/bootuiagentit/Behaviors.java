@@ -124,6 +124,9 @@ public class Behaviors {
             awaitSelfTest(bridge);
         }
         CONTEXT.set("request-42");
+        if (bridge != null && !mode.equals("none")) {
+            forkJoinAdmissions(bridge);
+        }
 
         ThreadPoolExecutor pool = new ThreadPoolExecutor(1, 1, 1, TimeUnit.MINUTES, new LinkedBlockingQueue<>());
         check("TPE execute propagates", "request-42".equals(seen(pool, true)));
@@ -221,6 +224,7 @@ public class Behaviors {
         ForkJoinTask<String> fjt = ForkJoinTask.adapt(() -> CONTEXT.get());
         ForkJoinPool.commonPool().execute(fjt);
         check("FJP execute(ForkJoinTask) keeps identity", "request-42".equals(fjt.get()) && fjt.isDone());
+        rejectedForkJoinRoots();
 
         // B3: the same task object submitted by two owners before it runs is never cross-attributed.
         ThreadPoolExecutor single = new ThreadPoolExecutor(1, 1, 1, TimeUnit.MINUTES, new LinkedBlockingQueue<>());
@@ -564,6 +568,165 @@ public class Behaviors {
             latch.await();
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    private static void rejectedForkJoinRoots() throws Exception {
+        ForkJoinPool stopped = new ForkJoinPool(1);
+        stopped.shutdown();
+        ForkJoinPool running = new ForkJoinPool(1);
+        try {
+            for (String method : List.of("execute", "submit", "invoke")) {
+                for (String acceptedOwner : List.of("rejected-owner", "different-owner")) {
+                    for (boolean completed : List.of(false, true)) {
+                        RecursiveTask<String> task = new RecursiveTask<>() {
+                            @Override
+                            protected String compute() {
+                                return CONTEXT.get();
+                            }
+                        };
+                        if (completed) {
+                            task.complete("already-completed");
+                        }
+                        CONTEXT.set("rejected-owner");
+                        boolean rejected = false;
+                        try {
+                            switch (method) {
+                                case "execute" -> stopped.execute(task);
+                                case "submit" -> stopped.submit(task);
+                                case "invoke" -> stopped.invoke(task);
+                                default -> throw new AssertionError(method);
+                            }
+                        } catch (RejectedExecutionException expected) {
+                            rejected = true;
+                        }
+                        check("FJP rejected " + method + " (completed=" + completed + ")", rejected);
+                        task.reinitialize();
+                        CONTEXT.set(acceptedOwner);
+                        running.execute(task);
+                        check(
+                                "FJP rejected " + method + " resubmitted by " + acceptedOwner,
+                                acceptedOwner.equals(task.get(5, TimeUnit.SECONDS)));
+                        task.reinitialize();
+                        CONTEXT.set("fresh-owner");
+                        running.execute(task);
+                        check(
+                                "FJP rejected " + method + " leaves no residual snapshot",
+                                "fresh-owner".equals(task.get(5, TimeUnit.SECONDS)));
+                    }
+                }
+            }
+        } finally {
+            CONTEXT.set("request-42");
+            running.shutdownNow();
+            running.awaitTermination(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void forkJoinAdmissions(Class<?> bridge) throws Exception {
+        ForkJoinPool pool = new ForkJoinPool(1);
+        try {
+            for (String name : List.of("execute", "submit", "invoke", "lazySubmit", "externalSubmit")) {
+                Method method;
+                try {
+                    method = ForkJoinPool.class.getMethod(name, ForkJoinTask.class);
+                } catch (NoSuchMethodException absent) {
+                    results.add("  SKIP FJP " + name);
+                    continue;
+                }
+                RecursiveTask<String> task = new RecursiveTask<>() {
+                    @Override
+                    protected String compute() {
+                        return CONTEXT.get();
+                    }
+                };
+                CountDownLatch ready = new CountDownLatch(1);
+                CountDownLatch gate = new CountDownLatch(1);
+                if (name.equals("lazySubmit")) {
+                    pool.execute(() -> {
+                        ready.countDown();
+                        await(gate);
+                    });
+                    if (!ready.await(5, TimeUnit.SECONDS)) {
+                        throw new TimeoutException("lazy submission worker did not start");
+                    }
+                }
+                Map<String, Object> before = (Map<String, Object>)
+                        ((Map<?, ?>) bridge.getMethod("status").invoke(null)).get("executors");
+                long keyed = (Long) ((Map<?, ?>) before.get("keyed")).get("ForkJoinPool");
+                try {
+                    method.invoke(pool, task);
+                } finally {
+                    gate.countDown();
+                }
+                check("FJP " + name + " admission keeps its owner", "request-42".equals(task.get(5, TimeUnit.SECONDS)));
+                Map<String, Object> after = (Map<String, Object>)
+                        ((Map<?, ?>) bridge.getMethod("status").invoke(null)).get("executors");
+                check(
+                        "FJP " + name + " keys once and drains",
+                        (Long) ((Map<?, ?>) after.get("keyed")).get("ForkJoinPool") == keyed + 1
+                                && after.get("pending").equals(before.get("pending")));
+            }
+            admittedInvokeFailure(pool);
+        } finally {
+            CONTEXT.set("request-42");
+            pool.shutdownNow();
+            pool.awaitTermination(5, TimeUnit.SECONDS);
+        }
+    }
+
+    private static void admittedInvokeFailure(ForkJoinPool pool) throws Exception {
+        ForkJoinPool blocked = new ForkJoinPool(1);
+        CountDownLatch ready = new CountDownLatch(1);
+        CountDownLatch gate = new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicInteger runs = new java.util.concurrent.atomic.AtomicInteger();
+        RecursiveTask<String> task = new RecursiveTask<>() {
+            @Override
+            protected String compute() {
+                if (runs.incrementAndGet() == 1) {
+                    throw new RejectedExecutionException("application failure after admission");
+                }
+                return CONTEXT.get();
+            }
+        };
+        try {
+            blocked.execute(() -> {
+                ready.countDown();
+                await(gate);
+            });
+            if (!ready.await(5, TimeUnit.SECONDS)) {
+                throw new TimeoutException("blocked fork/join worker did not start");
+            }
+            CONTEXT.set("queued-owner");
+            blocked.execute(task);
+            CONTEXT.set("invoke-owner");
+            try {
+                pool.invoke(task);
+                check("FJP admitted invoke throws the application's failure", false);
+            } catch (RejectedExecutionException expected) {
+                check("FJP admitted invoke throws the application's failure", true);
+            }
+            task.reinitialize();
+            CONTEXT.set("third-owner");
+            pool.execute(task);
+            check(
+                    "FJP admitted invoke failure preserves another pending submission",
+                    task.get(5, TimeUnit.SECONDS) == null);
+            gate.countDown();
+            blocked.shutdown();
+            if (!blocked.awaitTermination(5, TimeUnit.SECONDS)) {
+                throw new TimeoutException("blocked fork/join pool did not drain");
+            }
+            task.reinitialize();
+            CONTEXT.set("fresh-owner");
+            pool.execute(task);
+            check("FJP admitted invoke failure eventually drains", "fresh-owner".equals(task.get(5, TimeUnit.SECONDS)));
+        } finally {
+            gate.countDown();
+            blocked.shutdownNow();
+            blocked.awaitTermination(5, TimeUnit.SECONDS);
+            CONTEXT.set("request-42");
         }
     }
 
