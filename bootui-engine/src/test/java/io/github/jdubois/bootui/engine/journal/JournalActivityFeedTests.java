@@ -46,12 +46,12 @@ class JournalActivityFeedTests {
                         new ExceptionPayload("g1", "java.lang.IllegalState")),
                 1_003);
         add(http("r1", "GET", "/api/orders/42", "/api/orders/{id}", 500, 30), 1_004);
-        add(sql("r2", "select 1", 1, "worker-2", false), 1_005);
+        add(sql("r2", "select count(*) from audit", 1, "worker-2", false), 1_005);
 
         Feed rendered = feed.render(entries, EVENT_ID, "run", Filter.NONE, 0);
 
         Map<String, ActivityEntryDto> byType = rendered.entries().stream()
-                .filter(entry -> !entry.summary().equals("select 1"))
+                .filter(entry -> !entry.summary().equals("select count(*) from audit"))
                 .collect(Collectors.toMap(ActivityEntryDto::type, entry -> entry));
         ActivityEntryDto request = byType.get("REQUEST");
         assertThat(request.id()).isEqualTo("r1");
@@ -68,7 +68,7 @@ class JournalActivityFeedTests {
         assertThat(byType.get("EXCEPTION").method()).isEqualTo("GET");
         assertThat(byType.get("EXCEPTION").path()).isEqualTo("/api/orders/42");
         assertThat(rendered.entries())
-                .filteredOn(entry -> entry.summary().equals("select 1"))
+                .filteredOn(entry -> entry.summary().equals("select count(*) from audit"))
                 .singleElement()
                 .as("a request still in flight has no entry yet, so its child stays top-level")
                 .satisfies(entry -> assertThat(entry.parentId()).isNull());
