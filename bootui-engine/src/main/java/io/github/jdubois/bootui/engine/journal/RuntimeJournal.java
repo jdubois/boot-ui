@@ -89,6 +89,8 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
 
     /** How many times the recording was cleared, so the dispatcher drops an event it took before a clear. */
     private volatile long clears;
+    // Counted when a clear is wholly done, listeners included, and read first by status().
+    private volatile long clearsCompleted;
 
     private GcEventSource gcSource;
     private ResourceSampler resourceSampler;
@@ -480,11 +482,13 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
                     log.log(Level.WARNING, "A listener of BootUI's runtime journal failed to clear its state", ex);
                 }
             }
+            clearsCompleted++;
             return dropped;
         }
     }
 
     public JournalStatus status() {
+        long clearsDone = clearsCompleted;
         EvidenceRing.Counts counts = ring.counts();
         return new JournalStatus(
                 settings.enabled(),
@@ -507,7 +511,8 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
                 settings.enabled() ? settings.queueCapacity() : 0,
                 perSource(accepted),
                 perSource(dropped),
-                listenerFailures.sum());
+                listenerFailures.sum(),
+                clearsDone);
     }
 
     /**

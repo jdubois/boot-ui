@@ -22,6 +22,7 @@ public final class RuntimeModelService {
     private RuntimeModel cached;
     private long cachedWatermark = Long.MIN_VALUE;
     private long cachedEvicted = Long.MIN_VALUE;
+    private long cachedClears = Long.MIN_VALUE;
 
     /**
      * @param journal the journal, or {@code null} when the adapter created none
@@ -45,7 +46,10 @@ public final class RuntimeModelService {
         }
         JournalStatus status = journal.status();
         long evicted = status.evictedByCount() + status.evictedByBytes();
-        if (cached != null && cachedWatermark == status.lastSequence() && cachedEvicted == evicted) {
+        if (cached != null
+                && cachedWatermark == status.lastSequence()
+                && cachedEvicted == evicted
+                && cachedClears == status.clears()) {
             return cached;
         }
         // An empty snapshot is read again, as providers can become available after the first read.
@@ -71,6 +75,7 @@ public final class RuntimeModelService {
                 journal::evictedARequestOf);
         cachedWatermark = status.lastSequence();
         cachedEvicted = evicted;
+        cachedClears = status.clears();
         return cached;
     }
 
