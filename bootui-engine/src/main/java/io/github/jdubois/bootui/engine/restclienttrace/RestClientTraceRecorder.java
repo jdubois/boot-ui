@@ -23,6 +23,7 @@ import io.github.jdubois.bootui.engine.support.UriMasking;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
 import io.github.jdubois.bootui.spi.IdleReclaimable;
+import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import io.github.jdubois.bootui.spi.ThreadKind;
 import io.github.jdubois.bootui.spi.ThreadKindClassifier;
 import java.util.ArrayList;
@@ -61,7 +62,7 @@ import java.util.stream.Stream;
  * reveals them: URI authority user-info credentials, and the client {@code errorMessage}, which is flattened,
  * credential-redacted, and length-bounded since a transport exception can quote a whole request URL.</p>
  */
-public final class RestClientTraceRecorder implements IdleReclaimable, RuntimeEventPublisher {
+public final class RestClientTraceRecorder implements IdleReclaimable, RuntimeEventPublisher, MemoryOffloadable {
 
     static final int TOP_CALLS_LIMIT = 20;
 
@@ -705,6 +706,24 @@ public final class RestClientTraceRecorder implements IdleReclaimable, RuntimeEv
     /** The buffer's retention counts: capacity, reserved share, retained and reserved calls, and evictions. */
     public CaptureRetentionDto retention() {
         return buffer.snapshot().retention(slowCallThresholdMillis);
+    }
+
+    @Override
+    public String offloadId() {
+        return "rest-client-trace";
+    }
+
+    @Override
+    public String offloadLabel() {
+        return "REST client calls";
+    }
+
+    /** Drops what {@link #clear()} drops, for <b>Free BootUI memory</b>; recording settings are kept. */
+    @Override
+    public long offloadRetainedData() {
+        long retained = recent().size();
+        clear();
+        return retained;
     }
 
     public void clear() {

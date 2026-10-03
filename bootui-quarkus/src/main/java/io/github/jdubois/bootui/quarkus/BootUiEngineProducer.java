@@ -53,6 +53,7 @@ import io.github.jdubois.bootui.engine.liquibase.LiquibaseService;
 import io.github.jdubois.bootui.engine.loggers.LoggersService;
 import io.github.jdubois.bootui.engine.logtail.LogTailBuffer;
 import io.github.jdubois.bootui.engine.mappings.MappingsService;
+import io.github.jdubois.bootui.engine.memory.MemoryOffloadService;
 import io.github.jdubois.bootui.engine.memory.MemoryReportProvider;
 import io.github.jdubois.bootui.engine.memory.MemoryScanner;
 import io.github.jdubois.bootui.engine.metrics.MeterSelfFilter;
@@ -244,6 +245,16 @@ public class BootUiEngineProducer {
     public MemoryReportProvider memoryReportProvider(
             QuarkusMemoryRuntimeConfig runtimeConfig, QuarkusExposurePolicy exposure) {
         return new MemoryReportProvider(runtimeConfig, exposure);
+    }
+
+    /**
+     * <b>Free BootUI memory</b> for the Live Memory, JVM Tuning, Heap Dump, and Memory panels, over the BootUI stores
+     * ArC has already created ({@link QuarkusMemoryOffloadCandidates}), re-read on every call.
+     */
+    @Produces
+    @Singleton
+    public MemoryOffloadService memoryOffloadService() {
+        return new MemoryOffloadService(QuarkusMemoryOffloadCandidates::created);
     }
 
     /**

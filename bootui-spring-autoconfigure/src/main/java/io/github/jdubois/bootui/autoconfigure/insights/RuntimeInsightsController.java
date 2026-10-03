@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.javaagent.AgentPropagation;
 import io.github.jdubois.bootui.autoconfigure.web.DeclaredRouteTemplates;
 import io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto;
+import io.github.jdubois.bootui.core.dto.RuntimeImpactSymbolsDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeResourceProfileDto;
@@ -108,6 +109,12 @@ public class RuntimeInsightsController {
     @GetMapping("/impact")
     public RuntimeChangeImpactDto impact(@RequestParam(name = "symbol", required = false) String symbol) {
         return impact.impact(symbol);
+    }
+
+    /** The routes, beans, tables, and other symbols the impact can check that match {@code query}. */
+    @GetMapping("/impact/symbols")
+    public RuntimeImpactSymbolsDto impactSymbols(@RequestParam(name = "query", required = false) String query) {
+        return impact.symbols(query);
     }
 
     /** The <b>Profile resources</b> session's state and last results ({@code PLAN-v2} §5.11); starts nothing. */

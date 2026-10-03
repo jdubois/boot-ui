@@ -101,12 +101,16 @@ class McpGuidanceTests {
     @ParameterizedTest
     @ValueSource(strings = {"Spring Boot", "Quarkus"})
     void runtimeInsightsComeFirstAndVerifyingAChangeStopsAtTheComparison(String framework) {
-        assertThat(McpGuidance.instructions(framework)).contains("get_runtime_insights", "get_runtime_run_comparison");
+        assertThat(McpGuidance.instructions(framework))
+                .contains("get_runtime_insights", "get_runtime_run_comparison", "get_runtime_impact");
         McpPrompt diagnose = McpGuidance.prompts(framework).get(0);
         assertThat(diagnose.text().indexOf("get_runtime_insights"))
                 .isLessThan(diagnose.text().indexOf("get_live_activity"));
         McpPrompt verify = McpGuidance.prompts(framework).get(1);
         assertThat(verify.text())
                 .contains("get_runtime_run_comparison", "previous", "and stop", "latency row", "missing observation");
+        assertThat(verify.text().indexOf("get_runtime_impact"))
+                .isGreaterThanOrEqualTo(0)
+                .isLessThan(verify.text().indexOf("get_runtime_run_comparison"));
     }
 }

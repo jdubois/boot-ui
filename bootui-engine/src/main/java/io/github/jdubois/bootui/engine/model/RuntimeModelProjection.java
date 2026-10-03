@@ -76,11 +76,13 @@ public final class RuntimeModelProjection {
             }
         }
         int owned = 0;
-        for (int i = 0; i < Math.min(read, ordered.size()) && !overBudget; i++) {
+        int projected = 0;
+        for (int i = 0; i < ordered.size() && !overBudget; i++) {
             if (i % CLOCK_EVERY == 0 && clock.getAsLong() - started > budgetNanos) {
                 overBudget = true;
                 break;
             }
+            projected++;
             RuntimeEvent event = ordered.get(i).event();
             Integer owner = owner(event, byOwner, byTrace);
             if (owner == null) {
@@ -90,13 +92,15 @@ public final class RuntimeModelProjection {
             observe(builder, owner, event);
         }
         if (overBudget) {
-            limitations.add("The projection stopped at its " + budgetNanos / 1_000_000 + " ms read budget after "
-                    + Math.min(read, ordered.size()) + " of " + ordered.size() + " retained events.");
+            // Edges come from the second pass, so it alone says how much of the journal the model reflects.
+            limitations.add("The projection stopped at its " + budgetNanos / 1_000_000
+                    + " ms read budget after reading the edges of " + projected + " of " + ordered.size()
+                    + " retained events.");
         }
         if (evicted > 0) {
             limitations.add("The journal evicted " + evicted + " older events, so their edges are not observed.");
         }
-        if (owned == 0 && !ordered.isEmpty()) {
+        if (owned == 0 && !ordered.isEmpty() && !overBudget) {
             limitations.add("No retained event belongs to a request or execution yet.");
         }
         return builder.build(structure == null ? null : structure.runId(), limitations);

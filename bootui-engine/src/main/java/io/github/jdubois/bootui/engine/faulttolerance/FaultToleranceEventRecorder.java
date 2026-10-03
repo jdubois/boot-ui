@@ -9,6 +9,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
+import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -33,7 +34,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>Capture is fail-open: {@link #record} swallows its own failures so a protected call is never
  * disrupted by BootUI, and it becomes an immediate no-op when capture is disabled.</p>
  */
-public final class FaultToleranceEventRecorder implements RuntimeEventPublisher {
+public final class FaultToleranceEventRecorder implements RuntimeEventPublisher, MemoryOffloadable {
 
     private volatile RuntimeEventSink journal = RuntimeEventSink.NONE;
 
@@ -284,6 +285,24 @@ public final class FaultToleranceEventRecorder implements RuntimeEventPublisher 
 
     public long totalCaptured() {
         return totalCaptured.get();
+    }
+
+    @Override
+    public String offloadId() {
+        return "fault-tolerance";
+    }
+
+    @Override
+    public String offloadLabel() {
+        return "Fault tolerance events";
+    }
+
+    /** Drops what {@link #clear()} drops, for <b>Free BootUI memory</b>; recording settings are kept. */
+    @Override
+    public long offloadRetainedData() {
+        long retained = recent().size();
+        clear();
+        return retained;
     }
 
     public void clear() {

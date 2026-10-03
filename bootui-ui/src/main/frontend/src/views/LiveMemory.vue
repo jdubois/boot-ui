@@ -1,6 +1,7 @@
 <script setup>
 import {computed} from 'vue'
 import FlashBanner from './components/FlashBanner.vue'
+import MemoryOffloadButton from './components/MemoryOffloadButton.vue'
 import PanelHeader from './components/PanelHeader.vue'
 import PanelSkeleton from './components/PanelSkeleton.vue'
 import ProgressBar from './components/ProgressBar.vue'
@@ -32,7 +33,11 @@ const staleMessage = {
       :last-fetched="lastUpdated ? lastUpdated.getTime() : null"
       v-model:auto-refresh="autoRefresh"
       @refresh="load"
-    />
+    >
+      <template #actions>
+        <MemoryOffloadButton @offloaded="load" />
+      </template>
+    </PanelHeader>
 
     <PanelSkeleton v-if="panelState.initialLoading.value" label="Loading live memory…" />
 

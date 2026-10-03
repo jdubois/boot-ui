@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.activity;
 
+import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -19,7 +20,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * {@link BufferedActivityStore#close()} provides once a runtime switch has made a durable store the
  * active delegate.
  */
-public final class SwitchableActivityStore implements ActivityStore {
+public final class SwitchableActivityStore implements ActivityStore, MemoryOffloadable {
 
     private final AtomicReference<ActivityStore> delegate;
 
@@ -65,6 +66,25 @@ public final class SwitchableActivityStore implements ActivityStore {
         }
         delegate.set(replacement);
         return true;
+    }
+
+    @Override
+    public String offloadId() {
+        return "live-activity";
+    }
+
+    @Override
+    public String offloadLabel() {
+        return "Live Activity entries";
+    }
+
+    /**
+     * Drops the in-memory Live Activity entries for <b>Free BootUI memory</b>. A durable store is left untouched: its
+     * rows live in the application's database, not in the heap, and its hot cache backs entries not yet flushed.
+     */
+    @Override
+    public long offloadRetainedData() {
+        return delegate.get() instanceof InMemoryActivityStore inMemory ? inMemory.clear() : 0L;
     }
 
     /**

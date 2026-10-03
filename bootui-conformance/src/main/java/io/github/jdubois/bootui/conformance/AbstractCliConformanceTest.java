@@ -240,6 +240,12 @@ public abstract class AbstractCliConformanceTest {
         assertThat(list.status()).isEqualTo(200);
         assertThat(list.json().has("coverage")).isTrue();
         assertThat(list.json().path("observations").size()).isLessThanOrEqualTo(2);
+        assertThat(invoke("get_runtime_insights", "{}")
+                        .json()
+                        .path("observations")
+                        .size())
+                .as("bootui insights list without --limit gets the compact default")
+                .isLessThanOrEqualTo(8);
         Response comparison = invoke("get_runtime_run_comparison", "{\"id\":\"previous\"}");
         assertThat(comparison.status()).isEqualTo(200);
         assertThat(comparison.json().path("status").asText()).isNotBlank();

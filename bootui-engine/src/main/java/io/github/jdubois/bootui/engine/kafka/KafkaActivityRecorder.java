@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
+import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -39,7 +40,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>Thread-safe, capped at {@code maxEntries}, and evicts the oldest message once full so it never
  * grows unbounded.</p>
  */
-public final class KafkaActivityRecorder implements RuntimeEventPublisher {
+public final class KafkaActivityRecorder implements RuntimeEventPublisher, MemoryOffloadable {
 
     private static final int MAX_HASH_LENGTH = 64;
     private static final String FAILURE_MESSAGE = "Message processing failed";
@@ -408,6 +409,24 @@ public final class KafkaActivityRecorder implements RuntimeEventPublisher {
 
     public long totalCaptured() {
         return totalCaptured.get();
+    }
+
+    @Override
+    public String offloadId() {
+        return "kafka";
+    }
+
+    @Override
+    public String offloadLabel() {
+        return "Kafka messages";
+    }
+
+    /** Drops what {@link #clear()} drops, for <b>Free BootUI memory</b>; recording settings are kept. */
+    @Override
+    public long offloadRetainedData() {
+        long retained = recent().size();
+        clear();
+        return retained;
     }
 
     public void clear() {

@@ -280,7 +280,8 @@ public final class McpDispatcher {
             return new ProtocolError(
                     McpProtocol.INVALID_PARAMS, McpProtocol.invalidArgumentMinimumMessage("offset", 0));
         }
-        McpArguments arguments = McpArguments.normalize(request, tool.schema(), maxResults);
+        McpArguments arguments =
+                McpArguments.normalize(request, tool.schema(), maxResults, McpToolCatalog.defaultLimit(tool.name()));
         if ((tool.schema() == McpToolSchema.ID || ruleViolations) && arguments.id() == null) {
             return new ProtocolError(McpProtocol.INVALID_PARAMS, McpProtocol.MISSING_ID_ARGUMENT_MESSAGE);
         }

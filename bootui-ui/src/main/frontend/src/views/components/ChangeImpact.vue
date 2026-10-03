@@ -1,23 +1,52 @@
 <script setup>
-import {computed, ref} from 'vue'
+import {computed, onBeforeUnmount, ref} from 'vue'
 import {getJson} from '../../api.js'
-import {impactLists, isImpact, nodeParts, routeTraffic} from '../../utils/changeImpact.js'
+import {impactLists, isImpact, isSymbols, nodeParts, routeTraffic, symbolOption} from '../../utils/changeImpact.js'
 import {formatNumber} from '../../utils/format.js'
 import {describeLoadError} from '../../utils/loadError.js'
 import InsightText from './InsightText.vue'
 
-// An agent or a link can open the panel on a symbol; nothing is read until a symbol is asked for.
+// An agent or a link can open the panel on a symbol; nothing is read until a symbol is asked for or typed.
 const props = defineProps({initialSymbol: {type: String, default: ''}})
+
+const SUGGEST_DELAY_MS = 150
+const listboxId = 'insight-impact-suggestions'
 
 const symbol = ref(props.initialSymbol)
 const impact = ref(null)
 const error = ref(null)
 const loading = ref(false)
 
-async function check(value = symbol.value) {
+const suggestions = ref(null)
+const suggestionError = ref(null)
+const suggestionsOpen = ref(false)
+const activeIndex = ref(-1)
+let suggestTimer = null
+let suggestSequence = 0
+
+const options = computed(() => (suggestions.value?.symbols ?? []).map(symbolOption))
+const hiddenMatches = computed(() => Math.max(0, (suggestions.value?.total ?? 0) - options.value.length))
+const popupVisible = computed(
+  () => suggestionsOpen.value && Boolean(suggestionError.value || suggestions.value) && symbol.value.trim() !== ''
+)
+const listVisible = computed(() => popupVisible.value && options.value.length > 0)
+const activeOptionId = computed(() =>
+  listVisible.value && activeIndex.value >= 0 ? `insight-impact-option-${activeIndex.value}` : undefined
+)
+const suggestionStatus = computed(() => {
+  if (!popupVisible.value) return ''
+  if (suggestionError.value) return suggestionError.value
+  if (!suggestions.value.available) return suggestions.value.unavailableReason ?? 'Suggestions are unavailable.'
+  if (options.value.length === 0) return `Nothing in this run's model matches “${suggestions.value.query}”.`
+  const shown = `${formatNumber(options.value.length)} ${options.value.length === 1 ? 'suggestion' : 'suggestions'}`
+  return hiddenMatches.value > 0 ? `${shown}, ${formatNumber(hiddenMatches.value)} more: keep typing` : shown
+})
+
+async function check(value = symbol.value, shown = value) {
   const asked = (value ?? '').trim()
   if (!asked) return
-  symbol.value = asked
+  closeSuggestions()
+  symbol.value = (shown ?? asked).trim()
   loading.value = true
   error.value = null
   try {
@@ -30,6 +59,68 @@ async function check(value = symbol.value) {
     loading.value = false
   }
 }
+
+function onInput() {
+  clearTimeout(suggestTimer)
+  const query = symbol.value.trim()
+  if (!query) {
+    closeSuggestions()
+    return
+  }
+  suggestTimer = setTimeout(() => suggest(query), SUGGEST_DELAY_MS)
+}
+
+async function suggest(query) {
+  const sequence = ++suggestSequence
+  try {
+    const result = await getJson(`api/runtime-insights/impact/symbols?query=${encodeURIComponent(query)}`)
+    if (sequence !== suggestSequence) return
+    suggestions.value = isSymbols(result) ? result : null
+    suggestionError.value = isSymbols(result) ? null : 'Suggestions are unavailable.'
+  } catch (e) {
+    if (sequence !== suggestSequence) return
+    suggestions.value = null
+    suggestionError.value = describeLoadError(e, 'Unable to read the suggestions')
+  }
+  activeIndex.value = -1
+  suggestionsOpen.value = true
+}
+
+function closeSuggestions() {
+  clearTimeout(suggestTimer)
+  suggestSequence++
+  suggestionsOpen.value = false
+  activeIndex.value = -1
+}
+
+function choose(option) {
+  check(option.symbol, option.name)
+}
+
+function onKeydown(event) {
+  const count = options.value.length
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    if (!listVisible.value) {
+      if (suggestions.value && count && symbol.value.trim()) {
+        event.preventDefault()
+        suggestionsOpen.value = true
+        activeIndex.value = event.key === 'ArrowDown' ? 0 : count - 1
+      }
+      return
+    }
+    event.preventDefault()
+    const step = event.key === 'ArrowDown' ? 1 : -1
+    activeIndex.value = activeIndex.value < 0 ? (step > 0 ? 0 : count - 1) : (activeIndex.value + step + count) % count
+  } else if (event.key === 'Enter' && listVisible.value && activeIndex.value >= 0) {
+    event.preventDefault()
+    choose(options.value[activeIndex.value])
+  } else if (event.key === 'Escape' && popupVisible.value) {
+    event.preventDefault()
+    closeSuggestions()
+  }
+}
+
+onBeforeUnmount(closeSuggestions)
 
 if (props.initialSymbol) {
   check(props.initialSymbol)
@@ -44,8 +135,8 @@ const node = computed(() => nodeParts(impact.value?.node))
     <div class="card-body">
       <h2 id="insight-impact-title" class="h6 mb-1">Change impact</h2>
       <p class="small text-muted mb-2 insight-impact-intro">
-        Name what you are changing, a bean, a class, a repository, a table, a cache, or a host, to see which routes this
-        run exercised through it and which it did not.
+        Name what you are changing, a route, a bean, a class, a repository, a table, a cache, or a host, to see which
+        routes this run exercised through it and which it did not. Start typing to pick one from this run.
       </p>
       <form
         class="d-flex flex-wrap gap-2 align-items-center"
@@ -53,15 +144,53 @@ const node = computed(() => nodeParts(impact.value?.node))
         aria-label="Change impact search"
         @submit.prevent="check()"
       >
-        <input
-          v-model="symbol"
-          type="search"
-          class="form-control form-control-sm insight-impact-input"
-          aria-label="Symbol to check, such as a bean, class, repository, table, cache, or host"
-          placeholder="ProductRepository, sample_products…"
-          autocomplete="off"
-          spellcheck="false"
-        />
+        <div class="insight-impact-combobox">
+          <input
+            v-model="symbol"
+            type="search"
+            role="combobox"
+            class="form-control form-control-sm insight-impact-input"
+            aria-label="Symbol to check, such as a route, bean, class, repository, table, cache, or host"
+            aria-autocomplete="list"
+            :aria-expanded="listVisible ? 'true' : 'false'"
+            :aria-controls="listboxId"
+            :aria-activedescendant="activeOptionId"
+            placeholder="Type a route, bean, table…"
+            autocomplete="off"
+            spellcheck="false"
+            @input="onInput"
+            @keydown="onKeydown"
+            @blur="closeSuggestions"
+          />
+          <div v-show="popupVisible" class="insight-impact-popup">
+            <ul
+              v-if="listVisible"
+              :id="listboxId"
+              class="list-unstyled mb-0 insight-impact-options"
+              role="listbox"
+              aria-label="Symbols in this run"
+            >
+              <li
+                v-for="(option, index) in options"
+                :id="`insight-impact-option-${index}`"
+                :key="option.symbol"
+                role="option"
+                class="insight-impact-option"
+                :class="{active: index === activeIndex}"
+                :aria-selected="index === activeIndex ? 'true' : 'false'"
+                @mousedown.prevent
+                @mousemove="activeIndex = Number(index)"
+                @click="choose(option)"
+              >
+                <code class="insight-impact-option-name bootui-break-anywhere">{{ option.name }}</code>
+                <span v-if="option.type" class="small text-muted insight-impact-option-type">{{ option.type }}</span>
+                <span class="badge text-bg-light border fw-normal insight-impact-option-kind">{{ option.kind }}</span>
+              </li>
+            </ul>
+            <p class="small text-muted mb-0 insight-impact-popup-status" aria-hidden="true">{{ suggestionStatus }}</p>
+          </div>
+          <span class="visually-hidden" role="status">{{ suggestionStatus }}</span>
+        </div>
         <button type="submit" class="btn btn-sm btn-primary" :disabled="loading || !symbol.trim()">Check impact</button>
       </form>
 
@@ -142,7 +271,7 @@ const node = computed(() => nodeParts(impact.value?.node))
                 :key="candidate"
                 type="button"
                 class="btn btn-sm btn-outline-secondary insight-impact-candidate"
-                @click="check(candidate.slice(candidate.indexOf(' ') + 1))"
+                @click="check(candidate, candidate.slice(candidate.indexOf(' ') + 1))"
               >
                 <code>{{ candidate }}</code>
               </button>
@@ -161,8 +290,72 @@ const node = computed(() => nodeParts(impact.value?.node))
   max-width: 80ch;
 }
 
-.insight-impact-input {
+.insight-impact-combobox {
+  flex: 1 1 16rem;
   max-width: 22rem;
+  position: relative;
+}
+
+/* The suggestions float over the panel's later cards and Bootstrap's raised list items (z-index 2 and 3), and stay
+   under the sticky topbar (10). */
+.insight-impact {
+  position: relative;
+  z-index: 5;
+}
+
+/* Solid, like the theme menu: the translucent glass surface would let the content below read through. */
+.insight-impact-popup {
+  background: var(--bootui-surface-solid);
+  border: 1px solid var(--bootui-border);
+  border-radius: var(--bootui-radius-md);
+  box-shadow: var(--bootui-shadow-md);
+  left: 0;
+  margin-top: 0.25rem;
+  max-width: min(36rem, calc(100vw - 2rem));
+  min-width: 100%;
+  overflow: hidden;
+  position: absolute;
+  top: 100%;
+  width: max-content;
+  z-index: 20;
+}
+
+.insight-impact-options {
+  max-height: 18rem;
+  overflow-y: auto;
+  padding: 0.25rem;
+}
+
+.insight-impact-option {
+  align-items: center;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+}
+
+.insight-impact-option.active {
+  background: var(--bootui-nav-hover-bg, rgba(25, 135, 84, 0.08));
+  box-shadow: inset 0 0 0 1px var(--bootui-blue, #0d6efd);
+}
+
+.insight-impact-option-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.insight-impact-option-type,
+.insight-impact-option-kind {
+  flex-shrink: 0;
+}
+
+.insight-impact-popup-status {
+  padding: 0.35rem 0.75rem;
+}
+
+.insight-impact-options + .insight-impact-popup-status {
+  border-top: 1px solid var(--bootui-border);
 }
 
 .insight-impact-list {

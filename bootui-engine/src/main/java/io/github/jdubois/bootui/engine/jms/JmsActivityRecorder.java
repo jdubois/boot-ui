@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEventPublisher;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
+import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -29,7 +30,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p><strong>Only metadata is captured, never the message body or arbitrary properties.</strong>
  * Provider-assigned message IDs are retained only as truncated SHA-256 hashes when enabled.
  */
-public final class JmsActivityRecorder implements RuntimeEventPublisher {
+public final class JmsActivityRecorder implements RuntimeEventPublisher, MemoryOffloadable {
 
     private static final int MAX_METADATA_LENGTH = 200;
 
@@ -303,6 +304,24 @@ public final class JmsActivityRecorder implements RuntimeEventPublisher {
 
     public long totalCaptured() {
         return totalCaptured.get();
+    }
+
+    @Override
+    public String offloadId() {
+        return "jms";
+    }
+
+    @Override
+    public String offloadLabel() {
+        return "JMS messages";
+    }
+
+    /** Drops what {@link #clear()} drops, for <b>Free BootUI memory</b>; recording settings are kept. */
+    @Override
+    public long offloadRetainedData() {
+        long retained = recent().size();
+        clear();
+        return retained;
     }
 
     public void clear() {

@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.engine.support.StackFramePrefixes;
 import io.github.jdubois.bootui.engine.telemetry.SpanEnricher;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.CorrelationContextProvider;
+import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -59,7 +60,7 @@ import java.util.function.Predicate;
  * a lifetime counter: manual {@link #setStatus} calls never change it, so it keeps answering "has this
  * exact failure signature come back before?" across any number of later manual resolves.</p>
  */
-public final class ExceptionStore implements RuntimeEventPublisher {
+public final class ExceptionStore implements RuntimeEventPublisher, MemoryOffloadable {
 
     /** Number of leading frames that contribute to a group's fingerprint. */
     private static final int FINGERPRINT_FRAMES = 5;
@@ -309,6 +310,24 @@ public final class ExceptionStore implements RuntimeEventPublisher {
         }
         notifyListeners();
         return updated;
+    }
+
+    @Override
+    public String offloadId() {
+        return "exceptions";
+    }
+
+    @Override
+    public String offloadLabel() {
+        return "Exception groups";
+    }
+
+    /** Drops what {@link #clear()} drops, for <b>Free BootUI memory</b>; recording settings are kept. */
+    @Override
+    public long offloadRetainedData() {
+        long retained = groups().size();
+        clear();
+        return retained;
     }
 
     public void clear() {

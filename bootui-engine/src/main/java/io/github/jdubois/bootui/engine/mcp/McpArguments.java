@@ -24,7 +24,19 @@ public record McpArguments(String query, Integer limit, String id, String scanId
 
     /** Applies advisor page defaults without changing any existing tool's default. */
     public static McpArguments normalize(McpRequest request, McpToolSchema schema, int maxResults) {
+        return normalize(request, schema, maxResults, null);
+    }
+
+    /**
+     * Applies advisor page defaults, and {@code defaultLimit} (capped at {@code maxResults}) when the call asks for no
+     * {@code limit}; a {@code null} {@code defaultLimit} keeps {@code maxResults}.
+     */
+    public static McpArguments normalize(
+            McpRequest request, McpToolSchema schema, int maxResults, Integer defaultLimit) {
         McpArguments base = normalize(request.rawQuery(), request.rawLimit(), request.rawId(), maxResults);
+        if (defaultLimit != null && request.rawLimit() == null && schema != McpToolSchema.RULE_VIOLATIONS) {
+            return new McpArguments(base.query(), Math.min(Math.max(1, defaultLimit), maxResults), base.id());
+        }
         if (schema != McpToolSchema.RULE_VIOLATIONS) {
             return base;
         }

@@ -736,6 +736,21 @@ Features:
 
 - The Live Memory panel shows live heap and non-heap usage summaries.
 - The Live Memory panel shows memory pool usage.
+- Live Memory, JVM Tuning, Heap Dump, and the Memory advisor share a **Free BootUI memory** header action with an
+  expandable explanation. After a danger confirmation it calls `POST /bootui/api/live-memory/offload`, which empties
+  every BootUI-owned capture buffer that already exists (runtime journal and its aggregates, in-memory Live Activity,
+  HTTP exchanges, traces, SQL statements, REST client calls, transactions, Kafka/RabbitMQ/JMS/WebSocket activity, cache
+  events, scheduled runs, fault-tolerance events, exceptions with their triage status, security events, and captured
+  emails) and then requests a garbage collection, so memory figures reflect the application rather than BootUI.
+  Recording state, settings, configuration overrides, dismissed rules, cached scan reports, run history, and a durable
+  Live Activity store are kept. Stores register through the engine's `MemoryOffloadable` port; adapters hand over only
+  singletons already created, so the action never instantiates a lazy bean or loads an optional integration. The
+  response (`MemoryOffloadReport`) reports heap used before and after (`MemoryMXBean`), a non-negative reclaimed
+  estimate, the cleared entry count, each store's outcome (a failing store is reported, not fatal), and whether
+  `-XX:+DisableExplicitGC` makes the collection request a no-op; `System.gc()` is only a hint. The action belongs to
+  the Live Memory panel, which is therefore action-capable: global `bootui.read-only=true` or
+  `bootui.panels.live-memory.read-only=true` refuses it with the canonical panel denial, and the button is disabled
+  with that reason. The UI makes no request until the user confirms.
 - The JVM Tuning panel shows JVM input arguments. Their values pass through `SecretMasker` and the
   `bootui.expose-values` / `bootui.mask-secrets` policy before serialization, keeping each key visible:
   `-XX:OnError`/`-XX:OnOutOfMemoryError` commands are always masked, and `METADATA_ONLY` masks every `-D` value
@@ -1567,15 +1582,22 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   cached until the journal records more or a panel's enablement changes.
 - `GET /bootui/api/runtime-insights/insights/{id}` returns one observation's evidence: at most 20 rows and the count left
   out. Ids are `kind:hash`, stable across refreshes and restarts.
-- `GET /bootui/api/runtime-insights/impact?symbol=<symbol>` resolves a bean, a class's simple name, a repository, a
-  table, a cache, a host, or an application event type to exactly one node of the runtime model ([PLAN-v2.md](PLAN-v2.md) §5.7), or answers
-  `AMBIGUOUS` with up to 8 candidates, `NOT_FOUND`, or `UNAVAILABLE` when the beans cannot be read. A resolved symbol
-  lists, 8 rows each with totals, the routes that reach it and ran in this run, the mapped routes that reach it and did
-  not, and the routes outside its reach that use a table, cache, or host the routes through it touched, with the
-  structural reach as a count. It is worded as what was and was not exercised, never as safe, and reads only what the
-  journal, the aggregates, and the bean and mapping providers already hold.
-- `GET /bootui/api/runtime-insights/comparison[?run=<runId>]` compares the current run with the newest kept run, or the
-  chosen one ([PLAN-v2.md](PLAN-v2.md) §5.8). Its status is `COMPARED`, `INSUFFICIENT` when no route served 3 requests
+- `GET /bootui/api/runtime-insights/impact?symbol=<symbol>` resolves a route, a bean, a class's simple name, a
+  repository, a table, a cache, a host, or an application event type to exactly one node of the runtime model
+  ([PLAN-v2.md](PLAN-v2.md) §5.7), or answers `AMBIGUOUS` with up to 8 candidates, `NOT_FOUND`, or `UNAVAILABLE` when
+  the beans cannot be read. A symbol prefixed with its kind, such as `TABLE sample_products` or a candidate as listed,
+  names exactly that node. A resolved symbol lists, 8 rows each with totals, the routes that reach it and ran in this
+  run, the mapped routes that reach it and did not, and the routes outside its reach that use a table, cache, or host
+  the routes through it touched, with the structural reach as a count. A route is its own impact: it is listed itself,
+  with the routes sharing what it touched. It is worded as what was and was not exercised, never as safe, and reads
+  only what the journal, the aggregates, and the bean and mapping providers already hold.
+- `GET /bootui/api/runtime-insights/impact/symbols?query=<text>` suggests, as the impact box is typed in, at most 20 of
+  the routes, beans, repositories, tables, caches, hosts, and events of the run's model whose name or bean class
+  contains the text, with their kind and class and the total matched: an exact name first, then a name or a route's
+  path starting with it, then a class starting with it. It reads only the run's model, and answers `available=false`
+  with the reason when the journal is disabled.
+- `GET /bootui/api/runtime-insights/comparison[?run=<runId>]` compares the current run with the newest kept run that
+  served HTTP requests (the newest kept run when none did), or the chosen one ([PLAN-v2.md](PLAN-v2.md) §5.8). Its status is `COMPARED`, `INSUFFICIENT` when no route served 3 requests
   in both runs, `NOT_COMPARABLE` with the database, profile, or cache difference first, `NO_PREVIOUS_RUN` with the
   reason, or `UNAVAILABLE`. Behavior rows come first (statements, REST and AI calls, cache misses, and tokens per
   request; new statements, exceptions, and routes; status-class shares; allocation), then the runtime model's added and
@@ -2731,6 +2753,7 @@ Initial endpoints:
 | `/bootui/api/devtools/livereload`            | POST   | Trigger a DevTools LiveReload notification when available                              |
 | `/bootui/api/devtools/restart`               | POST   | Schedule a DevTools restart after explicit confirmation                                |
 | `/bootui/api/live-memory`                         | GET    | JVM memory report                                                                      |
+| `/bootui/api/live-memory/offload`                 | POST   | Clear BootUI's in-memory capture buffers and request a GC; blocked in read-only mode   |
 | `/bootui/api/jvm-tuning`                 | GET    | JVM tuning advisor report                                                              |
 | `/bootui/api/heap-dump`                      | GET    | Heap dump capture inventory and latest value-free histogram report                     |
 | `/bootui/api/heap-dump/capture`              | POST   | Capture a local heap dump after explicit confirmation                                  |
@@ -2837,8 +2860,9 @@ Initial endpoints:
 | `/bootui/api/activity/resources`             | GET    | The run's resource track and CPU ledger: one point per sweep (process CPU split into requests, thread families, and the JVM's own work; heap; allocation; threads) and the run's totals, or why the sampler does not run |
 | `/bootui/api/runtime-insights`               | GET    | Runtime Insights: the journal's retained events projected into observations, with the window, per-source correlation coverage, each check's status, limitations, and the declared routes not exercised in this run |
 | `/bootui/api/runtime-insights/insights/{id}` | GET    | One observation by its stable id, with up to 20 evidence rows and how many were left out; an unknown id answers unavailable |
-| `/bootui/api/runtime-insights/impact`        | GET    | `?symbol=<symbol>`: the routes that ran through a bean, class, repository, table, cache, or host in this run, those that did not, and those sharing a resource with it; `AMBIGUOUS`, `NOT_FOUND`, or `UNAVAILABLE` with the reason |
-| `/bootui/api/runtime-insights/comparison`    | GET    | The current run compared with the newest kept run, or `?run=<runId>`: behavior rows, new and gone edges, restart cost, and warm latency last; `INSUFFICIENT`, `NOT_COMPARABLE`, or `NO_PREVIOUS_RUN` with the reason |
+| `/bootui/api/runtime-insights/impact`        | GET    | `?symbol=<symbol>`: for a route, bean, class, repository, table, cache, or host, the routes that ran through it in this run, those that did not, and those sharing a resource with it; `AMBIGUOUS`, `NOT_FOUND`, or `UNAVAILABLE` with the reason |
+| `/bootui/api/runtime-insights/impact/symbols` | GET   | `?query=<text>`: at most 20 routes, beans, repositories, tables, caches, hosts, and events of the run's model matching the text, best first, each with its kind, for the change impact box |
+| `/bootui/api/runtime-insights/comparison`    | GET    | The current run compared with the newest kept run that served requests, or `?run=<runId>`: behavior rows, new and gone edges, restart cost, and warm latency last; `INSUFFICIENT`, `NOT_COMPARABLE`, or `NO_PREVIOUS_RUN` with the reason |
 | `/bootui/api/runtime-insights/resource-profile` | GET | The **Profile resources** session's state and the last session's CPU samples, allocation, and hot frames by route; starts nothing |
 | `/bootui/api/runtime-insights/resource-profile` | POST | Start a JFR session bounded by `bootui.resources.jfr.max-duration` |
 | `/bootui/api/runtime-insights/resource-profile/stop` | POST | End the running session now and return its results |
@@ -3328,7 +3352,8 @@ Current compatibility:
   access-filter tests consume that catalog so a browser mutation cannot silently bypass global read-only policy. The live
   contract covers confirmation gates, canonical panel denial, missing targets, single-flight `409` responses, and only
   deterministic repeatable successes; it never calls external services or invokes destructive, heap-capture, or
-  GC-heavy actions.
+  GC-heavy actions (the Live Memory offload is cataloged for the read-only and access-filter checks but not invoked
+  live, because it would erase other suites' captured data).
 - The same suite runs at the default mount and at independent custom UI/API mounts (including each runtime's host root
   path), so shell, assets, reads, streams, downloads, errors, and safe writes share one path contract.
 

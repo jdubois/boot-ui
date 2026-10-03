@@ -310,6 +310,15 @@ three minutes and writes its report to `target/capture-overhead/`:
 ./mvnw -B -ntp -pl bootui-spring-sample-app test -Dtest=CaptureOverheadBenchmarkTest -Dbootui.benchmark=true
 ```
 
+The journal capture budget benchmark (`JournalCaptureBudgetBenchmarkTest`) times the application thread's path into
+the runtime journal, with one and eight producers, the stack walk that keeps a statement's application frames, and the
+dispatcher's sustained rate, against [PLAN-v2.md](docs/PLAN-v2.md) §8's budgets. It is opt-in too, takes about a
+minute, and writes its report to `target/capture-budgets/`:
+
+```bash
+./mvnw -B -ntp -pl bootui-engine test -Dtest=JournalCaptureBudgetBenchmarkTest -Dbootui.benchmark=true
+```
+
 The Architecture ThreadFactory exemption also has packaged-runtime regressions. The Spring check runs at
 `verify`, after the executable jar is repackaged; it scans nested resources and Java 27 bytecode with an intentionally
 older host ASM alongside ArchUnit's embedded reader, and verifies that the engine does not bundle another ASM copy.

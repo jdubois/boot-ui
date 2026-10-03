@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.core.dto.CaptureRetentionDto;
 import io.github.jdubois.bootui.engine.correlation.RequestIdStamps;
 import io.github.jdubois.bootui.engine.retention.TieredCaptureBuffer;
 import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
+import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import java.util.List;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.boot.actuate.web.exchanges.HttpExchange;
@@ -31,7 +32,7 @@ import org.springframework.boot.actuate.web.exchanges.HttpExchangeRepository;
  * at that moment for each exchange ({@code docs/PLAN-v2.md} §5.1). {@code HttpExchange} is final and compared by
  * identity, so the ids are kept in a weak identity map that forgets an exchange once the buffer evicts it.</p>
  */
-public final class BootUiHttpExchangeRepository implements HttpExchangeRepository {
+public final class BootUiHttpExchangeRepository implements HttpExchangeRepository, MemoryOffloadable {
 
     private final TieredCaptureBuffer<HttpExchange> buffer;
     private final RequestIdStamps<HttpExchange> requestIds = new RequestIdStamps<>();
@@ -88,6 +89,27 @@ public final class BootUiHttpExchangeRepository implements HttpExchangeRepositor
         buffer.add(
                 exchange,
                 !recordedByApplication && RequestSlowThreshold.isFailedOrSlow(status, durationMs, slowThresholdMillis));
+    }
+
+    @Override
+    public String offloadId() {
+        return "http-exchanges";
+    }
+
+    @Override
+    public String offloadLabel() {
+        return "HTTP exchanges";
+    }
+
+    /**
+     * Drops the retained exchanges for <b>Free BootUI memory</b>. Recording goes on; the request ids of the dropped
+     * exchanges are forgotten by the weak map once they are collected.
+     */
+    @Override
+    public long offloadRetainedData() {
+        long retained = buffer.size();
+        buffer.clear();
+        return retained;
     }
 
     /** The BootUI request id current when {@code exchange} was added, or {@code null}. */

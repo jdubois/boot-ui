@@ -2,6 +2,8 @@ package io.github.jdubois.bootui.engine.insights;
 
 import io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto;
 import io.github.jdubois.bootui.core.dto.RuntimeImpactRouteDto;
+import io.github.jdubois.bootui.core.dto.RuntimeImpactSymbolDto;
+import io.github.jdubois.bootui.core.dto.RuntimeImpactSymbolsDto;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
@@ -32,9 +34,10 @@ import java.util.Set;
 import java.util.function.Supplier;
 
 /**
- * Change impact ({@code docs/PLAN-v2.md} §5.7): resolves a symbol, such as a bean, a class's simple name, a repository,
- * a table, a cache, or an outbound host, to exactly one node of the runtime model, and lists what reaches it, worded as
- * what was and was not exercised in this run. Structural reach is a count; observed execution is listed apart.
+ * Change impact ({@code docs/PLAN-v2.md} §5.7): resolves a symbol, such as a route, a bean, a class's simple name, a
+ * repository, a table, a cache, or an outbound host, to exactly one node of the runtime model, and lists what reaches
+ * it, worded as what was and was not exercised in this run. Structural reach is a count; observed execution is listed
+ * apart. {@link #symbols(String)} suggests the symbols it can check as a developer types.
  */
 public final class ChangeImpactService {
 
@@ -44,7 +47,17 @@ public final class ChangeImpactService {
     public static final String UNAVAILABLE = "UNAVAILABLE";
 
     private static final Set<NodeType> SYMBOLS = EnumSet.of(
-            NodeType.BEAN, NodeType.REPOSITORY, NodeType.TABLE, NodeType.CACHE, NodeType.HOST, NodeType.EVENT);
+            NodeType.ROUTE,
+            NodeType.GRAPHQL_OPERATION,
+            NodeType.BEAN,
+            NodeType.REPOSITORY,
+            NodeType.TABLE,
+            NodeType.CACHE,
+            NodeType.HOST,
+            NodeType.EVENT);
+    // A route is its own impact: nothing in the model reaches it, so it is listed itself, with the routes sharing
+    // what it touched.
+    private static final Set<NodeType> ROUTES = EnumSet.of(NodeType.ROUTE, NodeType.GRAPHQL_OPERATION);
     // An application event is shared like a table: its publishers and listeners reach it through access edges (M4-8).
     private static final Set<NodeType> RESOURCES =
             EnumSet.of(NodeType.TABLE, NodeType.CACHE, NodeType.HOST, NodeType.EVENT);
@@ -86,7 +99,7 @@ public final class ChangeImpactService {
         if (asked.isEmpty()) {
             return new RuntimeChangeImpactDto(
                     NOT_FOUND,
-                    "Name a bean, a class, a repository, a table, a cache, or a host.",
+                    "Name a route, a bean, a class, a repository, a table, a cache, or a host.",
                     asked,
                     null,
                     List.of(),
@@ -108,7 +121,7 @@ public final class ChangeImpactService {
             }
             return new RuntimeChangeImpactDto(
                     NOT_FOUND,
-                    "No bean, repository, table, cache, or host named `" + asked + "` is in this run's model.",
+                    "No route, bean, repository, table, cache, or host named `" + asked + "` is in this run's model.",
                     asked,
                     null,
                     List.of(),
@@ -154,7 +167,12 @@ public final class ChangeImpactService {
         List<RuntimeImpactRouteDto> observed = new ArrayList<>();
         List<RuntimeImpactRouteDto> notExercised = new ArrayList<>();
         Set<Integer> observedRoutes = new LinkedHashSet<>();
-        for (int id : closure.keySet()) {
+        List<Integer> reached = new ArrayList<>();
+        if (ROUTES.contains(start.type())) {
+            reached.add(start.id());
+        }
+        reached.addAll(closure.keySet());
+        for (int id : reached) {
             ModelNode node = model.node(id);
             if (node.type() != NodeType.ROUTE && node.type() != NodeType.GRAPHQL_OPERATION) {
                 continue;
@@ -215,6 +233,10 @@ public final class ChangeImpactService {
             limitations.add("Shared resources are those the observed routes touched, which may include what other code"
                     + " on those routes touched. Tables are read from the statement text.");
         }
+        if (ROUTES.contains(start.type())) {
+            limitations.add("A route reaches no other route through code: name a bean its handler calls to see the"
+                    + " routes that share that code.");
+        }
         if (structure.beansUnavailable() != null) {
             limitations.add(structure.beansUnavailable());
         }
@@ -235,10 +257,16 @@ public final class ChangeImpactService {
     }
 
     private static List<ModelNode> candidates(RuntimeModel model, StructureSnapshot structure, String symbol) {
-        Map<String, String> types = new HashMap<>();
-        for (StructureSnapshot.Bean bean : structure.beans()) {
-            if (bean.type() != null) {
-                types.put(bean.name(), bean.type());
+        Map<String, String> types = beanTypes(structure);
+        NodeType kind = kind(symbol);
+        if (kind != null) {
+            // A candidate's or a suggestion's label, such as "TABLE sample_products", names exactly one node.
+            String key = symbol.substring(kind.name().length()).strip();
+            List<ModelNode> typed = model.nodes().stream()
+                    .filter(node -> node.type() == kind && node.key().equalsIgnoreCase(key))
+                    .toList();
+            if (!typed.isEmpty()) {
+                return typed;
             }
         }
         String wanted = symbol.toLowerCase(Locale.ROOT);
@@ -256,6 +284,101 @@ public final class ChangeImpactService {
             }
         }
         return found;
+    }
+
+    /**
+     * The symbols {@link #impact(String)} can check whose name, or whose bean class, contains {@code query}, best matches
+     * first: an exact name, then a name or a route's path that starts with it, then a class that does, then any name or
+     * class containing it. It reads only the run's model.
+     */
+    public RuntimeImpactSymbolsDto symbols(String query) {
+        String asked = query == null ? "" : query.strip();
+        if (journal == null
+                || aggregates == null
+                || models == null
+                || !journal.settings().enabled()) {
+            return new RuntimeImpactSymbolsDto(
+                    false,
+                    "The runtime journal is disabled: set bootui.runtime-journal.enabled=true.",
+                    asked,
+                    List.of(),
+                    0);
+        }
+        RuntimeModel model = models.model();
+        Map<String, String> types = beanTypes(models.structure());
+        String wanted = asked.toLowerCase(Locale.ROOT);
+        record Match(ModelNode node, String type, int rank) {}
+        List<Match> matches = new ArrayList<>();
+        for (ModelNode node : model.nodes()) {
+            if (!SYMBOLS.contains(node.type())) {
+                continue;
+            }
+            String type =
+                    node.type() == NodeType.BEAN || node.type() == NodeType.REPOSITORY ? types.get(node.key()) : null;
+            int rank = rank(node, type, wanted);
+            if (rank >= 0) {
+                matches.add(new Match(node, type, rank));
+            }
+        }
+        matches.sort(Comparator.comparingInt(Match::rank)
+                .thenComparing(match -> match.node().type())
+                .thenComparing(match -> match.node().key(), String.CASE_INSENSITIVE_ORDER));
+        return new RuntimeImpactSymbolsDto(
+                true,
+                null,
+                asked,
+                matches.stream()
+                        .limit(RuntimeImpactSymbolsDto.MAX_SYMBOLS)
+                        .map(match -> new RuntimeImpactSymbolDto(
+                                match.node().type().name(), match.node().key(), match.type()))
+                        .toList(),
+                matches.size());
+    }
+
+    /** How well {@code node} matches a lowercase query, lowest first, or {@code -1} when it does not. */
+    private static int rank(ModelNode node, String type, String wanted) {
+        String key = node.key().toLowerCase(Locale.ROOT);
+        if (wanted.isEmpty() || key.equals(wanted)) {
+            return 0;
+        }
+        if (key.startsWith(wanted)
+                || (ROUTES.contains(node.type())
+                        && key.substring(key.indexOf(' ') + 1).startsWith(wanted))) {
+            return 1;
+        }
+        String fullType = type == null ? "" : type.toLowerCase(Locale.ROOT);
+        if (!fullType.isEmpty() && simpleName(fullType).startsWith(wanted)) {
+            return 2;
+        }
+        if (key.contains(wanted)) {
+            return 3;
+        }
+        return fullType.contains(wanted) ? 4 : -1;
+    }
+
+    /** The node type a symbol such as {@code TABLE sample_products} starts with, or {@code null}. */
+    private static NodeType kind(String symbol) {
+        int space = symbol.indexOf(' ');
+        if (space < 0) {
+            return null;
+        }
+        String prefix = symbol.substring(0, space);
+        for (NodeType type : SYMBOLS) {
+            if (type.name().equals(prefix)) {
+                return type;
+            }
+        }
+        return null;
+    }
+
+    private static Map<String, String> beanTypes(StructureSnapshot structure) {
+        Map<String, String> types = new HashMap<>();
+        for (StructureSnapshot.Bean bean : structure.beans()) {
+            if (bean.type() != null) {
+                types.put(bean.name(), bean.type());
+            }
+        }
+        return types;
     }
 
     private RuntimeImpactRouteDto row(

@@ -92,7 +92,7 @@ public final class BootUiPanels {
             new Panel(HEALTH, "Health", false, "/health"),
             new Panel(HTTP_SESSIONS, "HTTP Sessions", true, "/http-sessions"),
             new Panel(METRICS, "Metrics", false, "/metrics"),
-            new Panel(LIVE_MEMORY, "Live Memory", false, "/live-memory"),
+            new Panel(LIVE_MEMORY, "Live Memory", true, "/live-memory"),
             new Panel(JVM_TUNING, "JVM Tuning", false, "/jvm-tuning"),
             new Panel(HEAP_DUMP, "Heap Dump", true, "/heap-dump"),
             new Panel(THREADS, "Threads", true, "/threads"),

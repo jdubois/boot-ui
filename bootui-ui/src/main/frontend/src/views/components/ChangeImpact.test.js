@@ -1,5 +1,5 @@
 import {flushPromises, mount} from '@vue/test-utils'
-import {afterEach, describe, expect, it, vi} from 'vitest'
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 import ChangeImpact from './ChangeImpact.vue'
 
@@ -107,7 +107,147 @@ describe('ChangeImpact', () => {
     await wrapper.findAll('.insight-impact-candidate')[1].trigger('click')
     await flushPromises()
 
-    expect(String(fetchMock.mock.calls[1][0])).toContain('symbol=productMapper')
+    expect(String(fetchMock.mock.calls[1][0])).toContain('symbol=BEAN%20productMapper')
     expect(wrapper.find('input').element.value).toBe('productMapper')
+  })
+
+  describe('suggestions', () => {
+    const symbols = {
+      available: true,
+      unavailableReason: null,
+      query: 'product',
+      symbols: [
+        {kind: 'REPOSITORY', name: 'productRepository', type: 'com.example.ProductRepository'},
+        {kind: 'BEAN', name: 'catalog', type: 'com.example.ProductCatalog'},
+        {kind: 'ROUTE', name: 'GET /api/products', type: null},
+        {kind: 'TABLE', name: 'sample_products', type: null}
+      ],
+      total: 9
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    async function type(value) {
+      await wrapper.find('input').setValue(value)
+      vi.advanceTimersByTime(200)
+      await flushPromises()
+    }
+
+    it('lists the matching symbols with their kind as you type, and reads nothing for an empty field', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(jsonResponse(symbols))
+      vi.stubGlobal('fetch', fetchMock)
+      wrapper = mountImpact()
+
+      await type('   ')
+      expect(fetchMock).not.toHaveBeenCalled()
+
+      await type('product')
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(String(fetchMock.mock.calls[0][0])).toContain('api/runtime-insights/impact/symbols?query=product')
+      const input = wrapper.find('input')
+      expect(input.attributes('role')).toBe('combobox')
+      expect(input.attributes('aria-expanded')).toBe('true')
+      const options = wrapper.findAll('[role="option"]')
+      expect(options.map((option) => option.find('.insight-impact-option-kind').text())).toEqual([
+        'repository',
+        'bean',
+        'route',
+        'table'
+      ])
+      expect(options[0].find('code').text()).toBe('productRepository')
+      expect(options[0].find('.insight-impact-option-type').exists()).toBe(false)
+      expect(options[1].find('.insight-impact-option-type').text()).toBe('ProductCatalog')
+      expect(wrapper.find('[role="status"]').text()).toBe('4 suggestions, 5 more: keep typing')
+    })
+
+    it('checks exactly the symbol picked with the keyboard, showing its name', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(symbols))
+        .mockResolvedValueOnce(jsonResponse(resolved))
+      vi.stubGlobal('fetch', fetchMock)
+      wrapper = mountImpact()
+      await type('product')
+
+      const input = wrapper.find('input')
+      await input.trigger('keydown', {key: 'ArrowDown'})
+      await input.trigger('keydown', {key: 'ArrowDown'})
+      await input.trigger('keydown', {key: 'ArrowDown'})
+      expect(input.attributes('aria-activedescendant')).toBe('insight-impact-option-2')
+      expect(wrapper.findAll('[role="option"]')[2].attributes('aria-selected')).toBe('true')
+      await input.trigger('keydown', {key: 'ArrowUp'})
+      await input.trigger('keydown', {key: 'Enter'})
+      await flushPromises()
+
+      expect(String(fetchMock.mock.calls[1][0])).toContain('symbol=BEAN%20catalog')
+      expect(input.element.value).toBe('catalog')
+      expect(input.attributes('aria-expanded')).toBe('false')
+      expect(wrapper.find('[role="listbox"]').exists()).toBe(false)
+    })
+
+    it('checks a symbol picked with the mouse, and Escape closes the list without checking', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(symbols))
+        .mockResolvedValueOnce(jsonResponse(symbols))
+        .mockResolvedValueOnce(jsonResponse(resolved))
+      vi.stubGlobal('fetch', fetchMock)
+      wrapper = mountImpact()
+      await type('product')
+
+      await wrapper.find('input').trigger('keydown', {key: 'Escape'})
+      expect(wrapper.find('input').attributes('aria-expanded')).toBe('false')
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      await type('products')
+      await wrapper.findAll('[role="option"]')[3].trigger('click')
+      await flushPromises()
+      expect(String(fetchMock.mock.calls[2][0])).toContain('symbol=TABLE%20sample_products')
+      expect(wrapper.find('input').element.value).toBe('sample_products')
+    })
+
+    it('says when nothing matches or the suggestions cannot be read', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({...symbols, query: 'zzz', symbols: [], total: 0}))
+        .mockResolvedValueOnce({ok: false, status: 500, json: () => Promise.resolve({message: 'boom'})})
+      vi.stubGlobal('fetch', fetchMock)
+      wrapper = mountImpact()
+
+      await type('zzz')
+      expect(wrapper.find('[role="listbox"]').exists()).toBe(false)
+      expect(wrapper.find('input').attributes('aria-expanded')).toBe('false')
+      expect(wrapper.find('[role="status"]').text()).toBe("Nothing in this run's model matches “zzz”.")
+
+      await type('zzzz')
+      expect(wrapper.find('[role="status"]').text()).not.toBe('')
+      expect(wrapper.find('.insight-impact-popup').isVisible()).toBe(true)
+    })
+
+    it('ignores suggestions that arrive after a newer query', async () => {
+      let resolveFirst
+      const fetchMock = vi
+        .fn()
+        .mockReturnValueOnce(new Promise((resolve) => (resolveFirst = resolve)))
+        .mockResolvedValueOnce(jsonResponse({...symbols, query: 'products', symbols: symbols.symbols.slice(3)}))
+      vi.stubGlobal('fetch', fetchMock)
+      wrapper = mountImpact()
+
+      await wrapper.find('input').setValue('product')
+      vi.advanceTimersByTime(200)
+      await type('products')
+      resolveFirst(jsonResponse(symbols))
+      await flushPromises()
+
+      expect(wrapper.findAll('[role="option"]').map((option) => option.find('code').text())).toEqual([
+        'sample_products'
+      ])
+    })
   })
 })
