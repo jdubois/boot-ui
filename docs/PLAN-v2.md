@@ -320,10 +320,13 @@ slice depends on M5-1, and on the milestone named:
 | M5-10 | The remaining agent tools, the `verify_after_change` and `diagnose_runtime_issue` updates, `McpGuidance.instructions` and `assess_application` updates, the agent benchmark investigation and its refusal fixture, the consumer skill, and documentation | M5-3, M5-4, M5-5, M5-6, M5-8, M5-9 | 5–7 | 📋 Planned |
 
 M5-1/M5-2 lifecycle guarantees delivered: pending submissions from overlapping claim generations retain their count
-and become sticky-ambiguous, never taking a newer run's snapshot (D32); direct fork/join rejections and failed
-thread-per-task starts release their keyed submissions, without double-releasing a completed `invoke` failure.
+and become sticky-ambiguous, never taking a newer run's snapshot (D32); direct fork/join rejections (including
+already-completed tasks) and failed thread-per-task starts release their keyed submissions. Fork/join cleanup stays
+at the admission boundary, without double-releasing an application failure from `invoke`'s subsequent join.
 Both sensors supersede queued releases and reinstall after an in-flight reset when reclaimed (D34), with deterministic
-worker-gated regression tests in both orderings. Executor skip counters stop while disarmed, omitted from the current
+worker-gated regression tests in both orderings. Threads transformers restore their own historical package set before
+a changed-package reclaim installs its replacement, proved against real transformed subclasses.
+Executor skip counters stop while disarmed, omitted from the current
 claim, or disabled by the self-test. Retained tasks removed without a release hook can stay ambiguous until collected;
 a generation change deliberately does not clear them.
 

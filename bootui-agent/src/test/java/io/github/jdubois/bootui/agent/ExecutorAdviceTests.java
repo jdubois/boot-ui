@@ -78,7 +78,28 @@ class ExecutorAdviceTests {
     }
 
     @Test
-    void anInvokeTaskFailureDoesNotReleaseAnotherPendingSubmission() {
+    void aRejectedCompletedForkJoinRootStillReleasesItsSubmission() {
+        claim();
+        RecursiveAction task = new RecursiveAction() {
+            @Override
+            protected void compute() {}
+        };
+        task.complete(null);
+        owner.set("A");
+        boolean keyed = ExecutorAdvice.ForkJoinRoot.enter(ForkJoinPool.commonPool(), task);
+        ExecutorAdvice.ForkJoinRoot.exit(keyed, task, new RejectedExecutionException());
+        task.reinitialize();
+        owner.set("B");
+        ExecutorAdvice.ForkJoinRoot.enter(ForkJoinPool.commonPool(), task);
+
+        Object handle = TaskPropagation.enter(task, TaskPropagation.APPLY_DO_EXEC);
+        assertThat(handle).isNotNull();
+        TaskPropagation.exit(handle, null);
+        assertThat(TaskPropagation.enter(task, TaskPropagation.APPLY_DO_EXEC)).isNull();
+    }
+
+    @Test
+    void successfulAdmissionDoesNotReleaseAnotherPendingSubmission() {
         claim();
         RecursiveAction task = new RecursiveAction() {
             @Override
@@ -90,7 +111,7 @@ class ExecutorAdviceTests {
         boolean keyed = ExecutorAdvice.ForkJoinRoot.enter(ForkJoinPool.commonPool(), task);
         assertThat(TaskPropagation.enter(task, TaskPropagation.APPLY_DO_EXEC)).isNull();
         task.completeExceptionally(new RejectedExecutionException("application failure"));
-        ExecutorAdvice.ForkJoinRoot.exit(keyed, task, task.getException());
+        ExecutorAdvice.ForkJoinRoot.exit(keyed, task, null);
         owner.set("C");
         ExecutorAdvice.ForkJoinRoot.enter(ForkJoinPool.commonPool(), task);
 

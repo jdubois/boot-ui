@@ -14,6 +14,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RecursiveAction;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -231,8 +232,11 @@ final class ExecutorSensor {
                         .on(ElementMatchers.named("delayedExecute").and(ElementMatchers.takesArguments(1)))))
                 .type(ElementMatchers.named(FJP))
                 .transform(new Visit(Advice.to(ExecutorAdvice.ForkJoinRoot.class)
-                        .on(ElementMatchers.namedOneOf("execute", "submit", "invoke")
-                                .and(ElementMatchers.takesArguments(1)))))
+                                .on(ElementMatchers.named("externalSubmit")
+                                        .and(ElementMatchers.takesArguments(ForkJoinTask.class))))
+                        .and(Advice.to(ExecutorAdvice.ForkJoinPoolSubmit.class)
+                                .on(ElementMatchers.named("poolSubmit")
+                                        .and(ElementMatchers.takesArguments(boolean.class, ForkJoinTask.class)))))
                 .type(ElementMatchers.named(FJT))
                 .transform(new Visit(Advice.to(ExecutorAdvice.DoExec.class).on(ElementMatchers.named("doExec")))
                         .and(Advice.to(ExecutorAdvice.Fork.class)

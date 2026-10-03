@@ -247,9 +247,9 @@ public final class TaskPropagation {
         return submitted(task, KEY_FORK_JOIN_ROOT);
     }
 
-    /** A rejected root never runs; an exception from {@code invoke}'s completed task must not release a second entry. */
+    /** Admission-only advice: a rejection releases its submission, independently of the task's completion state. */
     public static void forkJoinDone(boolean keyed, Object task, Throwable thrown) {
-        if (keyed && thrown instanceof RejectedExecutionException && !((ForkJoinTask<?>) task).isDone()) {
+        if (keyed && thrown instanceof RejectedExecutionException) {
             release(task);
         }
     }

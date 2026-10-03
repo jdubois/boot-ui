@@ -81,7 +81,9 @@ The engine looks up the bridge only from the bootstrap class loader, so an accid
 ignored.
 
 Sensor removal runs off the caller's thread. A new claim supersedes a queued release; if removal has already begun,
-the sensor is installed and self-tested again afterward. This applies to both `executors` and `threads`.
+the sensor is installed and self-tested again afterward. This applies to both `executors` and `threads`. Each threads
+transformer retains its own package history for restoration: reclaiming with different packages cannot leave advice
+on subclasses from the previous claim. The replacement transformer uses the new claim's packages.
 
 ## The executors sensor
 
@@ -161,8 +163,10 @@ reopening their snapshots. A handoff already opened before recording stopped is 
   `shutdownNow`, `purge`, or a discard can therefore stay ambiguous if a removed submission never reaches a run or
   release hook; changing the generation never replaces its pending snapshot.
 - A rejected direct fork/join root submission and a failed `CompletableFuture` thread-per-task start release their
-  snapshots. An application exception rethrown by `ForkJoinPool.invoke` after its task ran is not a rejection and
-  does not release another pending submission.
+  snapshots, including when the rejected fork/join task is already completed. Fork/join cleanup observes the pool's
+  admission method, not the subsequent join: an application exception rethrown by `ForkJoinPool.invoke` after its task
+  ran does not release another pending submission. A custom pool thread factory throwing after enqueueing remains an
+  exceptional path where ownership may be lost.
 - One window, `bootui.agent.executors.max-handoff` (5 minutes), bounds a handoff: a task belongs to its request when
   it started no later than that after the request ended (a later one is only counted in the request profile); its work
   recorded more than that after the task started is not attributed to the request; and a task that ends more than that
