@@ -48,9 +48,17 @@ const detail = ref(null)
 const aiExport = ref(null)
 const detailError = ref(null)
 const detailLoading = ref(false)
-// The comparison loads on its own; the run summary links to it in a few words once it has.
+// The comparison loads on its own; the run summary links to it in a few words once it has. comparisonReady stays
+// false only until the first fetch settles (success or failure), so the banner says "Comparing…" rather than
+// showing nothing or a stale sentence from a previous run's report.
 const comparison = ref(null)
+const comparisonReady = ref(false)
 const comparisonText = computed(() => comparisonSummary(comparison.value))
+
+function onComparisonLoaded(value) {
+  comparison.value = value
+  comparisonReady.value = true
+}
 
 function showComparison() {
   const section = document.getElementById('insight-comparison')
@@ -217,16 +225,6 @@ const windowText = computed(() => {
             <p class="mb-2 small insight-window-text">
               <span class="fw-semibold">This run</span>
               <span class="text-muted"> · {{ windowText }}</span>
-              <template v-if="comparisonText">
-                <span class="text-muted"> · </span>
-                <button
-                  type="button"
-                  class="btn btn-link btn-sm p-0 align-baseline insight-comparison-link"
-                  @click="showComparison"
-                >
-                  {{ comparisonText }}
-                </button>
-              </template>
             </p>
             <div v-if="coverage.events > 0">
               <div
@@ -285,6 +283,27 @@ const windowText = computed(() => {
             </div>
           </div>
         </section>
+
+        <div
+          v-if="comparisonReady ? comparisonText : true"
+          class="alert alert-secondary insight-comparison-banner d-flex flex-wrap align-items-center justify-content-between gap-2 py-2"
+          role="status"
+        >
+          <span class="small">
+            <i class="bi bi-arrow-left-right me-1" aria-hidden="true"></i>
+            {{ comparisonReady ? comparisonText : 'Comparing with the previous run…' }}
+          </span>
+          <button
+            v-if="comparisonReady && comparisonText"
+            type="button"
+            class="btn btn-sm btn-outline-secondary insight-comparison-link"
+            @click="showComparison"
+          >
+            See what changed
+          </button>
+        </div>
+
+        <ChangeImpact class="mb-3" :initial-symbol="initialImpact" />
 
         <div v-for="limitation in report.limitations" :key="limitation" class="alert alert-secondary small py-2">
           {{ limitation }}
@@ -493,9 +512,7 @@ const windowText = computed(() => {
           </div>
         </template>
 
-        <RunComparison class="mb-3" :refresh-key="lastFetched ?? 0" @loaded="comparison = $event" />
-
-        <ChangeImpact class="mb-3" :initial-symbol="initialImpact" />
+        <RunComparison class="mb-3" :refresh-key="lastFetched ?? 0" @loaded="onComparisonLoaded" />
 
         <ResourceProfile class="mb-3" :read-only="readOnly" :read-only-reason="readOnlyReason" />
 

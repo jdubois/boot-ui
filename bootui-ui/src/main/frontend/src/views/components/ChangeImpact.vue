@@ -47,7 +47,12 @@ const node = computed(() => nodeParts(impact.value?.node))
         Name what you are changing, a bean, a class, a repository, a table, a cache, or a host, to see which routes this
         run exercised through it and which it did not.
       </p>
-      <form class="d-flex flex-wrap gap-2 align-items-center" role="search" @submit.prevent="check()">
+      <form
+        class="d-flex flex-wrap gap-2 align-items-center"
+        role="search"
+        aria-label="Change impact search"
+        @submit.prevent="check()"
+      >
         <input
           v-model="symbol"
           type="search"
@@ -73,7 +78,20 @@ const node = computed(() => nodeParts(impact.value?.node))
               {{ impact.structuralReach === 1 ? 'node' : 'nodes' }} within five steps. What ran is listed apart: a
               route's traffic does not prove that a request went through this code.
             </p>
-            <div v-for="list in lists" :key="list.id" class="insight-impact-list" :data-list="list.id">
+            <ul class="list-inline small mb-0 mt-2 insight-impact-summary" aria-label="Jump to a list below">
+              <li v-for="list in lists" :key="list.id" class="list-inline-item">
+                <a :href="`#insight-impact-${list.id}`" class="insight-impact-summary-link">
+                  {{ formatNumber(list.total) }} {{ list.total === 1 ? 'route' : 'routes' }} · {{ list.title }}
+                </a>
+              </li>
+            </ul>
+            <div
+              v-for="list in lists"
+              :id="`insight-impact-${list.id}`"
+              :key="list.id"
+              class="insight-impact-list"
+              :data-list="list.id"
+            >
               <h3 class="h6 mb-1">
                 {{ list.title }}
                 <span class="text-muted fw-normal small">· {{ formatNumber(list.total) }}</span>
