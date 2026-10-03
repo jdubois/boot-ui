@@ -30,7 +30,7 @@ public final class BootUiThreadContextProvider implements ThreadContextProvider 
     @Override
     public ThreadContextSnapshot clearedContext(Map<String, String> props) {
         return () -> {
-            BootUiCorrelation.Scope scope = BootUiCorrelation.open(CorrelationContext.NONE);
+            BootUiCorrelation.Scope scope = BootUiCorrelation.openCleared();
             return scope::close;
         };
     }

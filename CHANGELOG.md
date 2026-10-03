@@ -14,6 +14,26 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   computation, without counting a waited-for task's delayed handoff close. Result-publication tails remain visible
   and I/O uses the actual response boundary (PLAN-v2 M5-2b, D32).
 
+- **Runtime Insights tells an unavailable panel from a disabled one.** An observation whose evidence belongs to a panel
+  this application cannot serve, such as Security Logs on a Quarkus application without
+  `quarkus.security.events.enabled`, now names what would make it available instead of reporting the panel as disabled
+  or the evidence as insufficient. The panel's evidence stays out of the projection either way
+  ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 §5.5).
+
+- **Quarkus reports application-event publications as unrecorded.** Quarkus records which observers ran but not who
+  fired the event, so a change impact that reaches code only through an event now says so in its limitations, rather
+  than implying the Spring adapters' `PUBLISHES` edge exists there ([Quarkus support](docs/QUARKUS-SUPPORT.md),
+  PLAN-v2 §5.18).
+
+- **A cleared correlation scope holds on Quarkus.** Work run deliberately outside a request, such as a managed task
+  taken from a snapshot with no request, is no longer re-correlated by the Vert.x duplicated context it happens to run
+  on, and closing any correlation scope restores the request the thread was being metered for instead of stopping its
+  measurement (PLAN-v2 §5.1).
+
+- **`bootui.runtime-insights.ai-token-threshold` is validated on Quarkus.** A zero, negative, or unreadable value now
+  fails at startup with the same message as on Spring, instead of being silently replaced by the default
+  ([Properties](docs/PROPERTIES.md), PLAN-v2 §5.5).
+
 - **Retained request and execution profiles.** Live Activity displays the runtime-journal timeline even after an
   HTTP exchange leaves the shorter buffer. `get_request_profile` and `bootui request-profile` open journal requests,
   scheduled runs, and consumed-message executions first; their result names the selected source and falls back to the
