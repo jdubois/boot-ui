@@ -270,7 +270,8 @@ every correlated statement and call, and at most 200 statement groups are listed
 looking empty.
 
 The drawer also shows the request's timing breakdown (SQL and outbound REST calls versus everything else), its auth
-context, and the trace span list. **Escape** dismisses it, and focus is trapped while it is open. Opening a profile only
+context, and the trace span list, whose status messages, exception events, and attribute values follow the
+[trace value exposure](diagnostics.md#trace-value-exposure) rule. **Escape** dismisses it, and focus is trapped while it is open. Opening a profile only
 reads evidence BootUI already captured: it captures nothing new, calls no network service, and changes no state.
 Opening Live Activity with `?request=<exchange id>`, as each HTTP Exchanges row's **Profile** link does, opens that
 request's profile directly.

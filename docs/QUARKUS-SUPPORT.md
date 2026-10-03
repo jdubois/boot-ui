@@ -245,9 +245,12 @@ no MCP toggle, and is pinned to the Spring stacks by the shared CLI conformance 
 catalog are a subset of the 96 Spring MVC declares, and a running application advertises only those whose backing
 panel is available, so the catalog a client reads at runtime is authoritative.
 
-**Dev Services** is a Quarkus-native concept: a build-time `DevServicesResultBuildItem` snapshot captured via recorder +
-synthetic bean, with masked config and logs/restart unavailable. Service `type` is classified via the shared
-`DevServiceTypeInference` engine helper, matching Spring's classification.
+**Dev Services** is a Quarkus-native concept: a build-time `DevServicesResultBuildItem` snapshot captured by a static-init
+recorder, with masked config and logs/restart unavailable. The panel is available only when that snapshot holds at least
+one service. The snapshot is deliberately not a CDI bean: feeding Dev Services results into the bean container creates
+a build-step cycle with CDI-backed log handlers such as OpenTelemetry logs, because Dev Services start after logging
+setup. Service `type` is classified via the shared `DevServiceTypeInference` engine helper, matching Spring's
+classification.
 
 :::
 

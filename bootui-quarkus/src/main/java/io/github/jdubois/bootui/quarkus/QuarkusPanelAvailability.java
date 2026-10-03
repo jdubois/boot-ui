@@ -10,6 +10,7 @@ import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.postgres.PostgresDataSourceDetection;
 import io.github.jdubois.bootui.quarkus.agent.QuarkusClaudeCodeProperties;
 import io.github.jdubois.bootui.quarkus.agent.QuarkusCopilotProperties;
+import io.github.jdubois.bootui.quarkus.devservices.CapturedDevServices;
 import io.smallrye.config.SmallRyeConfig;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -225,14 +226,6 @@ public class QuarkusPanelAvailability {
      * Logs panel is lit up. Shared with {@code BootUiQuarkusProcessor}, mirroring {@link #HIBERNATE_PRESENT_KEY}.
      */
     public static final String SECURITY_LOGS_PRESENT_KEY = "bootui.internal.security-logs-present";
-
-    /**
-     * Runtime-config key carrying the build-time Dev Services decision. The deployment processor emits it
-     * (default {@code false}) only when at least one {@code DevServicesResultBuildItem} was produced in a
-     * non-production launch mode; this bean reads it back to decide whether the Dev Services panel is lit up,
-     * mirroring {@link #HIBERNATE_PRESENT_KEY}.
-     */
-    public static final String DEV_SERVICES_PRESENT_KEY = "bootui.internal.dev-services-present";
 
     /**
      * Runtime-config key carrying the build-time Quarkus Mailer decision. The deployment processor emits it
@@ -558,8 +551,9 @@ public class QuarkusPanelAvailability {
         this.connectionPoolsPresent = config.getOptionalValue(CONNECTION_POOLS_PRESENT_KEY, Boolean.class)
                 .orElse(false);
         this.postgresConfigured = postgresConfigured(config);
-        this.devServicesPresent =
-                config.getOptionalValue(DEV_SERVICES_PRESENT_KEY, Boolean.class).orElse(false);
+        // Not a config key: emitting a runtime default from the Dev Services results would make Dev Services a
+        // bean-container input (see CapturedDevServices). The recorder publishes the snapshot at static init.
+        this.devServicesPresent = CapturedDevServices.current().isPresent();
         this.emailPresent =
                 config.getOptionalValue(EMAIL_PRESENT_KEY, Boolean.class).orElse(false);
         this.kafkaPresent =
