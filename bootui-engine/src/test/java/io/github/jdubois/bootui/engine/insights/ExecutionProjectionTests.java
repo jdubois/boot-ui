@@ -158,9 +158,17 @@ class ExecutionProjectionTests {
 
     private void request(long durationNanos, RequestTiming timing, Child... children) {
         CorrelationContext context = CorrelationContext.forRequest("r" + (++executions));
+        // Each child starts as the handler does, 2 ms after its request, by the wall clock.
         for (Child child : children) {
             journal.offer(RuntimeEvent.of(
-                    child.source(), 1_000, child.nanos(), context, "http-1", null, false, child.payload()));
+                    child.source(),
+                    1_002 + executions,
+                    child.nanos(),
+                    context,
+                    "http-1",
+                    null,
+                    false,
+                    child.payload()));
         }
         journal.offer(RuntimeEvent.of(
                 JournalSource.HTTP,

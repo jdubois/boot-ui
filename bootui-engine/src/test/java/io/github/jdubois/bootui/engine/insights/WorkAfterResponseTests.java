@@ -93,6 +93,34 @@ class WorkAfterResponseTests {
     }
 
     @Test
+    void aWaitedForTaskWhoseHandoffClosedJustAfterTheResponseIsNotReported() {
+        // The handler's get() returned when the task set its result; the worker closed the handoff 1 ms after the
+        // response started, but the task's query ended before it.
+        request("/seed/work-after-response/waits", 1_000, handoff(1_002, 10, true, 1_000L, false), sql(1_005));
+
+        assertThat(byKind(service(true).report())).isEmpty();
+    }
+
+    @Test
+    void aQueryEndingWithinTheTimestampsPrecisionOfTheResponseIsNotReported() {
+        // As recorded: the query completed at 1_011.1 ms after running 1.9 ms, so it starts at 1_011 - 1 and reads as
+        // ending at 1_011.9; the handoff truly started at 1_002.9 and the response at 1_011.2, recovered as 1_010.3.
+        // The query reads 1.6 ms after the response although it ended before it.
+        request(
+                "/seed/work-after-response/waits",
+                1_000,
+                handoff(1_002, 10, true, 1_700L, false),
+                new Child(
+                        JournalSource.SQL,
+                        1_010,
+                        1_900_000,
+                        "async-1",
+                        new SqlPayload("select * from orders", "Seeds.lambda:12", "db", false)));
+
+        assertThat(byKind(service(true).report())).isEmpty();
+    }
+
+    @Test
     void aLibraryHandoffThatRecordedNothingIsNeverCounted() {
         request("/seed/work-after-response", 1_000, handoff(1_010, 200, true, false));
 
@@ -163,7 +191,7 @@ class WorkAfterResponseTests {
                 handoff(1_010, 200, true, false),
                 new Child(
                         JournalSource.REST_CLIENT,
-                        1_100,
+                        1_150,
                         1_000_000,
                         "async-1",
                         new RestClientPayload("POST", "audit:8080", "/events", 202, "RestClient", false)));
@@ -198,6 +226,16 @@ class WorkAfterResponseTests {
     }
 
     private static Child handoff(long start, long durationMillis, Boolean afterResponse, boolean capped) {
+        return handoff(
+                start,
+                durationMillis,
+                afterResponse,
+                afterResponse == null ? null : afterResponse ? 100_000L : 0L,
+                capped);
+    }
+
+    private static Child handoff(
+            long start, long durationMillis, Boolean afterResponse, Long afterResponseMicros, boolean capped) {
         return new Child(
                 JournalSource.AGENT_EXECUTORS,
                 start,
@@ -214,7 +252,7 @@ class WorkAfterResponseTests {
                         false,
                         null,
                         afterResponse,
-                        afterResponse == null ? null : afterResponse ? 100_000L : 0L,
+                        afterResponseMicros,
                         capped));
     }
 

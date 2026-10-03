@@ -17,9 +17,10 @@ import java.util.Set;
 /**
  * {@code transaction-across-remote-call} ({@code docs/PLAN-v2.md} §5.5): a physical transaction still open when a REST
  * client call starts, per route and transactional method, with the connection it held and, as a labelled estimate, the
- * request rate at which this route alone would exhaust the pool: pool size ÷ hold time. Insufficient below 3
- * transactions; once a method has them, it is reported only when its calls take a median 20 ms or more, since more
- * traffic would not make a faster call slow.
+ * request rate at which this route alone would exhaust the pool: pool size ÷ hold time. A method is reported only
+ * once one of its calls took 20 ms or more, since the slowest call is what holds the connection longest and more
+ * traffic would not make a faster call slow; it is insufficient below 3 transactions. A method whose calls were all
+ * faster is named in the check's reason instead.
  */
 public final class TransactionAcrossRemoteCall implements Observation {
 
@@ -65,6 +66,7 @@ public final class TransactionAcrossRemoteCall implements Observation {
     public Evaluation evaluate(InsightsSnapshot snapshot) {
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;
+        long fast = 0;
         for (Map.Entry<String, List<ProjectedRequest>> route :
                 snapshot.byRoute().entrySet()) {
             Map<String, Method> methods = new LinkedHashMap<>();
@@ -93,16 +95,24 @@ public final class TransactionAcrossRemoteCall implements Observation {
                 }
             }
             eligible += routeEligible;
-            long routeRequests = routeEligible;
-            methods.forEach((method, found) -> {
-                // A call under the minimum is not a finding: more traffic would not make it slower.
-                if (found.transactions < MIN_TRANSACTIONS
-                        || RouteTimeBreakdown.median(found.callNanos()) >= MIN_CALL_NANOS) {
-                    findings.add(finding(route.getKey(), method, found, routeRequests, snapshot));
+            for (Map.Entry<String, Method> method : methods.entrySet()) {
+                // Calls all under the minimum are not a finding: more traffic would not make them slower.
+                if (method.getValue().slowest >= MIN_CALL_NANOS) {
+                    findings.add(finding(route.getKey(), method.getKey(), method.getValue(), routeEligible, snapshot));
+                } else {
+                    fast++;
                 }
-            });
+            }
         }
-        return new Evaluation(eligible, findings);
+        return new Evaluation(
+                eligible,
+                findings,
+                fast == 0
+                        ? null
+                        : InsightText.counted(fast, "transactional method")
+                                + " kept a transaction open only across calls under "
+                                + InsightText.millis(MIN_CALL_NANOS)
+                                + " ms, so " + (fast == 1 ? "it is" : "they are") + " not reported.");
     }
 
     private Finding finding(String route, String method, Method found, long eligible, InsightsSnapshot snapshot) {
@@ -111,9 +121,17 @@ public final class TransactionAcrossRemoteCall implements Observation {
         StringBuilder sentence = new StringBuilder("`" + route + "`: `" + method
                 + "` kept its transaction open across a call to `" + found.firstCall + "` in "
                 + found.transactions + " of " + InsightText.counted(eligible, InsightText.unit(route))
-                + " that both called out and opened a transaction; the call took a median "
+                + " that both called out and opened a transaction; its calls took a median "
                 + InsightText.millis(callMedian)
                 + " ms");
+        if (found.slowest > callMedian) {
+            sentence.append(", the slowest ")
+                    .append(InsightText.millis(found.slowest))
+                    .append(" ms");
+            if (!found.slowestCall.equals(found.firstCall)) {
+                sentence.append(" (`").append(found.slowestCall).append("`)");
+            }
+        }
         long[] holds = found.holdNanos();
         long holdMedian = RouteTimeBreakdown.median(holds);
         if (holds.length > 0) {
@@ -139,8 +157,7 @@ public final class TransactionAcrossRemoteCall implements Observation {
             }
         }
         if (!sufficient) {
-            sentence.append(" Reported from " + MIN_TRANSACTIONS + " transactions whose calls take "
-                    + InsightText.millis(MIN_CALL_NANOS) + " ms or more.");
+            sentence.append(" Reported from " + MIN_TRANSACTIONS + " transactions.");
         }
         limitations.add("A call is placed in a transaction by time within its request; parallel work of the same"
                 + " request on another thread could be placed too.");
@@ -218,6 +235,8 @@ public final class TransactionAcrossRemoteCall implements Observation {
         private final List<Long> calls = new ArrayList<>();
         private final List<Long> holds = new ArrayList<>();
         private long transactions;
+        private long slowest;
+        private String slowestCall;
         private String firstCall;
         private String dataSource;
 
@@ -242,6 +261,10 @@ public final class TransactionAcrossRemoteCall implements Observation {
                 firstCall = described;
             }
             calls.add(Math.max(0, call.durationNanos()));
+            if (slowestCall == null || call.durationNanos() > slowest) {
+                slowest = Math.max(0, call.durationNanos());
+                slowestCall = described;
+            }
             rows.add(List.of(
                     request.requestId(),
                     described,

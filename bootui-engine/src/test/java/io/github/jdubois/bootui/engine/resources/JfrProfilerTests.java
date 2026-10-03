@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.engine.resources.JfrProfiler.State;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.lang.reflect.Method;
 import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
 import org.junit.jupiter.api.Test;
 
 /** §5.11's acceptance: a real JFR recording joins samples to the right request, including on a virtual thread. */
@@ -69,6 +70,39 @@ class JfrProfilerTests {
                         .sum())
                 .isPositive();
         assertThat(profiler.stop().state()).as("stopping twice is harmless").isEqualTo(State.COMPLETED);
+    }
+
+    @Test
+    void aSegmentTakenByAnotherThreadStillJoinsItsOwnThreadsSamples() throws Exception {
+        assumeThat(JfrProfiler.unavailableReason()).as("JFR is available").isNull();
+        profiler.start(Duration.ofMinutes(1));
+        String id = RequestIds.next();
+        CountDownLatch worked = new CountDownLatch(1);
+        CountDownLatch taken = new CountDownLatch(1);
+        Thread worker = new Thread(() -> {
+            SegmentMeter.shared().begin(id);
+            burn(600);
+            worked.countDown();
+            try {
+                taken.await();
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        worker.start();
+        worked.await();
+        SegmentMeter.shared().take(id);
+        taken.countDown();
+        worker.join();
+
+        Snapshot done = profiler.stop();
+
+        RequestSamples joined = done.analysis().requests().get(id);
+        assertThat(joined)
+                .as("samples of the worker's segment join its request")
+                .isNotNull();
+        assertThat(joined.cpuSamples()).isPositive();
+        assertThat(joined.frames().keySet()).anyMatch(frame -> frame.contains("JfrProfilerTests.burn"));
     }
 
     @Test
