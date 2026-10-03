@@ -133,6 +133,13 @@ public final class RouteTimeBreakdown implements Observation {
         if (unplaced > 0) {
             limitations.add(InsightText.counted(unplaced, "request") + " had no monotonic start and are left out.");
         }
+        long unphased =
+                warm.stream().filter(b -> !b.request().timing().phased()).count();
+        if (unphased > 0) {
+            limitations.add(InsightText.counted(unphased, "warm request")
+                    + " had no phase markers: time outside recorded calls cannot be assigned to filters, the"
+                    + " handler, or response writing.");
+        }
         if (warm.stream()
                 .anyMatch(breakdown -> breakdown.request().resources() != null
                         && breakdown.request().resources().unmeasuredReason()
@@ -263,9 +270,12 @@ public final class RouteTimeBreakdown implements Observation {
                 "Most of the time is authorization: check the rules and method-security expressions evaluated per"
                         + " request.";
             case FILTERS -> "Most of the time is in filters before the handler: check what they do per request.";
-            case HANDLER, UNATTRIBUTED ->
+            case HANDLER ->
                 "Most of the time is in application code outside recorded calls: run Profile resources to see the"
                         + " route's hottest frames.";
+            case UNATTRIBUTED ->
+                "Most of the time has no phase markers or recorded calls: inspect the exemplar request before"
+                        + " attributing it to application code.";
         };
     }
 

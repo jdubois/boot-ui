@@ -173,6 +173,31 @@ class RouteTimeBreakdownTests {
         assertThat(breakdown.sentence()).contains("Unattributed 60 %, SQL 40 %");
         assertThat(breakdown.limitations())
                 .anySatisfy(limitation -> assertThat(limitation).contains("WebFlux"));
+        assertThat(breakdown.whatToCheck().get(0)).contains("no phase markers").doesNotContain("hottest frames");
+        assertThat(breakdown.limitations())
+                .anySatisfy(limitation -> assertThat(limitation).contains("no phase markers"));
+    }
+
+    @Test
+    void securityRejectedRequestsWithoutHandlerMarksAreNotCalledApplicationCode() {
+        for (int i = 0; i < 6; i++) {
+            request("/api/secure", 12 * MS, RequestTiming.startedAt(clock));
+        }
+
+        RuntimeObservationDto breakdown = new RuntimeInsightsService(
+                        journal, null, null, InsightsStack.SPRING_MVC, null)
+                .report().observations().stream()
+                        .filter(observation -> observation.kind().equals(RouteTimeBreakdown.KIND))
+                        .findFirst()
+                        .orElseThrow();
+
+        assertThat(breakdown.sentence()).contains("Unattributed 100 %");
+        assertThat(breakdown.whatToCheck().get(0))
+                .contains("inspect the exemplar request")
+                .doesNotContain("application code outside recorded calls");
+        assertThat(breakdown.limitations())
+                .anySatisfy(limitation ->
+                        assertThat(limitation).contains("5 warm requests").contains("no phase markers"));
     }
 
     @Test
