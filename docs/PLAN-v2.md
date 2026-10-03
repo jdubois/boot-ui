@@ -156,7 +156,7 @@ controls:
 | Exact correlation | ≥ 99 % of request-thread events carry their request id on Spring MVC and Quarkus, with and without tracing; WebFlux reports its measured coverage | Concurrency scenario on the sample apps, in CI (§5.1) |
 | Capture overhead | < 2 µs p99 for the full application-thread path on a reference machine; sample-app throughput within 5 % with the journal on versus off | Timed engine test and a sample-app benchmark scenario |
 | External validity | On five open-source applications not written for BootUI (Spring PetClinic, a JHipster sample, Quarkus Super Heroes, a WebFlux sample, and a Kafka application), ≥ 70 % of observations judged actionable or informative by two reviewers, and none misleading | A validation report under `docs/`, rerun before 2.0.0 |
-| Agent effectiveness | Ten scripted investigations answered correctly from tool output alone, with fewer tool calls than with 1.x tools, and five refusal fixtures where the right answer is not to edit (§5.6) | A local agent benchmark with no telemetry, baseline measured first |
+| Agent effectiveness | Ten scripted investigations answered correctly from tool output alone, with fewer tool calls than with 1.x tools, and five refusal fixtures where the right answer is not to edit (§5.6); with the agent (M5), an eleventh investigation ("did my change run?") and a sixth refusal fixture against treating an agent-gated `NOT_APPLICABLE` as healthy (§5.17) | A local agent benchmark with no telemetry, baseline measured first |
 | Time to first observation | ≤ 5 minutes from adding the dependency to reading a first observation, with tracing off and no extra property | Scripted walkthrough on each sample app |
 | Honesty | No observation on any counterexample fixture; "not enough evidence" never reads as "no change" | Fixture tests per observation |
 
@@ -316,7 +316,7 @@ slice depends on M5-1, and on the milestone named:
 | M5-7 | Change impact by method and run comparison led by code changes (§5.17) | M5-3, M5-4, M4 | 6–8 | 📋 Planned |
 | M5-8 | Method probes, in the UI and as agent tools (§5.14, §5.17) | M5-4 | 8–10 | 📋 Planned |
 | M5-9 | Vulnerable code reach and dynamic access recording with its reachability-metadata export (§5.15) | M5-3 | 8–10 | 📋 Planned |
-| M5-10 | The remaining agent tools, the `verify_after_change` and `diagnose_runtime_issue` updates, the agent benchmark investigation, and documentation | M5-3, M5-4, M5-5 | 5–7 | 📋 Planned |
+| M5-10 | The remaining agent tools, the `verify_after_change` and `diagnose_runtime_issue` updates, `McpGuidance.instructions` and `assess_application` updates, the agent benchmark investigation and its refusal fixture, the consumer skill, and documentation | M5-3, M5-4, M5-5, M5-6, M5-8, M5-9 | 5–7 | 📋 Planned |
 
 #### M5 implementation steps
 
@@ -534,15 +534,21 @@ classes, which can start with the claim so startup's reflection is seen, under t
 Spring AOT hints evaluated at runtime, and exported as a `reachability-metadata.json` fragment of what they do not cover.
 
 **M5-10 — Agent tools, prompts, benchmark, and documentation** (5–7 days): the remaining tools of §5.17 with their CLI
-commands and manifest, `diagnose_runtime_issue` suggesting `get_code_paths`, the scripted investigation "did my change
-to `OrderService` run?" in the §2.2 benchmark, the consumer skill and `AI-AGENTS.md`, a setup page for the agent, and a
-final pass that every §5.1–§5.12 acceptance criterion still holds with the agent detached. Self-attach is revisited
-here, after M5-4: `jdk.attach.allowAttachSelf` is read once at JVM start and a late attach always pays a full
+commands and manifest, `diagnose_runtime_issue` suggesting `get_code_paths` and wording reach and verbatim-match facts
+as checks rather than vulnerability verdicts, `verify_after_change` naming `start_method_probe` as its next step when
+the test still did not execute the edited method, `McpGuidance.instructions` adding `get_agent_status` as a check
+before relying on an agent-only tool, `assess_application` naming `start_method_probe` among the tools needing
+separate approval, the scripted investigation "did my change to `OrderService` run?" and a refusal fixture against
+misreading `NOT_APPLICABLE: requires the BootUI agent` as healthy, both in the §2.2 benchmark, the consumer skill (and
+its Claude Code plugin mirror) documenting the verify-then-probe workflow, `AI-AGENTS.md`, a setup page for the agent,
+and a final pass that every §5.1–§5.12 acceptance criterion still holds with the agent detached. Self-attach is
+revisited here, after M5-4: `jdk.attach.allowAttachSelf` is read once at JVM start and a late attach always pays a full
 retransformation, so it adds little over the `-javaagent` line.
 
 Critical path: the second pass, then M5-1, then M5-2 and M5-3 in either order, then M5-4, then M5-7 and M5-8; M5-5 and
-M5-6 follow M5-3 (the transport ring), and M5-9 follows M5-3. Before 2.0.0 (D20), the target is M5-0 to M5-3. With the
-review's re-estimates, M5 comes to about 111–140 engineer-days.
+M5-6 follow M5-3 (the transport ring), and M5-9 follows M5-3. M5-10 follows M5-6, M5-8, and M5-9, since its prompt and
+skill updates name `start_method_probe`, `request-input-in-sink`, and vulnerable code reach. Before 2.0.0 (D20), the
+target is M5-0 to M5-3. With the review's re-estimates, M5 comes to about 111–140 engineer-days.
 
 ```mermaid
 graph LR
@@ -1733,14 +1739,31 @@ Agent tools (§5.6), on existing schemas only, each moving in lockstep as PLAN.m
 
 - The `verify_after_change` prompt (§5.6) starts with `get_code_inventory` and `changed` when the agent is active: an
   agent that finds its edited method not executed runs the test that reaches it, or says so, before reading any latency.
-- `diagnose_runtime_issue` suggests `get_code_paths` on the exemplar's route after `get_request_profile`.
+  When the method still was not executed after that test, the prompt names `start_method_probe` as the next step: with
+  separate approval, start a probe on the method, rerun the candidate test or route, then read `get_method_probe`; no
+  hits is evidence the candidate path never reaches the method (wrong route, wrong bean, never wired).
+- `diagnose_runtime_issue` suggests `get_code_paths` on the exemplar's route after `get_request_profile`. Wherever
+  `get_side_effects`'s sink matches (§5.16) or `get_code_inventory`'s dependency and reach results (§5.15, vulnerable
+  code reach) surface a finding, it states plainly that these are checks, not a vulnerability verdict: verify against
+  source and configuration before treating a `request-input-in-sink` or reach result as actionable.
+- `McpGuidance.instructions` gains one line: call `get_agent_status` once before relying on an agent-only tool or
+  observation, so an agent learns up front whether Code Paths, Code Inventory, and Side Effects questions are
+  answerable at all, instead of discovering `NOT_APPLICABLE` one tool call at a time.
+- `assess_application`'s "Discover and collect" step names `start_method_probe` beside `memory_scan`, `pentest_scan`,
+  `vulnerabilities_scan`, and `database_advisor_scan` as needing separate approval before it starts, since it is the
+  one M5 agent tool that acts, even gated by read-only policy; M5-9's dynamic access recording session needs the same
+  approval once it ships.
+- The consumer skill (`skills/bootui/SKILL.md`, mirrored into the Claude Code plugin payload) documents the
+  verify-then-probe workflow as a named step, not just the tool list, so skill-based agents gain the same "did my
+  change run" workflow MCP-native agents get from the prompt text.
 
 Acceptance criteria:
 
 - Every observation above has a seeded case and a counterexample in the sample apps, and is `NOT_APPLICABLE` with the
   reason, never empty, without the agent.
 - A scripted agent investigation, "did my change to `OrderService` run?", is answered correctly from tool output alone,
-  and joins the benchmark in §2.2.
+  and joins the benchmark in §2.2, together with a refusal fixture where an agent must not treat a
+  `NOT_APPLICABLE: requires the BootUI agent` observation as "nothing to worry about" and ship unverified.
 - With the agent detached, every §5.1–§5.12 acceptance criterion still passes unchanged.
 
 ### 5.18 Journal event coverage — Cross-cutting ✅ Delivered
