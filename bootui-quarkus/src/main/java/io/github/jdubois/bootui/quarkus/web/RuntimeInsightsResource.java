@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.engine.insights.InsightsStack;
 import io.github.jdubois.bootui.engine.insights.ResourceProfileService;
 import io.github.jdubois.bootui.engine.insights.RunComparisonService;
 import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
+import io.github.jdubois.bootui.engine.insights.SqlCapture;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
 import io.github.jdubois.bootui.engine.javaagent.JavaAgentService;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
@@ -20,6 +21,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.model.RuntimeModelService;
 import io.github.jdubois.bootui.engine.model.StructureSnapshots;
 import io.github.jdubois.bootui.engine.resources.ResourceSettings;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.web.ProfileCapabilities;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.github.jdubois.bootui.spi.BeanProvider;
@@ -60,6 +62,7 @@ public class RuntimeInsightsResource {
             Instance<MappingProvider> mappings,
             Instance<BeanProvider> beans,
             Instance<JavaAgentService> javaAgent,
+            Instance<SqlTraceRecorder> sqlTraceRecorder,
             Config config) {
         JournalAggregates journalAggregates = aggregates.isResolvable() ? aggregates.get() : null;
         this.comparison = new RunComparisonService(
@@ -93,11 +96,21 @@ public class RuntimeInsightsResource {
         if (journalAggregates != null) {
             this.insights.setDeclaredRoutes(DeclaredRouteTemplates.declared(mappings), journalAggregates::routeLabels);
         }
+        this.insights.setSqlCapture(() -> sqlCapture(sqlTraceRecorder));
         JavaAgentService agent = javaAgent.isResolvable() ? javaAgent.get() : null;
         this.insights.setAgent(
                 () -> agent == null ? ProfileCapabilities.PROPAGATION_REASON : agent.propagationUnavailableReason(),
                 config.getOptionalValue("bootui.agent.executors.max-handoff", Duration.class)
                         .orElse(AgentHandoffs.DEFAULT_MAX_HANDOFF));
+    }
+
+    /**
+     * Whether this application's SQL is recorded: the SQL Trace recorder exists only with a JDBC (Agroal) data source,
+     * whose pool BootUI wraps and whose Hibernate ORM statements its inspector records. Without it, as with Hibernate
+     * Reactive or a reactive SQL client, the checks that read SQL are unavailable rather than evaluated over nothing.
+     */
+    static SqlCapture sqlCapture(Instance<SqlTraceRecorder> recorder) {
+        return SqlCapture.of(recorder != null && recorder.isResolvable() ? recorder.get() : null, false, false);
     }
 
     @GET

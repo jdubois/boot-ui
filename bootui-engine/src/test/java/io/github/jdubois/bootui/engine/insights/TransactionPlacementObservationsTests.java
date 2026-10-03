@@ -4,10 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
+import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
 import io.github.jdubois.bootui.engine.correlation.ExecutionIds;
 import io.github.jdubois.bootui.engine.correlation.RequestPhase;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.journal.ApplicationFrames;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
@@ -19,6 +21,9 @@ import io.github.jdubois.bootui.engine.journal.TransactionPayload;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -130,6 +135,50 @@ class TransactionPlacementObservationsTests {
     }
 
     @Test
+    void sqlAViewRanWhileRenderingIsNamedAsViewRenderingNotLazyLoading() {
+        ApplicationFrames formatter = ApplicationFrames.of(List.of(
+                "org.springframework.samples.petclinic.owner.PetTypeFormatter.parse(PetTypeFormatter.java:53)",
+                "org.thymeleaf.spring6.util.SpringSelectedValueComparator.exhaustiveCompare("
+                        + "SpringSelectedValueComparator.java:188)",
+                "org.thymeleaf.spring6.processor.SpringOptionFieldTagProcessor.doProcess("
+                        + "SpringOptionFieldTagProcessor.java:61)"));
+        ApplicationFrames lazyLoad = ApplicationFrames.of(List.of(
+                "com.example.Order$HibernateProxy$x1.getLines(Unknown Source)",
+                "tools.jackson.databind.ser.BeanSerializer.serialize(BeanSerializer.java:180)"));
+        for (int i = 0; i < 3; i++) {
+            request(
+                    "GET",
+                    "/owners/{ownerId}/pets/new",
+                    sql("select pt1_0.id,pt1_0.name from types pt1_0 order by pt1_0.name", formatter, 300));
+            request("GET", "/api/orders/{id}", sql("select * from lines where order_id = 1", lazyLoad, 300));
+        }
+
+        Map<String, RuntimeObservationDto> lazy =
+                byKind(service(InsightsStack.SPRING_MVC).report(), LazySqlAfterHandler.KIND).stream()
+                        .collect(Collectors.toMap(RuntimeObservationDto::subject, Function.identity()));
+
+        RuntimeObservationDto view = lazy.get("GET /owners/{ownerId}/pets/new");
+        assertThat(view.status()).isEqualTo("OBSERVED");
+        assertThat(view.sentence()).endsWith("outside a transaction, while the view was rendered.");
+        assertThat(view.whatToCheck().get(0))
+                .startsWith("The view ran this query while it was rendered, through `PetTypeFormatter.parse`:")
+                .contains("in the handler and add it to the model");
+        assertThat(view.whatToCheck()).noneMatch(check -> check.contains("open-in-view") || check.contains("lazy"));
+        RuntimeObservationDetailDto detail = service(InsightsStack.SPRING_MVC).insight(view.id());
+        assertThat(detail.rows())
+                .extracting(row -> row.cells().get(2))
+                .as("the application frame the view called is the call site, not the template engine's")
+                .containsOnly("org.springframework.samples.petclinic.owner.PetTypeFormatter.parse("
+                        + "PetTypeFormatter.java:53)");
+
+        RuntimeObservationDto serialization = lazy.get("GET /api/orders/{id}");
+        assertThat(serialization.sentence()).endsWith("while the response was written.");
+        assertThat(serialization.whatToCheck())
+                .anySatisfy(check -> assertThat(check).contains("lazy association"))
+                .anySatisfy(check -> assertThat(check).contains("spring.jpa.open-in-view=false"));
+    }
+
+    @Test
     void sqlAPropagatedTaskRanWhileTheResponseWasWrittenIsNotLazyLoading() {
         for (int i = 0; i < 3; i++) {
             request(
@@ -177,6 +226,14 @@ class TransactionPlacementObservationsTests {
                 JournalSource.SQL,
                 1,
                 new SqlPayload(sql, "Repo.run:1", "db", false, null, phase, completedNanos),
+                null);
+    }
+
+    private static Child sql(String sql, ApplicationFrames frames, long completedNanos) {
+        return new Child(
+                JournalSource.SQL,
+                1,
+                new SqlPayload(sql, frames.callSite(), "db", false, frames, RequestPhase.RESPONSE, completedNanos),
                 null);
     }
 

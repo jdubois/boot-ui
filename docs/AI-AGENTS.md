@@ -315,9 +315,9 @@ read tools return short, stable facts rather than a dashboard:
 | `get_runtime_impact` | `bootui insights impact <id>` | For a route, bean, class, repository, table, cache, host, or event type: the routes that ran through it, those that did not, and those sharing a resource, at most 8 each, or `AMBIGUOUS` with candidates |
 | `get_runtime_run_comparison` | `bootui insights compare <id>` | With `previous` (the newest kept run that served requests) or a run id from `runs`: comparability first, then at most 8 behavior rows and edges; latency is left out |
 
-`INSUFFICIENT`, `PARTIAL`, `NOT_APPLICABLE`, and `NOT_COMPARABLE` are not successes, and an empty list never means
-healthy: read `requests`, `checksNotRun`, and `limitations` first. `requests: 0` means nothing was exercised. The
-`diagnose_runtime_issue` prompt starts with `get_runtime_insights`, then one `get_request_profile`; the
+`INSUFFICIENT`, `PARTIAL`, `NOT_APPLICABLE`, `UNAVAILABLE`, and `NOT_COMPARABLE` are not successes, and an empty list
+never means healthy: read `requests`, `checksNotRun`, and `limitations` first. `requests: 0` means nothing was
+exercised. The `diagnose_runtime_issue` prompt starts with `get_runtime_insights`, then one `get_request_profile`; the
 `verify_after_change` prompt calls `get_runtime_impact` on the changed symbol when it is known, runs the tests, calls
 `get_runtime_run_comparison` with `previous`, and stops.
 

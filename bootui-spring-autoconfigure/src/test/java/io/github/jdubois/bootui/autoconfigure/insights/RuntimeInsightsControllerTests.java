@@ -10,8 +10,13 @@ import com.zaxxer.hikari.HikariDataSource;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.core.dto.MappingDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
+import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.insights.EventLoopBlocking;
+import io.github.jdubois.bootui.engine.insights.RepeatedSelects;
+import io.github.jdubois.bootui.engine.insights.RouteTimeBreakdown;
+import io.github.jdubois.bootui.engine.insights.RuntimeInsightsService;
+import io.github.jdubois.bootui.engine.insights.SqlCapture;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
@@ -111,11 +116,74 @@ class RuntimeInsightsControllerTests {
                 GenericReactiveWebApplicationContext reactive = new GenericReactiveWebApplicationContext()) {
             servlet.registerBean(RuntimeJournal.class, () -> journal);
             reactive.registerBean(RuntimeJournal.class, () -> journal);
+            reactive.registerBean(SqlTraceRecorder.class, RuntimeInsightsControllerTests::tracedRecorder);
             servlet.refresh();
             reactive.refresh();
 
             assertThat(eventLoopCheck(servlet).status()).isEqualTo("NOT_APPLICABLE");
             assertThat(eventLoopCheck(reactive).status()).isEqualTo("EVALUATED");
+        }
+    }
+
+    @Test
+    void sqlChecksAreUnavailableOnSpringMvcAndWebFluxWhenNoDataSourceIsTraced() {
+        try (GenericApplicationContext servlet = new GenericApplicationContext();
+                GenericReactiveWebApplicationContext reactive = new GenericReactiveWebApplicationContext();
+                GenericApplicationContext traced = new GenericApplicationContext();
+                GenericApplicationContext disabled = new GenericApplicationContext()) {
+            for (GenericApplicationContext context : List.of(servlet, reactive, traced, disabled)) {
+                context.registerBean(RuntimeJournal.class, () -> journal);
+            }
+            // A WebFlux application reading through R2DBC: SQL Trace is on, but no DataSource bean was ever traced.
+            reactive.registerBean(
+                    SqlTraceRecorder.class, () -> new SqlTraceRecorder(true, true, false, false, 8, 100, 2000, 200, 5));
+            traced.registerBean(SqlTraceRecorder.class, RuntimeInsightsControllerTests::tracedRecorder);
+            disabled.registerBean(
+                    SqlTraceRecorder.class,
+                    () -> new SqlTraceRecorder(false, true, false, false, 8, 100, 2000, 200, 5));
+            servlet.refresh();
+            reactive.refresh();
+            traced.refresh();
+            disabled.refresh();
+
+            assertThat(check(servlet, RepeatedSelects.KIND))
+                    .satisfies(check -> assertThat(check.status()).isEqualTo("UNAVAILABLE"))
+                    .satisfies(check -> assertThat(check.reason()).isEqualTo(SqlCapture.NOT_RECORDED));
+            assertThat(check(reactive, RepeatedSelects.KIND))
+                    .satisfies(check -> assertThat(check.status()).isEqualTo("UNAVAILABLE"))
+                    .satisfies(check -> assertThat(check.reason()).isEqualTo(SqlCapture.NOT_RECORDED));
+            assertThat(check(reactive, EventLoopBlocking.KIND).status()).isEqualTo("UNAVAILABLE");
+            assertThat(check(disabled, RepeatedSelects.KIND).reason()).isEqualTo(SqlCapture.DISABLED);
+            assertThat(check(traced, RepeatedSelects.KIND).status()).isEqualTo("EVALUATED");
+            assertThat(check(reactive, RouteTimeBreakdown.KIND).status())
+                    .as("an observation that only optionally reads SQL still runs, and says what it cannot count")
+                    .isEqualTo("EVALUATED");
+            assertThat(check(reactive, RouteTimeBreakdown.KIND).reason()).contains(SqlCapture.NOT_RECORDED);
+        }
+    }
+
+    @Test
+    void anUnavailableRouteInventoryIsSaidRatherThanListingNoRoute() {
+        try (GenericApplicationContext context = new GenericApplicationContext()) {
+            context.registerBean(RuntimeJournal.class, () -> journal);
+            context.registerBean(JournalAggregates.class, JournalAggregates::new);
+            context.registerBean(MappingProvider.class, () -> new MappingProvider() {
+                @Override
+                public boolean available() {
+                    return false;
+                }
+
+                @Override
+                public List<MappingDto> mappings() {
+                    return List.of();
+                }
+            });
+            context.refresh();
+
+            RuntimeInsightsReportDto report = controller(context).report();
+
+            assertThat(report.notExercised()).isEmpty();
+            assertThat(report.limitations()).contains(RuntimeInsightsService.ROUTE_INVENTORY_UNAVAILABLE);
         }
     }
 
@@ -141,16 +209,30 @@ class RuntimeInsightsControllerTests {
     }
 
     private RuntimeInsightCheckDto eventLoopCheck(GenericApplicationContext context) {
+        return check(context, EventLoopBlocking.KIND);
+    }
+
+    private RuntimeInsightCheckDto check(GenericApplicationContext context, String kind) {
+        return controller(context).report().checks().stream()
+                .filter(check -> check.kind().equals(kind))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private RuntimeInsightsController controller(GenericApplicationContext context) {
         return new RuntimeInsightsController(
-                        context,
-                        new BootUiProperties(),
-                        context.getBeanProvider(RuntimeJournal.class),
-                        context.getBeanProvider(JournalAggregates.class),
-                        context.getBeanProvider(MappingProvider.class),
-                        context.getBeanProvider(BeanProvider.class))
-                .report().checks().stream()
-                        .filter(check -> check.kind().equals(EventLoopBlocking.KIND))
-                        .findFirst()
-                        .orElseThrow();
+                context,
+                new BootUiProperties(),
+                context.getBeanProvider(RuntimeJournal.class),
+                context.getBeanProvider(JournalAggregates.class),
+                context.getBeanProvider(MappingProvider.class),
+                context.getBeanProvider(BeanProvider.class));
+    }
+
+    /** A recorder that traced a {@code DataSource}, as the post-processor leaves it for a JDBC application. */
+    private static SqlTraceRecorder tracedRecorder() {
+        SqlTraceRecorder recorder = new SqlTraceRecorder(true, true, false, false, 8, 100, 2000, 200, 5);
+        recorder.registerDataSource("dataSource");
+        return recorder;
     }
 }

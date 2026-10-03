@@ -44,6 +44,8 @@ class WebFluxRuntimeInsightsSeedsTest {
 
     private final List<JsonNode> observations = new ArrayList<>();
 
+    private final List<String> notExercised = new ArrayList<>();
+
     @BeforeAll
     void seed() throws Exception {
         BootUiHttpProbe probe = new BootUiHttpProbe("http://localhost:" + port);
@@ -57,6 +59,16 @@ class WebFluxRuntimeInsightsSeedsTest {
         assertThat(journal.awaitDrained(Duration.ofSeconds(10))).isTrue();
         JsonNode report = probe.get("/bootui/api/runtime-insights").json();
         report.path("observations").forEach(observations::add);
+        report.path("notExercised").forEach(route -> notExercised.add(route.asText()));
+    }
+
+    @Test
+    void theWebFluxRoutesNoRequestReachedAreListedAndThoseExercisedAreNot() {
+        // WebFlux describes its routes under Actuator's dispatcherHandlers, which the Mappings provider reads.
+        assertThat(notExercised)
+                .contains("GET /api/notes/{id}", "GET /api/errors/not-found")
+                .doesNotContain("GET /api/notes", "GET /api/insights/notes/on-event-loop")
+                .allSatisfy(route -> assertThat(route).doesNotContain("/bootui"));
     }
 
     @Test
