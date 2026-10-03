@@ -16,6 +16,8 @@ import InsightText from './InsightText.vue'
 
 // Reloaded with the report, so the comparison follows the run as it records more.
 const props = defineProps({refreshKey: {type: [Number, String], default: 0}})
+// 'loaded' carries the comparison once a fetch settles, null on error or an unexpected shape, so a caller showing a
+// summary of this comparison never keeps a stale one from a request that failed after an earlier success.
 const emit = defineEmits(['loaded'])
 
 const comparison = ref(null)
@@ -23,18 +25,27 @@ const error = ref(null)
 const loading = ref(false)
 const selectedRun = ref('')
 
+// Guards against an older, slower request overwriting a newer one when the selected run or the refresh key changes
+// again before the first fetch settles.
+let requestToken = 0
+
 async function load() {
+  const token = ++requestToken
   loading.value = true
   error.value = null
   try {
     const query = selectedRun.value ? `?run=${encodeURIComponent(selectedRun.value)}` : ''
     const value = await getJson(`api/runtime-insights/comparison${query}`)
+    if (token !== requestToken) return
     comparison.value = isComparison(value) ? value : null
     emit('loaded', comparison.value)
   } catch (e) {
+    if (token !== requestToken) return
     error.value = describeLoadError(e, 'Unable to load the run comparison')
+    comparison.value = null
+    emit('loaded', null)
   } finally {
-    loading.value = false
+    if (token === requestToken) loading.value = false
   }
 }
 

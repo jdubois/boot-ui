@@ -106,11 +106,18 @@ onBeforeUnmount(() => {
       <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
         <div class="insight-profile-intro">
           <h2 id="insight-profile-title" class="h6 mb-1">Profile resources</h2>
-          <p class="small text-muted mb-0">
+          <p class="small text-muted mb-2">
             Records CPU and allocation samples with JDK Flight Recorder for {{ length }}, then splits them by route,
             virtual threads included. Nothing records until you start it; starting JFR takes about a third of a second
             and some 40 MB.
           </p>
+          <ol class="insight-profile-steps small text-muted mb-0" :class="`insight-profile-steps-${state ?? 'idle'}`">
+            <li :class="{'insight-profile-step-done': running || state === 'COMPLETED'}">Start the session</li>
+            <li :class="{'insight-profile-step-active': running, 'insight-profile-step-done': state === 'COMPLETED'}">
+              Use the app for {{ length }} — only requests you make now are sampled
+            </li>
+            <li :class="{'insight-profile-step-active': state === 'COMPLETED'}">See which routes took the most CPU</li>
+          </ol>
         </div>
         <button
           v-if="running"
@@ -161,7 +168,8 @@ onBeforeUnmount(() => {
         <template v-else-if="state === 'COMPLETED'">
           <p class="small mt-3 mb-2 insight-profile-summary">{{ summary }}</p>
           <p v-if="!rows.length" class="small text-muted mb-0">
-            No request ran during the session. Profile again while the application serves requests.
+            No request ran during the session. Click "Profile again" and use the application — click through the pages
+            you want measured — while it records.
           </p>
           <div v-else class="table-responsive">
             <table class="table table-sm align-middle mb-0 insight-profile-table">
@@ -171,7 +179,7 @@ onBeforeUnmount(() => {
                   <th scope="col" class="text-end">Requests</th>
                   <th scope="col">CPU samples</th>
                   <th scope="col" class="text-end">Allocated</th>
-                  <th scope="col">Hottest frame</th>
+                  <th scope="col">Hottest sampled frame</th>
                 </tr>
               </thead>
               <tbody>
@@ -237,6 +245,33 @@ onBeforeUnmount(() => {
 .insight-profile-limitations,
 .insight-profile-reason {
   max-width: 80ch;
+}
+
+.insight-profile-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  padding-left: 0;
+  list-style: none;
+  counter-reset: insight-profile-step;
+}
+
+.insight-profile-steps li {
+  counter-increment: insight-profile-step;
+}
+
+.insight-profile-steps li::before {
+  content: counter(insight-profile-step) '. ';
+  font-weight: 600;
+}
+
+.insight-profile-step-active {
+  color: var(--bs-body-color);
+  font-weight: 600;
+}
+
+.insight-profile-step-done {
+  text-decoration: line-through;
 }
 
 .insight-profile-progress {

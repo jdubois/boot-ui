@@ -150,8 +150,9 @@ describe('Runtime Insights panel', () => {
     wrapper = mountPanel()
     await flushPromises()
 
+    expect(wrapper.find('.insight-comparison-banner').text()).toContain('1 change since run 4')
     const link = wrapper.find('.insight-comparison-link')
-    expect(link.text()).toBe('1 change since run 4')
+    expect(link.text()).toBe('See what changed')
     await link.trigger('click')
     const sections = wrapper.findAll('section.card').map((section) => section.classes())
     const comparisonIndex = sections.findIndex((classes) => classes.includes('insight-comparison'))
