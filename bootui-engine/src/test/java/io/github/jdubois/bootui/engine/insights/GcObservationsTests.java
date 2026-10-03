@@ -40,6 +40,7 @@ class GcObservationsTests {
 
     @Test
     void pausesCompletingDuringARoutesSlowestRequestsMoreOftenThanDuringItsOthersAreObserved() {
+        request("/api/report", 500 * MS, 0); // the route's cold first request is left out of the ranking
         // Ten requests of 10 to 100 ms: pauses complete during three of the five slowest and one of the five others.
         for (int i = 1; i <= 10; i++) {
             request("/api/report", i * 10 * MS, i == 7 || i == 9 || i == 10 || i == 2 ? 1 : 0);
@@ -54,16 +55,45 @@ class GcObservationsTests {
                         + " (60 %), against 20 % of its other 5 requests; those pauses total 15 ms.");
         assertThat(observation.eligible()).isEqualTo(5);
         assertThat(observation.affected()).isEqualTo(3);
-        assertThat(observation.exemplarRequestIds()).containsExactly("r10", "r9", "r7");
+        assertThat(observation.exemplarRequestIds()).containsExactly("r11", "r10", "r8");
         assertThat(service.insight(observation.id()).rows())
                 .extracting(RuntimeObservationRowDto::cells)
                 .first()
-                .isEqualTo(List.of("r10", "100", "1", "5.0", YOUNG));
+                .isEqualTo(List.of("r11", "100", "1", "5.0", YOUNG));
         assertThat(observation.limitations().get(0)).contains("is not measured");
     }
 
     @Test
+    void aRoutesColdFirstRequestIsNotRankedAmongItsSlowestRequests() {
+        // The cold request and one other slow request carry pauses: warm-up alone must not make the route's pauses
+        // look like they inflate its latency.
+        request("/api/report", 200 * MS, 1);
+        for (int i = 1; i <= 10; i++) {
+            request("/api/report", i * 10 * MS, i == 10 ? 1 : 0);
+        }
+
+        assertThat(service().report().observations())
+                .filteredOn(observation -> observation.kind().equals(GcInflatedLatency.KIND))
+                .isEmpty();
+    }
+
+    @Test
+    void afterAClearTheFirstRetainedRequestIsRankedBecauseNoRequestIsKnownToBeCold() {
+        request("/api/report", 5 * MS, 0);
+        journal.clear();
+        request("/api/report", 200 * MS, 1);
+        for (int i = 1; i <= 10; i++) {
+            request("/api/report", i * 10 * MS, i == 10 ? 1 : 0);
+        }
+
+        assertThat(service().report().observations())
+                .filteredOn(observation -> observation.kind().equals(GcInflatedLatency.KIND))
+                .hasSize(1);
+    }
+
+    @Test
     void pausesSpreadEvenlyOverARoutesRequestsAreNotObserved() {
+        request("/api/report", 500 * MS, 0); // the route's cold first request is left out of the ranking
         for (int i = 1; i <= 10; i++) {
             request("/api/report", i * 10 * MS, i == 1 || i == 3 || i == 8 || i == 10 ? 1 : 0);
         }
@@ -75,6 +105,7 @@ class GcObservationsTests {
 
     @Test
     void aRouteWithTooFewMeasuredRequestsIsInsufficientOnlyOncePausesRepeat() {
+        request("/api/report", 500 * MS, 0); // the route's cold first request is left out of the ranking
         for (int i = 1; i <= 4; i++) {
             request("/api/report", i * 10 * MS, i >= 3 ? 1 : 0);
         }

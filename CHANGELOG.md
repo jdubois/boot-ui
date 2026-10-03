@@ -24,6 +24,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   undetermined, and disabled-source limitations appear only when relevant evidence was recorded
   ([#1217](https://github.com/jdubois/boot-ui/pull/1217); PLAN-v2 M4-18b).
 
+- **Runtime Insights after Clear recording.** Clearing the journal or freeing BootUI memory now refreshes the
+  report and its evidence at once instead of serving the cleared events until a new one arrives, and no route's first
+  post-clear request is labeled cold. The evidence table follows each auto-refresh of the open observation, and
+  `gc-inflated-latency` leaves each route's cold first request out of its slowest tenth (PLAN-v2 §5.5, M3-3a, M4-3).
+
 - **Runtime Insights and Live Activity UI.** Load failures in Change impact, Run comparison, Profile resources,
   Why-slow, and observation evidence show their message instead of a JSON object (including in the screen-reader
   status region). `work-after-response` observations appear under the Time chip, the command palette finds Runtime

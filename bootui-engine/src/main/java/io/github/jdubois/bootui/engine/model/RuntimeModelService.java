@@ -25,14 +25,14 @@ public final class RuntimeModelService {
     private RuntimeModel cached;
     private long cachedWatermark = Long.MIN_VALUE;
     private long cachedEvicted = Long.MIN_VALUE;
-    private int cachedRetained = -1;
+    private long cachedClears = Long.MIN_VALUE;
     private RuntimeModel cachedVisible;
     private Map<String, Boolean> cachedVisibility;
     private StructureSnapshot cachedVisibleSnapshot;
     private String cachedVisibleRun;
     private long cachedVisibleWatermark = Long.MIN_VALUE;
     private long cachedVisibleEvicted = Long.MIN_VALUE;
-    private int cachedVisibleRetained = -1;
+    private long cachedVisibleClears = Long.MIN_VALUE;
 
     /**
      * @param journal the journal, or {@code null} when the adapter created none
@@ -60,7 +60,7 @@ public final class RuntimeModelService {
         if (cached != null
                 && cachedWatermark == status.lastSequence()
                 && cachedEvicted == evicted
-                && cachedRetained == status.retainedEvents()) {
+                && cachedClears == status.clears()) {
             return cached;
         }
         // An empty snapshot is read again, as providers can become available after the first read.
@@ -85,7 +85,7 @@ public final class RuntimeModelService {
                 RuntimeModelProjection.READ_BUDGET_NANOS);
         cachedWatermark = status.lastSequence();
         cachedEvicted = evicted;
-        cachedRetained = status.retainedEvents();
+        cachedClears = status.clears();
         return cached;
     }
 
@@ -106,7 +106,7 @@ public final class RuntimeModelService {
         if (cachedVisible != null
                 && cachedVisibleWatermark == status.lastSequence()
                 && cachedVisibleEvicted == evicted
-                && cachedVisibleRetained == status.retainedEvents()
+                && cachedVisibleClears == status.clears()
                 && status.runId().equals(cachedVisibleRun)
                 && cachedVisibleSnapshot == snapshot
                 && visibility.equals(cachedVisibility)) {
@@ -133,7 +133,7 @@ public final class RuntimeModelService {
         cachedVisibleRun = status.runId();
         cachedVisibleWatermark = status.lastSequence();
         cachedVisibleEvicted = evicted;
-        cachedVisibleRetained = status.retainedEvents();
+        cachedVisibleClears = status.clears();
         return cachedVisible;
     }
 
