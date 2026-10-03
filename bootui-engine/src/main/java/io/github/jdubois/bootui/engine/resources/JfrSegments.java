@@ -33,7 +33,7 @@ final class JfrSegments {
         }
     }
 
-    /** Commits a segment event {@link #begin} returned, on the thread that began it; ignores {@code null}. */
+    /** Commits a segment event {@link #begin} returned, from any thread; ignores {@code null}. */
     static void end(Object event) {
         if (event == null) {
             return;
@@ -51,8 +51,14 @@ final class JfrSegments {
         static Object begin(String requestId) {
             ExecutionSegmentEvent event = new ExecutionSegmentEvent();
             event.requestId = requestId;
+            event.segmentThreadId = threadId();
             event.begin();
             return event;
+        }
+
+        @SuppressWarnings("deprecation") // Thread.threadId() is JDK 19+; the baseline is 17.
+        private static long threadId() {
+            return Thread.currentThread().getId();
         }
 
         static void end(Object event) {
