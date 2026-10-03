@@ -359,6 +359,16 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Spring WebFlux requests report their GraphQL operation and authentication time again.** The reactive correlation
+  filter never began a request's phase markers, so the shared GraphQL operation and Spring Security authentication
+  observation handlers had nothing to record into on WebFlux: Live Activity and Runtime Insights showed every GraphQL
+  request as the plain `/graphql` route instead of one route per operation, and `route-time-breakdown` reported no
+  authentication time. The filter now begins the request's marker timeline before the rest of the chain is assembled
+  and ends it when the chain terminates, including cancellation, and passes what was recorded to the journal. WebFlux
+  still marks no handler or response phase, so those offsets stay unknown rather than guessed, and the breakdown names
+  the authentication time out of the request's unattributed time: a WebFlux route is insufficient only when neither a
+  recorded call nor authentication time names any of its time
+  ([#1214](https://github.com/jdubois/boot-ui/pull/1214)).
 - **Runtime Insights no longer reports what it could not see.** From the 2.0 validation run
   ([report](docs/V2-VALIDATION-REPORT.md)): `route-time-breakdown` stops calling time "application code" when a request
   reached no handler BootUI marks, such as an Actuator or `/q/` endpoint or a request the security filters answered with
@@ -373,6 +383,11 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   the application frame as the call site; frames of applications in `org.springframework.samples` or
   `io.quarkus.sample` count as application code. The `errors-behind-2xx` sentence reads "2 requests whose transaction
   rolled back", and insufficient findings are labelled **Not enough evidence** (PLAN-v2 M4-18a).
+- **Live Activity says when nothing has been recorded yet.** An empty feed with no filter, search, or toggle narrowing
+  it said "No activity matches the current filters"; it now says no activity is recorded yet and how to produce some,
+  keeping the filter message for a feed a filter narrowed. `orm-auto-flush` applies its threshold per request, as the
+  plan sets it, so one request that auto-flushed three times or more, or for a fifth of its ORM time, reports its route
+  instead of waiting for a second one ([report](docs/V2-VALIDATION-REPORT.md), PLAN-v2 M4-18c).
 - **The Mappings panel lists Spring WebFlux routes.** The Actuator-backed provider read only Spring MVC's
   `dispatcherServlets`, so a WebFlux application showed no mapping and, without OpenTelemetry, grouped its requests by
   masked paths. It now also reads WebFlux's `dispatcherHandlers`: annotated controllers, and functional routes whose
