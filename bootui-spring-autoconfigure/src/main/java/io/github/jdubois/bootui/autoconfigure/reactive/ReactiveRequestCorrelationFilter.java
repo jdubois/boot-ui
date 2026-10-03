@@ -64,7 +64,9 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
      * when its filter chain completes, with the matched route and the status WebFlux will render.
      *
      * @param requestSlowThresholdMs {@code bootui.activity.request-slow-threshold-ms}, which marks a request slow
-     * @param phases the phase markers of recent requests, which name a request's operation; {@code null} names none
+     * @param phases the phase markers of recent requests, which this filter begins and ends for each request so the
+     *     GraphQL operation and Spring Security authentication observations are recorded against it; {@code null}
+     *     tracks none
      */
     public void setRuntimeEventSink(RuntimeEventSink journal, long requestSlowThresholdMs, RequestPhases phases) {
         this.journal = journal == null ? RuntimeEventSink.NONE : journal;
@@ -102,29 +104,70 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
             if (existing instanceof CorrelationContext correlation) {
                 exchange.getAttributes().put(CORRELATION_ATTRIBUTE, correlation);
                 try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(correlation)) {
-                    return published(exchange, correlation, chain.filter(exchange));
+                    return tracked(exchange, correlation, chain);
                 }
             }
             CorrelationContext correlation = CorrelationContext.forRequest(RequestIds.next());
             exchange.getAttributes().put(CORRELATION_ATTRIBUTE, correlation);
-            return correlated(correlation, () -> published(exchange, correlation, chain.filter(exchange)));
+            return correlated(correlation, () -> tracked(exchange, correlation, chain));
         });
     }
 
-    /** {@code chain} that publishes the request's {@code HTTP} event to the journal when it completes. */
-    private Mono<Void> published(ServerWebExchange exchange, CorrelationContext correlation, Mono<Void> chain) {
+    /**
+     * Starts the request's marker timeline before the chain is assembled, so an observation a downstream filter makes
+     * while it assembles, such as Spring Security authenticating the request, is already recorded against it, then
+     * runs it through {@link #published}.
+     */
+    private Mono<Void> tracked(ServerWebExchange exchange, CorrelationContext correlation, WebFilterChain chain) {
         RuntimeEventSink sink = journal;
-        if (sink == RuntimeEventSink.NONE) {
-            return chain;
+        RequestPhases requestPhases = phases;
+        if (requestPhases != null) {
+            // The timeline the GraphQL operation and Spring Security authentication observation handlers write into,
+            // ended by published() on completion, failure, and cancellation. WebFlux marks no phase inside it, so the
+            // request's phase stays unknown rather than reported as the filters (docs/PLAN-v2.md §5.1). A request id
+            // already tracked keeps its timeline, so a chain subscribed again never drops what the first attempt
+            // recorded; its attempts then share one authentication total, which is the physical request's.
+            requestPhases.beginUnphased(correlation.requestId());
         }
+        if (sink == RuntimeEventSink.NONE && requestPhases == null) {
+            return chain.filter(exchange);
+        }
+        return published(exchange, correlation, sink, requestPhases, chain);
+    }
+
+    /**
+     * {@code chain} that ends the request's phase markers and publishes its {@code HTTP} event to the journal when it
+     * completes.
+     */
+    private Mono<Void> published(
+            ServerWebExchange exchange,
+            CorrelationContext correlation,
+            RuntimeEventSink sink,
+            RequestPhases requestPhases,
+            WebFilterChain chain) {
         long startNanos = System.nanoTime();
         long start = System.currentTimeMillis();
         if (sink.records(JournalSource.RESOURCES)) {
             SegmentMeter.shared().begin(correlation.requestId());
         }
         AtomicReference<Throwable> failure = new AtomicReference<>();
-        return chain.doOnError(failure::set).doFinally(signal -> {
+        Mono<Void> filtered;
+        try {
+            filtered = chain.filter(exchange);
+        } catch (RuntimeException ex) {
+            // A chain that fails while it assembles still has a timeline to end and a request to publish.
+            filtered = Mono.error(ex);
+        }
+        return filtered.doOnError(failure::set).doFinally(signal -> {
             try {
+                if (requestPhases != null) {
+                    // The request's chain terminated: WebFlux renders a failure after it unwinds, so a failed
+                    // request ends here rather than when its response is written.
+                    requestPhases.end(correlation.requestId());
+                }
+                if (sink == RuntimeEventSink.NONE) {
+                    return;
+                }
                 long durationNanos = System.nanoTime() - startNanos;
                 int status = ReactiveHttpExchangeTraceFilter.status(exchange, signal, failure.get());
                 if (status == 0 && signal == SignalType.ON_COMPLETE) {
@@ -135,7 +178,6 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
                 ServerHttpRequest request = exchange.getRequest();
                 String requestId = correlation.requestId();
                 ResourceUsage resources = SegmentMeter.shared().take(requestId);
-                RequestPhases requestPhases = phases;
                 sink.offer(RuntimeEvent.of(
                         JournalSource.HTTP,
                         start,
@@ -158,8 +200,10 @@ public final class ReactiveRequestCorrelationFilter extends AbstractReactiveBoot
                                 requestPhases == null ? null : requestPhases.operationOf(requestId),
                                 status,
                                 resources,
-                                // WebFlux marks no phases, so its handler and response write are not told apart.
-                                RequestTiming.startedAt(startNanos))));
+                                // WebFlux marks no handler or response phase, so only the request's start and the
+                                // authentication time Spring Security observed are known.
+                                RequestTiming.of(
+                                        startNanos, requestPhases == null ? null : requestPhases.markers(requestId)))));
             } catch (RuntimeException ex) {
                 // Publishing never disturbs the response.
             }

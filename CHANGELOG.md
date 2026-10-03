@@ -366,6 +366,16 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Spring WebFlux requests report their GraphQL operation and authentication time again.** The reactive correlation
+  filter never began a request's phase markers, so the shared GraphQL operation and Spring Security authentication
+  observation handlers had nothing to record into on WebFlux: Live Activity and Runtime Insights showed every GraphQL
+  request as the plain `/graphql` route instead of one route per operation, and `route-time-breakdown` reported no
+  authentication time. The filter now begins the request's marker timeline before the rest of the chain is assembled
+  and ends it when the chain terminates, including cancellation, and passes what was recorded to the journal. WebFlux
+  still marks no handler or response phase, so those offsets stay unknown rather than guessed, and the breakdown names
+  the authentication time out of the request's unattributed time: a WebFlux route is insufficient only when neither a
+  recorded call nor authentication time names any of its time
+  ([#1214](https://github.com/jdubois/boot-ui/pull/1214)).
 - **Runtime Insights no longer reports what it could not see.** From the 2.0 validation run
   ([report](docs/V2-VALIDATION-REPORT.md)): `route-time-breakdown` stops calling time "application code" when a request
   reached no handler BootUI marks, such as an Actuator or `/q/` endpoint or a request the security filters answered with
