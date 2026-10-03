@@ -15,13 +15,14 @@ import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
+import io.github.jdubois.bootui.quarkus.QuarkusExposurePolicy;
 import io.github.jdubois.bootui.quarkus.QuarkusPanelAvailability;
 import io.github.jdubois.bootui.spi.BeanProvider;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.github.jdubois.bootui.spi.MappingProvider;
+import io.smallrye.config.SmallRyeConfigBuilder;
 import jakarta.enterprise.inject.Instance;
 import java.util.List;
-import org.eclipse.microprofile.config.Config;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,7 +54,7 @@ class RuntimeInsightsResourceComparisonTests {
     QuarkusPanelAvailability panels;
 
     @Mock
-    Config config;
+    QuarkusExposurePolicy exposure;
 
     @BeforeEach
     void openMocks() {
@@ -88,8 +89,16 @@ class RuntimeInsightsResourceComparisonTests {
             when(aggregates.get()).thenReturn(captured);
             when(panels.isPanelEnabled(anyString())).thenReturn(true);
             when(panels.isPanelAvailable(anyString())).thenReturn(true);
-            RuntimeInsightsResource resource =
-                    new RuntimeInsightsResource(journals, aggregates, panels, mappings, beans, agents, sql, config);
+            RuntimeInsightsResource resource = new RuntimeInsightsResource(
+                    journals,
+                    aggregates,
+                    panels,
+                    mappings,
+                    beans,
+                    agents,
+                    sql,
+                    exposure,
+                    new SmallRyeConfigBuilder().build());
 
             assertThat(resource.comparison(null).current().requests()).isEqualTo(1);
             when(panels.isPanelEnabled(BootUiPanels.HTTP_EXCHANGES)).thenReturn(false);
