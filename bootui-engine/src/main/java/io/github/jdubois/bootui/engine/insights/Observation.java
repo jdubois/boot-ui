@@ -51,11 +51,20 @@ public interface Observation {
      *     judge and left out of {@code eligibleRequests}, such as requests whose statements could not be placed
      *     against their transactions, or what it judged but does not report, such as methods whose remote calls were
      *     all fast; {@code null} when it left nothing out
+     * @param hasEligibleWork whether it examined eligible work, including evidence not counted as requests, such as
+     *     garbage collections; positive request counts or a sufficient finding always establish this
      */
-    record Evaluation(long eligibleRequests, List<Finding> findings, String uncounted) {
+    record Evaluation(long eligibleRequests, List<Finding> findings, String uncounted, boolean hasEligibleWork) {
 
         public Evaluation {
             findings = List.copyOf(findings);
+            hasEligibleWork =
+                    hasEligibleWork || eligibleRequests > 0 || findings.stream().anyMatch(Finding::sufficient);
+        }
+
+        /** An evaluation whose eligible work is counted as requests or established by its findings. */
+        public Evaluation(long eligibleRequests, List<Finding> findings, String uncounted) {
+            this(eligibleRequests, findings, uncounted, eligibleRequests > 0);
         }
 
         /** An evaluation that judged everything it read. */

@@ -38,12 +38,15 @@ import java.util.function.ToLongFunction;
  * reference by index, then the aggregates. Numbers are variable-length, and histograms keep only their non-empty
  * buckets. When the summary exceeds the bound, the least-used entries of each aggregate and the least-observed edges are
  * left out, halving how many are kept until it fits, and the header counts what was left out, and how many edges.</p>
+ *
+ * <p>Version 10 keeps only literal-free SQL display shapes, merging indistinguishable groups with their counts and
+ * histograms. Version 8 and 9 fingerprints are sanitized on read too, before any summary reaches a consumer.</p>
  */
 final class RunSummaryCodec {
 
     private static final int MAGIC = 0x42555253;
 
-    private static final int VERSION = 9;
+    private static final int VERSION = 10;
 
     private RunSummaryCodec() {}
 
@@ -87,8 +90,8 @@ final class RunSummaryCodec {
                 in.number(),
                 in.number());
         List<RouteStats> routes = in.list(in::route);
-        List<StatementStats> statements = in.list(
-                () -> new StatementStats(in.string(), in.number(), in.number(), in.histogram(), in.stringMap()));
+        List<StatementStats> statements = statementShapes(in.list(
+                () -> new StatementStats(in.string(), in.number(), in.number(), in.histogram(), in.stringMap())));
         List<ExceptionGroupStats> groups = in.list(
                 () -> new ExceptionGroupStats(in.string(), in.string(), in.string(), in.number(), in.stringMap()));
         List<TransactionalMethodStats> methods =
@@ -124,7 +127,7 @@ final class RunSummaryCodec {
                 in.histogram(),
                 in.sourceMap(),
                 in.sourceMap(),
-                in.stringMap(),
+                JournalTextExposure.statementCounts(in.stringMap()),
                 in.number(),
                 new RouteResources(
                         in.number(),
@@ -159,8 +162,9 @@ final class RunSummaryCodec {
         for (RouteStats route : aggregates.routes()) {
             writeRoute(body, route);
         }
-        body.number(aggregates.statements().size());
-        for (StatementStats statement : aggregates.statements()) {
+        List<StatementStats> statements = statementShapes(aggregates.statements());
+        body.number(statements.size());
+        for (StatementStats statement : statements) {
             body.string(statement.fingerprint());
             body.number(statement.executions());
             body.number(statement.failures());
@@ -234,7 +238,7 @@ final class RunSummaryCodec {
         body.histogram(route.latency());
         body.sourceMap(route.childCounts());
         body.sourceMap(route.childNanos());
-        body.stringMap(route.statements());
+        body.stringMap(JournalTextExposure.statementCounts(route.statements()));
         body.number(route.connectionWaitNanos());
         RouteResources resources = route.resources();
         body.number(resources.measuredRequests());
@@ -269,6 +273,37 @@ final class RunSummaryCodec {
     }
 
     /** The most entries any aggregate or nested count holds, where trimming starts halving. */
+    private static List<StatementStats> statementShapes(List<StatementStats> statements) {
+        Map<String, StatementStats> shapes = new LinkedHashMap<>();
+        for (StatementStats statement : statements) {
+            String shape = JournalTextExposure.statementShape(statement.fingerprint());
+            StatementStats previous = shapes.get(shape);
+            if (previous == null) {
+                shapes.put(
+                        shape,
+                        new StatementStats(
+                                shape,
+                                statement.executions(),
+                                statement.failures(),
+                                statement.latency().copy(),
+                                statement.callSites()));
+            } else {
+                previous.latency().merge(statement.latency());
+                Map<String, Long> sites = new LinkedHashMap<>(previous.callSites());
+                statement.callSites().forEach((site, count) -> sites.merge(site, count, Long::sum));
+                shapes.put(
+                        shape,
+                        new StatementStats(
+                                shape,
+                                previous.executions() + statement.executions(),
+                                previous.failures() + statement.failures(),
+                                previous.latency(),
+                                Collections.unmodifiableMap(sites)));
+            }
+        }
+        return List.copyOf(shapes.values());
+    }
+
     private static int largestDimension(AggregatesSnapshot aggregates) {
         int largest = Math.max(
                 Math.max(aggregates.routes().size(), aggregates.statements().size()),
@@ -578,8 +613,8 @@ final class RunSummaryCodec {
                 magic = (magic << 8) | (next() & 0xFF);
             }
             version = next();
-            if (magic != MAGIC || (version != VERSION && version != 8)) {
-                throw new IllegalArgumentException("Not a supported run summary (versions 8 and " + VERSION + ")");
+            if (magic != MAGIC || (version != VERSION && version != 9 && version != 8)) {
+                throw new IllegalArgumentException("Not a supported run summary (versions 8, 9 and " + VERSION + ")");
             }
             return new RunSummary.Header(
                     text(),

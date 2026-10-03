@@ -107,6 +107,13 @@ class GcObservationsTests {
                 .isEqualTo("Old-generation occupancy after the 4 collections that reclaimed it rose from 40.0 MiB to"
                         + " 60.0 MiB (+50 %), rising in 3 of 3 steps.");
         assertThat(observation.eligible()).isZero();
+        assertThat(check(service, HeapGrowthAfterGc.KIND)).satisfies(check -> {
+            assertThat(check.status()).isEqualTo("EVALUATED");
+            assertThat(check.eligibleRequests()).isZero();
+            assertThat(check.reason()).isNull();
+        });
+        assertThat(RuntimeInsightsAgentView.list(service.report(), null, null).checksNotRun())
+                .noneMatch(reason -> reason.startsWith(HeapGrowthAfterGc.KIND + ":"));
         assertThat(service.insight(observation.id()).rows())
                 .extracting(row -> row.cells().get(3))
                 .containsExactly("60.0", "52.0", "45.0", "40.0");
@@ -117,16 +124,41 @@ class GcObservationsTests {
         reclaiming(80, 40);
         reclaiming(90, 41);
 
-        RuntimeObservationDto insufficient = only(service(), HeapGrowthAfterGc.KIND);
+        RuntimeInsightsService service = service();
+        RuntimeObservationDto insufficient = only(service, HeapGrowthAfterGc.KIND);
         assertThat(insufficient.status()).isEqualTo("INSUFFICIENT");
         assertThat(insufficient.sentence())
                 .isEqualTo("2 collections reclaimed old-generation space in this run; a trend needs 3.");
+        assertThat(check(service, HeapGrowthAfterGc.KIND).status()).isEqualTo("EVALUATED");
 
         reclaiming(85, 40);
         reclaiming(88, 42);
-        assertThat(service().report().observations())
+        assertThat(service.report().observations())
                 .filteredOn(observation -> observation.kind().equals(HeapGrowthAfterGc.KIND))
                 .isEmpty();
+        assertThat(check(service, HeapGrowthAfterGc.KIND)).satisfies(check -> {
+            assertThat(check.status()).isEqualTo("EVALUATED");
+            assertThat(check.eligibleRequests()).isZero();
+            assertThat(check.reason())
+                    .contains("4 collections that reclaimed old-generation space", "growth threshold")
+                    .doesNotContain("No eligible work");
+        });
+        assertThat(RuntimeInsightsAgentView.list(service.report(), null, null).checksNotRun())
+                .noneMatch(reason -> reason.startsWith(HeapGrowthAfterGc.KIND + ":"));
+    }
+
+    @Test
+    void youngCollectionsAloneLeaveHeapGrowthWithoutEligibleWork() {
+        young(30, 34);
+        young(34, 40);
+
+        RuntimeInsightsService service = service();
+        assertThat(check(service, HeapGrowthAfterGc.KIND)).satisfies(check -> {
+            assertThat(check.status()).isEqualTo("INSUFFICIENT");
+            assertThat(check.reason()).contains("No eligible work");
+        });
+        assertThat(RuntimeInsightsAgentView.list(service.report(), null, null).checksNotRun())
+                .anyMatch(reason -> reason.startsWith(HeapGrowthAfterGc.KIND + ":"));
     }
 
     @Test
@@ -142,6 +174,13 @@ class GcObservationsTests {
 
     private RuntimeInsightsService service() {
         return new RuntimeInsightsService(journal, null, null, InsightsStack.SPRING_MVC, null);
+    }
+
+    private static RuntimeInsightCheckDto check(RuntimeInsightsService service, String kind) {
+        return service.report().checks().stream()
+                .filter(check -> check.kind().equals(kind))
+                .findFirst()
+                .orElseThrow();
     }
 
     private static RuntimeObservationDto only(RuntimeInsightsService service, String kind) {

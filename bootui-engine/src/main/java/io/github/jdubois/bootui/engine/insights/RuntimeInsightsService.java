@@ -445,13 +445,13 @@ public final class RuntimeInsightsService {
             if (evaluation.uncounted() != null) {
                 reasons.add(evaluation.uncounted());
             }
-            if (evaluation.eligibleRequests() == 0) {
+            if (!evaluation.hasEligibleWork()) {
                 reasons.add(0, "No eligible work was recorded for this check.");
             }
             checks.add(new RuntimeInsightCheckDto(
                     observation.kind(),
                     observation.title(),
-                    evaluation.eligibleRequests() == 0 ? "INSUFFICIENT" : partial == null ? "EVALUATED" : "PARTIAL",
+                    !evaluation.hasEligibleWork() ? "INSUFFICIENT" : partial == null ? "EVALUATED" : "PARTIAL",
                     evaluation.eligibleRequests(),
                     evaluation.findings().size(),
                     reasons.isEmpty() ? null : String.join(" ", reasons)));

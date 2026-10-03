@@ -192,6 +192,41 @@ describe('Runtime Insights panel', () => {
     expect(unrun.text()).toContain('it uses R2DBC')
   })
 
+  it('counts a collection-based check as run at zero requests and explains a check with no eligible work', async () => {
+    const heap = {
+      kind: 'heap-growth-after-gc',
+      title: 'Heap growth after GC',
+      status: 'EVALUATED',
+      eligibleRequests: 0,
+      findings: 0,
+      reason: 'Examined 4 collections that reclaimed old-generation space; none met the growth threshold.'
+    }
+    const insufficient = {
+      kind: 'gc-inflated-latency',
+      title: 'GC-inflated latency',
+      status: 'INSUFFICIENT',
+      eligibleRequests: 0,
+      findings: 0,
+      reason: 'No eligible work was recorded for this check.'
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(jsonResponse({...report, observations: [], checks: [...report.checks, heap, insufficient]}))
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('2 of 4 checks ran and found nothing')
+    const checks = wrapper.find('.insight-unrun')
+    expect(checks.text()).toContain('Checks and their limits')
+    expect(checks.text()).toContain('Heap growth after GC · Ran')
+    expect(checks.text()).toContain('GC-inflated latency · Not enough evidence')
+    expect(checks.text()).not.toContain('INSUFFICIENT')
+    expect(checks.text()).toContain('No eligible work was recorded')
+  })
+
   it('states a disabled journal and an empty run', async () => {
     vi.stubGlobal(
       'fetch',

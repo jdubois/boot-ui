@@ -1090,7 +1090,10 @@ public final class JournalAggregates implements JournalListener {
         public static final RouteResources NONE = new RouteResources(0, 0, 0, 0, 0, 0, 0, 0);
     }
 
-    /** One literal-free statement fingerprint: its executions, failures, latency, and executions per call site. */
+    /**
+     * One statement grouping fingerprint, not a display or persistence form: its executions, failures, latency, and
+     * executions per call site. {@link JournalTextExposure#displayShape} removes ambiguous quoted literals.
+     */
     public record StatementStats(
             String fingerprint,
             long executions,

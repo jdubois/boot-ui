@@ -11,6 +11,7 @@ import io.github.jdubois.bootui.engine.journal.JournalAggregates.ExecutionStats;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
+import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
 import io.github.jdubois.bootui.engine.journal.LatencyHistogram;
 import io.github.jdubois.bootui.engine.journal.RunStart;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
@@ -247,11 +248,13 @@ public final class RunComparison {
                 continue;
             }
             if (sharedSources.contains(JournalSource.SQL)) {
-                for (Map.Entry<String, Long> statement : route.statements().entrySet()) {
+                Map<String, Long> statements = JournalTextExposure.statementCounts(route.statements());
+                Map<String, Long> oldStatements = JournalTextExposure.statementCounts(old.statements());
+                for (Map.Entry<String, Long> statement : statements.entrySet()) {
                     String fingerprint = statement.getKey();
                     if (!"Other".equals(fingerprint)
-                            && !old.statements().containsKey("Other")
-                            && !old.statements().containsKey(fingerprint)) {
+                            && !oldStatements.containsKey("Other")
+                            && !oldStatements.containsKey(fingerprint)) {
                         behavior.add(change(
                                 "new-statement",
                                 name,
@@ -267,10 +270,10 @@ public final class RunComparison {
                     }
                 }
                 if (route.requests() >= MIN_REQUESTS
-                        && !route.statements().containsKey("Other")
-                        && !old.statements().containsKey("Other")) {
-                    old.statements().forEach((fingerprint, count) -> {
-                        if (!route.statements().containsKey(fingerprint)) {
+                        && !statements.containsKey("Other")
+                        && !oldStatements.containsKey("Other")) {
+                    oldStatements.forEach((fingerprint, count) -> {
+                        if (!statements.containsKey(fingerprint)) {
                             behavior.add(change(
                                     "gone-statement",
                                     name,

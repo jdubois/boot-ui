@@ -1579,9 +1579,12 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
 `bootui.panels.runtime-insights.read-only` or `bootui.read-only` blocks.
 
 - `GET /bootui/api/runtime-insights` returns the window, per-source correlation coverage, every check with its status
-  (`EVALUATED`, `PARTIAL`, `NOT_APPLICABLE` with its reason, or `UNAVAILABLE` with its reason when it reads SQL that
+  (`EVALUATED`, `INSUFFICIENT` when no work was eligible, `PARTIAL`, `NOT_APPLICABLE` with its reason, or
+  `UNAVAILABLE` with its reason when it reads SQL that
   this application's stack does not record, such as R2DBC), the observations, and limitations. The projection is
-  cached until the journal records more or a panel's enablement changes.
+  cached until the journal records more or a panel's enablement changes. Eligibility follows the observation's unit,
+  not just its request count: a heap-growth check that examined collections is evaluated even with zero requests,
+  whether it observed growth or a stable heap.
 - `GET /bootui/api/runtime-insights/insights/{id}` returns one observation's evidence: at most 20 rows and the count left
   out. Ids are `kind:hash`, stable across refreshes and restarts.
 - `GET /bootui/api/runtime-insights/impact?symbol=<symbol>` resolves a route, a bean, a class's simple name, a

@@ -39,6 +39,42 @@ class RunComparisonTests {
     private static final RunStart H2 = start(null, "jdbc:h2:mem:shop");
 
     @Test
+    void addedAndGoneStatementsNeverExposeFingerprintLiteralsInPanelOrAgentOutput() {
+        Run before = new Run();
+        Run after = new Run();
+        for (int i = 0; i < 3; i++) {
+            before.request("POST", "/users", 200, 5, sql("insert into old_users(pw) values(\"beforeSecret\")"));
+            after.request("POST", "/users", 200, 5, sql("insert into users(pw) values(\"zzsecretzz\")"));
+        }
+
+        RuntimeRunComparisonDto comparison = compare(before, after, H2, H2);
+
+        assertThat(comparison.behavior())
+                .extracting(RuntimeRunChangeDto::kind)
+                .containsExactly("new-statement", "gone-statement");
+        assertThat(comparison.behavior())
+                .extracting(RuntimeRunChangeDto::detail)
+                .containsExactly("insert into users(pw) values(?)", "insert into old_users(pw) values(?)");
+        assertThat(comparison.toString()).doesNotContain("zzsecretzz", "beforeSecret", "beforesecret");
+        assertThat(RuntimeInsightsAgentView.comparison(comparison).toString())
+                .doesNotContain("zzsecretzz", "beforeSecret", "beforesecret");
+    }
+
+    @Test
+    void literalsThatShareOneDisplayShapeDoNotInventNewOrGoneStatements() {
+        Run before = new Run();
+        Run after = new Run();
+        for (int i = 0; i < 3; i++) {
+            before.request("POST", "/users", 200, 5, sql("insert into users(pw) values(\"beforeSecret\")"));
+            after.request("POST", "/users", 200, 5, sql("insert into users(pw) values(\"zzsecretzz\")"));
+        }
+
+        assertThat(compare(before, after, H2, H2).behavior())
+                .extracting(RuntimeRunChangeDto::kind)
+                .doesNotContain("new-statement", "gone-statement");
+    }
+
+    @Test
     void aQueryAddedToARouteIsReportedWithItsFingerprintAndTheHigherCountAfterThreeRequests() {
         Run before = new Run();
         Run after = new Run();

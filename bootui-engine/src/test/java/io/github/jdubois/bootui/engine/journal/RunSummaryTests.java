@@ -22,6 +22,87 @@ class RunSummaryTests {
     private long sequence;
 
     @Test
+    void oldVersionNineSqlLiteralsAreSanitizedOnReadAndNeverWrittenAgain() {
+        // Produced by the pre-fix v9 writer with one POST and its MySQL double-quoted literal.
+        byte[] encoded = java.util.Base64.getDecoder()
+                .decode(
+                        "QlVSUwkKbGVnYWN5LXNxbALoB9APAQACAAAAEQRodHRwA3NxbAtQT1NUIC91c2VycyppbnNlcnQgaW50byB1c2VycyhwdykgdmFsdWVzKCJ6enNlY3JldHp6IikPUmVwb3NpdG9yeS5zYXZlBVJPVVRFBldSSVRFUwVUQUJMRQV1c2VycwZyb3V0ZXMKc3RhdGVtZW50cw9leGNlcHRpb25Hcm91cHMUdHJhbnNhY3Rpb25hbE1ldGhvZHMOdGhyZWFkRmFtaWxpZXMFZWRnZXMKZXhlY3V0aW9ucxZ1bmF0dHJpYnV0ZWRFeGVjdXRpb25zAgEBAgECAYCJegLAhD3pB+oHAQAAAAEDAQABAAAAAdAP0A8BfwEBAgEBAsCEPQEEAQAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQQBAAHoB+gHAW8BAQUBAAAAAQYDBwgJAegH6AcICgALAAwADQAOAA8AEAARAAEA");
+        RunSummary decoded = RunSummaryCodec.decode(encoded);
+
+        assertThat(decoded.aggregates().statements()).singleElement().satisfies(statement -> {
+            assertThat(statement.fingerprint()).isEqualTo("insert into users(pw) values(?)");
+            assertThat(statement.executions()).isEqualTo(1);
+        });
+        assertThat(decoded.aggregates().routes())
+                .singleElement()
+                .satisfies(route -> assertThat(route.statements())
+                        .containsExactlyEntriesOf(java.util.Map.of("insert into users(pw) values(?)", 1L)));
+        assertThat(new String(RunSummaryCodec.encode(decoded, RunHistory.MAX_SUMMARY_BYTES), StandardCharsets.UTF_8))
+                .doesNotContain("zzsecretzz");
+    }
+
+    @Test
+    void encodedSummariesMergeSafeStatementShapesAcrossRoutesExecutionsAndGlobalCounts() {
+        JournalAggregates aggregates = new JournalAggregates();
+        for (CorrelationContext context :
+                List.of(CorrelationContext.forRequest("r1"), CorrelationContext.forExecution("e1"))) {
+            for (String value : List.of("zzsecretzz", "secondSecret")) {
+                boolean failed = "secondSecret".equals(value);
+                publish(
+                        aggregates,
+                        RuntimeEvent.of(
+                                JournalSource.SQL,
+                                1000,
+                                1_000_000,
+                                context,
+                                "worker",
+                                null,
+                                failed,
+                                new SqlPayload(
+                                        "insert into users(pw) values(\"" + value + "\")",
+                                        failed ? "Repository.other" : "Repository.save",
+                                        "db",
+                                        failed)));
+            }
+            publish(
+                    aggregates,
+                    context.requestId() == null
+                            ? RuntimeEvent.of(
+                                    JournalSource.SCHEDULED,
+                                    1001,
+                                    2_000_000,
+                                    context,
+                                    "worker",
+                                    null,
+                                    false,
+                                    new ScheduledPayload("UserJob.run", null))
+                            : http("r1", "/users", 200, 2_000_000));
+        }
+        byte[] encoded = RunSummaryCodec.encode(
+                RunSummary.of(new RunIdentity("sql-shapes", 2, 1000), aggregates.snapshot(), 2000),
+                RunHistory.MAX_SUMMARY_BYTES);
+
+        assertThat(encoded[4]).isEqualTo((byte) 10);
+        assertThat(new String(encoded, StandardCharsets.UTF_8)).doesNotContain("zzsecretzz", "secondsecret");
+        RunSummary decoded = RunSummaryCodec.decode(encoded);
+        assertThat(decoded.aggregates().statements()).singleElement().satisfies(statement -> {
+            assertThat(statement.fingerprint()).isEqualTo("insert into users(pw) values(?)");
+            assertThat(statement.executions()).isEqualTo(4);
+            assertThat(statement.failures()).isEqualTo(2);
+            assertThat(statement.latency().count()).isEqualTo(4);
+            assertThat(statement.callSites())
+                    .containsEntry("Repository.save", 2L)
+                    .containsEntry("Repository.other", 2L);
+        });
+        assertThat(decoded.aggregates().routes().get(0).statements())
+                .containsExactlyEntriesOf(java.util.Map.of("insert into users(pw) values(?)", 2L));
+        assertThat(decoded.aggregates().executions().get(0).stats().statements())
+                .containsExactlyEntriesOf(java.util.Map.of("insert into users(pw) values(?)", 2L));
+        assertThat(RunSummaryCodec.encode(decoded, RunHistory.MAX_SUMMARY_BYTES))
+                .isEqualTo(encoded);
+    }
+
+    @Test
     void versionEightRouteResourcesRemainReadableWithoutInventingAnAllocationMedian() {
         // Produced by the unchanged v8 aggregates and codec, with one resource-measured GET /old.
         byte[] encoded = java.util.Base64.getDecoder()
@@ -45,7 +126,7 @@ class RunSummaryTests {
         byte[] encoded = RunSummaryCodec.encode(
                 RunSummary.of(new RunIdentity("old", 1, 1), new JournalAggregates().snapshot(), 2),
                 RunHistory.MAX_SUMMARY_BYTES);
-        // The empty v8 layout matches v9 up to its appended execution-capability flag and empty list.
+        // The empty v8 layout matches the newer formats up to their execution-capability flag and empty list.
         byte[] old = java.util.Arrays.copyOf(encoded, encoded.length - 2);
         old[4] = 8;
         RunSummary decoded = RunSummaryCodec.decode(old);

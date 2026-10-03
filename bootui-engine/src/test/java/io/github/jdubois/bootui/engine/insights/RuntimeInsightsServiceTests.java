@@ -42,11 +42,10 @@ class RuntimeInsightsServiceTests {
     private int requests;
 
     @Test
-    void aCheckWithNoEligibleWorkIsNeverReportedAsEvaluated() {
+    void anEmptySnapshotLeavesEveryCheckWithoutEligibleWork() {
         assertThat(service().report().checks()).isNotEmpty().allSatisfy(check -> {
-            if (check.eligibleRequests() == 0) {
-                assertThat(check.status()).isNotEqualTo("EVALUATED");
-            }
+            assertThat(check.eligibleRequests()).isZero();
+            assertThat(check.status()).isNotIn("EVALUATED", "PARTIAL");
         });
     }
 
@@ -275,11 +274,12 @@ class RuntimeInsightsServiceTests {
                         && !check.kind().equals(ProxyBypass.KIND)
                         && !check.kind().equals(WorkAfterResponse.KIND))
                 .allSatisfy(check -> {
-                    assertThat(check.status())
-                            .as(check.kind())
-                            .isEqualTo(check.eligibleRequests() == 0 ? "INSUFFICIENT" : "EVALUATED");
-                    if (check.eligibleRequests() == 0) {
+                    assertThat(check.status()).as(check.kind()).isIn("INSUFFICIENT", "EVALUATED");
+                    if ("INSUFFICIENT".equals(check.status())) {
+                        assertThat(check.eligibleRequests()).isZero();
                         assertThat(check.reason()).contains("No eligible work");
+                    } else if (!HeapGrowthAfterGc.KIND.equals(check.kind())) {
+                        assertThat(check.eligibleRequests()).isPositive();
                     }
                 });
         assertThat(report.checks())
