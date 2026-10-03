@@ -684,6 +684,15 @@ Spring and Quarkus.
 | `bootui.runtime-journal.baseline-file` | Unset                                    | File that keeps the last run's summary across a full JVM restart, such as `target/bootui-baseline.bin` or `build/bootui-baseline.bin`. Written atomically when a run ends, and read back at the next start as the previous run when the JVM keeps none; a file from another BootUI version or application is ignored and the reason logged. Relative to the working directory; its directory must exist, as it is never created. Unset writes and reads nothing. |
 | `bootui.runtime-insights.ai-token-threshold` | `8000`                                | Tokens of one model call above which Runtime Insights' AI usage by route reports the route from that call alone, rather than from three AI operations. Must be positive. |
 
+Recording a source is not enough to see it: each source belongs to the panel that publishes it, and disabling that panel
+leaves its events out of Live Activity, request profiles, Runtime Insights, and the MCP tools and CLI commands over them,
+with the panel named as the reason. `http` belongs to HTTP Exchanges, `sql` and `connection` to SQL Trace, `transaction`
+to Transactions, `exception` to Exceptions, `security` and `authorization` to Security Logs, `rest-client` to REST Client
+Trace, `cache` to Cache, `messaging` to its broker's panel (Kafka, RabbitMQ, or JMS, so disabling one broker leaves the
+others), `scheduled` to Scheduled Tasks, `log` to Log Tail, `mail` to Email, `fault-tolerance` to Fault Tolerance, `ai`
+to AI, `websocket` to WebSockets, `orm` to Hibernate, and `agent.executors` to Java Agent. `lifecycle`, `gc`,
+`resources`, and `app-event` belong to no panel and are always recorded when the journal is on.
+
 ### Resource correlation
 
 While the runtime journal records the `resources` source, one BootUI daemon thread sweeps the JVM once per interval

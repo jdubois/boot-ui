@@ -93,6 +93,7 @@ public final class RouteTimeBreakdown implements Observation {
                 JournalSource.REST_CLIENT,
                 JournalSource.AUTHORIZATION,
                 JournalSource.AI,
+                JournalSource.ORM,
                 JournalSource.MESSAGING);
     }
 
