@@ -14,6 +14,9 @@ import org.mockito.MockMakers;
 import org.springframework.boot.actuate.web.mappings.MappingsEndpoint;
 import org.springframework.boot.actuate.web.mappings.MappingsEndpoint.ApplicationMappingsDescriptor;
 import org.springframework.boot.actuate.web.mappings.MappingsEndpoint.ContextMappingsDescriptor;
+import org.springframework.boot.webflux.actuate.web.mappings.DispatcherHandlerMappingDescription;
+import org.springframework.boot.webflux.actuate.web.mappings.DispatcherHandlerMappingDetails;
+import org.springframework.boot.webflux.actuate.web.mappings.HandlerFunctionDescription;
 import org.springframework.boot.webmvc.actuate.web.mappings.DispatcherServletMappingDescription;
 import org.springframework.boot.webmvc.actuate.web.mappings.DispatcherServletMappingDetails;
 import org.springframework.boot.webmvc.actuate.web.mappings.RequestMappingConditionsDescription;
@@ -115,6 +118,48 @@ class SpringMappingProviderTests {
                 .containsExactly(
                         Tuple.tuple("GET", "/api/things", "application/cbor, application/json", "!text/plain"),
                         Tuple.tuple("POST", "/api/things", "application/cbor, application/json", "!text/plain"));
+    }
+
+    @Test
+    void readsSpringWebFluxRoutesFromTheirDispatcherHandlers() {
+        org.springframework.boot.webflux.actuate.web.mappings.RequestMappingConditionsDescription conditions =
+                mock(org.springframework.boot.webflux.actuate.web.mappings.RequestMappingConditionsDescription.class);
+        when(conditions.getPatterns()).thenReturn(Set.of("/api/gateway/routes"));
+        when(conditions.getMethods()).thenReturn(Set.of(RequestMethod.GET));
+        DispatcherHandlerMappingDetails annotatedDetails = mock(DispatcherHandlerMappingDetails.class);
+        when(annotatedDetails.getRequestMappingConditions()).thenReturn(conditions);
+        DispatcherHandlerMappingDescription annotated =
+                reactive("{GET [/api/gateway/routes]}", "com.example.GatewayResource#activeRoutes()", annotatedDetails);
+        DispatcherHandlerMappingDetails functionalDetails = mock(DispatcherHandlerMappingDetails.class);
+        when(functionalDetails.getHandlerFunction()).thenReturn(mock(HandlerFunctionDescription.class));
+        DispatcherHandlerMappingDescription functional =
+                reactive("(POST && /api/items/{id})", "com.example.ItemRoutes$$Lambda/0x1", functionalDetails);
+        DispatcherHandlerMappingDescription bootUi = reactive(
+                "{GET [/bootui/api/beans]}", "io.github.jdubois.bootui.autoconfigure.web.BeansController#beans", null);
+        ContextMappingsDescriptor context =
+                mock(ContextMappingsDescriptor.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(context.getMappings())
+                .thenReturn(Map.of("dispatcherHandlers", Map.of("webHandler", List.of(annotated, functional, bootUi))));
+        ApplicationMappingsDescriptor descriptor =
+                mock(ApplicationMappingsDescriptor.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(descriptor.getContexts()).thenReturn(Map.of("application", context));
+        MappingsEndpoint endpoint = mock(MappingsEndpoint.class);
+        when(endpoint.mappings()).thenReturn(descriptor);
+
+        assertThat(new SpringMappingProvider(() -> endpoint, selfDataFilter).mappings())
+                .extracting(MappingDto::method, MappingDto::pattern, MappingDto::handler)
+                .containsExactly(
+                        Tuple.tuple("GET", "/api/gateway/routes", "com.example.GatewayResource#activeRoutes()"),
+                        Tuple.tuple("POST", "/api/items/{id}", "com.example.ItemRoutes$$Lambda/0x1"));
+    }
+
+    private static DispatcherHandlerMappingDescription reactive(
+            String predicate, String handler, DispatcherHandlerMappingDetails details) {
+        DispatcherHandlerMappingDescription description = mock(DispatcherHandlerMappingDescription.class);
+        when(description.getPredicate()).thenReturn(predicate);
+        when(description.getHandler()).thenReturn(handler);
+        when(description.getDetails()).thenReturn(details);
+        return description;
     }
 
     // --- helpers -----------------------------------------------------------------------------------
