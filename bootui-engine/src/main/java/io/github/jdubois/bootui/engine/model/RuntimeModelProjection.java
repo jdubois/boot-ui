@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.model;
 
+import io.github.jdubois.bootui.engine.journal.AiCallOwners;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
@@ -10,11 +11,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.LongSupplier;
+import java.util.function.Predicate;
 
 /**
  * Projects the journal's retained events and a run's structure into its {@link RuntimeModel} ({@code docs/PLAN-v2.md}
  * §5.4). Executions are the routes, GraphQL operations, scheduled jobs, and listeners that own work by request or
- * execution id, or, for AI spans exported after their request, by trace id. An event owned by no execution adds no
+ * execution id, or, for AI spans exported after their request, by trace id and time through {@link AiCallOwners}. An event owned by no execution adds no
  * edge: a statement on an executor without context never joins a route by time. {@link ObservedEdges} names the edges
  * each event adds, as the journal's aggregates do for the whole run.
  *
@@ -43,6 +45,21 @@ public final class RuntimeModelProjection {
             long evicted,
             LongSupplier clock,
             long budgetNanos) {
+        return project(entries, routes, structure, evicted, clock, budgetNanos, traceId -> false);
+    }
+
+    /**
+     * Projects {@code entries} with the run's {@code structure}, where {@code evictedRequestTraces} names the traces of
+     * requests the journal evicted, whose AI calls linked only by trace may be theirs and so belong to no retained one.
+     */
+    public static RuntimeModel project(
+            List<JournalEntry> entries,
+            RouteTemplateResolver routes,
+            StructureSnapshot structure,
+            long evicted,
+            LongSupplier clock,
+            long budgetNanos,
+            Predicate<String> evictedRequestTraces) {
         long started = clock.getAsLong();
         RuntimeModelBuilder builder = new RuntimeModelBuilder();
         List<String> limitations = new ArrayList<>();
@@ -51,7 +68,7 @@ public final class RuntimeModelProjection {
         List<JournalEntry> ordered = new ArrayList<>(entries);
         ordered.sort(Comparator.comparingLong(JournalEntry::sequence));
         Map<String, Integer> byOwner = new HashMap<>();
-        Map<String, Integer> byTrace = new HashMap<>();
+        AiCallOwners aiCallOwners = new AiCallOwners(evictedRequestTraces);
         RouteTemplateResolver resolver = routes == null ? RouteTemplateResolver.empty() : routes;
         int read = 0;
         boolean overBudget = false;
@@ -71,9 +88,7 @@ public final class RuntimeModelProjection {
             int node = builder.node(execution.type(), execution.key());
             builder.execution(node);
             byOwner.put(ObservedEdges.executionKey(event, execution), node);
-            if (execution.request() && event.traceId() != null) {
-                byTrace.put(event.traceId(), node);
-            }
+            aiCallOwners.learn(event);
         }
         int owned = 0;
         int projected = 0;
@@ -84,7 +99,7 @@ public final class RuntimeModelProjection {
             }
             projected++;
             RuntimeEvent event = ordered.get(i).event();
-            Integer owner = owner(event, byOwner, byTrace);
+            Integer owner = owner(event, byOwner, aiCallOwners);
             if (owner == null) {
                 continue;
             }
@@ -106,12 +121,16 @@ public final class RuntimeModelProjection {
         return builder.build(structure == null ? null : structure.runId(), limitations);
     }
 
-    private static Integer owner(RuntimeEvent event, Map<String, Integer> byOwner, Map<String, Integer> byTrace) {
+    private static Integer owner(RuntimeEvent event, Map<String, Integer> byOwner, AiCallOwners aiCallOwners) {
         String key = ObservedEdges.ownerKey(event);
         if (key != null) {
             return byOwner.get(key);
         }
-        return ObservedEdges.ownedByTrace(event) ? byTrace.get(event.traceId()) : null;
+        if (!ObservedEdges.ownedByTrace(event)) {
+            return null;
+        }
+        String requestId = aiCallOwners.ownerOf(event);
+        return requestId == null ? null : byOwner.get("request:" + requestId);
     }
 
     private static void observe(RuntimeModelBuilder builder, int owner, RuntimeEvent event) {

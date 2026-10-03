@@ -98,7 +98,7 @@ public class OtlpReceiverController {
             int kept = 0;
             for (NormalizedSpan span : spans) {
                 boolean selfSpan = excludeSelf && selfClassifier.isBootUiSpan(span);
-                if (store.add(span, selfSpan)) {
+                if (store.addImported(span, selfSpan)) {
                     kept++;
                 }
             }

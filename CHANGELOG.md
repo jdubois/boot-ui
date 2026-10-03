@@ -400,6 +400,13 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **Late runtime-journal events keep their request attribution.** AI exports, managed-executor work, SQL, exceptions,
+  connection releases, authorization decisions, and ORM sessions that finish after the HTTP response now update the
+  completed request's route aggregates without counting the request twice. The completed-request attribution ledger is
+  bounded and reports expiry explicitly. GenAI spans imported through the OTLP receiver now reach the journal even
+  though the receiver runs as BootUI work, while BootUI's own traces stay excluded. Trace-only AI edges now use the
+  same unique request-window rule as Live Activity and request profiles, including events received before their HTTP
+  anchor and ambiguous traces shared by overlapping requests (PLAN-v2 M2-2, M3-3c, M3-9, M4-1).
 - **Java agent claim handoffs preserve request ownership.** Overlapping submissions of the same task across restarts
   stay unowned rather than taking a newer claim's snapshot. Immediate reclaim cancels queued executor/thread sensor
   removal or reinstalls the sensor after an in-flight reset, restoring thread subclasses even when the new claim

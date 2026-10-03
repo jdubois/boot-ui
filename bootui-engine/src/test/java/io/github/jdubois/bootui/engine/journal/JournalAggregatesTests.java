@@ -345,6 +345,147 @@ class JournalAggregatesTests {
                 .isZero();
     }
 
+    @Test
+    void exactlyOwnedLateChildrenStillFoldIntoTheirCompletedRoute() {
+        publish(http("r1", "/api/chat", 200, 1_000_000));
+        publish(event(
+                "r1",
+                JournalSource.AI,
+                5_000_000,
+                new AiPayload(AiPayload.CHAT, "openai", "gpt-4o", 11L, 22L, "stop", false)));
+        publish(sql("r1", "select * from messages where id = ?", 2_000_000, null, false));
+        publish(event(
+                "r1", JournalSource.EXCEPTION, -1, new ExceptionPayload("g1", "java.lang.IllegalStateException")));
+        publish(event(
+                "r1", JournalSource.EXCEPTION, -1, new ExceptionPayload("g1", "java.lang.IllegalStateException")));
+        publish(event("r1", JournalSource.CONNECTION, 9_000_000, new ConnectionPayload("main", 3_000_000, 1)));
+
+        AggregatesSnapshot snapshot = aggregates.snapshot();
+        RouteStats route = snapshot.routes().get(0);
+
+        assertThat(route.requests()).isEqualTo(1);
+        assertThat(route.childCounts())
+                .containsEntry(JournalSource.AI, 1L)
+                .containsEntry(JournalSource.SQL, 1L)
+                .containsEntry(JournalSource.EXCEPTION, 2L)
+                .containsEntry(JournalSource.CONNECTION, 1L);
+        assertThat(route.aiTokens()).isEqualTo(33);
+        assertThat(route.connectionWaitNanos()).isEqualTo(3_000_000);
+        assertThat(route.statements()).containsEntry("select * from messages where id = ?", 1L);
+        assertThat(snapshot.exceptionGroups())
+                .singleElement()
+                .satisfies(group -> assertThat(group.routes()).containsEntry("GET /api/chat", 1L));
+        assertThat(snapshot.run().openRequests()).isZero();
+    }
+
+    @Test
+    void lateOncePerRequestFactsReclassifyInsteadOfCountingTheRequestTwice() {
+        publish(http("r1", "/api/orders", 200, 1_000_000));
+        publish(event("r1", JournalSource.AUTHORIZATION, 1, decision("METHOD", "ANONYMOUS", true)));
+        publish(event("r1", JournalSource.AUTHORIZATION, 1, decision("REQUEST", "AUTHENTICATED", false)));
+        publish(event(
+                "r1",
+                JournalSource.ORM,
+                4_000_000,
+                new OrmPayload("main", 1, 1_000_000, 1, 1, 1, 2_000_000, 0, 0, 1, 3, 0, 0, 0)));
+        publish(event(
+                "r1",
+                JournalSource.ORM,
+                6_000_000,
+                new OrmPayload("main", 2, 2_000_000, 1, 1, 2, 3_000_000, 1, 1_000_000, 2, 5, 0, 0, 0)));
+
+        RouteStats route = aggregates.snapshot().routes().get(0);
+
+        assertThat(route.authorization()).isEqualTo(new JournalAggregates.RouteAuthorization(0, 1, 0, 0, 0, 1));
+        assertThat(route.orm().requests()).isEqualTo(1);
+        assertThat(route.orm().flushes()).isEqualTo(3);
+        assertThat(route.orm().autoFlushes()).isEqualTo(1);
+        assertThat(route.orm().entityRequests()).isEqualTo(1);
+        assertThat(route.orm().entities()).isEqualTo(5);
+        assertThat(route.orm().time().count()).isEqualTo(1);
+        assertThat(route.orm().time().totalMicros()).isEqualTo(9_000);
+    }
+
+    @Test
+    void completedRequestAttributionExpiryIsBoundedAndReported() {
+        for (int i = 0; i <= JournalAggregates.MAX_PENDING_REQUESTS; i++) {
+            publish(http("r" + i, "/api/items", 200, 1_000));
+        }
+        publish(sql("r0", "select 1", 1_000, null, false));
+
+        AggregatesSnapshot snapshot = aggregates.snapshot();
+
+        assertThat(snapshot.overflowed())
+                .containsEntry(JournalAggregates.COMPLETED_REQUEST_ATTRIBUTIONS, 1L)
+                .containsEntry(JournalAggregates.LATE_REQUEST_ATTRIBUTIONS, 1L);
+        assertThat(snapshot.run().openRequests()).isZero();
+        assertThat(snapshot.run().events()).containsEntry(JournalSource.SQL, 1L);
+        assertThat(snapshot.routes().get(0).childCounts()).doesNotContainKey(JournalSource.SQL);
+    }
+
+    @Test
+    void aTraceOnlyAiEdgeLeavingTheBoundedBufferSettlesUnderItsOwnerOrIsReportedExpired() {
+        publish(tracedHttp("r1", "trace-1", 1_000));
+        publish(traceOnlyAi("trace-1", 1_050));
+        for (int i = 0; i <= JournalAggregates.MAX_PENDING_REQUESTS; i++) {
+            publish(traceOnlyAi("unanchored-" + i, 2_000));
+        }
+
+        AggregatesSnapshot snapshot = aggregates.snapshot();
+
+        assertThat(snapshot.edges()).singleElement().satisfies(edge -> {
+            assertThat(edge.edge().fromKey()).isEqualTo("GET /api/chat");
+            assertThat(edge.edge().toKey()).isEqualTo("openai:gpt-4o");
+            assertThat(edge.count()).isEqualTo(1);
+        });
+        assertThat(snapshot.overflowed()).containsEntry(JournalAggregates.TRACE_AI_ATTRIBUTIONS, 1L);
+    }
+
+    @Test
+    void aTraceOnlyAiEdgeWhoseRequestAttributionExpiredIsReportedRatherThanReassigned() {
+        publish(tracedHttp("r0", "trace-1", 1_000));
+        for (int i = 1; i <= JournalAggregates.MAX_PENDING_REQUESTS; i++) {
+            publish(http("r" + i, "/api/items", 200, 1_000));
+        }
+        publish(tracedHttp("late", "trace-1", 1_000));
+        publish(traceOnlyAi("trace-1", 1_050));
+
+        AggregatesSnapshot snapshot = aggregates.snapshot();
+
+        assertThat(snapshot.edges()).isEmpty();
+        assertThat(snapshot.overflowed())
+                .containsEntry(JournalAggregates.COMPLETED_REQUEST_ATTRIBUTIONS, 2L)
+                .containsEntry(JournalAggregates.TRACE_AI_ATTRIBUTIONS, 1L);
+    }
+
+    private static RuntimeEvent tracedHttp(String requestId, String traceId, long epochMillis) {
+        return new RuntimeEvent(
+                JournalSource.HTTP,
+                epochMillis,
+                100_000_000,
+                requestId,
+                null,
+                traceId,
+                "t",
+                null,
+                false,
+                new HttpPayload("GET", "/api/chat", "/api/chat", null, 200, null));
+    }
+
+    private static RuntimeEvent traceOnlyAi(String traceId, long epochMillis) {
+        return new RuntimeEvent(
+                JournalSource.AI,
+                epochMillis,
+                1_000_000,
+                null,
+                null,
+                traceId,
+                null,
+                null,
+                false,
+                new AiPayload(AiPayload.CHAT, "openai", "gpt-4o", 1L, 1L, "stop", false));
+    }
+
     private static HttpPayload resourced(ResourceUsage usage) {
         return new HttpPayload("GET", "/api/orders", "/api/orders", null, 200, usage);
     }

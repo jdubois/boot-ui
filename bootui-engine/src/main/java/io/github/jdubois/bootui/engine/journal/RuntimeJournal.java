@@ -130,6 +130,21 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
     }
 
     /**
+     * Offers an imported application AI event whose span identity was classified before publication. The receiver's
+     * {@link CorrelationContext#BOOTUI} scope is deliberately ignored, but BootUI's own worker threads remain excluded.
+     */
+    @Override
+    public boolean offerImported(RuntimeEvent event) {
+        if (event == null
+                || event.source() != JournalSource.AI
+                || !settings.records(event.source())
+                || isBootUiThread()) {
+            return false;
+        }
+        return enqueue(event);
+    }
+
+    /**
      * Offers a {@code lifecycle} marker that BootUI publishes about its own action ({@link ControlMarkers}), which runs
      * in BootUI's own request and would otherwise be dropped as BootUI's work.
      */
@@ -161,8 +176,11 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
      * requests do, such as a panel's SQL, which the adapters mark with {@link CorrelationContext#BOOTUI}.
      */
     private boolean isBootUiWork() {
-        return Thread.currentThread().getName().startsWith(BOOTUI_THREAD_PREFIX)
-                || correlation.current().bootUi();
+        return isBootUiThread() || correlation.current().bootUi();
+    }
+
+    private static boolean isBootUiThread() {
+        return Thread.currentThread().getName().startsWith(BOOTUI_THREAD_PREFIX);
     }
 
     /**

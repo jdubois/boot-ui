@@ -10,7 +10,11 @@ import com.google.protobuf.ByteString;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.otlp.OtlpSpanDecoder;
 import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
+import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
+import io.github.jdubois.bootui.engine.journal.RuntimeEventSink;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
+import io.github.jdubois.bootui.spi.CorrelationContext;
 import io.opentelemetry.proto.collector.trace.v1.ExportTraceServiceRequest;
 import io.opentelemetry.proto.common.v1.AnyValue;
 import io.opentelemetry.proto.common.v1.InstrumentationScope;
@@ -20,6 +24,8 @@ import io.opentelemetry.proto.trace.v1.ResourceSpans;
 import io.opentelemetry.proto.trace.v1.ScopeSpans;
 import io.opentelemetry.proto.trace.v1.Span;
 import io.opentelemetry.proto.trace.v1.Status;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
@@ -46,6 +52,12 @@ class OtlpReceiverControllerTests {
 
     private static final String SELF_CHILD_SPAN_ID = "3333333333333333";
 
+    private static final String TRACE_ID_2 = "abababababababababababababababab";
+
+    private static final String SPAN_ID_2 = "4444444444444444";
+
+    private static final String SPAN_ID_3 = "5555555555555555";
+
     private BootUiProperties properties;
 
     private TelemetryStore store;
@@ -68,6 +80,10 @@ class OtlpReceiverControllerTests {
     }
 
     private static ExportTraceServiceRequest request(Span... spans) {
+        return request("sample", spans);
+    }
+
+    private static ExportTraceServiceRequest request(String serviceName, Span... spans) {
         ScopeSpans.Builder scope = ScopeSpans.newBuilder()
                 .setScope(InstrumentationScope.newBuilder()
                         .setName("io.micrometer.observation")
@@ -78,7 +94,7 @@ class OtlpReceiverControllerTests {
         return ExportTraceServiceRequest.newBuilder()
                 .addResourceSpans(ResourceSpans.newBuilder()
                         .setResource(Resource.newBuilder()
-                                .addAttributes(stringAttr("service.name", "sample"))
+                                .addAttributes(stringAttr("service.name", serviceName))
                                 .build())
                         .addScopeSpans(scope.build())
                         .build())
@@ -99,6 +115,13 @@ class OtlpReceiverControllerTests {
                         .build())
                 .addAttributes(stringAttr("gen_ai.operation.name", "chat"))
                 .addAttributes(stringAttr("gen_ai.system", "ollama"))
+                .build();
+    }
+
+    private static Span aiSpan(String traceId, String spanId) {
+        return hostSpan().toBuilder()
+                .setTraceId(bytes(traceId))
+                .setSpanId(bytes(spanId))
                 .build();
     }
 
@@ -160,6 +183,48 @@ class OtlpReceiverControllerTests {
 
         assertThat(store.retainedTraceCount()).isEqualTo(1);
         assertThat(store.allSpansSnapshot()).hasSize(1);
+    }
+
+    @Test
+    void importedApplicationAiSpansReachTheJournalFromTheReceiversBootUiScopeButSelfTracesDoNot() throws Exception {
+        List<RuntimeEvent> imported = new ArrayList<>();
+        List<RuntimeEvent> offered = new ArrayList<>();
+        store.setRuntimeEventSink(new RuntimeEventSink() {
+            @Override
+            public boolean offer(RuntimeEvent event) {
+                offered.add(event);
+                return true;
+            }
+
+            @Override
+            public boolean offerImported(RuntimeEvent event) {
+                imported.add(event);
+                return true;
+            }
+        });
+
+        // The adapters' correlation filters run the receiver in BootUI's own scope.
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.BOOTUI)) {
+            mvc.perform(post("/bootui/api/otlp/v1/traces")
+                            .contentType("application/x-protobuf")
+                            .content(request(hostSpan()).toByteArray()))
+                    .andExpect(status().isOk());
+            // A cooperating local process exports under its own service name.
+            mvc.perform(post("/bootui/api/otlp/v1/traces")
+                            .contentType("application/x-protobuf")
+                            .content(request("other-service", aiSpan(TRACE_ID_2, SPAN_ID_2))
+                                    .toByteArray()))
+                    .andExpect(status().isOk());
+            // BootUI's own request, then an AI call in its trace: the whole trace is BootUI's own.
+            mvc.perform(post("/bootui/api/otlp/v1/traces")
+                            .contentType("application/x-protobuf")
+                            .content(request(selfSpan(), aiSpan(TRACE_ID, SPAN_ID_3))
+                                    .toByteArray()))
+                    .andExpect(status().isOk());
+        }
+
+        assertThat(offered).isEmpty();
+        assertThat(imported).extracting(RuntimeEvent::traceId).containsExactly(HOST_TRACE_ID, TRACE_ID_2);
     }
 
     @Test

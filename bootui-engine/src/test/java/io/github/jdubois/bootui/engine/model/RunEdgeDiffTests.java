@@ -55,11 +55,12 @@ class RunEdgeDiffTests {
                 child(JournalSource.MESSAGING, new MessagingPayload("kafka", true, "orders.created", false, null)));
         journal.request("POST", "/graphql", "query Products", "trace-1");
         // Exported after its request, joined by trace id.
-        journal.event(
+        journal.eventAt(
                 JournalSource.AI,
                 null,
                 null,
                 "trace-1",
+                3_000,
                 new AiPayload("chat", "openai", "gpt-4o", 10L, 5L, "stop", false));
         // Children first, completed by the job's event.
         journal.job("ReportJob.run", child(JournalSource.SQL, sql("select count(*) from orders")));
@@ -84,15 +85,7 @@ class RunEdgeDiffTests {
                 RuntimeModelProjection.READ_BUDGET_NANOS);
 
         Map<EdgeRef, Long> counted = counts(aggregates.snapshot().edges());
-        Map<EdgeRef, Long> projected = new HashMap<>();
-        for (ModelEdge edge : model.edges()) {
-            if (edge.provenance() == Provenance.OBSERVED) {
-                ModelNode from = model.node(edge.from());
-                ModelNode to = model.node(edge.to());
-                projected.put(new EdgeRef(from.type(), from.key(), edge.type(), to.type(), to.key()), edge.count());
-            }
-        }
-        assertThat(counted).isEqualTo(projected).hasSize(12);
+        assertThat(counted).isEqualTo(observed(model)).hasSize(12);
         assertThat(counted)
                 .containsEntry(
                         new EdgeRef(
@@ -117,6 +110,71 @@ class RunEdgeDiffTests {
                     assertThat(edge.firstSeenEpochMillis()).isEqualTo(2_000);
                     assertThat(edge.lastSeenEpochMillis()).isEqualTo(3_000);
                 });
+    }
+
+    @Test
+    void traceOnlyAiEdgesUseTheUniqueRequestWindowEvenWhenTheTraceIsReused() {
+        JournalFixture journal = new JournalFixture();
+        journal.requestAt("GET", "/a", null, "shared", 1_000, 100_000_000);
+        journal.requestAt("GET", "/b", null, "shared", 2_000, 100_000_000);
+        journal.eventAt(
+                JournalSource.AI,
+                null,
+                null,
+                "shared",
+                1_050,
+                new AiPayload("chat", "openai", "gpt-4o", 1L, 1L, "stop", false));
+        JournalAggregates aggregates = new JournalAggregates();
+
+        aggregates.onEntries(journal.entries());
+        RuntimeModel model = RuntimeModelProjection.project(
+                journal.entries(),
+                RouteTemplateResolver.empty(),
+                null,
+                0,
+                System::nanoTime,
+                RuntimeModelProjection.READ_BUDGET_NANOS);
+
+        assertThat(observed(model)).isEqualTo(counts(aggregates.snapshot().edges()));
+        assertThat(counts(aggregates.snapshot().edges()))
+                .containsEntry(
+                        new EdgeRef(NodeType.ROUTE, "GET /a", EdgeType.CALLS, NodeType.AI_MODEL, "openai:gpt-4o"), 1L)
+                .doesNotContainKey(
+                        new EdgeRef(NodeType.ROUTE, "GET /b", EdgeType.CALLS, NodeType.AI_MODEL, "openai:gpt-4o"));
+    }
+
+    @Test
+    void aTraceOnlyAiEdgeCanArriveBeforeItsRequestAnchorButNeverChoosesOverlappingWindows() {
+        JournalFixture unique = new JournalFixture();
+        unique.eventAt(
+                JournalSource.AI,
+                null,
+                null,
+                "trace-1",
+                1_050,
+                new AiPayload("chat", "openai", "gpt-4o", 1L, 1L, "stop", false));
+        unique.requestAt("GET", "/a", null, "trace-1", 1_000, 100_000_000);
+        JournalAggregates uniqueAggregates = new JournalAggregates();
+        uniqueAggregates.onEntries(unique.entries());
+
+        assertThat(counts(uniqueAggregates.snapshot().edges()))
+                .containsEntry(
+                        new EdgeRef(NodeType.ROUTE, "GET /a", EdgeType.CALLS, NodeType.AI_MODEL, "openai:gpt-4o"), 1L);
+
+        JournalFixture overlapping = new JournalFixture();
+        overlapping.requestAt("GET", "/a", null, "trace-2", 1_000, 100_000_000);
+        overlapping.requestAt("GET", "/b", null, "trace-2", 1_040, 100_000_000);
+        overlapping.eventAt(
+                JournalSource.AI,
+                null,
+                null,
+                "trace-2",
+                1_050,
+                new AiPayload("chat", "openai", "gpt-4o", 1L, 1L, "stop", false));
+        JournalAggregates overlappingAggregates = new JournalAggregates();
+        overlappingAggregates.onEntries(overlapping.entries());
+
+        assertThat(overlappingAggregates.snapshot().edges()).isEmpty();
     }
 
     @Test
@@ -258,6 +316,18 @@ class RunEdgeDiffTests {
                         0,
                         null),
                 aggregates);
+    }
+
+    private static Map<EdgeRef, Long> observed(RuntimeModel model) {
+        Map<EdgeRef, Long> projected = new HashMap<>();
+        for (ModelEdge edge : model.edges()) {
+            if (edge.provenance() == Provenance.OBSERVED) {
+                ModelNode from = model.node(edge.from());
+                ModelNode to = model.node(edge.to());
+                projected.put(new EdgeRef(from.type(), from.key(), edge.type(), to.type(), to.key()), edge.count());
+            }
+        }
+        return projected;
     }
 
     private static Map<EdgeRef, Long> counts(List<ObservedEdge> edges) {

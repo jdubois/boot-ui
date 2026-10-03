@@ -146,6 +146,36 @@ class RuntimeJournalTests {
     }
 
     @Test
+    void aClassifiedImportedAiEventBypassesOnlyTheReceiversBootUiScope() {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        RuntimeEvent ai = new RuntimeEvent(
+                JournalSource.AI,
+                1,
+                1,
+                null,
+                null,
+                "trace-1",
+                null,
+                null,
+                false,
+                new AiPayload("chat", "openai", "gpt-4o", 1L, 1L, "stop", false));
+
+        try (BootUiCorrelation.Scope ignored = BootUiCorrelation.open(CorrelationContext.BOOTUI)) {
+            assertThat(journal.offer(ai)).isFalse();
+            assertThat(journal.offerImported(ai)).isTrue();
+            assertThat(journal.offerImported(sql(2, false)))
+                    .as("only imported AI is allowed")
+                    .isFalse();
+        }
+        journal.dispatchPending();
+
+        assertThat(journal.entries())
+                .singleElement()
+                .extracting(entry -> entry.event())
+                .isEqualTo(ai);
+    }
+
+    @Test
     void anEventOfferedOnItsOwnThreadGetsThatThreadsKindAndOthersKeepTheirs() {
         RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
         journal.setThreadKindClassifier(() -> ThreadKind.EVENT_LOOP);
