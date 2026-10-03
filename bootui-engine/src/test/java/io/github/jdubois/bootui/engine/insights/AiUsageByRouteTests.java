@@ -64,6 +64,9 @@ class AiUsageByRouteTests {
                     .first()
                     .satisfies(check -> assertThat(check).contains("agent or tool loop"));
             assertThat(observation.exemplarRequestIds()).first().isEqualTo("r1");
+            assertThat(observation.limitations())
+                    .contains("5 operations of 5 came from GenAI spans, linked to their request by trace id and time;"
+                            + " such an operation outside a traced request is not counted.");
         });
         assertThat(report.coverage())
                 .filteredOn(coverage -> coverage.source().equals("ai"))
@@ -76,6 +79,36 @@ class AiUsageByRouteTests {
         assertThat(report.coverage())
                 .extracting(RuntimeInsightCoverageDto::source)
                 .contains("http");
+    }
+
+    @Test
+    void operationsTheAiFrameworkStampedWithTheirRequestAreLinkedByRequestIdWithoutATraceLimitation() {
+        for (int i = 0; i < 3; i++) {
+            String requestId = "r" + (++requests);
+            CorrelationContext context = CorrelationContext.forRequest(requestId);
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.AI, 1_010, 40 * MS, context, "http-1", null, false, chat(100L, 10L, "stop", 0)));
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.HTTP,
+                    1_000,
+                    200 * MS,
+                    context,
+                    "http-1",
+                    null,
+                    false,
+                    new HttpPayload("GET", "/api/assistant", "/api/assistant", null, 200)));
+            drain();
+        }
+
+        RuntimeObservationDto usage = new RuntimeInsightsService(journal, null, null, null, null)
+                .report().observations().stream()
+                        .filter(observation -> observation.kind().equals(AiUsageByRoute.KIND))
+                        .findFirst()
+                        .orElseThrow();
+
+        assertThat(usage.status()).isEqualTo("OBSERVED");
+        assertThat(usage.minimumTier()).isEqualTo("REQUEST_ID");
+        assertThat(usage.limitations()).noneMatch(limitation -> limitation.contains("trace id"));
     }
 
     @Test

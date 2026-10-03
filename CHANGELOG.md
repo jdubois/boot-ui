@@ -372,6 +372,22 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
 
 ### Fixed
 
+- **`work-after-response` no longer reports a task its handler waited for.** The handler resumes as soon as the task
+  sets its result, before the agent closes the task's handoff, so under load that handoff could end just after the
+  response. Now only SQL, REST, and message work that ended at least two milliseconds after the response started is
+  counted, which absorbs the millisecond precision of recorded event starts. A task's failure still counts by its own
+  end ([#1218](https://github.com/jdubois/boot-ui/pull/1218)).
+
+- **Runtime Insights times AI calls once and reports what it could not count.** `route-time-breakdown` no longer
+  subtracts an AI call's time from the handler when its model HTTP call was already counted as REST client or SQL time:
+  calls reported by Spring AI or Quarkus LangChain4j carry their monotonic completion and are placed on the request's
+  clock as **AI calls**, and tool and retrieval operations, which wrap application code, stay in the handler.
+  `transaction-across-remote-call` no longer shows methods whose remote calls are fast as **Needs more traffic**.
+  `lazy-sql-after-handler` counts requests whose response-phase SQL cannot be placed against their transactions apart,
+  with a limitation and a check reason, instead of dropping them, and `split-transaction-writes` names its uncounted
+  requests in its check reason too. `ai-usage-by-route` reports the tier its calls were actually linked by, and
+  mentions trace-id linking only for calls recovered from GenAI spans.
+
 - **Spring WebFlux requests report their GraphQL operation and authentication time again.** The reactive correlation
   filter never began a request's phase markers, so the shared GraphQL operation and Spring Security authentication
   observation handlers had nothing to record into on WebFlux: Live Activity and Runtime Insights showed every GraphQL
@@ -382,6 +398,7 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   the authentication time out of the request's unattributed time: a WebFlux route is insufficient only when neither a
   recorded call nor authentication time names any of its time
   ([#1214](https://github.com/jdubois/boot-ui/pull/1214)).
+
 - **Runtime Insights no longer reports what it could not see.** From the 2.0 validation run
   ([report](docs/V2-VALIDATION-REPORT.md)): `route-time-breakdown` stops calling time "application code" when a request
   reached no handler BootUI marks, such as an Actuator or `/q/` endpoint or a request the security filters answered with

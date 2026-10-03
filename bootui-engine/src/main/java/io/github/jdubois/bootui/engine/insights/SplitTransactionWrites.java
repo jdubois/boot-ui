@@ -53,6 +53,7 @@ public final class SplitTransactionWrites implements Observation {
     public Evaluation evaluate(InsightsSnapshot snapshot) {
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;
+        long uncounted = 0;
         for (Map.Entry<String, List<ProjectedRequest>> route :
                 snapshot.byRoute().entrySet()) {
             long routeEligible = 0;
@@ -90,11 +91,19 @@ public final class SplitTransactionWrites implements Observation {
                 }
             }
             eligible += routeEligible;
+            uncounted += unplaced;
             if (!rows.isEmpty()) {
                 findings.add(finding(route.getKey(), rows, routeEligible, unplaced, snapshot));
             }
         }
-        return new Evaluation(eligible, findings);
+        return new Evaluation(
+                eligible,
+                findings,
+                uncounted == 0
+                        ? null
+                        : InsightText.counted(uncounted, "request") + " wrote with a transaction or statement that had"
+                                + " no monotonic time, so " + (uncounted == 1 ? "its writes are" : "their writes are")
+                                + " not placed or counted.");
     }
 
     static boolean committedWrite(RuntimeEvent event) {

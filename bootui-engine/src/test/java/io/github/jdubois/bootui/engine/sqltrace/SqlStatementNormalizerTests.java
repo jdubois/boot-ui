@@ -105,6 +105,19 @@ class SqlStatementNormalizerTests {
     }
 
     @Test
+    void masksUnterminatedQuotedValuesFromTruncatedCapture() {
+        assertThat(SqlStatementNormalizer.normalize("select * from t where name = \"Ada Lovelace")
+                        .sql())
+                .isEqualTo("select * from t where name = ?");
+        assertThat(SqlStatementNormalizer.normalize("select * from t where note = $$sëcrét")
+                        .sql())
+                .isEqualTo("select * from t where note = ?");
+        assertThat(SqlStatementNormalizer.normalize("select * from t where note = $body$sëcrét")
+                        .sql())
+                .isEqualTo("select * from t where note = ?");
+    }
+
+    @Test
     void handlesDoubledQuoteEscapesWithoutSplittingTheLiteral() {
         SqlStatementNormalizer.Result result =
                 SqlStatementNormalizer.normalize("select * from t where name = 'it''s' and id = 1");
@@ -133,10 +146,16 @@ class SqlStatementNormalizerTests {
     }
 
     @Test
-    void leavesAnUnterminatedDollarRunAloneRatherThanSwallowingTheStatement() {
+    void leavesDollarSignsInsideIdentifiersAndBindParametersAlone() {
         SqlStatementNormalizer.Result result = SqlStatementNormalizer.normalize("select a$b$c from t where id = 5");
 
         assertThat(result.sql()).isEqualTo("select a$b$c from t where id = ?");
+        assertThat(SqlStatementNormalizer.normalize("select * from t where id = $12")
+                        .sql())
+                .isEqualTo("select * from t where id = $12");
+        assertThat(SqlStatementNormalizer.normalize("select a\u0301$body$column from orders where id = 1")
+                        .sql())
+                .isEqualTo("select a\u0301$body$column from orders where id = ?");
     }
 
     @Test
