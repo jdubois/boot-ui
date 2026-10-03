@@ -1578,7 +1578,8 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
 `bootui.panels.runtime-insights.read-only` or `bootui.read-only` blocks.
 
 - `GET /bootui/api/runtime-insights` returns the window, per-source correlation coverage, every check with its status
-  (`EVALUATED`, `PARTIAL`, or `NOT_APPLICABLE` with its reason), the observations, and limitations. The projection is
+  (`EVALUATED`, `PARTIAL`, `NOT_APPLICABLE` with its reason, or `UNAVAILABLE` with its reason when it reads SQL that
+  this application's stack does not record, such as R2DBC), the observations, and limitations. The projection is
   cached until the journal records more or a panel's enablement changes.
 - `GET /bootui/api/runtime-insights/insights/{id}` returns one observation's evidence: at most 20 rows and the count left
   out. Ids are `kind:hash`, stable across refreshes and restarts.

@@ -1711,10 +1711,14 @@ public abstract class AbstractBootUiApiConformanceTest {
         for (int attempt = 0; attempt < 30 && breakdown == null; attempt++) {
             JsonNode report = probe.get(api("/runtime-insights")).json();
             for (JsonNode observation : report.path("observations")) {
-                // The probe's route is labelled by its template where a stack resolves one, so any observed
-                // breakdown will do: the probe guarantees at least one route has five warm requests.
+                // The probe's route is labelled by its template where a stack resolves one, so any breakdown over
+                // five warm requests will do: the probe guarantees at least one route has them. Its time is split
+                // into phases, or, when its requests reached no handler BootUI marks (an unmapped path on Quarkus)
+                // or made no recorded call on a stack that marks no phases (WebFlux), it says so as insufficient.
                 if ("route-time-breakdown".equals(observation.path("kind").asText())
-                        && "OBSERVED".equals(observation.path("status").asText())) {
+                        && observation.path("eligible").asLong() >= 5
+                        && ("OBSERVED".equals(observation.path("status").asText())
+                                || explainsUnsplitTime(observation))) {
                     breakdown = observation;
                 }
             }
@@ -1723,7 +1727,7 @@ public abstract class AbstractBootUiApiConformanceTest {
             }
         }
         assertThat(breakdown)
-                .as("a route with five warm requests shows where its time went")
+                .as("a route with five warm requests shows where its time went, or why it cannot")
                 .isNotNull();
         String id = breakdown.path("id").asText();
         assertThat(id).matches("route-time-breakdown:[0-9a-f]{10}");
@@ -1756,6 +1760,13 @@ public abstract class AbstractBootUiApiConformanceTest {
                     .doesNotContain("/bootui")
                     .doesNotContain("*");
         }
+    }
+
+    /** Whether an insufficient breakdown says why its route's time is not split into phases. */
+    private static boolean explainsUnsplitTime(JsonNode observation) {
+        String sentence = observation.path("sentence").asText();
+        return "INSUFFICIENT".equals(observation.path("status").asText())
+                && (sentence.contains("not split into phases") || sentence.contains("marks no phases"));
     }
 
     private static boolean bootstrapAgentBridgeAbsent() {

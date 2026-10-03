@@ -170,6 +170,28 @@ describe('Runtime Insights panel', () => {
     expect(wrapper.text()).toContain('1 of 2 checks ran and found nothing')
   })
 
+  it('never counts a check that could not see its evidence as one that ran', async () => {
+    const unavailable = {
+      kind: 'safe-method-dml',
+      title: 'Writes from safe methods',
+      status: 'UNAVAILABLE',
+      eligibleRequests: 0,
+      findings: 0,
+      reason: "This application's database access is not recorded: it uses R2DBC."
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse({...report, observations: [], checks: [...report.checks, unavailable]}))
+    )
+    wrapper = mountPanel()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('1 of 3 checks ran and found nothing')
+    const unrun = wrapper.find('.insight-unrun')
+    expect(unrun.text()).toContain('Writes from safe methods · Unavailable')
+    expect(unrun.text()).toContain('it uses R2DBC')
+  })
+
   it('states a disabled journal and an empty run', async () => {
     vi.stubGlobal(
       'fetch',

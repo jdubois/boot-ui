@@ -104,7 +104,8 @@ class ExecutionProjectionTests {
                             JournalSource.AI,
                             40 * MS,
                             new AiPayload("chat", "openai", "gpt-4o", 10L, 5L, "stop", false)),
-                    new Child(JournalSource.MESSAGING, 10 * MS, new MessagingPayload("kafka", true, "orders", false)),
+                    new Child(
+                            JournalSource.MESSAGING, 10 * MS, new MessagingPayload("rabbitmq", true, "orders", false)),
                     new Child(JournalSource.MESSAGING, 30 * MS, new MessagingPayload("kafka", false, "orders", false)));
         }
 

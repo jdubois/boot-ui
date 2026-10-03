@@ -45,7 +45,8 @@ public final class McpToolDescriptions {
                             + "query is empty, new, security, diff, latency, an observation kind, or a route, table, "
                             + "bean, or class; past the limit, every kind is listed once before any kind twice. "
                             + "requests and notExercised say what the run's traffic reached. INSUFFICIENT, PARTIAL, "
-                            + "and NOT_APPLICABLE are not successes, and an empty list never means healthy."),
+                            + "NOT_APPLICABLE, and UNAVAILABLE are not successes, and an empty list never means "
+                            + "healthy."),
             Map.entry(
                     "get_runtime_insight",
                     "Return one Runtime Insights observation by its id from get_runtime_insights, with every check "

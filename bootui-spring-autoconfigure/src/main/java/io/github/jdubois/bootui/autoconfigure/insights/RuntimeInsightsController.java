@@ -82,6 +82,7 @@ public class RuntimeInsightsController {
                 RunHistory.shared()::summaries,
                 properties.getRuntimeInsights().getAiTokenThreshold());
         this.insights.setPoolSizes(new DataSourcePoolSizes(context));
+        this.insights.setSqlCapture(new SpringSqlCapture(context));
         this.insights.setProxyBoundaries(new SpringProxyBoundaries(context));
         if (journalAggregates != null) {
             this.insights.setDeclaredRoutes(DeclaredRouteTemplates.declared(mappings), journalAggregates::routeLabels);
