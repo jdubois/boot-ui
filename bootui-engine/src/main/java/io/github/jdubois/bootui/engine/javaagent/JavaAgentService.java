@@ -104,8 +104,8 @@ public final class JavaAgentService {
                 AgentBridgeAccess.number(agent, "startupMicros"),
                 claimDto(bridgeClaim),
                 resolution.heldBy(),
-                sensors(agent, status),
-                retransformation(AgentBridgeAccess.map(agent, "installer")),
+                sensors(agent, status, claimedSensors(resolution)),
+                retransformation(agent),
                 counters(AgentBridgeAccess.map(status, "counters")),
                 strings(AgentBridgeAccess.items(status, "messages")),
                 warnings,
@@ -153,10 +153,18 @@ public final class JavaAgentService {
                 }
                 return PROPAGATION_REQUIREMENT + ": " + reason;
             }
+            AgentClaim ours = claim.get();
+            if (ours != null && !ours.sensors().executors()) {
+                return PROPAGATION_REQUIREMENT
+                        + ": this application's claim does not use it; bootui.agent.sensors must include executors.";
+            }
             Map<String, Object> sensor = executorsSensor(AgentBridgeAccess.map(status, "agent"));
             if (sensor == null) {
                 return PROPAGATION_REQUIREMENT
                         + ": the agent did not start it; bootui.agent.sensors must include executors.";
+            }
+            if (Boolean.FALSE.equals(sensor.get("active"))) {
+                return PROPAGATION_REQUIREMENT + ": the agent reports it inactive for this application's claim.";
             }
             String state = AgentBridgeAccess.text(sensor, "state");
             if (!INSTALLED.equals(state)) {
@@ -166,7 +174,6 @@ public final class JavaAgentService {
             if (disabled != null) {
                 return PROPAGATION_REQUIREMENT + ": the agent disabled executor propagation: " + disabled;
             }
-            AgentClaim ours = claim.get();
             if (ours == null || ours.handoffs() == null) {
                 return PROPAGATION_REQUIREMENT + ": BootUI has not attached its executor handoffs to this application's"
                         + " claim yet.";
@@ -290,8 +297,21 @@ public final class JavaAgentService {
                 AgentBridgeAccess.flag(claim, "abandoned"));
     }
 
-    /** Each sensor the agent reports, with the bridge's counters for it, which the bridge keeps under the sensor's id. */
-    private static List<JavaAgentSensorDto> sensors(Map<String, Object> agent, Map<String, Object> status) {
+    /** The sensors this application's armed claim uses, or none when it is not armed. */
+    private List<String> claimedSensors(Resolution resolution) {
+        AgentClaim ours = claim.get();
+        if (ours == null || !JavaAgentReport.ARMED.equals(resolution.state())) {
+            return List.of();
+        }
+        return ours.sensors().sensors();
+    }
+
+    /**
+     * Each sensor the agent reports, with the bridge's counters for it, which the bridge keeps under the sensor's id.
+     * A sensor is active only when this application's armed claim lists it and the agent does not report it inactive.
+     */
+    private static List<JavaAgentSensorDto> sensors(
+            Map<String, Object> agent, Map<String, Object> status, List<String> claimed) {
         List<JavaAgentSensorDto> sensors = new ArrayList<>();
         for (Object item : AgentBridgeAccess.items(agent, "sensors")) {
             if (item instanceof Map<?, ?> raw) {
@@ -302,19 +322,24 @@ public final class JavaAgentService {
                 }
                 String id = AgentBridgeAccess.text(sensor, "id");
                 Map<String, Object> counters = id == null ? Map.of() : AgentBridgeAccess.map(status, id);
-                Long duration = AgentBridgeAccess.number(sensor, "durationMillis");
                 sensors.add(new JavaAgentSensorDto(
                         id,
                         AgentBridgeAccess.text(sensor, "state"),
+                        id != null && claimed.contains(id) && !Boolean.FALSE.equals(sensor.get("active")),
                         types == null ? 0 : types.intValue(),
                         strings(AgentBridgeAccess.items(sensor, "failures")),
-                        duration == null || duration < 0 ? null : duration,
+                        millis(sensor, "durationMillis"),
+                        millis(sensor, "installMillis"),
+                        millis(sensor, "selfTestMillis"),
+                        longValue(sensor, "retransformMillis"),
                         AgentBridgeAccess.flag(sensor, "selfTestPassed"),
                         AgentBridgeAccess.text(sensor, "selfTestError"),
                         texts(AgentBridgeAccess.map(sensor, "selfTestSteps")),
                         hooks(sensor, counters),
                         count(sensor, "failed"),
                         count(sensor, "skipped"),
+                        count(sensor, "transformed"),
+                        count(sensor, "retransformed"),
                         counters.isEmpty() ? null : executorCounters(counters)));
             }
         }
@@ -377,18 +402,47 @@ public final class JavaAgentService {
         return VERIFIED_JDKS.contains(feature);
     }
 
-    private static JavaAgentRetransformationDto retransformation(Map<String, Object> installer) {
-        if (installer.isEmpty()) {
+    /**
+     * The production sensors' cumulative transformation cost, summed across them, or {@code null} when the agent
+     * reports no sensor. Never the agent's test-only diagnostic installer.
+     */
+    private static JavaAgentRetransformationDto retransformation(Map<String, Object> agent) {
+        int transformed = 0;
+        int retransformed = 0;
+        int failed = 0;
+        int skipped = 0;
+        long millis = 0;
+        boolean running = false;
+        boolean failure = false;
+        boolean any = false;
+        for (Object item : AgentBridgeAccess.items(agent, "sensors")) {
+            if (item instanceof Map<?, ?> raw) {
+                Map<String, Object> sensor = AgentBridgeAccess.map(Map.of("sensor", raw), "sensor");
+                any = true;
+                transformed = saturated(transformed, count(sensor, "transformed"));
+                retransformed = saturated(retransformed, count(sensor, "retransformed"));
+                failed = saturated(failed, count(sensor, "failed"));
+                skipped = saturated(skipped, count(sensor, "skipped"));
+                millis += longValue(sensor, "retransformMillis");
+                String state = AgentBridgeAccess.text(sensor, "state");
+                running |= "installing".equals(state);
+                failure |= "failed".equals(state);
+            }
+        }
+        if (!any) {
             return null;
         }
-        return new JavaAgentRetransformationDto(
-                AgentBridgeAccess.text(installer, "state"),
-                count(installer, "transformed"),
-                count(installer, "retransformed"),
-                count(installer, "failed"),
-                count(installer, "skipped"),
-                longValue(installer, "durationMillis"),
-                AgentBridgeAccess.flag(installer, "running"));
+        String state = running ? "installing" : failure ? "failed" : INSTALLED;
+        return new JavaAgentRetransformationDto(state, transformed, retransformed, failed, skipped, millis, running);
+    }
+
+    private static int saturated(int total, int value) {
+        return (int) Math.min(Integer.MAX_VALUE, (long) total + value);
+    }
+
+    private static Long millis(Map<String, Object> map, String key) {
+        Long value = AgentBridgeAccess.number(map, key);
+        return value == null || value < 0 ? null : value;
     }
 
     private static JavaAgentCountersDto counters(Map<String, Object> counters) {

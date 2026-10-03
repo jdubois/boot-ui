@@ -33,7 +33,11 @@ test.describe('Java Agent view', () => {
       expect(sensor).toBeTruthy()
       expect(sensor.state).toBe('installed')
       expect(sensor.selfTestPassed).toBe(true)
+      expect(sensor.active).toBe(true)
+      expect(sensor.installMillis).toEqual(expect.any(Number))
+      expect(sensor.selfTestMillis).toEqual(expect.any(Number))
       expect(sensor.failures ?? []).toEqual([])
+      expect(report.retransformation.state).toBe('installed')
     } else {
       expect(report.state).toBe('NOT_ATTACHED')
       expect(report.sensors ?? []).toEqual([])
@@ -49,6 +53,8 @@ test.describe('Java Agent view', () => {
       await expect(executorsRow).toHaveCount(1)
       await expect(executorsRow).toContainText(/installed/)
       await expect(executorsRow).toContainText('passed')
+      await expect(executorsRow.getByRole('cell', {name: 'active', exact: true})).toHaveCount(1)
+      await expect(page.getByRole('heading', {name: 'Class transformation'})).toBeVisible()
       await expect(sensors.getByText('No sensor installed')).toHaveCount(0)
     } else {
       await expect(page.getByRole('heading', {name: 'Not attached'})).toBeVisible()

@@ -112,6 +112,6 @@ class ExecutorBehaviorsIT {
                         .isIn("passed", "unsupported");
             }
         }
-        assertThat(count).as("every hook reported").isEqualTo(10);
+        assertThat(count).as("every hook reported").isEqualTo(12);
     }
 }
