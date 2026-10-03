@@ -80,8 +80,7 @@ public final class LazySqlAfterHandler implements Observation {
 
     @Override
     public Evaluation evaluate(InsightsSnapshot snapshot) {
-        boolean transactions =
-                snapshot.records(JournalSource.TRANSACTION) && snapshot.visible(JournalSource.TRANSACTION);
+        boolean transactions = snapshot.available(JournalSource.TRANSACTION);
         List<Finding> findings = new ArrayList<>();
         long eligible = 0;
         for (Map.Entry<String, List<ProjectedRequest>> route :

@@ -118,10 +118,18 @@ public final class RequestJournalProfiles {
         List<JournalEntry> children = new ArrayList<>();
         List<JournalEntry> aiCalls = new ArrayList<>();
         Map<String, JournalEntry> collections = new HashMap<>();
+        Set<String> executionHandoffs = new LinkedHashSet<>();
         AiCallOwners aiCallOwners = new AiCallOwners(journal::evictedARequestOf);
         for (JournalEntry entry : all) {
             RuntimeEvent event = entry.event();
             aiCallOwners.learn(event);
+            if (event.requestId() == null
+                    && event.payload() instanceof AsyncHandoffPayload handoff
+                    && requestId.equals(handoff.parentExecutionId())
+                    && visible(event)) {
+                executionHandoffs.add(event.executionId());
+                children.add(entry);
+            }
             if (event.payload() instanceof GcPayload gc) {
                 collections.put(gc.collector() + '#' + gc.gcId(), entry);
             } else if (requestId.equals(event.requestId())) {
@@ -130,8 +138,24 @@ public final class RequestJournalProfiles {
                 } else if (visible(event)) {
                     children.add(entry);
                 }
+            } else if (event.requestId() == null && requestId.equals(event.executionId())) {
+                if (event.payload() instanceof ScheduledPayload
+                        || event.payload() instanceof MessagingPayload message && !message.sent()) {
+                    request = entry;
+                } else if (visible(event)) {
+                    children.add(entry);
+                }
             } else if (AiCallOwners.linksByTrace(event) && visible(event)) {
                 aiCalls.add(entry);
+            }
+        }
+        for (JournalEntry entry : all) {
+            RuntimeEvent event = entry.event();
+            if (event.requestId() == null
+                    && executionHandoffs.contains(event.executionId())
+                    && !(event.payload() instanceof AsyncHandoffPayload)
+                    && visible(event)) {
+                children.add(entry);
             }
         }
         // An AI call carries only its span's trace id, so it joins the request with that trace id whose time span
@@ -141,14 +165,14 @@ public final class RequestJournalProfiles {
                 children.add(call);
             }
         }
-        if (request == null) {
+        if (request == null || !(request.event().payload() instanceof HttpPayload) && !visible(request.event())) {
             return RequestJournalProfileDto.unavailable(
                     requestId,
-                    "The runtime journal does not retain request " + requestId
-                            + ": it was evicted, it has not completed, or it is not an HTTP request of this run.");
+                    "The runtime journal does not retain a visible completed request or execution " + requestId
+                            + " (it may have been evicted or its source panel is disabled).");
         }
         RuntimeEvent http = request.event();
-        HttpPayload payload = (HttpPayload) http.payload();
+        HttpPayload payload = http.payload() instanceof HttpPayload found ? found : null;
         long start = http.epochMillis();
         long endMillis = start + Math.max(0, http.durationNanos()) / 1_000_000L;
         long maxHandoff = maxHandoffMillis;
@@ -178,10 +202,13 @@ public final class RequestJournalProfiles {
                 it.remove();
             }
         }
-        RouteLabel label = RouteLabel.of(
-                payload.method(), payload.path(), payload.routeTemplate(), payload.operation(), resolver());
+        RouteLabel label = payload == null
+                ? null
+                : RouteLabel.of(
+                        payload.method(), payload.path(), payload.routeTemplate(), payload.operation(), resolver());
         List<String> notes = new ArrayList<>();
-        List<RequestHandoffDto> handoffs = handoffs(children, start, Math.max(0, http.durationNanos()));
+        List<RequestHandoffDto> handoffs =
+                handoffs(children, start, Math.max(0, http.durationNanos()), payload != null);
 
         List<JournalEntry> rendered = new ArrayList<>(children);
         rendered.add(request);
@@ -215,8 +242,10 @@ public final class RequestJournalProfiles {
         timed.sort(
                 Comparator.comparingLong((Timed t) -> t.item().offsetMillis()).thenComparingLong(Timed::sequence));
 
-        ResourceUsage usage = payload.resources();
-        if (usage == null) {
+        ResourceUsage usage = payload == null ? null : payload.resources();
+        if (payload == null) {
+            notes.add("CPU, allocation, and GC pauses are not measured for this execution.");
+        } else if (usage == null) {
             notes.add("CPU time, memory, and GC pauses are not measured: the runtime journal does not record the"
                     + " resources source (bootui.runtime-journal.sources).");
         } else if (usage.gcPauseRangesTruncated()) {
@@ -235,14 +264,14 @@ public final class RequestJournalProfiles {
                 true,
                 null,
                 requestId,
-                label.id(),
+                label == null ? executionLabel(http) : label.id(),
                 start,
                 Math.max(0, http.durationNanos()) / 1_000,
-                payload.status(),
+                payload == null ? null : payload.status(),
                 resources(usage),
                 timed.stream().map(Timed::item).toList(),
                 gcPauses(usage, collections, start),
-                routeComparison(label.id(), Math.max(0, http.durationNanos()) / 1_000),
+                label == null ? null : routeComparison(label.id(), Math.max(0, http.durationNanos()) / 1_000),
                 touched(children, text),
                 notes,
                 orm(children),
@@ -250,12 +279,20 @@ public final class RequestJournalProfiles {
                 late == 0 ? null : late);
     }
 
+    private static String executionLabel(RuntimeEvent event) {
+        if (event.payload() instanceof ScheduledPayload scheduled) {
+            return "Scheduled: " + (scheduled.task() == null ? "task" : scheduled.task());
+        }
+        MessagingPayload message = (MessagingPayload) event.payload();
+        return "Message: " + (message.destination() == null ? "consumer" : message.destination());
+    }
+
     /**
      * The request's handoffs (M5-2), each with what was recorded under its execution id, from children already limited
      * to the handoff window.
      */
     private static List<RequestHandoffDto> handoffs(
-            List<JournalEntry> children, long requestStart, long requestDurationNanos) {
+            List<JournalEntry> children, long requestStart, long requestDurationNanos, boolean httpRequest) {
         Map<String, int[]> work = new HashMap<>();
         List<RuntimeEvent> handoffEvents = new ArrayList<>();
         for (JournalEntry child : children) {
@@ -280,7 +317,10 @@ public final class RequestJournalProfiles {
             long durationNanos = Math.max(0, event.durationNanos());
             boolean afterResponse;
             Long afterResponseMicros;
-            if (handoff.afterResponse() != null) {
+            if (!httpRequest) {
+                afterResponse = false;
+                afterResponseMicros = null;
+            } else if (handoff.afterResponse() != null) {
                 afterResponse = handoff.afterResponse();
                 afterResponseMicros = handoff.afterResponseMicros();
             } else {

@@ -277,8 +277,10 @@ Opening Live Activity with `?request=<exchange id>`, as each HTTP Exchanges row'
 request's profile directly.
 
 Each correlated exception carries its `exceptionGroupId`, the id of its group in the
-[Exceptions panel](diagnostics.md#exceptions). Agents reach the same profile through the `get_request_profile` MCP tool
-and the `bootui request-profile <id>` command, which return this DTO unchanged; see
+[Exceptions panel](diagnostics.md#exceptions). Agents use `get_request_profile` or `bootui request-profile <id>`:
+these return the retained journal profile first (`source: "journal"`), with the HTTP-exchange profile
+(`source: "buffers"`) as fallback, rather than returning this REST DTO unchanged. Scheduled runs and consumed messages
+can also be opened by execution id when retained; see
 [Investigate one request](../AI-AGENTS.md#investigate-one-request).
 
 #### Copy profile and Copy for AI

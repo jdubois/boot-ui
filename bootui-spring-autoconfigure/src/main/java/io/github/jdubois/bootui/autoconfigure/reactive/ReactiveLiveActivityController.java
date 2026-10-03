@@ -24,6 +24,7 @@ import io.github.jdubois.bootui.core.dto.HttpExchangesReport;
 import io.github.jdubois.bootui.core.dto.LiveActivityReport;
 import io.github.jdubois.bootui.core.dto.RequestJournalProfileDto;
 import io.github.jdubois.bootui.core.dto.RequestProfileDto;
+import io.github.jdubois.bootui.core.dto.RequestProfileSelectionDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceEntryDto;
 import io.github.jdubois.bootui.core.dto.RestClientTraceReport;
 import io.github.jdubois.bootui.core.dto.RuntimeJournalClearRequest;
@@ -57,6 +58,7 @@ import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalRowDetails;
 import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
 import io.github.jdubois.bootui.engine.journal.RequestJournalProfiles;
+import io.github.jdubois.bootui.engine.journal.RequestProfileSelection;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalService;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
@@ -527,6 +529,10 @@ public class ReactiveLiveActivityController implements InitializingBean {
                                 exposure)
                         .profile(id)
                 : profiles.profile(id);
+    }
+
+    public RequestProfileSelectionDto agentProfile(String id) {
+        return RequestProfileSelection.select(id, this::requestJournal, this::request);
     }
 
     @GetMapping("/request/{id}")

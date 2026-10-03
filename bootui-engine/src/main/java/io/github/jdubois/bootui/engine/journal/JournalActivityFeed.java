@@ -560,7 +560,7 @@ public final class JournalActivityFeed {
                     null,
                     null,
                     null,
-                    false,
+                    opensExecution(event),
                     parentId,
                     false);
         }
@@ -619,7 +619,7 @@ public final class JournalActivityFeed {
                     null,
                     null,
                     null,
-                    false,
+                    !message.sent() && event.requestId() == null && event.executionId() != null,
                     parentId,
                     false);
         }
