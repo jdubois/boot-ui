@@ -2781,6 +2781,8 @@ public class BootUiProperties {
         /**
          * The agent sensors this application asks for. {@code executors} propagates a request's context through the
          * JDK's executors, so work handed to a raw thread pool or {@code CompletableFuture} is owned by its request.
+         * {@code threads}, opt-in, also propagates it into threads started from application code and into virtual
+         * threads.
          */
         private List<String> sensors = new ArrayList<>(AgentSensorSettings.DEFAULT_SENSORS);
 

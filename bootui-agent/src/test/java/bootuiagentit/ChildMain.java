@@ -38,6 +38,7 @@ public final class ChildMain {
             case "claim-only" -> claimOnly();
             case "mockito" -> mockito();
             case "behaviors" -> Behaviors.main(new String[] {"agent"});
+            case "thread-behaviors" -> ThreadBehaviors.main(new String[0]);
             case "runs" -> runs(Integer.parseInt(args[1]), args[2]);
             default -> throw new IllegalArgumentException(args[0]);
         }

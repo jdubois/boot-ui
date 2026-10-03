@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.agent;
 
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
 import io.github.jdubois.bootui.agent.bridge.TaskPropagation;
+import io.github.jdubois.bootui.agent.bridge.ThreadPropagation;
 import java.lang.instrument.Instrumentation;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -29,6 +30,7 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
     private final long startupMicros;
     private AgentInstaller installer;
     private ExecutorSensor executors;
+    private ThreadSensor threads;
     private long generation;
     private boolean armed;
     private List<String> packages = Collections.emptyList();
@@ -68,10 +70,16 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 if (strings(request.get("sensors")).contains(TaskPropagation.SENSOR)) {
                     executors().claimed(generation);
                 }
+                if (strings(request.get("sensors")).contains(ThreadPropagation.SENSOR)) {
+                    threads().claimed(generation, packages);
+                }
                 return answer("ok", null);
             case "refine":
                 if (requested == generation) {
                     packages = strings(request.get("packages"));
+                    if (threads != null) {
+                        threads.refined(packages);
+                    }
                 }
                 return answer("ok", null);
             case "disarm":
@@ -91,12 +99,22 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 if (executors != null) {
                     executors.release();
                 }
+                if (threads != null) {
+                    threads.release();
+                }
                 return answer("ok", null);
             case "status":
                 return status();
             default:
                 return answer(AgentBridge.FAILED, "unknown operation " + op);
         }
+    }
+
+    private ThreadSensor threads() {
+        if (threads == null) {
+            threads = new ThreadSensor(instrumentation, hook.privilegedInstall());
+        }
+        return threads;
     }
 
     private ExecutorSensor executors() {
@@ -126,6 +144,9 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
         List<Object> sensors = new ArrayList<Object>();
         if (executors != null) {
             sensors.add(executors.status());
+        }
+        if (threads != null) {
+            sensors.add(threads.status());
         }
         map.put("sensors", sensors);
         map.put("installer", installer == null ? null : installer.status());

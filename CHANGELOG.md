@@ -25,6 +25,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   of opening an empty nested execution, and exception groups ignore the agent bridge's frames
   ([Java Agent](docs/features/java-agent.md#the-executors-sensor), PLAN-v2 M5-2).
 
+- **Thread propagation with the BootUI agent (opt-in).** `bootui.agent.sensors=executors,threads` adds the agent's
+  `threads` sensor, which carries a request into the platform and virtual threads application code starts, including
+  those of a virtual-thread-per-task executor and structured subtasks, keeping inherited scoped values visible. Threads a
+  library or framework starts inside a request and pool workers are never propagated, and the Java Agent panel counts
+  both
+  ([Java Agent](docs/features/java-agent.md#the-threads-sensor), PLAN-v2 M5-2c).
+
 - **Free BootUI memory.** Live Memory, JVM Tuning, Heap Dump, and the Memory advisor share a header action, with an
   expandable explanation, that empties BootUI's in-memory capture buffers (runtime journal, Live Activity, HTTP
   exchanges, traces, SQL, REST client, transaction, messaging, WebSocket, cache, scheduler, fault-tolerance, exception,

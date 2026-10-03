@@ -294,6 +294,44 @@ class JavaAgentServiceTests {
     }
 
     @Test
+    void eachSensorRowCarriesTheCountersTheBridgeKeepsUnderItsOwnId() {
+        Bridges.StubAgent stub = Bridges.StubAgent.install();
+        Map<String, Object> executors = new LinkedHashMap<>();
+        executors.put("id", "executors");
+        executors.put("state", "installed");
+        executors.put("hooks", List.of());
+        Map<String, Object> threads = new LinkedHashMap<>();
+        threads.put("id", AgentSensorSettings.THREADS);
+        threads.put("state", "installed");
+        threads.put(
+                "hooks",
+                List.of(Map.of(
+                        "id", "Thread.start",
+                        "kind", "key",
+                        "type", "java.lang.Thread",
+                        "present", true,
+                        "transformed", true,
+                        "selfTest", "passed")));
+        stub.sensors = List.of(executors, threads);
+        claim.set(AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example")));
+        JavaAgentService service = service(Bridges.access(), settings("spring", true, null));
+
+        JavaAgentReport report = service.report();
+
+        assertThat(report.sensors()).hasSize(2);
+        assertThat(report.sensors().get(0).executors().libraryThreadsSkipped())
+                .as("the executors sensor has no thread counters")
+                .isNull();
+        assertThat(report.sensors().get(1)).satisfies(row -> {
+            assertThat(row.id()).isEqualTo("threads");
+            assertThat(row.hooks()).extracting(JavaAgentHookDto::id).containsExactly("Thread.start");
+            assertThat(row.executors()).isNotNull();
+            assertThat(row.executors().libraryThreadsSkipped()).isZero();
+            assertThat(row.executors().poolWorkersSkipped()).isZero();
+        });
+    }
+
+    @Test
     void propagationNeedsAnArmedClaimTheInstalledExecutorsSensorNoDisabledReasonAndAttachedHandoffs() {
         JavaAgentService absent = service(AgentBridgeAccess.absent(), settings("spring", true, null));
         assertThat(absent.propagating()).isFalse();

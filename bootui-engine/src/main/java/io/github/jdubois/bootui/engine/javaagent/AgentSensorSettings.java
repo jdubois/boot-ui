@@ -6,14 +6,15 @@ import java.util.List;
 
 /**
  * What this application asks the BootUI agent's sensors to do ({@code docs/PLAN-v2.md} M5-2): which sensors to install
- * ({@code bootui.agent.sensors}), and for the {@code executors} sensor, which tasks and worker threads to leave alone
+ * ({@code bootui.agent.sensors}), and for the {@code executors} and {@code threads} sensors, which tasks and threads to
+ * leave alone
  * because they already propagate their context ({@code bootui.agent.executors.skip-tasks},
  * {@code bootui.agent.executors.skip-threads}), and how long a handoff's work is attributed to its request
  * ({@code bootui.agent.executors.max-handoff}).
  *
- * @param sensors the sensors to install, such as {@code executors}
- * @param skipTasks task class-name prefixes the executors sensor never propagates
- * @param skipThreads worker thread-name prefixes the executors sensor never propagates to
+ * @param sensors the sensors to install: {@code executors}, and the opt-in {@code threads}
+ * @param skipTasks task class-name prefixes the propagation sensors never propagate
+ * @param skipThreads thread-name prefixes the propagation sensors never propagate to
  * @param maxHandoff how long a handoff's work is attributed to its request
  */
 public record AgentSensorSettings(
@@ -21,6 +22,12 @@ public record AgentSensorSettings(
 
     /** The executors sensor. */
     public static final String EXECUTORS = "executors";
+
+    /**
+     * The sensor carrying a request into threads started from its work and into virtual threads (M5-2c). Not in the
+     * defaults: {@code java.lang.Thread} is the riskiest class to retransform, so an application asks for it.
+     */
+    public static final String THREADS = "threads";
 
     /** The default {@code bootui.agent.sensors}. */
     public static final List<String> DEFAULT_SENSORS = List.of(EXECUTORS);

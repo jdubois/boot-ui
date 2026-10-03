@@ -80,12 +80,12 @@ class ExecutorBehaviorsIT {
                         .count())
                 .as(output.toString())
                 .isGreaterThanOrEqualTo(Runtime.version().feature() >= 21 ? 33 : 31);
-        String status = output.value("STATUS");
-        assertThat(status)
-                .as(output.toString())
-                .contains("errors=0")
-                .contains("stale=0")
-                .contains("refused=0");
+        String fullStatus = output.value("STATUS");
+        assertThat(fullStatus).as(output.toString()).contains("errors=0");
+        // The executors sensor's counters only: the threads sensor reports its own.
+        String status =
+                fullStatus.substring(fullStatus.indexOf("executors={keyed"), fullStatus.indexOf("threads={keyed"));
+        assertThat(status).as(output.toString()).contains("stale=0").contains("refused=0");
         assertThat(status)
                 .as("owners sharing a task were told apart: %s", status)
                 .doesNotContain("ambiguous=0,");

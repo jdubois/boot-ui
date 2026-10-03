@@ -93,10 +93,42 @@ const EXECUTOR_COUNTERS = [
   ['failures', 'Failed tasks', 'propagated tasks that ended with an exception']
 ]
 
+// The threads sensor's counters (docs/PLAN-v2.md M5-2c), each with what it counts.
+const THREAD_COUNTERS = [
+  ['pending', 'Pending', 'threads started from owned work that have not run yet'],
+  ['neverApplied', 'Never applied', 'started threads that never reached an instrumented run point'],
+  ['ambiguous', 'Ambiguous', 'threads started more than once by different owners, left unowned'],
+  ['stale', 'Stale', 'threads started under an earlier claim, never reopened after a restart'],
+  ['refused', 'Refused', 'snapshots the bridge refused because they held more than strings and numbers'],
+  [
+    'libraryThreadsSkipped',
+    'Library threads skipped',
+    'threads a library or framework started inside owned work, such as a client’s I/O thread'
+  ],
+  [
+    'poolWorkersSkipped',
+    'Pool workers skipped',
+    'pool worker threads, which never inherit the request they started under'
+  ],
+  [
+    'skippedTasks',
+    'Wrappers skipped',
+    'threads whose task already carries its context (bootui.agent.executors.skip-tasks)'
+  ],
+  ['skippedThreads', 'Threads skipped', 'threads named in bootui.agent.executors.skip-threads'],
+  ['failures', 'Failed threads', 'propagated threads that ended with an exception']
+]
+
 const sensorsWithHooks = computed(() => (report.value?.sensors ?? []).filter((sensor) => sensor.hooks?.length))
 
-function executorCounters(counters) {
-  return EXECUTOR_COUNTERS.map(([key, label, explanation]) => ({key, label, explanation, value: counters?.[key] ?? 0}))
+function sensorCounters(sensor) {
+  const definitions = sensor.id === 'threads' ? THREAD_COUNTERS : EXECUTOR_COUNTERS
+  return definitions.map(([key, label, explanation]) => ({
+    key,
+    label,
+    explanation,
+    value: sensor.executors?.[key] ?? 0
+  }))
 }
 
 function sensorState(sensor) {
@@ -104,6 +136,11 @@ function sensorState(sensor) {
     return `installed in ${formatMillis(sensor.durationMillis)} ms`
   }
   return sensor.state
+}
+
+function hookRole(sensor, hook) {
+  if (sensor.id === 'threads') return hook.kind === 'apply' ? 'runs threads' : 'starts threads'
+  return hook.kind === 'apply' ? 'runs tasks' : 'receives tasks'
 }
 
 function hookInstalled(hook) {
@@ -416,7 +453,7 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
                       <td>
                         <code :title="hook.type">{{ hook.id }}</code>
                       </td>
-                      <td>{{ hook.kind === 'apply' ? 'runs tasks' : 'receives tasks' }}</td>
+                      <td>{{ hookRole(sensor, hook) }}</td>
                       <td>{{ hookInstalled(hook) }}</td>
                       <td>{{ hook.selfTest }}</td>
                       <td class="text-end">{{ formatNumber(hook.fired) }}</td>
@@ -430,7 +467,7 @@ function badgeClass(flag, positiveLabel = 'Armed', negativeLabel = 'Disarmed') {
                 </p>
                 <h4 class="h6 small text-muted mt-4 mb-2">Counters</h4>
                 <dl class="row small mb-0 java-agent-counters">
-                  <template v-for="counter in executorCounters(sensor.executors)" :key="counter.key">
+                  <template v-for="counter in sensorCounters(sensor)" :key="counter.key">
                     <dt class="col-sm-4 col-lg-3">
                       {{ counter.label }} <span class="fw-normal">{{ formatNumber(counter.value) }}</span>
                     </dt>
