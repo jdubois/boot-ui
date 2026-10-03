@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.autoconfigure.activity;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiEngineConfiguration;
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.exceptions.ExceptionsController;
 import io.github.jdubois.bootui.autoconfigure.mail.EmailController;
 import io.github.jdubois.bootui.autoconfigure.restclienttrace.RestClientTraceController;
@@ -11,6 +12,7 @@ import io.github.jdubois.bootui.autoconfigure.web.HealthController;
 import io.github.jdubois.bootui.autoconfigure.web.HttpExchangesController;
 import io.github.jdubois.bootui.autoconfigure.web.SecurityLogsController;
 import io.github.jdubois.bootui.autoconfigure.web.TracesController;
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.ActivityPageInfo;
 import io.github.jdubois.bootui.core.dto.ActivityPersistenceOptionDto;
 import io.github.jdubois.bootui.core.dto.ActivitySwitchRequest;
@@ -40,6 +42,7 @@ import io.github.jdubois.bootui.engine.journal.JournalActivityCapture;
 import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalActivityReports;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
+import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
 import io.github.jdubois.bootui.engine.journal.RequestJournalProfiles;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalService;
@@ -50,6 +53,7 @@ import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.engine.web.ReservedActivityEntries;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -122,6 +126,19 @@ public class LiveActivityController implements InitializingBean {
     private volatile Supplier<RouteTemplateResolver> captureRoutes;
     private volatile ActivityPersistenceSettings deferredCapture;
     private volatile RequestJournalProfiles requestJournalProfiles;
+    private volatile ExposurePolicy exposure;
+    /** Reads the live exposure policy on every call, so the journal projections built once follow a live change. */
+    private final ExposurePolicy liveExposure = new ExposurePolicy() {
+        @Override
+        public ValueExposure valueExposure() {
+            return exposure.valueExposure();
+        }
+
+        @Override
+        public boolean maskSecrets() {
+            return exposure.maskSecrets();
+        }
+    };
 
     public LiveActivityController(
             ObjectProvider<HttpExchangesController> httpExchanges,
@@ -180,6 +197,7 @@ public class LiveActivityController implements InitializingBean {
         this.changeStream = new BootUiChangeStream("activity");
         this.selfPath = properties.getPath();
         this.properties = properties;
+        this.exposure = new BootUiExposure(properties);
         this.feedSource = properties.getActivity().feedSource();
         this.journalReports = journalReports(null, null);
         SqlTraceRecorder recorder = sqlTraceRecorder.getIfAvailable();
@@ -353,7 +371,10 @@ public class LiveActivityController implements InitializingBean {
         ActivityPage page = activityStore.query(query);
         return new LiveActivityReport(
                 live.available(),
-                page.entryDtos(),
+                // Stored rows were written under MASKED (or raw, by an older build); the live policy applies on read.
+                page.entryDtos().stream()
+                        .map(JournalTextExposure.of(liveExposure)::reapply)
+                        .toList(),
                 live.typeCounts(),
                 live.kpis(),
                 live.sources(),
@@ -363,6 +384,17 @@ public class LiveActivityController implements InitializingBean {
     }
 
     private volatile RuntimeJournalService runtimeJournal = new RuntimeJournalService(null, null);
+
+    /**
+     * Installs the live exposure policy journal-rendered SQL, log text, and paths are shown under ({@code PLAN-v2} §8).
+     * Without it they follow the bound {@code bootui.expose-values} and {@code bootui.mask-secrets}.
+     */
+    @Autowired(required = false)
+    public void setExposure(BootUiExposure exposure) {
+        if (exposure != null) {
+            this.exposure = exposure;
+        }
+    }
 
     /** Installs the Java Agent service, which says whether the request profile's {@code PROPAGATED} tier applies. */
     @Autowired(required = false)
@@ -387,7 +419,8 @@ public class LiveActivityController implements InitializingBean {
                         aggregates,
                         properties.getActivity().getRequestSlowThresholdMs(),
                         properties.getActivity().getNPlusOneThreshold(),
-                        properties::isPanelEnabled)
+                        properties::isPanelEnabled,
+                        liveExposure)
                 .maxHandoff(properties.getAgent().getExecutors().getMaxHandoff());
         if (journal != null) {
             // Ticks the stream for every source the journal records, transactions and log events included.
@@ -401,7 +434,8 @@ public class LiveActivityController implements InitializingBean {
                 properties.getActivity().getRequestSlowThresholdMs(),
                 properties.getActivity().getNPlusOneThreshold(),
                 aggregates == null ? null : aggregates.declaredRoutes(),
-                properties::isPanelEnabled);
+                properties::isPanelEnabled,
+                liveExposure);
     }
 
     /**
@@ -491,7 +525,8 @@ public class LiveActivityController implements InitializingBean {
                                 null,
                                 properties.getActivity().getRequestSlowThresholdMs(),
                                 properties.getActivity().getNPlusOneThreshold(),
-                                properties::isPanelEnabled)
+                                properties::isPanelEnabled,
+                                liveExposure)
                         .profile(id)
                 : profiles.profile(id);
     }

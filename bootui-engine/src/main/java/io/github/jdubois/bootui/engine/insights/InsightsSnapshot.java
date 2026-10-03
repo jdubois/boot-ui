@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalStatus;
+import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
 import io.github.jdubois.bootui.engine.journal.LifecyclePayload;
 import io.github.jdubois.bootui.engine.journal.MessagingPayload;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
@@ -46,6 +47,7 @@ public final class InsightsSnapshot {
     private final InsightsStack stack;
     private final RunSummary previousRun;
     private final Function<String, Integer> poolSizes;
+    private JournalTextExposure exposure = JournalTextExposure.masked();
 
     private InsightsSnapshot(
             List<ProjectedRequest> requests,
@@ -376,5 +378,19 @@ public final class InsightsSnapshot {
      */
     public Map<JournalSource, long[]> coverage() {
         return Collections.unmodifiableMap(coverage);
+    }
+
+    /**
+     * Sets the exposure rule the projection quotes recorded text under ({@code PLAN-v2} §8), before any observation reads
+     * this snapshot. The snapshot is confined to the projection that built it.
+     */
+    InsightsSnapshot withExposure(JournalTextExposure exposure) {
+        this.exposure = exposure == null ? JournalTextExposure.masked() : exposure;
+        return this;
+    }
+
+    /** The exposure rule recorded text is quoted under: log messages and request paths. */
+    public JournalTextExposure exposure() {
+        return exposure;
     }
 }

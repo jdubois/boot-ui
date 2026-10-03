@@ -446,6 +446,17 @@ The panel inherits BootUI's full safety model — loopback filter, Host allow-li
 masking. Its reads are read-only, and its two state-changing actions, **Use the existing datasource** and **Clear
 recording**, are confirmation-gated and blocked whenever the app or panel is read-only.
 
+The text the feed renders from the runtime journal follows the live `bootui.expose-values` / `bootui.mask-secrets`
+policy at every read, in the panel, `get_live_activity`, `bootui live-activity`, request journal profiles, and the KPI
+strip, so a change of mode applies to the next read. Under the default `MASKED`, SQL statements are shown as their
+literal-free shape (`where name = ?`), with double-quoted runs and an unterminated dollar quote of a truncated statement
+replaced too, and log messages and `;name=value` path parameters are masked as in the
+[Logs panel](diagnostics.md#log-message-exposure). `FULL`, or `MASKED` with `bootui.mask-secrets=false`, shows them as
+recorded. `METADATA_ONLY` keeps the SQL shape and omits log messages. [Durable history](#durable-history) is always
+written at least as masked as `MASKED`, even while the live mode is `FULL`, and each stored row is masked again under
+the live mode when it is read: never shown less masked than `MASKED`, and with its summary and detail omitted under
+`METADATA_ONLY`.
+
 The stream is capped by `bootui.activity.max-entries`. The slow-request threshold,
 `bootui.activity.request-slow-threshold-ms` (1,000 ms by default, `0` to disable), applies on Spring MVC, Spring
 WebFlux, and Quarkus alike: it sets the `SLOW` severity of request and scheduled-task entries, and decides which HTTP
@@ -594,7 +605,9 @@ the feed stays visible underneath. The viewport adapts to the graph's content, u
 **Runtime Insights** answers what this run did that no single panel shows. It reads the
 [runtime journal](#runtime-journal) and projects its retained events into observations: each one names what was counted
 on a route, never a cause, a severity, or a score. Opening the panel starts no capture, scan, database read, or network
-call; it only re-reads what the journal already recorded, and caches the result until the journal records more.
+call; it only re-reads what the journal already recorded, and caches the result until the journal records more or the
+live exposure policy changes. Sentences and evidence that quote recorded text, such as a framework warning's message or
+a request path, follow the same rule as [Live Activity](#safety-and-limits).
 
 Twenty-two observations run over the completed requests and garbage collections the journal retains:
 

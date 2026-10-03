@@ -55,6 +55,7 @@ import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalActivityReports;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalRowDetails;
+import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
 import io.github.jdubois.bootui.engine.journal.RequestJournalProfiles;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalService;
@@ -373,7 +374,10 @@ public class ReactiveLiveActivityController implements InitializingBean {
         ActivityPage page = activityStore.query(query);
         return new LiveActivityReport(
                 live.available(),
-                page.entryDtos(),
+                // Stored rows were written under MASKED (or raw, by an older build); the live policy applies on read.
+                page.entryDtos().stream()
+                        .map(JournalTextExposure.of(exposure)::reapply)
+                        .toList(),
                 live.typeCounts(),
                 live.kpis(),
                 live.sources(),
@@ -412,7 +416,8 @@ public class ReactiveLiveActivityController implements InitializingBean {
                         aggregates,
                         properties.getActivity().getRequestSlowThresholdMs(),
                         properties.getActivity().getNPlusOneThreshold(),
-                        properties::isPanelEnabled)
+                        properties::isPanelEnabled,
+                        exposure)
                 .maxHandoff(properties.getAgent().getExecutors().getMaxHandoff());
         if (journal != null) {
             // Ticks the stream for every source the journal records, transactions and log events included.
@@ -426,7 +431,8 @@ public class ReactiveLiveActivityController implements InitializingBean {
                 properties.getActivity().getRequestSlowThresholdMs(),
                 properties.getActivity().getNPlusOneThreshold(),
                 aggregates == null ? null : aggregates.declaredRoutes(),
-                properties::isPanelEnabled);
+                properties::isPanelEnabled,
+                exposure);
     }
 
     /**
@@ -517,7 +523,8 @@ public class ReactiveLiveActivityController implements InitializingBean {
                                 null,
                                 properties.getActivity().getRequestSlowThresholdMs(),
                                 properties.getActivity().getNPlusOneThreshold(),
-                                properties::isPanelEnabled)
+                                properties::isPanelEnabled,
+                                exposure)
                         .profile(id)
                 : profiles.profile(id);
     }

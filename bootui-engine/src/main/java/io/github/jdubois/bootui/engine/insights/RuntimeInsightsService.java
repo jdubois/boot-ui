@@ -14,12 +14,14 @@ import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalStatus;
+import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
 import io.github.jdubois.bootui.engine.journal.LifecyclePayload;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -69,6 +71,7 @@ public final class RuntimeInsightsService {
     private final Supplier<List<RunSummary>> runs;
     private Cached cached;
     private volatile Function<String, Integer> poolSizes;
+    private volatile ExposurePolicy exposure;
     private volatile Supplier<List<MappingDto>> declaredMappings;
     private volatile Supplier<JournalAggregates.RouteLabels> runRoutes;
     private volatile Supplier<SqlCapture> sqlCapture;
@@ -170,6 +173,16 @@ public final class RuntimeInsightsService {
     }
 
     /**
+     * Installs the live exposure policy that insight sentences and evidence quote recorded log text and request paths
+     * under ({@code PLAN-v2} §8). Without one they are quoted as {@link JournalTextExposure#masked()}. The cached
+     * projection is keyed by the rule the policy prescribes, so a live change applies to the next read.
+     */
+    public synchronized void setExposure(ExposurePolicy exposure) {
+        this.exposure = exposure;
+        this.cached = null;
+    }
+
+    /**
      * The stable id of a finding: its kind and a hash of its key, such as {@code repeated-selects:3fa9c0e1b2}, the same
      * across refreshes and restarts, and safe in a URL path whatever its route holds.
      */
@@ -263,6 +276,7 @@ public final class RuntimeInsightsService {
                     -1,
                     0,
                     SqlCapture.capturing(),
+                    null,
                     new RuntimeInsightsReportDto(
                             false, DISABLED, null, List.of(), List.of(), List.of(), List.of(), List.of(), 0),
                     Map.of());
@@ -273,14 +287,17 @@ public final class RuntimeInsightsService {
         // A panel disabled or re-enabled since the last read changes what may be shown, so it invalidates the cache.
         long visibility = visibility();
         SqlCapture capture = sqlCapture();
+        // So is a live change of the exposure policy, which changes what recorded text may be quoted (§8).
+        JournalTextExposure text = JournalTextExposure.of(exposure);
         if (cached != null
                 && cached.watermark() == watermark
                 && cached.evicted() == evicted
                 && cached.visibility() == visibility
-                && cached.sqlCapture().equals(capture)) {
+                && cached.sqlCapture().equals(capture)
+                && text.equals(cached.exposure())) {
             return cached;
         }
-        cached = project(status, journal.entries(), watermark, evicted, visibility, capture);
+        cached = project(status, journal.entries(), watermark, evicted, visibility, capture, text);
         return cached;
     }
 
@@ -314,7 +331,8 @@ public final class RuntimeInsightsService {
             long watermark,
             long evicted,
             long visibility,
-            SqlCapture capture) {
+            SqlCapture capture,
+            JournalTextExposure text) {
         RouteTemplateResolver resolver;
         try {
             resolver = routes.get();
@@ -322,15 +340,16 @@ public final class RuntimeInsightsService {
             resolver = RouteTemplateResolver.empty();
         }
         InsightsSnapshot snapshot = InsightsSnapshot.of(
-                entries,
-                status,
-                resolver == null ? RouteTemplateResolver.empty() : resolver,
-                journal::records,
-                this::panelVisible,
-                stack,
-                previousRun(status.runId()),
-                poolSizes,
-                journal::evictedARequestOf);
+                        entries,
+                        status,
+                        resolver == null ? RouteTemplateResolver.empty() : resolver,
+                        journal::records,
+                        this::panelVisible,
+                        stack,
+                        previousRun(status.runId()),
+                        poolSizes,
+                        journal::evictedARequestOf)
+                .withExposure(text);
         List<RuntimeInsightCheckDto> checks = new ArrayList<>();
         List<RuntimeObservationDto> rows = new ArrayList<>();
         Map<String, Detail> details = new LinkedHashMap<>();
@@ -439,7 +458,7 @@ public final class RuntimeInsightsService {
                 limitations,
                 notExercised.subList(0, Math.min(notExercised.size(), RuntimeInsightsReportDto.MAX_NOT_EXERCISED)),
                 Math.max(0, notExercised.size() - RuntimeInsightsReportDto.MAX_NOT_EXERCISED));
-        return new Cached(watermark, evicted, visibility, capture, report, details);
+        return new Cached(watermark, evicted, visibility, capture, text, report, details);
     }
 
     /**
@@ -632,6 +651,7 @@ public final class RuntimeInsightsService {
             long evicted,
             long visibility,
             SqlCapture sqlCapture,
+            JournalTextExposure exposure,
             RuntimeInsightsReportDto report,
             Map<String, Detail> details) {}
 }

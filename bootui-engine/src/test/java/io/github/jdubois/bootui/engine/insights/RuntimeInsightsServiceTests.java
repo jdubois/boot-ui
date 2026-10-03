@@ -2,6 +2,7 @@ package io.github.jdubois.bootui.engine.insights;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightCheckDto;
 import io.github.jdubois.bootui.core.dto.RuntimeInsightsReportDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
@@ -10,6 +11,7 @@ import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.journal.ConnectionPayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.LogPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPayload;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
@@ -18,6 +20,7 @@ import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.sqltrace.SqlTraceRecorder;
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.time.Duration;
 import java.util.EnumSet;
 import java.util.Map;
@@ -264,6 +267,65 @@ class RuntimeInsightsServiceTests {
         assertThat(SqlCapture.of(wrapped, true, false)).isEqualTo(SqlCapture.capturing());
         assertThat(SqlCapture.of(wrapped, true, true))
                 .isEqualTo(SqlCapture.recordedExcept(SqlCapture.R2DBC_NOT_RECORDED));
+    }
+
+    @Test
+    void aLiveExposureSwitchReProjectsTheQuotedTemplateAtAnUnchangedWatermark() {
+        request(
+                "GET",
+                "/api/login",
+                new Child(
+                        JournalSource.LOG,
+                        -1,
+                        new LogPayload(
+                                "org.springframework.web.Login", "WARN", "Login password=hunter2 refused", null)));
+        ValueExposure[] exposure = {ValueExposure.FULL};
+        RuntimeInsightsService service = service();
+        service.setExposure(new ExposurePolicy() {
+            @Override
+            public ValueExposure valueExposure() {
+                return exposure[0];
+            }
+
+            @Override
+            public boolean maskSecrets() {
+                return true;
+            }
+        });
+
+        RuntimeObservationDto full =
+                observations(service.report(), FrameworkWarningsByRoute.KIND).get("GET /api/login");
+        exposure[0] = ValueExposure.MASKED;
+        RuntimeObservationDto masked =
+                observations(service.report(), FrameworkWarningsByRoute.KIND).get("GET /api/login");
+        exposure[0] = ValueExposure.METADATA_ONLY;
+        RuntimeObservationDto metadata =
+                observations(service.report(), FrameworkWarningsByRoute.KIND).get("GET /api/login");
+
+        assertThat(full.sentence()).contains("password=hunter2");
+        assertThat(masked.sentence()).contains("password=").doesNotContain("hunter2");
+        assertThat(metadata.sentence()).doesNotContain("password", "hunter2", "refused");
+        assertThat(metadata.id()).isEqualTo(full.id());
+        assertThat(service.insight(metadata.id()).toString()).doesNotContain("hunter2");
+    }
+
+    @Test
+    void aNullExposurePolicyFailsClosedToMasked() {
+        request(
+                "GET",
+                "/api/login",
+                new Child(
+                        JournalSource.LOG,
+                        -1,
+                        new LogPayload(
+                                "org.springframework.web.Login", "WARN", "Login password=hunter2 refused", null)));
+        RuntimeInsightsService service = service();
+        service.setExposure(null);
+
+        assertThat(observations(service.report(), FrameworkWarningsByRoute.KIND)
+                        .get("GET /api/login")
+                        .sentence())
+                .doesNotContain("hunter2");
     }
 
     private RuntimeInsightsService service() {

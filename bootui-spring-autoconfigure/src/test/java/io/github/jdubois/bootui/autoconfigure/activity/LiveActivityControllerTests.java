@@ -162,7 +162,7 @@ class LiveActivityControllerTests {
                 "SQL",
                 1_000L,
                 "OK",
-                "select 1",
+                "select * from audit where owner = 'alice'",
                 null,
                 null,
                 null,
@@ -191,7 +191,26 @@ class LiveActivityControllerTests {
 
             LiveActivityReport result = controller.activity("SQL", "OK", 0, 0, "select", 999L, "cursor-1", 50);
 
-            assertThat(result.entries()).containsExactly(storedEntry);
+            // A stored row is masked again under the live policy (MASKED by default) when it is read (§8).
+            assertThat(result.entries())
+                    .containsExactly(new ActivityEntryDto(
+                            storedEntry.id(),
+                            storedEntry.type(),
+                            storedEntry.timestamp(),
+                            storedEntry.severity(),
+                            "select * from audit where owner = ?",
+                            storedEntry.detail(),
+                            storedEntry.durationMs(),
+                            storedEntry.correlationId(),
+                            storedEntry.method(),
+                            storedEntry.path(),
+                            storedEntry.status(),
+                            storedEntry.thread(),
+                            storedEntry.profileable(),
+                            storedEntry.parentId(),
+                            storedEntry.securedPrincipal(),
+                            storedEntry.sqlNPlusOneSuspected(),
+                            storedEntry.badges()));
             assertThat(result.pageInfo()).isEqualTo(new ActivityPageInfo(true, "cursor-2", true));
             assertThat(result.persistenceOption())
                     .isEqualTo(new ActivityPersistenceOptionDto(true, false, "bootui_activity"));

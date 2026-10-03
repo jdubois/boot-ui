@@ -17,6 +17,7 @@ import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.engine.sqltrace.RouteLabel;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -72,10 +73,26 @@ public final class RequestJournalProfiles {
             long requestSlowThresholdMs,
             int nPlusOneThreshold,
             Predicate<String> panelEnabled) {
+        this(journal, aggregates, requestSlowThresholdMs, nPlusOneThreshold, panelEnabled, null);
+    }
+
+    /**
+     * Profiles whose timeline rows and touched log templates show text as the live {@code exposure} policy allows
+     * when each profile is read ({@code PLAN-v2} §8).
+     *
+     * @param exposure the live exposure policy; {@code null} renders as {@link JournalTextExposure#masked()}
+     */
+    public RequestJournalProfiles(
+            RuntimeJournal journal,
+            JournalAggregates aggregates,
+            long requestSlowThresholdMs,
+            int nPlusOneThreshold,
+            Predicate<String> panelEnabled,
+            ExposurePolicy exposure) {
         this.journal = journal;
         this.aggregates = aggregates;
         this.declaredRoutes = aggregates == null ? RouteTemplateResolver::empty : aggregates.declaredRoutes();
-        this.feed = new JournalActivityFeed(requestSlowThresholdMs, nPlusOneThreshold, declaredRoutes);
+        this.feed = new JournalActivityFeed(requestSlowThresholdMs, nPlusOneThreshold, declaredRoutes, exposure);
         this.panelEnabled = panelEnabled == null ? panel -> true : panelEnabled;
     }
 
@@ -169,8 +186,17 @@ public final class RequestJournalProfiles {
         List<JournalEntry> rendered = new ArrayList<>(children);
         rendered.add(request);
         Map<String, ActivityEntryDto> rows = new HashMap<>();
+        JournalTextExposure text = feed.exposure();
         for (ActivityEntryDto row : feed.render(
-                        rendered, journal::eventId, journal.run().id(), JournalActivityFeed.Filter.NONE, 0)
+                        rendered,
+                        journal::eventId,
+                        journal.run().id(),
+                        JournalActivityFeed.Filter.NONE,
+                        0,
+                        JournalRowDetails.NONE,
+                        traceId -> false,
+                        List.of(),
+                        text)
                 .entries()) {
             rows.put(row.id(), row);
         }
@@ -217,7 +243,7 @@ public final class RequestJournalProfiles {
                 timed.stream().map(Timed::item).toList(),
                 gcPauses(usage, collections, start),
                 routeComparison(label.id(), Math.max(0, http.durationNanos()) / 1_000),
-                touched(children),
+                touched(children, text),
                 notes,
                 orm(children),
                 handoffs,
@@ -458,7 +484,7 @@ public final class RequestJournalProfiles {
         return null;
     }
 
-    private static TouchedResourcesDto touched(List<JournalEntry> children) {
+    private static TouchedResourcesDto touched(List<JournalEntry> children, JournalTextExposure text) {
         Set<String> tables = new LinkedHashSet<>();
         Set<String> dataSources = new LinkedHashSet<>();
         Set<String> transactions = new LinkedHashSet<>();
@@ -492,7 +518,7 @@ public final class RequestJournalProfiles {
             } else if (payload instanceof RestClientPayload rest) {
                 add(restCalls, rest.authority());
             } else if (payload instanceof LogPayload log) {
-                add(logTemplates, log.template());
+                add(logTemplates, text.message(log.template()));
             } else if (payload instanceof AiPayload ai) {
                 add(
                         models,

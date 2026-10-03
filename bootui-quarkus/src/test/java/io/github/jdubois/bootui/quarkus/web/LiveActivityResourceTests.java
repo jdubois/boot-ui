@@ -120,7 +120,7 @@ class LiveActivityResourceTests {
                 "SQL",
                 1_000L,
                 "OK",
-                "select 1",
+                "select * from audit where owner = 'alice'",
                 null,
                 null,
                 null,
@@ -140,7 +140,11 @@ class LiveActivityResourceTests {
 
             LiveActivityReport result = resource.activity(0, "SQL", "OK", "select", 999L, 1_001L, null, 50);
 
-            assertThat(result.entries()).containsExactly(storedEntry);
+            // A stored row is masked again under the live policy (MASKED by default) when it is read (§8).
+            assertThat(result.entries()).singleElement().satisfies(entry -> {
+                assertThat(entry.id()).isEqualTo(storedEntry.id());
+                assertThat(entry.summary()).isEqualTo("select * from audit where owner = ?");
+            });
             assertThat(result.pageInfo()).isEqualTo(new ActivityPageInfo(true, null, false));
             assertThat(result.persistenceOption())
                     .isEqualTo(new ActivityPersistenceOptionDto(true, false, "bootui_activity"));

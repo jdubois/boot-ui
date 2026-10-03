@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.insights;
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
+import io.github.jdubois.bootui.autoconfigure.config.BootUiExposure;
 import io.github.jdubois.bootui.autoconfigure.javaagent.AgentPropagation;
 import io.github.jdubois.bootui.autoconfigure.web.DeclaredRouteTemplates;
 import io.github.jdubois.bootui.core.dto.RuntimeChangeImpactDto;
@@ -83,6 +84,9 @@ public class RuntimeInsightsController {
                 properties.getRuntimeInsights().getAiTokenThreshold());
         this.insights.setPoolSizes(new DataSourcePoolSizes(context));
         this.insights.setSqlCapture(new SpringSqlCapture(context));
+        // The live policy, so a runtime change of bootui.expose-values applies to the next read (PLAN-v2 §8).
+        BootUiExposure exposure = context.getBeanProvider(BootUiExposure.class).getIfAvailable();
+        this.insights.setExposure(exposure != null ? exposure : new BootUiExposure(properties));
         this.insights.setProxyBoundaries(new SpringProxyBoundaries(context));
         if (journalAggregates != null) {
             this.insights.setDeclaredRoutes(DeclaredRouteTemplates.declared(mappings), journalAggregates::routeLabels);
