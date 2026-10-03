@@ -371,8 +371,12 @@ public final class JfrProfiler {
                     }
                     jdk.jfr.consumer.RecordedThread thread = event.getThread();
                     String requestId = event.getString("requestId");
-                    if (thread != null && requestId != null) {
-                        segments.computeIfAbsent(thread.getJavaThreadId(), id -> new ArrayList<>())
+                    long owner = event.hasField("segmentThreadId") ? event.getLong("segmentThreadId") : 0;
+                    if (owner <= 0 && thread != null) {
+                        owner = thread.getJavaThreadId();
+                    }
+                    if (owner > 0 && requestId != null) {
+                        segments.computeIfAbsent(owner, id -> new ArrayList<>())
                                 .add(new Segment(nanos(event.getStartTime()), nanos(event.getEndTime()), requestId));
                     }
                 }
