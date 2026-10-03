@@ -34,7 +34,12 @@ public final class AnonymousSuccessOnRestrictedRoute implements Observation {
 
     @Override
     public Set<JournalSource> reads() {
-        return Set.of(JournalSource.AUTHORIZATION);
+        return Set.of(JournalSource.HTTP, JournalSource.AUTHORIZATION);
+    }
+
+    @Override
+    public Set<ProjectedRequest.Kind> unitKinds() {
+        return Set.of(ProjectedRequest.Kind.HTTP);
     }
 
     @Override
