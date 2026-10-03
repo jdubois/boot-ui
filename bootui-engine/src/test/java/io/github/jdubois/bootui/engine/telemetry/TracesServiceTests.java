@@ -115,6 +115,15 @@ class TracesServiceTests {
         attributes.put("http.request.header.authorization", AttributeValue.ofList(List.of("Basic example-value")));
         attributes.put("exception.message", AttributeValue.ofString("failed token=example-value"));
         attributes.put("notes", AttributeValue.ofList(List.of("token=example-value", "safe")));
+        attributes.put(
+                "headers",
+                new AttributeValue(
+                        "map",
+                        Map.of(
+                                "authorization",
+                                "Basic example-value",
+                                "nested",
+                                List.of(Map.of("password", "example-value")))));
         store.add(new NormalizedSpan(
                 "trace",
                 "span",
@@ -131,7 +140,15 @@ class TracesServiceTests {
                 List.of(new NormalizedEvent(
                         "exception token=example-value",
                         2L,
-                        Map.of("exception.message", AttributeValue.ofString("token=example-value"))))));
+                        Map.of(
+                                "exception.message",
+                                AttributeValue.ofString("token=example-value"),
+                                "details",
+                                new AttributeValue(
+                                        "map",
+                                        Map.of(
+                                                "headers",
+                                                List.of(Map.of("authorization", "Basic example-value")))))))));
         MutableExposure exposure = new MutableExposure();
         TracesService service = new TracesService(store, ENABLED, SELF, exposure);
 
@@ -150,13 +167,30 @@ class TracesServiceTests {
                         .value())
                 .isEqualTo("******");
         assertThat(masked.events().get(0).name()).isEqualTo("exception token=******");
-        assertThat(masked.events().get(0).attributes().get(0).value()).isEqualTo("token=******");
+        assertThat(masked.events().get(0).attributes().stream()
+                        .filter(attribute -> attribute.key().equals("exception.message"))
+                        .findFirst()
+                        .orElseThrow()
+                        .value())
+                .isEqualTo("token=******");
+        assertThat(masked.events().get(0).attributes().stream()
+                        .filter(attribute -> attribute.key().equals("details"))
+                        .findFirst()
+                        .orElseThrow()
+                        .value())
+                .isEqualTo(Map.of("headers", List.of(Map.of("authorization", "******"))));
         assertThat(masked.attributes().stream()
                         .filter(attribute -> attribute.key().equals("notes"))
                         .findFirst()
                         .orElseThrow()
                         .value())
                 .isEqualTo(List.of("token=******", "safe"));
+        assertThat(masked.attributes().stream()
+                        .filter(attribute -> attribute.key().equals("headers"))
+                        .findFirst()
+                        .orElseThrow()
+                        .value())
+                .isEqualTo(Map.of("authorization", "******", "nested", List.of(Map.of("password", "******"))));
         assertThat(masked.attributes().stream()
                         .filter(attribute -> attribute.key().equals("http.route"))
                         .findFirst()
@@ -181,6 +215,16 @@ class TracesServiceTests {
                         .orElseThrow()
                         .value())
                 .isEqualTo("example-value");
+        assertThat(full.attributes().stream()
+                        .filter(attribute -> attribute.key().equals("headers"))
+                        .findFirst()
+                        .orElseThrow()
+                        .value())
+                .isEqualTo(Map.of(
+                        "authorization",
+                        "Basic example-value",
+                        "nested",
+                        List.of(Map.of("password", "example-value"))));
         assertThat(full.events().get(0).name()).isEqualTo("exception token=example-value");
 
         exposure.value = ValueExposure.MASKED;
