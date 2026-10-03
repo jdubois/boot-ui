@@ -476,7 +476,8 @@ class RouteTimeBreakdownTests {
                     new Child(
                             JournalSource.AI,
                             50 * MS,
-                            new AiPayload("chat", "openai", "gpt-4o", 10L, 5L, "stop", false)));
+                            new AiPayload("chat", "openai", "gpt-4o", 10L, 5L, "stop", false),
+                            45));
         }
 
         assertThat(phaseRows("GET /api/chat"))
@@ -503,7 +504,8 @@ class RouteTimeBreakdownTests {
                     new Child(
                             JournalSource.AI,
                             60 * MS,
-                            new AiPayload("chat", "openai", "gpt-4o", 10L, 5L, "stop", false)));
+                            new AiPayload("chat", "openai", "gpt-4o", 10L, 5L, "stop", false),
+                            5));
         }
 
         assertThat(phaseRows("GET /api/chat"))
@@ -521,16 +523,65 @@ class RouteTimeBreakdownTests {
                     new Child(
                             JournalSource.AI,
                             60 * MS,
-                            new AiPayload("chat", "openai", "gpt-4o", 10L, 5L, "stop", false)),
+                            new AiPayload("chat", "openai", "gpt-4o", 10L, 5L, "stop", false),
+                            2),
                     new Child(
                             JournalSource.AI,
                             30 * MS,
-                            new AiPayload("embeddings", "openai", "text-embedding", 10L, null, null, false)));
+                            new AiPayload("embeddings", "openai", "text-embedding", 10L, null, null, false),
+                            2));
         }
 
         assertThat(phaseRows("GET /api/chat"))
                 .as("both started together, so the inner call adds nothing to the outer one")
                 .contains("AI calls=60", "Handler, other work=33");
+    }
+
+    @Test
+    void anUntimedAiCallKeepsTheCallsTheRequestMadeOutsideItsWindow() {
+        for (int i = 0; i < 6; i++) {
+            long start = clock;
+            request(
+                    "/api/rag",
+                    800 * MS,
+                    new RequestTiming(start, -1, 2 * MS, 795 * MS),
+                    new Child(
+                            JournalSource.SQL,
+                            300 * MS,
+                            new SqlPayload("select embedding", null, "db", false, null, null, start + 310 * MS)),
+                    new Child(
+                            JournalSource.AI,
+                            400 * MS,
+                            new AiPayload("chat", "openai", "gpt-4o", 10L, 5L, "stop", false),
+                            350));
+        }
+
+        assertThat(phaseRows("GET /api/rag"))
+                .as("the vector-store query before the model call is not taken out of the model's time")
+                .contains("SQL=300", "AI calls=400", "Handler, other work=93");
+        RuntimeObservationDto rag = bySubject(breakdowns(InsightsStack.SPRING_MVC), "GET /api/rag");
+        assertThat(rag.limitations())
+                .anySatisfy(limitation ->
+                        assertThat(limitation).startsWith("5 requests made AI calls known only from GenAI spans"));
+    }
+
+    @Test
+    void anUntimedAiCallMovesOnlyItsTimeInsideTheHandler() {
+        for (int i = 0; i < 6; i++) {
+            request(
+                    "/api/chat",
+                    100 * MS,
+                    new RequestTiming(clock, -1, 20 * MS, 95 * MS),
+                    new Child(
+                            JournalSource.AI,
+                            50 * MS,
+                            new AiPayload("chat", "openai", "gpt-4o", 10L, 5L, "stop", false),
+                            0));
+        }
+
+        assertThat(phaseRows("GET /api/chat"))
+                .as("the 20 ms it overlapped the filters stay in the filters")
+                .contains("Other filters=20", "AI calls=30", "Handler, other work=45");
     }
 
     @Test
@@ -638,7 +689,14 @@ class RouteTimeBreakdownTests {
         List<RuntimeEvent> events = new ArrayList<>();
         for (Child child : children) {
             events.add(RuntimeEvent.of(
-                    child.source(), 1_000, child.nanos(), context, "http-1", null, false, child.payload()));
+                    child.source(),
+                    1_000 + requests + child.startMillis(),
+                    child.nanos(),
+                    context,
+                    "http-1",
+                    null,
+                    false,
+                    child.payload()));
         }
         events.add(RuntimeEvent.of(
                 JournalSource.HTTP,
@@ -659,5 +717,11 @@ class RouteTimeBreakdownTests {
         }
     }
 
-    private record Child(JournalSource source, long nanos, RuntimeEventPayload payload) {}
+    /** A child event that started {@code startMillis} after its request, by the wall clock. */
+    private record Child(JournalSource source, long nanos, RuntimeEventPayload payload, long startMillis) {
+
+        Child(JournalSource source, long nanos, RuntimeEventPayload payload) {
+            this(source, nanos, payload, 0);
+        }
+    }
 }
