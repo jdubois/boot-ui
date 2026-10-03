@@ -29,6 +29,29 @@ class QuarkusRequestCorrelationTest {
     }
 
     @Test
+    void aClearedScopeOverridesTheRequestsDuplicatedContext() throws Exception {
+        CorrelationContext request = CorrelationContext.forRequest("r1");
+        Context duplicated = VertxContext.createNewDuplicatedContext(vertx.getOrCreateContext());
+        CompletableFuture<String> cleared = new CompletableFuture<>();
+        CompletableFuture<String> afterClearing = new CompletableFuture<>();
+
+        duplicated.runOnContext(ignored -> {
+            QuarkusRequestCorrelation.attach(request);
+            try (BootUiCorrelation.Scope scope = BootUiCorrelation.openCleared()) {
+                cleared.complete(
+                        String.valueOf(QuarkusRequestCorrelation.current().requestId()));
+            }
+            afterClearing.complete(
+                    String.valueOf(QuarkusRequestCorrelation.current().requestId()));
+        });
+
+        assertThat(cleared.get(10, TimeUnit.SECONDS))
+                .as("clearing the scope must win over the request's duplicated context")
+                .isEqualTo("null");
+        assertThat(afterClearing.get(10, TimeUnit.SECONDS)).isEqualTo("r1");
+    }
+
+    @Test
     void offAVertxContextNothingIsAttachedAndTheThreadScopeDecides() {
         CorrelationContext request = CorrelationContext.forRequest("r1");
 

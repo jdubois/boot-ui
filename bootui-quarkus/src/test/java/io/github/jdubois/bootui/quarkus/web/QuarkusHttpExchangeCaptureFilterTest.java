@@ -12,8 +12,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.jdubois.bootui.engine.correlation.BootUiCorrelation;
+import io.github.jdubois.bootui.engine.correlation.RequestPhases;
+import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.correlation.TraceIdSource;
 import io.github.jdubois.bootui.engine.exceptions.ExceptionStore;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
+import io.github.jdubois.bootui.engine.resources.SegmentMeter;
 import io.github.jdubois.bootui.engine.support.InternalPackageMatcher;
 import io.github.jdubois.bootui.engine.web.CapturedHttpExchange;
 import io.github.jdubois.bootui.engine.web.HttpExchangeBuffer;
@@ -145,6 +150,30 @@ class QuarkusHttpExchangeCaptureFilterTest {
         assertThat(duringChain.get().requestId())
                 .isEqualTo(buffer.snapshot().get(0).requestId());
         assertThat(BootUiCorrelation.current()).isSameAs(CorrelationContext.NONE);
+    }
+
+    @Test
+    void leavesNoMeteringOnTheThreadWhenRoutingReturnsWithTheResponsePending() {
+        HttpExchangeBuffer buffer = new HttpExchangeBuffer(10);
+        RoutingContext rc = mockRequest("/orders");
+        RuntimeJournal journal = new RuntimeJournal(RuntimeJournalSettings.defaults(), RunIdentity.start());
+        AtomicReference<String> duringChain = new AtomicReference<>();
+        doAnswer(invocation -> {
+                    duringChain.set(SegmentMeter.shared().currentRequestId());
+                    return null;
+                })
+                .when(rc)
+                .next();
+
+        meteringFilter(buffer, journal).handle(rc);
+
+        assertThat(duringChain.get())
+                .as("the request is measured while its routing runs")
+                .isNotNull();
+        assertThat(SegmentMeter.shared().currentRequestId())
+                .as("an async dispatch returns with the response pending, and this thread goes on to another request")
+                .isNull();
+        SegmentMeter.shared().take(duringChain.get());
     }
 
     @Test
@@ -369,6 +398,17 @@ class QuarkusHttpExchangeCaptureFilterTest {
                 .withSources(new PropertiesConfigSource(properties, "test", 1000))
                 .build();
         return new QuarkusHttpExchangeCaptureFilter(buffer, traceIdProvider, config);
+    }
+
+    /** A filter wired to a journal that records resources, so the request is actually metered. */
+    private static QuarkusHttpExchangeCaptureFilter meteringFilter(HttpExchangeBuffer buffer, RuntimeJournal journal) {
+        @SuppressWarnings("unchecked")
+        Instance<TraceIdSource> traceIdProvider = mock(Instance.class);
+        when(traceIdProvider.isResolvable()).thenReturn(false);
+        Config config = new SmallRyeConfigBuilder()
+                .withSources(new PropertiesConfigSource(Map.of(), "test", 1000))
+                .build();
+        return new QuarkusHttpExchangeCaptureFilter(buffer, traceIdProvider, config, new RequestPhases(), journal);
     }
 
     private static RoutingContext mockRequest(String path) {
