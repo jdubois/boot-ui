@@ -36,6 +36,7 @@ import io.github.jdubois.bootui.engine.hibernate.EntityDiscovery;
 import io.github.jdubois.bootui.engine.hibernate.EntityDiscoverySource;
 import io.github.jdubois.bootui.engine.hibernate.HibernateScanner;
 import io.github.jdubois.bootui.engine.hibernate.HibernateStatisticsService;
+import io.github.jdubois.bootui.engine.insights.AiUsageByRoute;
 import io.github.jdubois.bootui.engine.javaagent.AgentBridgeAccess;
 import io.github.jdubois.bootui.engine.javaagent.AgentClaim;
 import io.github.jdubois.bootui.engine.javaagent.AgentHandoffs;
@@ -170,6 +171,27 @@ public class BootUiEngineProducer {
 
     void validateMySqlLimits(@jakarta.enterprise.event.Observes io.quarkus.runtime.StartupEvent event, Config config) {
         mySqlRowLimits(config);
+    }
+
+    /**
+     * Rejects a non-positive {@code bootui.runtime-insights.ai-token-threshold} at startup, as Spring's property binder
+     * does, rather than at the first Runtime Insights request: {@code RuntimeInsightsResource} is a REST resource that
+     * Quarkus constructs lazily, so without this observer a mistyped threshold would surface as a failed request
+     * instead of a failed start.
+     */
+    void validateRuntimeInsightsThreshold(
+            @jakarta.enterprise.event.Observes io.quarkus.runtime.StartupEvent event, Config config) {
+        runtimeInsightsTokenThreshold(config);
+    }
+
+    /** The validated {@code bootui.runtime-insights.ai-token-threshold}. */
+    public static long runtimeInsightsTokenThreshold(Config config) {
+        String property = "bootui.runtime-insights.ai-token-threshold";
+        // An explicitly empty value must fail conversion, not silently select the default, which is what
+        // getOptionalValue would do with it.
+        return config.getConfigValue(property).getRawValue() == null
+                ? AiUsageByRoute.DEFAULT_TOKEN_THRESHOLD
+                : AiUsageByRoute.validateTokenThreshold(config.getValue(property, Long.class));
     }
 
     @Produces

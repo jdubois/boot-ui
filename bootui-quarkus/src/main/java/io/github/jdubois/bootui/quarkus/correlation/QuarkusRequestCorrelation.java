@@ -64,6 +64,10 @@ public final class QuarkusRequestCorrelation {
      * to the current request's duplicated context, otherwise {@link CorrelationContext#NONE}.
      */
     public static CorrelationContext current() {
+        if (BootUiCorrelation.cleared()) {
+            // An explicitly cleared scope outranks the request's duplicated context: the work is correlated to nothing.
+            return CorrelationContext.NONE;
+        }
         CorrelationContext scoped = BootUiCorrelation.current();
         if (!scoped.isEmpty()) {
             return scoped;

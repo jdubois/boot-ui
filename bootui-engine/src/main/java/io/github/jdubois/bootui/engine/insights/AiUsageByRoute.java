@@ -35,7 +35,21 @@ public final class AiUsageByRoute implements Observation {
 
     /** @param tokenThreshold the tokens of one model call above which a single call is enough to report the route */
     public AiUsageByRoute(long tokenThreshold) {
-        this.tokenThreshold = tokenThreshold;
+        this.tokenThreshold = validateTokenThreshold(tokenThreshold);
+    }
+
+    /**
+     * {@code tokenThreshold} itself, rejecting a non-positive one. A threshold of zero or less would report every
+     * route from a single model call, so it is a configuration mistake rather than a weaker setting, and every stack
+     * says so with the same message instead of silently substituting the default.
+     *
+     * @throws IllegalArgumentException when {@code tokenThreshold} is not positive
+     */
+    public static long validateTokenThreshold(long tokenThreshold) {
+        if (tokenThreshold < 1) {
+            throw new IllegalArgumentException("bootui.runtime-insights.ai-token-threshold must be positive.");
+        }
+        return tokenThreshold;
     }
 
     @Override
