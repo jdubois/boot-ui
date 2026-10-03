@@ -144,7 +144,7 @@ class RuntimeInsightsServiceTests {
         java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
         journal.addListener(new io.github.jdubois.bootui.engine.journal.JournalListener() {
             @Override
-            public void onEvents(List<RuntimeEvent> events) {}
+            public void onEntries(List<io.github.jdubois.bootui.engine.journal.JournalEntry> entries) {}
 
             @Override
             public void onClear() {
