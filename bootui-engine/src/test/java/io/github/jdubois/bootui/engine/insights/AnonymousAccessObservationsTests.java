@@ -107,6 +107,58 @@ class AnonymousAccessObservationsTests {
     }
 
     @Test
+    void anonymousWritesNameOnlyTheDmlTargetNeverSelectSubqueryOrFromSources() {
+        request(
+                "POST",
+                "/api/write",
+                200,
+                decision("ANONYMOUS", true, null),
+                sql("insert into audit_log select id from products"),
+                sql("delete from cart_items where cart_id in (select id from carts)"),
+                sql("update orders set customer_name = c.name from customers c where orders.customer_id = c.id"),
+                sql(
+                        "merge into stock using deliveries on stock.id = deliveries.id when matched then update set qty = ?"));
+
+        assertThat(byKind(report(), AnonymousDataReach.KIND))
+                .extracting(RuntimeObservationDto::sentence)
+                .containsExactlyInAnyOrder(
+                        "`POST /api/write` wrote table `audit_log` in 1 of 1 successful anonymous request.",
+                        "`POST /api/write` wrote table `cart_items` in 1 of 1 successful anonymous request.",
+                        "`POST /api/write` wrote table `orders` in 1 of 1 successful anonymous request.",
+                        "`POST /api/write` wrote table `stock` in 1 of 1 successful anonymous request.");
+    }
+
+    @Test
+    void intendedSignupWritesAreFactsWithAnExplicitVerificationNotAnExclusion() {
+        request("POST", "/signup", 201, decision("ANONYMOUS", true, null), sql("insert into users values (?)"));
+
+        assertThat(byKind(report(), AnonymousDataReach.KIND)).singleElement().satisfies(finding -> {
+            assertThat(finding.sentence()).contains("wrote table `users`");
+            assertThat(finding.whatToCheck()).contains(AnonymousAccess.VERIFY);
+        });
+    }
+
+    @Test
+    void unprovenAnonymityIsExcludedFromEligibilityOnEveryStackNotAnInsufficientFinding() {
+        request("POST", "/unchecked", 200, null, sql("insert into users values (?)"));
+        request("POST", "/unknown", 200, decision("UNKNOWN", true, null), sql("insert into users values (?)"));
+        request("POST", "/none", 200, decision("NONE", true, null), sql("insert into users values (?)"));
+
+        for (InsightsStack stack : InsightsStack.values()) {
+            var report = new RuntimeInsightsService(journal, null, null, stack, null).report();
+            assertThat(report.observations())
+                    .noneMatch(observation -> observation.kind().startsWith("anonymous-"));
+            assertThat(report.checks())
+                    .filteredOn(check -> check.kind().startsWith("anonymous-"))
+                    .hasSize(2)
+                    .allSatisfy(check -> {
+                        assertThat(check.status()).isEqualTo("EVALUATED");
+                        assertThat(check.eligibleRequests()).isZero();
+                    });
+        }
+    }
+
+    @Test
     void withoutTheAuthorizationSourceBothChecksSayWhyTheyCannotRun() {
         RuntimeJournal withoutAuthorization = new RuntimeJournal(
                 new RuntimeJournalSettings(

@@ -9,6 +9,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Runtime observation accuracy (OBS-01, OBS-02, OBS-08).** Proxy bypass no longer judges `@Cacheable(sync = true)`
+  or condition-dependent cache methods as bypasses when Spring legitimately records no preceding cache access.
+  Anonymous writes name only a confidently identified DML target, not tables read by INSERT … SELECT, subqueries,
+  or UPDATE … FROM. The anonymous-access documentation now describes intended public writes and unproven anonymity
+  honestly ([Runtime Insights](docs/features/overview.md#runtime-insights), PLAN-v2 M4-12, M4-13).
+
 - **Retained request and execution profiles.** Live Activity displays the runtime-journal timeline even after an
   HTTP exchange leaves the shorter buffer. `get_request_profile` and `bootui request-profile` open journal requests,
   scheduled runs, and consumed-message executions first; their result names the selected source and falls back to the

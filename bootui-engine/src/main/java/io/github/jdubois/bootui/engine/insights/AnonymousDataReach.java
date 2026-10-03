@@ -5,7 +5,7 @@ import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
-import io.github.jdubois.bootui.engine.sqltrace.SqlShapes;
+import io.github.jdubois.bootui.engine.sqltrace.SqlTables;
 import io.github.jdubois.bootui.engine.web.CorrelationTier;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -59,8 +59,9 @@ public final class AnonymousDataReach implements Observation {
                 Map<String, int[]> writes = new LinkedHashMap<>();
                 Map<String, String> statements = new LinkedHashMap<>();
                 for (RuntimeEvent event : request.children(JournalSource.SQL)) {
-                    if (event.payload() instanceof SqlPayload sql && !sql.failed() && SafeMethodDml.isDml(sql.sql())) {
-                        for (String table : SqlShapes.tables(sql.sql())) {
+                    if (event.payload() instanceof SqlPayload sql && !sql.failed()) {
+                        String table = SqlTables.writeTarget(sql.sql());
+                        if (table != null) {
                             writes.computeIfAbsent(table, ignored -> new int[1])[0]++;
                             statements.putIfAbsent(table, JournalTextExposure.displayShape(sql.sql()));
                         }
@@ -99,6 +100,9 @@ public final class AnonymousDataReach implements Observation {
                 List.of(
                         "Tables are read from the statement text, so a write through a view, a procedure, or a trigger"
                                 + " names what it called, not what it changed.",
+                        "Only a single INSERT INTO, UPDATE, DELETE FROM, or MERGE INTO target at the statement head"
+                                + " is identified; CTEs, dialect modifiers, multi-target updates, and FROM aliases"
+                                + " are not judged.",
                         "Only requests an authorization decision proved anonymous are counted; a request no rule"
                                 + " checked is not."));
     }

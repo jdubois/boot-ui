@@ -16,10 +16,23 @@ public final class SqlTables {
     /** The most tables read from one statement. */
     public static final int MAX_TABLES = 16;
 
-    private static final Pattern TABLE = Pattern.compile(
-            "\\b(?:from|join|into|update)\\s+((?:[\\w$]+|\"[^\"]+\"|`[^`]+`|\\[[^\\]]+\\])"
-                    + "(?:\\s*\\.\\s*(?:[\\w$]+|\"[^\"]+\"|`[^`]+`|\\[[^\\]]+\\]))*)",
+    private static final String IDENTIFIER = "(?:[\\w$]+|\"[^\"]+\"|`[^`]+`|\\[[^\\]]+\\])"
+            + "(?:\\s*\\.\\s*(?:[\\w$]+|\"[^\"]+\"|`[^`]+`|\\[[^\\]]+\\]))*";
+
+    private static final Pattern TABLE =
+            Pattern.compile("\\b(?:from|join|into|update)\\s+(" + IDENTIFIER + ")", Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern WRITE_TARGET = Pattern.compile(
+            "^\\s*(insert\\s+into|update|delete\\s+from|merge\\s+into)\\s+(" + IDENTIFIER + ")",
             Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern UPDATE_SET =
+            Pattern.compile("^\\s+(?:(?:as\\s+)?" + IDENTIFIER + "\\s+)?set\\b", Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern FROM = Pattern.compile("\\bfrom\\b", Pattern.CASE_INSENSITIVE);
+
+    private static final Set<String> TARGET_MODIFIERS =
+            Set.of("ignore", "low_priority", "delayed", "top", "all", "first");
 
     private static final Set<String> NOT_TABLES = Set.of("select", "lateral", "unnest", "values", "only", "dual");
 
@@ -33,12 +46,58 @@ public final class SqlTables {
         }
         Matcher matcher = TABLE.matcher(withoutLiteralsAndComments(sql));
         while (matcher.find() && tables.size() < MAX_TABLES) {
-            String table = matcher.group(1).replaceAll("[\"`\\[\\]\\s]", "").toLowerCase(Locale.ROOT);
+            String table = tableName(matcher.group(1));
             if (!table.isEmpty() && !NOT_TABLES.contains(table)) {
                 tables.add(table);
             }
         }
         return tables;
+    }
+
+    /**
+     * The single target named at an INSERT INTO, UPDATE, DELETE FROM, or MERGE INTO head, or {@code null} when it
+     * cannot be identified confidently. CTEs, dialect modifiers, multi-target updates, and targets resolved through
+     * FROM aliases are not parsed. Read-side tables never substitute for a missing target.
+     */
+    public static String writeTarget(String sql) {
+        if (sql == null || sql.isBlank()) {
+            return null;
+        }
+        String text = withoutLiteralsAndComments(sql);
+        Matcher matcher = WRITE_TARGET.matcher(text);
+        if (!matcher.find()) {
+            return null;
+        }
+        String target = tableName(matcher.group(2));
+        if (NOT_TABLES.contains(target) || TARGET_MODIFIERS.contains(target)) {
+            return null;
+        }
+        boolean update = matcher.group(1).equalsIgnoreCase("update");
+        boolean delete = matcher.group(1).toLowerCase(Locale.ROOT).startsWith("delete");
+        String rest = text.substring(matcher.end());
+        if (update && !UPDATE_SET.matcher(rest).find()) {
+            return null;
+        }
+        if ((update || delete) && !target.contains(".")) {
+            Matcher from = FROM.matcher(rest);
+            if (from.find()) {
+                // Double-quoted aliases are removed like values by the sanitizer, so their target is uncertain.
+                if (matcher.group(2).startsWith("\"")) {
+                    return null;
+                }
+                Pattern alias = Pattern.compile(
+                        "[\\w$\"`\\]\\)]\\s+(?:as\\s+)?" + Pattern.quote(matcher.group(2)) + "(?=\\s|[,;)]|$)",
+                        Pattern.CASE_INSENSITIVE);
+                if (alias.matcher(rest.substring(from.end())).find()) {
+                    return null;
+                }
+            }
+        }
+        return target;
+    }
+
+    private static String tableName(String identifier) {
+        return identifier.replaceAll("[\"`\\[\\]\\s]", "").toLowerCase(Locale.ROOT);
     }
 
     /**

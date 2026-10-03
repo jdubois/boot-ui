@@ -26,7 +26,8 @@ public interface ProxyBoundaries {
      * What a method's proxy would apply.
      *
      * @param transactional whether it is {@code @Transactional} with a propagation that requires a transaction
-     * @param cacheNames the caches it is {@code @Cacheable} for
+     * @param cacheNames the caches whose access must precede the method; empty for {@code sync = true}, whose miss
+     *     is recorded after the loader runs, or a {@code condition}, which can skip the cache entirely
      * @param async whether it is {@code @Async}
      */
     record Boundary(boolean transactional, Set<String> cacheNames, boolean async) {
@@ -37,7 +38,7 @@ public interface ProxyBoundaries {
             cacheNames = cacheNames == null ? Set.of() : Set.copyOf(cacheNames);
         }
 
-        /** Whether the method declares any boundary. */
+        /** Whether the method declares any judgeable boundary. */
         public boolean any() {
             return transactional || async || !cacheNames.isEmpty();
         }
