@@ -31,6 +31,7 @@ import io.github.jdubois.bootui.spi.BasePackageProvider;
 import io.github.jdubois.bootui.spi.HealthProvider;
 import io.github.jdubois.bootui.spi.LoggerProvider;
 import io.github.jdubois.bootui.spi.MappingProvider;
+import io.github.jdubois.bootui.spi.MemoryOffloadable;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.persistence.EntityManagerFactory;
@@ -47,6 +48,7 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.aop.scope.ScopedObject;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
@@ -89,6 +91,20 @@ class BootUiEngineConfigurationTests {
 
         assertThat(BootUiEngineConfiguration.createdOffloadables(beanFactory)).containsExactly(created);
         assertThat(beanFactory.containsSingleton("lazyRecorder")).isFalse();
+    }
+
+    @Test
+    void memoryOffloadSkipsScopedProxiesSoItNeverCreatesTheirTarget() {
+        DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+        Object scopedProxy = Proxy.newProxyInstance(
+                getClass().getClassLoader(),
+                new Class<?>[] {MemoryOffloadable.class, ScopedObject.class},
+                (proxy, method, args) -> {
+                    throw new AssertionError("the scoped proxy must not be called: " + method.getName());
+                });
+        beanFactory.registerSingleton("scopedTarget", scopedProxy);
+
+        assertThat(BootUiEngineConfiguration.createdOffloadables(beanFactory)).isEmpty();
     }
 
     @Test

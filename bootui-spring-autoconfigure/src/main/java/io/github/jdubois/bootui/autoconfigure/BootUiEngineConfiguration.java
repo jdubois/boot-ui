@@ -129,6 +129,7 @@ import java.util.ArrayList;
 import java.util.List;
 import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
+import org.springframework.aop.scope.ScopedObject;
 import org.springframework.beans.factory.ListableBeanFactory;
 import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
@@ -707,7 +708,8 @@ public class BootUiEngineConfiguration {
         List<Object> offloadables = new ArrayList<>();
         for (String name : beanFactory.getSingletonNames()) {
             Object singleton = beanFactory.getSingleton(name);
-            if (singleton instanceof MemoryOffloadable) {
+            // A scoped proxy is a singleton, but calling it would create its request- or session-scoped target.
+            if (singleton instanceof MemoryOffloadable && !(singleton instanceof ScopedObject)) {
                 offloadables.add(singleton);
             }
         }
