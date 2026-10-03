@@ -2,7 +2,7 @@
 import {computed, onBeforeUnmount, onMounted, ref} from 'vue'
 import {getJson} from '../../api.js'
 import {formatBytes, formatNumber} from '../../utils/format.js'
-import {describeLoadError} from '../../utils/loadError.js'
+import {formatLoadError} from '../../utils/loadError.js'
 import {
   durationLabel,
   elapsedPercent,
@@ -73,7 +73,7 @@ async function load() {
     show(await getJson(PATH))
     error.value = null
   } catch (e) {
-    error.value = describeLoadError(e, 'Unable to read the resource profile')
+    error.value = formatLoadError(e, 'Unable to read the resource profile')
     schedule()
   }
 }
@@ -84,7 +84,7 @@ async function act(path, message) {
   try {
     show(await getJson(path, {method: 'POST'}))
   } catch (e) {
-    error.value = describeLoadError(e, message)
+    error.value = formatLoadError(e, message)
   } finally {
     busy.value = false
   }

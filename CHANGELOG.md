@@ -9,6 +9,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Runtime Insights and Live Activity UI.** Load failures in Change impact, Run comparison, Profile resources,
+  Why-slow, and observation evidence show their message instead of a JSON object (including in the screen-reader
+  status region). `work-after-response` observations appear under the Time chip, the command palette finds Runtime
+  Insights by "what changed", "impact", and "compare", Live Activity's runtime-journal feed gains a **Run id** filter,
+  and the request drawer no longer shows or copies the previous row's profile when a second row is opened while the
+  first is still loading.
 - **Retained request and execution profiles.** Live Activity displays the runtime-journal timeline even after an
   HTTP exchange leaves the shorter buffer. `get_request_profile` and `bootui request-profile` open journal requests,
   scheduled runs, and consumed-message executions first; their result names the selected source and falls back to the

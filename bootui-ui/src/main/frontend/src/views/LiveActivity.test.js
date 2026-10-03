@@ -326,6 +326,58 @@ describe('LiveActivity', () => {
     expect(wrapper.text()).not.toContain('HTTP-exchange details unavailable')
   })
 
+  it("never shows an earlier row's profile when a second row is opened while the first loads", async () => {
+    const first = requestProfile({request: {...requestProfile().request, path: '/api/first'}})
+    const second = requestProfile({request: {...requestProfile().request, path: '/api/second'}})
+    let releaseFirst
+    const firstGate = new Promise((resolve) => {
+      releaseFirst = resolve
+    })
+    const fetchMock = vi.fn((url) => {
+      if (url.endsWith('/journal')) return Promise.resolve(jsonResponse({available: false, unavailableReason: 'none'}))
+      if (url === 'api/activity/request/req-1') return firstGate.then(() => jsonResponse(first))
+      if (url === 'api/activity/request/req-2') return Promise.resolve(jsonResponse(second))
+      return Promise.resolve(
+        jsonResponse(activityReport({entries: [requestEntry(), requestEntry({id: 'req-2', path: '/api/second'})]}))
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    wrapper = mountLiveActivity()
+    await flushPromises()
+
+    const rows = wrapper.findAll('.activity-table tbody tr .bootui-keyboard-target')
+    await rows[0].trigger('click')
+    await rows[1].trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('/api/second')
+
+    releaseFirst()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('/api/second')
+    expect(wrapper.text()).not.toContain('/api/first')
+    expect(wrapper.text()).not.toContain('Loading…')
+  })
+
+  it('asks for one run only when a run id is entered', async () => {
+    vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']})
+    try {
+      safeLocalStorage.removeItem('bootui.activity.filters')
+      const fetchMock = stubFetch(activityReport({sources: ['Runtime journal']}), requestProfile())
+      vi.stubGlobal('fetch', fetchMock)
+      wrapper = mountLiveActivity()
+      await flushPromises()
+      await wrapper.get('#activity-run-filter').setValue('run-3')
+      vi.advanceTimersByTime(400)
+      await flushPromises()
+      const feedUrls = fetchMock.mock.calls.map(([url]) => url).filter((url) => url.startsWith('api/activity?'))
+      expect(new URLSearchParams(feedUrls.at(-1).split('?')[1]).get('run')).toBe('run-3')
+    } finally {
+      vi.useRealTimers()
+      safeLocalStorage.removeItem('bootui.activity.filters')
+    }
+  })
+
   it('says no activity is recorded yet when the feed is empty and nothing narrows it', async () => {
     safeLocalStorage.removeItem('bootui.activity.filters')
     vi.stubGlobal('fetch', stubFetch(activityReport({entries: [], typeCounts: {}}), requestProfile()))
