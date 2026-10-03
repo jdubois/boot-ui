@@ -1,5 +1,7 @@
 package io.github.jdubois.bootui.autoconfigure.web;
 
+import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -7,7 +9,9 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 import io.github.jdubois.bootui.autoconfigure.BootUiProperties;
 import io.github.jdubois.bootui.autoconfigure.otlp.SpringTelemetrySettings;
+import io.github.jdubois.bootui.core.ValueExposure;
 import io.github.jdubois.bootui.engine.telemetry.AttributeValue;
+import io.github.jdubois.bootui.engine.telemetry.NormalizedEvent;
 import io.github.jdubois.bootui.engine.telemetry.NormalizedSpan;
 import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import java.util.LinkedHashMap;
@@ -222,6 +226,55 @@ class AiControllerTests {
                 .andExpect(jsonPath("$.vectorOperations[0].operation").value("query"))
                 .andExpect(jsonPath("$.vectorOperations[0].collectionName").value("docs"))
                 .andExpect(jsonPath("$.contentCaptured").value(false));
+    }
+
+    @Test
+    void chatDetailFollowsTheLiveValueExposurePolicy() throws Exception {
+        BootUiProperties properties = new BootUiProperties();
+        TelemetryStore store = new TelemetryStore(new SpringTelemetrySettings(properties));
+        NormalizedSpan chat = chatSpan("trace-1", "chat-1", nowNanos(), 1_000_000L, "ollama", "qwen3", 1, 1, true);
+        Map<String, AttributeValue> attrs = new LinkedHashMap<>(chat.attributes());
+        attrs.put("gen_ai.prompt", AttributeValue.ofString("call with apiKey=sk-raw-1"));
+        Map<String, AttributeValue> exception = new LinkedHashMap<>();
+        exception.put("exception.type", AttributeValue.ofString("java.lang.IllegalStateException"));
+        exception.put("exception.message", AttributeValue.ofString("rejected secret=sec-raw-2"));
+        store.add(new NormalizedSpan(
+                chat.traceId(),
+                chat.spanId(),
+                null,
+                chat.name(),
+                chat.kind(),
+                chat.serviceName(),
+                chat.scope(),
+                chat.startEpochNanos(),
+                chat.endEpochNanos(),
+                chat.statusCode(),
+                null,
+                attrs,
+                List.of(new NormalizedEvent("exception", 1L, exception))));
+        MockMvc mvc = mvcWith(store, properties);
+
+        mvc.perform(get("/bootui/api/ai/chats/chat-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.attributes[?(@.key == 'gen_ai.prompt')].value")
+                        .value("call with apiKey=******"))
+                .andExpect(jsonPath("$.events[0].attributes[?(@.key == 'exception.message')].value")
+                        .value("rejected secret=******"))
+                .andExpect(jsonPath("$.contentCaptured").value(true));
+
+        properties.setExposeValues(ValueExposure.METADATA_ONLY);
+        mvc.perform(get("/bootui/api/ai/chats/chat-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.attributes[?(@.key == 'gen_ai.prompt')].value")
+                        .value(contains(nullValue())))
+                .andExpect(jsonPath("$.events[0].attributes[?(@.key == 'exception.type')].value")
+                        .value("java.lang.IllegalStateException"));
+
+        properties.setExposeValues(ValueExposure.FULL);
+        mvc.perform(get("/bootui/api/ai/chats/chat-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.attributes[?(@.key == 'gen_ai.prompt')].value")
+                        .value("call with apiKey=sk-raw-1"));
     }
 
     @Test

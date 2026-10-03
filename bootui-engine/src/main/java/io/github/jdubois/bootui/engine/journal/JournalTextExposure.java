@@ -7,6 +7,7 @@ import io.github.jdubois.bootui.engine.sqltrace.SqlStatementNormalizer;
 import io.github.jdubois.bootui.engine.support.MessageExposure;
 import io.github.jdubois.bootui.engine.support.UriMasking;
 import io.github.jdubois.bootui.spi.ExposurePolicy;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -34,8 +35,24 @@ public record JournalTextExposure(ValueExposure exposure, boolean maskSecrets) {
 
     private static final JournalTextExposure MASKED = new JournalTextExposure(ValueExposure.MASKED, true);
     private static final Pattern DOUBLE_QUOTED = Pattern.compile("\"(?:[^\"]|\"\")*+\"?");
+    private static final Pattern GENERATED_MAIL_SUMMARY = Pattern.compile("Email to \\d+ recipients?");
+    private static final Pattern GENERATED_MAIL_DETAIL =
+            Pattern.compile("(?:\\d+ attachments?(?: · dev-trap: not sent)?|dev-trap: not sent)");
+    // A semicolon ends a secret-like assignment's value, so a placeholder spelled with one is never masked; the mark,
+    // removed from every statement first, keeps the spelling from being forged.
+    private static final char PLACEHOLDER_MARK = '\u0001';
+    private static final String PLACEHOLDER = ";" + PLACEHOLDER_MARK + ";";
+    private static final Pattern PLACEHOLDER_TOKEN = Pattern.compile("\\?(?=[\\s,)]|$)");
+    // An identifier quoted as MySQL or SQL Server do, as the key of an assignment the masking should recognize.
+    private static final Pattern QUOTED_KEY = Pattern.compile("`(\\w++)`(?=\\s*+[:=])|\\[(\\w++)](?=\\s*+[:=])");
+    private static final Pattern ALTERNATIVE_QUOTE = Pattern.compile("(?i)(?<![\\w$])n?q'");
+    // Literals the normalizer reads as something else: a leading-dot number (.5) and a hexadecimal or bit literal
+    // (0x6869, 0b101) or one with digit separators (1_000), whose first digits it replaces and whose rest it keeps.
+    private static final Pattern UNREAD_NUMBER = Pattern.compile("(?<![\\w$.?])\\.\\d\\w*+|\\?[xXbB_]\\w*+");
+    private static final Set<String> CLIENT_TYPES =
+            Set.of("RestClient", "RestTemplate", "WebClient", "Quarkus REST Client Reactive");
     private static final Pattern UNTERMINATED_DOLLAR_QUOTE =
-            Pattern.compile("\\$[A-Za-z_]\\w*+\\$.*+|\\$\\$.*+", Pattern.DOTALL);
+            Pattern.compile("\\$[\\p{L}_][\\p{L}\\p{N}_]*+\\$.*+|\\$\\$.*+", Pattern.DOTALL);
 
     public JournalTextExposure {
         if (exposure == null) {
@@ -101,30 +118,69 @@ public record JournalTextExposure(ValueExposure exposure, boolean maskSecrets) {
         if (verbatim()) {
             return whitespaceNormalized(sql);
         }
-        int singleQuote = sql.indexOf('\'');
-        int doubleQuote = sql.indexOf('"');
+        // The sentinel that keeps a placeholder out of assignment masking must not be forgeable by the statement.
+        String text = sql.replace(PLACEHOLDER_MARK, ' ');
+        int singleQuote = text.indexOf('\'');
+        int doubleQuote = text.indexOf('"');
         int firstQuote =
                 singleQuote < 0 ? doubleQuote : doubleQuote < 0 ? singleQuote : Math.min(singleQuote, doubleQuote);
-        if (firstQuote >= 0 && sql.indexOf('\\') >= 0) {
-            // A backslash escapes a quote in MySQL but not in standard SQL ('C:\'), and the recorded text does not
-            // say which dialect wrote it. The normalizer honors a backslash only inside '...', so a double-quoted run
-            // with a backslash ("x\"secret") is always ambiguous; a single-quoted one is when the two readings differ,
-            // compared on the recorded text before any masking can consume a backslash. Then nothing after the first
-            // quote is shown, so no reading can turn a literal into visible text.
-            boolean ambiguous = doubleQuote >= 0
-                    || !SqlStatementNormalizer.normalize(sql.replace("\\", ""))
-                            .sql()
-                            .equals(SqlStatementNormalizer.normalize(sql).sql());
-            if (ambiguous) {
-                return shape(SqlStatementNormalizer.normalize(
-                                        MessageExposure.maskSecretAssignments(sql.substring(0, firstQuote)))
-                                .sql())
-                        + " ?";
-            }
+        // A # starts a comment in MySQL but is an operator in PostgreSQL, and the normalizer does not know it: a quote
+        // inside one opens a literal a real quote closes, and its free text is no statement. Nothing after it is shown.
+        int cut = text.indexOf('#');
+        if (firstQuote >= 0 && (cut < 0 || firstQuote < cut) && isAmbiguous(text, doubleQuote)) {
+            cut = firstQuote;
         }
-        // Secret-like assignments are masked before the shape is taken, so a quoted secret becomes a plain placeholder.
-        return shape(SqlStatementNormalizer.normalize(MessageExposure.maskSecretAssignments(sql))
-                .sql());
+        return cut < 0 ? literalFree(text) : literalFree(text.substring(0, cut)) + " ?";
+    }
+
+    /**
+     * Whether a quoted statement reads differently by dialect, so nothing after its first quote may be shown. The
+     * recorded text does not say which dialect wrote it. A backslash escapes a quote in MySQL but not in standard SQL
+     * ({@code 'C:\'}), and the normalizer honors one only inside {@code '...'}, so a double-quoted run with a backslash
+     * ({@code "x\"secret"}) is always ambiguous; a single-quoted one is when the two readings differ. An Oracle
+     * alternative quote ({@code q'[it's]'}) closes on a delimiter the normalizer does not know.
+     */
+    private static boolean isAmbiguous(String sql, int doubleQuote) {
+        if (ALTERNATIVE_QUOTE.matcher(sql).find() || hasNestedComment(sql)) {
+            return true;
+        }
+        if (sql.indexOf('\\') < 0) {
+            return false;
+        }
+        return doubleQuote >= 0
+                || !SqlStatementNormalizer.normalize(sql.replace("\\", ""))
+                        .sql()
+                        .equals(SqlStatementNormalizer.normalize(sql).sql());
+    }
+
+    /**
+     * Whether a block comment opens inside another, which PostgreSQL nests but the normalizer closes at the first
+     * {@code *}{@code /}, reading the rest of the outer comment as statement text.
+     */
+    private static boolean hasNestedComment(String sql) {
+        int open = sql.indexOf("/*");
+        while (open >= 0) {
+            int close = sql.indexOf("*/", open + 2);
+            int next = sql.indexOf("/*", open + 2);
+            if (next >= 0 && (close < 0 || next < close)) {
+                return true;
+            }
+            open = close < 0 ? -1 : sql.indexOf("/*", close + 2);
+        }
+        return false;
+    }
+
+    /**
+     * The shape of {@code sql} with any remaining secret-like assignment masked. Literals are replaced first: masking
+     * an assignment first could consume a literal's opening delimiter ({@code = $$prefix secret$$}) and leave its
+     * content outside any literal. A placeholder is no secret, so it is kept out of the masking and stays {@code ?}.
+     */
+    private static String literalFree(String sql) {
+        String shape = shape(SqlStatementNormalizer.normalize(sql).sql());
+        shape = QUOTED_KEY.matcher(shape).replaceAll(match -> match.group(1) != null ? "$1" : "$2");
+        return MessageExposure.maskSecretAssignments(
+                        PLACEHOLDER_TOKEN.matcher(shape).replaceAll(PLACEHOLDER))
+                .replace(PLACEHOLDER, "?");
     }
 
     /**
@@ -141,6 +197,7 @@ public record JournalTextExposure(ValueExposure exposure, boolean maskSecrets) {
         // The normalizer keeps identifier-like "..." runs, which MySQL reads as string literals, and an unterminated
         // dollar quote of a truncated statement; neither can be told apart from a value, so neither is shown.
         String shape = DOUBLE_QUOTED.matcher(normalized).replaceAll("?");
+        shape = UNREAD_NUMBER.matcher(shape).replaceAll("?");
         shape = UNTERMINATED_DOLLAR_QUOTE.matcher(shape).replaceAll("?");
         // A quote the normalizer left open is a literal it could not close: nothing after it is shown.
         int strayQuote = shape.indexOf('\'');
@@ -219,7 +276,8 @@ public record JournalTextExposure(ValueExposure exposure, boolean maskSecrets) {
             case JournalActivityFeed.TYPE_LOG -> "";
             case JournalActivityFeed.TYPE_EXCEPTION -> before(summary, ":");
             case JournalActivityFeed.TYPE_SECURITY -> before(summary, " · ");
-            case JournalActivityFeed.TYPE_MAIL -> summary.startsWith("Email to ") ? summary : "Email";
+            case JournalActivityFeed.TYPE_MAIL ->
+                GENERATED_MAIL_SUMMARY.matcher(summary).matches() ? summary : "Email";
             default -> summary;
         };
     }
@@ -232,7 +290,12 @@ public record JournalTextExposure(ValueExposure exposure, boolean maskSecrets) {
         return switch (type) {
             case JournalActivityFeed.TYPE_SCHEDULED, JournalActivityFeed.TYPE_EXCEPTION, JournalActivityFeed.TYPE_LOG ->
                 before(detail, ":");
-            case JournalActivityFeed.TYPE_MAIL -> detail.startsWith("to ") ? null : detail;
+            case JournalActivityFeed.TYPE_MAIL ->
+                GENERATED_MAIL_DETAIL.matcher(detail).matches() ? detail : null;
+            // The journal stores a datasource name or a client type where a 1.x row stored the failure's message, and
+            // a datasource name cannot be told apart from one: only a known client type is kept.
+            case JournalActivityFeed.TYPE_SQL -> null;
+            case JournalActivityFeed.TYPE_REST_CLIENT -> CLIENT_TYPES.contains(detail) ? detail : null;
             default -> detail;
         };
     }

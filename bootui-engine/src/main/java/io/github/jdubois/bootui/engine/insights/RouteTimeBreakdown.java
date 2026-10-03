@@ -564,7 +564,7 @@ public final class RouteTimeBreakdown implements Observation {
                         long[] call = calls.get(i);
                         if (call[0] <= from && call[1] >= bound) {
                             Phase kind = kinds.get(i);
-                            if (covering == null || kind.ordinal() < covering.ordinal()) {
+                            if (covering == null || precedence(kind) < precedence(covering)) {
                                 covering = kind;
                             }
                         }
@@ -647,11 +647,18 @@ public final class RouteTimeBreakdown implements Observation {
 
         /**
          * Names the AI calls and synchronous message sends the handler made (M3-8), and Hibernate's own flush time
-         * (M4-9), moving their time out of its other work. Neither is placed on the request's monotonic clock, so only
+         * (M4-9), moving their time out of its other work. None is placed on the request's monotonic clock, so only
          * their totals move, at most what the handler holds, as with authorization.
+         *
+         * <p>An AI call the framework reported with its monotonic completion is placed by the sweep instead, over the
+         * REST client call that carried it. One known only from a GenAI span is not, and its HTTP call, or a placed
+         * call nested in it, may already be counted, so only its model and embedding time, unioned by its wall-clock
+         * start, beyond every call the
+         * request already placed moves, which can under-count but never counts the same time twice. A tool or
+         * retrieval operation runs application code whose SQL and calls are placed already, so it never moves.</p>
          */
         private static void carveHandlerCalls(ProjectedRequest request, Map<Phase, Long> phases) {
-            long ai = 0;
+            List<long[]> unplacedAi = new ArrayList<>();
             long sends = 0;
             long hibernate = 0;
             long ormStatements = 0;
@@ -660,8 +667,13 @@ public final class RouteTimeBreakdown implements Observation {
                 if (child.durationNanos() <= 0) {
                     continue;
                 }
-                if (child.payload() instanceof AiPayload) {
-                    ai += child.durationNanos();
+                if (child.payload() instanceof AiPayload call) {
+                    if (call.completedNanos() < 0
+                            && (AiPayload.CHAT.equals(call.operation())
+                                    || AiPayload.EMBEDDINGS.equals(call.operation()))) {
+                        long start = child.epochMillis() * 1_000_000L;
+                        unplacedAi.add(new long[] {start, start + child.durationNanos()});
+                    }
                 } else if (child.payload() instanceof MessagingPayload message && synchronousSend(message)) {
                     sends += child.durationNanos();
                 } else if (child.payload() instanceof OrmPayload orm) {
@@ -677,8 +689,27 @@ public final class RouteTimeBreakdown implements Observation {
                 carve(phases, Phase.HANDLER, Phase.SQL, ormStatements);
             }
             carve(phases, Phase.HANDLER, Phase.HIBERNATE, hibernate);
-            carve(phases, Phase.HANDLER, Phase.AI, ai);
+            long placedCalls = phases.getOrDefault(Phase.CONNECTION_WAIT, 0L)
+                    + phases.getOrDefault(Phase.SQL, 0L)
+                    + phases.getOrDefault(Phase.REST_CLIENT, 0L)
+                    + phases.getOrDefault(Phase.AI, 0L);
+            carve(phases, Phase.HANDLER, Phase.AI, union(unplacedAi) - placedCalls);
             carve(phases, Phase.HANDLER, Phase.MESSAGE_SENDS, sends);
+        }
+
+        /** The time {@code intervals} cover, counting their overlaps once, as a nested call inside its caller. */
+        private static long union(List<long[]> intervals) {
+            intervals.sort(Comparator.comparingLong(interval -> interval[0]));
+            long covered = 0;
+            long end = Long.MIN_VALUE;
+            for (long[] interval : intervals) {
+                long from = Math.max(interval[0], end);
+                if (interval[1] > from) {
+                    covered += interval[1] - from;
+                    end = interval[1];
+                }
+            }
+            return covered;
         }
 
         private static void carve(Map<Phase, Long> phases, Phase from, Phase to, long nanos) {
@@ -708,8 +739,17 @@ public final class RouteTimeBreakdown implements Observation {
             return switch (child.source()) {
                 case CONNECTION -> Phase.CONNECTION_WAIT;
                 case SQL -> Phase.SQL;
+                case AI -> Phase.AI;
                 default -> Phase.REST_CLIENT;
             };
+        }
+
+        /**
+         * Which placed call names time that several cover, lowest first: an AI call names the REST client call that
+         * carried it to the model, while SQL and connection waits inside it, such as a tool's, stay their own.
+         */
+        private static int precedence(Phase kind) {
+            return kind == Phase.AI ? Phase.SQL.ordinal() * 2 + 1 : kind.ordinal() * 2;
         }
 
         /** {@code child}'s interval from the request's start, clipped to it, or {@code null} when it has none. */
@@ -720,6 +760,11 @@ public final class RouteTimeBreakdown implements Observation {
                 to = sql.completedNanos() - startNanos;
                 from = to - child.durationNanos();
             } else if (child.payload() instanceof RestClientPayload call
+                    && call.completedNanos() >= 0
+                    && child.durationNanos() > 0) {
+                to = call.completedNanos() - startNanos;
+                from = to - child.durationNanos();
+            } else if (child.payload() instanceof AiPayload call
                     && call.completedNanos() >= 0
                     && child.durationNanos() > 0) {
                 to = call.completedNanos() - startNanos;

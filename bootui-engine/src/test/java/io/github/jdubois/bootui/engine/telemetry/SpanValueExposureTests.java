@@ -213,6 +213,33 @@ class SpanValueExposureTests {
     }
 
     @Test
+    void toolCallArgumentsResultsAndVectorQueryContentFollowTheMessageRule() {
+        List<String> keys = List.of(
+                "gen_ai.tool.call.arguments",
+                "gen_ai.tool.call.result",
+                "spring.ai.tool.call.arguments",
+                "spring.ai.tool.call.result",
+                "db.vector.query.content",
+                "db.vector.query.response.documents",
+                "gen_ai.prompt.0.content",
+                "gen_ai.completion.0.content");
+        Map<String, AttributeValue> attributes = new LinkedHashMap<>();
+        for (String key : keys) {
+            attributes.put(key, AttributeValue.ofString("{\"city\":\"Paris\",\"password\":\"pw-7\"}"));
+        }
+
+        List<SpanAttributeDto> masked = MASKED.attributes(attributes);
+        List<SpanAttributeDto> omitted = METADATA_ONLY.attributes(attributes);
+        List<SpanAttributeDto> full = FULL.attributes(attributes);
+        for (String key : keys) {
+            assertThat((String) value(masked, key)).as(key).contains("Paris").doesNotContain("pw-7");
+            assertThat(value(omitted, key)).as(key).isNull();
+            assertThat((String) value(full, key)).as(key).contains("pw-7");
+        }
+        assertThat(omitted).extracting(SpanAttributeDto::key).containsExactlyElementsOf(keys);
+    }
+
+    @Test
     void anUnresolvedExposureModeFailsClosedToMasked() {
         SpanValueExposure rule = rule(null, true);
 

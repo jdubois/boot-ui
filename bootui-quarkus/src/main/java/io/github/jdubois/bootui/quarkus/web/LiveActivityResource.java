@@ -40,6 +40,7 @@ import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalActivityReports;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalRowDetails;
+import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
 import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
 import io.github.jdubois.bootui.engine.journal.RequestJournalProfiles;
 import io.github.jdubois.bootui.engine.journal.RequestProfileSelection;
@@ -371,8 +372,13 @@ public class LiveActivityResource {
         ActivityPage page = activityStore.query(query);
         return new LiveActivityReport(
                 live.available(),
-                // Stored rows were written under MASKED (or raw, by an older build); the live policy applies on read.
+                // Stored rows were written under MASKED (or raw, by an older build) while their panel was enabled;
+                // the live panel gate and exposure policy apply on read.
                 page.entryDtos().stream()
+                        .filter(row -> JournalSourcePanels.isReadable(
+                                row,
+                                panel -> panelAvailability.isPanelAvailable(panel)
+                                        && panelAvailability.isPanelEnabled(panel)))
                         .map(JournalTextExposure.of(exposure)::reapply)
                         .toList(),
                 live.typeCounts(),

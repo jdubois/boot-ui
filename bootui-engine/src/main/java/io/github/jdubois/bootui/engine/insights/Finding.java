@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.insights;
 
+import io.github.jdubois.bootui.engine.web.CorrelationTier;
 import java.util.List;
 
 /**
@@ -16,6 +17,8 @@ import java.util.List;
  * @param columns the evidence columns
  * @param rows the evidence rows, most telling first
  * @param limitations what it cannot see
+ * @param tier the weakest correlation tier its evidence used, when it is known to be stronger than the kind's {@link
+ *     Observation#minimumTier()}, or {@code null} for the kind's
  */
 public record Finding(
         String key,
@@ -28,7 +31,8 @@ public record Finding(
         List<String> exemplarRequestIds,
         List<String> columns,
         List<List<String>> rows,
-        List<String> limitations) {
+        List<String> limitations,
+        CorrelationTier tier) {
 
     public Finding {
         whatToCheck = List.copyOf(whatToCheck);
@@ -36,5 +40,33 @@ public record Finding(
         columns = List.copyOf(columns);
         rows = rows.stream().map(List::copyOf).toList();
         limitations = List.copyOf(limitations);
+    }
+
+    /** A finding at its kind's minimum tier. */
+    public Finding(
+            String key,
+            String subject,
+            boolean sufficient,
+            String sentence,
+            long eligible,
+            long affected,
+            List<String> whatToCheck,
+            List<String> exemplarRequestIds,
+            List<String> columns,
+            List<List<String>> rows,
+            List<String> limitations) {
+        this(
+                key,
+                subject,
+                sufficient,
+                sentence,
+                eligible,
+                affected,
+                whatToCheck,
+                exemplarRequestIds,
+                columns,
+                rows,
+                limitations,
+                null);
     }
 }

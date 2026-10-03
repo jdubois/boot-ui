@@ -131,6 +131,10 @@ class JournalTextExposureTests {
                     .doesNotContain("sk_live_EXAMPLE");
             assertThat(rule.sql("insert into users(pw) values(\"x\\\"hunter2pass\")"))
                     .doesNotContain("hunter2pass");
+            // A MySQL # comment is not one the normalizer knows: its quote would open a literal closed by a real one.
+            assertThat(rule.sql("INSERT INTO api_keys(value) # '\nVALUES ('sk_live_EXAMPLE')"))
+                    .isEqualTo("INSERT INTO api_keys(value) ?")
+                    .doesNotContain("sk_live_EXAMPLE");
         }
         assertThat(JournalTextExposure.masked().sql("select * from t where a = 'x' and b = 'y'"))
                 .isEqualTo("select * from t where a = ? and b = ?");
@@ -157,6 +161,47 @@ class JournalTextExposureTests {
         assertThat(masked.sql("select * from t where body = $$top secret")).doesNotContain("top secret");
         assertThat(masked.sql("select * from t where name = \"alice\"")).doesNotContain("alice");
         assertThat(masked.sql("select * from t where id = $1")).isEqualTo("select * from t where id = $1");
+        // A secret-like assignment is masked only once its literal is a placeholder, so it cannot eat the opener.
+        assertThat(masked.sql("select * from api_keys where credential = $$prefix sk_live_EXAMPLE$$"))
+                .doesNotContain("sk_live_EXAMPLE")
+                .doesNotContain("prefix");
+        assertThat(masked.sql("select * from api_keys where credential = $k$prefix sk_live_EXAMPLE$k$"))
+                .doesNotContain("sk_live_EXAMPLE")
+                .doesNotContain("prefix");
+        assertThat(masked.sql("update users set password = 'hunter2' where id = 1"))
+                .isEqualTo("update users set password = ? where id = ?");
+        assertThat(masked.sql("select * from t where password = :password and api_key = sk_live_EXAMPLE"))
+                .doesNotContain("sk_live_EXAMPLE");
+        // Neither a placeholder in the statement nor the mark that protects one can shield a secret from masking.
+        assertThat(masked.sql("SELECT 1 # password=?sk_live_EXAMPLE")).isEqualTo("SELECT ? ?");
+        assertThat(masked.sql("SELECT 1 # password=;\u0001;sk_live_EXAMPLE")).doesNotContain("sk_live_EXAMPLE");
+        assertThat(masked.sql("select * from t where password=?sk_live_EXAMPLE"))
+                .doesNotContain("sk_live_EXAMPLE");
+        assertThat(masked.sql("select * from t where password=;\u0001;x"))
+                .doesNotContain("\u0001")
+                .doesNotContain("password=?");
+        assertThat(masked.sql("UPDATE t SET password=?/sk_live_EXAMPLE")).doesNotContain("sk_live_EXAMPLE");
+        assertThat(masked.sql("UPDATE t SET password=?+sk_live_EXAMPLE")).doesNotContain("sk_live_EXAMPLE");
+        assertThat(masked.sql("UPDATE t SET `password`=sk_live_EXAMPLE")).doesNotContain("sk_live_EXAMPLE");
+        assertThat(masked.sql("SELECT [password]=sk_live_EXAMPLE FROM t")).doesNotContain("sk_live_EXAMPLE");
+        assertThat(masked.sql("SELECT `name` FROM [dbo].[users] WHERE `id` = 1"))
+                .isEqualTo("SELECT `name` FROM [dbo].[users] WHERE id = ?");
+        // PostgreSQL nests block comments; the normalizer closes one at its first */.
+        assertThat(masked.sql("SELECT /* outer /* inner */ ' */ 'sk_live_EXAMPLE'"))
+                .doesNotContain("sk_live_EXAMPLE");
+        assertThat(masked.sql("/* app */ SELECT * FROM t WHERE a = 'x' /* tail */"))
+                .isEqualTo("SELECT * FROM t WHERE a = ?");
+        assertThat(masked.sql("SELECT $é$sk_live_EXAMPLE")).doesNotContain("sk_live_EXAMPLE");
+        assertThat(masked.sql("SELECT 123_456, 1.5e-3 FROM t")).isEqualTo("SELECT ?, ? FROM t");
+        // Literals the normalizer reads as something else.
+        assertThat(masked.sql("SELECT .123456 FROM t")).isEqualTo("SELECT ? FROM t");
+        assertThat(masked.sql("SELECT 0x736b5f6c6976655f4558414d504c45, 0b1011 FROM t"))
+                .isEqualTo("SELECT ?, ? FROM t");
+        assertThat(masked.sql("SELECT q'[it's sk_live_EXAMPLE]' FROM dual"))
+                .isEqualTo("SELECT q ?")
+                .doesNotContain("sk_live_EXAMPLE");
+        assertThat(masked.sql("SELECT t.col1, s.x FROM s.t WHERE a = ? AND b IN (?, ?)"))
+                .isEqualTo("SELECT t.col1, s.x FROM s.t WHERE a = ? AND b IN (?)");
         assertThat(masked.sql(null)).isEmpty();
     }
 
@@ -221,6 +266,26 @@ class JournalTextExposureTests {
         assertThat(metadata.reapply(row("MAIL", "Email to 2 recipients", null, "1 attachment")))
                 .extracting(ActivityEntryDto::summary, ActivityEntryDto::detail)
                 .containsExactly("Email to 2 recipients", "1 attachment");
+        assertThat(metadata.reapply(row("MAIL", "Email to bob: your reset code 123456", null, "dev-trap: not sent")))
+                .extracting(ActivityEntryDto::summary, ActivityEntryDto::detail)
+                .containsExactly("Email", "dev-trap: not sent");
+        // A 1.x SQL or REST client row stored the failure's message where the journal keeps a datasource or client.
+        assertThat(metadata.reapply(row("SQL", "insert into t(v) values (?)", null, "Duplicate entry 'sk_live_X'"))
+                        .detail())
+                .isNull();
+        assertThat(metadata.reapply(row("REST_CLIENT", "POST api.example.com/t → 500", null, "Bad token abc123"))
+                        .detail())
+                .isNull();
+        // A datasource name cannot be told apart from a 1.x message such as a bare token; a client type can.
+        assertThat(metadata.reapply(row("SQL", "select 1", null, "sk_live_EXAMPLE"))
+                        .detail())
+                .isNull();
+        assertThat(metadata.reapply(row("REST_CLIENT", "GET api.example.com/t → 500", null, "sk_live_EXAMPLE"))
+                        .detail())
+                .isNull();
+        assertThat(metadata.reapply(row("REST_CLIENT", "GET api.example.com/t → 200", null, "RestClient"))
+                        .detail())
+                .isEqualTo("RestClient");
     }
 
     private List<ActivityEntryDto> render() {

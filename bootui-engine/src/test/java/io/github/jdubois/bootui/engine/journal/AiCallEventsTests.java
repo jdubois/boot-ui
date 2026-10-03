@@ -39,6 +39,28 @@ class AiCallEventsTests {
             assertThat(event.durationNanos()).isEqualTo(40_000_000);
         });
         assertThat(AiCallEvents.recordedNatively(null, null, "chat")).isFalse();
+        assertThat(((AiPayload) published.get(0).payload()).completedNanos())
+                .as("without its completion, the call is not placed on its request's clock")
+                .isEqualTo(-1);
+    }
+
+    @Test
+    void aCallsMonotonicCompletionIsKeptToPlaceItOnItsRequestsClock() {
+        AiCallEvents.publish(
+                sink,
+                CorrelationContext.forRequest("r1"),
+                null,
+                "span-1",
+                1_000,
+                40_000_000,
+                123_456_789L,
+                "http-1",
+                new AiPayload("chat", "ollama", "llama3", 12L, 30L, "stop", false));
+
+        assertThat((AiPayload) published.get(0).payload()).satisfies(payload -> {
+            assertThat(payload.completedNanos()).isEqualTo(123_456_789L);
+            assertThat(payload.spanId()).isEqualTo("span-1");
+        });
     }
 
     @Test

@@ -109,13 +109,15 @@ public class QuarkusAiCallListener implements ChatModelListener {
         if (!(attributes.get(STARTED) instanceof Started started)) {
             return;
         }
+        long completed = System.nanoTime();
         AiCallEvents.publish(
                 journal,
                 started.correlation(),
                 null,
                 null,
                 started.epochMillis(),
-                System.nanoTime() - started.nanos(),
+                completed - started.nanos(),
+                completed,
                 started.thread(),
                 new AiPayload(AiPayload.CHAT, provider, model, inputTokens, outputTokens, finishReason, failed));
     }

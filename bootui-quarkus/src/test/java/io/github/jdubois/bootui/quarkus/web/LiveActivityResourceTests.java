@@ -33,6 +33,7 @@ import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournalSettings;
 import io.github.jdubois.bootui.engine.kafka.KafkaActivityRecorder;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.engine.rabbit.RabbitActivityRecorder;
 import io.github.jdubois.bootui.engine.restclienttrace.RestClientTraceRecorder;
 import io.github.jdubois.bootui.engine.scheduled.ScheduledTaskRunStore;
@@ -114,6 +115,38 @@ class LiveActivityResourceTests {
     }
 
     @Test
+    void aPersistedRowIsHiddenOnceItsPanelIsDisabled() {
+        SwitchableActivityStore store = persistentStore(new RecordingActivityStore(ActivityPage.EMPTY), "instance-a");
+        LiveActivityResource resource = resourceWith(
+                store,
+                enabledSettings("instance-a"),
+                unsatisfiedDataSource(),
+                new HttpExchangeBuffer(50),
+                unsatisfiedEmailCaptureService(),
+                new KafkaActivityRecorder(true, true, 200, 16),
+                config(Map.of("bootui.panels." + BootUiPanels.SQL_TRACE + ".enabled", "false")));
+        try {
+            store.appendBatch(List.of(
+                    new StoredActivityEntry("instance-a", 1L, storedRow("marker-1", "MARKER", "Application started")),
+                    new StoredActivityEntry("instance-a", 2L, storedRow("req-1", "REQUEST", "GET /orders → 200")),
+                    new StoredActivityEntry("instance-a", 3L, storedRow("sql-1", "SQL", "select * from audit"))));
+
+            // Rows written while SQL Trace was enabled stay in bootui_activity, but are not read once it is off.
+            assertThat(resource.activity(0, null, null, null, null, null, null, 50)
+                            .entries())
+                    .extracting(ActivityEntryDto::id)
+                    .containsExactly("req-1", "marker-1");
+        } finally {
+            cleanup(resource, store);
+        }
+    }
+
+    private static ActivityEntryDto storedRow(String id, String type, String summary) {
+        return new ActivityEntryDto(
+                id, type, 1_000L, "OK", summary, null, null, null, null, null, null, null, false, null, null, false);
+    }
+
+    @Test
     void activityDelegatesEntriesAndPageInfoToStoreWhenPersistenceEnabled() {
         ActivityEntryDto storedEntry = new ActivityEntryDto(
                 "sql-1",
@@ -133,7 +166,8 @@ class LiveActivityResourceTests {
                 null,
                 false);
         SwitchableActivityStore store = persistentStore(new RecordingActivityStore(ActivityPage.EMPTY), "instance-a");
-        LiveActivityResource resource = resourceWith(store, enabledSettings("instance-a"));
+        // SQL rows are read only while SQL Trace is available, which on Quarkus means a connection pool is present.
+        LiveActivityResource resource = resourceWithSqlTrace(store, enabledSettings("instance-a"));
         try {
             store.appendBatch(List.of(new StoredActivityEntry("instance-a", 1L, storedEntry)));
             LiveActivityReport expectedLive = resource.mergedReport(0);
@@ -191,7 +225,8 @@ class LiveActivityResourceTests {
                 null,
                 false);
         SwitchableActivityStore store = persistentStore(new RecordingActivityStore(ActivityPage.EMPTY), "instance-a");
-        LiveActivityResource resource = resourceWith(store, enabledSettings("instance-a"));
+        // SQL rows are read only while SQL Trace is available, which on Quarkus means a connection pool is present.
+        LiveActivityResource resource = resourceWithSqlTrace(store, enabledSettings("instance-a"));
         try {
             store.appendBatch(List.of(new StoredActivityEntry("instance-a", 1L, storedEntry)));
 
@@ -740,6 +775,18 @@ class LiveActivityResourceTests {
                 unsatisfiedEmailCaptureService(),
                 new KafkaActivityRecorder(true, true, 200, 16),
                 config(Map.of()));
+    }
+
+    private static LiveActivityResource resourceWithSqlTrace(
+            SwitchableActivityStore activityStore, ActivityPersistenceSettings settings) {
+        return resourceWith(
+                activityStore,
+                settings,
+                unsatisfiedDataSource(),
+                new HttpExchangeBuffer(50),
+                unsatisfiedEmailCaptureService(),
+                new KafkaActivityRecorder(true, true, 200, 16),
+                config(Map.of(QuarkusPanelAvailability.CONNECTION_POOLS_PRESENT_KEY, "true")));
     }
 
     private static LiveActivityResource resourceWithKafka(KafkaActivityRecorder kafkaRecorder) {
