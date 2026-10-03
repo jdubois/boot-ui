@@ -32,9 +32,10 @@ const failure = ref(null)
 const root = ref(null)
 
 const ownerPanel = computed(() => (panels.value?.panels ?? []).find((panel) => panel.id === 'live-memory') ?? null)
-// No manifest entry (standalone render) is treated as available; the backend still enforces access.
+// Fail closed: the destructive action stays hidden until the manifest is loaded and lists an enabled, available Live
+// Memory panel, so it never shows while `/api/panels` is loading, has failed, or omits the owning panel.
 const visible = computed(
-  () => !ownerPanel.value || (ownerPanel.value.enabled !== false && ownerPanel.value.available !== false)
+  () => ownerPanel.value !== null && ownerPanel.value.enabled !== false && ownerPanel.value.available !== false
 )
 const readOnly = computed(() => ownerPanel.value?.readOnly === true)
 const readOnlyReason = computed(() => ownerPanel.value?.readOnlyReason || 'BootUI actions are read-only.')
@@ -227,7 +228,7 @@ async function offload() {
 }
 
 .memory-offload__warning {
-  color: var(--bootui-warning-text);
+  color: var(--bootui-warning-text-strong);
 }
 
 .btn-close-sm {

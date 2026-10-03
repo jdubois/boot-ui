@@ -423,12 +423,13 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
         return "Runtime journal events";
     }
 
-    /** Drops what {@link #clear()} drops, for <b>Free BootUI memory</b>; recording settings are kept. */
+    /**
+     * Drops what {@link #clear()} drops, for <b>Free BootUI memory</b>, and counts the retained and still-queued events
+     * it discarded; recording settings are kept.
+     */
     @Override
     public long offloadRetainedData() {
-        long retained = status().retainedEvents();
-        clear();
-        return retained;
+        return clearAndCount();
     }
 
     /**
@@ -439,11 +440,17 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
      * It waits for a batch being processed, so no event recorded before the clear is processed after it.
      */
     public void clear() {
+        clearAndCount();
+    }
+
+    /** {@link #clear()}, returning how many retained and queued events it dropped, counted under the same lock. */
+    private long clearAndCount() {
         synchronized (processing) {
             clears++;
             List<Queued> queued = new ArrayList<>();
             queue.drainTo(queued);
             processed.addAndGet(queued.size());
+            long dropped = ring.counts().retained() + queued.size();
             ring.clear();
             dictionary.clear();
             SqlShapes.clear();
@@ -455,6 +462,7 @@ public final class RuntimeJournal implements RuntimeEventSink, AutoCloseable, Me
                     log.log(Level.WARNING, "A listener of BootUI's runtime journal failed to clear its state", ex);
                 }
             }
+            return dropped;
         }
     }
 

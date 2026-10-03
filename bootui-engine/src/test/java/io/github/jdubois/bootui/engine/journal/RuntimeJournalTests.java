@@ -325,6 +325,19 @@ class RuntimeJournalTests {
     }
 
     @Test
+    void offloadingCountsTheRetainedAndTheStillQueuedEventsItDrops() {
+        RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
+        journal.offer(sql(1, false));
+        journal.offer(sql(2, false));
+        journal.dispatchPending();
+        journal.offer(sql(3, false));
+
+        assertThat(journal.offloadRetainedData()).isEqualTo(3L);
+        assertThat(journal.entries()).isEmpty();
+        assertThat(journal.status().queueDepth()).isZero();
+    }
+
+    @Test
     void clearingAlsoDropsTheQueuedEventsAndTellsEveryListener() throws InterruptedException {
         RuntimeJournal journal = journal(settings(100, 1_000_000, 100, 10, JournalSource.all()), false);
         List<String> seen = new ArrayList<>();

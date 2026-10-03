@@ -175,4 +175,17 @@ describe('MemoryOffloadButton', () => {
 
     expect(wrapper.find('[data-testid="memory-offload"]').exists()).toBe(false)
   })
+
+  it.each([
+    ['still loading', ref(null)],
+    ['missing the Live Memory panel', manifest(null)]
+  ])('fails closed while the panel manifest is %s', async (_, panels) => {
+    const wrapper = mountButton({panels})
+
+    expect(wrapper.find('[data-testid="memory-offload"]').exists()).toBe(false)
+
+    panels.value = {platform: 'spring-boot', panels: [livePanel()]}
+    await flushPromises()
+    expect(wrapper.find('[data-testid="memory-offload"]').exists()).toBe(true)
+  })
 })
