@@ -386,9 +386,11 @@ jobs:
           # the MAVEN_GPG_PASSPHRASE env var above (its passphraseEnvName default) instead.
           # Build only Central distribution modules and their required reactor dependencies during
           # publication. The complete reactor was already verified before the immutable release
-          # commit and tag were created.
+          # commit and tag were created. bootui-agent-bridge is built here only because bootui-agent
+          # shades it into the published -javaagent jar; the root POM's excludeArtifacts keeps the
+          # bridge itself out of the Central bundle.
           ./mvnw -B -ntp -Prelease clean deploy \
-            -pl .,bootui-core,bootui-engine,bootui-spring-autoconfigure,bootui-spring-boot-starter,bootui-spring-boot-starter-reactive,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-client,bootui-cli \
+            -pl .,bootui-core,bootui-engine,bootui-spring-autoconfigure,bootui-spring-boot-starter,bootui-spring-boot-starter-reactive,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-client,bootui-cli,bootui-agent-bridge,bootui-agent \
             -am \
             -Dcentral.autoPublish="${CENTRAL_AUTO_PUBLISH}"
 
@@ -420,6 +422,9 @@ jobs:
             # a release that published bootui-cli but lost the shade execution would otherwise look fine
             # while `java -jar` and the JBang catalog both fail.
             "bootui-cli/${VERSION}/bootui-cli-${VERSION}-all.jar"
+            # The -javaagent jar. bootui-agent-bridge is shaded inside it and is never published, so it
+            # must never be polled here: it would only time out.
+            "bootui-agent/${VERSION}/bootui-agent-${VERSION}.jar"
           )
 
           # Sonatype Central -> Maven Central propagation can lag behind a successful
@@ -453,8 +458,9 @@ jobs:
           VERSION="$(./mvnw -B -ntp -q -N -DforceStdout help:evaluate -Dexpression=project.version | tail -n 1)"
           SPRING_BOOT_VERSION="$(./mvnw -B -ntp -q -N -DforceStdout help:evaluate -Dexpression=spring-boot.version | tail -n 1)"
           QUARKUS_VERSION="$(./mvnw -B -ntp -q -N -DforceStdout help:evaluate -Dexpression=quarkus.platform.version | tail -n 1)"
+          DEPENDENCY_PLUGIN_VERSION="$(./mvnw -B -ntp -q -N -DforceStdout help:evaluate -Dexpression=maven-dependency-plugin.version | tail -n 1)"
           echo "Smoke-testing BootUI ${VERSION} against the published Maven Central artifacts."
-          echo "Distributions: Spring MVC (servlet starter), Spring WebFlux (reactive starter), Quarkus extension."
+          echo "Distributions: Spring MVC (servlet starter), Spring WebFlux (reactive starter), Quarkus extension, Java agent."
 
           # Drop all locally built/installed BootUI artifacts so every smoke test is forced to
           # resolve them from Maven Central — exercising exactly what a consumer downloads.
@@ -653,7 +659,60 @@ jobs:
           ./mvnw -B -ntp -f "$QUARKUS_SMOKE_DIR/pom.xml" package -Dmaven.test.skip=true
           echo "Quarkus extension smoke test passed."
 
-          echo "All BootUI ${VERSION} distribution smoke tests passed (Spring MVC, Spring WebFlux, Quarkus)."
+          # ── 4/4: Java agent — bootui-agent ───────────────────────────────────────────
+          # A standalone consumer project resolves bootui-agent from Maven Central the way a build that
+          # attaches it does. The published POM must give that consumer no dependency: the bridge and
+          # Byte Buddy are shaded in and declared optional, and bootui-agent-bridge is never published,
+          # so its runtime classpath must hold the agent jar alone. The JVM then starts with that jar
+          # as its -javaagent, and the agent must report itself dormant without failing the JVM.
+          echo "=== Smoke test 4/4: Java agent (bootui-agent) ==="
+          AGENT_SMOKE_DIR="$(mktemp -d)"
+          cat > "$AGENT_SMOKE_DIR/pom.xml" << AGENT_POM
+          <?xml version="1.0" encoding="UTF-8"?>
+          <project xmlns="http://maven.apache.org/POM/4.0.0">
+            <modelVersion>4.0.0</modelVersion>
+            <groupId>smoke</groupId>
+            <artifactId>bootui-agent-consumer-smoke</artifactId>
+            <version>1</version>
+            <packaging>pom</packaging>
+            <dependencies>
+              <dependency>
+                <groupId>com.julien-dubois.bootui</groupId>
+                <artifactId>bootui-agent</artifactId>
+                <version>${VERSION}</version>
+              </dependency>
+            </dependencies>
+          </project>
+          AGENT_POM
+          # No -am (standalone project outside the reactor); no -o (must resolve from Central).
+          ./mvnw -B -ntp -f "$AGENT_SMOKE_DIR/pom.xml" \
+            "org.apache.maven.plugins:maven-dependency-plugin:${DEPENDENCY_PLUGIN_VERSION}:copy-dependencies" \
+            -DincludeScope=runtime \
+            -DoutputDirectory="$AGENT_SMOKE_DIR/lib"
+          AGENT_JAR="$AGENT_SMOKE_DIR/lib/bootui-agent-${VERSION}.jar"
+          AGENT_CLASSPATH="$(ls -1 "$AGENT_SMOKE_DIR/lib")"
+          if [[ "$AGENT_CLASSPATH" != "bootui-agent-${VERSION}.jar" ]]; then
+            echo "::error::The published bootui-agent ${VERSION} POM must give a consumer no compile or runtime dependency, but its runtime classpath resolved:"
+            printf '%s\n' "$AGENT_CLASSPATH"
+            exit 1
+          fi
+          AGENT_STDERR="$(mktemp)"
+          # java -version prints to stderr, which also carries the agent's dormant line and, on HotSpot, a
+          # class-data-sharing warning because the agent appends itself to the bootstrap class path.
+          if ! java -javaagent:"$AGENT_JAR" -version 2> "$AGENT_STDERR"; then
+            echo "::error::A JVM started with -javaagent:bootui-agent-${VERSION}.jar exited with a failure."
+            cat "$AGENT_STDERR"
+            exit 1
+          fi
+          cat "$AGENT_STDERR"
+          AGENT_DORMANT_LINE="[BootUI agent] BootUI agent ${VERSION} attached (javaagent); dormant until BootUI claims it"
+          if ! grep -Fxq -- "$AGENT_DORMANT_LINE" "$AGENT_STDERR"; then
+            echo "::error::bootui-agent ${VERSION} did not report itself attached and dormant; expected: ${AGENT_DORMANT_LINE}"
+            exit 1
+          fi
+          echo "Java agent smoke test passed."
+
+          echo "All BootUI ${VERSION} distribution smoke tests passed (Spring MVC, Spring WebFlux, Quarkus, Java agent)."
 
       - name: Decide documentation redeploy
         if: env.CENTRAL_AUTO_PUBLISH == 'true'

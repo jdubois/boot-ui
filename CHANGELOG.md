@@ -18,6 +18,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `bootui.agent.mode`; the dependency inventory no longer counts the agent jar as an application library (PLAN-v2
   M5-1).
 
+- **`bootui-agent` is published to Maven Central.** The release workflow now builds and publishes the `bootui-agent`
+  `-javaagent` jar (`com.julien-dubois.bootui:bootui-agent`), polls for it on Maven Central, and smoke-tests the
+  published jar: a consumer resolves it with no dependency, and a JVM started with it as its `-javaagent` reports it
+  dormant. `bootui-agent-bridge` is built and shaded into the agent but never published (PLAN-v2 M5-1d).
+
 - **Agent-ready request profiles and Copy for AI.** The new read-only `get_request_profile` MCP tool, also the
   `bootui request-profile <id>` command, returns the same masked per-request profile as
   `GET /bootui/api/activity/request/{id}` on Spring MVC, Spring WebFlux, and Quarkus, including the unavailable profile

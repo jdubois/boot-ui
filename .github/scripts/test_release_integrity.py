@@ -13,6 +13,15 @@ NEXT_VERSION_CALL = (
 )
 NEWEST_MAJOR_CALL = 'bash .github/scripts/release-version-policy.sh newest-major "$RELEASE_VERSION"'
 REDEPLOY_CONDITION = "if: env.CENTRAL_AUTO_PUBLISH == 'true' && env.REDEPLOY_DOCS == 'true'"
+PUBLICATION_MODULES = "bootui-client,bootui-cli,bootui-agent-bridge,bootui-agent \\\n"
+AGENT_AVAILABILITY = '"bootui-agent/${VERSION}/bootui-agent-${VERSION}.jar"\n'
+AGENT_CONSUMER = '-f "$AGENT_SMOKE_DIR/pom.xml"'
+AGENT_ATTACH = 'java -javaagent:"$AGENT_JAR" -version'
+AGENT_DORMANT = (
+    'AGENT_DORMANT_LINE="[BootUI agent] BootUI agent ${VERSION} attached (javaagent); '
+    'dormant until BootUI claims it"'
+)
+AGENT_DEPENDENCY_FREE = 'if [[ "$AGENT_CLASSPATH" != "bootui-agent-${VERSION}.jar" ]]; then'
 
 
 class ReleaseIntegrityTests(unittest.TestCase):
@@ -114,6 +123,52 @@ class ReleaseIntegrityTests(unittest.TestCase):
         ):
             with self.subTest(old=old):
                 self.assert_rejected(self.mutate(old, new), message)
+
+    def test_java_agent_is_in_the_publication_reactor(self):
+        for modules in (
+            "bootui-client,bootui-cli \\\n",
+            "bootui-client,bootui-cli,bootui-agent \\\n",
+            "bootui-client,bootui-cli,bootui-agent-bridge \\\n",
+        ):
+            with self.subTest(modules=modules):
+                self.assert_rejected(
+                    self.mutate(PUBLICATION_MODULES, modules), "publication-only Maven reactor"
+                )
+
+    def test_java_agent_availability_is_polled(self):
+        self.assert_rejected(
+            self.mutate("            " + AGENT_AVAILABILITY, ""), "Java agent availability check"
+        )
+
+    def test_agent_bridge_is_never_polled(self):
+        content = self.mutate(
+            "            " + AGENT_AVAILABILITY,
+            "            " + AGENT_AVAILABILITY
+            + '            "bootui-agent-bridge/${VERSION}/bootui-agent-bridge-${VERSION}.jar"\n',
+        )
+        self.assert_rejected(content, "bootui-agent-bridge is never published")
+
+    def test_java_agent_smoke_test_is_required(self):
+        for old, new, message in (
+            (AGENT_CONSUMER, '-f "$AGENT_POM"', "external Java agent consumer invocation"),
+            (AGENT_DEPENDENCY_FREE, "if false; then", "consumer dependency-free assertion"),
+            (AGENT_ATTACH, "java -version", "Java agent attach smoke test"),
+            (AGENT_DORMANT, 'AGENT_DORMANT_LINE="attached"', "dormant startup assertion"),
+        ):
+            with self.subTest(old=old):
+                self.assert_rejected(self.mutate(old, new), message)
+
+    def test_java_agent_smoke_test_resolves_from_central(self):
+        content = WORKFLOW.read_text(encoding="utf-8")
+        purge = '          rm -rf "$HOME/.m2/repository/com/julien-dubois/bootui"\n'
+        self.assertEqual(content.count(purge), 1, "fixture drifted: local artifact purge")
+        content = content.replace(purge, "")
+        content = content.replace(
+            '          echo "Java agent smoke test passed."\n',
+            '          echo "Java agent smoke test passed."\n' + purge,
+            1,
+        )
+        self.assert_rejected(content, "must resolve bootui-agent from Maven Central")
 
     def test_rebase_and_passphrase_arguments_are_refused(self):
         self.assert_rejected(

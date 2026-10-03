@@ -62,6 +62,13 @@ jobs:
           -pl bootui-spring-sample-app,bootui-spring-webflux-sample-app,bootui-quarkus-integration-tests/base
           -am test
 
+      - name: Agent forked-JVM tests
+        # The BootUI agent's behaviour is JDK-specific (Byte Buddy class-file support, the
+        # privileged install that only matters on JDK 17 to 23, virtual threads): run its
+        # forked-JVM integration tests (layout, dormancy, coexistence, leak walk) on each lane.
+        # Java 17 runs them in build.yml's full reactor.
+        run: ./mvnw -B -ntp -pl bootui-agent-bridge,bootui-agent -am verify
+
       - name: Exercise Quarkus sample app augmentation
         # Ensures Quarkus build-time augmentation runs on JDK 17 to 27 and catches
         # ByteBuddy/build-plugin regressions without running browser tests. On JDK 28+

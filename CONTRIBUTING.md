@@ -34,6 +34,8 @@ bootui-conformance/                  Shared HTTP contract suite + golden manifes
 bootui-coverage/                     Aggregated coverage report (coverage profile only)
 bootui-client/                       Dependency-free client for the command-line endpoint
 bootui-cli/                          The `bootui` CLI, projected from the engine's MCP tool catalog
+bootui-agent-bridge/                 JDK-only agent/engine contract, shaded into bootui-agent (never published)
+bootui-agent/                        The optional `-javaagent` jar, dormant until BootUI claims it
 bootui-spring-sample-app/            Reference Spring MVC app + Playwright e2e
 bootui-spring-webflux-sample-app/    Reference Spring WebFlux app
 bootui-quarkus-parent/               Shared Quarkus LTS BOM and plugin management
@@ -598,7 +600,9 @@ the non-distribution artifact exclusions, before importing signing credentials.
 The workflow then resolves the remote tag to its peeled commit SHA, checks out that
 SHA in detached state, rechecks the Maven/npm/tag identity, and publishes exactly
 that checkout. After auto-publication it polls every published coordinate, runs the
-Spring MVC, Spring WebFlux, and Quarkus consumer smoke tests, and dispatches the
+Spring MVC, Spring WebFlux, and Quarkus consumer smoke tests and the Java agent smoke
+test (a consumer resolves `bootui-agent` with no dependency, and a JVM started with it
+as its `-javaagent` reports it dormant), and dispatches the
 Pages workflow at the immutable tag rather than at a branch that may have advanced.
 The documentation site follows the newest major only: the workflow redeploys it when
 the release's major is at least the highest major among the stable tags on origin,

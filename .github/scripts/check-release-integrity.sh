@@ -73,10 +73,18 @@ require_literal "git ls-remote --tags --refs origin 'refs/tags/v*'" \
   'documentation redeploy decision from the tags on origin'
 require_literal "if: env.CENTRAL_AUTO_PUBLISH == 'true' && env.REDEPLOY_DOCS == 'true'" \
   'documentation redeploy restricted to the newest major'
-require_literal '-pl .,bootui-core,bootui-engine,bootui-spring-autoconfigure,bootui-spring-boot-starter,bootui-spring-boot-starter-reactive,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-client,bootui-cli' \
+require_literal '-pl .,bootui-core,bootui-engine,bootui-spring-autoconfigure,bootui-spring-boot-starter,bootui-spring-boot-starter-reactive,bootui-ui,bootui-quarkus-parent,bootui-quarkus,bootui-quarkus-deployment,bootui-client,bootui-cli,bootui-agent-bridge,bootui-agent \' \
   'publication-only Maven reactor'
 require_literal 'bootui-cli/${VERSION}/bootui-cli-${VERSION}-all.jar' \
   'runnable CLI uber-jar availability check'
+require_literal '"bootui-agent/${VERSION}/bootui-agent-${VERSION}.jar"' \
+  'Java agent availability check'
+require_literal '-f "$AGENT_SMOKE_DIR/pom.xml"' 'external Java agent consumer invocation'
+require_literal 'if [[ "$AGENT_CLASSPATH" != "bootui-agent-${VERSION}.jar" ]]; then' \
+  'Java agent consumer dependency-free assertion'
+require_literal 'java -javaagent:"$AGENT_JAR" -version' 'Java agent attach smoke test'
+require_literal 'AGENT_DORMANT_LINE="[BootUI agent] BootUI agent ${VERSION} attached (javaagent); dormant until BootUI claims it"' \
+  'Java agent dormant startup assertion'
 require_literal 'create_spring_smoke_project "$MVC_SMOKE_DIR" "bootui-spring-boot-starter" "8080"' \
   'standalone Spring MVC consumer smoke project'
 require_literal 'create_spring_smoke_project "$WEBFLUX_SMOKE_DIR" "bootui-spring-boot-starter-reactive" "8081"' \
@@ -93,6 +101,16 @@ for sample_module in bootui-spring-sample-app bootui-spring-webflux-sample-app; 
     report_error "published-distribution smoke tests must not run unpublished reactor module '$sample_module'"
   fi
 done
+
+# The bridge is built in the publication reactor only to be shaded into bootui-agent; Central never
+# receives it, so polling for it would only time out after a successful release.
+availability_step="$(
+  sed -n '/- name: Wait for Maven Central availability/,/- name: Smoke test published distributions/p' "$WORKFLOW"
+)"
+readonly availability_step
+if grep -Fq 'bootui-agent-bridge/' <<<"$availability_step"; then
+  report_error 'bootui-agent-bridge is never published and must not be polled on Maven Central'
+fi
 
 excluded_artifacts="$(
   sed -n '/<excludeArtifacts>/,/<\/excludeArtifacts>/p' "$ROOT_POM"
@@ -164,6 +182,10 @@ require_order 'release-version-policy.sh next-version' './mvnw -B -ntp versions:
   'the release version must be validated against its major before any project file is rewritten'
 require_order '- name: Smoke test published distributions' '- name: Decide documentation redeploy' \
   'the documentation redeploy decision must follow the consumer smoke tests'
+require_order 'rm -rf "$HOME/.m2/repository/com/julien-dubois/bootui"' '-f "$AGENT_SMOKE_DIR/pom.xml"' \
+  'the Java agent smoke test must resolve bootui-agent from Maven Central, after the local BootUI artifacts are dropped'
+require_order '-f "$AGENT_SMOKE_DIR/pom.xml"' '- name: Decide documentation redeploy' \
+  'the Java agent smoke test must run with the published-distribution smoke tests'
 require_order '- name: Decide documentation redeploy' '- name: Redeploy documentation site' \
   'the documentation redeploy decision must precede the documentation deployment'
 

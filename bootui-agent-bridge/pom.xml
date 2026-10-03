@@ -15,6 +15,12 @@
     <description>The contract between the BootUI engine and the BootUI Java agent, loaded by the bootstrap class loader.
         Built here and shipped inside bootui-agent only; never published on its own.</description>
 
+    <properties>
+        <!-- Shaded into bootui-agent; never publish to Maven Central. The root POM's excludeArtifacts is what keeps it
+             out of the Central bundle, since the publication reactor builds it for bootui-agent. -->
+        <maven.deploy.skip>true</maven.deploy.skip>
+    </properties>
+
     <!--
         The bridge runs on the bootstrap class path, inside advised java.base methods, possibly while java.lang.invoke is
         still bootstrapping (PLAN-v2 M5 rules). So it uses JDK types only, no dependency, and no lambda, method reference,

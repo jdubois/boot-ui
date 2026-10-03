@@ -72,8 +72,11 @@ These override any instinct carried over from ordinary pull-request work, where 
    guard locally before pushing.
 8. Keep publication scope exact when modules are added or renamed. Published artifacts are the parent POM, core,
    engine, UI, Spring autoconfigure, both Spring starters, the Quarkus parent, runtime, and deployment, `bootui-client`,
-   and `bootui-cli`. Everything else keeps `maven.deploy.skip=true` and stays in the root POM `excludeArtifacts` list,
-   which the guard count-checks, and stays out of the publication reactor and the smoke-test step.
+   `bootui-cli`, and `bootui-agent` (smoke-tested as a dormant `-javaagent` with an agent-only runtime classpath).
+   Everything else keeps `maven.deploy.skip=true` and stays in the root POM `excludeArtifacts` list, which the guard
+   count-checks, and stays out of the publication reactor and the smoke-test step, with one exception:
+   `bootui-agent-bridge`, shaded into the agent, is built in the publication reactor but excluded from Central and never
+   polled.
 9. Keep the coupled release surfaces aligned: the availability poll list matches the publication reactor, the
    `jbang-catalog.json` alias tracks the CLI shade execution and its `:all` classifier, every published jar module
    attaches an empty placeholder `javadoc.jar` during `package` before signing at `verify` (the release profile's

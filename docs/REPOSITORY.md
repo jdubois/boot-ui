@@ -12,6 +12,10 @@
 - `bootui-coverage`: aggregated coverage report (built by the `coverage` profile only).
 - `bootui-client`: dependency-free client for the command-line endpoint; depends on nothing, not even `bootui-core`.
 - `bootui-cli`: the `bootui` command-line interface, generated from the engine's MCP tool catalog.
+- `bootui-agent-bridge`: the JDK-only contract between the engine and the Java agent, loaded by the bootstrap class
+  loader. Built and shaded into `bootui-agent`, never published on its own.
+- `bootui-agent`: the optional, development-time `-javaagent` jar, published to Maven Central with no dependency for its
+  consumers; it stays dormant until a BootUI application claims it.
 - `bootui-spring-sample-app`: Spring MVC sample app + Playwright e2e coverage.
 - `bootui-spring-webflux-sample-app`: Spring WebFlux sample app.
 - `bootui-quarkus-parent`: shared Quarkus LTS BOM and plugin management.

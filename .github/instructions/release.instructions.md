@@ -8,9 +8,16 @@ applyTo: ".github/workflows/release.yml,.github/workflows/build.yml,.github/scri
   and every npm package and lock file.
 - Keep `quarkus.platform.version` independent from the BootUI project version.
 - Published artifacts are the parent POM, core, engine, UI, Spring autoconfigure, both Spring starters (MVC and
-  reactive), Quarkus parent, Quarkus runtime, Quarkus deployment, `bootui-client`, and `bootui-cli`. Sample apps,
-  integration tests, coverage, and conformance must retain `maven.deploy.skip=true`, remain in the Central plugin's
-  `excludeArtifacts` list, and stay outside the publication-only reactor in `release.yml`.
+  reactive), Quarkus parent, Quarkus runtime, Quarkus deployment, `bootui-client`, `bootui-cli`, and the `bootui-agent`
+  `-javaagent` jar. Sample apps, integration tests, coverage, and conformance must retain `maven.deploy.skip=true`,
+  remain in the Central plugin's `excludeArtifacts` list, and stay outside the publication-only reactor in
+  `release.yml`.
+- `bootui-agent-bridge` is built but never published: `bootui-agent` shades it in and declares it, like Byte Buddy,
+  `<optional>`. It is the one non-distribution module inside the publication-only reactor, so it keeps
+  `maven.deploy.skip=true` and its `excludeArtifacts` entry, and is never polled on Maven Central. After publication,
+  `release.yml` resolves `bootui-agent` from Maven Central in a standalone consumer project, fails unless its runtime
+  classpath is the agent jar alone, and runs `java -javaagent:<jar> -version` on the Java 17 baseline, requiring exit
+  code 0 and the `[BootUI agent] BootUI agent <version> attached (javaagent); dormant until BootUI claims it` line.
 - The release also rewrites the `bootui-cli` coordinate in `jbang-catalog.json`, `README.md`, and `docs/CLI.md`, and
   fails when `jbang-catalog.json` still resolves the previous version, so `jbang bootui@jdubois/boot-ui` cannot install
   a stale release. The catalog alias points at the shaded `:all` classifier, so the CLI's shade execution and the alias
