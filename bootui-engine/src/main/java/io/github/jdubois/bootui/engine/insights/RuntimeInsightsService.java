@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.core.dto.RuntimeInsightsWindowDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDetailDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationDto;
 import io.github.jdubois.bootui.core.dto.RuntimeObservationRowDto;
+import io.github.jdubois.bootui.engine.journal.AiCallOwners;
 import io.github.jdubois.bootui.engine.journal.ControlMarkers;
 import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
@@ -26,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -333,12 +335,16 @@ public final class RuntimeInsightsService {
      * the disabled panel's evidence, and keeping the opening event to carry its children would publish exactly that.
      * Every observation reading the source also reports {@code NOT_APPLICABLE}, naming the panel.
      */
-    private List<JournalEntry> visibleEntries(List<JournalEntry> entries, PanelVisibility visibility) {
+    private VisibleEntries visibleEntries(List<JournalEntry> entries, PanelVisibility visibility) {
         Set<String> hidden = new HashSet<>();
+        Set<String> hiddenPanels = new LinkedHashSet<>();
+        AiCallOwners aiCallOwners = new AiCallOwners(journal::evictedARequestOf);
         for (JournalEntry entry : entries) {
             RuntimeEvent event = entry.event();
+            aiCallOwners.learn(event);
             if (anchorsAUnitOfWork(event) && !visibility.visible(event)) {
                 hidden.add(unitOf(event));
+                hiddenPanels.add(JournalSourcePanels.panelOf(event));
             }
         }
         List<JournalEntry> visible = new ArrayList<>(entries.size());
@@ -351,9 +357,15 @@ public final class RuntimeInsightsService {
             if (unit != null && hidden.contains(unit)) {
                 continue;
             }
+            if (AiCallOwners.linksByTrace(event)) {
+                String owner = aiCallOwners.ownerOf(event);
+                if (owner != null && hidden.contains("request:" + owner)) {
+                    continue;
+                }
+            }
             visible.add(entry);
         }
-        return visible;
+        return new VisibleEntries(visible, List.copyOf(hiddenPanels));
     }
 
     private static boolean anchorsAUnitOfWork(RuntimeEvent event) {
@@ -382,8 +394,9 @@ public final class RuntimeInsightsService {
         } catch (RuntimeException ex) {
             resolver = RouteTemplateResolver.empty();
         }
+        VisibleEntries projected = visibleEntries(entries, visibility);
         InsightsSnapshot snapshot = InsightsSnapshot.of(
-                visibleEntries(entries, visibility),
+                projected.entries(),
                 status,
                 resolver == null ? RouteTemplateResolver.empty() : resolver,
                 journal::records,
@@ -396,7 +409,7 @@ public final class RuntimeInsightsService {
         List<RuntimeObservationDto> rows = new ArrayList<>();
         Map<String, Detail> details = new LinkedHashMap<>();
         for (Observation observation : observations) {
-            String missing = missingSource(observation, snapshot);
+            String missing = missingSource(observation, snapshot, projected.hiddenPanels());
             if (missing == null) {
                 missing = observation.notApplicable(snapshot);
             }
@@ -411,7 +424,7 @@ public final class RuntimeInsightsService {
                 continue;
             }
             String partial = partialReason(observation, snapshot);
-            List<String> unseen = unseenSources(observation, snapshot, visibility);
+            List<String> unseen = unseenSources(observation, snapshot, visibility, projected.hiddenPanels());
             if (capture.reason() != null
                     && (snapshot.records(JournalSource.SQL) || snapshot.records(JournalSource.CONNECTION))
                     && (readsSql(observation.reads()) || readsSql(observation.optionalReads()))) {
@@ -598,7 +611,7 @@ public final class RuntimeInsightsService {
         return false;
     }
 
-    private String missingSource(Observation observation, InsightsSnapshot snapshot) {
+    private String missingSource(Observation observation, InsightsSnapshot snapshot, List<String> hiddenPanels) {
         for (JournalSource source : observation.reads()) {
             if (!snapshot.records(source)) {
                 return "The runtime journal does not record the " + source.propertyName()
@@ -610,11 +623,22 @@ public final class RuntimeInsightsService {
                         + " disabled.";
             }
         }
+        if (observation.readsUnits() && snapshot.requests().isEmpty()) {
+            if (!hiddenPanels.isEmpty()) {
+                return panelsLabel(hiddenPanels) + (hiddenPanels.size() == 1 ? " is" : " are")
+                        + " disabled, so its unit-of-work evidence cannot be evaluated.";
+            }
+        }
         return null;
     }
 
-    private List<String> unseenSources(Observation observation, InsightsSnapshot snapshot, PanelVisibility visibility) {
+    private List<String> unseenSources(
+            Observation observation, InsightsSnapshot snapshot, PanelVisibility visibility, List<String> hiddenPanels) {
         List<String> unseen = new ArrayList<>();
+        if (observation.readsUnits() && !hiddenPanels.isEmpty()) {
+            unseen.add(panelsLabel(hiddenPanels) + (hiddenPanels.size() == 1 ? " is" : " are")
+                    + " disabled, so its request or execution units are not counted.");
+        }
         for (JournalSource source : observation.optionalReads()) {
             if (!snapshot.records(source)) {
                 unseen.add("Without the " + source.propertyName() + " source, which the runtime journal does not"
@@ -686,6 +710,8 @@ public final class RuntimeInsightsService {
     }
 
     private record Detail(RuntimeObservationDto observation, Finding finding) {}
+
+    private record VisibleEntries(List<JournalEntry> entries, List<String> hiddenPanels) {}
 
     /**
      * Every owning panel's state as one projection read it, so the cache key, the events kept, and the reason given

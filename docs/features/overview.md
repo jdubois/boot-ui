@@ -645,6 +645,12 @@ window, the report names it among its limitations, and a finding whose evidence 
 change targeted says so. A breakdown's evidence draws each phase's share
 as a bar, with the largest phase emphasized and every number kept beside it.
 
+Disabling a panel that opens a request, job, or message leaves out that whole unit and any trace-only AI call
+uniquely owned by it. Checks confined to HTTP requests say **not applicable** when HTTP exchanges are disabled;
+checks that can still count jobs or messages name the disabled opening panel in their reason, or say **not applicable**
+when no visible units remain. On Quarkus, when the journal records ORM but the Hibernate panel is disabled,
+`safe-method-dml` leaves out unverified prepared writes, names that limitation, and still counts timed JDBC executions.
+
 The header states the window the journal retains, and a coverage strip shows how each source's events are linked to a
 request: by request id, by execution id, by trace id, or not at all. `bootui.runtime-insights.ai-token-threshold` sets
 the tokens of one model call above which AI usage reports its route from that call alone.

@@ -56,6 +56,11 @@ public final class HeapGrowthAfterGc implements Observation {
     }
 
     @Override
+    public boolean readsUnits() {
+        return false;
+    }
+
+    @Override
     public String notApplicable(InsightsSnapshot snapshot) {
         boolean any = false;
         for (RuntimeEvent event : snapshot.collections()) {

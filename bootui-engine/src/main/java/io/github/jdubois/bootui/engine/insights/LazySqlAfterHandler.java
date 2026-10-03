@@ -58,7 +58,7 @@ public final class LazySqlAfterHandler implements Observation {
 
     @Override
     public Set<JournalSource> reads() {
-        return Set.of(JournalSource.SQL);
+        return Set.of(JournalSource.HTTP, JournalSource.SQL);
     }
 
     @Override

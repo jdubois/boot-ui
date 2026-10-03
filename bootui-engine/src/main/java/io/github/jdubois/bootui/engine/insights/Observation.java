@@ -31,6 +31,11 @@ public interface Observation {
         return Set.of();
     }
 
+    /** Whether this observation examines request or execution units, rather than only unowned collection events. */
+    default boolean readsUnits() {
+        return true;
+    }
+
     /**
      * Why it does not apply to this snapshot, such as a stack that has no event loop, or {@code null} when it applies.
      * Called after its {@linkplain #reads() sources} are known to be recorded and visible.

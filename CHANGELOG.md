@@ -9,6 +9,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Runtime Insights source-panel follow-ups.** Checks no longer report an empty evaluation after their request,
+  scheduled, or message units are hidden; they name the disabled opening panel. Quarkus does not claim that an
+  unverified prepared write executed when Hibernate evidence is hidden, and trace-only AI calls owned by hidden
+  requests no longer survive as uncorrelated coverage ([#1217](https://github.com/jdubois/boot-ui/pull/1217)).
+
 - **Retained request and execution profiles.** Live Activity displays the runtime-journal timeline even after an
   HTTP exchange leaves the shorter buffer. `get_request_profile` and `bootui request-profile` open journal requests,
   scheduled runs, and consumed-message executions first; their result names the selected source and falls back to the
