@@ -28,6 +28,8 @@ const STEPS = {
     ['POST', '/api/insights/orders/1/notify-in-transaction', 1],
     ['POST', '/api/insights/orders/1/archive', 1],
     ['POST', '/api/insights/orders/1/restore', 1],
+    ['POST', '/api/insights/tags/auto-flush', 3],
+    ['POST', '/api/insights/tags/read-then-write', 3],
     ['POST', '/api/insights/debug/reset-totals', 1],
     ['GET', '/api/insights/reports/payroll', 1],
     ['GET', '/api/insights/reports/PAYROLL', 1],

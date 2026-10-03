@@ -26,6 +26,7 @@ test.describe('Runtime Insights demo', () => {
       ['SQL after the handler returned', '/api/insights/orders/report'],
       ['Transactional listeners skipped', '/api/insights/orders/{id}/notify'],
       ['Writes after commit', '/api/insights/orders/{id}/archive'],
+      ['Hibernate auto-flushes', '/api/insights/tags/auto-flush'],
       ['Anonymous writes', '/api/insights/debug/reset-totals'],
       ['Anonymous success on a restricted route', '/api/insights/reports/{name}']
     ]) {

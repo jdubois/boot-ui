@@ -1310,7 +1310,13 @@ function toggleFlow() {
                 </tr>
               </template>
               <tr v-if="!visibleEntries.length">
-                <td colspan="6" class="text-center text-muted py-4">No activity matches the current filters.</td>
+                <td v-if="hasActiveFilters || hasJournalFilters" colspan="6" class="text-center text-muted py-4">
+                  No activity matches the current filters.
+                </td>
+                <td v-else colspan="6" class="text-center text-muted py-4">
+                  No activity recorded yet. Send a request to the application, and its requests, SQL, exceptions, and
+                  security events appear here.
+                </td>
               </tr>
             </tbody>
           </table>

@@ -8,8 +8,9 @@ import {defineConfig, devices} from '@playwright/test'
  *
  * The default suites run the sample without the agent and assert the Java Agent panel says so; this one starts it with
  * `-javaagent` and checks the executors sensor, the propagated work in Live Activity and the request profile, and the
- * `work-after-response` observation, then reruns the Live Activity and app-shell specs, which must hold with the agent
- * attached too. The agent jar is `BOOTUI_AGENT_JAR`, or the one `./mvnw install` built in `bootui-agent/target`. Set
+ * `work-after-response` observation, then reruns the Live Activity, app-shell, and Java Agent view specs, which must
+ * hold with the agent attached too (the last asserts the armed state through the `agentAttached` fixture option). The
+ * agent jar is `BOOTUI_AGENT_JAR`, or the one `./mvnw install` built in `bootui-agent/target`. Set
  * `SERVER_PORT` with `BOOTUI_AGENT_SAMPLE_PORT` to run it beside another sample.
  */
 const PORT = Number(process.env.BOOTUI_AGENT_SAMPLE_PORT || process.env.SERVER_PORT || 8080)
@@ -44,8 +45,14 @@ const JVM_ARGUMENTS = `-javaagent:${agentJar()} -Dspring.devtools.restart.enable
 
 export default defineConfig({
   testDir: '.',
-  // The agent's own specs, then the Live Activity and app-shell specs, which hold with the agent attached as without it.
-  testMatch: ['tests-agent/**/*.spec.js', 'tests/activity.spec.js', 'tests/app-shell.spec.js'],
+  // The agent's own specs, then the Live Activity and app-shell specs, which hold with the agent attached as without it,
+  // and the Java Agent view spec, which asserts the armed state here through the agentAttached option below.
+  testMatch: [
+    'tests-agent/**/*.spec.js',
+    'tests/activity.spec.js',
+    'tests/app-shell.spec.js',
+    'tests/java-agent.spec.js'
+  ],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
@@ -66,7 +73,8 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
-    extraHTTPHeaders: {'X-Forwarded-For': '127.0.0.1'}
+    extraHTTPHeaders: {'X-Forwarded-For': '127.0.0.1'},
+    agentAttached: true
   },
 
   projects: [
