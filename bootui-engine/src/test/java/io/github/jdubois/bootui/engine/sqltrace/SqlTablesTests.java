@@ -16,6 +16,8 @@ class SqlTablesTests {
         assertThat(SqlTables.of("delete from [dbo].[Carts] where id = ?")).containsExactly("dbo.carts");
         assertThat(SqlTables.of("select count(*) from (select id from orders) t"))
                 .containsExactly("orders");
+        assertThat(SqlTables.of("select * from \"order-items\" join \"café\".\"orders\" on true"))
+                .containsExactly("order-items", "café.orders");
     }
 
     @Test
@@ -24,5 +26,13 @@ class SqlTablesTests {
         assertThat(SqlTables.of("select 1")).isEmpty();
         assertThat(SqlTables.of("select * from unnest(?)")).isEmpty();
         assertThat(SqlTables.of("select 1 from dual")).isEmpty();
+    }
+
+    @Test
+    void ignoresTableLikeWordsInsideUnterminatedLiterals() {
+        assertThat(SqlTables.of("select * from orders where note = $$join sëcrét"))
+                .containsExactly("orders");
+        assertThat(SqlTables.of("select * from orders where note = 'from sëcrét"))
+                .containsExactly("orders");
     }
 }
