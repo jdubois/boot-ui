@@ -580,6 +580,20 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   profile too. Applies on Spring MVC, Spring WebFlux, and Quarkus, including after a runtime change of the mode
   ([AI Framework value exposure](docs/features/services.md#ai-framework-value-exposure),
   [#1210](https://github.com/jdubois/boot-ui/pull/1210)).
+- **Journal-rendered SQL and log text now follows the value-exposure policy.** Live Activity rows, KPI strip,
+  request journal profiles, and Runtime Insights sentences and evidence rendered from the runtime journal showed SQL
+  literals, concatenated log messages, and `;name=value` path parameters as recorded in every mode, through the UI, the
+  REST API, `get_live_activity`, `get_runtime_insights`, `get_runtime_insight`, and their `bootui` CLI commands, and
+  the opt-in `bootui_activity` history stored them raw. Every read now applies the live `bootui.expose-values` /
+  `bootui.mask-secrets` policy, so a change from `FULL` to `MASKED` or `METADATA_ONLY` applies to the next read and the
+  Runtime Insights cache is keyed on it: SQL is shown as its literal-free shape, log messages and path parameters are
+  masked, and `METADATA_ONLY` omits log messages. Durable history is written at least as masked as `MASKED`, and stored
+  rows, including those written before this change, are masked again under the live mode on read, keeping their
+  structural label but dropping free text under `METADATA_ONLY`, and are read only while the panel that owns them is
+  enabled. Runtime Insights quote a statement's literal-free shape, never its grouping fingerprint, which kept MySQL
+  double-quoted strings and a truncated dollar quote verbatim. Applies on Spring MVC, Spring WebFlux, and Quarkus
+  ([Live Activity safety](docs/features/overview.md#safety-and-limits), PLAN-v2 §8,
+  [#1216](https://github.com/jdubois/boot-ui/pull/1216)).
 - **Trace data now follows the value-exposure policy.** `GET /bootui/api/traces/{id}`, the trace embedded in the
   per-request profile (`GET /bootui/api/activity/request/{id}`), and their `get_request_profile` MCP tool and
   `bootui request-profile` projections returned span status messages, `exception.message` and `exception.stacktrace`

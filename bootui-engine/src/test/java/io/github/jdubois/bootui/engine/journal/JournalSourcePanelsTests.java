@@ -2,8 +2,11 @@ package io.github.jdubois.bootui.engine.journal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.core.dto.ActivityEntryDto;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import io.github.jdubois.bootui.spi.CorrelationContext;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
@@ -82,5 +85,48 @@ class JournalSourcePanelsTests {
                 null,
                 false,
                 new MessagingPayload(broker, true, "orders", false, null));
+    }
+
+    @Test
+    void everyStoredRowTypeIsGatedByAPanelBootUiPublishesOrIsDeclaredPanelFree() throws IllegalAccessException {
+        for (Field field : JournalActivityFeed.class.getFields()) {
+            if (!field.getName().startsWith("TYPE_") || !Modifier.isStatic(field.getModifiers())) {
+                continue;
+            }
+            String type = (String) field.get(null);
+            ActivityEntryDto row = row(type, null);
+            boolean panelFree =
+                    type.equals(JournalActivityFeed.TYPE_MARKER) || type.equals(JournalActivityFeed.TYPE_APP_EVENT);
+            assertThat(JournalSourcePanels.isReadable(row, panel -> true))
+                    .as("%s is readable while every panel is enabled", type)
+                    .isTrue();
+            assertThat(JournalSourcePanels.isReadable(row, panel -> false))
+                    .as("%s is hidden once its panel is disabled, unless it owns none", type)
+                    .isEqualTo(panelFree);
+            if (!panelFree) {
+                assertThat(BootUiPanels.ids()).contains(JournalSourcePanels.panelOfRow(row));
+            }
+        }
+    }
+
+    @Test
+    void aStoredMessagingRowIsGatedByItsBrokersPanelAndAnUnknownRowFailsClosed() {
+        assertThat(JournalSourcePanels.panelOfRow(row(JournalActivityFeed.TYPE_MESSAGING, "jms")))
+                .isEqualTo(BootUiPanels.JMS);
+        assertThat(JournalSourcePanels.panelOfRow(row(JournalActivityFeed.TYPE_MESSAGING, "rabbitmq")))
+                .isEqualTo(BootUiPanels.RABBITMQ);
+        assertThat(JournalSourcePanels.panelOfRow(row(JournalActivityFeed.TYPE_MESSAGING, "kafka")))
+                .isEqualTo(BootUiPanels.KAFKA);
+        assertThat(JournalSourcePanels.isReadable(
+                        row(JournalActivityFeed.TYPE_MESSAGING, "jms"), panel -> !panel.equals(BootUiPanels.JMS)))
+                .isFalse();
+        assertThat(JournalSourcePanels.isReadable(row("FROM_A_NEWER_VERSION", null), panel -> true))
+                .isFalse();
+        assertThat(JournalSourcePanels.isReadable(null, panel -> true)).isFalse();
+    }
+
+    private static ActivityEntryDto row(String type, String detail) {
+        return new ActivityEntryDto(
+                "1", type, 0L, "OK", "summary", detail, null, null, null, null, null, null, false, null, null, false);
     }
 }

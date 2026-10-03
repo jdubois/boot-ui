@@ -40,6 +40,8 @@ import io.github.jdubois.bootui.engine.journal.JournalActivityFeed;
 import io.github.jdubois.bootui.engine.journal.JournalActivityReports;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalRowDetails;
+import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
+import io.github.jdubois.bootui.engine.journal.JournalTextExposure;
 import io.github.jdubois.bootui.engine.journal.RequestJournalProfiles;
 import io.github.jdubois.bootui.engine.journal.RequestProfileSelection;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
@@ -370,7 +372,15 @@ public class LiveActivityResource {
         ActivityPage page = activityStore.query(query);
         return new LiveActivityReport(
                 live.available(),
-                page.entryDtos(),
+                // Stored rows were written under MASKED (or raw, by an older build) while their panel was enabled;
+                // the live panel gate and exposure policy apply on read.
+                page.entryDtos().stream()
+                        .filter(row -> JournalSourcePanels.isReadable(
+                                row,
+                                panel -> panelAvailability.isPanelAvailable(panel)
+                                        && panelAvailability.isPanelEnabled(panel)))
+                        .map(JournalTextExposure.of(exposure)::reapply)
+                        .toList(),
                 live.typeCounts(),
                 live.kpis(),
                 live.sources(),
@@ -421,7 +431,8 @@ public class LiveActivityResource {
                 buffer.slowThresholdMillis(),
                 SqlTraceGrouping.DEFAULT_N_PLUS_ONE_THRESHOLD,
                 declaredRoutes,
-                panel -> panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel));
+                panel -> panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel),
+                exposure);
         // With the journal disabled or absent, the panel buffers serve the feed rather than leaving it empty.
         if (resolved == ActivityFeedSource.JOURNAL && reports.recording()) {
             return reports.report(
@@ -590,7 +601,8 @@ public class LiveActivityResource {
                         journalAggregates != null && journalAggregates.isResolvable() ? journalAggregates.get() : null,
                         buffer.slowThresholdMillis(),
                         SqlTraceGrouping.DEFAULT_N_PLUS_ONE_THRESHOLD,
-                        panel -> panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel))
+                        panel -> panelAvailability.isPanelAvailable(panel) && panelAvailability.isPanelEnabled(panel),
+                        exposure)
                 .maxHandoff(maxHandoff)
                 .profile(id);
     }

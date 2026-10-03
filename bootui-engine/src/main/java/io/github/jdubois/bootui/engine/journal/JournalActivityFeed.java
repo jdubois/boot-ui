@@ -9,6 +9,7 @@ import io.github.jdubois.bootui.engine.support.BlankStrings;
 import io.github.jdubois.bootui.engine.support.Percentiles;
 import io.github.jdubois.bootui.engine.web.RequestLatencyKpis;
 import io.github.jdubois.bootui.engine.web.RequestSlowThreshold;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
 import java.time.Instant;
@@ -20,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -74,6 +76,7 @@ public final class JournalActivityFeed {
     private final long requestSlowThresholdMs;
     private final int nPlusOneThreshold;
     private final Supplier<RouteTemplateResolver> declaredRoutes;
+    private final Supplier<JournalTextExposure> exposure;
 
     /**
      * @param requestSlowThresholdMs {@code bootui.activity.request-slow-threshold-ms}; {@code 0} flags nothing slow
@@ -83,9 +86,29 @@ public final class JournalActivityFeed {
      */
     public JournalActivityFeed(
             long requestSlowThresholdMs, int nPlusOneThreshold, Supplier<RouteTemplateResolver> declaredRoutes) {
+        this(requestSlowThresholdMs, nPlusOneThreshold, declaredRoutes, null);
+    }
+
+    /**
+     * A feed whose rows show SQL, log text, and request paths as the live {@code exposure} policy allows when each
+     * render is read ({@code PLAN-v2} §8).
+     *
+     * @param exposure the live exposure policy; {@code null} renders as {@link JournalTextExposure#masked()}
+     */
+    public JournalActivityFeed(
+            long requestSlowThresholdMs,
+            int nPlusOneThreshold,
+            Supplier<RouteTemplateResolver> declaredRoutes,
+            ExposurePolicy exposure) {
         this.requestSlowThresholdMs = requestSlowThresholdMs;
         this.nPlusOneThreshold = nPlusOneThreshold;
         this.declaredRoutes = declaredRoutes == null ? RouteTemplateResolver::empty : declaredRoutes;
+        this.exposure = exposure == null ? JournalTextExposure::masked : () -> JournalTextExposure.of(exposure);
+    }
+
+    /** The exposure rule the live policy prescribes right now, resolved once per read. */
+    public JournalTextExposure exposure() {
+        return exposure.get();
     }
 
     /**
@@ -148,6 +171,24 @@ public final class JournalActivityFeed {
             JournalRowDetails details,
             Predicate<String> evictedRequestTraces,
             List<RunningHandoffs.Running> running) {
+        return render(entries, eventId, runId, filter, limit, details, evictedRequestTraces, running, exposure());
+    }
+
+    /**
+     * Renders as {@link #render(List, Function, String, Filter, int, JournalRowDetails, Predicate, List)} does, under
+     * {@code text}, an exposure rule the caller resolved once for its whole response.
+     */
+    public Feed render(
+            List<JournalEntry> entries,
+            Function<JournalEntry, String> eventId,
+            String runId,
+            Filter filter,
+            int limit,
+            JournalRowDetails details,
+            Predicate<String> evictedRequestTraces,
+            List<RunningHandoffs.Running> running,
+            JournalTextExposure text) {
+        JournalTextExposure rule = text == null ? JournalTextExposure.masked() : text;
         RouteTemplateResolver routes = resolver();
         JournalRowDetails rowDetails = details == null ? JournalRowDetails.NONE : details;
         Map<String, JournalEntry> requests = new HashMap<>();
@@ -172,7 +213,7 @@ public final class JournalActivityFeed {
         List<Row> rows = new ArrayList<>(entries.size());
         for (JournalEntry entry : entries) {
             ActivityEntryDto rendered =
-                    render(entry, eventId, requests, executions, aiCallOwners, selectsByRequest, routes, false);
+                    render(entry, eventId, requests, executions, aiCallOwners, selectsByRequest, routes, false, rule);
             if (rendered != null) {
                 rows.add(
                         new Row(entry, rowDetails.apply(rendered, entry.event()), aiCallOwners.ownerOf(entry.event())));
@@ -260,6 +301,12 @@ public final class JournalActivityFeed {
      * @param healthStatus the application's health status, or {@code null}
      */
     public ActivityKpiDto kpis(List<JournalEntry> entries, String healthStatus) {
+        return kpis(entries, healthStatus, exposure());
+    }
+
+    /** The KPI strip as {@link #kpis(List, String)} computes it, its slowest path shown under {@code text}. */
+    public ActivityKpiDto kpis(List<JournalEntry> entries, String healthStatus, JournalTextExposure text) {
+        JournalTextExposure rule = text == null ? JournalTextExposure.masked() : text;
         RouteTemplateResolver routes = resolver();
         List<HttpExchangeDto> exchanges = new ArrayList<>();
         List<Long> requestTimes = new ArrayList<>();
@@ -285,7 +332,7 @@ public final class JournalActivityFeed {
                         event.requestId(),
                         Instant.ofEpochMilli(event.epochMillis()),
                         http.method(),
-                        http.path(),
+                        rule.path(http.path()),
                         null,
                         null,
                         http.status(),
@@ -364,7 +411,8 @@ public final class JournalActivityFeed {
             AiCallOwners aiCallOwners,
             Map<String, Map<String, Integer>> selectsByRequest,
             RouteTemplateResolver routes,
-            boolean byIdentity) {
+            boolean byIdentity,
+            JournalTextExposure text) {
         RuntimeEvent event = journal.event();
         RuntimeEventPayload payload = event.payload();
         // A scheduled run or consumed message is identified by its execution id, as a request is by its request id,
@@ -376,7 +424,8 @@ public final class JournalActivityFeed {
             Map<String, Integer> selects = selectsByRequest.get(event.requestId());
             boolean nPlusOne =
                     selects != null && selects.values().stream().anyMatch(count -> count >= nPlusOneThreshold);
-            String path = http.path() == null ? "" : http.path();
+            String maskedPath = text.path(http.path());
+            String path = maskedPath == null ? "" : maskedPath;
             String summary = (http.method() == null ? "" : http.method() + " ") + path + " → " + http.status();
             return entry(
                     event.requestId() == null ? id : event.requestId(),
@@ -387,7 +436,7 @@ public final class JournalActivityFeed {
                     routeDetail(http, routes),
                     durationMs,
                     http.method(),
-                    http.path(),
+                    maskedPath,
                     http.status(),
                     event.requestId() != null,
                     null,
@@ -400,7 +449,7 @@ public final class JournalActivityFeed {
                     TYPE_SQL,
                     event,
                     severity,
-                    truncate(whitespaceNormalized(sql.sql())),
+                    truncate(text.sql(sql.sql())),
                     sql.dataSource(),
                     durationMs,
                     null,
@@ -422,9 +471,10 @@ public final class JournalActivityFeed {
                 severity = SEVERITY_OK;
             }
             String outcome = rest.failed() || rest.status() == null ? "failed" : String.valueOf(rest.status());
+            String restPath = text.path(rest.path());
             String summary = (rest.method() == null ? "" : rest.method() + " ")
                     + (rest.authority() == null ? "" : rest.authority())
-                    + (rest.path() == null ? "" : rest.path())
+                    + (restPath == null ? "" : restPath)
                     + " → " + outcome;
             return entry(
                     id,
@@ -435,7 +485,7 @@ public final class JournalActivityFeed {
                     rest.clientType(),
                     durationMs,
                     rest.method(),
-                    rest.path(),
+                    restPath,
                     rest.status(),
                     false,
                     parentId,
@@ -455,7 +505,7 @@ public final class JournalActivityFeed {
                     null,
                     null,
                     ownerHttp == null ? null : ownerHttp.method(),
-                    ownerHttp == null ? null : ownerHttp.path(),
+                    ownerHttp == null ? null : text.path(ownerHttp.path()),
                     null,
                     false,
                     parentId,
@@ -754,7 +804,7 @@ public final class JournalActivityFeed {
                     TYPE_LOG,
                     event,
                     "ERROR".equals(level) ? SEVERITY_ERROR : SEVERITY_WARN,
-                    truncate(log.template() == null ? "" : log.template()),
+                    truncate(Objects.requireNonNullElse(text.message(log.template()), "")),
                     detail,
                     null,
                     null,
@@ -956,8 +1006,16 @@ public final class JournalActivityFeed {
         }
         List<Row> rows = new ArrayList<>(batch.size());
         for (JournalEntry entry : batch) {
-            ActivityEntryDto rendered =
-                    render(entry, eventId, Map.of(), Map.of(), aiCallOwners, pendingSelects, routes, true);
+            ActivityEntryDto rendered = render(
+                    entry,
+                    eventId,
+                    Map.of(),
+                    Map.of(),
+                    aiCallOwners,
+                    pendingSelects,
+                    routes,
+                    true,
+                    JournalTextExposure.masked());
             if (rendered != null) {
                 rows.add(new Row(entry, rendered, aiCallOwners.ownerOf(entry.event())));
             }
