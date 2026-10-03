@@ -434,8 +434,9 @@ As delivered, M5-2c keys a thread, platform or virtual, only when the first call
 claimed packages, looked up with a `StackWalker` only inside owned work; this replaces step 1's task-class rule below,
 which an application lambda passed to a library's thread factory defeated.
 
-As delivered, M5-2b distinguishes confirmed JDK task-body completion from the full handoff lifetime: the marker runs
-before result publication releases waiters, and `work-after-response` keeps earlier I/O as evidence when that body
+As delivered, M5-2b distinguishes task-body completion from the full handoff lifetime: a plain `Runnable` is marked
+at its return, and a confirmed JDK result marker runs before publication releases waiters.
+`work-after-response` keeps earlier I/O as evidence when that body
 ends after the response. Fast tasks starting after the response use the actual response boundary, never a boundary
 recovered from their own lifetime. Result-publication tails still count by their late I/O; without a confirmed body
 marker, earlier I/O followed only by computation remains indistinguishable from handoff-close bookkeeping

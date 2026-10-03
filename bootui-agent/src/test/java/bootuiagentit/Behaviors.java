@@ -567,6 +567,31 @@ public class Behaviors {
         }
         check("manual publication is not body completion", !BODY_ENDS.containsKey("body-early-complete"));
         finishBody.countDown();
+        CONTEXT.set("body-raw-runnable");
+        pool.execute(() -> {});
+        CONTEXT.remove();
+        pool.submit(() -> {}).get(5, TimeUnit.SECONDS);
+        check("raw Runnable body return is marked", BODY_ENDS.containsKey("body-raw-runnable"));
+
+        CONTEXT.set("body-decorated-future");
+        ThreadPoolExecutor decorated = new ThreadPoolExecutor(1, 1, 1, TimeUnit.MINUTES, new LinkedBlockingQueue<>()) {
+            @Override
+            public void execute(Runnable command) {
+                super.execute(() -> command.run());
+            }
+        };
+        decorated.submit(() -> {}).get(5, TimeUnit.SECONDS);
+        CONTEXT.remove();
+        decorated.submit(() -> {}).get(5, TimeUnit.SECONDS);
+        decorated.shutdown();
+        check("hidden FutureTask keeps the conservative fallback", !BODY_ENDS.containsKey("body-decorated-future"));
+        CONTEXT.set("body-manual-stage");
+        CompletableFuture<Void> signalled = new CompletableFuture<>();
+        pool.execute(() -> signalled.complete(null));
+        signalled.get(5, TimeUnit.SECONDS);
+        CONTEXT.remove();
+        pool.submit(() -> {}).get(5, TimeUnit.SECONDS);
+        check("manual stage publication keeps the conservative fallback", !BODY_ENDS.containsKey("body-manual-stage"));
         CONTEXT.set("request-42");
     }
 

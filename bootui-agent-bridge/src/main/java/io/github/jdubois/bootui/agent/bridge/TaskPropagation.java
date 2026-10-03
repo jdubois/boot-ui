@@ -9,6 +9,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.ForkJoinWorkerThread;
+import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.RunnableScheduledFuture;
 import java.util.concurrent.atomic.LongAdder;
@@ -98,6 +99,7 @@ public final class TaskPropagation {
         final Object handle;
         final Active previous;
         boolean completed;
+        boolean nestedPublication;
 
         Active(Object target, Object handle, Active previous) {
             this.target = target;
@@ -391,11 +393,15 @@ public final class TaskPropagation {
                 return;
             }
             Active active = ACTIVE.get();
-            if (active == null
-                    || active.target != target
-                    || active.completed
-                    || (target instanceof ForkJoinTask && ((ForkJoinTask<?>) target).isDone())
-                    || !jdkBodyReturned()) {
+            if (active == null || active.completed) {
+                return;
+            }
+            if (active.target != target) {
+                // A decorator can hide a FutureTask that releases waiters before the decorator returns.
+                active.nestedPublication = true;
+                return;
+            }
+            if ((target instanceof ForkJoinTask && ((ForkJoinTask<?>) target).isDone()) || !jdkBodyReturned()) {
                 return;
             }
             active.completed = true;
@@ -484,6 +490,17 @@ public final class TaskPropagation {
             thrown = ex;
             throw ex;
         } finally {
+            if (handle instanceof Active && !(task instanceof Future)) {
+                Active active = (Active) handle;
+                if (!active.completed && !active.nestedPublication) {
+                    active.completed = true;
+                    try {
+                        ((Runnable) active.handle).run();
+                    } catch (Throwable ex) {
+                        AgentBridge.error(ex);
+                    }
+                }
+            }
             exit(handle, thrown != null ? thrown : futureFailure(task));
         }
     }

@@ -10,7 +10,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - **Work after the response.** Follow-up to [#1218](https://github.com/jdubois/boot-ui/pull/1218):
-  confirmed JDK task-body completion restores fast late-starting tasks and earlier SQL followed by long-running
+  task-body completion restores fast late-starting tasks and earlier SQL followed by long-running
   computation, without counting a waited-for task's delayed handoff close. Result-publication tails remain visible
   and I/O uses the actual response boundary (PLAN-v2 M5-2b, D32).
 
