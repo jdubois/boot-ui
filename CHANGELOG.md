@@ -288,7 +288,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   logged an ERROR for the application's URL that the Exceptions panel and Live Activity recorded as an application
   failure. Off the event loop, the capture now copies the response headers just before Vert.x writes them. Both the
   HTTP exchange and exception capture filters now catch their own failures and log a warning under BootUI's own logger,
-  which the Exceptions panel ignores.
+  which the Exceptions panel ignores ([#1203](https://github.com/jdubois/boot-ui/pull/1203)).
 - **`ARCH-SPRING-004` no longer reports a self-call that only joins the caller's transaction.** A method that already
   runs in a transaction, declared on the method or the class, can call a `@Transactional` method of the same bean
   whose `REQUIRED`, `SUPPORTS` or `MANDATORY` propagation would only join that transaction. That call is no longer
