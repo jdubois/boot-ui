@@ -12,6 +12,7 @@ import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.JsonType;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.ReadContract;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.Runtime;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
+import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -99,6 +100,12 @@ public abstract class AbstractBootUiApiConformanceTest {
 
     /** Base URL of the booted app under test, e.g. {@code http://localhost:54321} (no trailing slash). */
     protected abstract String baseUrl();
+
+    /**
+     * The booted app's BootUI span store, so a contract can record a span exactly as an exporter would, with no
+     * OpenTelemetry dependency in the app under test.
+     */
+    protected abstract TelemetryStore telemetryStore();
 
     /** Classpath resource of the expected panel manifest for this platform. */
     protected String expectedPanelsResource() {
@@ -1494,6 +1501,100 @@ public abstract class AbstractBootUiApiConformanceTest {
         assertThat(detailResponse.status())
                 .as("GET /bootui/api/traces/{unknown} must return 404 for an unrecognised trace id")
                 .isEqualTo(404);
+    }
+
+    @Test
+    void traceDataFollowsTheLiveValueExposurePolicy() {
+        // Spans are stored raw and every trace read applies the live exposure policy, so the same retained span
+        // must come back verbatim, masked, and without its message text as the policy changes, on the Traces
+        // detail and in the per-request profile that embeds the trace.
+        assumeTrue(isPanelUsableInLiveManifest("traces"), "traces panel is not available in this environment");
+        TraceExposureContract trace = new TraceExposureContract();
+        assertThat(telemetryStore().add(trace.span(), false))
+                .as("the seeded span is retained")
+                .isTrue();
+        String requestId = requestOnTrace(trace);
+
+        LogTailExposureContract.withExposure("FULL", null, () -> {
+            trace.assertVerbatim(traceDetail(trace), "GET /traces/{id} (FULL)");
+            if (requestId != null) {
+                trace.assertVerbatim(profiledTrace(requestId), "GET /activity/request/{id} trace (FULL)");
+            }
+        });
+        LogTailExposureContract.withExposure("MASKED", null, () -> {
+            trace.assertMasked(traceDetail(trace), "GET /traces/{id} (MASKED)");
+            trace.assertNoSecret(probe().get(api("/traces")).json(), "GET /traces (MASKED)");
+            if (requestId != null) {
+                trace.assertMasked(profiledTrace(requestId), "GET /activity/request/{id} trace (MASKED)");
+            }
+        });
+        LogTailExposureContract.withExposure("METADATA_ONLY", null, () -> {
+            trace.assertOmitted(traceDetail(trace), "GET /traces/{id} (METADATA_ONLY)");
+            if (requestId != null) {
+                // The request's traceparent header value is itself withheld, so the profile may carry no trace.
+                Response response = probe().get(api("/activity/request/" + requestId));
+                assertThat(response.status())
+                        .as("GET /activity/request/{id} status")
+                        .isEqualTo(200);
+                trace.assertNoSecret(response.json(), "GET /activity/request/{id} (METADATA_ONLY)");
+                JsonNode profiled = response.json().path("trace");
+                if (profiled.isObject()) {
+                    trace.assertOmitted(profiled, "GET /activity/request/{id} trace (METADATA_ONLY)");
+                }
+            }
+        });
+        trace.assertMasked(traceDetail(trace), "GET /traces/{id} (restored default)");
+    }
+
+    private JsonNode traceDetail(TraceExposureContract trace) {
+        Response response = probe().get(api("/traces/" + trace.traceId));
+        assertThat(response.status()).as("GET /traces/{id} status").isEqualTo(200);
+        return response.json();
+    }
+
+    private JsonNode profiledTrace(String requestId) {
+        Response response = probe().get(api("/activity/request/" + requestId));
+        assertThat(response.status()).as("GET /activity/request/{id} status").isEqualTo(200);
+        JsonNode trace = response.json().path("trace");
+        assertThat(trace.isObject())
+                .as("the profile embeds the request's trace; received %s", response.body())
+                .isTrue();
+        return trace;
+    }
+
+    /**
+     * Sends one application request on the contract's trace and returns its Live Activity id, or {@code null} when
+     * this environment captures no HTTP exchanges or has no Live Activity panel to profile it.
+     */
+    private String requestOnTrace(TraceExposureContract trace) {
+        if (!isPanelUsableInLiveManifest("activity") || !isPanelUsableInLiveManifest("http-exchanges")) {
+            return null;
+        }
+        probe().request("GET", routeProbePath(), Map.of("traceparent", trace.traceparent()), null);
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (true) {
+            Response list = probe().get(api("/http-exchanges?q=" + trace.traceId));
+            assertThat(list.status()).as("GET /http-exchanges?q= status").isEqualTo(200);
+            assumeTrue(
+                    isNull(list.json().path("unavailableReason")),
+                    "HTTP exchanges are not recorded in this environment");
+            JsonNode exchange = list.json().path("exchanges").path(0);
+            if (exchange.isObject()) {
+                assertThat(exchange.path("traceId").asText())
+                        .as("exchange.traceId")
+                        .isEqualTo(trace.traceId);
+                return exchange.path("id").asText();
+            }
+            assertThat(System.nanoTime())
+                    .as("the request on the seeded trace is recorded")
+                    .isLessThan(deadline);
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("interrupted while waiting for the exchange", ex);
+            }
+        }
     }
 
     @Test

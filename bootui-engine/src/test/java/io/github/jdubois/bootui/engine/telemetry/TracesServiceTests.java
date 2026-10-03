@@ -2,8 +2,14 @@ package io.github.jdubois.bootui.engine.telemetry;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.jdubois.bootui.core.SecretMasker;
+import io.github.jdubois.bootui.core.ValueExposure;
+import io.github.jdubois.bootui.core.dto.SpanDto;
+import io.github.jdubois.bootui.core.dto.TraceDetailDto;
 import io.github.jdubois.bootui.core.dto.TraceSummaryDto;
 import io.github.jdubois.bootui.core.dto.TracesReport;
+import io.github.jdubois.bootui.spi.ExposurePolicy;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -13,6 +19,8 @@ class TracesServiceTests {
     private static final TelemetrySettings ENABLED = TelemetrySettings.of(true, true, 500, 500, 4096);
 
     private static final SelfTelemetryClassifier SELF = new SelfTelemetryClassifier(true, "/bootui", "/bootui/api");
+
+    private static final SpanValueExposure MASKED = SpanValueExposure.current(policy(ValueExposure.MASKED, true));
 
     @Test
     void summaryExposesHttpPathFromRootServerSpan() {
@@ -31,7 +39,7 @@ class TracesServiceTests {
                 Map.of("url.path", AttributeValue.ofString("/api/products/42?page=1")),
                 List.of());
 
-        TraceSummaryDto summary = TracesService.toSummary(bucketOf(root));
+        TraceSummaryDto summary = TracesService.toSummary(bucketOf(root), MASKED);
 
         assertThat(summary.rootSpanName()).isEqualTo("security filterchain before");
         assertThat(summary.httpPath()).isEqualTo("/api/products/42");
@@ -56,7 +64,7 @@ class TracesServiceTests {
                 Map.of("http.route", AttributeValue.ofString("/api/orders/{id}")),
                 List.of());
 
-        TraceSummaryDto summary = TracesService.toSummary(bucketOf(root, server));
+        TraceSummaryDto summary = TracesService.toSummary(bucketOf(root, server), MASKED);
 
         assertThat(summary.httpPath()).isEqualTo("/api/orders/{id}");
     }
@@ -78,7 +86,7 @@ class TracesServiceTests {
                 Map.of("code.function", AttributeValue.ofString("run")),
                 List.of());
 
-        TraceSummaryDto summary = TracesService.toSummary(bucketOf(root));
+        TraceSummaryDto summary = TracesService.toSummary(bucketOf(root), MASKED);
 
         assertThat(summary.rootSpanName()).isEqualTo("scheduled task");
         assertThat(summary.httpPath()).isNull();
@@ -89,7 +97,7 @@ class TracesServiceTests {
         TelemetryStore store = new TelemetryStore(ENABLED);
         store.add(serverSpan("bootui-trace", "bootui-root", "GET /bootui/api/traces", "/bootui/api/traces"));
         store.add(serverSpan("host-trace", "host-root", "GET /api/orders", "/api/orders"));
-        TracesService service = new TracesService(store, ENABLED, SELF);
+        TracesService service = new TracesService(store, ENABLED, SELF, policy(ValueExposure.MASKED, true));
 
         TracesReport report = service.list(50);
 
@@ -101,6 +109,158 @@ class TracesServiceTests {
         assertThat(service.detail("bootui-trace")).isEmpty();
         assertThat(service.detail("host-trace")).isPresent();
         assertThat(service.detail("does-not-exist")).isEmpty();
+    }
+
+    @Test
+    void summaryMasksMatrixParametersOfTheHttpPath() {
+        NormalizedSpan root = new NormalizedSpan(
+                "trace",
+                "root",
+                null,
+                "GET",
+                "SERVER",
+                "sample",
+                "test",
+                1L,
+                2L,
+                "OK",
+                null,
+                Map.of("url.path", AttributeValue.ofString("/cart;token=session-secret/items")),
+                List.of());
+
+        assertThat(TracesService.toSummary(bucketOf(root), MASKED).httpPath())
+                .isEqualTo("/cart;token=" + SecretMasker.MASKED_VALUE + "/items");
+    }
+
+    @Test
+    void summaryNeverReturnsTheAuthorityOfAnAbsoluteUrl() {
+        assertThat(summaryPath("http://user:password@localhost:8080")).isEqualTo("/");
+        assertThat(summaryPath("http://user:password@localhost:8080/orders?id=1"))
+                .isEqualTo("/orders");
+        assertThat(summaryPath("http://us/er:pass word@local host/orders?id=1")).isEqualTo("/orders");
+        assertThat(summaryPath("http://user:pass word@local host")).isEqualTo("/");
+    }
+
+    private static String summaryPath(String url) {
+        NormalizedSpan root = new NormalizedSpan(
+                "trace",
+                "root",
+                null,
+                "GET",
+                "CLIENT",
+                "sample",
+                "test",
+                1L,
+                2L,
+                "OK",
+                null,
+                Map.of("url.full", AttributeValue.ofString(url)),
+                List.of());
+        return TracesService.toSummary(bucketOf(root), MASKED).httpPath();
+    }
+
+    @Test
+    void detailAppliesTheLiveExposurePolicyOnEveryRead() {
+        TelemetryStore store = new TelemetryStore(ENABLED);
+        Map<String, AttributeValue> attributes = new LinkedHashMap<>();
+        attributes.put("http.route", AttributeValue.ofString("/api/sample/boom"));
+        store.add(new NormalizedSpan(
+                "trace",
+                "root",
+                null,
+                "GET /api/sample/boom",
+                "SERVER",
+                "sample",
+                "test",
+                1L,
+                2L,
+                "ERROR",
+                "Boom: apiToken=sample-secret-token",
+                attributes,
+                List.of(new NormalizedEvent(
+                        "exception",
+                        1L,
+                        Map.of(
+                                "exception.type",
+                                AttributeValue.ofString("java.lang.IllegalStateException"),
+                                "exception.message",
+                                AttributeValue.ofString("Boom: apiToken=sample-secret-token"),
+                                "exception.stacktrace",
+                                AttributeValue.ofString(
+                                        "java.lang.IllegalStateException: Boom: apiToken=sample-secret-token\n"
+                                                + "\tat com.example.Sample.boom(Sample.java:42)"))))));
+        MutablePolicy policy = new MutablePolicy(ValueExposure.FULL);
+        TracesService service = new TracesService(store, ENABLED, SELF, policy);
+
+        SpanDto full = span(service.detail("trace").orElseThrow());
+        assertThat(full.statusMessage()).isEqualTo("Boom: apiToken=sample-secret-token");
+        assertThat(eventAttribute(full, "exception.message")).isEqualTo("Boom: apiToken=sample-secret-token");
+
+        policy.exposure = ValueExposure.MASKED;
+        TraceDetailDto masked = service.detail("trace").orElseThrow();
+        assertThat(masked.toString()).doesNotContain("sample-secret-token");
+        assertThat(span(masked).statusMessage()).isEqualTo("Boom: apiToken=" + SecretMasker.MASKED_VALUE);
+        assertThat(eventAttribute(span(masked), "exception.message"))
+                .isEqualTo("Boom: apiToken=" + SecretMasker.MASKED_VALUE);
+        assertThat((String) eventAttribute(span(masked), "exception.stacktrace"))
+                .startsWith("java.lang.IllegalStateException: Boom: apiToken=" + SecretMasker.MASKED_VALUE)
+                .contains("Sample.boom(Sample.java:42)");
+
+        policy.exposure = ValueExposure.METADATA_ONLY;
+        TraceDetailDto metadata = service.detail("trace").orElseThrow();
+        assertThat(metadata.toString()).doesNotContain("sample-secret-token", "Boom");
+        assertThat(span(metadata).statusMessage()).isNull();
+        assertThat(span(metadata).statusCode()).isEqualTo("ERROR");
+        assertThat(eventAttribute(span(metadata), "exception.message")).isNull();
+        assertThat(eventAttribute(span(metadata), "exception.stacktrace")).isNull();
+        assertThat(eventAttribute(span(metadata), "exception.type")).isEqualTo("java.lang.IllegalStateException");
+        assertThat(span(metadata).events().get(0).name()).isEqualTo("exception");
+    }
+
+    private static SpanDto span(TraceDetailDto detail) {
+        assertThat(detail.spans()).hasSize(1);
+        return detail.spans().get(0);
+    }
+
+    private static Object eventAttribute(SpanDto span, String key) {
+        return span.events().get(0).attributes().stream()
+                .filter(attribute -> attribute.key().equals(key))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("missing event attribute " + key))
+                .value();
+    }
+
+    static ExposurePolicy policy(ValueExposure exposure, boolean maskSecrets) {
+        return new ExposurePolicy() {
+            @Override
+            public ValueExposure valueExposure() {
+                return exposure;
+            }
+
+            @Override
+            public boolean maskSecrets() {
+                return maskSecrets;
+            }
+        };
+    }
+
+    private static final class MutablePolicy implements ExposurePolicy {
+
+        private ValueExposure exposure;
+
+        private MutablePolicy(ValueExposure exposure) {
+            this.exposure = exposure;
+        }
+
+        @Override
+        public ValueExposure valueExposure() {
+            return exposure;
+        }
+
+        @Override
+        public boolean maskSecrets() {
+            return true;
+        }
     }
 
     private static TelemetryStore.TraceBucket bucketOf(NormalizedSpan... spans) {

@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.conformance.AbstractBootUiApiConformanceTest;
 import io.github.jdubois.bootui.conformance.BootUiApiContractCatalog.Runtime;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe;
 import io.github.jdubois.bootui.conformance.BootUiHttpProbe.Response;
+import io.github.jdubois.bootui.engine.telemetry.TelemetryStore;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
@@ -13,6 +14,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -49,6 +51,14 @@ class WebFluxCustomPathIntegrationTest extends AbstractBootUiApiConformanceTest 
 
     @LocalServerPort
     int port;
+
+    @Autowired
+    TelemetryStore telemetryStore;
+
+    @Override
+    protected TelemetryStore telemetryStore() {
+        return telemetryStore;
+    }
 
     private BootUiHttpProbe probe() {
         return new BootUiHttpProbe("http://localhost:" + port);
