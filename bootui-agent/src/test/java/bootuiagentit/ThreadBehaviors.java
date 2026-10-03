@@ -367,7 +367,8 @@ public final class ThreadBehaviors {
                     done++;
                 }
             }
-            if (done == 2) {
+            // Every sensor the claim installed, two or three (the leak test's runs also ask for inventory).
+            if (done >= 2 && done == sensors.size()) {
                 for (Object sensor : sensors) {
                     Map<String, Object> map = (Map<String, Object>) sensor;
                     System.out.println("SELF_TEST_" + map.get("id") + "=" + map.get("selfTestPassed") + " "

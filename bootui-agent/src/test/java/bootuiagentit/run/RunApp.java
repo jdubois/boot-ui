@@ -32,7 +32,7 @@ public final class RunApp {
         request.put("owner", "it run " + SENTINEL.run);
         request.put("mode", "dev");
         request.put("packages", List.of("bootuiagentit.run"));
-        request.put("sensors", List.of("executors", "threads"));
+        request.put("sensors", List.of("executors", "threads", "inventory"));
         Object marker = new Object();
         capture = () -> marker != null && CURRENT.get() != null
                 ? new Object[] {"run-" + SENTINEL.run, null, null, null, null, null, null, 1L, 1L}

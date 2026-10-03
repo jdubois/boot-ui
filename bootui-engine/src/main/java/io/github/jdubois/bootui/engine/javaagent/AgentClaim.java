@@ -127,6 +127,7 @@ public final class AgentClaim {
         executors.put("skipTasks", new ArrayList<>(claim.sensors.skipTasks()));
         executors.put("skipThreads", new ArrayList<>(claim.sensors.skipThreads()));
         request.put("executors", executors);
+        request.put("ringCapacity", claim.sensors.ringCapacity());
         Map<String, Object> answer = claim.access.claim(request, claim.capture, claim.reopen);
         claim.result = answer;
         claim.generation = AgentBridgeAccess.number(answer, "generation");

@@ -36,12 +36,21 @@ final class TransformStats {
 
     /** {@code builder} with the retransformation rules, the failure listeners, and the fallback type pool. */
     AgentBuilder configure(AgentBuilder builder) {
-        return builder.disableClassFormatChanges()
+        return configure(builder, null);
+    }
+
+    /** {@link #configure(AgentBuilder)}, also telling {@code redefinitions} of every retransformation batch's outcome. */
+    AgentBuilder configure(AgentBuilder builder, AgentBuilder.RedefinitionStrategy.Listener redefinitions) {
+        AgentBuilder.RedefinitionListenable listenable = builder.disableClassFormatChanges()
                 .with(AgentBuilder.RedefinitionStrategy.RETRANSFORMATION)
                 .with(AgentBuilder.RedefinitionStrategy.BatchAllocator.ForFixedSize.ofSize(64))
                 .with(AgentBuilder.RedefinitionStrategy.DiscoveryStrategy.Reiterating.INSTANCE)
                 .with(AgentBuilder.RedefinitionStrategy.Listener.BatchReallocator.splitting())
-                .with(new RedefinitionFailures())
+                .with(new RedefinitionFailures());
+        if (redefinitions != null) {
+            listenable = listenable.with(redefinitions);
+        }
+        return listenable
                 .with(AgentBuilder.TypeStrategy.Default.DECORATE)
                 .with(new BootstrapFallbackPoolStrategy())
                 .with(new Transformations());

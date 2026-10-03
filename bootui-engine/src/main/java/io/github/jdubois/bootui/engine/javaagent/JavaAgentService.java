@@ -4,6 +4,7 @@ import io.github.jdubois.bootui.core.dto.JavaAgentClaimDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentCountersDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentExecutorCountersDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentHookDto;
+import io.github.jdubois.bootui.core.dto.JavaAgentInventoryCountersDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentReport;
 import io.github.jdubois.bootui.core.dto.JavaAgentRetransformationDto;
 import io.github.jdubois.bootui.core.dto.JavaAgentSensorDto;
@@ -322,6 +323,7 @@ public final class JavaAgentService {
                 }
                 String id = AgentBridgeAccess.text(sensor, "id");
                 Map<String, Object> counters = id == null ? Map.of() : AgentBridgeAccess.map(status, id);
+                boolean inventory = AgentSensorSettings.INVENTORY.equals(id);
                 sensors.add(new JavaAgentSensorDto(
                         id,
                         AgentBridgeAccess.text(sensor, "state"),
@@ -340,22 +342,35 @@ public final class JavaAgentService {
                         count(sensor, "skipped"),
                         count(sensor, "transformed"),
                         count(sensor, "retransformed"),
-                        counters.isEmpty() ? null : executorCounters(counters)));
+                        counters.isEmpty() || inventory ? null : executorCounters(counters),
+                        counters.isEmpty() || !inventory ? null : inventoryCounters(counters)));
             }
         }
         return sensors;
     }
 
-    private static List<JavaAgentHookDto> hooks(Map<String, Object> sensor, Map<String, Object> executors) {
-        Map<String, Object> keyed = AgentBridgeAccess.map(executors, "keyed");
-        Map<String, Object> applied = AgentBridgeAccess.map(executors, "applied");
+    /**
+     * A sensor's hooks, each with how often it fired from the bridge's counters for the sensor: {@code keyed} and
+     * {@code applied} for the propagation sensors' {@code key} and {@code apply} hooks, {@code recorded} for the
+     * inventory sensor's {@code record} hooks.
+     */
+    private static List<JavaAgentHookDto> hooks(Map<String, Object> sensor, Map<String, Object> counters) {
+        Map<String, Object> keyed = AgentBridgeAccess.map(counters, "keyed");
+        Map<String, Object> applied = AgentBridgeAccess.map(counters, "applied");
+        Map<String, Object> recorded = AgentBridgeAccess.map(counters, "recorded");
         List<JavaAgentHookDto> hooks = new ArrayList<>();
         for (Object item : AgentBridgeAccess.items(sensor, "hooks")) {
             if (item instanceof Map<?, ?> raw) {
                 Map<String, Object> hook = AgentBridgeAccess.map(Map.of("hook", raw), "hook");
                 String id = AgentBridgeAccess.text(hook, "id");
                 String kind = AgentBridgeAccess.text(hook, "kind");
-                Long fired = AgentBridgeAccess.number("apply".equals(kind) ? applied : keyed, id);
+                Map<String, Object> firings =
+                        switch (kind == null ? "" : kind) {
+                            case "apply" -> applied;
+                            case "record" -> recorded;
+                            default -> keyed;
+                        };
+                Long fired = AgentBridgeAccess.number(firings, id);
                 hooks.add(new JavaAgentHookDto(
                         id,
                         kind,
@@ -385,6 +400,19 @@ public final class JavaAgentService {
                 AgentBridgeAccess.flag(executors, "asyncApplies"),
                 AgentBridgeAccess.number(executors, "libraryThreadsSkipped"),
                 AgentBridgeAccess.number(executors, "poolWorkersSkipped"));
+    }
+
+    private static JavaAgentInventoryCountersDto inventoryCounters(Map<String, Object> inventory) {
+        return new JavaAgentInventoryCountersDto(
+                longValue(inventory, "methodsTracked"),
+                longValue(inventory, "executedThisRun"),
+                longValue(inventory, "methodOverflow"),
+                longValue(inventory, "transformFailures"),
+                longValue(inventory, "codeSources"),
+                longValue(inventory, "ringDropped"),
+                longValue(inventory, "ringLost"),
+                longValue(inventory, "internOverflow"),
+                AgentBridgeAccess.text(inventory, "disabledReason"));
     }
 
     private static Map<String, String> texts(Map<String, Object> map) {

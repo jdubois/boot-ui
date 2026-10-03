@@ -2778,10 +2778,17 @@ public class BootUiProperties {
         /**
          * The agent sensors this application asks for. {@code executors} propagates a request's context through the
          * JDK's executors, so work handed to a raw thread pool or {@code CompletableFuture} is owned by its request.
-         * {@code threads}, opt-in, also propagates it into threads started from application code and into virtual
-         * threads.
+         * {@code inventory} records which application methods ran in this run and which jars loaded classes.
+         * {@code threads}, opt-in, also propagates a request's context into threads started from application code and
+         * into virtual threads.
          */
         private List<String> sensors = new ArrayList<>(AgentSensorSettings.DEFAULT_SENSORS);
+
+        /**
+         * The records the agent's transport ring holds before it drops new ones, clamped to 1,024 to 4,194,304 and
+         * rounded up to a power of two. Each record takes 64 bytes; the first claim of the JVM sizes the ring.
+         */
+        private int ringCapacity = AgentSensorSettings.DEFAULT_RING_CAPACITY;
 
         private final Executors executors = new Executors();
 
@@ -2799,6 +2806,14 @@ public class BootUiProperties {
 
         public Executors getExecutors() {
             return executors;
+        }
+
+        public int getRingCapacity() {
+            return ringCapacity;
+        }
+
+        public void setRingCapacity(int ringCapacity) {
+            this.ringCapacity = ringCapacity;
         }
 
         public void setEnabled(boolean enabled) {

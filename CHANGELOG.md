@@ -133,6 +133,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   both
   ([Java Agent](docs/features/java-agent.md#the-threads-sensor), PLAN-v2 M5-2c).
 
+- **Code inventory recording with the BootUI agent.** The agent's new `inventory` sensor, on by default with
+  `executors`, records which application methods run in each run, with the first call's request, route, and time, and
+  how many classes each jar and class directory loads, through a bounded transport ring in the agent that drops and
+  counts rather than blocks (`bootui.agent.ring-capacity`, default 65,536 records). It skips static initializers,
+  `$`-prefixed methods, proxies, synthetic classes, test roots, and BootUI's own work, and self-tests before it records.
+  The Java Agent panel shows its row, hooks, and counters; the Code Inventory panel that reads its records comes next
+  ([Java Agent](docs/features/java-agent.md#the-inventory-sensor), PLAN-v2 M5-3).
+
 - **Free BootUI memory.** Live Memory, JVM Tuning, Heap Dump, and the Memory advisor share a header action, with an
   expandable explanation, that empties BootUI's in-memory capture buffers (runtime journal, Live Activity, HTTP
   exchanges, traces, SQL, REST client, transaction, messaging, WebSocket, cache, scheduler, fault-tolerance, exception,

@@ -361,6 +361,64 @@ class JavaAgentServiceTests {
     }
 
     @Test
+    void theInventorySensorRowCarriesItsRecordHooksAndItsOwnCounters() {
+        Bridges.StubAgent stub = Bridges.StubAgent.install();
+        Map<String, Object> inventory = new LinkedHashMap<>();
+        inventory.put("id", AgentSensorSettings.INVENTORY);
+        inventory.put("state", "installed");
+        inventory.put("selfTestPassed", true);
+        inventory.put(
+                "hooks",
+                List.of(
+                        Map.of(
+                                "id", "method entry",
+                                "kind", "record",
+                                "type", "(claimed packages)",
+                                "present", true,
+                                "transformed", true,
+                                "selfTest", "passed"),
+                        Map.of(
+                                "id", "class load",
+                                "kind", "record",
+                                "type", "(every class)",
+                                "present", true,
+                                "transformed", true,
+                                "selfTest", "not-exercised")));
+        inventory.put("transformed", 3);
+        stub.sensors = List.of(inventory);
+        claim.set(AgentClaim.claim(Bridges.access(), "petclinic", "petclinic@1", "dev", List.of("com.example")));
+        io.github.jdubois.bootui.agent.bridge.CodeInventory.classLoaded("file:/libs/shop.jar", "com/shop/A");
+        int greet = io.github.jdubois.bootui.agent.bridge.CodeInventory.methodId("com.example.Shop#greet()V");
+        io.github.jdubois.bootui.agent.bridge.CodeInventory.methodId("com.example.Shop#never()V");
+        io.github.jdubois.bootui.agent.bridge.CodeInventory.tracked(new int[] {greet, greet + 1});
+        io.github.jdubois.bootui.agent.bridge.CodeInventory.hit(greet);
+
+        JavaAgentReport report =
+                service(Bridges.access(), settings("spring", true, null)).report();
+
+        assertThat(stub.requests.get(0))
+                .as("the default claim asks for the inventory sensor and the ring's capacity")
+                .containsEntry("sensors", List.of("executors", "inventory"))
+                .containsEntry("ringCapacity", AgentSensorSettings.DEFAULT_RING_CAPACITY);
+        assertThat(report.sensors()).singleElement().satisfies(row -> {
+            assertThat(row.id()).isEqualTo("inventory");
+            assertThat(row.executors()).isNull();
+            assertThat(row.hooks())
+                    .extracting(JavaAgentHookDto::id, JavaAgentHookDto::kind, JavaAgentHookDto::fired)
+                    .containsExactly(
+                            org.assertj.core.api.Assertions.tuple("method entry", "record", 1L),
+                            org.assertj.core.api.Assertions.tuple("class load", "record", 1L));
+            assertThat(row.inventory()).isNotNull();
+            assertThat(row.inventory().methodsTracked()).isEqualTo(2L);
+            assertThat(row.inventory().executedThisRun()).isEqualTo(1L);
+            assertThat(row.inventory().codeSources()).isEqualTo(1L);
+            assertThat(row.inventory().methodOverflow()).isZero();
+            assertThat(row.inventory().ringDropped()).isZero();
+            assertThat(row.inventory().disabledReason()).isNull();
+        });
+    }
+
+    @Test
     void propagationNeedsAnArmedClaimTheInstalledExecutorsSensorNoDisabledReasonAndAttachedHandoffs() {
         JavaAgentService absent = service(AgentBridgeAccess.absent(), settings("spring", true, null));
         assertThat(absent.propagating()).isFalse();

@@ -1272,7 +1272,9 @@ class BootUiQuarkusProcessor {
                         listOrDefaults(config, "bootui.agent.executors.skip-threads", defaults.skipThreads()),
                         config.getOptionalValue("bootui.agent.executors.max-handoff", Duration.class)
                                 .orElse(defaults.maxHandoff())
-                                .toMillis())
+                                .toMillis(),
+                        config.getOptionalValue("bootui.agent.ring-capacity", Integer.class)
+                                .orElse(defaults.ringCapacity()))
                 : recorder.release(application, mode);
         syntheticBeans.produce(SyntheticBeanBuildItem.configure(QuarkusAgentClaim.class)
                 .scope(Singleton.class)

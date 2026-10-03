@@ -139,11 +139,16 @@ class AgentClaimTests {
     @SuppressWarnings("unchecked")
     void aClaimAsksForItsSensorsAndDelegatesToTheHandoffsAttachedUntilItIsDisarmed() {
         AgentSensorSettings sensors = new AgentSensorSettings(
-                List.of("executors"), List.of("com.acme.Wrapper"), List.of("worker-"), java.time.Duration.ofSeconds(9));
+                List.of("executors"),
+                List.of("com.acme.Wrapper"),
+                List.of("worker-"),
+                java.time.Duration.ofSeconds(9),
+                5000);
         AgentClaim claim = AgentClaim.claim(access, "app", "app@1", "dev", List.of("com.example"), sensors);
 
         Map<String, Object> request = agent.requests.get(0);
         assertThat((List<String>) request.get("sensors")).containsExactly("executors");
+        assertThat(request).as("rounded up to a power of two").containsEntry("ringCapacity", 8192);
         assertThat((Map<String, Object>) request.get("executors"))
                 .containsEntry("skipTasks", List.of("com.acme.Wrapper"))
                 .containsEntry("skipThreads", List.of("worker-"));
@@ -164,14 +169,28 @@ class AgentClaimTests {
 
     @Test
     @SuppressWarnings("unchecked")
-    void theDefaultClaimAsksForTheExecutorsSensorWithTheDefaultSkipLists() {
+    void theDefaultClaimAsksForTheExecutorsAndInventorySensorsWithTheDefaultSkipListsAndRing() {
         AgentClaim.claim(access, "app", "app@1", "dev", List.of());
 
         Map<String, Object> request = agent.requests.get(0);
-        assertThat((List<String>) request.get("sensors")).containsExactly("executors");
+        assertThat((List<String>) request.get("sensors")).containsExactly("executors", "inventory");
+        assertThat(request).containsEntry("ringCapacity", AgentSensorSettings.DEFAULT_RING_CAPACITY);
         assertThat((Map<String, Object>) request.get("executors"))
                 .containsEntry("skipTasks", AgentSensorSettings.DEFAULT_SKIP_TASKS)
                 .containsEntry("skipThreads", AgentSensorSettings.DEFAULT_SKIP_THREADS);
+    }
+
+    @Test
+    void theRingCapacityIsClampedAndRoundedUpToAPowerOfTwo() {
+        assertThat(AgentSensorSettings.ringCapacity(0)).isEqualTo(AgentSensorSettings.DEFAULT_RING_CAPACITY);
+        assertThat(AgentSensorSettings.ringCapacity(-1)).isEqualTo(AgentSensorSettings.DEFAULT_RING_CAPACITY);
+        assertThat(AgentSensorSettings.ringCapacity(10)).isEqualTo(1024);
+        assertThat(AgentSensorSettings.ringCapacity(65_536)).isEqualTo(65_536);
+        assertThat(AgentSensorSettings.ringCapacity(100_000)).isEqualTo(131_072);
+        assertThat(AgentSensorSettings.ringCapacity(Integer.MAX_VALUE)).isEqualTo(4_194_304);
+        assertThat(AgentSensorSettings.defaults().inventory()).isTrue();
+        assertThat(new AgentSensorSettings(List.of("executors"), null, null, null).ringCapacity())
+                .isEqualTo(AgentSensorSettings.DEFAULT_RING_CAPACITY);
     }
 
     @SuppressWarnings("unchecked")

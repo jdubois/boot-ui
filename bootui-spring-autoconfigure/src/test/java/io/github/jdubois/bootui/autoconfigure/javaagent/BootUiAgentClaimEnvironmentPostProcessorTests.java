@@ -75,12 +75,14 @@ class BootUiAgentClaimEnvironmentPostProcessorTests {
                 .withProperty("bootui.enabled", "ON")
                 .withProperty("bootui.agent.executors.skip-tasks", "com.acme.Wrapper")
                 .withProperty("bootui.agent.executors.skip-threads", "worker-, other-")
-                .withProperty("bootui.agent.executors.max-handoff", "30s");
+                .withProperty("bootui.agent.executors.max-handoff", "30s")
+                .withProperty("bootui.agent.ring-capacity", "5000");
 
         withBridge.postProcessEnvironment(environment, application);
 
         Map<String, Object> request = FakeBridge.REQUESTS.get(0);
-        assertThat(request).containsEntry("sensors", List.of("executors"));
+        assertThat(request).containsEntry("sensors", List.of("executors", "inventory"));
+        assertThat(request).as("rounded up to a power of two").containsEntry("ringCapacity", 8192);
         assertThat((Map<String, Object>) request.get("executors"))
                 .containsEntry("skipTasks", List.of("com.acme.Wrapper"))
                 .containsEntry("skipThreads", List.of("worker-", "other-"));
