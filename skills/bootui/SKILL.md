@@ -1,6 +1,6 @@
 ---
 name: bootui
-description: Install, configure, and use BootUI in Spring Boot 4 or Quarkus applications; assess a running application, propose a prioritized action plan, and execute only approved fixes using runtime evidence. Use when asked to add or troubleshoot BootUI, assess application health, or investigate a slow or failing endpoint, exceptions, SQL, Hibernate, beans, mappings, configuration, health, metrics, logs, or traces; also for architecture, security, memory, database, REST, pentest, GraalVM, CRaC, or vulnerability scans, or connecting an AI agent to BootUI.
+description: Install, configure, and use BootUI in Spring Boot 4 or Quarkus applications; assess a running application, propose a prioritized action plan, and execute only approved fixes using runtime evidence. Use when asked to add or troubleshoot BootUI, assess application health, or investigate a slow or failing endpoint, exceptions, SQL, Hibernate, beans, mappings, configuration, health, metrics, logs, or traces; to find runtime-only bugs such as N+1 queries, split transactions, or bypassed @Transactional proxies, or check which routes a code change affects and verify what it changed at runtime after the tests; also for architecture, security, memory, database, REST, pentest, GraalVM, CRaC, or vulnerability scans, or connecting an AI agent to BootUI.
 license: Apache-2.0
 ---
 
@@ -277,12 +277,29 @@ Do not install unrelated infrastructure solely to light up a panel unless the us
 
 ### Analyze what a run did
 
+Runtime Insights reports what the application actually did at runtime — repeated SELECTs, writes split across
+transactions, `@Transactional` methods called past their proxy, transactional listeners that never ran, errors hidden
+behind 2xx answers, anonymous writes — each as one sentence with an exemplar request and the source location to check.
+
 1. Run the application's integration or browser tests against it, so it serves realistic traffic.
-2. Read `bootui insights list --json` (`get_runtime_insights`): coverage and the checks that did not run first, then
-   each observation's sentence, `verify` line, and exemplar request. Open one with `bootui insights show <id> --json`.
-3. After a change, rerun the tests and read `bootui insights compare previous --json` (`get_runtime_run_comparison`).
-   `INSUFFICIENT` and `NOT_COMPARABLE` are not passes, never edit from a latency row, and a missing observation is not
-   proof that a behavior is gone.
+2. Read `bootui insights list --json` (`get_runtime_insights`). Check `requests` first: `0` means nothing was
+   exercised, so an empty list says nothing. Then read `checksNotRun` and `limitations`, then each observation's
+   sentence, `verify` line, and exemplar request. Past the limit, every kind appears once before any kind twice; list
+   one kind with `--query <kind>` such as `--query proxy-bypass`. `notExercised` lists routes no request reached.
+3. Open one observation with `bootui insights show <id> --json` for its evidence rows, then its exemplar with
+   `bootui request-profile <exemplarRequestId> --json`.
+
+### Change code and verify it with runtime evidence
+
+1. Before editing a bean, class, repository, or table, read `bootui insights impact <name> --json`
+   (`get_runtime_impact`): the routes this run exercised through it, the mapped routes it reaches that no request did,
+   and the routes sharing its tables. `AMBIGUOUS` lists candidates; never guess one. The answer says what was and was
+   not exercised, never that a change is safe.
+2. Make the change, let DevTools restart or Quarkus live-reload, and rerun the tests so they reach those routes.
+3. Read `bootui insights compare previous --json` (`get_runtime_run_comparison`). `previous` is the newest kept run
+   that served requests; `runs` lists the kept run ids. A new statement fingerprint or a higher statement count per
+   request is a behavior change you caused: explain it or fix it. `INSUFFICIENT` and `NOT_COMPARABLE` are not passes,
+   never edit from a latency row, and a missing observation is not proof that a behavior is gone.
 
 ### Investigate one slow or failing request
 
@@ -411,7 +428,8 @@ Use an evidence-driven loop:
 4. Locate the corresponding application source and configuration.
 5. Apply the smallest safe fix, preserving existing architecture and framework conventions.
 6. Run focused tests and restart or hot-reload the application as appropriate.
-7. Reproduce the request and rerun the same BootUI read or scan.
+7. Reproduce the request and rerun the same BootUI read or scan; for a runtime behavior, read
+   `bootui insights compare previous --json` after the tests.
 8. Compare before and after results and report both fixed and remaining findings.
 
 Ask before destructive or state-changing actions such as clearing caches, changing logger levels, writing configuration,
@@ -456,6 +474,8 @@ When BootUI MCP tools are available:
    `get_exception_detail`, `get_sql_traces`, `get_traces`, `get_log_tail`, `get_http_exchanges`, and `get_http_routes` (per-route request
    counts, status classes, and p50/p95/p99 latency over the retained window). Their buffers are bounded: before
    concluding that a request, statement, or call never happened, check the `retention` object for evictions.
+   For what a run did across requests, use `get_runtime_insights`, `get_runtime_insight`, `get_runtime_impact`, and
+   `get_runtime_run_comparison`, as described in the two Runtime Insights workflows above.
 3. Run only the advisor relevant to the task, such as `architecture_scan`, `spring_scan`, `hibernate_scan`,
    `memory_scan`, `security_scan`, `pentest_scan`, or `rest_api_scan`.
 4. Use identifiers returned by summary tools to request detail rather than repeatedly fetching broad result sets.

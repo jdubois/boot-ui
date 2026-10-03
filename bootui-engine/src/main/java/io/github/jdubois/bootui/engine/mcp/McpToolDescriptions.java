@@ -42,9 +42,10 @@ public final class McpToolDescriptions {
                     "Return what this run did that no single panel shows, compacted: coverage first, the checks that "
                             + "did not fully run, then at most limit (8) observations with an id, status, one "
                             + "sentence, counts, an exemplar request id for get_request_profile, and a verify line. "
-                            + "query is empty, new, security, diff, latency, or a route, table, bean, or class. "
-                            + "INSUFFICIENT, PARTIAL, and NOT_APPLICABLE are not successes, and an empty list never "
-                            + "means healthy."),
+                            + "query is empty, new, security, diff, latency, an observation kind, or a route, table, "
+                            + "bean, or class; past the limit, every kind is listed once before any kind twice. "
+                            + "requests and notExercised say what the run's traffic reached. INSUFFICIENT, PARTIAL, "
+                            + "and NOT_APPLICABLE are not successes, and an empty list never means healthy."),
             Map.entry(
                     "get_runtime_insight",
                     "Return one Runtime Insights observation by its id from get_runtime_insights, with every check "
@@ -58,7 +59,8 @@ public final class McpToolDescriptions {
                             + "a verdict that a change is safe."),
             Map.entry(
                     "get_runtime_run_comparison",
-                    "Compare this run with a kept one: id is previous or a run id. Comparability first, then at most "
+                    "Compare this run with a kept one: id is previous or a run id. previous is the newest kept run "
+                            + "that served requests; runs lists the others. Comparability first, then at most "
                             + "8 behavior rows and edges; latency is left out. INSUFFICIENT and NOT_COMPARABLE never "
                             + "mean no change. Call after tests to verify a change."),
             Map.entry(

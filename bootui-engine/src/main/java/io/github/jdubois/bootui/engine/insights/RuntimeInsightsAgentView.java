@@ -11,8 +11,12 @@ import io.github.jdubois.bootui.core.dto.RuntimeRunChangeDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunComparisonAgentDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunComparisonDto;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -38,7 +42,9 @@ public final class RuntimeInsightsAgentView {
     /**
      * The report's observations matching {@code query}, at most {@code limit}: empty for every observation but
      * latency-only ones; {@code latency} for those; {@code security} for anonymous access; {@code new} or {@code diff}
-     * for what the previous run did not show; anything else for observations naming that route, table, bean, or class.
+     * for what the previous run did not show; an observation kind for that kind; anything else for observations naming
+     * that route, table, bean, or class. When more match than {@code limit}, every kind's most affected observation
+     * comes before any kind's second, so one prolific kind cannot hide the others.
      */
     public static RuntimeInsightsAgentReportDto list(RuntimeInsightsReportDto report, String query, Integer limit) {
         String asked = query == null ? "" : query.trim();
@@ -46,15 +52,33 @@ public final class RuntimeInsightsAgentView {
                 Math.min(MAX_LIMIT, limit == null || limit <= 0 ? RuntimeInsightsAgentReportDto.DEFAULT_LIMIT : limit);
         if (!report.available()) {
             return new RuntimeInsightsAgentReportDto(
-                    false, report.unavailableReason(), asked, List.of(), List.of(), List.of(), 0, List.of());
+                    false,
+                    report.unavailableReason(),
+                    asked,
+                    0,
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    0,
+                    List.of(),
+                    0,
+                    List.of());
         }
-        List<RuntimeInsightAgentDto> matching = new ArrayList<>();
+        List<RuntimeObservationDto> matching = new ArrayList<>();
         for (RuntimeObservationDto observation : report.observations()) {
             if (matches(observation, asked)) {
-                matching.add(compact(observation));
+                matching.add(observation);
             }
         }
-        List<String> limitations = new ArrayList<>(report.limitations());
+        List<RuntimeObservationDto> listed = breadthFirst(matching, max);
+        long requests = report.window() == null ? 0 : report.window().requests();
+        List<String> limitations = new ArrayList<>();
+        if (requests == 0) {
+            limitations.add("No HTTP request completed in this run's retained events, so request-level checks had"
+                    + " nothing to judge: an empty list here means not exercised, not healthy. Run the application's"
+                    + " tests or send it traffic, then call again.");
+        }
+        limitations.addAll(report.limitations());
         if (asked.equalsIgnoreCase("diff")) {
             limitations.add("For what changed between runs, statements, calls, routes, and edges, call"
                     + " get_runtime_run_comparison with previous.");
@@ -62,14 +86,23 @@ public final class RuntimeInsightsAgentView {
         if (asked.isEmpty()) {
             limitations.add("Latency-only observations are left out; ask for them with the query latency.");
         }
+        String leftOut = leftOut(matching, listed);
+        if (leftOut != null) {
+            limitations.add(leftOut);
+        }
+        List<String> notExercised = report.notExercised();
+        int notExercisedShown = Math.min(RuntimeInsightsAgentReportDto.MAX_NOT_EXERCISED, notExercised.size());
         return new RuntimeInsightsAgentReportDto(
                 true,
                 null,
                 asked,
+                requests,
                 report.coverage(),
                 checksNotRun(report.checks()),
-                matching.subList(0, Math.min(max, matching.size())),
-                Math.max(0, matching.size() - max),
+                listed.stream().map(RuntimeInsightsAgentView::compact).toList(),
+                matching.size() - listed.size(),
+                notExercised.subList(0, notExercisedShown),
+                notExercised.size() - notExercisedShown + report.notExercisedOmitted(),
                 limitations);
     }
 
@@ -101,7 +134,9 @@ public final class RuntimeInsightsAgentView {
         return new RuntimeRunComparisonAgentDto(
                 comparison.status(),
                 comparison.reason(),
+                comparison.current() == null ? null : comparison.current().runId(),
                 comparison.previous() == null ? null : comparison.previous().runId(),
+                comparison.runs(),
                 comparison.notComparableReasons(),
                 head(comparison.behavior()),
                 omitted(comparison.behavior()),
@@ -150,9 +185,59 @@ public final class RuntimeInsightsAgentView {
             }
             default -> {
                 String needle = query.toLowerCase(Locale.ROOT);
-                return contains(observation.subject(), needle) || contains(observation.sentence(), needle);
+                return kind.equalsIgnoreCase(query)
+                        || contains(observation.subject(), needle)
+                        || contains(observation.sentence(), needle);
             }
         }
+    }
+
+    /**
+     * At most {@code max} of {@code rows}, kept in report order: every kind's first row before any kind's second, and so
+     * on, so the answer stays as broad as the limit allows.
+     */
+    private static List<RuntimeObservationDto> breadthFirst(List<RuntimeObservationDto> rows, int max) {
+        if (rows.size() <= max) {
+            return rows;
+        }
+        Map<String, Integer> seen = new HashMap<>();
+        int[] rank = new int[rows.size()];
+        for (int i = 0; i < rows.size(); i++) {
+            rank[i] = seen.merge(rows.get(i).kind(), 1, Integer::sum);
+        }
+        List<Integer> order = new ArrayList<>();
+        for (int i = 0; i < rows.size(); i++) {
+            order.add(i);
+        }
+        order.sort(Comparator.comparing(
+                        (Integer i) -> "INSUFFICIENT".equals(rows.get(i).status()))
+                .thenComparingInt(i -> rank[i])
+                .thenComparingInt(i -> i));
+        List<Integer> chosen = new ArrayList<>(order.subList(0, max));
+        chosen.sort(Comparator.naturalOrder());
+        return chosen.stream().map(rows::get).toList();
+    }
+
+    /** Which kinds lost rows to {@code limit}, and how to list them, or {@code null} when nothing was left out. */
+    private static String leftOut(List<RuntimeObservationDto> matching, List<RuntimeObservationDto> listed) {
+        if (matching.size() == listed.size()) {
+            return null;
+        }
+        Map<String, Integer> omitted = new LinkedHashMap<>();
+        for (RuntimeObservationDto observation : matching) {
+            omitted.merge(observation.kind(), 1, Integer::sum);
+        }
+        for (RuntimeObservationDto observation : listed) {
+            omitted.merge(observation.kind(), -1, Integer::sum);
+        }
+        List<String> parts = new ArrayList<>();
+        omitted.forEach((kind, count) -> {
+            if (count > 0) {
+                parts.add(kind + " " + count);
+            }
+        });
+        return "Left out by limit: " + String.join(", ", parts)
+                + ". List one kind by passing its name as the query, or raise limit.";
     }
 
     private static boolean contains(String text, String needle) {

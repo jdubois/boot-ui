@@ -1,5 +1,6 @@
 package io.github.jdubois.bootui.engine.mcp;
 
+import io.github.jdubois.bootui.core.dto.RuntimeInsightsAgentReportDto;
 import io.github.jdubois.bootui.engine.panel.BootUiPanels;
 import java.util.EnumSet;
 import java.util.LinkedHashSet;
@@ -283,7 +284,19 @@ public final class McpToolCatalog {
     private static final Map<String, Entry> BY_NAME =
             ENTRIES.stream().collect(Collectors.toUnmodifiableMap(Entry::name, Function.identity()));
 
+    /**
+     * The tools whose answer is compacted for agents: a call without {@code limit} gets this short page rather than
+     * {@code max-results} rows ({@code docs/PLAN-v2.md} §5.6).
+     */
+    private static final Map<String, Integer> DEFAULT_LIMITS =
+            Map.of("get_runtime_insights", RuntimeInsightsAgentReportDto.DEFAULT_LIMIT);
+
     private McpToolCatalog() {}
+
+    /** The {@code limit} a call to {@code name} gets when it asks for none, or {@code null} for {@code max-results}. */
+    public static Integer defaultLimit(String name) {
+        return DEFAULT_LIMITS.get(name);
+    }
 
     /** Every catalog entry, in advertised order. */
     public static List<Entry> entries() {

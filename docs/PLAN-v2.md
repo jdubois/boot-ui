@@ -1061,6 +1061,11 @@ existing `McpToolSchema` names, which the published CLI binds, and add no schema
   `bootui insights list --json`. Tests are where realistic traffic comes from.
 - Quarkus Dev MCP registration of these four read tools joins M3 if it is only a registration, so that Quarkus agents
   discover them where they already look.
+- As validated end to end on the Spring MVC sample's seeded run, through MCP and the CLI: a call without `limit` gets
+  the 8-row default (the dispatcher had replaced it with `max-results`); past the limit every kind is listed once
+  before any kind twice, so one route-by-table kind cannot hide the others; the list carries the run's HTTP `requests`
+  and up to 8 `notExercised` routes; `previous` skips a newer kept run that served no request, as DevTools leaves when
+  it restarts twice for one change; and the agent comparison lists the kept `runs` an agent may name instead.
 
 Acceptance criteria:
 

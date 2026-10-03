@@ -466,6 +466,12 @@ public abstract class AbstractMcpConformanceTest {
             if (!list.path("available").asBoolean()) {
                 assertThat(list.path("unavailableReason").asText()).isNotBlank();
             }
+            JsonNode byDefault = callTool("get_runtime_insights", "{}");
+            assertThat(byDefault.path("observations").size())
+                    .as("a call without limit gets the compact default, not bootui.mcp.max-results rows")
+                    .isLessThanOrEqualTo(8);
+            assertThat(byDefault.has("requests")).isTrue();
+            assertThat(byDefault.path("notExercised").size()).isLessThanOrEqualTo(8);
 
             JsonNode unknown = callTool("get_runtime_insight", "{\"id\":\"conformance-unknown-observation\"}");
             assertThat(unknown.path("available").asBoolean(true)).isFalse();
@@ -478,6 +484,9 @@ public abstract class AbstractMcpConformanceTest {
             assertThat(comparison.path("status").asText())
                     .isIn("COMPARED", "INSUFFICIENT", "NOT_COMPARABLE", "NO_PREVIOUS_RUN", "UNAVAILABLE");
             assertThat(comparison.path("behavior").size()).isLessThanOrEqualTo(8);
+            assertThat(comparison.has("runs"))
+                    .as("the kept run ids an agent may name")
+                    .isTrue();
             assertThat(comparison.has("latency"))
                     .as("latency is left out for agents")
                     .isFalse();
