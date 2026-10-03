@@ -1,10 +1,12 @@
 package io.github.jdubois.bootui.engine.model;
 
-import io.github.jdubois.bootui.engine.journal.JournalEntry;
+import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
 import io.github.jdubois.bootui.engine.journal.JournalStatus;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
+import io.github.jdubois.bootui.engine.journal.VisibleJournalEntries;
 import io.github.jdubois.bootui.engine.sqltrace.RouteTemplateResolver;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -23,6 +25,14 @@ public final class RuntimeModelService {
     private RuntimeModel cached;
     private long cachedWatermark = Long.MIN_VALUE;
     private long cachedEvicted = Long.MIN_VALUE;
+    private int cachedRetained = -1;
+    private RuntimeModel cachedVisible;
+    private Map<String, Boolean> cachedVisibility;
+    private StructureSnapshot cachedVisibleSnapshot;
+    private String cachedVisibleRun;
+    private long cachedVisibleWatermark = Long.MIN_VALUE;
+    private long cachedVisibleEvicted = Long.MIN_VALUE;
+    private int cachedVisibleRetained = -1;
 
     /**
      * @param journal the journal, or {@code null} when the adapter created none
@@ -47,7 +57,10 @@ public final class RuntimeModelService {
 
         JournalStatus status = journal.status();
         long evicted = status.evictedByCount() + status.evictedByBytes();
-        if (cached != null && cachedWatermark == status.lastSequence() && cachedEvicted == evicted) {
+        if (cached != null
+                && cachedWatermark == status.lastSequence()
+                && cachedEvicted == evicted
+                && cachedRetained == status.retainedEvents()) {
             return cached;
         }
         // An empty snapshot is read again, as providers can become available after the first read.
@@ -72,21 +85,32 @@ public final class RuntimeModelService {
                 RuntimeModelProjection.READ_BUDGET_NANOS);
         cachedWatermark = status.lastSequence();
         cachedEvicted = evicted;
+        cachedRetained = status.retainedEvents();
         return cached;
     }
 
-    /** Projects only the entries visible under one panel-policy read, without caching across policy changes. */
-    public synchronized RuntimeModel model(List<JournalEntry> visibleEntries) {
+    /** Projects only the entries visible under one panel-policy read, cached until the journal or policy changes. */
+    public synchronized RuntimeModel model(Map<String, Boolean> visibility) {
         if (journal == null || !journal.settings().enabled()) {
             return new RuntimeModelBuilder()
                     .build(null, List.of("The runtime journal is disabled: set bootui.runtime-journal.enabled=true."));
         }
         JournalStatus status = journal.status();
+        long evicted = status.evictedByCount() + status.evictedByBytes();
         if (snapshot == null
                 || !status.runId().equals(snapshotRun)
                 || (snapshot.routes().isEmpty() && snapshot.beans().isEmpty())) {
             snapshot = read(status.runId());
             snapshotRun = status.runId();
+        }
+        if (cachedVisible != null
+                && cachedVisibleWatermark == status.lastSequence()
+                && cachedVisibleEvicted == evicted
+                && cachedVisibleRetained == status.retainedEvents()
+                && status.runId().equals(cachedVisibleRun)
+                && cachedVisibleSnapshot == snapshot
+                && visibility.equals(cachedVisibility)) {
+            return cachedVisible;
         }
         RouteTemplateResolver resolver;
         try {
@@ -94,13 +118,23 @@ public final class RuntimeModelService {
         } catch (RuntimeException ex) {
             resolver = RouteTemplateResolver.empty();
         }
-        return RuntimeModelProjection.project(
-                visibleEntries,
+        cachedVisible = RuntimeModelProjection.project(
+                VisibleJournalEntries.of(journal.entries(), event -> {
+                    String panel = JournalSourcePanels.panelOf(event);
+                    return panel == null || visibility.getOrDefault(panel, false);
+                }),
                 resolver,
                 snapshot,
-                status.evictedByCount() + status.evictedByBytes(),
+                evicted,
                 System::nanoTime,
                 RuntimeModelProjection.READ_BUDGET_NANOS);
+        cachedVisibility = Map.copyOf(visibility);
+        cachedVisibleSnapshot = snapshot;
+        cachedVisibleRun = status.runId();
+        cachedVisibleWatermark = status.lastSequence();
+        cachedVisibleEvicted = evicted;
+        cachedVisibleRetained = status.retainedEvents();
+        return cachedVisible;
     }
 
     /** The structure the current model was projected with, or an empty one before the first {@link #model()}. */

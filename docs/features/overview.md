@@ -699,8 +699,10 @@ Quarkus its ArC injection edges; when the beans cannot be read, the impact says 
 `?impact=<symbol>` opens the panel on a symbol.
 Route traffic is counted over the whole run even when its request has left the journal's retained evidence; shared
 resources and example request ids still depend on retained events. When the route-count limit is exceeded, a route
-without retained evidence is not claimed to be unexercised. Disabled source panels leave their facts out and are named
-in the limitations; when HTTP Exchanges is disabled, change impact cannot classify traffic at all.
+without retained evidence is not claimed to be unexercised: `notExercisedUndetermined` marks the list incomplete
+instead of claiming every mapped route ran. Disabled source panels leave their facts out and are named in the
+limitations only when relevant evidence was recorded; when HTTP Exchanges is disabled, change impact cannot classify
+traffic at all. Symbol suggestions reuse a policy-filtered projection until the journal or panel policy changes.
 
 **Profile resources** measures what scope readings cannot, such as CPU on virtual threads. Only when you click it, it
 records a JDK Flight Recorder session of `bootui.resources.jfr.max-duration` (30 seconds by default; **Stop now** ends

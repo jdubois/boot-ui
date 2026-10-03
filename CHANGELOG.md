@@ -12,8 +12,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Runtime Insights and change impact stay truthful with sparse or restricted evidence.** Scheduled jobs and consumed
   messages can show observations without an HTTP request. Change impact counts route traffic across the whole run
   after journal eviction, narrows an explicitly named handler method to its own mappings, and excludes disabled
-  source panels' evidence from its model and suggestions ([#1217](https://github.com/jdubois/boot-ui/pull/1217);
-  PLAN-v2 M4-18b).
+  source panels' evidence from its model and suggestions. Route-count overflow marks unclassified routes as
+  undetermined, and disabled-source limitations appear only when relevant evidence was recorded
+  ([#1217](https://github.com/jdubois/boot-ui/pull/1217); PLAN-v2 M4-18b).
 
 - **Runtime Insights tells an unavailable panel from a disabled one.** An observation whose evidence belongs to a panel
   this application cannot serve, such as Security Logs on a Quarkus application without

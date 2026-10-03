@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.RouteStats;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
+import io.github.jdubois.bootui.engine.journal.JournalSource;
 import io.github.jdubois.bootui.engine.journal.JournalSourcePanels;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeJournal;
@@ -71,6 +72,15 @@ public final class ChangeImpactService {
     private static final Set<EdgeType> CODE = EnumSet.of(EdgeType.DEPENDS_ON, EdgeType.HANDLED_BY);
     private static final Set<EdgeType> ACCESS =
             EnumSet.of(EdgeType.READS, EdgeType.WRITES, EdgeType.CALLS, EdgeType.PUBLISHES, EdgeType.CONSUMES);
+    private static final Set<JournalSource> IMPACT_SOURCES = EnumSet.of(
+            JournalSource.SQL,
+            JournalSource.CACHE,
+            JournalSource.REST_CLIENT,
+            JournalSource.AI,
+            JournalSource.MESSAGING,
+            JournalSource.SCHEDULED,
+            JournalSource.WEBSOCKET,
+            JournalSource.AUTHORIZATION);
 
     private final RuntimeJournal journal;
     private final JournalAggregates aggregates;
@@ -138,12 +148,14 @@ public final class ChangeImpactService {
             return unavailable(
                     asked, "The HTTP Exchanges panel is disabled, so this run's route traffic is unavailable.");
         }
-        List<JournalEntry> entries = visibleEntries(visible);
-        RuntimeModel model = models.model(entries);
+        RuntimeModel model = models.model(visible);
+        List<JournalEntry> recorded = journal.entries();
+        Set<String> omitted = omittedEvidence(recorded, visible);
+        List<JournalEntry> entries = visibleEntries(recorded, visible);
         StructureSnapshot structure = models.structure();
         HandlerMethod method = HandlerMethod.parse(asked);
         if (method != null) {
-            return method(asked, model, structure, method, entries, visible);
+            return method(asked, model, structure, method, entries, visible, omitted);
         }
         List<ModelNode> candidates = candidates(model, structure, asked);
         if (candidates.isEmpty()) {
@@ -163,7 +175,7 @@ public final class ChangeImpactService {
                     0,
                     List.of(),
                     0,
-                    limitations(model, visible));
+                    limitations(model, omitted));
         }
         if (candidates.size() > 1) {
             return new RuntimeChangeImpactDto(
@@ -184,7 +196,7 @@ public final class ChangeImpactService {
                     0,
                     List.of());
         }
-        return resolved(asked, model, structure, candidates.get(0), entries, visible);
+        return resolved(asked, model, structure, candidates.get(0), entries, visible, omitted);
     }
 
     private RuntimeChangeImpactDto resolved(
@@ -193,8 +205,9 @@ public final class ChangeImpactService {
             StructureSnapshot structure,
             ModelNode start,
             List<JournalEntry> entries,
-            Map<String, Boolean> visible) {
-        return resolved(asked, model, structure, start, null, entries, visible);
+            Map<String, Boolean> visible,
+            Set<String> omitted) {
+        return resolved(asked, model, structure, start, null, entries, visible, omitted);
     }
 
     /**
@@ -208,7 +221,8 @@ public final class ChangeImpactService {
             ModelNode start,
             MappedMethod mapped,
             List<JournalEntry> entries,
-            Map<String, Boolean> visible) {
+            Map<String, Boolean> visible,
+            Set<String> omitted) {
         boolean resource = start != null && RESOURCES.contains(start.type());
         boolean routeStart = start != null && ROUTES.contains(start.type());
         Map<Integer, Integer> closure = mapped != null
@@ -221,6 +235,7 @@ public final class ChangeImpactService {
         Map<String, List<String>> exemplars = exemplars(entries);
         List<RuntimeImpactRouteDto> observed = new ArrayList<>();
         List<RuntimeImpactRouteDto> notExercised = new ArrayList<>();
+        boolean undetermined = false;
         Set<Integer> observedRoutes = new LinkedHashSet<>();
         List<Integer> reached = new ArrayList<>();
         if (routeStart) {
@@ -246,6 +261,8 @@ public final class ChangeImpactService {
                         "Exercise `" + node.key() + "` before relying on this change: no request reached it in this"
                                 + " run.",
                         visible));
+            } else {
+                undetermined = true;
             }
         }
         Set<Integer> touched = new LinkedHashSet<>();
@@ -283,8 +300,8 @@ public final class ChangeImpactService {
         observed.sort(busiest);
         shared.sort(busiest);
         notExercised.sort(Comparator.comparing(RuntimeImpactRouteDto::route));
-        List<String> limitations = new ArrayList<>(limitations(model, visible));
-        if (routeOverflow) {
+        List<String> limitations = new ArrayList<>(limitations(model, omitted));
+        if (undetermined) {
             limitations.add("The route aggregate reached its cardinality limit: routes absent from its counts and"
                     + " the retained journal cannot be classified as not exercised.");
         }
@@ -323,7 +340,8 @@ public final class ChangeImpactService {
                 notExercised.size(),
                 capped(shared),
                 shared.size(),
-                limitations);
+                limitations,
+                undetermined);
     }
 
     /**
@@ -336,7 +354,8 @@ public final class ChangeImpactService {
             StructureSnapshot structure,
             HandlerMethod method,
             List<JournalEntry> entries,
-            Map<String, Boolean> visible) {
+            Map<String, Boolean> visible,
+            Set<String> omitted) {
         Map<String, List<String>> routesByHandler = new HashMap<>();
         for (StructureSnapshot.RouteHandler route : structure.routes()) {
             if (method.handles(route)) {
@@ -360,7 +379,7 @@ public final class ChangeImpactService {
                     0,
                     List.of(),
                     0,
-                    limitations(model, visible));
+                    limitations(model, omitted));
         }
         List<String> handlers = routesByHandler.keySet().stream().sorted().toList();
         if (handlers.size() > 1) {
@@ -390,7 +409,8 @@ public final class ChangeImpactService {
                 null,
                 new MappedMethod(handler + "#" + method.name(), routesByHandler.get(handler)),
                 entries,
-                visible);
+                visible,
+                omitted);
     }
 
     /**
@@ -533,7 +553,7 @@ public final class ChangeImpactService {
                     List.of(),
                     0);
         }
-        RuntimeModel model = models.model(visibleEntries(visible));
+        RuntimeModel model = models.model(visible);
         Map<String, String> types = beanTypes(models.structure());
         String wanted = asked.toLowerCase(Locale.ROOT);
         record Match(ModelNode node, String type, int rank) {}
@@ -683,24 +703,43 @@ public final class ChangeImpactService {
             }
             visible.put(panel, enabled);
         }
-        return Map.copyOf(visible);
+        return visible;
     }
 
-    private List<JournalEntry> visibleEntries(Map<String, Boolean> visible) {
-        return VisibleJournalEntries.of(journal.entries(), event -> {
+    private static List<JournalEntry> visibleEntries(List<JournalEntry> entries, Map<String, Boolean> visible) {
+        return VisibleJournalEntries.of(entries, event -> {
             String panel = JournalSourcePanels.panelOf(event);
             return panel == null || visible.getOrDefault(panel, false);
         });
     }
 
-    private static List<String> limitations(RuntimeModel model, Map<String, Boolean> visible) {
+    private Set<String> omittedEvidence(List<JournalEntry> entries, Map<String, Boolean> visible) {
+        Set<String> omitted = new LinkedHashSet<>();
+        for (JournalEntry entry : entries) {
+            if (!IMPACT_SOURCES.contains(entry.event().source())) {
+                continue;
+            }
+            String panel = JournalSourcePanels.panelOf(entry.event());
+            if (panel != null && !visible.getOrDefault(panel, false)) {
+                omitted.add(panel);
+            }
+        }
+        if (!visible.getOrDefault(BootUiPanels.SECURITY_LOGS, false)
+                && aggregates.snapshot().routes().stream()
+                        .anyMatch(route -> route.authorization().decided() > 0)) {
+            omitted.add(BootUiPanels.SECURITY_LOGS);
+        }
+        return omitted;
+    }
+
+    private static List<String> limitations(RuntimeModel model, Set<String> omitted) {
         List<String> limits = new ArrayList<>(model.limitations());
-        visible.forEach((panel, enabled) -> {
-            if (!enabled) {
+        for (String panel : JournalSourcePanels.owningPanels()) {
+            if (omitted.contains(panel)) {
                 limits.add(
                         "The " + panel + " panel is disabled, so its journal evidence is left out of change impact.");
             }
-        });
+        }
         return limits;
     }
 

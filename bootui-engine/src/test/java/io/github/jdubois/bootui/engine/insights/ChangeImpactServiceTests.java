@@ -8,6 +8,7 @@ import io.github.jdubois.bootui.core.dto.RuntimeImpactRouteDto;
 import io.github.jdubois.bootui.core.dto.RuntimeImpactSymbolDto;
 import io.github.jdubois.bootui.core.dto.RuntimeImpactSymbolsDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
+import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.HttpPayload;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
@@ -307,6 +308,32 @@ class ChangeImpactServiceTests {
     }
 
     @Test
+    void routeOverflowReportsUnknownRoutesInsteadOfClaimingEveryMappedRouteRan() throws Exception {
+        journal.addListener(aggregates);
+        for (int i = 0; i <= JournalAggregates.MAX_ROUTES; i++) {
+            String path = "/overflow/" + i;
+            journal.offer(RuntimeEvent.of(
+                    JournalSource.HTTP,
+                    1_000,
+                    1_000,
+                    CorrelationContext.forRequest("overflow-" + i),
+                    "http-1",
+                    null,
+                    false,
+                    new HttpPayload("GET", path, path, null, 200)));
+        }
+        assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+        assertThat(aggregates.snapshot().overflowed().get("routes")).isPositive();
+
+        RuntimeChangeImpactDto impact = service(structure(null)).impact("ProductController#get");
+        assertThat(impact.status()).isEqualTo(ChangeImpactService.RESOLVED);
+        assertThat(impact.notExercised()).isEmpty();
+        assertThat(impact.notExercisedTotal()).isZero();
+        assertThat(impact.notExercisedUndetermined()).isTrue();
+        assertThat(impact.limitations()).anySatisfy(limit -> assertThat(limit).contains("cannot be classified"));
+    }
+
+    @Test
     void disabledSourceFactsStayOutOfImpactAndSuggestionsEvenWhenThePolicyChangesWithoutNewEvents() throws Exception {
         journal.addListener(aggregates);
         request("/api/products", "select * from sample_products");
@@ -323,10 +350,78 @@ class ChangeImpactServiceTests {
             assertThat(row.writes()).isEmpty();
         });
         assertThat(route.limitations()).anySatisfy(limit -> assertThat(limit).contains(BootUiPanels.SQL_TRACE));
+        assertThat(route.limitations()).noneSatisfy(limit -> assertThat(limit).contains(BootUiPanels.HIBERNATE));
 
         ChangeImpactService noHttp = service(structure(null), panel -> !panel.equals(BootUiPanels.HTTP_EXCHANGES));
         assertThat(noHttp.impact("GET /api/products").status()).isEqualTo(ChangeImpactService.UNAVAILABLE);
         assertThat(noHttp.symbols("sample_products").available()).isFalse();
+    }
+
+    @Test
+    void disabledSourcesWithoutRelevantEvidenceDoNotProduceSpuriousLimitations() throws Exception {
+        journal.addListener(aggregates);
+        journal.offer(RuntimeEvent.of(
+                JournalSource.HTTP,
+                1_000,
+                1_000,
+                CorrelationContext.forRequest("http-only"),
+                "http-1",
+                null,
+                false,
+                new HttpPayload("GET", "/api/products", "/api/products", null, 200)));
+        assertThat(journal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+        RuntimeChangeImpactDto impact = service(structure(null), panel -> panel.equals(BootUiPanels.HTTP_EXCHANGES))
+                .impact("GET /api/products");
+        assertThat(impact.limitations()).noneSatisfy(limit -> assertThat(limit).contains("panel is disabled"));
+    }
+
+    @Test
+    void evictedAuthorizationStillExplainsWhyAnonymousCountsAreHidden() throws Exception {
+        RuntimeJournal shortJournal = new RuntimeJournal(
+                new RuntimeJournalSettings(true, 1, 50_000_000, 10, 0, 0, JournalSource.all()), RunIdentity.start());
+        JournalAggregates wholeRun = new JournalAggregates();
+        try {
+            shortJournal.addListener(wholeRun);
+            CorrelationContext context = CorrelationContext.forRequest("anonymous");
+            shortJournal.offer(RuntimeEvent.of(
+                    JournalSource.AUTHORIZATION,
+                    1_000,
+                    1_000,
+                    context,
+                    "http-1",
+                    null,
+                    false,
+                    new AuthorizationPayload(
+                            AuthorizationPayload.REQUEST, null, null, AuthorizationPayload.ANONYMOUS, true, 0)));
+            assertThat(shortJournal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+            shortJournal.offer(RuntimeEvent.of(
+                    JournalSource.HTTP,
+                    1_001,
+                    1_000,
+                    context,
+                    "http-1",
+                    null,
+                    false,
+                    new HttpPayload("GET", "/api/products", "/api/products", null, 200)));
+            assertThat(shortJournal.awaitDrained(Duration.ofSeconds(5))).isTrue();
+            assertThat(shortJournal.entries())
+                    .noneSatisfy(entry -> assertThat(entry.event().source()).isEqualTo(JournalSource.AUTHORIZATION));
+            assertThat(wholeRun.snapshot().routes())
+                    .anySatisfy(route ->
+                            assertThat(route.authorization().anonymous()).isEqualTo(1));
+
+            RuntimeModelService models = new RuntimeModelService(shortJournal, null, runId -> structure(null));
+            RuntimeChangeImpactDto impact = new ChangeImpactService(
+                            shortJournal, wholeRun, models, null, panel -> !panel.equals(BootUiPanels.SECURITY_LOGS))
+                    .impact("GET /api/products");
+            assertThat(impact.observed())
+                    .singleElement()
+                    .satisfies(route -> assertThat(route.anonymous()).isZero());
+            assertThat(impact.limitations())
+                    .anySatisfy(limit -> assertThat(limit).contains(BootUiPanels.SECURITY_LOGS));
+        } finally {
+            shortJournal.close();
+        }
     }
 
     @Test

@@ -1593,8 +1593,9 @@ network call. Its one action is **Profile resources**, an opt-in JFR session the
   the routes through it touched, with the structural reach as a count. A route is its own impact: it is listed itself,
   with the routes sharing what it touched. A known handler method (`Class#method`, with `#` URL-encoded as `%23`)
   narrows the answer to that method's mapped routes; the class alone still includes the whole bean. Whole-run route
-  counts survive event eviction; when aggregate route counts overflow, an unknown route is not called unexercised.
-  Disabled source-panel facts are omitted and named as limitations; when HTTP Exchanges is disabled the answer is
+  counts survive event eviction; when aggregate route counts overflow, an unknown route is not called unexercised,
+  and `notExercisedUndetermined=true` marks the list incomplete. Disabled source-panel facts are omitted and named
+  as limitations only when relevant evidence was recorded; when HTTP Exchanges is disabled the answer is
   unavailable. It is worded as what was and was not exercised, never as safe, and reads only what the journal, the
   aggregates, and the bean and mapping providers already hold.
 - `GET /bootui/api/runtime-insights/impact/symbols?query=<text>` suggests, as the impact box is typed in, at most 20 of
