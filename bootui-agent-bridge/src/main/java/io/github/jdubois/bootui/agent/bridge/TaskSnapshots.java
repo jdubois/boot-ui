@@ -1,0 +1,237 @@
+package io.github.jdubois.bootui.agent.bridge;
+
+import java.lang.ref.ReferenceQueue;
+import java.lang.ref.WeakReference;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.LongAdder;
+import java.util.function.BiFunction;
+
+/**
+ * Submit-time snapshots keyed by the identity of the task an executor received, held weakly (PLAN-v2 D32), so the task
+ * the executor queues, returns from {@code shutdownNow}, or passes to a rejection handler stays the application's own.
+ * Each entry counts its pending submissions: a submission by another owner, or an unowned one, while any is pending makes
+ * the entry ambiguous until the count drops to zero, so a run never takes another owner's snapshot. Payloads are flat
+ * arrays of JDK values stamped with the claim generation, so the map can never pin a class loader and is never cleared.
+ * No lambdas, no synchronized.
+ */
+final class TaskSnapshots {
+
+    /** Returned by {@link #take}: several owners submitted the task; it runs unowned. */
+    static final Object AMBIGUOUS = new Object();
+
+    /** The owner fields of a snapshot compared to tell owners apart: request, execution, trace, and span ids. */
+    static final int OWNER_FIELDS = 4;
+
+    private static final ConcurrentHashMap<Object, Entry> SNAPSHOTS = new ConcurrentHashMap<Object, Entry>();
+    private static final ReferenceQueue<Object> QUEUE = new ReferenceQueue<Object>();
+    private static final LongAdder NEVER_APPLIED = new LongAdder();
+
+    private TaskSnapshots() {}
+
+    /** Records an owned submission; returns false when the entry is (now) ambiguous. */
+    static boolean put(Object task, long generation, Object[] payload) {
+        expunge();
+        Put put = new Put(generation, payload);
+        SNAPSHOTS.compute(new Key(task, QUEUE), put);
+        return !put.ambiguous;
+    }
+
+    /** Records an unowned submission of a task with a pending owned one: the entry becomes ambiguous. */
+    static boolean putUnowned(Object task, long generation) {
+        if (SNAPSHOTS.isEmpty() || SNAPSHOTS.get(new Lookup(task)) == null) {
+            return false;
+        }
+        Unowned unowned = new Unowned(generation);
+        SNAPSHOTS.computeIfPresent(new Lookup(task), unowned);
+        return unowned.touched;
+    }
+
+    /** Where the task runs: null (unowned), {@link #AMBIGUOUS}, or the {@link Entry} to reopen. */
+    static Object take(Object task) {
+        if (SNAPSHOTS.isEmpty() || SNAPSHOTS.get(new Lookup(task)) == null) {
+            return null;
+        }
+        Take take = new Take();
+        SNAPSHOTS.computeIfPresent(new Lookup(task), take);
+        return take.result;
+    }
+
+    /** A submission that will not run (the queue refused it, its worker did not start, it was removed). */
+    static void release(Object task) {
+        if (SNAPSHOTS.isEmpty() || SNAPSHOTS.get(new Lookup(task)) == null) {
+            return;
+        }
+        SNAPSHOTS.computeIfPresent(new Lookup(task), new Take());
+    }
+
+    static boolean isEmpty() {
+        return SNAPSHOTS.isEmpty();
+    }
+
+    static int size() {
+        expunge();
+        return SNAPSHOTS.size();
+    }
+
+    /** Entries whose task was reclaimed while still pending: keyed but never run where a hook applies it. */
+    static long neverApplied() {
+        expunge();
+        return NEVER_APPLIED.sum();
+    }
+
+    /** Tests only. */
+    static void reset() {
+        SNAPSHOTS.clear();
+        NEVER_APPLIED.reset();
+    }
+
+    static void expungeStale() {
+        expunge();
+    }
+
+    private static void expunge() {
+        Object stale;
+        while ((stale = QUEUE.poll()) != null) {
+            Entry entry = SNAPSHOTS.remove(stale);
+            if (entry != null && entry.pending > 0) {
+                NEVER_APPLIED.increment();
+            }
+        }
+    }
+
+    static boolean sameOwner(Object[] left, Object[] right) {
+        for (int i = 0; i < OWNER_FIELDS; i++) {
+            Object a = i < left.length ? left[i] : null;
+            Object b = i < right.length ? right[i] : null;
+            if (a == null ? b != null : !a.equals(b)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** One task's pending submissions. Mutated only inside the map's per-bin compute. */
+    static final class Entry {
+
+        final long generation;
+        final Object[] payload;
+        int pending;
+        boolean ambiguous;
+
+        Entry(long generation, Object[] payload) {
+            this.generation = generation;
+            this.payload = payload;
+            this.pending = 1;
+        }
+    }
+
+    static final class Put implements BiFunction<Object, Entry, Entry> {
+
+        private final long generation;
+        private final Object[] payload;
+        boolean ambiguous;
+
+        Put(long generation, Object[] payload) {
+            this.generation = generation;
+            this.payload = payload;
+        }
+
+        @Override
+        public Entry apply(Object key, Entry existing) {
+            if (existing == null || existing.generation != generation) {
+                return new Entry(generation, payload);
+            }
+            existing.pending++;
+            if (!existing.ambiguous && !sameOwner(existing.payload, payload)) {
+                existing.ambiguous = true;
+            }
+            ambiguous = existing.ambiguous;
+            return existing;
+        }
+    }
+
+    static final class Unowned implements BiFunction<Object, Entry, Entry> {
+
+        private final long generation;
+        boolean touched;
+
+        Unowned(long generation) {
+            this.generation = generation;
+        }
+
+        @Override
+        public Entry apply(Object key, Entry existing) {
+            if (existing.generation != generation) {
+                return null;
+            }
+            existing.pending++;
+            existing.ambiguous = true;
+            touched = true;
+            return existing;
+        }
+    }
+
+    static final class Take implements BiFunction<Object, Entry, Entry> {
+
+        Object result;
+
+        @Override
+        public Entry apply(Object key, Entry existing) {
+            result = existing.ambiguous ? AMBIGUOUS : existing;
+            existing.pending--;
+            return existing.pending <= 0 ? null : existing;
+        }
+    }
+
+    static final class Key extends WeakReference<Object> {
+
+        private final int hash;
+
+        Key(Object referent, ReferenceQueue<Object> queue) {
+            super(referent, queue);
+            this.hash = System.identityHashCode(referent);
+        }
+
+        @Override
+        public int hashCode() {
+            return hash;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) {
+                return true;
+            }
+            if (other instanceof Lookup) {
+                return other.equals(this);
+            }
+            if (!(other instanceof Key)) {
+                return false;
+            }
+            Object mine = get();
+            return mine != null && mine == ((Key) other).get();
+        }
+    }
+
+    /** A lookup-only key: never stored, no reference object allocated. */
+    static final class Lookup {
+
+        private final Object task;
+        private final int hash;
+
+        Lookup(Object task) {
+            this.task = task;
+            this.hash = System.identityHashCode(task);
+        }
+
+        @Override
+        public int hashCode() {
+            return hash;
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof Key && ((Key) other).get() == task;
+        }
+    }
+}

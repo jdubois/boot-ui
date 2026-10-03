@@ -1,6 +1,7 @@
 package io.github.jdubois.bootui.agent;
 
 import io.github.jdubois.bootui.agent.bridge.AgentBridge;
+import io.github.jdubois.bootui.agent.bridge.TaskPropagation;
 import java.lang.instrument.Instrumentation;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -14,8 +15,9 @@ import java.util.function.Function;
  * The agent's side of the bridge: the bridge calls it on every claim transition and for status. Calls are serialized
  * here. The bridge calls the agent after its compare-and-set, outside any lock, so calls can arrive out of order: every
  * transition carries a generation from one JVM-wide sequence, and a claim or release older than the last one applied is
- * ignored, as is a refine or disarm of another generation than the current claim's. No production sensor exists in M5-1, so a claim installs nothing
- * (PLAN-v2 M5-1: "armed, no sensor") unless {@link AgentTestHook} enables the diagnostic probe.
+ * ignored, as is a refine or disarm of another generation than the current claim's. A claim asking for the
+ * {@code executors} sensor installs it once and self-tests it (PLAN-v2 M5-2), and a release removes it; a claim without
+ * a sensor installs nothing, unless {@link AgentTestHook} enables the diagnostic probe.
  */
 final class AgentHandler implements Function<Map<String, Object>, Map<String, Object>> {
 
@@ -26,6 +28,7 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
     private final String jarPath;
     private final long startupMicros;
     private AgentInstaller installer;
+    private ExecutorSensor executors;
     private long generation;
     private boolean armed;
     private List<String> packages = Collections.emptyList();
@@ -62,6 +65,9 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 if (!probe.isEmpty()) {
                     installer().install(probe);
                 }
+                if (strings(request.get("sensors")).contains(TaskPropagation.SENSOR)) {
+                    executors().claimed(generation);
+                }
                 return answer("ok", null);
             case "refine":
                 if (requested == generation) {
@@ -82,12 +88,22 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
                 if (installer != null) {
                     installer.release();
                 }
+                if (executors != null) {
+                    executors.release();
+                }
                 return answer("ok", null);
             case "status":
                 return status();
             default:
                 return answer(AgentBridge.FAILED, "unknown operation " + op);
         }
+    }
+
+    private ExecutorSensor executors() {
+        if (executors == null) {
+            executors = new ExecutorSensor(instrumentation, hook.privilegedInstall());
+        }
+        return executors;
     }
 
     private AgentInstaller installer() {
@@ -107,7 +123,11 @@ final class AgentHandler implements Function<Map<String, Object>, Map<String, Ob
         map.put("generation", Long.valueOf(generation));
         map.put("armed", Boolean.valueOf(armed));
         map.put("packages", new ArrayList<String>(packages));
-        map.put("sensors", new ArrayList<Object>());
+        List<Object> sensors = new ArrayList<Object>();
+        if (executors != null) {
+            sensors.add(executors.status());
+        }
+        map.put("sensors", sensors);
         map.put("installer", installer == null ? null : installer.status());
         return map;
     }

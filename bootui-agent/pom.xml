@@ -60,6 +60,12 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <!-- Test only: the OpenTelemetry API, so the behaviors run inside a span beside the OpenTelemetry agent. -->
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <!-- Test only: Mockito's inline mock maker, attached as an agent beside the BootUI agent. -->
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
@@ -273,6 +279,9 @@
                         <bytebuddy.jar>${net.bytebuddy:byte-buddy:jar}</bytebuddy.jar>
                         <bytebuddy.agent.jar>${net.bytebuddy:byte-buddy-agent:jar}</bytebuddy.agent.jar>
                         <objenesis.jar>${org.objenesis:objenesis:jar}</objenesis.jar>
+                        <opentelemetry.api.jar>${io.opentelemetry:opentelemetry-api:jar}</opentelemetry.api.jar>
+                        <opentelemetry.context.jar>${io.opentelemetry:opentelemetry-context:jar}</opentelemetry.context.jar>
+                        <opentelemetry.common.jar>${io.opentelemetry:opentelemetry-common:jar}</opentelemetry.common.jar>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>
