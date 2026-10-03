@@ -1,12 +1,18 @@
 // @ts-check
 import {expect, test} from './fixtures.js'
 
+/**
+ * The Java Agent view. The default suites run the sample without the agent and assert the not-attached state; the agent
+ * suite (playwright.agent.config.js) sets the `agentAttached` fixture option and asserts the armed claim and its sensor
+ * rows instead. Both legs check the setup snippets, their tabs, and Copy, which the panel offers in every state.
+ */
 test.describe('Java Agent view', () => {
-  test('shows the not-attached agent status, setup snippets, copy, and API shape', async ({
+  test('shows the agent status, setup snippets, copy, and API shape', async ({
     openView,
     page,
     browserName,
-    context
+    context,
+    agentAttached
   }) => {
     if (browserName === 'chromium') {
       try {
@@ -19,16 +25,38 @@ test.describe('Java Agent view', () => {
     const response = await page.request.get('/bootui/api/java-agent')
     expect(response.ok()).toBeTruthy()
     const report = await response.json()
-    expect(report.state).toBe('NOT_ATTACHED')
     expect(report.setup.snippets.length).toBeGreaterThan(0)
+
+    if (agentAttached) {
+      expect(report.state).toBe('ARMED')
+      const sensor = report.sensors.find((candidate) => candidate.id === 'executors')
+      expect(sensor).toBeTruthy()
+      expect(sensor.state).toBe('installed')
+      expect(sensor.selfTestPassed).toBe(true)
+      expect(sensor.failures ?? []).toEqual([])
+    } else {
+      expect(report.state).toBe('NOT_ATTACHED')
+      expect(report.sensors ?? []).toEqual([])
+    }
 
     await openView('java-agent', 'Java Agent')
 
-    await expect(page.getByRole('heading', {name: 'Not attached'})).toBeVisible()
-    await expect(page.getByText('This JVM runs without the BootUI agent')).toBeVisible()
-    await expect(
-      page.getByText('No sensor installed: the agent installs the sensors this application asks for')
-    ).toBeVisible()
+    const sensors = page.getByRole('region', {name: 'Sensors'})
+    if (agentAttached) {
+      await expect(page.getByRole('heading', {name: 'Armed'})).toBeVisible()
+      await expect(page.getByText('This application holds the agent’s claim.')).toBeVisible()
+      const executorsRow = sensors.getByRole('row').filter({has: page.locator('code', {hasText: /^executors$/})})
+      await expect(executorsRow).toHaveCount(1)
+      await expect(executorsRow).toContainText(/installed/)
+      await expect(executorsRow).toContainText('passed')
+      await expect(sensors.getByText('No sensor installed')).toHaveCount(0)
+    } else {
+      await expect(page.getByRole('heading', {name: 'Not attached'})).toBeVisible()
+      await expect(page.getByText('This JVM runs without the BootUI agent')).toBeVisible()
+      await expect(
+        page.getByText('No sensor installed: the agent installs the sensors this application asks for')
+      ).toBeVisible()
+    }
 
     const tabs = page.getByRole('tab')
     await expect(tabs.first()).toBeVisible()

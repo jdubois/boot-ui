@@ -328,7 +328,7 @@ public class QuarkusMcpTools {
                 tool(
                         "get_request_profile",
                         McpToolDescriptions.quarkus("get_request_profile"),
-                        args -> liveActivity.request(args.id())));
+                        args -> liveActivity.agentProfile(args.id())));
         // --- The BootUI Java agent (docs/PLAN-v2.md §5.13) ---
         addIfAvailable(
                 registry,

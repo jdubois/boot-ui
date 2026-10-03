@@ -11,6 +11,11 @@ import {expect, test as base} from '@playwright/test'
  *   })
  */
 export const test = base.extend({
+  // Whether the suite's sample runs with the BootUI agent attached: false for the default suites, true in
+  // playwright.agent.config.js, which starts the sample with -javaagent. Specs whose expectations differ (the Java
+  // Agent view) read it instead of guessing from the server's answer, so neither leg can pass on the other's state.
+  agentAttached: [false, {option: true}],
+
   openView: async ({page}, use) => {
     /**
      * @param {string} route hash route, e.g. 'overview' or 'config'

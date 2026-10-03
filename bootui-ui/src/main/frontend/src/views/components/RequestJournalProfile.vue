@@ -188,7 +188,10 @@ function itemTitle(item) {
           <dd class="col-8">{{ resourcesSummary }}</dd>
         </template>
       </dl>
-      <RouteWhySlow v-if="profile.route" :route="profile.route" />
+      <RouteWhySlow
+        v-if="profile.route && !profile.route.startsWith('Scheduled:') && !profile.route.startsWith('Message:')"
+        :route="profile.route"
+      />
 
       <h4 class="h6 small text-muted mb-1">Timeline</h4>
       <p v-if="!timeline.length && !gcPauses.length" class="small text-muted">No work of this request was recorded.</p>
