@@ -22,6 +22,84 @@ class RunSummaryTests {
     private long sequence;
 
     @Test
+    void versionEightRouteResourcesRemainReadableWithoutInventingAnAllocationMedian() {
+        // Produced by the unchanged v8 aggregates and codec, with one resource-measured GET /old.
+        byte[] encoded = java.util.Base64.getDecoder()
+                .decode(
+                        "QlVSUwgJb2xkLXJvdXRlAugH0A8BAAEAAAAIBGh0dHAIR0VUIC9vbGQGcm91dGVzCnN0YXRlbWVudHMPZXhjZXB0aW9uR3JvdXBzFHRyYW5zYWN0aW9uYWxNZXRob2RzDnRocmVhZEZhbWlsaWVzBWVkZ2VzAQEBAQHAhD3pB+kHAQAAAAECAQABAAAAAegH6AcBbwEAAAAAAQAAAYAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGAwAEAAUABgAHAAgA");
+        RunSummary decoded = RunSummaryCodec.decode(encoded);
+        assertThat(decoded.header().runId()).isEqualTo("old-route");
+        assertThat(decoded.aggregates().executionsRecorded()).isFalse();
+        assertThat(decoded.aggregates().routes()).singleElement().satisfies(route -> {
+            assertThat(route.route()).isEqualTo("GET /old");
+            assertThat(route.requests()).isEqualTo(1);
+            assertThat(route.resources().measuredRequests()).isEqualTo(1);
+            assertThat(route.resources().allocatedBytes()).isEqualTo(4096);
+            assertThat(route.resources().allocation()).isNull();
+            assertThat(route.latency().count()).isEqualTo(1);
+        });
+    }
+
+    @Test
+    void versionEightRemainsReadableButDoesNotInventExecutionAggregates() {
+        byte[] encoded = RunSummaryCodec.encode(
+                RunSummary.of(new RunIdentity("old", 1, 1), new JournalAggregates().snapshot(), 2),
+                RunHistory.MAX_SUMMARY_BYTES);
+        // The empty v8 layout matches v9 up to its appended execution-capability flag and empty list.
+        byte[] old = java.util.Arrays.copyOf(encoded, encoded.length - 2);
+        old[4] = 8;
+        RunSummary decoded = RunSummaryCodec.decode(old);
+        assertThat(decoded.header().runId()).isEqualTo("old");
+        assertThat(decoded.aggregates().executionsRecorded()).isFalse();
+        assertThat(decoded.aggregates().executions()).isEmpty();
+        old[4] = 7;
+        assertThatThrownBy(() -> RunSummaryCodec.decode(old))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("supported run summary");
+    }
+
+    @Test
+    void executionWorkAndMedianAllocationRoundTripWithTheirBoundedCounts() {
+        JournalAggregates aggregates = new JournalAggregates();
+        for (int i = 0; i < 3; i++) {
+            CorrelationContext context = CorrelationContext.forExecution("job-" + i);
+            publish(
+                    aggregates,
+                    RuntimeEvent.of(
+                            JournalSource.SQL,
+                            1000,
+                            1_000_000,
+                            context,
+                            "worker",
+                            null,
+                            false,
+                            new SqlPayload("select * from orders", null, "db", false)));
+            publish(
+                    aggregates,
+                    RuntimeEvent.of(
+                            JournalSource.SCHEDULED,
+                            1000,
+                            2_000_000,
+                            context,
+                            "worker",
+                            null,
+                            false,
+                            new ScheduledPayload("OrderJob.run", null)));
+            publish(aggregates, http("r-" + i, "/allocated", 200, 1_000_000));
+        }
+        RunSummary decoded = RunSummaryCodec.decode(RunSummaryCodec.encode(
+                RunSummary.of(RunIdentity.start(), aggregates.snapshot(), 2), RunHistory.MAX_SUMMARY_BYTES));
+        assertThat(decoded.aggregates().executionsRecorded()).isTrue();
+        assertThat(decoded.aggregates().executions()).singleElement().satisfies(work -> {
+            assertThat(work.source()).isEqualTo(JournalSource.SCHEDULED);
+            assertThat(work.stats().requests()).isEqualTo(3);
+            assertThat(work.stats().statements()).containsEntry("select * from orders", 3L);
+        });
+        assertThat(decoded.aggregates().routes().get(0).resources().allocation().percentileMicros(50))
+                .isBetween(4096L, 4096L + 256);
+    }
+
+    @Test
     void aSummaryRoundTripsEveryAggregateWithItsHistograms() {
         JournalAggregates aggregates = new JournalAggregates();
         publish(aggregates, sql("r1", "select * from orders where id = ?", 2_000_000, "OrderRepository.find:42"));
@@ -83,7 +161,9 @@ class RunSummaryTests {
         assertThat(route.childNanos()).isEqualTo(originalRoute.childNanos());
         assertThat(route.statements()).isEqualTo(originalRoute.statements());
         assertThat(route.connectionWaitNanos()).isEqualTo(2_000);
-        assertThat(route.resources()).isEqualTo(originalRoute.resources());
+        assertThat(route.resources()).usingRecursiveComparison().isEqualTo(originalRoute.resources());
+        assertSameHistogram(
+                route.resources().allocation(), originalRoute.resources().allocation());
         assertThat(route.resources().cpuNanos()).isEqualTo(11_500_000);
         assertSameHistogram(route.latency(), originalRoute.latency());
         assertThat(originalRoute.warmLatency().count())

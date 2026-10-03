@@ -393,6 +393,18 @@ These removals ship with BootUI 2.0.0, from the `v2` branch ([PLAN-v2.md](docs/P
   recorded call nor authentication time names any of its time
   ([#1214](https://github.com/jdubois/boot-ui/pull/1214)).
 
+- **Run comparison reports comparable work, not changes in instrumentation.** SQL, REST, AI, cache, exception, and
+  runtime-model edge changes require their sources in both runs. Scheduled jobs and consumed messages compare beside
+  routes, disappeared fingerprints are listed when bounded evidence permits it, and no eligible work reports
+  `INSUFFICIENT`, never `COMPARED` or an `EVALUATED` check. Allocation uses the median; summary codec v9 reads v8
+  without inventing missing medians or execution history. Restart cost requires adjacent in-memory restarts, and
+  Quarkus explicitly reports that its lifecycle hook supplies no complete reload total. History that cannot survive
+  reload reports `UNAVAILABLE` without a usable baseline. `bootui insights compare` and its MCP tool default to the
+  previous run, including an idle one. Comparison also honors source-panel policy: disabled panels' facts, root
+  executions, and edges are hidden with an explicit limitation, each messaging broker is gated independently, and
+  hidden HTTP totals are labelled hidden rather than zero traffic
+  ([Run comparison](docs/PLAN-v2.md#58-run-comparison--runtime-insights--delivered), CMP-02/04/05/06/07, M4-18b, C15-1).
+
 - **Runtime Insights no longer reports what it could not see.** From the 2.0 validation run
   ([report](docs/V2-VALIDATION-REPORT.md)): `route-time-breakdown` stops calling time "application code" when a request
   reached no handler BootUI marks, such as an Actuator or `/q/` endpoint or a request the security filters answered with

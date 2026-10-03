@@ -13,6 +13,7 @@ class McpToolSchemaTests {
         assertThat(McpToolSchema.QUERY_LIMIT.argumentNames()).containsExactly("query", "limit");
         assertThat(McpToolSchema.LIMIT.argumentNames()).containsExactly("limit");
         assertThat(McpToolSchema.ID.argumentNames()).containsExactly("id");
+        assertThat(McpToolSchema.OPTIONAL_ID.argumentNames()).containsExactly("id");
         assertThat(McpToolSchema.RULE_VIOLATIONS.argumentNames()).containsExactly("id", "scanId", "offset", "limit");
         assertThat(McpToolSchema.NONE.argumentNames()).isEmpty();
     }

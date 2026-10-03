@@ -87,7 +87,9 @@ const extraReasons = computed(() => comparison.value?.notComparableReasons?.slic
           aria-label="Run to compare with"
         >
           <option value="">Newest kept run</option>
-          <option v-for="run in comparison.runs" :key="run.runId" :value="run.runId">{{ runLabel(run) }}</option>
+          <option v-for="run in comparison.runs" :key="run.runId" :value="run.runId">
+            {{ runLabel(run, comparison) }}
+          </option>
         </select>
       </header>
 
@@ -97,14 +99,14 @@ const extraReasons = computed(() => comparison.value?.notComparableReasons?.slic
       </p>
       <template v-else-if="comparison">
         <p v-if="comparison.previous" class="small text-muted mb-0 mt-1 insight-comparison-against">
-          Against {{ runLabel(comparison.previous) }}
+          Against {{ runLabel(comparison.previous, comparison) }}
         </p>
         <p v-if="comparison.reason" class="mb-0 mt-2 insight-comparison-reason">{{ comparison.reason }}</p>
         <ul v-if="extraReasons.length" class="small mb-0 mt-1 insight-comparison-reason">
           <li v-for="reason in extraReasons" :key="reason">{{ reason }}</li>
         </ul>
         <p v-if="compared && sections.length === 0" class="mb-0 mt-2">
-          No route changed what it ran, called, or raised.
+          No eligible route or execution changed what it ran, called, or raised.
         </p>
 
         <div
@@ -141,7 +143,7 @@ const extraReasons = computed(() => comparison.value?.notComparableReasons?.slic
             <span class="insight-comparison-figure"
               >{{ formatNumber(Math.round(comparison.restartCost.readyMsBefore)) }} ms</span
             >
-            after the previous one.
+            after run {{ comparison.previous.ordinal }} (the immediately preceding restart).
           </p>
           <ul v-if="comparison.restartCost.beans.length" class="list-unstyled mb-0 insight-comparison-rows">
             <li v-for="bean in comparison.restartCost.beans" :key="bean.subject" class="insight-comparison-row">
@@ -153,6 +155,14 @@ const extraReasons = computed(() => comparison.value?.notComparableReasons?.slic
             </li>
           </ul>
         </div>
+
+        <p
+          v-else-if="comparison.restartCost?.reason"
+          class="small text-muted mt-3 mb-0"
+          data-testid="restart-unavailable"
+        >
+          Restart cost unavailable: {{ comparison.restartCost.reason }}
+        </p>
 
         <details v-if="comparison.limitations.length" class="small text-muted mt-3 insight-comparison-limits">
           <summary>Limits · {{ comparison.limitations.length }}</summary>

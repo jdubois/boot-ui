@@ -6,6 +6,7 @@ import io.github.jdubois.bootui.core.dto.RuntimeRunChangeDto;
 import io.github.jdubois.bootui.core.dto.RuntimeRunComparisonDto;
 import io.github.jdubois.bootui.engine.correlation.RunIdentity;
 import io.github.jdubois.bootui.engine.journal.AiPayload;
+import io.github.jdubois.bootui.engine.journal.AuthorizationPayload;
 import io.github.jdubois.bootui.engine.journal.CachePayload;
 import io.github.jdubois.bootui.engine.journal.ComparabilityFacts;
 import io.github.jdubois.bootui.engine.journal.ExceptionPayload;
@@ -14,14 +15,19 @@ import io.github.jdubois.bootui.engine.journal.JournalAggregates;
 import io.github.jdubois.bootui.engine.journal.JournalAggregates.AggregatesSnapshot;
 import io.github.jdubois.bootui.engine.journal.JournalEntry;
 import io.github.jdubois.bootui.engine.journal.JournalSource;
+import io.github.jdubois.bootui.engine.journal.MessagingPayload;
 import io.github.jdubois.bootui.engine.journal.OrmPayload;
 import io.github.jdubois.bootui.engine.journal.RestClientPayload;
 import io.github.jdubois.bootui.engine.journal.RunStart;
 import io.github.jdubois.bootui.engine.journal.RunSummary;
 import io.github.jdubois.bootui.engine.journal.RuntimeEvent;
 import io.github.jdubois.bootui.engine.journal.RuntimeEventPayload;
+import io.github.jdubois.bootui.engine.journal.ScheduledPayload;
 import io.github.jdubois.bootui.engine.journal.SqlPayload;
 import io.github.jdubois.bootui.engine.journal.StartupStepTiming;
+import io.github.jdubois.bootui.engine.journal.WebSocketPayload;
+import io.github.jdubois.bootui.engine.panel.BootUiPanels;
+import io.github.jdubois.bootui.engine.resources.ResourceUsage;
 import io.github.jdubois.bootui.spi.CorrelationContext;
 import java.util.ArrayList;
 import java.util.List;
@@ -78,10 +84,12 @@ class RunComparisonTests {
         RuntimeRunComparisonDto comparison = compare(before, after, H2, H2);
 
         assertThat(comparison.status()).isEqualTo(RunComparison.INSUFFICIENT);
-        assertThat(comparison.reason()).contains("No route served at least 3 requests in both runs");
+        assertThat(comparison.reason())
+                .contains("No comparable route or execution recorded at least 3 samples in both runs");
         assertThat(comparison.behavior()).isEmpty();
         assertThat(comparison.limitations())
-                .anySatisfy(limitation -> assertThat(limitation).startsWith("1 route served fewer than 3 requests"));
+                .anySatisfy(limitation ->
+                        assertThat(limitation).startsWith("1 route or execution recorded fewer than 3 samples"));
     }
 
     @Test
@@ -275,6 +283,425 @@ class RunComparisonTests {
                 new RunIdentity("run-5", 5, 1), after.snapshot(), now, before.summary(4, then), List.of(), null, null);
     }
 
+    @Test
+    void differentSourcesNeverLookLikeAddedOrRemovedWorkOrEdges() {
+        Run before = new Run();
+        Run after = new Run();
+        for (int i = 0; i < 3; i++) {
+            before.request("GET", "/orders", 200, 5);
+            after.request(
+                    "GET",
+                    "/orders",
+                    500,
+                    5,
+                    sql("select * from orders"),
+                    rest("pay.internal"),
+                    ai(500, 500),
+                    cache("MISS"),
+                    new ExceptionPayload("g", "Failure", "sig"));
+        }
+        RunStart httpOnly = new RunStart(
+                null,
+                List.of(),
+                ComparabilityFacts.of(
+                        List.of("dev"),
+                        Map.of("dataSource", "jdbc:h2:mem:shop"),
+                        null,
+                        true,
+                        java.util.Set.of(JournalSource.HTTP)));
+        RuntimeRunComparisonDto added = compare(before, after, httpOnly, H2);
+        RuntimeRunComparisonDto removed = compare(after, before, H2, httpOnly);
+        assertThat(added.behavior()).extracting(RuntimeRunChangeDto::kind).containsExactly("status-5xx");
+        assertThat(removed.behavior()).extracting(RuntimeRunChangeDto::kind).containsExactly("status-5xx");
+        assertThat(added.edges()).isEmpty();
+        assertThat(removed.edges()).isEmpty();
+        assertThat(added.limitations()).anyMatch(value -> value.contains("only one run recorded"));
+    }
+
+    @Test
+    void statementsThatDisappearedAreListedButOverflowIsNotMistakenForRemoval() {
+        Run before = new Run();
+        Run after = new Run();
+        for (int i = 0; i < 3; i++) {
+            before.request("GET", "/orders", 200, 5, sql("select * from orders"));
+            after.request("GET", "/orders", 200, 5);
+        }
+        assertThat(compare(before, after, H2, H2).behavior())
+                .extracting(RuntimeRunChangeDto::kind)
+                .contains("gone-statement");
+        RuntimeEventPayload[] many = new RuntimeEventPayload[65];
+        for (int i = 0; i < many.length; i++) {
+            many[i] = sql("select * from table_" + i);
+        }
+        after.request("GET", "/orders", 200, 5, many);
+        assertThat(compare(before, after, H2, H2).behavior())
+                .extracting(RuntimeRunChangeDto::kind)
+                .doesNotContain("gone-statement");
+    }
+
+    @Test
+    void jobsAndConsumedMessagesCompareWithoutHttpRequests() {
+        for (JournalSource source : List.of(JournalSource.SCHEDULED, JournalSource.MESSAGING)) {
+            Run before = new Run();
+            Run after = new Run();
+            for (int i = 0; i < 3; i++) {
+                before.execution(source, sql("select * from orders"));
+                after.execution(source, sql("select * from orders"), sql("select * from lines"));
+            }
+            RuntimeRunComparisonDto comparison = compare(before, after, H2, H2);
+            assertThat(comparison.current().requests()).isZero();
+            assertThat(comparison.status()).isEqualTo(RunComparison.COMPARED);
+            assertThat(comparison.behavior())
+                    .extracting(RuntimeRunChangeDto::kind)
+                    .containsExactly("new-statement", "statements-per-execution");
+            assertThat(comparison.behavior().get(1).sentence()).contains("per execution", "3 and 3 executions");
+        }
+    }
+
+    @Test
+    void executionWordingNeverChangesIdentifiersOrSqlFingerprints() {
+        Run before = new Run();
+        Run after = new Run();
+        for (int i = 0; i < 3; i++) {
+            before.execution(JournalSource.SCHEDULED);
+            after.execution(JournalSource.SCHEDULED, sql("select `request_id` from `request_log`"));
+        }
+        assertThat(compare(before, after, H2, H2).behavior())
+                .filteredOn(row -> row.kind().equals("new-statement"))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.detail()).isEqualTo("select `request_id` from `request_log`");
+                    assertThat(row.sentence())
+                            .contains("select `request_id` from `request_log`", "executions")
+                            .doesNotContain("execution_log", "execution_id");
+                });
+    }
+
+    @Test
+    void executionLatencyNamesWarmExecutionsInsteadOfRequests() {
+        Run before = new Run();
+        Run after = new Run();
+        for (int i = 0; i < 11; i++) {
+            before.execution(JournalSource.SCHEDULED, 5);
+            after.execution(JournalSource.SCHEDULED, 50);
+        }
+        assertThat(compare(before, after, H2, H2).latency()).singleElement().satisfies(row -> {
+            assertThat(row.kind()).isEqualTo("warm-p50");
+            assertThat(row.sentence()).contains("10 and 10 warm executions").doesNotContain("warm requests");
+        });
+    }
+
+    @Test
+    void oneCacheHitCannotProveThatAStatementDisappeared() {
+        Run before = new Run();
+        Run after = new Run();
+        for (int i = 0; i < 3; i++) {
+            before.request("GET", "/orders", 200, 5, sql("select * from orders"));
+        }
+        after.request("GET", "/orders", 200, 5);
+        assertThat(compare(before, after, H2, H2).behavior())
+                .extracting(RuntimeRunChangeDto::kind)
+                .doesNotContain("gone-statement");
+    }
+
+    @Test
+    void nonAdjacentAndBaselineRestartsAreUnavailableEvenWhenBothHaveTiming() {
+        Run before = new Run();
+        Run after = new Run();
+        RunStart ready = start(1_000_000L, "jdbc:h2:mem:shop");
+        assertThat(RunComparison.compare(
+                                new RunIdentity("run-5", 5, 1),
+                                after.snapshot(),
+                                ready,
+                                before.summary(2, ready),
+                                List.of(),
+                                null,
+                                null)
+                        .restartCost()
+                        .reason())
+                .contains("adjacent");
+        assertThat(RunComparison.compare(
+                                new RunIdentity("run-5", 5, 1),
+                                after.snapshot(),
+                                ready,
+                                before.summary(4, ready),
+                                List.of(),
+                                null,
+                                "run-4")
+                        .restartCost()
+                        .reason())
+                .contains("another JVM");
+    }
+
+    @Test
+    void noEligibleSubjectsNeverSaysComparedAndUnretainableHistoryIsUnavailable() {
+        Run empty = new Run();
+        assertThat(compare(empty, empty, H2, H2).status()).isEqualTo(RunComparison.INSUFFICIENT);
+        assertThat(RunComparison.compare(
+                                new RunIdentity("now", 1, 1),
+                                empty.snapshot(),
+                                H2,
+                                null,
+                                List.of(),
+                                "Holder reloads.",
+                                null,
+                                true)
+                        .status())
+                .isEqualTo(RunComparison.UNAVAILABLE);
+    }
+
+    @Test
+    void allocationUsesMedianSoOneOutlierDoesNotReportARegression() {
+        Run before = new Run();
+        Run after = new Run();
+        for (int i = 0; i < 5; i++) {
+            before.allocated(1024 * 1024);
+            after.allocated(i == 4 ? 20 * 1024 * 1024 : 1024 * 1024);
+        }
+        assertThat(compare(before, after, H2, H2).behavior())
+                .extracting(RuntimeRunChangeDto::kind)
+                .doesNotContain("allocation-per-request");
+        Run increased = new Run();
+        for (int i = 0; i < 5; i++) {
+            increased.allocated(4 * 1024 * 1024);
+        }
+        assertThat(compare(before, increased, H2, H2).behavior())
+                .singleElement()
+                .satisfies(row -> assertThat(row.sentence()).contains("median allocation"));
+    }
+
+    @Test
+    void disabledSourcePanelsHideChildFactsAndEdgesRatherThanReadingThemAsNoChange() {
+        Run before = new Run();
+        Run after = new Run();
+        for (int i = 0; i < 4; i++) {
+            before.request("GET", "/orders", 200, 5, sql("select * from orders"), cache("MISS"), orm(1, 0, 30));
+            after.request(
+                    "GET",
+                    "/orders",
+                    500,
+                    5,
+                    sql("select * from secret_table"),
+                    cache("MISS"),
+                    cache("MISS"),
+                    orm(1, 3, 600),
+                    rest("private.internal"),
+                    ai(20_000, 500),
+                    new ExceptionPayload("private-group", "private.PrivateException", "private-signature"),
+                    new AuthorizationPayload(
+                            AuthorizationPayload.REQUEST,
+                            null,
+                            "private-rule",
+                            AuthorizationPayload.ANONYMOUS,
+                            true,
+                            0));
+        }
+        Map<String, String> hidden = Map.of(
+                BootUiPanels.SQL_TRACE, "disabled",
+                BootUiPanels.EXCEPTIONS, "disabled",
+                BootUiPanels.CACHE, "disabled",
+                BootUiPanels.HIBERNATE, "disabled",
+                BootUiPanels.REST_CLIENT_TRACE, "disabled",
+                BootUiPanels.AI, "disabled",
+                BootUiPanels.SECURITY_LOGS, "disabled");
+        RuntimeRunComparisonDto result = policyCompare(before, after, hidden);
+        assertThat(result.behavior()).extracting(RuntimeRunChangeDto::kind).containsExactly("status-5xx");
+        assertThat(result.edges()).isEmpty();
+        for (String panel : hidden.keySet()) {
+            if (!panel.equals(BootUiPanels.SECURITY_LOGS)) {
+                assertThat(result.limitations()).contains("Facts are not compared because " + panel + " is disabled.");
+            }
+        }
+        assertThat(result.toString())
+                .doesNotContain("secret_table", "private.internal", "PrivateException", "private-rule", "anonymous");
+    }
+
+    @Test
+    void disabledHttpHidesWholeRootsAndRequestTotalsEvenOnEarlyReturns() {
+        Run before = new Run();
+        Run after = new Run();
+        for (int i = 0; i < 11; i++) {
+            before.request("GET", "/private", 200, 5);
+            after.request("GET", "/private", 500, 100, sql("select * from private_table"));
+        }
+        Map<String, String> hidden = Map.of(BootUiPanels.HTTP_EXCHANGES, "disabled");
+        RuntimeRunComparisonDto result = policyCompare(before, after, hidden);
+        assertThat(result.current().requests()).isZero();
+        assertThat(result.status()).isEqualTo(RunComparison.UNAVAILABLE);
+        assertThat(result.previous().requests()).isZero();
+        assertThat(result.runs()).allSatisfy(run -> assertThat(run.requests()).isZero());
+        assertThat(result.behavior()).isEmpty();
+        assertThat(result.edges()).isEmpty();
+        assertThat(result.latency()).isEmpty();
+        assertThat(result.reason()).contains("owning panels are disabled");
+        assertThat(result.toString()).doesNotContain("/private", "private_table");
+        RunSummary summary = before.summary(4, H2);
+        for (RunSummary previous :
+                new RunSummary[] {null, before.summary(4, start(null, "jdbc:postgresql://localhost/db"))}) {
+            RuntimeRunComparisonDto early = RunComparison.compare(
+                    new RunIdentity("run-5", 5, 1),
+                    after.snapshot(),
+                    H2,
+                    previous,
+                    List.of(summary.header()),
+                    null,
+                    null,
+                    false,
+                    hidden);
+            assertThat(early.current().requests()).isZero();
+            assertThat(early.runs())
+                    .allSatisfy(run -> assertThat(run.requests()).isZero());
+            assertThat(early.limitations()).contains("Facts are not compared because http-exchanges is disabled.");
+            if (early.previous() != null) {
+                assertThat(early.previous().requests()).isZero();
+            }
+        }
+    }
+
+    @Test
+    void disabledExecutionPanelsHideWholeJobsAndWebSocketHandlers() {
+        for (JournalSource source : List.of(JournalSource.SCHEDULED, JournalSource.WEBSOCKET)) {
+            Run before = new Run();
+            Run after = new Run();
+            for (int i = 0; i < 11; i++) {
+                before.execution(source, 5);
+                after.execution(source, 100, sql("select * from secret_table"));
+            }
+            String panel = source == JournalSource.SCHEDULED ? BootUiPanels.SCHEDULED : BootUiPanels.WEBSOCKETS;
+            RuntimeRunComparisonDto result = policyCompare(before, after, Map.of(panel, "disabled"));
+            assertThat(result.status()).isEqualTo(RunComparison.UNAVAILABLE);
+            assertThat(result.behavior()).isEmpty();
+            assertThat(result.edges()).isEmpty();
+            assertThat(result.latency()).isEmpty();
+            assertThat(result.limitations()).contains("Facts are not compared because " + panel + " is disabled.");
+            assertThat(result.toString()).doesNotContain("secret_table", "OrderJob.run", "/private-chat");
+        }
+    }
+
+    @Test
+    void aDisabledBrokerHidesItsExecutionsAndHttpPublishEdgesButLeavesOtherBrokersVisible() {
+        Run before = new Run();
+        Run after = new Run();
+        for (int i = 0; i < 3; i++) {
+            for (String broker : new String[] {"kafka", "rabbitmq", null}) {
+                before.message(broker);
+                after.message(broker, sql("select * from orders"));
+            }
+            before.request("GET", "/publish", 200, 5);
+            after.request(
+                    "GET",
+                    "/publish",
+                    200,
+                    5,
+                    new MessagingPayload("kafka", true, "private-topic", false),
+                    new MessagingPayload("rabbitmq", true, "visible-queue", false),
+                    new WebSocketPayload(
+                            "/private-chat", WebSocketPayload.MESSAGE, false, "/private-chat", 0, null, false));
+        }
+        RuntimeRunComparisonDto result = policyCompare(
+                before, after, Map.of(BootUiPanels.KAFKA, "disabled", BootUiPanels.WEBSOCKETS, "disabled"));
+        assertThat(result.behavior())
+                .isNotEmpty()
+                .allSatisfy(row -> assertThat(row.subject()).startsWith("messaging rabbitmq:"));
+        assertThat(result.edges())
+                .isNotEmpty()
+                .allSatisfy(row -> assertThat(row.sentence())
+                        .doesNotContain("kafka:", "?:", "websocket:", "/private-chat", "private-topic"));
+        assertThat(result.edges()).anySatisfy(row -> assertThat(row.sentence()).contains("rabbitmq:visible-queue"));
+        assertThat(result.limitations())
+                .contains(
+                        "Facts are not compared because kafka is disabled.",
+                        "Facts are not compared because websockets is disabled.");
+    }
+
+    @Test
+    void anUnavailableUnusedIntegrationDoesNotClaimItsPanelWasDisabled() {
+        Run before = new Run();
+        Run after = new Run();
+        for (int i = 0; i < 3; i++) {
+            before.request("GET", "/orders", 200, 5, sql("select * from orders"));
+            after.request("GET", "/orders", 200, 5, sql("select * from orders"));
+        }
+        assertThat(policyCompare(before, after, Map.of(BootUiPanels.AI, "unavailable"))
+                        .limitations())
+                .isEmpty();
+        after.request("GET", "/orders", 200, 5, ai(20_000, 500));
+        RuntimeRunComparisonDto result = policyCompare(before, after, Map.of(BootUiPanels.AI, "unavailable"));
+        assertThat(result.limitations()).contains("Facts are not compared because ai is unavailable.");
+        assertThat(result.behavior()).isEmpty();
+        assertThat(result.edges()).isEmpty();
+    }
+
+    private static RuntimeRunComparisonDto policyCompare(Run before, Run after, Map<String, String> hidden) {
+        RunSummary previous = before.summary(4, H2);
+        return RunComparison.compare(
+                new RunIdentity("run-5", 5, 1),
+                after.snapshot(),
+                H2,
+                previous,
+                List.of(previous.header()),
+                null,
+                null,
+                false,
+                hidden);
+    }
+
+    @Test
+    void malformedMessagingExecutionIdentitiesAreNotExposedOrMistakenForPanelPolicy() {
+        Run before = new Run();
+        Run after = new Run();
+        for (int i = 0; i < 3; i++) {
+            before.message("kafka");
+            after.message("kafka");
+        }
+        AggregatesSnapshot snapshot = after.snapshot();
+        JournalAggregates.RouteStats stats = snapshot.executions().get(0).stats();
+        for (String name : new String[] {null, "bad", "wrong kafka:private", "messaging "}) {
+            JournalAggregates.RouteStats invalid = new JournalAggregates.RouteStats(
+                    name,
+                    stats.requests(),
+                    stats.statusClasses(),
+                    stats.latency(),
+                    stats.childCounts(),
+                    stats.childNanos(),
+                    stats.statements(),
+                    stats.connectionWaitNanos(),
+                    stats.resources(),
+                    stats.warmLatency(),
+                    stats.cacheMisses(),
+                    stats.aiTokens(),
+                    stats.authorization(),
+                    stats.orm());
+            AggregatesSnapshot malformed = new AggregatesSnapshot(
+                    snapshot.routes(),
+                    snapshot.statements(),
+                    snapshot.exceptionGroups(),
+                    snapshot.transactionalMethods(),
+                    snapshot.threadFamilies(),
+                    snapshot.edges(),
+                    snapshot.run(),
+                    snapshot.overflowed(),
+                    List.of(new JournalAggregates.ExecutionStats(JournalSource.MESSAGING, invalid)),
+                    true);
+            RuntimeRunComparisonDto result = RunComparison.compare(
+                    new RunIdentity("run-5", 5, 1),
+                    malformed,
+                    H2,
+                    before.summary(4, H2),
+                    List.of(),
+                    null,
+                    null,
+                    false,
+                    Map.of());
+            assertThat(result.status()).isEqualTo(RunComparison.INSUFFICIENT);
+            assertThat(result.behavior()).isEmpty();
+            assertThat(result.reason()).doesNotContain("owning panels");
+            assertThat(result.limitations())
+                    .contains("A messaging execution has an invalid identity and is not compared.");
+            assertThat(result.toString()).doesNotContain("wrong kafka:private");
+        }
+    }
+
     private static RunStart start(Long readyNanos, String url, StartupStepTiming... steps) {
         return new RunStart(
                 readyNanos,
@@ -323,6 +750,48 @@ class RunComparisonTests {
             entries.clear();
         }
 
+        void allocated(long bytes) {
+            String requestId = "r" + (++sequence);
+            ResourceUsage resources = new ResourceUsage(1L, bytes, 1, 0, null, 0, List.of(), false);
+            add(event(
+                    requestId,
+                    JournalSource.HTTP,
+                    1_000_000,
+                    new HttpPayload("GET", "/allocated", "/allocated", null, 200, resources)));
+            aggregates.onEntries(entries);
+            entries.clear();
+        }
+
+        void execution(JournalSource source, RuntimeEventPayload... children) {
+            execution(source, 1, children);
+        }
+
+        void execution(JournalSource source, long millis, RuntimeEventPayload... children) {
+            RuntimeEventPayload root =
+                    switch (source) {
+                        case SCHEDULED -> new ScheduledPayload("OrderJob.run", null);
+                        case WEBSOCKET -> WebSocketPayload.handled("/private-chat", "/private-chat", 0L, false);
+                        default -> new MessagingPayload("kafka", false, "orders", false);
+                    };
+            execution(source, millis, root, children);
+        }
+
+        void message(String broker, RuntimeEventPayload... children) {
+            execution(JournalSource.MESSAGING, 1, new MessagingPayload(broker, false, "orders", false), children);
+        }
+
+        private void execution(
+                JournalSource source, long millis, RuntimeEventPayload root, RuntimeEventPayload[] children) {
+            String id = "e" + (++sequence);
+            CorrelationContext context = CorrelationContext.forExecution(id);
+            for (RuntimeEventPayload child : children) {
+                add(RuntimeEvent.of(source(child), 1000, 1_000_000, context, "worker", null, false, child));
+            }
+            add(RuntimeEvent.of(source, 1000, millis * 1_000_000, context, "worker", null, false, root));
+            aggregates.onEntries(entries);
+            entries.clear();
+        }
+
         AggregatesSnapshot snapshot() {
             return aggregates.snapshot();
         }
@@ -350,6 +819,15 @@ class RunComparisonTests {
             }
             if (payload instanceof OrmPayload) {
                 return JournalSource.ORM;
+            }
+            if (payload instanceof MessagingPayload) {
+                return JournalSource.MESSAGING;
+            }
+            if (payload instanceof WebSocketPayload) {
+                return JournalSource.WEBSOCKET;
+            }
+            if (payload instanceof AuthorizationPayload) {
+                return JournalSource.AUTHORIZATION;
             }
             return JournalSource.EXCEPTION;
         }
