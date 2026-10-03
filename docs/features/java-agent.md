@@ -161,7 +161,10 @@ Work still running after its request answered shows in Live Activity as a runnin
 response** badge, and Runtime Insights reports it as `work-after-response` when it ran SQL, called a REST service, sent a
 message, or failed. A task is after the response when it ends after its request's response started: a task its
 handler waited for ended before, and a request that marked no response, as when its handler failed, is compared with its
-end; on Spring WebFlux, which marks no request phases, the request's end stands in for its response. That observation and the request profile's `PROPAGATED` tier apply only while the agent is attached
+end; on Spring WebFlux, which marks no request phases, the request's end stands in for its response. Only the SQL, REST,
+and message work that ended at least two milliseconds after the response started counts, or the task's failure: a waited-for
+task releases its handler before its handoff closes, so that handoff may end just after the response although its work
+ended before. That observation and the request profile's `PROPAGATED` tier apply only while the agent is attached
 and armed for the application, its `executors` sensor is installed and not disabled by a failed self-test, and BootUI
 attached its handoffs to the claim; otherwise they say which of these is missing.
 
